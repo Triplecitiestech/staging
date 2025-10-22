@@ -1,0 +1,201 @@
+'use client'
+
+import React from 'react'
+import Link from 'next/link'
+import { useAnimation } from '@/hooks/useAnimation'
+import { Button } from '@/components/ui'
+import { 
+  MonitorIcon, 
+  ShieldCheckIcon, 
+  BriefcaseIcon, 
+  CloudIcon,
+  UsersIcon,
+  LockboxIcon,
+  LayersIcon,
+  RobotIcon
+} from '@/components/icons/TechIcons'
+
+export default function ServicesSummary() {
+  const { isVisible, elementRef } = useAnimation(0.1)
+
+  const servicesLeft = [
+    {
+      icon: <MonitorIcon size={32} className="text-white" />,
+      title: 'Managed IT Services & Help Desk',
+      description: 'Complete IT management with 24/7 support and proactive monitoring.',
+      gradient: 'from-blue-500 to-cyan-500',
+      color: 'blue'
+    },
+    {
+      icon: <ShieldCheckIcon size={32} className="text-white" />,
+      title: 'Cybersecurity (MDR, SIEM, Compliance)',
+      description: 'Advanced threat detection and compliance readiness for your industry.',
+      gradient: 'from-purple-500 to-pink-500',
+      color: 'purple'
+    },
+    {
+      icon: <BriefcaseIcon size={32} className="text-white" />,
+      title: 'IT Strategy & Virtual CIO Consulting',
+      description: 'Strategic technology planning and executive-level IT guidance.',
+      gradient: 'from-emerald-500 to-teal-500',
+      color: 'emerald'
+    },
+    {
+      icon: <CloudIcon size={32} className="text-white" />,
+      title: 'Cloud Services (Microsoft 365, SharePoint)',
+      description: 'Cloud migration, implementation, and management services.',
+      gradient: 'from-orange-500 to-red-500',
+      color: 'orange'
+    }
+  ]
+
+  const servicesRight = [
+    {
+      icon: <UsersIcon size={32} className="text-white" />,
+      title: 'IT Staff Augmentation',
+      description: 'Tools, process and expertise for in-house IT Teams',
+      gradient: 'from-indigo-500 to-purple-500',
+      color: 'indigo'
+    },
+    {
+      icon: <LockboxIcon size={32} className="text-white" />,
+      title: 'Physical Security',
+      description: 'Access Control, surveillance and structured cabling',
+      gradient: 'from-rose-500 to-red-500',
+      color: 'rose'
+    },
+    {
+      icon: <LayersIcon size={32} className="text-white" />,
+      title: 'Backups and Disaster Recovery',
+      description: 'Image backups and disaster planning.',
+      gradient: 'from-sky-500 to-blue-500',
+      color: 'sky'
+    },
+    {
+      icon: <RobotIcon size={32} className="text-white" />,
+      title: 'AI Implementation',
+      description: 'Navigate and utilize the right AI to boost productivity',
+      gradient: 'from-violet-500 to-fuchsia-500',
+      color: 'violet'
+    }
+  ]
+
+  return (
+    <section className="relative py-24 bg-gradient-to-br from-gray-400 via-cyan-100 to-gray-300 overflow-hidden">
+      {/* Background Elements */}
+      <div className="absolute inset-0">
+        {/* Floating Geometric Shapes */}
+        <div className="absolute top-20 right-20 w-64 h-64 bg-gradient-to-br from-blue-200/20 to-cyan-200/20 rounded-full blur-3xl animate-pulse"></div>
+        <div className="absolute bottom-20 left-20 w-80 h-80 bg-gradient-to-br from-purple-200/20 to-pink-200/20 rounded-full blur-3xl animate-pulse delay-1000"></div>
+        <div className="absolute top-1/2 left-1/2 w-48 h-48 bg-gradient-to-br from-emerald-200/20 to-teal-200/20 rounded-full blur-3xl animate-pulse delay-2000"></div>
+      </div>
+
+      <div className="relative z-10 container-max">
+        {/* Enhanced 3D Section Header */}
+        <div 
+          ref={elementRef}
+          className={`text-center mb-20 transition-all duration-1000 ease-out ${
+            isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-20'
+          }`}
+        >
+          <h2 className="text-4xl md:text-6xl font-black text-gray-900 mb-6 drop-shadow-2xl">
+            Summary of Our{' '}
+            <span className="text-cyan-500 drop-shadow-2xl">
+              Services
+            </span>
+          </h2>
+          <p className="text-xl text-gray-600 max-w-3xl mx-auto leading-relaxed drop-shadow-lg">
+            We offer complete IT management for small and mid-sized businesses, including comprehensive 
+            solutions that are tailored to meet your specific needs.
+          </p>
+        </div>
+
+        {/* Services List - Two Columns */}
+        <div className="max-w-7xl mx-auto mb-16 px-4 sm:px-6 lg:px-8">
+          <div className="space-y-0">
+            {[0, 1, 2, 3].map((rowIndex) => (
+              <div key={rowIndex} className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 border-b border-gray-200/50 last:border-b-0">
+                {/* Left Service */}
+                <div
+                  className={`group relative transition-all duration-700 ease-out ${
+                    isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-20'
+                  }`}
+                  style={{ transitionDelay: `${rowIndex * 150}ms` }}
+                >
+                  <div className="flex flex-col sm:flex-row items-start space-y-4 sm:space-y-0 sm:space-x-4 lg:space-x-6 py-6 sm:py-8 hover:bg-gradient-to-r hover:from-blue-50/30 hover:to-purple-50/30 transition-all duration-500 rounded-lg px-4 sm:px-6 -mx-4 sm:-mx-6">
+                    {/* Icon */}
+                    <div className={`flex-shrink-0 w-12 h-12 sm:w-14 sm:h-14 lg:w-16 lg:h-16 bg-gradient-to-br ${servicesLeft[rowIndex].gradient} rounded-xl lg:rounded-2xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-all duration-500 group-hover:scale-110 mx-auto sm:mx-0`}>
+                      {React.cloneElement(servicesLeft[rowIndex].icon, { 
+                        size: 24,
+                        className: "w-5 h-5 sm:w-6 sm:h-6 lg:w-8 lg:h-8 text-white"
+                      })}
+                    </div>
+                    
+                    {/* Content */}
+                    <div className="flex-1 min-w-0 text-center sm:text-left">
+                      <h3 className="text-lg sm:text-xl font-bold text-gray-900 mb-2 sm:mb-3 group-hover:text-blue-600 transition-colors duration-500">
+                        {servicesLeft[rowIndex].title}
+                      </h3>
+                      <p className="text-sm sm:text-base text-gray-600 leading-relaxed group-hover:text-gray-700 transition-colors duration-500">
+                        {servicesLeft[rowIndex].description}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right Service */}
+                <div
+                  className={`group relative transition-all duration-700 ease-out ${
+                    isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-20'
+                  }`}
+                  style={{ transitionDelay: `${(rowIndex + 4) * 150}ms` }}
+                >
+                  <div className="flex flex-col sm:flex-row items-start space-y-4 sm:space-y-0 sm:space-x-4 lg:space-x-6 py-6 sm:py-8 hover:bg-gradient-to-r hover:from-blue-50/30 hover:to-purple-50/30 transition-all duration-500 rounded-lg px-4 sm:px-6 -mx-4 sm:-mx-6">
+                    {/* Icon */}
+                    <div className={`flex-shrink-0 w-12 h-12 sm:w-14 sm:h-14 lg:w-16 lg:h-16 bg-gradient-to-br ${servicesRight[rowIndex].gradient} rounded-xl lg:rounded-2xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-all duration-500 group-hover:scale-110 mx-auto sm:mx-0`}>
+                      {React.cloneElement(servicesRight[rowIndex].icon, { 
+                        size: 24,
+                        className: "w-5 h-5 sm:w-6 sm:h-6 lg:w-8 lg:h-8 text-white"
+                      })}
+                    </div>
+                    
+                    {/* Content */}
+                    <div className="flex-1 min-w-0 text-center sm:text-left">
+                      <h3 className="text-lg sm:text-xl font-bold text-gray-900 mb-2 sm:mb-3 group-hover:text-blue-600 transition-colors duration-500">
+                        {servicesRight[rowIndex].title}
+                      </h3>
+                      <p className="text-sm sm:text-base text-gray-600 leading-relaxed group-hover:text-gray-700 transition-colors duration-500">
+                        {servicesRight[rowIndex].description}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Bottom Section */}
+        <div className={`text-center transition-all duration-1000 ease-out delay-1000 ${
+          isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-20'
+        }`}>
+          <p className="text-xl text-gray-600 mb-8 max-w-4xl mx-auto leading-relaxed">
+            Our services are tailored to meet the needs of your business — right-sized, secure, and built to scale.
+          </p>
+          
+          {/* CTA Button */}
+          <Button
+            asChild
+            variant="primary"
+            size="xl"
+            className="bg-cyan-500 hover:bg-cyan-600 hover:scale-105 hover:shadow-2xl hover:shadow-cyan-500/30 transform hover:-translate-y-1 border-0 shadow-xl shadow-cyan-500/20 px-10 py-5 text-lg font-bold rounded-2xl transition-all duration-500"
+          >
+            <Link href="/services">
+              Explore Our Solutions
+            </Link>
+          </Button>
+        </div>
+      </div>
+    </section>
+  )
+}
