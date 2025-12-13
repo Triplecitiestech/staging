@@ -49,12 +49,9 @@ export default function ServiceCard({
           <div className="w-20 h-1 bg-gradient-to-r from-cyan-400 to-blue-500 rounded-full mx-auto"></div>
 
           {/* Features List */}
-          <ul className="space-y-3">
+          <ul className="space-y-3 text-center">
             {features.map((feature, featureIndex) => (
-              <li key={featureIndex} className="flex items-start group">
-                <div className="w-5 h-5 bg-gradient-to-br from-cyan-400 to-blue-500 rounded-full flex items-center justify-center mr-3 mt-0.5 group-hover:scale-110 transition-transform duration-300 flex-shrink-0 shadow-lg shadow-cyan-500/50">
-                  <CheckCircleIcon size={12} className="text-white" />
-                </div>
+              <li key={featureIndex} className="group">
                 <span className="text-white/90 leading-relaxed transition-colors duration-300 group-hover:text-white">
                   {feature}
                 </span>
@@ -63,19 +60,18 @@ export default function ServiceCard({
           </ul>
 
           {/* Description */}
-          <p className="text-lg text-white/80 leading-relaxed">{description}</p>
+          <p className="text-lg text-white/80 leading-relaxed text-center">{description}</p>
 
           {/* CTA Button */}
-          <div className="pt-6 text-center">
+          <div className="pt-4 text-center">
             <Link
               href="/contact"
-              className="group relative inline-flex items-center justify-center px-6 sm:px-8 py-3 sm:py-4 rounded-full font-bold text-base sm:text-lg transition-all duration-300 hover:scale-105 transform-gpu bg-gradient-to-br from-cyan-400 via-cyan-500 to-cyan-600 hover:from-cyan-300 hover:via-cyan-400 hover:to-cyan-500 text-white shadow-[0_8px_20px_rgba(6,182,212,0.35),0_4px_10px_rgba(6,182,212,0.25)]"
+              className="group relative inline-flex items-center justify-center px-5 py-2 rounded-full font-semibold text-sm transition-all duration-300 hover:scale-105 transform-gpu bg-gradient-to-br from-cyan-400 via-cyan-500 to-cyan-600 hover:from-cyan-300 hover:via-cyan-400 hover:to-cyan-500 text-white shadow-[0_4px_12px_rgba(6,182,212,0.3)]"
             >
               <span className="relative z-10 flex items-center whitespace-nowrap">
-                <span className="hidden sm:inline">Schedule a Consultation</span>
-                <span className="sm:hidden">Get Started</span>
+                Get Started
                 <svg
-                  className="ml-2 w-5 h-5 transition-transform duration-300 group-hover:translate-x-1"
+                  className="ml-1.5 w-4 h-4 transition-transform duration-300 group-hover:translate-x-1"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"

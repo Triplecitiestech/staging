@@ -26,32 +26,28 @@ export default function Services() {
         />
 
         {/* Services Details */}
-        <Suspense fallback={<LoadingSpinner size="lg" className="mx-auto my-24" />}>
-          {SERVICES.map((service, index) => (
-            <div 
-              key={service.title}
-              className={`relative py-0 ${
-                index % 2 === 0 
-                  ? 'bg-gradient-to-br from-black via-gray-900 to-cyan-900' 
-                  : 'bg-gradient-to-br from-cyan-900 via-gray-900 to-black'
-              }`}
-            >
-              <div className="relative z-10 max-w-7xl mx-auto px-6 py-24">
-                <ServiceCard
-                  icon={service.icon}
-                  title={service.title}
-                  subtitle={service.subtitle}
-                  features={service.features}
-                  description={service.description}
-                  gradient={service.gradient}
-                  index={index}
-                  image={service.image}
-                  darkBackground={true}
-                />
+        <div className="relative bg-gradient-to-br from-black via-gray-900 to-cyan-900">
+          <div className="relative z-10 max-w-7xl mx-auto px-6 py-24">
+            <Suspense fallback={<LoadingSpinner size="lg" className="mx-auto my-24" />}>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {SERVICES.map((service, index) => (
+                  <ServiceCard
+                    key={service.title}
+                    icon={service.icon}
+                    title={service.title}
+                    subtitle={service.subtitle}
+                    features={service.features}
+                    description={service.description}
+                    gradient={service.gradient}
+                    index={index}
+                    image={service.image}
+                    darkBackground={true}
+                  />
+                ))}
               </div>
-            </div>
-          ))}
-        </Suspense>
+            </Suspense>
+          </div>
+        </div>
 
         {/* CTA Section */}
         <div className="relative">
