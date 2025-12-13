@@ -22,7 +22,7 @@ export default function Services() {
           textAlign="center"
           verticalPosition="bottom"
           titleNoWrap={true}
-          imageBackground="/service-pagebg.webp"
+          imageBackground="/herobg.webp"
         />
 
         {/* Services Details */}
