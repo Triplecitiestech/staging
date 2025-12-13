@@ -302,11 +302,11 @@ export default function About() {
                       textShadow: '0 2px 4px rgba(0, 0, 0, 0.8), 0 1px 2px rgba(0, 0, 0, 0.6)',
                       filter: 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.8))'
                     }}>Phone</p>
-                    <a href="tel:607-222-TCT1" className="text-blue-300 hover:text-white transition-colors duration-300 text-base sm:text-lg font-medium" style={{
+                    <a href="tel:607-341-7500" className="text-blue-300 hover:text-white transition-colors duration-300 text-base sm:text-lg font-medium" style={{
                       textShadow: '0 2px 4px rgba(0, 0, 0, 0.8), 0 1px 2px rgba(0, 0, 0, 0.6)',
                       filter: 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.8))'
                     }}>
-                      (607) 222-TCT1
+                      (607) 341-7500
                     </a>
                   </div>
                 </div>

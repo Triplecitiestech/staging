@@ -19,7 +19,7 @@ export const servicesMetadata: Metadata = {
     title: 'IT Services | Triple Cities Tech',
     description: 'Professional IT services including managed IT support, cybersecurity, cloud solutions, and AI consulting.',
     type: 'website',
-    url: 'https://triplecitiestech.com/services',
+    url: 'https://www.triplecitiestech.com/services',
     images: [
       {
         url: '/og-services.jpg',
@@ -36,6 +36,6 @@ export const servicesMetadata: Metadata = {
     images: ['/og-services.jpg']
   },
   alternates: {
-    canonical: 'https://triplecitiestech.com/services'
+    canonical: 'https://www.triplecitiestech.com/services'
   }
 }

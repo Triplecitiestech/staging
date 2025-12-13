@@ -139,8 +139,8 @@ export default function CallToAction() {
                   transform: 'perspective(1000px)'
                 }}
               >
-                <a href="tel:607-222-TCT1">
-                  Call (607) 222-TCT1
+                <a href="tel:607-341-7500">
+                  Call (607) 341-7500
                 </a>
                 
                 {/* Enhanced 3D Glow Effect */}

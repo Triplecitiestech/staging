@@ -39,9 +39,9 @@ export const SOCIAL_LINKS = [
 ];
 
 export const CONTACT_INFO = {
-  phone: '+1 (607) 555-0123',
+  phone: '(607) 341-7500',
   email: 'info@triplecitiestech.com',
-  address: '123 Main Street, Binghamton, NY 13901',
+  address: '1109 Monroe St, Endicott, NY 13760',
   hours: 'Office Hours: Monday–Friday, 8:30am–5:00pm',
   emergencySupport: 'Emergency Support: Available 24/7 for managed clients'
 };
