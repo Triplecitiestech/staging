@@ -68,13 +68,12 @@ export default function Industries() {
     <main>
       <Header />
       
-      <PageHero 
+      <PageHero
         title="Industries We Serve"
         subtitle="Triple Cities Tech, we specialize in delivering right-sized, modern IT solutions to industries where stability, security, and speed matter most. We understand the challenges unique to your field — and we help you overcome them with clarity and confidence."
         imageBackground="/iws.webp"
-        textAlign="right"
+        textAlign="center"
         verticalPosition="bottom"
-        subtitlePosition="above"
         titleNoWrap={true}
       />
 
