@@ -1,18 +1,18 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
 import Header from '@/components/layout/Header'
 import Footer from '@/components/layout/Footer'
 import Link from 'next/link'
+import Image from 'next/image'
 import { CONTACT_INFO } from '@/constants/data'
 import PageHero from '@/components/shared/PageHero'
 import Section from '@/components/shared/Section'
 
-import { 
-  BuildingIcon, 
-  ShieldCheckIcon, 
+import {
+  BuildingIcon,
+  ShieldCheckIcon,
   LayersIcon,
-  HandshakeIcon, 
+  HandshakeIcon,
   TargetIcon,
   BookOpenIcon,
   UsersIcon,
@@ -22,28 +22,6 @@ import {
 } from '@/components/icons/TechIcons'
 
 export default function About() {
-  const videoRef = useRef<HTMLVideoElement>(null)
-
-  useEffect(() => {
-    const video = videoRef.current
-    if (!video) return
-
-    const handleTimeUpdate = () => {
-      // Restart video at 15 seconds for seamless loop
-      if (video.currentTime >= 15) {
-        video.currentTime = 0
-      }
-    }
-
-    video.addEventListener('timeupdate', handleTimeUpdate)
-    
-    // Ensure video starts playing
-    video.play().catch(console.error)
-
-    return () => {
-      video.removeEventListener('timeupdate', handleTimeUpdate)
-    }
-  }, [])
 
   const values = [
     {
@@ -88,36 +66,21 @@ export default function About() {
   return (
     <main className="relative">
       <Header />
-      
-      {/* Video Background for entire page */}
+
+      {/* Static Background Image for entire page */}
       <div className="relative">
-        {/* Video Background */}
-        <video
-          ref={videoRef}
-          autoPlay
-          muted
-          playsInline
-          preload="auto"
-          className="fixed inset-0 w-full h-full object-cover -z-10"
-          style={{
-            minWidth: '100vw',
-            minHeight: '100vh',
-            width: 'auto',
-            height: 'auto',
-            left: '50%',
-            top: '50%',
-            transform: 'translate(-50%, -50%)'
-          }}
-        >
-          <source src="https://pub-fb343e810bf34aa4b3ec0c7f1889d31c.r2.dev/aboutpagebg.webm" type="video/webm" />
-          {/* Fallback for browsers that don't support video */}
-          <div className="fixed inset-0 bg-gradient-to-br from-slate-900 via-gray-900 to-black -z-10"></div>
-        </video>
-        
-        {/* Enhanced overlays for better text readability and seamless blending */}
-        <div className="fixed inset-0 bg-black/40 -z-10"></div>
-        <div className="fixed inset-0 bg-gradient-to-b from-black/30 via-transparent to-black/50 -z-10"></div>
-        <div className="fixed inset-0 bg-gradient-to-r from-black/20 via-transparent to-black/20 -z-10"></div>
+        {/* Background Image */}
+        <div className="fixed inset-0 -z-10">
+          <Image
+            src="/herobg.webp"
+            alt="About Background"
+            fill
+            className="object-cover"
+            priority
+          />
+          {/* Dark overlay for better text readability */}
+          <div className="absolute inset-0 bg-black/40"></div>
+        </div>
         
         {/* PageHero with transparent background */}
         <div className="relative z-10">
