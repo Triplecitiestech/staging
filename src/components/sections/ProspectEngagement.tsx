@@ -372,12 +372,9 @@ export default function ProspectEngagement() {
               {/* Option A - Assessment Card */}
               {clientOptions.map((option, index) => (
                 <div key={index} className="group">
-                  <div className="relative bg-gradient-to-br from-cyan-500 to-gray-900 backdrop-blur-xl border border-cyan-400/30 rounded-2xl md:rounded-3xl p-6 md:p-8 hover:border-cyan-300/60 transition-all duration-500 hover:scale-[1.02] hover:shadow-2xl hover:shadow-cyan-500/30 h-full overflow-hidden">
-                    {/* Background Glow Effect */}
-                    <div className={`absolute inset-0 bg-gradient-to-br ${option.color} opacity-0 group-hover:opacity-5 transition-opacity duration-500 rounded-2xl md:rounded-3xl`}></div>
-                    
+                  <div className="relative bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl md:rounded-3xl p-6 md:p-8 hover:border-white/30 transition-all duration-500 hover:scale-[1.02] hover:shadow-2xl hover:shadow-cyan-500/20 h-full">
                     {/* Header */}
-                    <div className="relative flex items-start space-x-4 mb-6">
+                    <div className="flex items-start space-x-4 mb-6">
                       <div className={`w-12 h-12 md:w-16 md:h-16 rounded-xl md:rounded-2xl bg-gradient-to-r ${option.color} flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform duration-300`}>
                         {React.cloneElement(option.icon, { size: 24 })}
                       </div>
@@ -387,17 +384,17 @@ export default function ProspectEngagement() {
                         </h4>
                       </div>
                     </div>
-            
+
                     {/* Description */}
-                    <p className="relative text-gray-200 text-sm md:text-base mb-6 leading-relaxed">
+                    <p className="text-white/90 text-sm md:text-base mb-6 leading-relaxed">
                       {option.description}
                     </p>
-                    
+
                     {/* CTA Button */}
-                    <div className="relative">
-                      <button 
+                    <div>
+                      <button
                         onClick={() => handlePathSelection(option.type.toLowerCase())}
-                        className="inline-flex items-center justify-center w-full text-center bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700 text-white font-bold px-4 py-3 md:px-6 md:py-4 rounded-xl transition-all duration-300 hover:scale-105 shadow-lg group-hover:shadow-xl"
+                        className="inline-flex items-center justify-center w-full text-center bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-white font-bold px-4 py-3 md:px-6 md:py-4 rounded-xl transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-cyan-500/50"
                       >
                         <span className="mr-2">Get Started</span>
                         <ChevronRightIcon size={16} className="transform group-hover:translate-x-1 transition-transform duration-300" />
@@ -409,11 +406,11 @@ export default function ProspectEngagement() {
 
               {/* Contact Form Card */}
               <div className="relative group">
-                <div className="relative bg-gradient-to-br from-cyan-500 to-gray-900 backdrop-blur-xl border border-cyan-400/30 rounded-2xl md:rounded-3xl p-6 md:p-8 hover:border-cyan-300/60 transition-all duration-500 hover:shadow-2xl hover:shadow-cyan-500/30 h-full overflow-hidden">
+                <div className="relative bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl md:rounded-3xl p-6 md:p-8 hover:border-white/30 transition-all duration-500 hover:shadow-2xl hover:shadow-cyan-500/20 h-full">
                   {/* Card Header */}
                   <div className="mb-6">
                     <h2 className="text-xl md:text-2xl font-bold text-white mb-3">Have someone reach out</h2>
-                    <p className="text-gray-200 text-sm md:text-base">
+                    <p className="text-white/90 text-sm md:text-base">
                       Please fill out the boxes below and one of our experts will reach out promptly!
                     </p>
                   </div>
@@ -529,9 +526,9 @@ export default function ProspectEngagement() {
             isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-20'
           }`}>
             {/* Bot Container */}
-            <div className="relative bg-gradient-to-br from-cyan-500 to-gray-900 backdrop-blur-xl border border-cyan-400/30 rounded-xl sm:rounded-2xl md:rounded-3xl overflow-hidden shadow-2xl">
+            <div className="relative bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl sm:rounded-2xl md:rounded-3xl overflow-hidden shadow-2xl">
               {/* Header */}
-              <div className="bg-gray-900/50 border-b border-cyan-400/30 p-4 md:p-6">
+              <div className="bg-gray-900/50 border-b border-white/20 p-4 md:p-6">
                 <button 
                   onClick={handleBack}
                   className="flex items-center space-x-2 text-cyan-300 hover:text-cyan-200 transition-colors duration-300 group"
@@ -542,7 +539,7 @@ export default function ProspectEngagement() {
               </div>
 
               {/* Progress Section */}
-              <div className="p-4 md:p-6 border-b border-cyan-400/30">
+              <div className="p-4 md:p-6 border-b border-white/20">
                 <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 mb-3">
                   <span className="text-sm font-medium text-gray-200">
                     Question {currentStep} of {userPath ? getConversationalQuestions(userPath as UserPath).length : 0}
@@ -686,7 +683,7 @@ export default function ProspectEngagement() {
           <h3 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-black text-white mb-6 md:mb-8">Give us a call</h3>
           
           {/* Phone Number Container */}
-          <div className="inline-flex items-center justify-center bg-gradient-to-br from-cyan-500/20 to-gray-800/20 backdrop-blur-xl border border-cyan-400/30 rounded-2xl px-8 py-6 hover:border-cyan-400/60 transition-all duration-500 hover:shadow-2xl hover:shadow-cyan-500/30">
+          <div className="inline-flex items-center justify-center bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl px-8 py-6 hover:border-white/30 transition-all duration-500 hover:shadow-2xl hover:shadow-cyan-500/20">
             <a 
               href={`tel:${CONTACT_INFO.phone}`}
               className="flex items-center space-x-4 text-xl md:text-2xl font-bold text-cyan-400 hover:text-cyan-300 transition-colors duration-300"

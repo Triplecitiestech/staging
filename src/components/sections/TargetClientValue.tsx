@@ -119,12 +119,12 @@ export default function TargetClientValue() {
               <div>
                 <div className="space-y-4">
                   {clientBenefits[activeStep].features.map((feature, index) => (
-                    <div 
+                    <div
                       key={index}
-                      className="flex items-center justify-center space-x-3 bg-gray-100/90 hover:bg-gray-200/90 border border-gray-300/50 rounded-xl p-4 transition-all duration-300 cursor-pointer"
+                      className="flex items-center justify-center space-x-3 bg-white/10 backdrop-blur-sm hover:bg-white/15 border border-white/20 hover:border-white/30 rounded-xl p-4 transition-all duration-300 cursor-pointer group"
                     >
-                      <div className="w-2 h-2 bg-cyan-500 rounded-full"></div>
-                      <span className="text-gray-800 font-semibold text-lg">{feature}</span>
+                      <div className="w-2 h-2 bg-cyan-400 rounded-full group-hover:scale-125 transition-transform duration-300"></div>
+                      <span className="text-white font-semibold text-lg group-hover:text-cyan-200 transition-colors duration-300">{feature}</span>
                     </div>
                   ))}
                 </div>
