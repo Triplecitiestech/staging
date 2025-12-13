@@ -25,10 +25,10 @@ export default function ServiceCard({
   darkBackground = false
 }: ServiceCardProps) {
   return (
-    <div className="relative">
+    <div className="relative h-full">
 
       {/* Glassmorphism Card */}
-      <div className="relative bg-white/10 backdrop-blur-sm border border-white/20 rounded-3xl p-8 md:p-12 shadow-2xl transition-all duration-500 hover:bg-white/15 hover:border-white/30 hover:shadow-[0_20px_60px_rgba(6,182,212,0.3)]">
+      <div className="relative h-full bg-white/10 backdrop-blur-sm border border-white/20 rounded-3xl p-8 md:p-12 shadow-2xl transition-all duration-500 hover:bg-white/15 hover:border-white/30 hover:shadow-[0_20px_60px_rgba(6,182,212,0.3)] flex flex-col">
 
         {/* Subtle Gradient Orbs */}
         <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-3xl">
@@ -37,7 +37,7 @@ export default function ServiceCard({
         </div>
 
         {/* Content */}
-        <div className="relative z-10 space-y-6">
+        <div className="relative z-10 space-y-6 flex flex-col flex-grow">
 
           {/* Title Section */}
           <div className="text-center">
@@ -63,7 +63,7 @@ export default function ServiceCard({
           <p className="text-lg text-white/80 leading-relaxed text-center">{description}</p>
 
           {/* CTA Button */}
-          <div className="pt-4 text-center">
+          <div className="pt-4 text-center mt-auto">
             <Link
               href="/contact"
               className="group relative inline-flex items-center justify-center px-5 py-2 rounded-full font-semibold text-sm transition-all duration-300 hover:scale-105 transform-gpu bg-gradient-to-br from-cyan-400 via-cyan-500 to-cyan-600 hover:from-cyan-300 hover:via-cyan-400 hover:to-cyan-500 text-white shadow-[0_4px_12px_rgba(6,182,212,0.3)]"
