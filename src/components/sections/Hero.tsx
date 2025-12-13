@@ -47,10 +47,10 @@ export default function Hero() {
                 <h1 className={`transition-all duration-700 delay-200 ${
                   isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
                 }`}>
-                  <div className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-black text-white leading-[0.9] mb-4 whitespace-nowrap">
+                  <div className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-black text-white leading-tight sm:leading-[0.9] mb-4 md:whitespace-nowrap">
                     Triple Cities Tech
                   </div>
-                  <div className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-normal leading-[0.9] mb-4 whitespace-nowrap">
+                  <div className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-normal leading-tight sm:leading-[0.9] mb-4 md:whitespace-nowrap">
                     <span className="text-cyan-400">
                       We turn IT into a competitive advantage.
                     </span>
