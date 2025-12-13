@@ -16,13 +16,11 @@ export default function Services() {
       <main>
         <Header />
         
-        <PageHero 
+        <PageHero
           title={PAGE_CONTENT.hero.title}
           subtitle={PAGE_CONTENT.hero.subtitle}
-          description={PAGE_CONTENT.hero.description}
-          textAlign="right"
+          textAlign="center"
           verticalPosition="bottom"
-          subtitlePosition="above"
           titleNoWrap={true}
           imageBackground="/service-pagebg.webp"
         />

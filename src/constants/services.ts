@@ -159,8 +159,7 @@ export const SERVICES: Service[] = [
 export const PAGE_CONTENT = {
   hero: {
     title: "Our Services",
-    subtitle: "We manage your IT so you don't have to.",
-    description: "At Triple Cities Tech, we deliver modern, right-sized IT solutions for small and mid-sized businesses. Whether you're struggling with outdated systems, security concerns, or inconsistent support, we provide the clarity, speed, and strategy your business needs to thrive."
+    subtitle: "At Triple Cities Tech, we deliver modern, right-sized IT solutions for small and mid-sized businesses. Whether you're struggling with outdated systems, security concerns, or inconsistent support, we provide the clarity, speed, and strategy your business needs to thrive."
   },
   challengeSection: {
     title: "What's holding your business back?",
