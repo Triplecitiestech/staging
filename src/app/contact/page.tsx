@@ -1,9 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import Image from 'next/image'
 import Header from '@/components/layout/Header'
 import Footer from '@/components/layout/Footer'
+import PageHero from '@/components/shared/PageHero'
 import { Button } from '@/components/ui'
 import { CONTACT_INFO } from '@/constants/data'
 import { CalendarIcon, PhoneIcon, MailIcon, GlobeIcon, CheckCircleIcon } from '@/components/icons/TechIcons'
@@ -60,75 +60,36 @@ export default function Contact() {
   }
 
   return (
-    <main className="bg-gradient-to-br from-black via-gray-900 to-cyan-500 min-h-screen">
+    <main>
       <Header />
-      
-      {/* Image Section */}
-      <div className="relative py-4 pt-20">
-        <div className="max-w-5xl mx-auto px-6">
-          <div className="relative group">
-            {/* 3D Floating Image Effect */}
-            <div className="absolute -inset-1 bg-gradient-to-r from-cyan-400 via-cyan-500 to-cyan-600 rounded-2xl blur opacity-75 group-hover:opacity-100 transition duration-1000 group-hover:duration-200 animate-tilt"></div>
-            <div className="relative rounded-2xl overflow-hidden shadow-2xl group-hover:shadow-cyan-500/25 group-hover:shadow-3xl transition-all duration-500">
-              <Image 
-                src="/ctaa.webp" 
-                alt="Contact us for IT solutions"
-                width={1200}
-                height={180}
-                className="w-full h-[140px] sm:h-[160px] md:h-[180px] object-contain bg-gray-900 transition-transform duration-700 group-hover:scale-105"
-                priority
-              />
-              
-              {/* Gradient Overlay with Animation */}
-              <div className="absolute inset-0 bg-gradient-to-br from-black/20 via-black/30 to-black/40 group-hover:from-black/10 group-hover:via-black/20 group-hover:to-black/30 transition-all duration-500"></div>
-              
-              {/* Animated Border Glow */}
-              <div className="absolute inset-0 rounded-2xl border-2 border-cyan-400/0 group-hover:border-cyan-400/50 transition-all duration-500"></div>
-              
-               {/* Text Overlay */}
-               <div className="absolute inset-0">
-                 <div className="absolute top-3 left-3 right-3">
-                   <div className="text-left">
-                     <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white mb-0.5 leading-tight group-hover:text-cyan-100 transition-colors duration-500">
-                       Get In Touch
-                     </h1>
-                     <p className="text-xs text-white font-medium leading-snug group-hover:text-cyan-200 transition-colors duration-500">
-                       Ready to transform your IT experience? Let's discuss how we can help your business thrive.
-                     </p>
-                   </div>
-                 </div>
-               </div>
-              
-              {/* Shimmer Effect */}
-              <div className="absolute inset-0 -top-10 left-0 w-full h-20 bg-gradient-to-r from-transparent via-cyan-400/20 to-transparent transform -skew-y-12 group-hover:translate-x-full transition-transform duration-1000"></div>
-            </div>
-          </div>
-        </div>
-      </div>
 
-       {/* Contact Form & Info */}
-       <div className="py-6 pb-16">
+      <PageHero
+        title="Contact Us"
+        subtitle="Ready to transform your IT experience? Let's discuss how we can help your business thrive with technology that works for you."
+        textAlign="center"
+        verticalPosition="bottom"
+        imageBackground="/herobg.webp"
+      />
+
+      {/* Contact Form & Info Section */}
+      <div className="relative bg-gradient-to-br from-black via-gray-900 to-cyan-900 py-24">
         <div className="max-w-7xl mx-auto px-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          
-          {/* Contact Form - Black Floating Card */}
-          <div className="relative group">
-            {/* 3D Floating Card Effect */}
-            <div className="absolute -inset-1 bg-gradient-to-r from-cyan-400 via-cyan-500 to-cyan-600 rounded-2xl blur opacity-75 group-hover:opacity-100 transition duration-1000 group-hover:duration-200 animate-tilt"></div>
-            <div className="relative bg-black rounded-2xl p-6 shadow-2xl">
-              {/* Card Header */}
-              <div className="mb-6">
-                <h2 className="text-2xl font-bold text-white mb-3">Send us a message</h2>
-                <p className="text-cyan-200 text-base">
-                  Have a question about our services? Want to discuss your IT needs? 
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+
+            {/* Contact Form */}
+            <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-3xl p-8 shadow-xl">
+              <div className="mb-8">
+                <h2 className="text-3xl font-bold text-white mb-4">Send us a message</h2>
+                <p className="text-white/90 text-lg">
+                  Have a question about our services? Want to discuss your IT needs?
                   We'd love to hear from you.
                 </p>
               </div>
 
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <form onSubmit={handleSubmit} className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
-                    <label htmlFor="name" className="block text-sm font-medium text-cyan-200 mb-1">
+                    <label htmlFor="name" className="block text-sm font-semibold text-white mb-2">
                       Name *
                     </label>
                     <input
@@ -138,12 +99,12 @@ export default function Contact() {
                       value={formData.name}
                       onChange={handleInputChange}
                       required
-                      className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-cyan-400 focus:border-cyan-400 transition-all duration-300 hover:border-cyan-500"
+                      className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:ring-2 focus:ring-cyan-400 focus:border-cyan-400 transition-all duration-300 hover:border-cyan-400/50 backdrop-blur-sm"
                       placeholder="Your full name"
                     />
                   </div>
                   <div>
-                    <label htmlFor="email" className="block text-sm font-medium text-cyan-200 mb-1">
+                    <label htmlFor="email" className="block text-sm font-semibold text-white mb-2">
                       Email *
                     </label>
                     <input
@@ -153,15 +114,15 @@ export default function Contact() {
                       value={formData.email}
                       onChange={handleInputChange}
                       required
-                      className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-cyan-400 focus:border-cyan-400 transition-all duration-300 hover:border-cyan-500"
+                      className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:ring-2 focus:ring-cyan-400 focus:border-cyan-400 transition-all duration-300 hover:border-cyan-400/50 backdrop-blur-sm"
                       placeholder="your.email@company.com"
                     />
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
-                    <label htmlFor="phone" className="block text-sm font-medium text-cyan-200 mb-1">
+                    <label htmlFor="phone" className="block text-sm font-semibold text-white mb-2">
                       Phone
                     </label>
                     <input
@@ -170,12 +131,12 @@ export default function Contact() {
                       name="phone"
                       value={formData.phone}
                       onChange={handleInputChange}
-                      className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-cyan-400 focus:border-cyan-400 transition-all duration-300 hover:border-cyan-500"
+                      className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:ring-2 focus:ring-cyan-400 focus:border-cyan-400 transition-all duration-300 hover:border-cyan-400/50 backdrop-blur-sm"
                       placeholder="(607) 555-0123"
                     />
                   </div>
                   <div>
-                    <label htmlFor="company" className="block text-sm font-medium text-cyan-200 mb-1">
+                    <label htmlFor="company" className="block text-sm font-semibold text-white mb-2">
                       Company
                     </label>
                     <input
@@ -184,14 +145,14 @@ export default function Contact() {
                       name="company"
                       value={formData.company}
                       onChange={handleInputChange}
-                      className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-cyan-400 focus:border-cyan-400 transition-all duration-300 hover:border-cyan-500"
+                      className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:ring-2 focus:ring-cyan-400 focus:border-cyan-400 transition-all duration-300 hover:border-cyan-400/50 backdrop-blur-sm"
                       placeholder="Your company name"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label htmlFor="message" className="block text-sm font-medium text-cyan-200 mb-1">
+                  <label htmlFor="message" className="block text-sm font-semibold text-white mb-2">
                     Message *
                   </label>
                   <textarea
@@ -200,109 +161,109 @@ export default function Contact() {
                     value={formData.message}
                     onChange={handleInputChange}
                     required
-                    rows={4}
-                    className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-cyan-400 focus:border-cyan-400 transition-all duration-300 hover:border-cyan-500 resize-none"
+                    rows={5}
+                    className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:ring-2 focus:ring-cyan-400 focus:border-cyan-400 transition-all duration-300 hover:border-cyan-400/50 resize-none backdrop-blur-sm"
                     placeholder="Tell us about your IT needs, questions, or how we can help..."
                   />
                 </div>
 
                 {/* Submit Status Messages */}
                 {submitStatus === 'success' && (
-                  <div className="flex items-center space-x-2 text-green-400 bg-green-900/20 border border-green-500/30 p-3 rounded-lg text-sm">
-                    <CheckCircleIcon size={16} />
-                    <span>Thank you! Your message has been sent successfully.</span>
+                  <div className="flex items-center space-x-3 text-green-400 bg-green-900/30 border border-green-400/50 p-4 rounded-xl">
+                    <CheckCircleIcon size={20} />
+                    <span className="font-medium">Thank you! Your message has been sent successfully.</span>
                   </div>
                 )}
 
                 {submitStatus === 'error' && (
-                  <div className="flex items-center space-x-2 text-red-400 bg-red-900/20 border border-red-500/30 p-3 rounded-lg text-sm">
-                    <span>Sorry, there was an error sending your message. Please try again or contact us directly.</span>
+                  <div className="flex items-center space-x-3 text-red-400 bg-red-900/30 border border-red-400/50 p-4 rounded-xl">
+                    <span className="font-medium">Sorry, there was an error sending your message. Please try again or contact us directly.</span>
                   </div>
                 )}
 
                 <Button
                   type="submit"
                   disabled={isSubmitting}
-                  className="w-full py-3 px-4 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-black font-bold rounded-lg transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-cyan-500/25"
+                  className="w-full py-4 px-6 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-black font-bold rounded-xl transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-cyan-500/50 text-lg"
                 >
                   {isSubmitting ? 'Sending...' : 'Send Message'}
                 </Button>
               </form>
             </div>
-          </div>
 
-          {/* Contact Information - Black Floating Card */}
-          <div className="relative group">
-            {/* 3D Floating Card Effect */}
-            <div className="absolute -inset-1 bg-gradient-to-r from-cyan-400 via-cyan-500 to-cyan-600 rounded-2xl blur opacity-75 group-hover:opacity-100 transition duration-1000 group-hover:duration-200 animate-tilt"></div>
-            <div className="relative bg-black rounded-2xl p-6 shadow-2xl">
-              {/* Card Header */}
-              <div className="mb-6">
-                <h2 className="text-2xl font-bold text-white mb-3">Contact Information</h2>
-                <p className="text-cyan-200 text-base">
-                  Prefer to reach out directly? Here's how you can get in touch with our team.
-                </p>
+            {/* Contact Information */}
+            <div className="space-y-8">
+              <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-3xl p-8 shadow-xl">
+                <div className="mb-8">
+                  <h2 className="text-3xl font-bold text-white mb-4">Contact Information</h2>
+                  <p className="text-white/90 text-lg">
+                    Prefer to reach out directly? Here's how you can get in touch with our team.
+                  </p>
+                </div>
+
+                <div className="space-y-6">
+                  <div className="flex items-start space-x-4 group">
+                    <div className="w-14 h-14 bg-gradient-to-br from-cyan-500 to-cyan-600 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform duration-300">
+                      <PhoneIcon size={24} className="text-white" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-white mb-1">Phone</h3>
+                      <a href={`tel:${CONTACT_INFO.phone}`} className="text-cyan-300 hover:text-cyan-200 transition-colors text-base">
+                        {CONTACT_INFO.phone}
+                      </a>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start space-x-4 group">
+                    <div className="w-14 h-14 bg-gradient-to-br from-cyan-500 to-cyan-600 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform duration-300">
+                      <MailIcon size={24} className="text-white" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-white mb-1">Email</h3>
+                      <a href={`mailto:${CONTACT_INFO.email}`} className="text-cyan-300 hover:text-cyan-200 transition-colors text-base">
+                        {CONTACT_INFO.email}
+                      </a>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start space-x-4 group">
+                    <div className="w-14 h-14 bg-gradient-to-br from-cyan-500 to-cyan-600 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform duration-300">
+                      <GlobeIcon size={24} className="text-white" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-white mb-1">Address</h3>
+                      <p className="text-white/90 text-base">{CONTACT_INFO.address}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start space-x-4 group">
+                    <div className="w-14 h-14 bg-gradient-to-br from-cyan-500 to-cyan-600 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform duration-300">
+                      <CalendarIcon size={24} className="text-white" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-white mb-1">Business Hours</h3>
+                      <p className="text-white/90 text-base">{CONTACT_INFO.hours}</p>
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              <div className="space-y-3">
-                <div className="flex items-start space-x-3 group/item">
-                  <div className="w-12 h-12 bg-gradient-to-br from-cyan-500 to-cyan-600 rounded-lg flex items-center justify-center flex-shrink-0 shadow-lg group-hover/item:scale-110 transition-transform duration-300">
-                    <PhoneIcon size={20} className="text-white" />
-                  </div>
-                  <div>
-                    <h3 className="text-base font-semibold text-white mb-0.5">Phone</h3>
-                    <p className="text-cyan-200 text-sm">{CONTACT_INFO.phone}</p>
-                  </div>
-                </div>
-
-                <div className="flex items-start space-x-3 group/item">
-                  <div className="w-12 h-12 bg-gradient-to-br from-cyan-500 to-cyan-600 rounded-lg flex items-center justify-center flex-shrink-0 shadow-lg group-hover/item:scale-110 transition-transform duration-300">
-                    <MailIcon size={20} className="text-white" />
-                  </div>
-                  <div>
-                    <h3 className="text-base font-semibold text-white mb-0.5">Email</h3>
-                    <p className="text-cyan-200 text-sm">{CONTACT_INFO.email}</p>
-                  </div>
-                </div>
-
-                <div className="flex items-start space-x-3 group/item">
-                  <div className="w-12 h-12 bg-gradient-to-br from-cyan-500 to-cyan-600 rounded-lg flex items-center justify-center flex-shrink-0 shadow-lg group-hover/item:scale-110 transition-transform duration-300">
-                    <GlobeIcon size={20} className="text-white" />
-                  </div>
-                  <div>
-                    <h3 className="text-base font-semibold text-white mb-0.5">Address</h3>
-                    <p className="text-cyan-200 text-sm">{CONTACT_INFO.address}</p>
-                  </div>
-                </div>
-
-                <div className="flex items-start space-x-3 group/item">
-                  <div className="w-12 h-12 bg-gradient-to-br from-cyan-500 to-cyan-600 rounded-lg flex items-center justify-center flex-shrink-0 shadow-lg group-hover/item:scale-110 transition-transform duration-300">
-                    <CalendarIcon size={20} className="text-white" />
-                  </div>
-                  <div>
-                    <h3 className="text-base font-semibold text-white mb-0.5">Business Hours</h3>
-                    <p className="text-cyan-200 text-sm">{CONTACT_INFO.hours}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Quick Contact CTA */}
-              <div className="mt-4 p-4 bg-gradient-to-br from-gray-900 to-gray-800 border border-cyan-500/20 rounded-lg">
-                <h3 className="text-lg font-bold text-white mb-1">Need immediate assistance?</h3>
-                <p className="text-cyan-200 text-sm mb-3">
-                  For urgent IT issues or emergency support, call us directly.
+              {/* Emergency Support Card */}
+              <div className="bg-gradient-to-br from-cyan-600 to-cyan-700 rounded-3xl p-8 shadow-xl border border-cyan-400/30">
+                <h3 className="text-2xl font-bold text-white mb-3">Need immediate assistance?</h3>
+                <p className="text-white/90 text-base mb-6">
+                  {CONTACT_INFO.emergencySupport}
                 </p>
                 <Button
                   asChild
-                  className="bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-black font-bold px-4 py-2 text-sm rounded-lg transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-cyan-500/25"
+                  className="bg-white hover:bg-gray-100 text-cyan-700 font-bold px-6 py-3 rounded-xl transition-all duration-300 hover:scale-105 shadow-lg w-full sm:w-auto"
                 >
                   <a href={`tel:${CONTACT_INFO.phone}`}>
-                    Call Now
+                    Call {CONTACT_INFO.phone}
                   </a>
                 </Button>
               </div>
             </div>
-          </div>
           </div>
         </div>
       </div>
