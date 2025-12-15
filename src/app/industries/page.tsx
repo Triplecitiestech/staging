@@ -3,6 +3,7 @@ import Footer from '@/components/layout/Footer'
 import Link from 'next/link'
 import PageHero from '@/components/shared/PageHero'
 import ServiceCard from '@/components/shared/ServiceCard'
+import Breadcrumbs from '@/components/seo/Breadcrumbs'
 
 export default function Industries() {
   const industries = [
@@ -67,7 +68,8 @@ export default function Industries() {
   return (
     <main>
       <Header />
-      
+      <Breadcrumbs />
+
       <PageHero
         title="Industries We Serve"
         subtitle="Triple Cities Tech, we specialize in delivering right-sized, modern IT solutions to industries where stability, security, and speed matter most. We understand the challenges unique to your field — and we help you overcome them with clarity and confidence."

@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Header from '@/components/layout/Header'
 import Footer from '@/components/layout/Footer'
 import PageHero from '@/components/shared/PageHero'
+import Breadcrumbs from '@/components/seo/Breadcrumbs'
 import { Button } from '@/components/ui'
 import { CONTACT_INFO } from '@/constants/data'
 import { CalendarIcon, PhoneIcon, MailIcon, GlobeIcon, CheckCircleIcon } from '@/components/icons/TechIcons'
@@ -62,6 +63,7 @@ export default function Contact() {
   return (
     <main>
       <Header />
+      <Breadcrumbs />
 
       <PageHero
         title="Contact Us"

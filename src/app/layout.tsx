@@ -3,9 +3,20 @@ import './globals.css'
 import ScrollToTop from '@/components/ui/ScrollToTop'
 
 export const metadata: Metadata = {
-  title: 'Triple Cities Tech - Managed IT Services',
-  description: 'Professional IT management services for small and mid-sized businesses in Central New York. Cybersecurity, cloud services, and IT strategy.',
-  keywords: 'IT services, managed services, cybersecurity, cloud services, Central New York',
+  title: 'Triple Cities Tech | Managed IT Services for Small Business | Central NY',
+  description: 'Right-sized IT solutions for 20-50 person teams in Central New York. Managed IT, cybersecurity, cloud services, and IT strategy. Located in Endicott, NY. Call (607) 341-7500.',
+  keywords: [
+    'managed IT services',
+    'small business IT',
+    'Central New York IT',
+    'cybersecurity',
+    'cloud services',
+    'IT strategy',
+    'Endicott NY',
+    'IT support',
+    'managed services',
+    'business technology'
+  ],
   authors: [{ name: 'Triple Cities Tech' }],
   icons: {
     icon: [
@@ -23,15 +34,26 @@ export const metadata: Metadata = {
   },
   manifest: '/site.webmanifest',
   openGraph: {
-    title: 'Triple Cities Tech - Managed IT Services',
-    description: 'Professional IT management services for small and mid-sized businesses in Central New York.',
+    title: 'Triple Cities Tech | Managed IT Services for Small Business',
+    description: 'Right-sized IT solutions for 20-50 person teams in Central New York. Managed IT, cybersecurity, cloud services, and IT strategy.',
     type: 'website',
     locale: 'en_US',
+    url: 'https://www.triplecitiestech.com',
+    siteName: 'Triple Cities Tech',
+    images: [
+      {
+        url: '/og-home.jpg',
+        width: 1200,
+        height: 630,
+        alt: 'Triple Cities Tech - Managed IT Services'
+      }
+    ]
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Triple Cities Tech - Managed IT Services',
-    description: 'Professional IT management services for small and mid-sized businesses in Central New York.',
+    title: 'Triple Cities Tech | Managed IT Services for Small Business',
+    description: 'Right-sized IT solutions for 20-50 person teams in Central New York.',
+    images: ['/og-home.jpg']
   },
   robots: {
     index: true,
@@ -44,6 +66,12 @@ export const metadata: Metadata = {
       'max-snippet': -1,
     },
   },
+  alternates: {
+    canonical: 'https://www.triplecitiestech.com'
+  },
+  verification: {
+    google: 'google-site-verification-code-here', // Add your Google Search Console verification code
+  }
 }
 
 export const viewport: Viewport = {

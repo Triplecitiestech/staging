@@ -5,6 +5,7 @@ import Footer from '@/components/layout/Footer'
 import Link from 'next/link'
 import { CONTACT_INFO } from '@/constants/data'
 import PageHero from '@/components/shared/PageHero'
+import Breadcrumbs from '@/components/seo/Breadcrumbs'
 
 import {
   BuildingIcon,
@@ -64,6 +65,7 @@ export default function About() {
   return (
     <main>
       <Header />
+      <Breadcrumbs />
 
       <PageHero
         title="About Us"

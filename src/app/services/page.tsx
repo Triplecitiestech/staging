@@ -6,6 +6,7 @@ import Footer from '@/components/layout/Footer'
 import Link from 'next/link'
 import PageHero from '@/components/shared/PageHero'
 import ServiceCard from '@/components/shared/ServiceCard'
+import Breadcrumbs from '@/components/seo/Breadcrumbs'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import LoadingSpinner from '@/components/LoadingSpinner'
 import { SERVICES, PAGE_CONTENT } from '@/constants/services'
@@ -15,7 +16,8 @@ export default function Services() {
     <ErrorBoundary>
       <main>
         <Header />
-        
+        <Breadcrumbs />
+
         <PageHero
           title={PAGE_CONTENT.hero.title}
           subtitle={PAGE_CONTENT.hero.subtitle}
