@@ -25,6 +25,7 @@ export default function Hero() {
           fill
           className="object-cover object-[center_20%]"
           priority
+          fetchPriority="high"
         />
         {/* Dark overlay for better text readability */}
         <div className="absolute inset-0 bg-black/40"></div>

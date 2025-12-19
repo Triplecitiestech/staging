@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
 import ScrollToTop from '@/components/ui/ScrollToTop'
+import FAQSchema from '@/components/seo/FAQSchema'
 
 export const metadata: Metadata = {
   title: 'Triple Cities Tech | Managed IT Services for Small Business | Central NY',
@@ -87,7 +88,7 @@ export default function RootLayout({
 }: {
   children: React.ReactNode
 }) {
-  const structuredData = {
+  const localBusinessData = {
     '@context': 'https://schema.org',
     '@type': 'LocalBusiness',
     name: 'Triple Cities Tech',
@@ -126,6 +127,35 @@ export default function RootLayout({
     }
   }
 
+  const organizationData = {
+    '@context': 'https://schema.org',
+    '@type': 'Organization',
+    name: 'Triple Cities Tech',
+    url: 'https://www.triplecitiestech.com',
+    logo: 'https://www.triplecitiestech.com/logo/tctlogo.webp',
+    description: 'Professional IT management services for small and mid-sized businesses in Central New York. Specializing in managed IT, cybersecurity, cloud services, and IT strategy.',
+    address: {
+      '@type': 'PostalAddress',
+      streetAddress: '1109 Monroe St',
+      addressLocality: 'Endicott',
+      addressRegion: 'NY',
+      postalCode: '13760',
+      addressCountry: 'US'
+    },
+    contactPoint: {
+      '@type': 'ContactPoint',
+      telephone: '(607) 341-7500',
+      contactType: 'customer service',
+      email: 'info@triplecitiestech.com',
+      areaServed: 'US',
+      availableLanguage: 'en'
+    },
+    sameAs: [
+      'https://www.facebook.com/TripleCitiesTech/',
+      'https://linkedin.com/company/triple-cities-tech'
+    ]
+  }
+
   return (
     <html lang="en" className="scroll-smooth">
       <head>
@@ -134,10 +164,17 @@ export default function RootLayout({
         <link rel="icon" href="/favicon-32x32.png" sizes="32x32" type="image/png" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <link rel="manifest" href="/site.webmanifest" />
+        <link rel="preconnect" href="https://calendly.com" />
+        <link rel="dns-prefetch" href="https://calendly.com" />
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(localBusinessData) }}
         />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationData) }}
+        />
+        <FAQSchema />
       </head>
       <body className="antialiased overflow-x-hidden" suppressHydrationWarning={true}>
         <div className="min-h-screen w-full prevent-overflow">
