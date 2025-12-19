@@ -6,6 +6,7 @@ export const NAVIGATION = {
     { label: 'About', href: '/about' }
   ],
   mobile: [
+    { label: 'Home', href: '/' },
     { label: 'Industries', href: '/industries' },
     { label: 'Services', href: '/services' },
     { label: 'About', href: '/about' },

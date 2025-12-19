@@ -115,11 +115,11 @@ export default function Header() {
         >
           {/* Backdrop Overlay */}
           <div className="mobile-menu-backdrop"></div>
-          
-          {/* 3D Radiant Cyan Background */}
-          <div className="absolute inset-0 bg-gradient-to-br from-cyan-600 via-cyan-500 to-cyan-700 perspective-1000 transform-gpu w-full h-full">
-            {/* 3D Radiant Glow Effect */}
-            <div className="absolute inset-0 bg-gradient-to-br from-cyan-400/20 via-cyan-300/30 to-cyan-500/20" style={{ transform: 'translateZ(10px)' }}></div>
+
+          {/* Dark Glass Background */}
+          <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-black to-gray-900 perspective-1000 transform-gpu w-full h-full">
+            {/* Subtle Glow Effect */}
+            <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/10 via-transparent to-purple-500/10" style={{ transform: 'translateZ(10px)' }}></div>
             
             {/* 3D Dynamic Pattern */}
             <div className="absolute inset-0 opacity-10" style={{ transform: 'translateZ(20px)' }}>
@@ -138,9 +138,9 @@ export default function Header() {
             
             {/* 3D Floating Elements */}
             <div className="absolute inset-0 overflow-hidden">
-              <div className="absolute top-20 left-10 w-32 h-32 bg-cyan-200/10 rounded-full blur-xl" style={{ transform: 'translateZ(30px) rotateX(15deg)' }}></div>
-              <div className="absolute top-40 right-16 w-24 h-24 bg-cyan-300/15 rounded-full blur-lg" style={{ transform: 'translateZ(25px) rotateY(10deg)' }}></div>
-              <div className="absolute bottom-32 left-20 w-20 h-20 bg-cyan-400/10 rounded-full blur-md" style={{ transform: 'translateZ(35px) rotateX(-10deg)' }}></div>
+              <div className="absolute top-20 left-10 w-32 h-32 bg-cyan-500/5 rounded-full blur-xl" style={{ transform: 'translateZ(30px) rotateX(15deg)' }}></div>
+              <div className="absolute top-40 right-16 w-24 h-24 bg-purple-500/5 rounded-full blur-lg" style={{ transform: 'translateZ(25px) rotateY(10deg)' }}></div>
+              <div className="absolute bottom-32 left-20 w-20 h-20 bg-blue-500/5 rounded-full blur-md" style={{ transform: 'translateZ(35px) rotateX(-10deg)' }}></div>
             </div>
           </div>
 
@@ -253,14 +253,15 @@ export default function Header() {
                       }}>
                         {item.label}
                       </h2>
-                    <p className="text-white/80 text-sm font-medium text-center" style={{ 
+                    <p className="text-white/80 text-sm font-medium text-center" style={{
                       textShadow: '0 2px 4px rgba(0, 0, 0, 0.5)',
                       transform: 'translateZ(10px)'
                     }}>
+                      {item.label === 'Home' && 'Back to homepage'}
                       {item.label === 'Services' && 'IT solutions & cybersecurity'}
                       {item.label === 'Industries' && 'Specialized expertise'}
                       {item.label === 'About' && 'Our story & team'}
-                      {item.label === 'Contact' && 'Get in touch'}
+                      {item.label === 'Contact Us' && 'Get in touch'}
                     </p>
                   </div>
                   

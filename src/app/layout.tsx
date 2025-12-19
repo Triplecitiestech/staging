@@ -224,7 +224,7 @@ export default function RootLayout({
         />
         <FAQSchema />
       </head>
-      <body className="antialiased overflow-x-hidden" suppressHydrationWarning={true}>
+      <body className="antialiased overflow-x-hidden bg-black" suppressHydrationWarning={true}>
         <div className="min-h-screen w-full prevent-overflow">
           {children}
           <ScrollToTop />
