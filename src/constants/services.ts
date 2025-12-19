@@ -156,15 +156,15 @@ export const SERVICES: Service[] = [
   },
   {
     title: 'Co-Managed IT Services',
-    subtitle: 'Empowering your internal teams with expert support.',
+    subtitle: 'Enterprise-grade tools and capabilities for your existing IT team.',
     features: [
-      'Augment your IT team with specialized expertise',
-      'Strategic guidance and technology planning',
-      'Fill skill gaps without full-time hiring costs',
-      'Flexible support that scales with your needs',
-      'Preserve internal control while gaining enterprise capabilities'
+      'Advanced security tools and monitoring platforms',
+      'Automated compliance tracking and reporting',
+      'Streamlined onboarding and offboarding workflows',
+      'Enterprise backup and disaster recovery solutions',
+      'Access to our full technology stack and best practices'
     ],
-    description: 'You have IT staff - now give them a partner. We complement your team\'s efforts with strategic support, advanced security expertise, and proven processes.',
+    description: 'Empower your internal IT team with the same enterprise-grade tools, security platforms, and automated processes we use for our fully managed clients.',
     gradient: 'from-yellow-500 to-orange-500',
     icon: '/icon/bg.webp',
     image: '/iws.webp'

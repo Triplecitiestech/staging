@@ -243,25 +243,25 @@ export default function ProspectEngagement() {
 
   const contactOptions = [
     {
-      icon: <MonitorIcon size={32} className="text-white" />,
-      title: 'Chat with Our Bot',
-      description: 'Answer a few quick questions and get a personalized IT assessment.',
+      icon: <MailIcon size={32} className="text-white" />,
+      title: 'Have us reach out to you',
+      description: 'Fill out our contact form and one of our experts will reach out promptly.',
       color: 'from-cyan-500 to-cyan-600',
-      action: () => handlePathSelection('outsource'),
-      actionText: 'Start Chat'
+      href: '/contact',
+      actionText: 'Contact Us'
     },
     {
       icon: <CalendarIcon size={32} className="text-white" />,
       title: 'Schedule a Meeting',
       description: 'Book a free consultation with our IT experts to discuss your needs.',
       color: 'from-purple-500 to-purple-600',
-      href: 'https://calendly.com/triplecitiestech',
+      href: 'https://calendly.com/kurtis-tct',
       actionText: 'Schedule Now'
     },
     {
       icon: <PhoneIcon size={32} className="text-white" />,
       title: 'Call Us Directly',
-      description: 'Speak with our team right away. We\'re here to help during business hours.',
+      description: 'Call and speak with our sales team today.',
       color: 'from-orange-500 to-orange-600',
       href: `tel:${CONTACT_INFO.phone}`,
       actionText: CONTACT_INFO.phone,
