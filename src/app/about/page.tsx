@@ -14,9 +14,9 @@ import {
   HandshakeIcon,
   TargetIcon,
   BookOpenIcon,
-  UsersIcon,
   PhoneIcon,
   MailIcon,
+  CalendarIcon,
   GlobeIcon
 } from '@/components/icons/TechIcons'
 
@@ -53,13 +53,6 @@ export default function About() {
       description: 'Our values are simple: Earn trust. Be impactful. Enjoy the ride. These guide every client interaction and decision we make.',
       gradient: 'from-indigo-500 to-purple-500'
     }
-  ]
-
-  const clients = [
-    'Construction firms that need rugged, mobile-ready IT support',
-    'Healthcare providers looking for HIPAA-compliant solutions',
-    'Manufacturers requiring stable, secure infrastructure',
-    'Professional service firms needing efficient, secure workflows'
   ]
 
   return (

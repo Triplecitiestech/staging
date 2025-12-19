@@ -2,7 +2,6 @@
 
 import React from 'react'
 import Link from 'next/link'
-import { CheckCircleIcon } from '@/components/icons/TechIcons'
 
 interface ServiceCardProps {
   icon?: string
@@ -20,9 +19,7 @@ export default function ServiceCard({
   title,
   subtitle,
   features,
-  description,
-  gradient,
-  darkBackground = false
+  description
 }: ServiceCardProps) {
   return (
     <div className="relative h-full">

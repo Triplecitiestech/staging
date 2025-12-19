@@ -3,7 +3,7 @@
 import React, { useState } from 'react'
 import { useAnimation } from '@/hooks/useAnimation'
 import Link from 'next/link'
-import { MonitorIcon, CalendarIcon, PhoneIcon, ChevronRightIcon, MailIcon, CheckCircleIcon, ChevronLeftIcon } from '@/components/icons/TechIcons'
+import { CalendarIcon, PhoneIcon, ChevronRightIcon, MailIcon, ChevronLeftIcon } from '@/components/icons/TechIcons'
 import { CONTACT_INFO } from '@/constants/data'
 
 // Type definitions
@@ -129,14 +129,6 @@ export default function ProspectEngagement() {
       return questions;
     }
     return []
-  }
-
-  const handlePathSelection = (path: string) => {
-    if (path === 'outsource') {
-      setUserPath(path as UserPath)
-      setShowBot(true)
-      setCurrentStep(1)
-    }
   }
 
   const handleAnswer = (questionId: string, answer: string) => {
