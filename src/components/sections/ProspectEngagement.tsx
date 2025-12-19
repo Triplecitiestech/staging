@@ -322,27 +322,17 @@ export default function ProspectEngagement() {
                     </div>
 
                     <div>
-                      {option.href ? (
-                        <a
-                          href={option.href}
-                          target={option.href.startsWith('http') ? '_blank' : undefined}
-                          rel={option.href.startsWith('http') ? 'noopener noreferrer' : undefined}
-                          className={`inline-flex items-center justify-center w-full text-center bg-gradient-to-r ${option.color} hover:opacity-90 text-white font-bold px-4 py-3 md:px-6 md:py-4 rounded-xl transition-all duration-300 hover:scale-105 shadow-lg ${
-                            option.isPhone ? 'text-lg md:text-xl' : ''
-                          }`}
-                        >
-                          {option.actionText}
-                          {!option.isPhone && <ChevronRightIcon size={16} className="ml-2 transform group-hover:translate-x-1 transition-transform duration-300" />}
-                        </a>
-                      ) : (
-                        <button
-                          onClick={option.action}
-                          className={`inline-flex items-center justify-center w-full text-center bg-gradient-to-r ${option.color} hover:opacity-90 text-white font-bold px-4 py-3 md:px-6 md:py-4 rounded-xl transition-all duration-300 hover:scale-105 shadow-lg`}
-                        >
-                          <span>{option.actionText}</span>
-                          <ChevronRightIcon size={16} className="ml-2 transform group-hover:translate-x-1 transition-transform duration-300" />
-                        </button>
-                      )}
+                      <a
+                        href={option.href}
+                        target={option.href.startsWith('http') ? '_blank' : undefined}
+                        rel={option.href.startsWith('http') ? 'noopener noreferrer' : undefined}
+                        className={`inline-flex items-center justify-center w-full text-center bg-gradient-to-r ${option.color} hover:opacity-90 text-white font-bold px-4 py-3 md:px-6 md:py-4 rounded-xl transition-all duration-300 hover:scale-105 shadow-lg ${
+                          option.isPhone ? 'text-lg md:text-xl' : ''
+                        }`}
+                      >
+                        {option.actionText}
+                        {!option.isPhone && <ChevronRightIcon size={16} className="ml-2 transform group-hover:translate-x-1 transition-transform duration-300" />}
+                      </a>
                     </div>
                   </div>
                 </div>
