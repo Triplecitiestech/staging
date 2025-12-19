@@ -64,7 +64,7 @@ export default function PageHero({
         )}
         
         {/* Overlay for better text readability */}
-        <div className={`absolute inset-0 ${videoBackground ? 'bg-black/70' : imageBackground ? 'bg-gradient-to-br from-black/40 via-cyan-900/30 to-black/40' : gradientFrom === 'from-transparent' ? 'bg-transparent' : ''}`}></div>
+        <div className={`absolute inset-0 ${videoBackground ? 'bg-black/70' : imageBackground ? 'bg-black/40' : gradientFrom === 'from-transparent' ? 'bg-transparent' : ''}`}></div>
         
         {/* Subtle Grid */}
         <div className="absolute inset-0 opacity-[0.02]">

@@ -121,10 +121,32 @@ export default function RootLayout({
       'https://linkedin.com/company/triple-cities-tech'
     ],
     description: 'Professional IT management services for small and mid-sized businesses in Central New York. Cybersecurity, cloud services, and IT strategy.',
-    areaServed: {
-      '@type': 'City',
-      name: 'Central New York'
-    }
+    areaServed: [
+      {
+        '@type': 'City',
+        name: 'Binghamton',
+        addressRegion: 'NY'
+      },
+      {
+        '@type': 'City',
+        name: 'Endicott',
+        addressRegion: 'NY'
+      },
+      {
+        '@type': 'AdministrativeArea',
+        name: 'Broome County',
+        addressRegion: 'NY'
+      },
+      {
+        '@type': 'AdministrativeArea',
+        name: 'Southern Tier',
+        addressRegion: 'NY'
+      },
+      {
+        '@type': 'Country',
+        name: 'United States'
+      }
+    ]
   }
 
   const organizationData = {
@@ -150,6 +172,32 @@ export default function RootLayout({
       areaServed: 'US',
       availableLanguage: 'en'
     },
+    areaServed: [
+      {
+        '@type': 'City',
+        name: 'Binghamton',
+        addressRegion: 'NY'
+      },
+      {
+        '@type': 'City',
+        name: 'Endicott',
+        addressRegion: 'NY'
+      },
+      {
+        '@type': 'AdministrativeArea',
+        name: 'Broome County',
+        addressRegion: 'NY'
+      },
+      {
+        '@type': 'AdministrativeArea',
+        name: 'Southern Tier',
+        addressRegion: 'NY'
+      },
+      {
+        '@type': 'Country',
+        name: 'United States'
+      }
+    ],
     sameAs: [
       'https://www.facebook.com/TripleCitiesTech/',
       'https://linkedin.com/company/triple-cities-tech'

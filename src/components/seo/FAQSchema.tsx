@@ -16,7 +16,7 @@ export default function FAQSchema() {
         "name": "Where is Triple Cities Tech located?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "Our office is located at 1109 Monroe St, Endicott, NY 13760. We serve businesses throughout Central New York and surrounding areas including Binghamton, Johnson City, Vestal, and the Southern Tier region."
+          "text": "Our office is located at 1109 Monroe St, Endicott, NY 13760. We primarily serve businesses in Binghamton, Broome County, and the Southern Tier region of New York. We also provide remote IT support to clients nationwide including Alaska, Maine, Florida, and other states across the country."
         }
       },
       {
@@ -56,7 +56,7 @@ export default function FAQSchema() {
         "name": "What areas does Triple Cities Tech serve?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "Triple Cities Tech primarily serves businesses in Central New York, including Endicott, Binghamton, Johnson City, Vestal, Ithaca, Cortland, and the surrounding Southern Tier region. We provide on-site and remote IT support to small and mid-sized businesses throughout the area."
+          "text": "Triple Cities Tech primarily serves businesses in Binghamton, Broome County, and the Southern Tier region of New York, including Endicott, Johnson City, Vestal, Ithaca, and Cortland. We also provide remote IT support to clients nationwide across the United States. Our office is located in Endicott, NY."
         }
       }
     ]

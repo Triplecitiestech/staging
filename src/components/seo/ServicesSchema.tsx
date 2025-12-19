@@ -17,10 +17,32 @@ export default function ServicesSchema() {
       "telephone": "(607) 341-7500",
       "url": "https://www.triplecitiestech.com"
     },
-    "areaServed": {
-      "@type": "State",
-      "name": "New York"
-    },
+    "areaServed": [
+      {
+        "@type": "City",
+        "name": "Binghamton",
+        "addressRegion": "NY"
+      },
+      {
+        "@type": "City",
+        "name": "Endicott",
+        "addressRegion": "NY"
+      },
+      {
+        "@type": "AdministrativeArea",
+        "name": "Broome County",
+        "addressRegion": "NY"
+      },
+      {
+        "@type": "AdministrativeArea",
+        "name": "Southern Tier",
+        "addressRegion": "NY"
+      },
+      {
+        "@type": "Country",
+        "name": "United States"
+      }
+    ],
     "hasOfferCatalog": {
       "@type": "OfferCatalog",
       "name": "IT Services",
