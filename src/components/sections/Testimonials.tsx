@@ -10,19 +10,19 @@ export default function Testimonials() {
 
   const testimonials = [
     {
-      quote: "Triple Cities Tech transformed how we manage our IT — faster onboarding, no more surprises, and a team that actually understands our business.",
-      author: "Construction Firm CEO ",
-      company: "Construction Industry"
+      quote: "As a small business that does not have an in-house IT department, Kurt and his team are an expansion of our workforce. The team at TCT have always responded in a quick and friendly manner and are able to take care of any IT issues we may be facing in order to keep our business running smoothly without missing work time.",
+      author: "Gina Mancini",
+      company: "Brooms Over Broome"
+    },
+    {
+      quote: "Have used Kurtis and his team on multiple occasions, and highly recommend! They are efficient, and communicate the job in an easy to understand manner. Friendly and professional, as well!",
+      author: "Marc Yezzi",
+      company: "The Kitchen Counter"
     },
     {
       quote: "They handle everything. I don't have to think about IT anymore. And our team is working more efficiently than ever.",
       author: "Healthcare Practice Manager",
       company: "Healthcare Industry"
-    },
-    {
-      quote: "The cybersecurity upgrades and cloud migration made an immediate impact. We sleep better at night.",
-      author: "Manufacturing Operations Director",
-      company: "Manufacturing Industry"
     }
   ]
 

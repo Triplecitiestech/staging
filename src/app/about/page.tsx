@@ -171,49 +171,6 @@ export default function About() {
         </div>
       </div>
 
-      {/* Who We Serve */}
-      <div className="relative bg-gradient-to-br from-black via-gray-900 to-cyan-900 py-24">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-            <div className="relative order-2 lg:order-1">
-              <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-3xl p-12 shadow-xl">
-                <div className="text-center">
-                  <div className="w-24 h-24 bg-gradient-to-br from-purple-500 to-pink-500 rounded-2xl flex items-center justify-center mb-6 mx-auto shadow-lg">
-                    <UsersIcon size={36} className="text-white" />
-                  </div>
-                  <h3 className="text-2xl font-bold text-white mb-4">Our Clients</h3>
-                  <p className="text-white/90 leading-relaxed">
-                    Growing businesses ready to upgrade their IT experience and gain a competitive advantage.
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="order-1 lg:order-2">
-              <h2 className="text-4xl md:text-5xl font-bold text-white mb-8">Who We Serve</h2>
-              <p className="text-lg text-white/90 mb-8 leading-relaxed">
-                Our clients include businesses across multiple industries, each with unique IT challenges
-                and growth opportunities.
-              </p>
-              <ul className="space-y-4">
-                {clients.map((client, index) => (
-                  <li key={index} className="flex items-start group">
-                    <div className="w-6 h-6 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-full flex items-center justify-center mr-4 mt-0.5 group-hover:scale-110 transition-transform duration-300">
-                      <span className="text-white text-sm font-bold">✓</span>
-                    </div>
-                    <span className="text-white/90 leading-relaxed group-hover:text-cyan-200 transition-colors duration-300">
-                      {client}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-              <p className="text-lg text-white/90 mt-8 leading-relaxed">
-                If you're a growing business ready to upgrade your IT experience, we're here to help.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
       {/* Contact Section */}
       <div className="relative bg-gradient-to-br from-cyan-900 via-gray-900 to-black py-24">
         <div className="max-w-7xl mx-auto px-6">
@@ -267,11 +224,11 @@ export default function About() {
         {/* Content */}
         <div className="relative z-10 text-center max-w-4xl mx-auto px-6">
           <h2 className="text-4xl md:text-5xl font-bold text-white mb-8">
-            Let's Build Something Smarter, Together
+            Let's Talk Technology
           </h2>
           <p className="text-xl text-white mb-12 max-w-3xl mx-auto leading-relaxed">
-            Ready to transform your IT experience? Let's discuss how we can help your business
-            gain clarity, stability, and performance from technology.
+            Let's discuss how we can help your business
+            gain clarity, stability, and roi from technology.
           </p>
           <Link
             href="/contact"

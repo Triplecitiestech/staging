@@ -153,6 +153,21 @@ export const SERVICES: Service[] = [
     gradient: 'from-green-500 to-emerald-500',
     icon: '/icon/ic.webp',
     image: '/industry solutions.webp'
+  },
+  {
+    title: 'Co-Managed IT Services',
+    subtitle: 'Empowering your internal teams with expert support.',
+    features: [
+      'Augment your IT team with specialized expertise',
+      'Strategic guidance and technology planning',
+      'Fill skill gaps without full-time hiring costs',
+      'Flexible support that scales with your needs',
+      'Preserve internal control while gaining enterprise capabilities'
+    ],
+    description: 'You have IT staff — now give them a partner. We complement your team's efforts with strategic support, advanced security expertise, and proven processes.',
+    gradient: 'from-yellow-500 to-orange-500',
+    icon: '/icon/bg.webp',
+    image: '/iws.webp'
   }
 ]
 
