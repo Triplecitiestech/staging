@@ -164,7 +164,7 @@ export const SERVICES: Service[] = [
       'Flexible support that scales with your needs',
       'Preserve internal control while gaining enterprise capabilities'
     ],
-    description: 'You have IT staff — now give them a partner. We complement your team's efforts with strategic support, advanced security expertise, and proven processes.',
+    description: 'You have IT staff - now give them a partner. We complement your team\'s efforts with strategic support, advanced security expertise, and proven processes.',
     gradient: 'from-yellow-500 to-orange-500',
     icon: '/icon/bg.webp',
     image: '/iws.webp'

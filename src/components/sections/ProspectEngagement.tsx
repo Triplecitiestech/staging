@@ -276,10 +276,10 @@ export default function ProspectEngagement() {
           <div
             className="absolute inset-0"
             style={{
-              backgroundImage: \`
+              backgroundImage: `
                 linear-gradient(rgba(6, 182, 212, 0.1) 1px, transparent 1px),
                 linear-gradient(90deg, rgba(6, 182, 212, 0.1) 1px, transparent 1px)
-              \`,
+              `,
               backgroundSize: '60px 60px'
             }}
           ></div>
@@ -295,9 +295,9 @@ export default function ProspectEngagement() {
       <div className="relative z-10 max-w-7xl mx-auto px-6">
         <div
           ref={elementRef}
-          className={\`text-center mb-12 md:mb-16 lg:mb-20 transition-all duration-1000 ease-out \${
+          className={`text-center mb-12 md:mb-16 lg:mb-20 transition-all duration-1000 ease-out ${
             isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-20'
-          }\`}
+          }`}
         >
           <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-black text-white mb-4 md:mb-6 lg:mb-8 leading-tight px-4">
             How to{' '}
@@ -309,14 +309,14 @@ export default function ProspectEngagement() {
         </div>
 
         {!showBot ? (
-          <div className={\`transition-all duration-1000 ease-out delay-200 max-w-6xl mx-auto \${
+          <div className={`transition-all duration-1000 ease-out delay-200 max-w-6xl mx-auto ${
             isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-20'
-          }\`}>
+          }`}>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8">
               {contactOptions.map((option, index) => (
                 <div key={index} className="group">
                   <div className="relative bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl md:rounded-3xl p-6 md:p-8 hover:border-white/30 transition-all duration-500 hover:scale-[1.02] hover:shadow-2xl hover:shadow-cyan-500/20 h-full flex flex-col">
-                    <div className={\`w-16 h-16 md:w-20 md:h-20 rounded-2xl bg-gradient-to-r \${option.color} flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform duration-300 mx-auto mb-6\`}>
+                    <div className={`w-16 h-16 md:w-20 md:h-20 rounded-2xl bg-gradient-to-r ${option.color} flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform duration-300 mx-auto mb-6`}>
                       {React.cloneElement(option.icon, { size: 28 })}
                     </div>
 
@@ -335,9 +335,9 @@ export default function ProspectEngagement() {
                           href={option.href}
                           target={option.href.startsWith('http') ? '_blank' : undefined}
                           rel={option.href.startsWith('http') ? 'noopener noreferrer' : undefined}
-                          className={\`inline-flex items-center justify-center w-full text-center bg-gradient-to-r \${option.color} hover:opacity-90 text-white font-bold px-4 py-3 md:px-6 md:py-4 rounded-xl transition-all duration-300 hover:scale-105 shadow-lg \${
+                          className={`inline-flex items-center justify-center w-full text-center bg-gradient-to-r ${option.color} hover:opacity-90 text-white font-bold px-4 py-3 md:px-6 md:py-4 rounded-xl transition-all duration-300 hover:scale-105 shadow-lg ${
                             option.isPhone ? 'text-lg md:text-xl' : ''
-                          }\`}
+                          }`}
                         >
                           {option.actionText}
                           {!option.isPhone && <ChevronRightIcon size={16} className="ml-2 transform group-hover:translate-x-1 transition-transform duration-300" />}
@@ -345,7 +345,7 @@ export default function ProspectEngagement() {
                       ) : (
                         <button
                           onClick={option.action}
-                          className={\`inline-flex items-center justify-center w-full text-center bg-gradient-to-r \${option.color} hover:opacity-90 text-white font-bold px-4 py-3 md:px-6 md:py-4 rounded-xl transition-all duration-300 hover:scale-105 shadow-lg\`}
+                          className={`inline-flex items-center justify-center w-full text-center bg-gradient-to-r ${option.color} hover:opacity-90 text-white font-bold px-4 py-3 md:px-6 md:py-4 rounded-xl transition-all duration-300 hover:scale-105 shadow-lg`}
                         >
                           <span>{option.actionText}</span>
                           <ChevronRightIcon size={16} className="ml-2 transform group-hover:translate-x-1 transition-transform duration-300" />
@@ -358,9 +358,9 @@ export default function ProspectEngagement() {
             </div>
           </div>
         ) : (
-          <div className={\`transition-all duration-1000 ease-out delay-200 max-w-4xl mx-auto px-4 sm:px-6 \${
+          <div className={`transition-all duration-1000 ease-out delay-200 max-w-4xl mx-auto px-4 sm:px-6 ${
             isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-20'
-          }\`}>
+          }`}>
             <div className="relative bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl sm:rounded-2xl md:rounded-3xl overflow-hidden shadow-2xl">
               <div className="bg-gray-900/50 border-b border-white/20 p-4 md:p-6">
                 <button
@@ -384,7 +384,7 @@ export default function ProspectEngagement() {
                 <div className="w-full bg-gray-700 rounded-full h-2 overflow-hidden">
                   <div
                     className="bg-gradient-to-r from-cyan-400 to-cyan-500 h-2 rounded-full transition-all duration-700 ease-out"
-                    style={{ width: \`\${userPath ? (currentStep / getConversationalQuestions(userPath as UserPath).length) * 100 : 0}%\` }}
+                    style={{ width: `${userPath ? (currentStep / getConversationalQuestions(userPath as UserPath).length) * 100 : 0}%` }}
                   ></div>
                 </div>
               </div>
@@ -393,12 +393,12 @@ export default function ProspectEngagement() {
                 {conversationHistory.length > 0 && (
                   <div className="mb-4 sm:mb-6 space-y-3 sm:space-y-4">
                     {conversationHistory.map((entry: ConversationEntry, index: number) => (
-                      <div key={index} className={\`flex \${entry.type === 'user' ? 'justify-end' : 'justify-start'}\`}>
-                        <div className={\`max-w-[85%] sm:max-w-xs md:max-w-md px-3 sm:px-4 py-2 sm:py-3 rounded-xl sm:rounded-2xl \${
+                      <div key={index} className={`flex ${entry.type === 'user' ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`max-w-[85%] sm:max-w-xs md:max-w-md px-3 sm:px-4 py-2 sm:py-3 rounded-xl sm:rounded-2xl ${
                           entry.type === 'user'
                             ? 'bg-gradient-to-r from-cyan-400 to-cyan-500 text-white shadow-lg'
                             : 'bg-gray-800/50 text-gray-200 border border-gray-600/50'
-                        }\`}>
+                        }`}>
                           <span className="text-xs sm:text-sm leading-relaxed">{entry.message}</span>
                         </div>
                       </div>
