@@ -132,7 +132,7 @@ export default function ServicesSummary() {
                     </div>
 
                     {/* Content */}
-                    <div className="flex-1 min-w-0 text-center md:text-left">
+                    <div className="w-full md:flex-1 md:min-w-0 text-center md:text-left">
                       <h3 className="text-lg sm:text-xl font-bold text-white mb-2 sm:mb-3 group-hover:text-cyan-300 transition-colors duration-500">
                         {servicesLeft[rowIndex].title}
                       </h3>
@@ -160,7 +160,7 @@ export default function ServicesSummary() {
                     </div>
 
                     {/* Content */}
-                    <div className="flex-1 min-w-0 text-center md:text-left">
+                    <div className="w-full md:flex-1 md:min-w-0 text-center md:text-left">
                       <h3 className="text-lg sm:text-xl font-bold text-white mb-2 sm:mb-3 group-hover:text-cyan-300 transition-colors duration-500">
                         {servicesRight[rowIndex].title}
                       </h3>
