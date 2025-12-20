@@ -26,7 +26,7 @@ export default function About() {
     {
       icon: <BuildingIcon size={24} className="text-white" />,
       title: 'Technology Built for Small Business',
-      description: 'We specialize in supporting teams of 20–50 users with IT solutions designed for their size, budget, and growth plans. On many occasions, we've enabled businesses to free themselves of local constraints, work and hire remotely, streamline communication, and include best-in-class security and business continuity — without compromise.',
+      description: 'We specialize in supporting teams of 20–50 users with IT solutions designed for their size, budget, and growth plans. On many occasions, we\'ve enabled businesses to free themselves of local constraints, work and hire remotely, streamline communication, and include best-in-class security and business continuity — without compromise.',
       gradient: 'from-blue-500 to-cyan-500'
     },
     {
