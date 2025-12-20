@@ -14,7 +14,7 @@ export default function RTP() {
     'Dell & Lenovo Business Laptops – Providing powerful, secure, and reliable mobility options.',
     'Networking Solutions – Featuring Meraki, Ubiquiti, and other industry-leading brands for optimal connectivity.',
     'HP Printers – Ensuring consistent, high-quality printing functionality.',
-    'Modern Operating Systems – Supporting Microsoft Windows 10 and above for security and up-to-date compatibility.',
+    'Modern Operating Systems – Supporting Microsoft Windows 11 and above for security and up-to-date compatibility.',
     'Unified Communication Systems – Featuring RingCentral and Yealink for seamless business communication.'
   ]
 
@@ -40,9 +40,9 @@ export default function RTP() {
               Optimizing IT Infrastructure with Our Recommended Technology Platform (RTP)
             </h2>
             <p className="text-white/90 text-lg leading-relaxed">
-              In an ever-evolving technology landscape, choosing the right solutions can be overwhelming. 
-              To ensure seamless operations, security, and efficiency, we adhere to a Recommended Technology 
-              Platform (RTP)—a carefully curated suite of technologies designed to maximize reliability and 
+              In an ever-evolving technology landscape, choosing the right solutions can be overwhelming.
+              To ensure seamless operations, security, and efficiency, we adhere to a Recommended Technology
+              Platform (RTP)—a carefully curated suite of technologies and vendors designed to maximize reliability and
               streamline IT management.
             </p>
           </div>

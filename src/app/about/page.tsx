@@ -25,33 +25,27 @@ export default function About() {
   const values = [
     {
       icon: <BuildingIcon size={24} className="text-white" />,
-      title: 'Built for Small Business',
-      description: 'We specialize in helping 20–50 person teams grow with technology that fits their size, budget, and goals.',
+      title: 'Technology Built for Small Business',
+      description: 'We specialize in supporting teams of 20–50 users with IT solutions designed for their size, budget, and growth plans — not enterprise templates forced into smaller environments.',
       gradient: 'from-blue-500 to-cyan-500'
     },
     {
       icon: <ShieldCheckIcon size={24} className="text-white" />,
-      title: 'Security Without Headaches',
-      description: 'We deliver strong cybersecurity and compliance solutions that don\'t slow you down or bury you in jargon.',
+      title: 'Security That Works in the Real World',
+      description: 'We implement strong cybersecurity and compliance practices without slowing your team down or burying you in technical jargon.',
       gradient: 'from-purple-500 to-pink-500'
     },
     {
       icon: <LayersIcon size={24} className="text-white" />,
-      title: 'Automation with Purpose',
-      description: 'From onboarding to monitoring, our automated processes reduce errors, increase speed, and give you peace of mind.',
+      title: 'Automation with Intent',
+      description: 'From onboarding to monitoring, our processes are designed to reduce errors, increase speed, and eliminate avoidable disruptions.',
       gradient: 'from-emerald-500 to-teal-500'
     },
     {
       icon: <HandshakeIcon size={24} className="text-white" />,
-      title: 'Partnership, Not Just Support',
-      description: 'We don\'t just fix problems — we prevent them. We provide strategic guidance that aligns technology with your long-term vision.',
+      title: 'Partnership Over Break-Fix',
+      description: 'We don\'t just react to problems — we work proactively to prevent them and align your technology with long-term business goals.',
       gradient: 'from-orange-500 to-red-500'
-    },
-    {
-      icon: <TargetIcon size={24} className="text-white" />,
-      title: 'Trust, Impact, and the Ride',
-      description: 'Our values are simple: Earn trust. Be impactful. Enjoy the ride. These guide every client interaction and decision we make.',
-      gradient: 'from-indigo-500 to-purple-500'
     }
   ]
 
@@ -62,7 +56,9 @@ export default function About() {
 
       <PageHero
         title="About Us"
-        subtitle="At Triple Cities Tech, we believe small and mid-sized businesses deserve enterprise-grade IT without the complexity, cost, or frustration. We were founded on a simple idea: that technology should serve your business — not the other way around."
+        subtitle="At Triple Cities Tech, we help small and mid-sized businesses run IT that actually works — without unnecessary complexity, bloated costs, or constant fire drills.
+
+Too many businesses are stuck with overengineered systems, outdated practices, or MSPs that sell "enterprise solutions" without understanding how smaller teams actually operate. We believe technology should support your business goals, not slow you down or get in the way."
         textAlign="center"
         verticalPosition="bottom"
         imageBackground="/herobg.webp"
@@ -76,17 +72,17 @@ export default function About() {
               <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">Our Story</h2>
               <div className="space-y-4 text-lg leading-relaxed">
                 <p className="text-white/90">
-                  After years of working in larger MSPs, our founder saw a pattern: clients were being
-                  sold one-size-fits-all solutions that didn't fit their needs. Systems were overcomplicated,
-                  outdated, or slow to implement. There had to be a better way.
+                  After spending years inside larger managed service providers, our founder saw the same problems over and over again:
+                  one-size-fits-all solutions, slow implementations, unnecessary complexity, and businesses paying for IT they didn't truly need.
                 </p>
                 <p className="text-white/90">
-                  In 2017, Triple Cities Tech was created to provide agile, right-sized, and modern IT
-                  solutions for companies that want to work smarter — not harder — with their technology.
+                  In 2017, Triple Cities Tech was built to do things differently.
                 </p>
                 <p className="text-white/90">
-                  Today, we help businesses in construction, healthcare, manufacturing, and professional
-                  services gain clarity, stability, and performance from their IT.
+                  We focus on right-sized, modern IT — designed around how your business actually works today, with room to scale tomorrow. No fluff. No bloat. Just systems that are secure, reliable, and easy to operate.
+                </p>
+                <p className="text-white/90">
+                  Today, we support businesses across construction, healthcare, manufacturing, and professional services — environments where uptime, security, and clarity matter.
                 </p>
               </div>
             </div>
@@ -98,8 +94,7 @@ export default function About() {
                   </div>
                   <h3 className="text-2xl font-bold text-white mb-3">Founded in 2017</h3>
                   <p className="text-white/90 leading-relaxed">
-                    Born from the frustration of seeing businesses struggle with oversized,
-                    overcomplicated IT solutions that didn't fit their needs.
+                    Born from firsthand experience seeing small businesses struggle under oversized, overcomplicated IT solutions that failed to deliver real value.
                   </p>
                 </div>
               </div>
@@ -120,9 +115,8 @@ export default function About() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 max-w-7xl mx-auto">
-            {/* First 3 cards in top row */}
-            {values.slice(0, 3).map((value, index) => (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 max-w-5xl mx-auto">
+            {values.map((value, index) => (
               <div key={index} className="group">
                 <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-3xl p-8 shadow-xl hover:shadow-2xl transition-all duration-500 hover:scale-105 h-full">
                   <div className="text-center">
@@ -140,26 +134,22 @@ export default function About() {
               </div>
             ))}
           </div>
+        </div>
+      </div>
 
-          {/* Second row with 2 cards centered */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 max-w-4xl mx-auto mt-8">
-            {values.slice(3, 5).map((value, index) => (
-              <div key={index + 3} className="group">
-                <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-3xl p-8 shadow-xl hover:shadow-2xl transition-all duration-500 hover:scale-105 h-full">
-                  <div className="text-center">
-                    <div className={`w-16 h-16 bg-gradient-to-br ${value.gradient} rounded-2xl flex items-center justify-center mb-6 mx-auto shadow-lg group-hover:scale-110 transition-transform duration-300`}>
-                      {value.icon}
-                    </div>
-                    <h3 className="text-xl font-bold text-white mb-4 group-hover:text-cyan-200 transition-colors duration-300">
-                      {value.title}
-                    </h3>
-                    <p className="text-white/90 leading-relaxed">
-                      {value.description}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            ))}
+      {/* Our Values */}
+      <div className="relative bg-gradient-to-br from-black via-gray-900 to-cyan-900 py-24">
+        <div className="max-w-5xl mx-auto px-6">
+          <div className="text-center">
+            <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">
+              Our Values
+            </h2>
+            <p className="text-2xl md:text-3xl text-cyan-300 font-semibold mb-4">
+              Earn trust. Be impactful. Enjoy the ride.
+            </p>
+            <p className="text-xl text-white/90 max-w-3xl mx-auto leading-relaxed">
+              These principles guide every recommendation, decision, and client relationship.
+            </p>
           </div>
         </div>
       </div>
