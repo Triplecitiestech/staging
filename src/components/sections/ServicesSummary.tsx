@@ -94,7 +94,7 @@ export default function ServicesSummary() {
         {/* Enhanced 3D Section Header */}
         <div
           ref={elementRef}
-          className={`text-center mb-20 transition-all duration-1000 ease-out ${
+          className={`text-center mb-20 px-4 sm:px-6 lg:px-8 transition-all duration-1000 ease-out ${
             isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-20'
           }`}
         >
@@ -180,7 +180,7 @@ export default function ServicesSummary() {
         </div>
 
         {/* Bottom Section */}
-        <div className={`text-center transition-all duration-1000 ease-out delay-1000 ${
+        <div className={`text-center px-4 sm:px-6 lg:px-8 transition-all duration-1000 ease-out delay-1000 ${
           isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-20'
         }`}>
           <p className="text-xl text-white/90 mb-8 max-w-4xl mx-auto leading-relaxed">
