@@ -119,12 +119,12 @@ export default function TargetClientValue() {
               <div>
                 <div className="space-y-4">
                   {clientBenefits[activeStep].features.map((feature, index) => (
-                    <div 
+                    <div
                       key={index}
-                      className="flex items-center justify-center space-x-3 bg-gray-100/90 hover:bg-gray-200/90 border border-gray-300/50 rounded-xl p-4 transition-all duration-300 cursor-pointer"
+                      className="flex items-center justify-center space-x-3 bg-white/10 backdrop-blur-sm hover:bg-white/15 border border-white/20 hover:border-white/30 rounded-xl p-4 transition-all duration-300 cursor-pointer group"
                     >
-                      <div className="w-2 h-2 bg-cyan-500 rounded-full"></div>
-                      <span className="text-gray-800 font-semibold text-lg">{feature}</span>
+                      <div className="w-2 h-2 bg-cyan-400 rounded-full group-hover:scale-125 transition-transform duration-300"></div>
+                      <span className="text-white font-semibold text-lg group-hover:text-cyan-200 transition-colors duration-300">{feature}</span>
                     </div>
                   ))}
                 </div>
@@ -155,20 +155,20 @@ export default function TargetClientValue() {
                 <div className="text-gray-300 text-sm font-semibold">Customer Satisfaction</div>
               </div>
             </div>
-            <div className="relative bg-gradient-to-br from-gray-900/50 via-gray-800/40 to-black/60 backdrop-blur-xl border border-red-400/30 rounded-3xl p-6 text-center shadow-2xl shadow-red-400/20 overflow-hidden">
-              <div className="absolute top-0 left-0 right-0 h-4 bg-gradient-to-b from-red-400/20 to-transparent rounded-t-3xl"></div>
-              <div className="absolute top-0 left-0 bottom-0 w-4 bg-gradient-to-r from-red-400/15 to-transparent rounded-l-3xl"></div>
-              <div className="relative z-10">
-                <div className="text-3xl font-black text-red-400 mb-2">100%</div>
-                <div className="text-gray-300 text-sm font-semibold">Vulnerability Remediation</div>
-              </div>
-            </div>
             <div className="relative bg-gradient-to-br from-gray-900/50 via-gray-800/40 to-black/60 backdrop-blur-xl border border-purple-400/30 rounded-3xl p-6 text-center shadow-2xl shadow-purple-400/20 overflow-hidden">
               <div className="absolute top-0 left-0 right-0 h-4 bg-gradient-to-b from-purple-400/20 to-transparent rounded-t-3xl"></div>
               <div className="absolute top-0 left-0 bottom-0 w-4 bg-gradient-to-r from-purple-400/15 to-transparent rounded-l-3xl"></div>
               <div className="relative z-10">
-                <div className="text-3xl font-black text-purple-400 mb-2">99.99%</div>
-                <div className="text-gray-300 text-sm font-semibold">Uptime</div>
+                <div className="text-3xl font-black text-purple-400 mb-2">99.9%</div>
+                <div className="text-gray-300 text-sm font-semibold">Network Uptime</div>
+              </div>
+            </div>
+            <div className="relative bg-gradient-to-br from-gray-900/50 via-gray-800/40 to-black/60 backdrop-blur-xl border border-orange-400/30 rounded-3xl p-6 text-center shadow-2xl shadow-orange-400/20 overflow-hidden">
+              <div className="absolute top-0 left-0 right-0 h-4 bg-gradient-to-b from-orange-400/20 to-transparent rounded-t-3xl"></div>
+              <div className="absolute top-0 left-0 bottom-0 w-4 bg-gradient-to-r from-orange-400/15 to-transparent rounded-l-3xl"></div>
+              <div className="relative z-10">
+                <div className="text-3xl font-black text-orange-400 mb-2">250+</div>
+                <div className="text-gray-300 text-sm font-semibold">Happy Businesses</div>
               </div>
             </div>
           </div>

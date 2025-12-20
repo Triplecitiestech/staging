@@ -3,8 +3,8 @@
 export const siteConfig = {
   name: 'Triple Cities Tech',
   description: 'Professional IT management services for small and mid-sized businesses in Central New York. Cybersecurity, cloud services, and IT strategy.',
-  url: 'https://triplecitiestech.com',
-  ogImage: 'https://triplecitiestech.com/og-image.jpg',
+  url: 'https://www.triplecitiestech.com',
+  ogImage: 'https://www.triplecitiestech.com/og-image.jpg',
   links: {
     twitter: 'https://twitter.com/triplecitiestech',
     linkedin: 'https://linkedin.com/company/triple-cities-tech',
@@ -12,9 +12,9 @@ export const siteConfig = {
     github: 'https://github.com/triplecitiestech'
   },
   contact: {
-    phone: '+1 (607) 555-0123',
-    email: 'hello@triplecitiestech.com',
-    address: '123 Main Street, Binghamton, NY 13901',
+    phone: '(607) 341-7500',
+    email: 'info@triplecitiestech.com',
+    address: '1109 Monroe St, Endicott, NY 13760',
     hours: 'Monday - Friday: 8:00 AM - 6:00 PM'
   },
   company: {
@@ -28,15 +28,15 @@ export const siteConfig = {
     titleTemplate: '%s | Triple Cities Tech',
     defaultTitle: 'Triple Cities Tech - Managed IT Services',
     defaultDescription: 'Professional IT management services for small and mid-sized businesses in Central New York. Cybersecurity, cloud services, and IT strategy.',
-    siteUrl: 'https://triplecitiestech.com',
+    siteUrl: 'https://www.triplecitiestech.com',
     openGraph: {
       type: 'website',
       locale: 'en_US',
-      url: 'https://triplecitiestech.com',
+      url: 'https://www.triplecitiestech.com',
       siteName: 'Triple Cities Tech',
       images: [
         {
-          url: 'https://triplecitiestech.com/og-image.jpg',
+          url: 'https://www.triplecitiestech.com/og-image.jpg',
           width: 1200,
           height: 630,
           alt: 'Triple Cities Tech - Managed IT Services'

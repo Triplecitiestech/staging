@@ -3,6 +3,7 @@ import Footer from '@/components/layout/Footer'
 import Link from 'next/link'
 import PageHero from '@/components/shared/PageHero'
 import ServiceCard from '@/components/shared/ServiceCard'
+import Breadcrumbs from '@/components/seo/Breadcrumbs'
 
 export default function Industries() {
   const industries = [
@@ -67,42 +68,38 @@ export default function Industries() {
   return (
     <main>
       <Header />
-      
-      <PageHero 
+      <Breadcrumbs />
+
+      <PageHero
         title="Industries We Serve"
         subtitle="Triple Cities Tech, we specialize in delivering right-sized, modern IT solutions to industries where stability, security, and speed matter most. We understand the challenges unique to your field — and we help you overcome them with clarity and confidence."
-        imageBackground="/iws.webp"
-        textAlign="right"
+        imageBackground="/herobg.webp"
+        textAlign="center"
         verticalPosition="bottom"
-        subtitlePosition="above"
         titleNoWrap={true}
       />
 
       {/* Industries Details */}
-      {industries.map((industry, index) => (
-        <div 
-          key={index} 
-          className={`relative py-0 ${
-            index % 2 === 0 
-              ? 'bg-gradient-to-br from-black via-gray-900 to-cyan-900' 
-              : 'bg-gradient-to-br from-cyan-900 via-gray-900 to-black'
-          }`}
-        >
-          <div className="relative z-10 max-w-7xl mx-auto px-6 py-24">
-            <ServiceCard
-              icon={industry.icon}
-              title={industry.title}
-              subtitle={industry.subtitle}
-              features={industry.features}
-              description={industry.description}
-              gradient={industry.gradient}
-              index={index}
-              image={industry.image}
-              darkBackground={true}
-            />
+      <div className="relative bg-gradient-to-br from-black via-gray-900 to-cyan-900">
+        <div className="relative z-10 max-w-7xl mx-auto px-6 py-24">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {industries.map((industry, index) => (
+              <ServiceCard
+                key={industry.title}
+                icon={industry.icon}
+                title={industry.title}
+                subtitle={industry.subtitle}
+                features={industry.features}
+                description={industry.description}
+                gradient={industry.gradient}
+                index={index}
+                image={industry.image}
+                darkBackground={true}
+              />
+            ))}
           </div>
         </div>
-      ))}
+      </div>
 
       {/* CTA Section */}
       <div className="relative">

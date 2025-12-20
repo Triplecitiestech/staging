@@ -64,7 +64,7 @@ export default function PageHero({
         )}
         
         {/* Overlay for better text readability */}
-        <div className={`absolute inset-0 ${videoBackground ? 'bg-black/70' : imageBackground ? 'bg-gradient-to-br from-black/40 via-cyan-900/30 to-black/40' : gradientFrom === 'from-transparent' ? 'bg-transparent' : ''}`}></div>
+        <div className={`absolute inset-0 ${videoBackground ? 'bg-black/70' : imageBackground ? 'bg-black/40' : gradientFrom === 'from-transparent' ? 'bg-transparent' : ''}`}></div>
         
         {/* Subtle Grid */}
         <div className="absolute inset-0 opacity-[0.02]">
@@ -119,7 +119,7 @@ export default function PageHero({
               {/* Title */}
               <div>
                 <h1 className={`text-3xl sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-black text-white leading-tight transition-all duration-700 delay-200 ${
-                  titleNoWrap ? 'whitespace-nowrap sm:whitespace-nowrap' : ''
+                  titleNoWrap ? 'md:whitespace-nowrap' : ''
                 } ${
                   isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
                 }`}>
@@ -159,7 +159,7 @@ export default function PageHero({
               
               {/* Title */}
               <h1 className={`text-3xl sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-black text-white leading-tight transition-all duration-700 delay-300 ${
-                titleNoWrap ? 'whitespace-nowrap sm:whitespace-nowrap' : ''
+                titleNoWrap ? 'md:whitespace-nowrap' : ''
               } ${
                 isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
               }`}>
@@ -187,7 +187,7 @@ export default function PageHero({
             <>
               {/* Title */}
               <h1 className={`text-3xl sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-black text-white mb-8 leading-tight transition-all duration-700 delay-200 ${
-                titleNoWrap ? 'whitespace-nowrap sm:whitespace-nowrap' : ''
+                titleNoWrap ? 'md:whitespace-nowrap' : ''
               } ${
                 isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
               }`}>

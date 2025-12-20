@@ -16,10 +16,10 @@ export default function Home() {
       <Header />
       <Hero />
       <TargetClientValue />
-      <ProspectEngagement />
       <StreamlinedProcess />
       <ServicesSummary />
       <Testimonials />
+      <ProspectEngagement />
       <ContactNavigation />
       <Footer />
     </main>

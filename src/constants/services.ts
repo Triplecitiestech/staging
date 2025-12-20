@@ -153,14 +153,28 @@ export const SERVICES: Service[] = [
     gradient: 'from-green-500 to-emerald-500',
     icon: '/icon/ic.webp',
     image: '/industry solutions.webp'
+  },
+  {
+    title: 'Co-Managed IT Services',
+    subtitle: 'Enterprise-grade tools and capabilities for your existing IT team.',
+    features: [
+      'Advanced security tools and monitoring platforms',
+      'Automated compliance tracking and reporting',
+      'Streamlined onboarding and offboarding workflows',
+      'Enterprise backup and disaster recovery solutions',
+      'Access to our full technology stack and best practices'
+    ],
+    description: 'Empower your internal IT team with the same enterprise-grade tools, security platforms, and automated processes we use for our fully managed clients.',
+    gradient: 'from-yellow-500 to-orange-500',
+    icon: '/icon/bg.webp',
+    image: '/iws.webp'
   }
 ]
 
 export const PAGE_CONTENT = {
   hero: {
     title: "Our Services",
-    subtitle: "We manage your IT so you don't have to.",
-    description: "At Triple Cities Tech, we deliver modern, right-sized IT solutions for small and mid-sized businesses. Whether you're struggling with outdated systems, security concerns, or inconsistent support, we provide the clarity, speed, and strategy your business needs to thrive."
+    subtitle: "At Triple Cities Tech, we deliver modern, right-sized IT solutions for small and mid-sized businesses. Whether you're struggling with outdated systems, security concerns, or inconsistent support, we provide the clarity, speed, and strategy your business needs to thrive."
   },
   challengeSection: {
     title: "What's holding your business back?",
