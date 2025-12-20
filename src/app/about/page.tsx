@@ -225,20 +225,6 @@ export default function About() {
         </div>
       </div>
 
-      {/* Our Motto */}
-      <div className="relative bg-gradient-to-br from-black via-gray-900 to-cyan-900 py-16">
-        <div className="max-w-5xl mx-auto px-6">
-          <div className="text-center">
-            <p className="text-sm md:text-base text-cyan-400 font-semibold tracking-wider uppercase mb-3">
-              Our Motto
-            </p>
-            <p className="text-3xl md:text-4xl lg:text-5xl text-white font-bold">
-              Earn trust. Be impactful. Enjoy the ride.
-            </p>
-          </div>
-        </div>
-      </div>
-
       {/* CTA Section */}
       <div className="relative bg-black py-32">
         {/* Subtle background elements */}
