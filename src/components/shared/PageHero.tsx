@@ -37,7 +37,7 @@ export default function PageHero({
   const { isVisible, elementRef } = useAnimation(0.1)
 
   return (
-    <section className={`relative py-32 ${!videoBackground && !imageBackground && gradientFrom !== 'from-transparent' ? `bg-gradient-to-br ${gradientFrom} via-gray-900 ${gradientTo}` : ''} overflow-hidden`}>
+    <section className={`relative py-20 md:py-28 lg:py-32 ${!videoBackground && !imageBackground && gradientFrom !== 'from-transparent' ? `bg-gradient-to-br ${gradientFrom} via-gray-900 ${gradientTo}` : ''} overflow-hidden`}>
       {/* Background Elements */}
       <div className="absolute inset-0">
         {/* Video Background */}
@@ -85,13 +85,13 @@ export default function PageHero({
       </div>
 
       <div className={`relative z-10 max-w-6xl mx-auto px-6 ${
-        textAlign === 'left' ? 'text-left' : 
-        textAlign === 'right' ? 'text-right' : 
+        textAlign === 'left' ? 'text-left' :
+        textAlign === 'right' ? 'text-right' :
         'text-center'
       } ${
-        verticalPosition === 'top' ? 'pt-16 pb-32' :
-        verticalPosition === 'bottom' ? 'pt-32 pb-16' :
-        'py-32'
+        verticalPosition === 'top' ? 'pt-8 md:pt-12 lg:pt-16 pb-20 md:pb-28 lg:pb-32' :
+        verticalPosition === 'bottom' ? 'pt-20 md:pt-28 lg:pt-32 pb-8 md:pb-12 lg:pb-16' :
+        'py-20 md:py-28 lg:py-32'
       }`}>
         <div 
           ref={elementRef}
