@@ -122,9 +122,9 @@ export default function ServicesSummary() {
                   }`}
                   style={{ transitionDelay: `${rowIndex * 150}ms` }}
                 >
-                  <div className="flex flex-col sm:flex-row items-start space-y-4 sm:space-y-0 sm:space-x-4 lg:space-x-6 py-6 sm:py-8 hover:bg-white/5 transition-all duration-500 rounded-lg px-4 sm:px-6 -mx-4 sm:-mx-6">
+                  <div className="flex flex-col md:flex-row items-start space-y-4 md:space-y-0 md:space-x-4 lg:space-x-6 py-6 sm:py-8 hover:bg-white/5 transition-all duration-500 rounded-lg px-4 sm:px-6 -mx-4 sm:-mx-6">
                     {/* Icon */}
-                    <div className={`flex-shrink-0 w-12 h-12 sm:w-14 sm:h-14 lg:w-16 lg:h-16 bg-gradient-to-br ${servicesLeft[rowIndex].gradient} rounded-xl lg:rounded-2xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-all duration-500 group-hover:scale-110 mx-auto sm:mx-0`}>
+                    <div className={`flex-shrink-0 w-12 h-12 sm:w-14 sm:h-14 lg:w-16 lg:h-16 bg-gradient-to-br ${servicesLeft[rowIndex].gradient} rounded-xl lg:rounded-2xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-all duration-500 group-hover:scale-110 mx-auto md:mx-0`}>
                       {React.cloneElement(servicesLeft[rowIndex].icon, {
                         size: 24,
                         className: "w-5 h-5 sm:w-6 sm:h-6 lg:w-8 lg:h-8 text-white"
@@ -132,7 +132,7 @@ export default function ServicesSummary() {
                     </div>
 
                     {/* Content */}
-                    <div className="flex-1 min-w-0 text-center sm:text-left">
+                    <div className="flex-1 min-w-0 text-center md:text-left">
                       <h3 className="text-lg sm:text-xl font-bold text-white mb-2 sm:mb-3 group-hover:text-cyan-300 transition-colors duration-500">
                         {servicesLeft[rowIndex].title}
                       </h3>
@@ -150,9 +150,9 @@ export default function ServicesSummary() {
                   }`}
                   style={{ transitionDelay: `${(rowIndex + 4) * 150}ms` }}
                 >
-                  <div className="flex flex-col sm:flex-row items-start space-y-4 sm:space-y-0 sm:space-x-4 lg:space-x-6 py-6 sm:py-8 hover:bg-white/5 transition-all duration-500 rounded-lg px-4 sm:px-6 -mx-4 sm:-mx-6">
+                  <div className="flex flex-col md:flex-row items-start space-y-4 md:space-y-0 md:space-x-4 lg:space-x-6 py-6 sm:py-8 hover:bg-white/5 transition-all duration-500 rounded-lg px-4 sm:px-6 -mx-4 sm:-mx-6">
                     {/* Icon */}
-                    <div className={`flex-shrink-0 w-12 h-12 sm:w-14 sm:h-14 lg:w-16 lg:h-16 bg-gradient-to-br ${servicesRight[rowIndex].gradient} rounded-xl lg:rounded-2xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-all duration-500 group-hover:scale-110 mx-auto sm:mx-0`}>
+                    <div className={`flex-shrink-0 w-12 h-12 sm:w-14 sm:h-14 lg:w-16 lg:h-16 bg-gradient-to-br ${servicesRight[rowIndex].gradient} rounded-xl lg:rounded-2xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-all duration-500 group-hover:scale-110 mx-auto md:mx-0`}>
                       {React.cloneElement(servicesRight[rowIndex].icon, {
                         size: 24,
                         className: "w-5 h-5 sm:w-6 sm:h-6 lg:w-8 lg:h-8 text-white"
@@ -160,7 +160,7 @@ export default function ServicesSummary() {
                     </div>
 
                     {/* Content */}
-                    <div className="flex-1 min-w-0 text-center sm:text-left">
+                    <div className="flex-1 min-w-0 text-center md:text-left">
                       <h3 className="text-lg sm:text-xl font-bold text-white mb-2 sm:mb-3 group-hover:text-cyan-300 transition-colors duration-500">
                         {servicesRight[rowIndex].title}
                       </h3>
