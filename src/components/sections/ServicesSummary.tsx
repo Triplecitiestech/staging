@@ -122,23 +122,25 @@ export default function ServicesSummary() {
                   }`}
                   style={{ transitionDelay: `${rowIndex * 150}ms` }}
                 >
-                  <div className="flex flex-col md:flex-row items-center md:items-start space-y-4 md:space-y-0 md:space-x-4 lg:space-x-6 py-6 sm:py-8 hover:bg-white/5 transition-all duration-500 rounded-lg px-4 sm:px-6 -mx-4 sm:-mx-6">
-                    {/* Icon */}
-                    <div className={`flex-shrink-0 w-12 h-12 sm:w-14 sm:h-14 lg:w-16 lg:h-16 bg-gradient-to-br ${servicesLeft[rowIndex].gradient} rounded-xl lg:rounded-2xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-all duration-500 group-hover:scale-110`}>
-                      {React.cloneElement(servicesLeft[rowIndex].icon, {
-                        size: 24,
-                        className: "w-5 h-5 sm:w-6 sm:h-6 lg:w-8 lg:h-8 text-white"
-                      })}
-                    </div>
+                  <div className="py-6 sm:py-8 hover:bg-white/5 transition-all duration-500 rounded-lg">
+                    <div className="flex flex-col md:flex-row items-center md:items-start space-y-4 md:space-y-0 md:space-x-4 lg:space-x-6">
+                      {/* Icon */}
+                      <div className={`flex-shrink-0 w-12 h-12 sm:w-14 sm:h-14 lg:w-16 lg:h-16 bg-gradient-to-br ${servicesLeft[rowIndex].gradient} rounded-xl lg:rounded-2xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-all duration-500 group-hover:scale-110`}>
+                        {React.cloneElement(servicesLeft[rowIndex].icon, {
+                          size: 24,
+                          className: "w-5 h-5 sm:w-6 sm:h-6 lg:w-8 lg:h-8 text-white"
+                        })}
+                      </div>
 
-                    {/* Content */}
-                    <div className="w-full md:flex-1 md:min-w-0 text-center md:text-left">
-                      <h3 className="text-lg sm:text-xl font-bold text-white mb-2 sm:mb-3 group-hover:text-cyan-300 transition-colors duration-500">
-                        {servicesLeft[rowIndex].title}
-                      </h3>
-                      <p className="text-sm sm:text-base text-white/90 leading-relaxed group-hover:text-white transition-colors duration-500">
-                        {servicesLeft[rowIndex].description}
-                      </p>
+                      {/* Content */}
+                      <div className="w-full md:flex-1 md:min-w-0 text-center md:text-left">
+                        <h3 className="text-lg sm:text-xl font-bold text-white mb-2 sm:mb-3 group-hover:text-cyan-300 transition-colors duration-500">
+                          {servicesLeft[rowIndex].title}
+                        </h3>
+                        <p className="text-sm sm:text-base text-white/90 leading-relaxed group-hover:text-white transition-colors duration-500">
+                          {servicesLeft[rowIndex].description}
+                        </p>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -150,23 +152,25 @@ export default function ServicesSummary() {
                   }`}
                   style={{ transitionDelay: `${(rowIndex + 4) * 150}ms` }}
                 >
-                  <div className="flex flex-col md:flex-row items-center md:items-start space-y-4 md:space-y-0 md:space-x-4 lg:space-x-6 py-6 sm:py-8 hover:bg-white/5 transition-all duration-500 rounded-lg px-4 sm:px-6 -mx-4 sm:-mx-6">
-                    {/* Icon */}
-                    <div className={`flex-shrink-0 w-12 h-12 sm:w-14 sm:h-14 lg:w-16 lg:h-16 bg-gradient-to-br ${servicesRight[rowIndex].gradient} rounded-xl lg:rounded-2xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-all duration-500 group-hover:scale-110`}>
-                      {React.cloneElement(servicesRight[rowIndex].icon, {
-                        size: 24,
-                        className: "w-5 h-5 sm:w-6 sm:h-6 lg:w-8 lg:h-8 text-white"
-                      })}
-                    </div>
+                  <div className="py-6 sm:py-8 hover:bg-white/5 transition-all duration-500 rounded-lg">
+                    <div className="flex flex-col md:flex-row items-center md:items-start space-y-4 md:space-y-0 md:space-x-4 lg:space-x-6">
+                      {/* Icon */}
+                      <div className={`flex-shrink-0 w-12 h-12 sm:w-14 sm:h-14 lg:w-16 lg:h-16 bg-gradient-to-br ${servicesRight[rowIndex].gradient} rounded-xl lg:rounded-2xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-all duration-500 group-hover:scale-110`}>
+                        {React.cloneElement(servicesRight[rowIndex].icon, {
+                          size: 24,
+                          className: "w-5 h-5 sm:w-6 sm:h-6 lg:w-8 lg:h-8 text-white"
+                        })}
+                      </div>
 
-                    {/* Content */}
-                    <div className="w-full md:flex-1 md:min-w-0 text-center md:text-left">
-                      <h3 className="text-lg sm:text-xl font-bold text-white mb-2 sm:mb-3 group-hover:text-cyan-300 transition-colors duration-500">
-                        {servicesRight[rowIndex].title}
-                      </h3>
-                      <p className="text-sm sm:text-base text-white/90 leading-relaxed group-hover:text-white transition-colors duration-500">
-                        {servicesRight[rowIndex].description}
-                      </p>
+                      {/* Content */}
+                      <div className="w-full md:flex-1 md:min-w-0 text-center md:text-left">
+                        <h3 className="text-lg sm:text-xl font-bold text-white mb-2 sm:mb-3 group-hover:text-cyan-300 transition-colors duration-500">
+                          {servicesRight[rowIndex].title}
+                        </h3>
+                        <p className="text-sm sm:text-base text-white/90 leading-relaxed group-hover:text-white transition-colors duration-500">
+                          {servicesRight[rowIndex].description}
+                        </p>
+                      </div>
                     </div>
                   </div>
                 </div>
