@@ -62,50 +62,35 @@ export default function About() {
         imageBackground="/herobg.webp"
       />
 
-      {/* Why We Started Triple Cities Tech */}
+      {/* Why We Created Triple Cities Tech */}
       <div className="relative bg-gradient-to-br from-cyan-900 via-gray-900 to-black py-24">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-            <div>
-              <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">Why We Started Triple Cities Tech</h2>
-              <div className="space-y-4 text-lg leading-relaxed">
-                <p className="text-white/90">
-                  Founded by Kurtis Florance, who brings more than two decades of IT experience, Triple Cities Tech was built to solve problems he witnessed repeatedly throughout his career at larger managed service providers.
-                </p>
-                <p className="text-white/90">
-                  Time and again, he saw businesses being pushed into the wrong solutions: Frankenstein systems with no central management or reporting, expensive on-premises infrastructure that didn't scale, and improper timing and implementation of cloud migrations. Companies were paying for complexity they didn't need and couldn't manage effectively.
-                </p>
-                <p className="text-white/90">
-                  In 2017, Kurtis set out to do things differently — to curate proper solutions tailored to each business, implement modern IT that's right-sized and manageable, and build long-term partnerships based on trust and results.
-                </p>
-                <p className="text-white/90">
-                  Today, Triple Cities Tech supports 250+ satisfied businesses nationwide across construction, healthcare, manufacturing, and professional services — proving that IT can be secure, reliable, scalable, and straightforward.
-                </p>
-              </div>
-            </div>
-            <div className="relative">
-              <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-3xl p-8 shadow-xl">
-                <div className="text-center">
-                  <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-2xl flex items-center justify-center mb-4 mx-auto shadow-lg">
-                    <BookOpenIcon size={32} className="text-white" />
-                  </div>
-                  <h3 className="text-2xl font-bold text-white mb-3">Founded in 2017</h3>
-                  <p className="text-white/90 leading-relaxed">
-                    From Central New York roots to nationwide impact — 250+ businesses trust us with their IT operations.
-                  </p>
-                </div>
-              </div>
-            </div>
+        <div className="max-w-4xl mx-auto px-6">
+          <div className="text-center mb-12">
+            <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">Why We Created Triple Cities Tech</h2>
+          </div>
+          <div className="space-y-6 text-lg leading-relaxed text-white/90">
+            <p>
+              Founded by Kurtis Florance, who brings more than two decades of IT experience, Triple Cities Tech was built to solve problems he witnessed repeatedly throughout his career at larger managed service providers.
+            </p>
+            <p>
+              Time and again, he saw businesses being pushed into the wrong solutions: Frankenstein systems with no central management or reporting, expensive on-premises infrastructure that didn't scale, and improper timing and implementation of cloud migrations. Companies were paying for complexity they didn't need and couldn't manage effectively.
+            </p>
+            <p>
+              In 2017, Kurtis set out to do things differently — to curate proper solutions tailored to each business, implement modern IT that's right-sized and manageable, and build long-term partnerships based on trust and results.
+            </p>
+            <p className="text-xl font-semibold text-cyan-400">
+              Today, Triple Cities Tech supports 250+ satisfied businesses nationwide across construction, healthcare, manufacturing, and professional services — proving that IT can be secure, reliable, scalable, and straightforward.
+            </p>
           </div>
         </div>
       </div>
 
-      {/* What We Stand For */}
+      {/* What We Do */}
       <div className="relative bg-gradient-to-br from-black via-gray-900 to-cyan-900 py-24">
         <div className="max-w-7xl mx-auto px-6">
           <div className="text-center mb-16">
             <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">
-              What We Stand For
+              What We Do
             </h2>
             <p className="text-xl text-white/90 max-w-3xl mx-auto leading-relaxed">
               Our core principles guide everything we do, from client interactions to technology decisions.
