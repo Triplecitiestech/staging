@@ -58,7 +58,7 @@ export default function About() {
         title="About Us"
         subtitle="At Triple Cities Tech, we help small and mid-sized businesses run IT that actually works — without unnecessary complexity, bloated costs, or constant fire drills.
 
-Too many businesses are stuck with overengineered systems, outdated practices, or MSPs that sell "enterprise solutions" without understanding how smaller teams actually operate. We believe technology should support your business goals, not slow you down or get in the way."
+Too many businesses are stuck with overengineered systems, outdated practices, or MSPs that sell 'enterprise solutions' without understanding how smaller teams actually operate. We believe technology should support your business goals, not slow you down or get in the way."
         textAlign="center"
         verticalPosition="bottom"
         imageBackground="/herobg.webp"
