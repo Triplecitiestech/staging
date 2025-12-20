@@ -122,9 +122,9 @@ export default function ServicesSummary() {
                   }`}
                   style={{ transitionDelay: `${rowIndex * 150}ms` }}
                 >
-                  <div className="flex flex-col md:flex-row items-start space-y-4 md:space-y-0 md:space-x-4 lg:space-x-6 py-6 sm:py-8 hover:bg-white/5 transition-all duration-500 rounded-lg px-4 sm:px-6 -mx-4 sm:-mx-6">
+                  <div className="flex flex-col md:flex-row items-center md:items-start space-y-4 md:space-y-0 md:space-x-4 lg:space-x-6 py-6 sm:py-8 hover:bg-white/5 transition-all duration-500 rounded-lg px-4 sm:px-6 -mx-4 sm:-mx-6">
                     {/* Icon */}
-                    <div className={`flex-shrink-0 w-12 h-12 sm:w-14 sm:h-14 lg:w-16 lg:h-16 bg-gradient-to-br ${servicesLeft[rowIndex].gradient} rounded-xl lg:rounded-2xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-all duration-500 group-hover:scale-110 mx-auto md:mx-0`}>
+                    <div className={`flex-shrink-0 w-12 h-12 sm:w-14 sm:h-14 lg:w-16 lg:h-16 bg-gradient-to-br ${servicesLeft[rowIndex].gradient} rounded-xl lg:rounded-2xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-all duration-500 group-hover:scale-110`}>
                       {React.cloneElement(servicesLeft[rowIndex].icon, {
                         size: 24,
                         className: "w-5 h-5 sm:w-6 sm:h-6 lg:w-8 lg:h-8 text-white"
@@ -150,9 +150,9 @@ export default function ServicesSummary() {
                   }`}
                   style={{ transitionDelay: `${(rowIndex + 4) * 150}ms` }}
                 >
-                  <div className="flex flex-col md:flex-row items-start space-y-4 md:space-y-0 md:space-x-4 lg:space-x-6 py-6 sm:py-8 hover:bg-white/5 transition-all duration-500 rounded-lg px-4 sm:px-6 -mx-4 sm:-mx-6">
+                  <div className="flex flex-col md:flex-row items-center md:items-start space-y-4 md:space-y-0 md:space-x-4 lg:space-x-6 py-6 sm:py-8 hover:bg-white/5 transition-all duration-500 rounded-lg px-4 sm:px-6 -mx-4 sm:-mx-6">
                     {/* Icon */}
-                    <div className={`flex-shrink-0 w-12 h-12 sm:w-14 sm:h-14 lg:w-16 lg:h-16 bg-gradient-to-br ${servicesRight[rowIndex].gradient} rounded-xl lg:rounded-2xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-all duration-500 group-hover:scale-110 mx-auto md:mx-0`}>
+                    <div className={`flex-shrink-0 w-12 h-12 sm:w-14 sm:h-14 lg:w-16 lg:h-16 bg-gradient-to-br ${servicesRight[rowIndex].gradient} rounded-xl lg:rounded-2xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-all duration-500 group-hover:scale-110`}>
                       {React.cloneElement(servicesRight[rowIndex].icon, {
                         size: 24,
                         className: "w-5 h-5 sm:w-6 sm:h-6 lg:w-8 lg:h-8 text-white"
