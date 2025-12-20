@@ -131,7 +131,7 @@ export default function About() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 max-w-5xl mx-auto">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 lg:gap-12 max-w-7xl mx-auto">
             {/* Certifications */}
             <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-3xl p-8 shadow-xl">
               <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-2xl flex items-center justify-center mb-6 mx-auto shadow-lg">
@@ -188,6 +188,36 @@ export default function About() {
                 <p className="flex items-start">
                   <span className="w-2 h-2 bg-purple-400 rounded-full mr-3 mt-2 flex-shrink-0"></span>
                   <span>Kaseya Partner</span>
+                </p>
+              </div>
+            </div>
+
+            {/* Compliance & Frameworks */}
+            <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-3xl p-8 shadow-xl">
+              <div className="w-16 h-16 bg-gradient-to-br from-emerald-500 to-teal-500 rounded-2xl flex items-center justify-center mb-6 mx-auto shadow-lg">
+                <TargetIcon size={32} className="text-white" />
+              </div>
+              <h3 className="text-2xl font-bold text-white mb-4 text-center">Compliance & Frameworks</h3>
+              <div className="space-y-3 text-white/90 max-w-md mx-auto">
+                <p className="flex items-start">
+                  <span className="w-2 h-2 bg-emerald-400 rounded-full mr-3 mt-2 flex-shrink-0"></span>
+                  <span>CIS Controls v8</span>
+                </p>
+                <p className="flex items-start">
+                  <span className="w-2 h-2 bg-emerald-400 rounded-full mr-3 mt-2 flex-shrink-0"></span>
+                  <span>NIST Cybersecurity Framework</span>
+                </p>
+                <p className="flex items-start">
+                  <span className="w-2 h-2 bg-emerald-400 rounded-full mr-3 mt-2 flex-shrink-0"></span>
+                  <span>CMMC Compliance</span>
+                </p>
+                <p className="flex items-start">
+                  <span className="w-2 h-2 bg-emerald-400 rounded-full mr-3 mt-2 flex-shrink-0"></span>
+                  <span>HIPAA & ITAR Standards</span>
+                </p>
+                <p className="flex items-start">
+                  <span className="w-2 h-2 bg-emerald-400 rounded-full mr-3 mt-2 flex-shrink-0"></span>
+                  <span>ITIL Best Practices</span>
                 </p>
               </div>
             </div>
