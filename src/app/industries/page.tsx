@@ -83,20 +83,25 @@ export default function Industries() {
       <div className="relative bg-gradient-to-br from-black via-gray-900 to-cyan-900">
         <div className="relative z-10 max-w-7xl mx-auto px-6 py-24">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {industries.map((industry, index) => (
-              <ServiceCard
-                key={industry.title}
-                icon={industry.icon}
-                title={industry.title}
-                subtitle={industry.subtitle}
-                features={industry.features}
-                description={industry.description}
-                gradient={industry.gradient}
-                index={index}
-                image={industry.image}
-                darkBackground={true}
-              />
-            ))}
+            {industries.map((industry, index) => {
+              // Create ID from title (e.g., "Construction" -> "construction")
+              const id = industry.title.toLowerCase().replace(/\s+/g, '-').replace('professional-services', 'professional')
+              return (
+                <div key={industry.title} id={id} className="scroll-mt-24">
+                  <ServiceCard
+                    icon={industry.icon}
+                    title={industry.title}
+                    subtitle={industry.subtitle}
+                    features={industry.features}
+                    description={industry.description}
+                    gradient={industry.gradient}
+                    index={index}
+                    image={industry.image}
+                    darkBackground={true}
+                  />
+                </div>
+              )
+            })}
           </div>
         </div>
       </div>
