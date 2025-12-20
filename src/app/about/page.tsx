@@ -58,7 +58,7 @@ export default function About() {
         title="About Us"
         subtitle="At Triple Cities Tech, we help small and mid-sized businesses run IT that actually works — without unnecessary complexity, bloated costs, or constant fire drills.
 
-Too many businesses are stuck with overengineered systems, outdated practices, or MSPs that sell 'enterprise solutions' without understanding how smaller teams actually operate. We believe technology should support your business goals, not slow you down or get in the way."
+Too many businesses are stuck with overengineered systems, outdated practices, or MSPs selling 'enterprise solutions' without understanding how smaller teams actually operate. We believe technology should support your business goals, not slow you down or get in the way."
         textAlign="center"
         verticalPosition="bottom"
         imageBackground="/herobg.webp"
@@ -94,7 +94,7 @@ Too many businesses are stuck with overengineered systems, outdated practices, o
                   </div>
                   <h3 className="text-2xl font-bold text-white mb-3">Founded in 2017</h3>
                   <p className="text-white/90 leading-relaxed">
-                    Born from firsthand experience seeing small businesses struggle under oversized, overcomplicated IT solutions that failed to deliver real value.
+                    Born from firsthand experience watching small businesses struggle under oversized, overcomplicated IT solutions that failed to deliver real value.
                   </p>
                 </div>
               </div>
@@ -144,11 +144,8 @@ Too many businesses are stuck with overengineered systems, outdated practices, o
             <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">
               Our Values
             </h2>
-            <p className="text-2xl md:text-3xl text-cyan-300 font-semibold mb-4">
+            <p className="text-2xl md:text-3xl text-cyan-300 font-semibold">
               Earn trust. Be impactful. Enjoy the ride.
-            </p>
-            <p className="text-xl text-white/90 max-w-3xl mx-auto leading-relaxed">
-              These principles guide every recommendation, decision, and client relationship.
             </p>
           </div>
         </div>
@@ -211,7 +208,7 @@ Too many businesses are stuck with overengineered systems, outdated practices, o
           </h2>
           <p className="text-xl text-white mb-12 max-w-3xl mx-auto leading-relaxed">
             Let's discuss how we can help your business
-            gain clarity, stability, and roi from technology.
+            gain clarity, stability, and ROI from technology.
           </p>
 
           {/* Engagement Options */}
