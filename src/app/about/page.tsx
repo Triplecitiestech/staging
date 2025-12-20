@@ -26,7 +26,7 @@ export default function About() {
     {
       icon: <BuildingIcon size={24} className="text-white" />,
       title: 'Technology Built for Small Business',
-      description: 'We specialize in supporting teams of 20–50 users with IT solutions designed for their size, budget, and growth plans — not enterprise templates forced into smaller environments.',
+      description: 'We specialize in supporting teams of 20–50 users with IT solutions designed for their size, budget, and growth plans. On many occasions, we've enabled businesses to free themselves of local constraints, work and hire remotely, streamline communication, and include best-in-class security and business continuity — without compromise.',
       gradient: 'from-blue-500 to-cyan-500'
     },
     {
@@ -56,27 +56,11 @@ export default function About() {
 
       <PageHero
         title="About Us"
-        subtitle="At Triple Cities Tech, we help small and mid-sized businesses run IT that actually works — without unnecessary complexity, bloated costs, or constant fire drills.
-
-Too many businesses are stuck with overengineered systems, outdated practices, or MSPs selling 'enterprise solutions' without understanding how smaller teams actually operate. We believe technology should support your business goals, not slow you down or get in the way."
+        subtitle="At Triple Cities Tech, we help small and mid-sized businesses run IT that actually works — without unnecessary complexity, bloated costs, or constant fire drills. We believe technology should support your business goals, not slow you down or get in the way."
         textAlign="center"
         verticalPosition="bottom"
         imageBackground="/herobg.webp"
       />
-
-      {/* Our Motto */}
-      <div className="relative bg-gradient-to-br from-black via-gray-900 to-cyan-900 py-16">
-        <div className="max-w-5xl mx-auto px-6">
-          <div className="text-center">
-            <p className="text-sm md:text-base text-cyan-400 font-semibold tracking-wider uppercase mb-3">
-              Our Motto
-            </p>
-            <p className="text-3xl md:text-4xl lg:text-5xl text-white font-bold">
-              Earn trust. Be impactful. Enjoy the ride.
-            </p>
-          </div>
-        </div>
-      </div>
 
       {/* Why We Started Triple Cities Tech */}
       <div className="relative bg-gradient-to-br from-cyan-900 via-gray-900 to-black py-24">
@@ -86,17 +70,16 @@ Too many businesses are stuck with overengineered systems, outdated practices, o
               <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">Why We Started Triple Cities Tech</h2>
               <div className="space-y-4 text-lg leading-relaxed">
                 <p className="text-white/90">
-                  After spending years inside larger managed service providers, our founder saw the same problems over and over again:
-                  one-size-fits-all solutions, slow implementations, unnecessary complexity, and businesses paying for IT they didn't truly need.
+                  Founded by Kurtis Florance, who brings more than two decades of IT experience, Triple Cities Tech was built to solve problems he witnessed repeatedly throughout his career at larger managed service providers.
                 </p>
                 <p className="text-white/90">
-                  In 2017, Triple Cities Tech was built to do things differently.
+                  Time and again, he saw businesses being pushed into the wrong solutions: Frankenstein systems with no central management or reporting, expensive on-premises infrastructure that didn't scale, and improper timing and implementation of cloud migrations. Companies were paying for complexity they didn't need and couldn't manage effectively.
                 </p>
                 <p className="text-white/90">
-                  We focus on right-sized, modern IT — designed around how your business actually works today, with room to scale tomorrow. No fluff. No bloat. Just systems that are secure, reliable, and easy to operate.
+                  In 2017, Kurtis set out to do things differently — to curate proper solutions tailored to each business, implement modern IT that's right-sized and manageable, and build long-term partnerships based on trust and results.
                 </p>
                 <p className="text-white/90">
-                  Today, we support businesses across construction, healthcare, manufacturing, and professional services — environments where uptime, security, and clarity matter.
+                  Today, Triple Cities Tech supports 250+ satisfied businesses nationwide across construction, healthcare, manufacturing, and professional services — proving that IT can be secure, reliable, scalable, and straightforward.
                 </p>
               </div>
             </div>
@@ -108,7 +91,7 @@ Too many businesses are stuck with overengineered systems, outdated practices, o
                   </div>
                   <h3 className="text-2xl font-bold text-white mb-3">Founded in 2017</h3>
                   <p className="text-white/90 leading-relaxed">
-                    Born from firsthand experience watching small businesses struggle under oversized, overcomplicated IT solutions that failed to deliver real value.
+                    From Central New York roots to nationwide impact — 250+ businesses trust us with their IT operations.
                   </p>
                 </div>
               </div>
@@ -151,44 +134,92 @@ Too many businesses are stuck with overengineered systems, outdated practices, o
         </div>
       </div>
 
-      {/* Contact Section */}
+      {/* Expertise & Partnerships */}
       <div className="relative bg-gradient-to-br from-cyan-900 via-gray-900 to-black py-24">
         <div className="max-w-7xl mx-auto px-6">
-          <div className="text-center">
-            <h2 className="text-4xl md:text-5xl font-bold text-white mb-12">Based in Central New York</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 max-w-4xl mx-auto">
-              <div className="group">
-                <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-3xl p-8 shadow-xl hover:shadow-2xl transition-all duration-500 hover:scale-105">
-                  <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-xl flex items-center justify-center mb-4 mx-auto group-hover:scale-110 transition-transform duration-300">
-                    <PhoneIcon size={24} className="text-white" />
-                  </div>
-                  <p className="font-semibold mb-2 text-white">Phone</p>
-                  <a href={`tel:${CONTACT_INFO.phone}`} className="text-cyan-300 hover:text-cyan-200 transition-colors duration-300 text-lg">
-                    {CONTACT_INFO.phone}
-                  </a>
-                </div>
+          <div className="text-center mb-16">
+            <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">
+              Expertise & Partnerships
+            </h2>
+            <p className="text-xl text-white/90 max-w-3xl mx-auto leading-relaxed">
+              Our team holds industry-leading certifications and partners with top technology vendors to deliver best-in-class solutions.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 max-w-5xl mx-auto">
+            {/* Certifications */}
+            <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-3xl p-8 shadow-xl">
+              <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-2xl flex items-center justify-center mb-6 mx-auto shadow-lg">
+                <ShieldCheckIcon size={32} className="text-white" />
               </div>
-              <div className="group">
-                <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-3xl p-8 shadow-xl hover:shadow-2xl transition-all duration-500 hover:scale-105">
-                  <div className="w-16 h-16 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl flex items-center justify-center mb-4 mx-auto group-hover:scale-110 transition-transform duration-300">
-                    <MailIcon size={24} className="text-white" />
-                  </div>
-                  <p className="font-semibold mb-2 text-white">Email</p>
-                  <a href={`mailto:${CONTACT_INFO.email}`} className="text-purple-300 hover:text-purple-200 transition-colors duration-300 text-lg break-all">
-                    {CONTACT_INFO.email}
-                  </a>
-                </div>
-              </div>
-              <div className="group">
-                <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-3xl p-8 shadow-xl hover:shadow-2xl transition-all duration-500 hover:scale-105">
-                  <div className="w-16 h-16 bg-gradient-to-br from-emerald-500 to-teal-500 rounded-xl flex items-center justify-center mb-4 mx-auto group-hover:scale-110 transition-transform duration-300">
-                    <GlobeIcon size={24} className="text-white" />
-                  </div>
-                  <p className="font-semibold mb-2 text-white">Address</p>
-                  <p className="text-white/90 text-base">{CONTACT_INFO.address}</p>
-                </div>
+              <h3 className="text-2xl font-bold text-white mb-4 text-center">Team Certifications</h3>
+              <div className="space-y-3 text-white/90">
+                <p className="flex items-center justify-center">
+                  <span className="w-2 h-2 bg-cyan-400 rounded-full mr-3"></span>
+                  Certified Information Systems Security Professional (CISSP)
+                </p>
+                <p className="flex items-center justify-center">
+                  <span className="w-2 h-2 bg-cyan-400 rounded-full mr-3"></span>
+                  CompTIA A+ Certified
+                </p>
+                <p className="flex items-center justify-center">
+                  <span className="w-2 h-2 bg-cyan-400 rounded-full mr-3"></span>
+                  CompTIA Security+ Certified
+                </p>
+                <p className="flex items-center justify-center">
+                  <span className="w-2 h-2 bg-cyan-400 rounded-full mr-3"></span>
+                  CompTIA Network+ Certified
+                </p>
+                <p className="flex items-center justify-center">
+                  <span className="w-2 h-2 bg-cyan-400 rounded-full mr-3"></span>
+                  Vendor-Specific Certifications (Dell, HP, Lenovo, Kaseya, Microsoft)
+                </p>
               </div>
             </div>
+
+            {/* Partnerships */}
+            <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-3xl p-8 shadow-xl">
+              <div className="w-16 h-16 bg-gradient-to-br from-purple-500 to-pink-500 rounded-2xl flex items-center justify-center mb-6 mx-auto shadow-lg">
+                <HandshakeIcon size={32} className="text-white" />
+              </div>
+              <h3 className="text-2xl font-bold text-white mb-4 text-center">Technology Partners</h3>
+              <div className="space-y-3 text-white/90">
+                <p className="flex items-center justify-center">
+                  <span className="w-2 h-2 bg-purple-400 rounded-full mr-3"></span>
+                  Microsoft Partner
+                </p>
+                <p className="flex items-center justify-center">
+                  <span className="w-2 h-2 bg-purple-400 rounded-full mr-3"></span>
+                  Dell Technologies Partner
+                </p>
+                <p className="flex items-center justify-center">
+                  <span className="w-2 h-2 bg-purple-400 rounded-full mr-3"></span>
+                  HP Partner
+                </p>
+                <p className="flex items-center justify-center">
+                  <span className="w-2 h-2 bg-purple-400 rounded-full mr-3"></span>
+                  Lenovo Partner
+                </p>
+                <p className="flex items-center justify-center">
+                  <span className="w-2 h-2 bg-purple-400 rounded-full mr-3"></span>
+                  Kaseya Partner
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Our Motto */}
+      <div className="relative bg-gradient-to-br from-black via-gray-900 to-cyan-900 py-16">
+        <div className="max-w-5xl mx-auto px-6">
+          <div className="text-center">
+            <p className="text-sm md:text-base text-cyan-400 font-semibold tracking-wider uppercase mb-3">
+              Our Motto
+            </p>
+            <p className="text-3xl md:text-4xl lg:text-5xl text-white font-bold">
+              Earn trust. Be impactful. Enjoy the ride.
+            </p>
           </div>
         </div>
       </div>
