@@ -64,12 +64,26 @@ Too many businesses are stuck with overengineered systems, outdated practices, o
         imageBackground="/herobg.webp"
       />
 
-      {/* Our Story */}
-      <div className="relative bg-gradient-to-br from-black via-gray-900 to-cyan-900 py-24">
+      {/* Our Motto */}
+      <div className="relative bg-gradient-to-br from-black via-gray-900 to-cyan-900 py-16">
+        <div className="max-w-5xl mx-auto px-6">
+          <div className="text-center">
+            <p className="text-sm md:text-base text-cyan-400 font-semibold tracking-wider uppercase mb-3">
+              Our Motto
+            </p>
+            <p className="text-3xl md:text-4xl lg:text-5xl text-white font-bold">
+              Earn trust. Be impactful. Enjoy the ride.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Why We Started Triple Cities Tech */}
+      <div className="relative bg-gradient-to-br from-cyan-900 via-gray-900 to-black py-24">
         <div className="max-w-7xl mx-auto px-6">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
             <div>
-              <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">Our Story</h2>
+              <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">Why We Started Triple Cities Tech</h2>
               <div className="space-y-4 text-lg leading-relaxed">
                 <p className="text-white/90">
                   After spending years inside larger managed service providers, our founder saw the same problems over and over again:
@@ -104,7 +118,7 @@ Too many businesses are stuck with overengineered systems, outdated practices, o
       </div>
 
       {/* What We Stand For */}
-      <div className="relative bg-gradient-to-br from-cyan-900 via-gray-900 to-black py-24">
+      <div className="relative bg-gradient-to-br from-black via-gray-900 to-cyan-900 py-24">
         <div className="max-w-7xl mx-auto px-6">
           <div className="text-center mb-16">
             <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">
@@ -133,20 +147,6 @@ Too many businesses are stuck with overengineered systems, outdated practices, o
                 </div>
               </div>
             ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Our Values */}
-      <div className="relative bg-gradient-to-br from-black via-gray-900 to-cyan-900 py-24">
-        <div className="max-w-5xl mx-auto px-6">
-          <div className="text-center">
-            <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">
-              Our Values
-            </h2>
-            <p className="text-2xl md:text-3xl text-cyan-300 font-semibold">
-              Earn trust. Be impactful. Enjoy the ride.
-            </p>
           </div>
         </div>
       </div>
