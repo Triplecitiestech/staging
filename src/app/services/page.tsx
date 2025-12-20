@@ -77,13 +77,12 @@ export default function Services() {
               
               {/* CTA Button */}
               <div className="flex justify-center">
-                <Link 
-                  href="/contact" 
-                  className="group relative bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-white px-8 py-3 rounded-full font-semibold text-lg shadow-lg hover:shadow-cyan-500/25 hover:scale-105 transition-all duration-300 inline-flex items-center space-x-3"
+                <Link
+                  href="/contact"
+                  className="group relative bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-white px-8 py-3 rounded-full font-semibold text-lg shadow-lg hover:shadow-cyan-500/25 hover:scale-105 transition-all duration-300 inline-flex items-center"
                   aria-label="Contact us to get started with our IT services"
                 >
                   <span>{PAGE_CONTENT.ctaSection.buttonText}</span>
-                  <div className="w-2 h-2 bg-white rounded-full"></div>
                 </Link>
               </div>
             </div>
