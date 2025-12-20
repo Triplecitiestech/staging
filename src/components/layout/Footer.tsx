@@ -68,32 +68,32 @@ export default function Footer() {
             <h4 className="text-white font-bold mb-6 text-sm uppercase tracking-wider">Services</h4>
             <ul className="space-y-3">
               <li>
-                <Link 
-                  href="/services" 
+                <Link
+                  href="/services#managed-it"
                   className="text-gray-400 hover:text-cyan-400 transition-colors duration-300 text-sm"
                 >
                   Managed IT Services
                 </Link>
               </li>
               <li>
-                <Link 
-                  href="/services" 
+                <Link
+                  href="/services#cybersecurity"
                   className="text-gray-400 hover:text-cyan-400 transition-colors duration-300 text-sm"
                 >
                   Cybersecurity
                 </Link>
               </li>
               <li>
-                <Link 
-                  href="/services" 
+                <Link
+                  href="/services#cloud"
                   className="text-gray-400 hover:text-cyan-400 transition-colors duration-300 text-sm"
                 >
                   Cloud Services
                 </Link>
               </li>
               <li>
-                <Link 
-                  href="/services" 
+                <Link
+                  href="/services#strategy"
                   className="text-gray-400 hover:text-cyan-400 transition-colors duration-300 text-sm"
                 >
                   IT Strategy
@@ -107,32 +107,32 @@ export default function Footer() {
             <h4 className="text-white font-bold mb-6 text-sm uppercase tracking-wider">Industries</h4>
             <ul className="space-y-3">
               <li>
-                <Link 
-                  href="/industries" 
+                <Link
+                  href="/industries#construction"
                   className="text-gray-400 hover:text-cyan-400 transition-colors duration-300 text-sm"
                 >
                   Construction
                 </Link>
               </li>
               <li>
-                <Link 
-                  href="/industries" 
+                <Link
+                  href="/industries#healthcare"
                   className="text-gray-400 hover:text-cyan-400 transition-colors duration-300 text-sm"
                 >
                   Healthcare
                 </Link>
               </li>
               <li>
-                <Link 
-                  href="/industries" 
+                <Link
+                  href="/industries#manufacturing"
                   className="text-gray-400 hover:text-cyan-400 transition-colors duration-300 text-sm"
                 >
                   Manufacturing
                 </Link>
               </li>
               <li>
-                <Link 
-                  href="/industries" 
+                <Link
+                  href="/industries#professional"
                   className="text-gray-400 hover:text-cyan-400 transition-colors duration-300 text-sm"
                 >
                   Professional Services
