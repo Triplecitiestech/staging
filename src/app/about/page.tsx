@@ -153,26 +153,26 @@ export default function About() {
                 <ShieldCheckIcon size={32} className="text-white" />
               </div>
               <h3 className="text-2xl font-bold text-white mb-4 text-center">Team Certifications</h3>
-              <div className="space-y-3 text-white/90">
-                <p className="flex items-center justify-center">
-                  <span className="w-2 h-2 bg-cyan-400 rounded-full mr-3"></span>
-                  Certified Information Systems Security Professional (CISSP)
+              <div className="space-y-3 text-white/90 max-w-md mx-auto">
+                <p className="flex items-start">
+                  <span className="w-2 h-2 bg-cyan-400 rounded-full mr-3 mt-2 flex-shrink-0"></span>
+                  <span>Certified Information Systems Security Professional (CISSP)</span>
                 </p>
-                <p className="flex items-center justify-center">
-                  <span className="w-2 h-2 bg-cyan-400 rounded-full mr-3"></span>
-                  CompTIA A+ Certified
+                <p className="flex items-start">
+                  <span className="w-2 h-2 bg-cyan-400 rounded-full mr-3 mt-2 flex-shrink-0"></span>
+                  <span>CompTIA A+ Certified</span>
                 </p>
-                <p className="flex items-center justify-center">
-                  <span className="w-2 h-2 bg-cyan-400 rounded-full mr-3"></span>
-                  CompTIA Security+ Certified
+                <p className="flex items-start">
+                  <span className="w-2 h-2 bg-cyan-400 rounded-full mr-3 mt-2 flex-shrink-0"></span>
+                  <span>CompTIA Security+ Certified</span>
                 </p>
-                <p className="flex items-center justify-center">
-                  <span className="w-2 h-2 bg-cyan-400 rounded-full mr-3"></span>
-                  CompTIA Network+ Certified
+                <p className="flex items-start">
+                  <span className="w-2 h-2 bg-cyan-400 rounded-full mr-3 mt-2 flex-shrink-0"></span>
+                  <span>CompTIA Network+ Certified</span>
                 </p>
-                <p className="flex items-center justify-center">
-                  <span className="w-2 h-2 bg-cyan-400 rounded-full mr-3"></span>
-                  Vendor-Specific Certifications (Dell, HP, Lenovo, Kaseya, Microsoft)
+                <p className="flex items-start">
+                  <span className="w-2 h-2 bg-cyan-400 rounded-full mr-3 mt-2 flex-shrink-0"></span>
+                  <span>Vendor-Specific Certifications (Dell, HP, Lenovo, Kaseya, Microsoft)</span>
                 </p>
               </div>
             </div>
@@ -183,26 +183,26 @@ export default function About() {
                 <HandshakeIcon size={32} className="text-white" />
               </div>
               <h3 className="text-2xl font-bold text-white mb-4 text-center">Technology Partners</h3>
-              <div className="space-y-3 text-white/90">
-                <p className="flex items-center justify-center">
-                  <span className="w-2 h-2 bg-purple-400 rounded-full mr-3"></span>
-                  Microsoft Partner
+              <div className="space-y-3 text-white/90 max-w-md mx-auto">
+                <p className="flex items-start">
+                  <span className="w-2 h-2 bg-purple-400 rounded-full mr-3 mt-2 flex-shrink-0"></span>
+                  <span>Microsoft Partner</span>
                 </p>
-                <p className="flex items-center justify-center">
-                  <span className="w-2 h-2 bg-purple-400 rounded-full mr-3"></span>
-                  Dell Technologies Partner
+                <p className="flex items-start">
+                  <span className="w-2 h-2 bg-purple-400 rounded-full mr-3 mt-2 flex-shrink-0"></span>
+                  <span>Dell Technologies Partner</span>
                 </p>
-                <p className="flex items-center justify-center">
-                  <span className="w-2 h-2 bg-purple-400 rounded-full mr-3"></span>
-                  HP Partner
+                <p className="flex items-start">
+                  <span className="w-2 h-2 bg-purple-400 rounded-full mr-3 mt-2 flex-shrink-0"></span>
+                  <span>HP Partner</span>
                 </p>
-                <p className="flex items-center justify-center">
-                  <span className="w-2 h-2 bg-purple-400 rounded-full mr-3"></span>
-                  Lenovo Partner
+                <p className="flex items-start">
+                  <span className="w-2 h-2 bg-purple-400 rounded-full mr-3 mt-2 flex-shrink-0"></span>
+                  <span>Lenovo Partner</span>
                 </p>
-                <p className="flex items-center justify-center">
-                  <span className="w-2 h-2 bg-purple-400 rounded-full mr-3"></span>
-                  Kaseya Partner
+                <p className="flex items-start">
+                  <span className="w-2 h-2 bg-purple-400 rounded-full mr-3 mt-2 flex-shrink-0"></span>
+                  <span>Kaseya Partner</span>
                 </p>
               </div>
             </div>
