@@ -7,7 +7,7 @@ import PageHero from '@/components/shared/PageHero'
 import Breadcrumbs from '@/components/seo/Breadcrumbs'
 import { Button } from '@/components/ui'
 import { CONTACT_INFO } from '@/constants/data'
-import { CalendarIcon, PhoneIcon, MailIcon, GlobeIcon, CheckCircleIcon } from '@/components/icons/TechIcons'
+import { CalendarIcon, PhoneIcon, MailIcon, GlobeIcon, CheckCircleIcon, UsersIcon } from '@/components/icons/TechIcons'
 
 export default function Contact() {
   const [formData, setFormData] = useState({
@@ -217,19 +217,19 @@ export default function Contact() {
                   </div>
 
                   <div className="flex items-start space-x-4 group">
-                    <div className="w-14 h-14 bg-gradient-to-br from-cyan-500 to-cyan-600 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform duration-300">
+                    <div className="w-14 h-14 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform duration-300">
                       <MailIcon size={24} className="text-white" />
                     </div>
                     <div>
                       <h3 className="text-lg font-bold text-white mb-1">Email</h3>
-                      <a href={`mailto:${CONTACT_INFO.email}`} className="text-cyan-300 hover:text-cyan-200 transition-colors text-base">
+                      <a href={`mailto:${CONTACT_INFO.email}`} className="text-purple-300 hover:text-purple-200 transition-colors text-base">
                         {CONTACT_INFO.email}
                       </a>
                     </div>
                   </div>
 
                   <div className="flex items-start space-x-4 group">
-                    <div className="w-14 h-14 bg-gradient-to-br from-cyan-500 to-cyan-600 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform duration-300">
+                    <div className="w-14 h-14 bg-gradient-to-br from-emerald-500 to-teal-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform duration-300">
                       <GlobeIcon size={24} className="text-white" />
                     </div>
                     <div>
@@ -239,7 +239,7 @@ export default function Contact() {
                   </div>
 
                   <div className="flex items-start space-x-4 group">
-                    <div className="w-14 h-14 bg-gradient-to-br from-cyan-500 to-cyan-600 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform duration-300">
+                    <div className="w-14 h-14 bg-gradient-to-br from-orange-500 to-red-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform duration-300">
                       <CalendarIcon size={24} className="text-white" />
                     </div>
                     <div>
@@ -249,8 +249,8 @@ export default function Contact() {
                   </div>
 
                   <div className="flex items-start space-x-4 group">
-                    <div className="w-14 h-14 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform duration-300">
-                      <CalendarIcon size={24} className="text-white" />
+                    <div className="w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform duration-300">
+                      <UsersIcon size={24} className="text-white" />
                     </div>
                     <div>
                       <h3 className="text-lg font-bold text-white mb-1">Schedule a Sales Meeting</h3>
@@ -259,7 +259,7 @@ export default function Contact() {
                         href="https://calendly.com/kurtis-tct"
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center text-cyan-300 hover:text-cyan-200 transition-colors text-base font-semibold"
+                        className="inline-flex items-center text-indigo-300 hover:text-indigo-200 transition-colors text-base font-semibold"
                       >
                         Schedule Now
                         <svg className="ml-1.5 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
