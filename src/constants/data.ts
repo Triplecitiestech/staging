@@ -44,5 +44,5 @@ export const CONTACT_INFO = {
   email: 'info@triplecitiestech.com',
   address: '1109 Monroe St, Endicott, NY 13760',
   hours: 'Office Hours: Monday–Friday, 8:00am–5:00pm',
-  emergencySupport: 'Emergency Support Available for managed clients'
+  emergencySupport: 'Emergency Support Available for existing clients'
 };

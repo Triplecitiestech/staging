@@ -112,7 +112,7 @@ export default function Contact() {
                 </div>
                 <h2 className="text-3xl font-bold text-white mb-4">Existing Customer?</h2>
                 <p className="text-white/90 text-lg mb-6">
-                  Need support, access your portal, or make a payment? We're here to help.
+                  Need support, access your portal, or to make a payment?
                 </p>
                 <div className="inline-flex items-center text-emerald-400 font-semibold text-lg group-hover:text-emerald-300 transition-colors">
                   Access Support
@@ -370,7 +370,6 @@ export default function Contact() {
                     <a href={`tel:${CONTACT_INFO.phone}`} className="text-cyan-300 hover:text-cyan-200 transition-colors text-base block">
                       {CONTACT_INFO.phone}
                     </a>
-                    <p className="text-white/70 text-sm mt-1">Our IVR will direct you to the support team</p>
                   </div>
                 </div>
               </div>
@@ -380,48 +379,44 @@ export default function Contact() {
             <div className="bg-white/10 backdrop-blur-sm border border-emerald-400/30 rounded-3xl p-8 shadow-xl">
               <h3 className="text-2xl font-bold text-white mb-6">Client Portals</h3>
 
-              <div className="space-y-6">
-                <div className="flex items-start space-x-4 group">
-                  <div className="w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform duration-300">
-                    <GlobeIcon size={24} className="text-white" />
+              <div className="space-y-4">
+                <a
+                  href="https://triplecitiestech.us.cloudradial.com/login"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="group block"
+                >
+                  <div className="px-4 py-4 hover:bg-white/5 transition-all duration-500 rounded-lg cursor-pointer">
+                    <div className="flex items-start space-x-4">
+                      <div className="w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform duration-300">
+                        <GlobeIcon size={24} className="text-white" />
+                      </div>
+                      <div className="flex-1">
+                        <h4 className="text-lg font-bold text-white mb-1 group-hover:text-indigo-300 transition-colors duration-300">Client Support Portal</h4>
+                        <p className="text-white/90 text-sm group-hover:text-white transition-colors duration-300">Create and review tickets, documentation, training resources, and more.</p>
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <h4 className="text-lg font-bold text-white mb-2">Client Support Portal</h4>
-                    <p className="text-white/90 text-sm mb-3">Access tickets, documentation, and resources</p>
-                    <a
-                      href="https://triplecitiestech.us.cloudradial.com/login"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-400 hover:to-purple-400 text-white px-4 py-2 rounded-lg font-semibold text-sm transition-all duration-300 hover:scale-105 shadow-lg"
-                    >
-                      Access Client Portal
-                      <svg className="ml-2 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                      </svg>
-                    </a>
-                  </div>
-                </div>
+                </a>
 
-                <div className="flex items-start space-x-4 group">
-                  <div className="w-14 h-14 bg-gradient-to-br from-orange-500 to-red-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform duration-300">
-                    <GlobeIcon size={24} className="text-white" />
+                <a
+                  href="https://triplecitiestech.connectboosterportal.com/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="group block"
+                >
+                  <div className="px-4 py-4 hover:bg-white/5 transition-all duration-500 rounded-lg cursor-pointer">
+                    <div className="flex items-start space-x-4">
+                      <div className="w-14 h-14 bg-gradient-to-br from-orange-500 to-red-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform duration-300">
+                        <GlobeIcon size={24} className="text-white" />
+                      </div>
+                      <div className="flex-1">
+                        <h4 className="text-lg font-bold text-white mb-1 group-hover:text-orange-300 transition-colors duration-300">Payment Portal</h4>
+                        <p className="text-white/90 text-sm group-hover:text-white transition-colors duration-300">View invoices and make payments securely</p>
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <h4 className="text-lg font-bold text-white mb-2">Payment Portal</h4>
-                    <p className="text-white/90 text-sm mb-3">View invoices and make payments securely</p>
-                    <a
-                      href="https://triplecitiestech.connectboosterportal.com/"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-400 hover:to-red-400 text-white px-4 py-2 rounded-lg font-semibold text-sm transition-all duration-300 hover:scale-105 shadow-lg"
-                    >
-                      Make a Payment
-                      <svg className="ml-2 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                      </svg>
-                    </a>
-                  </div>
-                </div>
+                </a>
               </div>
             </div>
 
