@@ -7,7 +7,8 @@ import PageHero from '@/components/shared/PageHero'
 import Breadcrumbs from '@/components/seo/Breadcrumbs'
 import { Button } from '@/components/ui'
 import { CONTACT_INFO } from '@/constants/data'
-import { CalendarIcon, PhoneIcon, MailIcon, GlobeIcon, CheckCircleIcon, UsersIcon } from '@/components/icons/TechIcons'
+import { CalendarIcon, PhoneIcon, MailIcon, GlobeIcon, CheckCircleIcon, UsersIcon, ShieldCheckIcon } from '@/components/icons/TechIcons'
+import Link from 'next/link'
 
 export default function Contact() {
   const [formData, setFormData] = useState({
@@ -67,21 +68,79 @@ export default function Contact() {
 
       <PageHero
         title="Contact Us"
-        subtitle="Ready to transform your IT experience? Let's discuss how we can help your business thrive with technology that works for you."
+        subtitle="Choose how we can help you today"
         textAlign="center"
         verticalPosition="bottom"
         imageBackground="/herobg.webp"
       />
 
-      {/* Contact Form & Info Section */}
-      <div className="relative bg-gradient-to-br from-black via-gray-900 to-cyan-900 py-24">
+      {/* Hero Choice Cards */}
+      <div className="relative bg-gradient-to-br from-black via-gray-900 to-cyan-900 py-16">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+
+            {/* New Customer / Sales Card */}
+            <Link
+              href="#sales"
+              className="group relative bg-white/10 backdrop-blur-sm border-2 border-cyan-400/50 hover:border-cyan-400 rounded-3xl p-10 shadow-xl transition-all duration-500 hover:scale-105 hover:shadow-2xl hover:shadow-cyan-500/30"
+            >
+              <div className="text-center">
+                <div className="w-20 h-20 mx-auto mb-6 bg-gradient-to-br from-cyan-500 to-blue-500 rounded-2xl flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform duration-300">
+                  <UsersIcon size={40} className="text-white" />
+                </div>
+                <h2 className="text-3xl font-bold text-white mb-4">New to Triple Cities Tech?</h2>
+                <p className="text-white/90 text-lg mb-6">
+                  Interested in our services? Let's discuss how we can help your business thrive.
+                </p>
+                <div className="inline-flex items-center text-cyan-400 font-semibold text-lg group-hover:text-cyan-300 transition-colors">
+                  Get in Touch
+                  <svg className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                  </svg>
+                </div>
+              </div>
+            </Link>
+
+            {/* Existing Customer / Support Card */}
+            <Link
+              href="#customer-support"
+              className="group relative bg-white/10 backdrop-blur-sm border-2 border-emerald-400/50 hover:border-emerald-400 rounded-3xl p-10 shadow-xl transition-all duration-500 hover:scale-105 hover:shadow-2xl hover:shadow-emerald-500/30"
+            >
+              <div className="text-center">
+                <div className="w-20 h-20 mx-auto mb-6 bg-gradient-to-br from-emerald-500 to-teal-500 rounded-2xl flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform duration-300">
+                  <ShieldCheckIcon size={40} className="text-white" />
+                </div>
+                <h2 className="text-3xl font-bold text-white mb-4">Existing Customer?</h2>
+                <p className="text-white/90 text-lg mb-6">
+                  Need support, access your portal, or make a payment? We're here to help.
+                </p>
+                <div className="inline-flex items-center text-emerald-400 font-semibold text-lg group-hover:text-emerald-300 transition-colors">
+                  Access Support
+                  <svg className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                  </svg>
+                </div>
+              </div>
+            </Link>
+
+          </div>
+        </div>
+      </div>
+
+      {/* Sales Section */}
+      <div id="sales" className="scroll-mt-24 relative bg-gradient-to-br from-black via-gray-900 to-cyan-900 py-24">
         <div className="max-w-7xl mx-auto px-6">
+          <div className="text-center mb-12">
+            <h2 className="text-4xl md:text-5xl font-bold text-white mb-4">Let's Talk About Your IT Needs</h2>
+            <p className="text-xl text-white/90">Ready to transform your IT experience? We're here to help.</p>
+          </div>
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
 
             {/* Contact Form */}
             <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-3xl p-8 shadow-xl">
               <div className="mb-8">
-                <h2 className="text-3xl font-bold text-white mb-4">Send us a message</h2>
+                <h3 className="text-3xl font-bold text-white mb-4">Send us a message</h3>
                 <p className="text-white/90 text-lg">
                   Have a question about our services? Want to discuss your IT needs?
                   We'd love to hear from you.
@@ -193,13 +252,13 @@ export default function Contact() {
               </form>
             </div>
 
-            {/* Contact Information */}
+            {/* Sales Contact Information */}
             <div className="space-y-8">
               <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-3xl p-8 shadow-xl">
                 <div className="mb-8">
-                  <h2 className="text-3xl font-bold text-white mb-4">Contact Information</h2>
+                  <h3 className="text-3xl font-bold text-white mb-4">Sales Contact Information</h3>
                   <p className="text-white/90 text-lg">
-                    Prefer to reach out directly? Here's how you can get in touch with our team.
+                    Prefer to reach out directly? Here's how you can get in touch with our sales team.
                   </p>
                 </div>
 
@@ -209,7 +268,7 @@ export default function Contact() {
                       <PhoneIcon size={24} className="text-white" />
                     </div>
                     <div>
-                      <h3 className="text-lg font-bold text-white mb-1">Phone</h3>
+                      <h4 className="text-lg font-bold text-white mb-1">Phone</h4>
                       <a href={`tel:${CONTACT_INFO.phone}`} className="text-cyan-300 hover:text-cyan-200 transition-colors text-base">
                         {CONTACT_INFO.phone}
                       </a>
@@ -221,7 +280,7 @@ export default function Contact() {
                       <MailIcon size={24} className="text-white" />
                     </div>
                     <div>
-                      <h3 className="text-lg font-bold text-white mb-1">Email</h3>
+                      <h4 className="text-lg font-bold text-white mb-1">Email</h4>
                       <a href={`mailto:${CONTACT_INFO.email}`} className="text-purple-300 hover:text-purple-200 transition-colors text-base">
                         {CONTACT_INFO.email}
                       </a>
@@ -233,7 +292,7 @@ export default function Contact() {
                       <GlobeIcon size={24} className="text-white" />
                     </div>
                     <div>
-                      <h3 className="text-lg font-bold text-white mb-1">Address</h3>
+                      <h4 className="text-lg font-bold text-white mb-1">Address</h4>
                       <p className="text-white/90 text-base">{CONTACT_INFO.address}</p>
                     </div>
                   </div>
@@ -243,7 +302,7 @@ export default function Contact() {
                       <CalendarIcon size={24} className="text-white" />
                     </div>
                     <div>
-                      <h3 className="text-lg font-bold text-white mb-1">Business Hours</h3>
+                      <h4 className="text-lg font-bold text-white mb-1">Business Hours</h4>
                       <p className="text-white/90 text-base">{CONTACT_INFO.hours}</p>
                     </div>
                   </div>
@@ -253,7 +312,7 @@ export default function Contact() {
                       <UsersIcon size={24} className="text-white" />
                     </div>
                     <div>
-                      <h3 className="text-lg font-bold text-white mb-1">Schedule a Sales Meeting</h3>
+                      <h4 className="text-lg font-bold text-white mb-1">Schedule a Sales Meeting</h4>
                       <p className="text-white/90 text-sm mb-2">Book a free consultation to discuss your IT needs</p>
                       <a
                         href="https://calendly.com/kurtis-tct"
@@ -266,27 +325,125 @@ export default function Contact() {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 8l4 4m0 0l-4 4m4-4H3" />
                         </svg>
                       </a>
-                      <p className="text-white/70 text-xs mt-1">(For sales inquiries only - not for customer support)</p>
                     </div>
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      </div>
 
-              {/* Emergency Support Card */}
-              <div className="bg-gradient-to-br from-cyan-600 to-cyan-700 rounded-3xl p-8 shadow-xl border border-cyan-400/30">
-                <h3 className="text-2xl font-bold text-white mb-3">Need immediate assistance?</h3>
-                <p className="text-white/90 text-base mb-6">
+      {/* Customer Support Section */}
+      <div id="customer-support" className="scroll-mt-24 relative bg-gradient-to-br from-gray-900 via-black to-emerald-900 py-24">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="text-center mb-12">
+            <h2 className="text-4xl md:text-5xl font-bold text-white mb-4">Customer Support</h2>
+            <p className="text-xl text-white/90">We're here to help our valued clients succeed</p>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+
+            {/* Support Contact Info */}
+            <div className="bg-white/10 backdrop-blur-sm border border-emerald-400/30 rounded-3xl p-8 shadow-xl">
+              <h3 className="text-2xl font-bold text-white mb-6">Get Support</h3>
+
+              <div className="space-y-6">
+                <div className="flex items-start space-x-4 group">
+                  <div className="w-14 h-14 bg-gradient-to-br from-emerald-500 to-teal-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform duration-300">
+                    <MailIcon size={24} className="text-white" />
+                  </div>
+                  <div>
+                    <h4 className="text-lg font-bold text-white mb-1">Email Support</h4>
+                    <a href="mailto:support@triplecitiestech.com" className="text-emerald-300 hover:text-emerald-200 transition-colors text-base">
+                      support@triplecitiestech.com
+                    </a>
+                  </div>
+                </div>
+
+                <div className="flex items-start space-x-4 group">
+                  <div className="w-14 h-14 bg-gradient-to-br from-cyan-500 to-blue-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform duration-300">
+                    <PhoneIcon size={24} className="text-white" />
+                  </div>
+                  <div>
+                    <h4 className="text-lg font-bold text-white mb-1">Phone Support</h4>
+                    <a href={`tel:${CONTACT_INFO.phone}`} className="text-cyan-300 hover:text-cyan-200 transition-colors text-base block">
+                      {CONTACT_INFO.phone}
+                    </a>
+                    <p className="text-white/70 text-sm mt-1">Our IVR will direct you to the support team</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Client Portals */}
+            <div className="bg-white/10 backdrop-blur-sm border border-emerald-400/30 rounded-3xl p-8 shadow-xl">
+              <h3 className="text-2xl font-bold text-white mb-6">Client Portals</h3>
+
+              <div className="space-y-6">
+                <div className="flex items-start space-x-4 group">
+                  <div className="w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform duration-300">
+                    <GlobeIcon size={24} className="text-white" />
+                  </div>
+                  <div>
+                    <h4 className="text-lg font-bold text-white mb-2">Client Support Portal</h4>
+                    <p className="text-white/90 text-sm mb-3">Access tickets, documentation, and resources</p>
+                    <a
+                      href="https://triplecitiestech.us.cloudradial.com/login"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-400 hover:to-purple-400 text-white px-4 py-2 rounded-lg font-semibold text-sm transition-all duration-300 hover:scale-105 shadow-lg"
+                    >
+                      Access Client Portal
+                      <svg className="ml-2 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                      </svg>
+                    </a>
+                  </div>
+                </div>
+
+                <div className="flex items-start space-x-4 group">
+                  <div className="w-14 h-14 bg-gradient-to-br from-orange-500 to-red-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform duration-300">
+                    <GlobeIcon size={24} className="text-white" />
+                  </div>
+                  <div>
+                    <h4 className="text-lg font-bold text-white mb-2">Payment Portal</h4>
+                    <p className="text-white/90 text-sm mb-3">View invoices and make payments securely</p>
+                    <a
+                      href="https://triplecitiestech.connectboosterportal.com/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-400 hover:to-red-400 text-white px-4 py-2 rounded-lg font-semibold text-sm transition-all duration-300 hover:scale-105 shadow-lg"
+                    >
+                      Make a Payment
+                      <svg className="ml-2 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                      </svg>
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          {/* Emergency Support Card */}
+          <div className="mt-8 bg-gradient-to-br from-emerald-600 to-teal-700 rounded-3xl p-8 md:p-12 shadow-xl border border-emerald-400/30">
+            <div className="text-center md:text-left md:flex md:items-center md:justify-between">
+              <div className="mb-6 md:mb-0">
+                <h3 className="text-2xl md:text-3xl font-bold text-white mb-3">Need Immediate Assistance?</h3>
+                <p className="text-white/90 text-base md:text-lg">
                   {CONTACT_INFO.emergencySupport}
                 </p>
-                <Button
-                  asChild
-                  className="bg-white hover:bg-gray-100 text-cyan-700 font-bold px-6 py-3 rounded-xl transition-all duration-300 hover:scale-105 shadow-lg w-full sm:w-auto"
-                >
-                  <a href={`tel:${CONTACT_INFO.phone}`}>
-                    Call {CONTACT_INFO.phone}
-                  </a>
-                </Button>
               </div>
+              <Button
+                asChild
+                className="bg-white hover:bg-gray-100 text-emerald-700 font-bold px-8 py-4 rounded-xl transition-all duration-300 hover:scale-105 shadow-lg text-lg whitespace-nowrap"
+              >
+                <a href={`tel:${CONTACT_INFO.phone}`}>
+                  Call {CONTACT_INFO.phone}
+                </a>
+              </Button>
             </div>
           </div>
         </div>
