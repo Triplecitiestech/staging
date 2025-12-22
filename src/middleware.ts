@@ -62,9 +62,7 @@ export function middleware(request: NextRequest) {
     '/admin',
     '/phpmyadmin',
     '/.htaccess',
-    '/web.config',
-    '/robots.txt',
-    '/sitemap.xml'
+    '/web.config'
   ]
 
   if (sensitivePaths.some(path => url.pathname.startsWith(path))) {
