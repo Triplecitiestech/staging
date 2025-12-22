@@ -21,62 +21,62 @@ export default function ServicesSummary() {
   const servicesLeft = [
     {
       icon: <MonitorIcon size={32} className="text-white" />,
-      title: 'Managed IT Services & Help Desk',
+      title: 'Managed IT Services',
       description: 'Complete IT management with 24/7 support and proactive monitoring.',
       gradient: 'from-blue-500 to-cyan-500',
-      color: 'blue'
+      link: '/services#managed-it'
     },
     {
       icon: <ShieldCheckIcon size={32} className="text-white" />,
-      title: 'Cybersecurity (MDR, SIEM, Compliance)',
+      title: 'Cybersecurity & Compliance',
       description: 'Advanced threat detection and compliance readiness for your industry.',
       gradient: 'from-purple-500 to-pink-500',
-      color: 'purple'
+      link: '/services#cybersecurity'
     },
     {
       icon: <BriefcaseIcon size={32} className="text-white" />,
-      title: 'IT Strategy & Virtual CIO Consulting',
+      title: 'IT Strategy & Virtual CIO',
       description: 'Strategic technology planning and executive-level IT guidance.',
-      gradient: 'from-emerald-500 to-teal-500',
-      color: 'emerald'
+      gradient: 'from-orange-500 to-red-500',
+      link: '/services#strategy'
     },
     {
-      icon: <CloudIcon size={32} className="text-white" />,
-      title: 'Cloud Services (Microsoft 365, SharePoint)',
-      description: 'Cloud migration, implementation, and management services.',
-      gradient: 'from-orange-500 to-red-500',
-      color: 'orange'
+      icon: <UsersIcon size={32} className="text-white" />,
+      title: 'Employee Onboarding Automation',
+      description: 'Automated user provisioning and role-based access management.',
+      gradient: 'from-cyan-500 to-blue-500',
+      link: '/services#employee-onboarding-automation'
     }
   ]
 
   const servicesRight = [
     {
-      icon: <UsersIcon size={32} className="text-white" />,
-      title: 'IT Staff Augmentation',
-      description: 'Tools, process and expertise for in-house IT Teams',
-      gradient: 'from-indigo-500 to-purple-500',
-      color: 'indigo'
-    },
-    {
-      icon: <LockboxIcon size={32} className="text-white" />,
-      title: 'Physical Security',
-      description: 'Access Control, surveillance and structured cabling',
-      gradient: 'from-rose-500 to-red-500',
-      color: 'rose'
-    },
-    {
       icon: <LayersIcon size={32} className="text-white" />,
-      title: 'Backups and Disaster Recovery',
-      description: 'Image backups and disaster planning.',
-      gradient: 'from-sky-500 to-blue-500',
-      color: 'sky'
+      title: 'Co-Managed IT Services',
+      description: 'Enterprise-grade tools and capabilities for your existing IT team.',
+      gradient: 'from-yellow-500 to-orange-500',
+      link: '/services#co-managed-it-services'
     },
     {
       icon: <RobotIcon size={32} className="text-white" />,
-      title: 'AI Implementation',
-      description: 'Navigate and utilize the right AI to boost productivity',
-      gradient: 'from-violet-500 to-fuchsia-500',
-      color: 'violet'
+      title: 'AI Consulting',
+      description: 'Navigate the AI landscape with confidence and practical strategies.',
+      gradient: 'from-indigo-500 to-purple-500',
+      link: '/services#ai-consulting'
+    },
+    {
+      icon: <CloudIcon size={32} className="text-white" />,
+      title: 'Cloud Services',
+      description: 'Microsoft 365, SharePoint, and flexible cloud platform management.',
+      gradient: 'from-emerald-500 to-teal-500',
+      link: '/services#cloud'
+    },
+    {
+      icon: <LockboxIcon size={32} className="text-white" />,
+      title: 'Industry-Specific Solutions',
+      description: 'Tailored IT solutions for Construction, Healthcare, Manufacturing, and Professional Services.',
+      gradient: 'from-green-500 to-emerald-500',
+      link: '/services#industry-specific-solutions'
     }
   ]
 
@@ -137,9 +137,18 @@ export default function ServicesSummary() {
                         <h3 className="text-lg sm:text-xl font-bold text-white mb-2 sm:mb-3 group-hover:text-cyan-300 transition-colors duration-500">
                           {servicesLeft[rowIndex].title}
                         </h3>
-                        <p className="text-sm sm:text-base text-white/90 leading-relaxed group-hover:text-white transition-colors duration-500">
+                        <p className="text-sm sm:text-base text-white/90 leading-relaxed group-hover:text-white transition-colors duration-500 mb-4">
                           {servicesLeft[rowIndex].description}
                         </p>
+                        <Link
+                          href={servicesLeft[rowIndex].link}
+                          className={`inline-flex items-center justify-center bg-gradient-to-r ${servicesLeft[rowIndex].gradient} text-white px-4 py-2 rounded-lg font-semibold text-sm hover:opacity-90 transition-all duration-300 hover:scale-105 shadow-lg mt-2`}
+                        >
+                          Get Started
+                          <svg className="ml-2 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                          </svg>
+                        </Link>
                       </div>
                     </div>
                   </div>
@@ -167,9 +176,18 @@ export default function ServicesSummary() {
                         <h3 className="text-lg sm:text-xl font-bold text-white mb-2 sm:mb-3 group-hover:text-cyan-300 transition-colors duration-500">
                           {servicesRight[rowIndex].title}
                         </h3>
-                        <p className="text-sm sm:text-base text-white/90 leading-relaxed group-hover:text-white transition-colors duration-500">
+                        <p className="text-sm sm:text-base text-white/90 leading-relaxed group-hover:text-white transition-colors duration-500 mb-4">
                           {servicesRight[rowIndex].description}
                         </p>
+                        <Link
+                          href={servicesRight[rowIndex].link}
+                          className={`inline-flex items-center justify-center bg-gradient-to-r ${servicesRight[rowIndex].gradient} text-white px-4 py-2 rounded-lg font-semibold text-sm hover:opacity-90 transition-all duration-300 hover:scale-105 shadow-lg mt-2`}
+                        >
+                          Get Started
+                          <svg className="ml-2 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                          </svg>
+                        </Link>
                       </div>
                     </div>
                   </div>
