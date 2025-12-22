@@ -25,8 +25,8 @@ export default function About() {
   const values = [
     {
       icon: <BuildingIcon size={24} className="text-white" />,
-      title: 'Technology Built for Small Business',
-      description: 'We specialize in supporting teams of 20–50 users with IT solutions designed for their size, budget, and growth plans. On many occasions, we\'ve enabled businesses to free themselves of local constraints, work and hire remotely, streamline communication, and include best-in-class security and business continuity — without compromise.',
+      title: 'Technology Built for Growing Businesses',
+      description: 'We specialize in supporting dynamic teams with IT solutions designed for their size and budget, and growth plans. On many occasions, we\'ve enabled businesses to free themselves of local constraints, work and hire remotely, streamline communication, and include best-in-class security and business continuity — without compromise.',
       gradient: 'from-blue-500 to-cyan-500'
     },
     {
@@ -145,6 +145,10 @@ export default function About() {
                 </p>
                 <p className="flex items-start">
                   <span className="w-2 h-2 bg-cyan-400 rounded-full mr-3 mt-2 flex-shrink-0"></span>
+                  <span>Microsoft Certified Systems Engineer (MCSE)</span>
+                </p>
+                <p className="flex items-start">
+                  <span className="w-2 h-2 bg-cyan-400 rounded-full mr-3 mt-2 flex-shrink-0"></span>
                   <span>CompTIA A+ Certified</span>
                 </p>
                 <p className="flex items-start">
@@ -213,7 +217,7 @@ export default function About() {
                 </p>
                 <p className="flex items-start">
                   <span className="w-2 h-2 bg-emerald-400 rounded-full mr-3 mt-2 flex-shrink-0"></span>
-                  <span>HIPAA & ITAR Standards</span>
+                  <span>HIPAA & ITAR Frameworks</span>
                 </p>
                 <p className="flex items-start">
                   <span className="w-2 h-2 bg-emerald-400 rounded-full mr-3 mt-2 flex-shrink-0"></span>
