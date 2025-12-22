@@ -19,7 +19,8 @@ export default function ServiceCard({
   title,
   subtitle,
   features,
-  description
+  description,
+  gradient
 }: ServiceCardProps) {
   return (
     <div className="relative h-full">
@@ -63,7 +64,7 @@ export default function ServiceCard({
           <div className="pt-4 text-center mt-auto">
             <Link
               href="/contact"
-              className="group relative inline-flex items-center justify-center px-5 py-2 rounded-full font-semibold text-sm transition-all duration-300 hover:scale-105 transform-gpu bg-gradient-to-br from-cyan-400 via-cyan-500 to-cyan-600 hover:from-cyan-300 hover:via-cyan-400 hover:to-cyan-500 text-white shadow-[0_4px_12px_rgba(6,182,212,0.3)]"
+              className={`group relative inline-flex items-center justify-center px-5 py-2 rounded-full font-semibold text-sm transition-all duration-300 hover:scale-105 transform-gpu bg-gradient-to-r ${gradient} hover:opacity-90 text-white shadow-lg`}
             >
               <span className="relative z-10 flex items-center whitespace-nowrap">
                 Get Started
@@ -76,8 +77,6 @@ export default function ServiceCard({
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 8l4 4m0 0l-4 4m4-4H3" />
                 </svg>
               </span>
-              {/* 3D Glow Effect */}
-              <div className="absolute inset-0 rounded-full blur-md opacity-0 group-hover:opacity-50 transition-opacity duration-300 bg-cyan-400"></div>
             </Link>
           </div>
         </div>
