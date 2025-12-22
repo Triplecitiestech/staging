@@ -247,6 +247,28 @@ export default function Contact() {
                       <p className="text-white/90 text-base">{CONTACT_INFO.hours}</p>
                     </div>
                   </div>
+
+                  <div className="flex items-start space-x-4 group">
+                    <div className="w-14 h-14 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform duration-300">
+                      <CalendarIcon size={24} className="text-white" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-white mb-1">Schedule a Sales Meeting</h3>
+                      <p className="text-white/90 text-sm mb-2">Book a free consultation to discuss your IT needs</p>
+                      <a
+                        href="https://calendly.com/kurtis-tct"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center text-cyan-300 hover:text-cyan-200 transition-colors text-base font-semibold"
+                      >
+                        Schedule Now
+                        <svg className="ml-1.5 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                        </svg>
+                      </a>
+                      <p className="text-white/70 text-xs mt-1">(For sales inquiries only - not for customer support)</p>
+                    </div>
+                  </div>
                 </div>
               </div>
 
