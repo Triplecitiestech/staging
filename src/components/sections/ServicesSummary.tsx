@@ -116,13 +116,14 @@ export default function ServicesSummary() {
             {[0, 1, 2, 3].map((rowIndex) => (
               <div key={rowIndex} className="grid grid-cols-1 xl:grid-cols-2 gap-8 xl:gap-12 border-b border-gray-200/50 last:border-b-0">
                 {/* Left Service */}
-                <div
-                  className={`group relative transition-all duration-700 ease-out ${
+                <Link
+                  href={servicesLeft[rowIndex].link}
+                  className={`group relative transition-all duration-700 ease-out block ${
                     isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-20'
                   }`}
                   style={{ transitionDelay: `${rowIndex * 150}ms` }}
                 >
-                  <div className="py-6 sm:py-8 hover:bg-white/5 transition-all duration-500 rounded-lg text-center xl:text-left">
+                  <div className="py-6 sm:py-8 hover:bg-white/5 transition-all duration-500 rounded-lg text-center xl:text-left cursor-pointer">
                     <div className="flex flex-col xl:flex-row items-center xl:items-start space-y-4 xl:space-y-0 xl:space-x-4 2xl:space-x-6">
                       {/* Icon */}
                       <div className={`flex-shrink-0 w-12 h-12 sm:w-14 sm:h-14 xl:w-16 xl:h-16 bg-gradient-to-br ${servicesLeft[rowIndex].gradient} rounded-xl xl:rounded-2xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-all duration-500 group-hover:scale-110`}>
@@ -137,31 +138,23 @@ export default function ServicesSummary() {
                         <h3 className="text-lg sm:text-xl font-bold text-white mb-2 sm:mb-3 group-hover:text-cyan-300 transition-colors duration-500">
                           {servicesLeft[rowIndex].title}
                         </h3>
-                        <p className="text-sm sm:text-base text-white/90 leading-relaxed group-hover:text-white transition-colors duration-500 mb-4">
+                        <p className="text-sm sm:text-base text-white/90 leading-relaxed group-hover:text-white transition-colors duration-500">
                           {servicesLeft[rowIndex].description}
                         </p>
-                        <Link
-                          href={servicesLeft[rowIndex].link}
-                          className={`inline-flex items-center justify-center bg-gradient-to-r ${servicesLeft[rowIndex].gradient} text-white px-4 py-2 rounded-lg font-semibold text-sm hover:opacity-90 transition-all duration-300 hover:scale-105 shadow-lg mt-2`}
-                        >
-                          Get Started
-                          <svg className="ml-2 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                          </svg>
-                        </Link>
                       </div>
                     </div>
                   </div>
-                </div>
+                </Link>
 
                 {/* Right Service */}
-                <div
-                  className={`group relative transition-all duration-700 ease-out ${
+                <Link
+                  href={servicesRight[rowIndex].link}
+                  className={`group relative transition-all duration-700 ease-out block ${
                     isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-20'
                   }`}
                   style={{ transitionDelay: `${(rowIndex + 4) * 150}ms` }}
                 >
-                  <div className="py-6 sm:py-8 hover:bg-white/5 transition-all duration-500 rounded-lg text-center xl:text-left">
+                  <div className="py-6 sm:py-8 hover:bg-white/5 transition-all duration-500 rounded-lg text-center xl:text-left cursor-pointer">
                     <div className="flex flex-col xl:flex-row items-center xl:items-start space-y-4 xl:space-y-0 xl:space-x-4 2xl:space-x-6">
                       {/* Icon */}
                       <div className={`flex-shrink-0 w-12 h-12 sm:w-14 sm:h-14 xl:w-16 xl:h-16 bg-gradient-to-br ${servicesRight[rowIndex].gradient} rounded-xl xl:rounded-2xl flex items-center justify-center shadow-lg group-hover:shadow-xl transition-all duration-500 group-hover:scale-110`}>
@@ -176,22 +169,13 @@ export default function ServicesSummary() {
                         <h3 className="text-lg sm:text-xl font-bold text-white mb-2 sm:mb-3 group-hover:text-cyan-300 transition-colors duration-500">
                           {servicesRight[rowIndex].title}
                         </h3>
-                        <p className="text-sm sm:text-base text-white/90 leading-relaxed group-hover:text-white transition-colors duration-500 mb-4">
+                        <p className="text-sm sm:text-base text-white/90 leading-relaxed group-hover:text-white transition-colors duration-500">
                           {servicesRight[rowIndex].description}
                         </p>
-                        <Link
-                          href={servicesRight[rowIndex].link}
-                          className={`inline-flex items-center justify-center bg-gradient-to-r ${servicesRight[rowIndex].gradient} text-white px-4 py-2 rounded-lg font-semibold text-sm hover:opacity-90 transition-all duration-300 hover:scale-105 shadow-lg mt-2`}
-                        >
-                          Get Started
-                          <svg className="ml-2 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                          </svg>
-                        </Link>
                       </div>
                     </div>
                   </div>
-                </div>
+                </Link>
               </div>
             ))}
           </div>

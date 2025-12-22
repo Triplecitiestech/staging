@@ -42,10 +42,10 @@ export default function Industries() {
       title: 'Professional Services',
       subtitle: 'Whether you\'re managing sensitive client data or ensuring business continuity, we help legal, accounting, architecture, and other service firms.',
       features: [
-        'Protect confidential information with strong security practices',
         'Automate onboarding for new employees and clients',
         'Streamline workflows with the right mix of software and support',
-        'Eliminate IT bottlenecks that slow down your day'
+        'Eliminate IT bottlenecks that slow down your day',
+        'Protect confidential information with strong security practices'
       ],
       description: 'We make sure your tools work as hard as you do — so you can focus on delivering results.',
       gradient: 'from-purple-500 to-pink-500',
