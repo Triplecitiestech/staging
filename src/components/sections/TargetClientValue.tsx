@@ -34,7 +34,7 @@ export default function TargetClientValue() {
   }, [clientBenefits.length])
 
   return (
-    <section className="relative py-32 bg-black overflow-hidden">
+    <section id="drive-business-growth" className="relative py-32 bg-black overflow-hidden scroll-mt-24">
       {/* Background Effects to match CTA */}
       <div className="absolute inset-0">
         {/* Neural Network Grid */}
@@ -109,8 +109,8 @@ export default function TargetClientValue() {
                 </div>
                 <p className="text-xl text-white mb-8 leading-relaxed">
                   Fortress is the most comprehensive, secure and forward-thinking IT management platform in the industry.{' '}
-                  <Link href="/services" className="text-white bg-black/30 px-3 py-1 rounded-lg hover:bg-black/50 font-semibold underline">
-                    Learn more
+                  <Link href="#how-to-engage" className="text-white bg-black/30 px-3 py-1 rounded-lg hover:bg-black/50 font-semibold underline">
+                    Contact us to Learn More
                   </Link>
                 </p>
               </div>

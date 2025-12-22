@@ -262,7 +262,7 @@ export default function ProspectEngagement() {
   ]
 
   return (
-    <section className="relative py-16 md:py-24 lg:py-32 bg-gradient-to-br from-cyan-900 via-gray-900 to-black overflow-hidden">
+    <section id="how-to-engage" className="relative py-16 md:py-24 lg:py-32 bg-gradient-to-br from-cyan-900 via-gray-900 to-black overflow-hidden scroll-mt-24">
       <div className="absolute inset-0">
         <div className="absolute inset-0 opacity-5">
           <div

@@ -76,8 +76,8 @@ export default function Hero() {
                   Get Started
                 </Link>
                 
-                <Link 
-                  href="/services"
+                <Link
+                  href="#drive-business-growth"
                   className="group relative text-white border-2 border-cyan-500 px-8 py-4 rounded-lg font-medium text-lg hover:border-cyan-400 hover:bg-cyan-500/10 transition-all duration-300 hover:scale-105"
                 >
                   Learn More

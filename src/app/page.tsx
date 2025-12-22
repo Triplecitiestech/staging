@@ -16,8 +16,8 @@ export default function Home() {
       <Header />
       <Hero />
       <TargetClientValue />
-      <StreamlinedProcess />
       <ServicesSummary />
+      <StreamlinedProcess />
       <Testimonials />
       <ProspectEngagement />
       <ContactNavigation />
