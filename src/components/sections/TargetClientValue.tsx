@@ -83,7 +83,7 @@ export default function TargetClientValue() {
             <div className="inline-block">
               <div className="px-8 py-4 bg-gradient-to-r from-cyan-400 to-cyan-600 rounded-full shadow-lg shadow-cyan-400/30 border-2 border-white/20">
                 <h3 className="text-2xl md:text-3xl font-black text-white tracking-wider">
-                  TCT FORTRESS MANAGED SERVICES
+                  TCT FORTRESS
                 </h3>
               </div>
             </div>
@@ -107,12 +107,18 @@ export default function TargetClientValue() {
                 <div className="mb-6">
                   <h3 className="text-3xl font-bold text-white">{clientBenefits[activeStep].title}</h3>
                 </div>
-                <p className="text-xl text-white mb-8 leading-relaxed">
-                  Fortress is the most comprehensive, secure and forward-thinking IT management platform in the industry.{' '}
-                  <Link href="#how-to-engage" className="text-white bg-black/30 px-3 py-1 rounded-lg hover:bg-black/50 font-semibold underline">
-                    Contact us to Learn More
-                  </Link>
+                <p className="text-xl text-white mb-6 leading-relaxed">
+                  Fortress is the most comprehensive, secure and forward-thinking IT management platform in the industry.
                 </p>
+                <Link
+                  href="#how-to-engage"
+                  className="inline-flex items-center bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-white px-6 py-3 rounded-lg font-semibold transition-all duration-300 hover:scale-105 shadow-lg hover:shadow-cyan-500/50"
+                >
+                  Contact us to Learn More
+                  <svg className="ml-2 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                  </svg>
+                </Link>
               </div>
 
               {/* Features List */}
@@ -121,7 +127,7 @@ export default function TargetClientValue() {
                   {clientBenefits[activeStep].features.map((feature, index) => (
                     <div
                       key={index}
-                      className="flex items-center justify-center space-x-3 bg-white/10 backdrop-blur-sm hover:bg-white/15 border border-white/20 hover:border-white/30 rounded-xl p-4 transition-all duration-300 cursor-pointer group"
+                      className="flex items-center justify-center space-x-3 bg-white/10 backdrop-blur-sm hover:bg-white/15 border border-white/20 hover:border-white/30 rounded-xl p-4 transition-all duration-300 group"
                     >
                       <div className="w-2 h-2 bg-cyan-400 rounded-full group-hover:scale-125 transition-transform duration-300"></div>
                       <span className="text-white font-semibold text-lg group-hover:text-cyan-200 transition-colors duration-300">{feature}</span>
