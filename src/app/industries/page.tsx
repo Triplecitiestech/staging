@@ -14,38 +14,24 @@ export default function Industries() {
       title: 'Construction',
       subtitle: 'You\'re managing remote crews, juggling multiple sites, and racing deadlines — and IT should never slow you down.',
       features: [
-        'Secure project data and jobsite communications',
-        'Automate onboarding for new employees and subcontractors',
         'Deploy rugged, reliable tech across mobile teams',
-        'Streamline systems like estimating, scheduling, and compliance reporting'
+        'Streamline systems like estimating, scheduling, and compliance reporting',
+        'Secure project data and jobsite communications',
+        'Automate onboarding for new employees and subcontractors'
       ],
-      description: 'With Triple Cities Tech, your technology becomes as dependable as your crew.',
+      description: 'We deliver technology solutions built to match the pace and demands of your projects.',
       gradient: 'from-orange-500 to-red-500',
       image: '/construction.webp'
-    },
-    {
-      icon: '/icon/healthcare.webp',
-      title: 'Healthcare',
-      subtitle: 'From HIPAA compliance to EHR systems, IT in healthcare must be fast, secure, and dependable.',
-      features: [
-        'Protect patient data with proactive cybersecurity',
-        'Improve uptime for scheduling and billing systems',
-        'Automate onboarding for new clinicians and staff',
-        'Simplify compliance with built-in documentation and alerts'
-      ],
-      description: 'We make sure your IT supports patient care — not distracts from it.',
-      gradient: 'from-emerald-500 to-teal-500',
-      image: '/medical.webp'
     },
     {
       icon: '/icon/manufacturing.webp',
       title: 'Manufacturing',
       subtitle: 'Your production lines rely on stability and precision — and so should your technology.',
       features: [
-        'Protect critical infrastructure from downtime and cyber threats',
+        'Support IT environments that power ERP, MES, and design tools',
         'Secure IoT devices and shop-floor systems',
         'Implement compliance solutions for NIST, CMMC, and more',
-        'Support IT environments that power ERP, MES, and design tools'
+        'Protect critical infrastructure from downtime and cyber threats'
       ],
       description: 'Get IT that\'s built to move as fast as your operations.',
       gradient: 'from-blue-500 to-indigo-500',
@@ -64,6 +50,20 @@ export default function Industries() {
       description: 'We make sure your tools work as hard as you do — so you can focus on delivering results.',
       gradient: 'from-purple-500 to-pink-500',
       image: '/proservice.webp'
+    },
+    {
+      icon: '/icon/healthcare.webp',
+      title: 'Healthcare',
+      subtitle: 'From HIPAA compliance to EHR systems, IT in healthcare must be fast, secure, and dependable.',
+      features: [
+        'Protect patient data and ensure compliance',
+        'Support existing IT staff with co-managed services',
+        'Automate onboarding for new clinicians and staff',
+        'Simplify compliance with built-in documentation and alerts'
+      ],
+      description: 'We make sure your IT supports patient care — not distracts from it.',
+      gradient: 'from-emerald-500 to-teal-500',
+      image: '/medical.webp'
     }
   ]
 

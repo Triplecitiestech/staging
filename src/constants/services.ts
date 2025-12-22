@@ -67,6 +67,21 @@ export const SERVICES: Service[] = [
     image: '/managed services.webp'
   },
   {
+    title: 'Co-Managed IT Services',
+    subtitle: 'Enterprise-grade tools and capabilities for your existing IT team.',
+    features: [
+      'Advanced security tools and monitoring platforms',
+      'Automated compliance tracking and reporting',
+      'Streamlined onboarding and offboarding workflows',
+      'Enterprise backup and disaster recovery solutions',
+      'Access to our full technology stack and best practices'
+    ],
+    description: 'Empower your internal IT team with the same enterprise-grade tools, security platforms, and automated processes we use for our fully managed clients.',
+    gradient: 'from-yellow-500 to-orange-500',
+    icon: '/icon/bg.webp',
+    image: '/iws.webp'
+  },
+  {
     title: 'Cybersecurity & Compliance',
     subtitle: 'Security that\'s proactive, not reactive.',
     features: [
@@ -153,21 +168,6 @@ export const SERVICES: Service[] = [
     gradient: 'from-green-500 to-emerald-500',
     icon: '/icon/ic.webp',
     image: '/industry solutions.webp'
-  },
-  {
-    title: 'Co-Managed IT Services',
-    subtitle: 'Enterprise-grade tools and capabilities for your existing IT team.',
-    features: [
-      'Advanced security tools and monitoring platforms',
-      'Automated compliance tracking and reporting',
-      'Streamlined onboarding and offboarding workflows',
-      'Enterprise backup and disaster recovery solutions',
-      'Access to our full technology stack and best practices'
-    ],
-    description: 'Empower your internal IT team with the same enterprise-grade tools, security platforms, and automated processes we use for our fully managed clients.',
-    gradient: 'from-yellow-500 to-orange-500',
-    icon: '/icon/bg.webp',
-    image: '/iws.webp'
   }
 ]
 
