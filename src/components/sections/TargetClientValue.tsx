@@ -11,7 +11,7 @@ export default function TargetClientValue() {
 
   const clientBenefits = [
     {
-      phase: 'TCT Fortress',
+      phase: 'TCT FORTRESS',
       title: 'What is Fortress?',
       description: 'Fortress is the most comprehensive, secure and forward-thinking IT management platform in the industry.',
       features: [
