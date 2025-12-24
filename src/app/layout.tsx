@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 import ScrollToTop from '@/components/ui/ScrollToTop'
 import FAQSchema from '@/components/seo/FAQSchema'
+import ServiceSchema from '@/components/seo/ServiceSchema'
+import AIMetadata from '@/components/seo/AIMetadata'
 
 export const metadata: Metadata = {
   title: 'Triple Cities Tech | Managed IT Services for Small Business | Central NY',
@@ -207,6 +209,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="scroll-smooth">
       <head>
+        <AIMetadata />
         <link rel="icon" href="/favicon.ico" sizes="any" />
         <link rel="icon" href="/favicon-16x16.png" sizes="16x16" type="image/png" />
         <link rel="icon" href="/favicon-32x32.png" sizes="32x32" type="image/png" />
@@ -223,6 +226,7 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationData) }}
         />
         <FAQSchema />
+        <ServiceSchema />
       </head>
       <body className="antialiased overflow-x-hidden bg-black" suppressHydrationWarning={true}>
         <div className="min-h-screen w-full prevent-overflow">
