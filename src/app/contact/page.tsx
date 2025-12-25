@@ -70,13 +70,13 @@ export default function Contact() {
         title="Contact Us"
         subtitle="Choose how we can help you today"
         textAlign="center"
-        verticalPosition="bottom"
+        verticalPosition="center"
         imageBackground="/herobg.webp"
         showGradientTransition={false}
       />
 
-      {/* Hero Choice Cards */}
-      <div className="relative bg-gradient-to-br from-black via-gray-900 to-cyan-900 py-12 md:py-24">
+      {/* Hero Choice Cards - Integrated with minimal spacing */}
+      <div className="relative bg-gradient-to-br from-black via-gray-900 to-cyan-900 pt-4 pb-16 md:py-24 -mt-16">
         <div className="max-w-6xl mx-auto px-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
 
