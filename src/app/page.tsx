@@ -7,7 +7,6 @@ import ProspectEngagement from '@/components/sections/ProspectEngagement'
 import StreamlinedProcess from '@/components/sections/StreamlinedProcess'
 import ServicesSummary from '@/components/sections/ServicesSummary'
 import Testimonials from '@/components/sections/Testimonials'
-import ContactNavigation from '@/components/sections/ContactNavigation'
 import Footer from '@/components/layout/Footer'
 
 export default function Home() {
@@ -20,7 +19,6 @@ export default function Home() {
       <StreamlinedProcess />
       <Testimonials />
       <ProspectEngagement />
-      <ContactNavigation />
       <Footer />
     </main>
   )

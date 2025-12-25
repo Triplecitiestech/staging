@@ -7,7 +7,7 @@ import PageHero from '@/components/shared/PageHero'
 import Breadcrumbs from '@/components/seo/Breadcrumbs'
 import { Button } from '@/components/ui'
 import { CONTACT_INFO } from '@/constants/data'
-import { CalendarIcon, PhoneIcon, MailIcon, GlobeIcon, CheckCircleIcon, UsersIcon, ShieldCheckIcon } from '@/components/icons/TechIcons'
+import { CalendarIcon, ClockIcon, PhoneIcon, MailIcon, GlobeIcon, CheckCircleIcon, UsersIcon, ShieldCheckIcon } from '@/components/icons/TechIcons'
 import Link from 'next/link'
 
 export default function Contact() {
@@ -299,7 +299,7 @@ export default function Contact() {
 
                   <div className="flex items-start space-x-4 group">
                     <div className="w-14 h-14 bg-gradient-to-br from-orange-500 to-red-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform duration-300">
-                      <CalendarIcon size={24} className="text-white" />
+                      <ClockIcon size={24} className="text-white" />
                     </div>
                     <div>
                       <h4 className="text-lg font-bold text-white mb-1">Business Hours</h4>
@@ -309,7 +309,7 @@ export default function Contact() {
 
                   <div className="flex items-start space-x-4 group">
                     <div className="w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform duration-300">
-                      <UsersIcon size={24} className="text-white" />
+                      <CalendarIcon size={24} className="text-white" />
                     </div>
                     <div>
                       <h4 className="text-lg font-bold text-white mb-1">Schedule a Sales Meeting</h4>
@@ -379,23 +379,19 @@ export default function Contact() {
             <div className="bg-white/10 backdrop-blur-sm border border-emerald-400/30 rounded-3xl p-8 shadow-xl">
               <h3 className="text-2xl font-bold text-white mb-6">Client Portals</h3>
 
-              <div className="space-y-4">
+              <div className="space-y-6">
                 <a
                   href="https://triplecitiestech.us.cloudradial.com/login"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="group block"
+                  className="flex items-start space-x-4 group"
                 >
-                  <div className="px-4 py-4 hover:bg-white/5 transition-all duration-500 rounded-lg cursor-pointer">
-                    <div className="flex items-start space-x-4">
-                      <div className="w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform duration-300">
-                        <GlobeIcon size={24} className="text-white" />
-                      </div>
-                      <div className="flex-1">
-                        <h4 className="text-lg font-bold text-white mb-1 group-hover:text-indigo-300 transition-colors duration-300">Client Support Portal</h4>
-                        <p className="text-white/90 text-sm group-hover:text-white transition-colors duration-300">Create and review tickets, documentation, training resources, and more.</p>
-                      </div>
-                    </div>
+                  <div className="w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform duration-300">
+                    <GlobeIcon size={24} className="text-white" />
+                  </div>
+                  <div>
+                    <h4 className="text-lg font-bold text-white mb-1 group-hover:text-indigo-300 transition-colors duration-300">Client Support Portal</h4>
+                    <p className="text-white/90 text-sm group-hover:text-white transition-colors duration-300">Create and review tickets, documentation, training resources, and more.</p>
                   </div>
                 </a>
 
@@ -403,18 +399,14 @@ export default function Contact() {
                   href="https://triplecitiestech.connectboosterportal.com/"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="group block"
+                  className="flex items-start space-x-4 group"
                 >
-                  <div className="px-4 py-4 hover:bg-white/5 transition-all duration-500 rounded-lg cursor-pointer">
-                    <div className="flex items-start space-x-4">
-                      <div className="w-14 h-14 bg-gradient-to-br from-orange-500 to-red-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform duration-300">
-                        <GlobeIcon size={24} className="text-white" />
-                      </div>
-                      <div className="flex-1">
-                        <h4 className="text-lg font-bold text-white mb-1 group-hover:text-orange-300 transition-colors duration-300">Payment Portal</h4>
-                        <p className="text-white/90 text-sm group-hover:text-white transition-colors duration-300">View invoices and make payments securely</p>
-                      </div>
-                    </div>
+                  <div className="w-14 h-14 bg-gradient-to-br from-orange-500 to-red-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform duration-300">
+                    <GlobeIcon size={24} className="text-white" />
+                  </div>
+                  <div>
+                    <h4 className="text-lg font-bold text-white mb-1 group-hover:text-orange-300 transition-colors duration-300">Payment Portal</h4>
+                    <p className="text-white/90 text-sm group-hover:text-white transition-colors duration-300">View invoices and make payments securely</p>
                   </div>
                 </a>
               </div>

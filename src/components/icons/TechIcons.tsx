@@ -244,6 +244,32 @@ export const CalendarIcon = ({ className = '', size = 24 }: IconProps) => (
   </svg>
 )
 
+export const ClockIcon = ({ className = '', size = 24 }: IconProps) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    className={className}
+  >
+    <circle
+      cx="12"
+      cy="12"
+      r="10"
+      stroke="currentColor"
+      strokeWidth="2"
+      fill="none"
+    />
+    <path
+      d="M12 6V12L16 14"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+)
+
 export const MailIcon = ({ className = '', size = 24 }: IconProps) => (
   <svg 
     width={size} 
