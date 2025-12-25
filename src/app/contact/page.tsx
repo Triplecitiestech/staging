@@ -72,10 +72,11 @@ export default function Contact() {
         textAlign="center"
         verticalPosition="bottom"
         imageBackground="/herobg.webp"
+        showGradientTransition={false}
       />
 
       {/* Hero Choice Cards */}
-      <div className="relative bg-gradient-to-br from-black via-gray-900 to-cyan-900 py-24 md:py-32">
+      <div className="relative bg-gradient-to-br from-black via-gray-900 to-cyan-900 py-12 md:py-24">
         <div className="max-w-6xl mx-auto px-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
 
