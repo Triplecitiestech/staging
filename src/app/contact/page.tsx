@@ -75,7 +75,7 @@ export default function Contact() {
       />
 
       {/* Hero Choice Cards */}
-      <div className="relative bg-gradient-to-br from-black via-gray-900 to-cyan-900 py-16">
+      <div className="relative bg-gradient-to-br from-black via-gray-900 to-cyan-900 py-20 md:py-24">
         <div className="max-w-6xl mx-auto px-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
 
