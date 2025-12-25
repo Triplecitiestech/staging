@@ -37,7 +37,7 @@ export default function PageHero({
   const { isVisible, elementRef } = useAnimation(0.1)
 
   return (
-    <section className={`relative py-20 md:py-28 lg:py-32 ${!videoBackground && !imageBackground && gradientFrom !== 'from-transparent' ? `bg-gradient-to-br ${gradientFrom} via-gray-900 ${gradientTo}` : ''} overflow-hidden`}>
+    <section className={`relative py-12 md:py-28 lg:py-32 ${!videoBackground && !imageBackground && gradientFrom !== 'from-transparent' ? `bg-gradient-to-br ${gradientFrom} via-gray-900 ${gradientTo}` : ''} overflow-hidden`}>
       {/* Background Elements */}
       <div className="absolute inset-0">
         {/* Video Background */}
@@ -186,18 +186,18 @@ export default function PageHero({
           ) : (
             <>
               {/* Title */}
-              <h1 className={`text-3xl sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-black text-white mb-8 leading-tight transition-all duration-700 delay-200 ${
+              <h1 className={`text-2xl sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-black text-white mb-4 md:mb-8 leading-tight transition-all duration-700 delay-200 ${
                 titleNoWrap ? 'md:whitespace-nowrap' : ''
               } ${
                 isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
               }`}>
                 {title}
               </h1>
-              
+
               {/* Subtitle */}
-              <p className={`text-xl md:text-2xl text-white font-medium max-w-4xl ${
-                textAlign === 'left' ? 'ml-0' : 
-                textAlign === 'right' ? 'mr-0' : 
+              <p className={`text-base sm:text-xl md:text-2xl text-white font-medium max-w-4xl ${
+                textAlign === 'left' ? 'ml-0' :
+                textAlign === 'right' ? 'mr-0' :
                 'mx-auto'
               } leading-relaxed transition-all duration-700 delay-300 ${
                 isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
