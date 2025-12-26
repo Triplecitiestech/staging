@@ -17,11 +17,12 @@ interface PageHeroProps {
   subtitlePosition?: 'below' | 'side' | 'above'
   titleNoWrap?: boolean
   showGradientTransition?: boolean
+  titleClassName?: string
 }
 
-export default function PageHero({ 
-  title, 
-  subtitle, 
+export default function PageHero({
+  title,
+  subtitle,
   description = '',
   badge = '',
   gradientFrom = 'from-slate-950',
@@ -32,7 +33,8 @@ export default function PageHero({
   verticalPosition = 'center',
   subtitlePosition = 'below',
   titleNoWrap = false,
-  showGradientTransition = true
+  showGradientTransition = true,
+  titleClassName = ''
 }: PageHeroProps) {
   const { isVisible, elementRef } = useAnimation(0.1)
 
@@ -118,7 +120,7 @@ export default function PageHero({
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 items-center">
               {/* Title */}
               <div>
-                <h1 className={`text-3xl sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-black text-white leading-tight transition-all duration-700 delay-200 ${
+                <h1 className={`${titleClassName || 'text-3xl sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl'} font-black text-white leading-tight transition-all duration-700 delay-200 ${
                   titleNoWrap ? 'md:whitespace-nowrap' : ''
                 } ${
                   isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
@@ -158,7 +160,7 @@ export default function PageHero({
               </p>
               
               {/* Title */}
-              <h1 className={`text-3xl sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-black text-white leading-tight transition-all duration-700 delay-300 ${
+              <h1 className={`${titleClassName || 'text-3xl sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl'} font-black text-white leading-tight transition-all duration-700 delay-300 ${
                 titleNoWrap ? 'md:whitespace-nowrap' : ''
               } ${
                 isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
@@ -186,7 +188,7 @@ export default function PageHero({
           ) : (
             <>
               {/* Title */}
-              <h1 className={`text-2xl sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-black text-white mb-4 md:mb-8 leading-tight transition-all duration-700 delay-200 ${
+              <h1 className={`${titleClassName || 'text-2xl sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl'} font-black text-white mb-4 md:mb-8 leading-tight transition-all duration-700 delay-200 ${
                 titleNoWrap ? 'md:whitespace-nowrap' : ''
               } ${
                 isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'

@@ -73,6 +73,7 @@ export default function Contact() {
         verticalPosition="center"
         imageBackground="/herobg.webp"
         showGradientTransition={false}
+        titleClassName="text-3xl sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl"
       />
 
       {/* Hero Choice Cards - Side by Side on Mobile */}
@@ -92,7 +93,7 @@ export default function Contact() {
                 </div>
                 <h2 className="text-sm md:text-3xl font-bold text-white mb-2 md:mb-4">New to Triple Cities Tech?</h2>
                 <p className="hidden md:block text-white/90 text-lg mb-6">
-                  Interested in our services? Let's discuss how we can help your business thrive.
+                  Interested in our services? Let's discuss how we can use technology to help your business succeed.
                 </p>
                 <div className="inline-flex items-center justify-center w-full md:w-auto bg-cyan-500 hover:bg-cyan-400 text-white text-xs md:text-lg font-semibold md:font-bold px-3 md:px-0 py-2 md:py-0 rounded-lg md:rounded-none md:bg-transparent transition-colors">
                   Get in Touch
