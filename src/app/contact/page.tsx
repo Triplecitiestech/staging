@@ -75,27 +75,28 @@ export default function Contact() {
         showGradientTransition={false}
       />
 
-      {/* Hero Choice Cards - Integrated with minimal spacing */}
-      <div className="relative bg-gradient-to-br from-black via-gray-900 to-cyan-900 pt-4 pb-16 md:py-24 -mt-16">
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+      {/* Hero Choice Cards - Side by Side on Mobile */}
+      <div className="relative bg-gradient-to-br from-black via-gray-900 to-cyan-900 py-8 md:py-16 -mt-8 md:-mt-16">
+        <div className="max-w-4xl mx-auto px-4">
+          <div className="grid grid-cols-2 gap-3 md:gap-8">
 
             {/* New Customer / Sales Card */}
             <Link
               href="#sales"
-              className="group relative bg-white/10 backdrop-blur-sm border-2 border-cyan-400/50 hover:border-cyan-400 rounded-3xl p-10 shadow-xl transition-all duration-500 hover:scale-105 hover:shadow-2xl hover:shadow-cyan-500/30"
+              className="group relative bg-white/10 backdrop-blur-sm border-2 border-cyan-400/50 hover:border-cyan-400 rounded-2xl md:rounded-3xl p-4 md:p-10 shadow-xl transition-all duration-300 hover:scale-105 hover:shadow-2xl hover:shadow-cyan-500/30"
             >
               <div className="text-center">
-                <div className="w-20 h-20 mx-auto mb-6 bg-gradient-to-br from-cyan-500 to-blue-500 rounded-2xl flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform duration-300">
-                  <UsersIcon size={40} className="text-white" />
+                <div className="w-12 h-12 md:w-20 md:h-20 mx-auto mb-3 md:mb-6 bg-gradient-to-br from-cyan-500 to-blue-500 rounded-xl md:rounded-2xl flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform duration-300">
+                  <UsersIcon size={24} className="md:hidden text-white" />
+                  <UsersIcon size={40} className="hidden md:block text-white" />
                 </div>
-                <h2 className="text-3xl font-bold text-white mb-4">New to Triple Cities Tech?</h2>
-                <p className="text-white/90 text-lg mb-6">
+                <h2 className="text-sm md:text-3xl font-bold text-white mb-2 md:mb-4">New to Triple Cities Tech?</h2>
+                <p className="hidden md:block text-white/90 text-lg mb-6">
                   Interested in our services? Let's discuss how we can help your business thrive.
                 </p>
-                <div className="inline-flex items-center text-cyan-400 font-semibold text-lg group-hover:text-cyan-300 transition-colors">
+                <div className="inline-flex items-center justify-center w-full md:w-auto bg-cyan-500 hover:bg-cyan-400 text-white text-xs md:text-lg font-semibold md:font-bold px-3 md:px-0 py-2 md:py-0 rounded-lg md:rounded-none md:bg-transparent transition-colors">
                   Get in Touch
-                  <svg className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="hidden md:inline ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 8l4 4m0 0l-4 4m4-4H3" />
                   </svg>
                 </div>
@@ -105,19 +106,20 @@ export default function Contact() {
             {/* Existing Customer / Support Card */}
             <Link
               href="#customer-support"
-              className="group relative bg-white/10 backdrop-blur-sm border-2 border-emerald-400/50 hover:border-emerald-400 rounded-3xl p-10 shadow-xl transition-all duration-500 hover:scale-105 hover:shadow-2xl hover:shadow-emerald-500/30"
+              className="group relative bg-white/10 backdrop-blur-sm border-2 border-emerald-400/50 hover:border-emerald-400 rounded-2xl md:rounded-3xl p-4 md:p-10 shadow-xl transition-all duration-300 hover:scale-105 hover:shadow-2xl hover:shadow-emerald-500/30"
             >
               <div className="text-center">
-                <div className="w-20 h-20 mx-auto mb-6 bg-gradient-to-br from-emerald-500 to-teal-500 rounded-2xl flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform duration-300">
-                  <ShieldCheckIcon size={40} className="text-white" />
+                <div className="w-12 h-12 md:w-20 md:h-20 mx-auto mb-3 md:mb-6 bg-gradient-to-br from-emerald-500 to-teal-500 rounded-xl md:rounded-2xl flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform duration-300">
+                  <ShieldCheckIcon size={24} className="md:hidden text-white" />
+                  <ShieldCheckIcon size={40} className="hidden md:block text-white" />
                 </div>
-                <h2 className="text-3xl font-bold text-white mb-4">Existing Customer?</h2>
-                <p className="text-white/90 text-lg mb-6">
+                <h2 className="text-sm md:text-3xl font-bold text-white mb-2 md:mb-4">Existing Customer?</h2>
+                <p className="hidden md:block text-white/90 text-lg mb-6">
                   Need support, access your portal, or to make a payment?
                 </p>
-                <div className="inline-flex items-center text-emerald-400 font-semibold text-lg group-hover:text-emerald-300 transition-colors">
+                <div className="inline-flex items-center justify-center w-full md:w-auto bg-emerald-500 hover:bg-emerald-400 text-white text-xs md:text-lg font-semibold md:font-bold px-3 md:px-0 py-2 md:py-0 rounded-lg md:rounded-none md:bg-transparent transition-colors">
                   Access Support
-                  <svg className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="hidden md:inline ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 8l4 4m0 0l-4 4m4-4H3" />
                   </svg>
                 </div>
