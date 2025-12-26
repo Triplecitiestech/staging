@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Header from '@/components/layout/Header'
 import Footer from '@/components/layout/Footer'
 import PageHero from '@/components/shared/PageHero'
@@ -9,6 +9,7 @@ import { Button } from '@/components/ui'
 import { CONTACT_INFO } from '@/constants/data'
 import { CalendarIcon, ClockIcon, PhoneIcon, MailIcon, GlobeIcon, CheckCircleIcon, UsersIcon, ShieldCheckIcon } from '@/components/icons/TechIcons'
 import Link from 'next/link'
+import { Turnstile } from '@marsidev/react-turnstile'
 
 export default function Contact() {
   const [formData, setFormData] = useState({
@@ -16,11 +17,14 @@ export default function Contact() {
     email: '',
     phone: '',
     company: '',
-    message: ''
+    message: '',
+    website: '' // Honeypot field
   })
 
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitStatus, setSubmitStatus] = useState<'idle' | 'success' | 'error'>('idle')
+  const [turnstileToken, setTurnstileToken] = useState<string>('')
+  const [formLoadTime] = useState<number>(Date.now())
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target
@@ -35,18 +39,46 @@ export default function Contact() {
     setIsSubmitting(true)
     setSubmitStatus('idle')
 
+    // Client-side spam checks
+    if (formData.website) {
+      // Honeypot filled - likely spam
+      setSubmitStatus('error')
+      setIsSubmitting(false)
+      return
+    }
+
+    const timeElapsed = Date.now() - formLoadTime
+    if (timeElapsed < 3000) {
+      // Form submitted too quickly (less than 3 seconds)
+      setSubmitStatus('error')
+      setIsSubmitting(false)
+      return
+    }
+
+    if (!turnstileToken) {
+      // Turnstile not completed
+      setSubmitStatus('error')
+      setIsSubmitting(false)
+      return
+    }
+
     try {
       const response = await fetch('/api/contact', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          ...formData,
+          turnstileToken,
+          formLoadTime
+        }),
       })
 
       if (response.ok) {
         setSubmitStatus('success')
-        setFormData({ name: '', email: '', phone: '', company: '', message: '' })
+        setFormData({ name: '', email: '', phone: '', company: '', message: '', website: '' })
+        setTurnstileToken('')
       } else {
         const errorData = await response.json()
         console.error('Server error:', errorData)
@@ -229,6 +261,34 @@ export default function Contact() {
                     rows={5}
                     className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/50 focus:ring-2 focus:ring-cyan-400 focus:border-cyan-400 transition-all duration-300 hover:border-cyan-400/50 resize-none backdrop-blur-sm"
                     placeholder="Tell us about your IT needs, questions, or how we can help..."
+                  />
+                </div>
+
+                {/* Honeypot field - hidden from users */}
+                <div style={{ position: 'absolute', left: '-9999px', width: '1px', height: '1px', overflow: 'hidden' }} aria-hidden="true">
+                  <label htmlFor="website">Website (leave blank)</label>
+                  <input
+                    type="text"
+                    id="website"
+                    name="website"
+                    value={formData.website}
+                    onChange={handleInputChange}
+                    tabIndex={-1}
+                    autoComplete="off"
+                  />
+                </div>
+
+                {/* Cloudflare Turnstile */}
+                <div className="flex justify-center">
+                  <Turnstile
+                    siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || '1x00000000000000000000AA'}
+                    onSuccess={(token) => setTurnstileToken(token)}
+                    onError={() => setTurnstileToken('')}
+                    onExpire={() => setTurnstileToken('')}
+                    options={{
+                      theme: 'dark',
+                      size: 'normal'
+                    }}
                   />
                 </div>
 

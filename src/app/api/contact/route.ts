@@ -1,18 +1,68 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Resend } from 'resend'
 import { contactConfig } from '@/config/contact'
-import { 
-  sanitizeInput, 
-  escapeHtml, 
-  isValidEmail, 
-  isValidPhone, 
-  RateLimiter, 
+import {
+  sanitizeInput,
+  escapeHtml,
+  isValidEmail,
+  isValidPhone,
+  RateLimiter,
   validateRequest,
-  logSecurityEvent 
+  logSecurityEvent
 } from '@/lib/security'
 
 // Initialize Resend only if API key is available
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null
+
+// Verify Turnstile token with Cloudflare
+async function verifyTurnstileToken(token: string, ip: string): Promise<boolean> {
+  const secretKey = process.env.TURNSTILE_SECRET_KEY
+
+  if (!secretKey) {
+    console.warn('⚠️ TURNSTILE_SECRET_KEY not configured - skipping verification')
+    return true // Allow in development
+  }
+
+  try {
+    const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        secret: secretKey,
+        response: token,
+        remoteip: ip,
+      }),
+    })
+
+    const data = await response.json()
+    return data.success === true
+  } catch (error) {
+    console.error('Turnstile verification error:', error)
+    return false
+  }
+}
+
+// Check for spam keywords
+function containsSpamKeywords(text: string): boolean {
+  const spamKeywords = [
+    'seo services',
+    'rank your website',
+    'increase traffic',
+    'buy now',
+    'limited time offer',
+    'click here',
+    'make money',
+    'work from home',
+    'marketing services',
+    'boost your sales',
+    'improve your ranking'
+  ]
+
+  const lowerText = text.toLowerCase()
+  return spamKeywords.some(keyword => lowerText.includes(keyword))
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -47,7 +97,62 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { name, email, phone, company, message } = await request.json()
+    const { name, email, phone, company, message, website, turnstileToken, formLoadTime } = await request.json()
+
+    // Spam Protection 1: Honeypot check
+    if (website && website.trim() !== '') {
+      logSecurityEvent('Honeypot triggered', {
+        ip: validation.ip,
+        honeypotValue: website
+      }, 'high')
+
+      return NextResponse.json(
+        { error: 'Invalid submission detected' },
+        { status: 400 }
+      )
+    }
+
+    // Spam Protection 2: Time-based validation
+    if (formLoadTime) {
+      const timeElapsed = Date.now() - formLoadTime
+      const minTime = 3000 // 3 seconds minimum
+
+      if (timeElapsed < minTime) {
+        logSecurityEvent('Form submitted too quickly', {
+          ip: validation.ip,
+          timeElapsed: `${timeElapsed}ms`
+        }, 'high')
+
+        return NextResponse.json(
+          { error: 'Please take your time filling out the form' },
+          { status: 400 }
+        )
+      }
+    }
+
+    // Spam Protection 3: Turnstile verification
+    if (!turnstileToken) {
+      logSecurityEvent('Missing Turnstile token', {
+        ip: validation.ip
+      }, 'high')
+
+      return NextResponse.json(
+        { error: 'Security verification required' },
+        { status: 400 }
+      )
+    }
+
+    const isTurnstileValid = await verifyTurnstileToken(turnstileToken, validation.ip)
+    if (!isTurnstileValid) {
+      logSecurityEvent('Invalid Turnstile token', {
+        ip: validation.ip
+      }, 'high')
+
+      return NextResponse.json(
+        { error: 'Security verification failed' },
+        { status: 400 }
+      )
+    }
 
     // Security: Sanitize all inputs
     const sanitizedName = sanitizeInput(name)
@@ -76,6 +181,19 @@ export async function POST(request: NextRequest) {
     if (sanitizedPhone && !isValidPhone(sanitizedPhone)) {
       return NextResponse.json(
         { error: 'Invalid phone format' },
+        { status: 400 }
+      )
+    }
+
+    // Spam Protection 4: Spam keyword detection
+    if (containsSpamKeywords(sanitizedMessage) || containsSpamKeywords(sanitizedName)) {
+      logSecurityEvent('Spam keywords detected', {
+        ip: validation.ip,
+        email: sanitizedEmail
+      }, 'high')
+
+      return NextResponse.json(
+        { error: 'Your message appears to be spam. If this is a legitimate inquiry, please rephrase your message.' },
         { status: 400 }
       )
     }
