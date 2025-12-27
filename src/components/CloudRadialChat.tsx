@@ -3,6 +3,13 @@
 import { useEffect } from 'react'
 import Script from 'next/script'
 
+// Extend Window interface for CloudRadial
+declare global {
+  interface Window {
+    CloudRadialUserInit?: (email: string, displayname: string, companyname: string) => void
+  }
+}
+
 export default function CloudRadialChat() {
   const isEnabled = process.env.NEXT_PUBLIC_ENABLE_CHATBOT === 'true'
 
@@ -13,15 +20,20 @@ export default function CloudRadialChat() {
     // Define the CloudRadialUserInit function on window
     // This allows Cloud Radial to initialize user info if needed
     if (typeof window !== 'undefined') {
-      (window as any).CloudRadialUserInit = function(email: string, displayname: string, companyname: string) {
-        const chatbox = document.querySelector('#chatbox')
+      window.CloudRadialUserInit = function(email: string, displayname: string, companyname: string) {
+        const chatbox = document.querySelector('#chatbox') as HTMLElement & {
+          userInfo?: {
+            email: string
+            displayName: string
+            companyName: string
+          }
+        }
         if (chatbox) {
-          const userInfo = {
-            email: email,
+          chatbox.userInfo = {
+            email,
             displayName: displayname,
             companyName: companyname
           }
-          ;(chatbox as any).userInfo = userInfo
         }
       }
     }
