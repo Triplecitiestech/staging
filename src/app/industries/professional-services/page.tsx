@@ -133,7 +133,6 @@ export default function ProfessionalServicesIT() {
       <PageHero
         title="Professional Services IT"
         subtitle="Managed IT services for law firms, accounting practices, and professional service firms in Central New York"
-        imageBackground="/professional-services.webp"
         textAlign="center"
         verticalPosition="center"
       />

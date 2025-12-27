@@ -133,7 +133,6 @@ export default function CoManagedIT() {
       <PageHero
         title="Co-Managed IT Services"
         subtitle="Enterprise-grade tools and expertise that empower your IT team to do more"
-        imageBackground="/co-managed-it.webp"
         textAlign="center"
         verticalPosition="center"
       />
