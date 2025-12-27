@@ -134,7 +134,6 @@ export default function HealthcareIT() {
       <PageHero
         title="Healthcare IT Services"
         subtitle="HIPAA-compliant managed IT and cybersecurity for medical practices, clinics, and healthcare providers in Central New York"
-        imageBackground="/medical.webp"
         textAlign="center"
         verticalPosition="center"
       />
