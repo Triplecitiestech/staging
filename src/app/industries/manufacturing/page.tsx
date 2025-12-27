@@ -2,7 +2,6 @@
 
 import Header from '@/components/layout/Header'
 import Footer from '@/components/layout/Footer'
-import PageHero from '@/components/shared/PageHero'
 import Breadcrumbs from '@/components/seo/Breadcrumbs'
 import { CheckCircleIcon, ShieldCheckIcon, ClockIcon, PhoneIcon, CalendarIcon } from '@/components/icons/TechIcons'
 import Link from 'next/link'
