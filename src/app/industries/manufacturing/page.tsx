@@ -133,6 +133,7 @@ export default function ManufacturingIT() {
       <PageHero
         title="Manufacturing IT Services"
         subtitle="Managed IT and CMMC compliance for manufacturers, fabricators, and industrial companies in Central New York"
+        imageBackground="/manufacturing.webp"
         textAlign="center"
         verticalPosition="center"
       />
