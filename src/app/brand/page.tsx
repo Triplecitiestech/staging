@@ -102,43 +102,48 @@ export default function BrandGuidelines() {
             <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-2xl p-8">
               <h3 className="text-xl font-bold text-cyan-400 mb-4">Icon Only</h3>
               <div className="bg-slate-950 rounded-xl p-8 mb-4 flex items-center justify-center min-h-[200px]">
-                <img src="/logo-icon-light.png" alt="TCT Icon Light" className="h-32" />
+                <img src="/android-chrome-512x512.png" alt="TCT Icon" className="h-32" />
               </div>
               <p className="text-slate-300 text-sm mb-2"><strong className="text-white">Usage:</strong> Social media avatars, favicons, app icons, tight spaces</p>
-              <p className="text-slate-400 text-xs">Light version shown (use on dark backgrounds)</p>
+              <p className="text-slate-400 text-xs">Shield icon - works on any background</p>
             </div>
 
             {/* Full Logo */}
             <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-2xl p-8">
               <h3 className="text-xl font-bold text-cyan-400 mb-4">Full Logo</h3>
               <div className="bg-slate-950 rounded-xl p-8 mb-4 flex items-center justify-center min-h-[200px]">
-                <img src="/logo-full-light.png" alt="TCT Full Logo Light" className="h-32" />
+                <img src="/logo/tctlogo.webp" alt="TCT Full Logo" className="h-32" />
               </div>
               <p className="text-slate-300 text-sm mb-2"><strong className="text-white">Usage:</strong> Website headers, email signatures, letterheads, presentations</p>
-              <p className="text-slate-400 text-xs">Light version shown (use on dark backgrounds)</p>
+              <p className="text-slate-400 text-xs">Full logo with text - primary version</p>
             </div>
           </div>
 
-          {/* Light vs Dark Usage */}
+          {/* Logo Usage Examples */}
           <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 rounded-2xl p-8">
-            <h3 className="text-xl font-bold text-cyan-400 mb-6">Logo Color Variants</h3>
+            <h3 className="text-xl font-bold text-cyan-400 mb-6">Logo on Different Backgrounds</h3>
             <div className="grid md:grid-cols-2 gap-8">
               <div>
                 <div className="bg-slate-950 rounded-xl p-6 mb-4">
-                  <img src="/logo-full-light.png" alt="Light Logo" className="h-20 mx-auto" />
+                  <img src="/logo/tctlogo.webp" alt="Logo on Dark" className="h-20 mx-auto" />
                 </div>
-                <p className="text-white font-semibold mb-2">Light Version</p>
-                <p className="text-slate-300 text-sm">Use on: Dark backgrounds (#0f172a, #1e293b, #000000)</p>
-                <p className="text-cyan-400 text-sm mt-2">✓ Primary logo for most applications</p>
+                <p className="text-white font-semibold mb-2">On Dark Backgrounds</p>
+                <p className="text-slate-300 text-sm">Primary usage: Dark backgrounds (#0f172a, #1e293b, #000000)</p>
+                <p className="text-cyan-400 text-sm mt-2">✓ Best for website, digital applications</p>
               </div>
               <div>
                 <div className="bg-white rounded-xl p-6 mb-4">
-                  <img src="/logo-full-dark.png" alt="Dark Logo" className="h-20 mx-auto" />
+                  <img src="/logo/tctlogo.webp" alt="Logo on Light" className="h-20 mx-auto" />
                 </div>
-                <p className="text-white font-semibold mb-2">Dark Version</p>
+                <p className="text-white font-semibold mb-2">On Light Backgrounds</p>
                 <p className="text-slate-300 text-sm">Use on: Light backgrounds (#ffffff, #f4f4f4)</p>
-                <p className="text-cyan-400 text-sm mt-2">✓ For print materials, light documents</p>
+                <p className="text-cyan-400 text-sm mt-2">✓ For print materials, documents</p>
               </div>
+            </div>
+            <div className="mt-6 p-4 bg-cyan-500/10 border border-cyan-500/30 rounded-xl">
+              <p className="text-slate-300 text-sm">
+                <strong className="text-cyan-400">Note:</strong> Logo contains both cyan and black elements. The cyan shield works on any background, but ensure sufficient contrast for the black text portion on light backgrounds.
+              </p>
             </div>
           </div>
 
@@ -381,20 +386,20 @@ export default function BrandGuidelines() {
         <section className="mb-20">
           <h2 className="text-4xl font-bold text-white mb-6 border-b-2 border-cyan-500 pb-4">Download Assets</h2>
           <div className="grid md:grid-cols-3 gap-6">
-            <a href="/logo-icon-light.png" download className="bg-slate-800/50 hover:bg-slate-700/50 backdrop-blur-sm border border-slate-700 hover:border-cyan-500 rounded-xl p-6 transition-all text-center group">
+            <a href="/android-chrome-512x512.png" download className="bg-slate-800/50 hover:bg-slate-700/50 backdrop-blur-sm border border-slate-700 hover:border-cyan-500 rounded-xl p-6 transition-all text-center group">
               <div className="text-cyan-400 text-4xl mb-3">📦</div>
-              <h3 className="text-white font-bold mb-2 group-hover:text-cyan-400">Logo Icon - Light</h3>
-              <p className="text-slate-400 text-sm">PNG format</p>
+              <h3 className="text-white font-bold mb-2 group-hover:text-cyan-400">Logo Icon</h3>
+              <p className="text-slate-400 text-sm">PNG format (512x512)</p>
             </a>
-            <a href="/logo-full-light.png" download className="bg-slate-800/50 hover:bg-slate-700/50 backdrop-blur-sm border border-slate-700 hover:border-cyan-500 rounded-xl p-6 transition-all text-center group">
+            <a href="/logo/tctlogo.webp" download className="bg-slate-800/50 hover:bg-slate-700/50 backdrop-blur-sm border border-slate-700 hover:border-cyan-500 rounded-xl p-6 transition-all text-center group">
               <div className="text-cyan-400 text-4xl mb-3">📦</div>
-              <h3 className="text-white font-bold mb-2 group-hover:text-cyan-400">Full Logo - Light</h3>
-              <p className="text-slate-400 text-sm">PNG format</p>
+              <h3 className="text-white font-bold mb-2 group-hover:text-cyan-400">Full Logo</h3>
+              <p className="text-slate-400 text-sm">WebP format</p>
             </a>
-            <a href="/logo-full-dark.png" download className="bg-slate-800/50 hover:bg-slate-700/50 backdrop-blur-sm border border-slate-700 hover:border-cyan-500 rounded-xl p-6 transition-all text-center group">
+            <a href="/apple-touch-icon.png" download className="bg-slate-800/50 hover:bg-slate-700/50 backdrop-blur-sm border border-slate-700 hover:border-cyan-500 rounded-xl p-6 transition-all text-center group">
               <div className="text-cyan-400 text-4xl mb-3">📦</div>
-              <h3 className="text-white font-bold mb-2 group-hover:text-cyan-400">Full Logo - Dark</h3>
-              <p className="text-slate-400 text-sm">PNG format</p>
+              <h3 className="text-white font-bold mb-2 group-hover:text-cyan-400">Apple Touch Icon</h3>
+              <p className="text-slate-400 text-sm">PNG format (180x180)</p>
             </a>
           </div>
         </section>
