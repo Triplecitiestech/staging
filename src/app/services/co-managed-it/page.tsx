@@ -130,13 +130,50 @@ export default function CoManagedIT() {
       <Header />
       <Breadcrumbs />
 
-      <PageHero
-        title="Co-Managed IT Services"
-        subtitle="Enterprise-grade tools and expertise that empower your IT team to do more"
-        imageBackground="/iws.webp"
-        textAlign="center"
-        verticalPosition="center"
-      />
+      {/* Hero */}
+      <section className="relative min-h-[500px] flex items-center justify-center overflow-hidden bg-gradient-to-br from-gray-900 via-black to-orange-900">
+        {/* Tech hexagon pattern */}
+        <div className="absolute inset-0 opacity-12">
+          <svg className="absolute inset-0 w-full h-full" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <pattern id="hexagons" x="0" y="0" width="100" height="87" patternUnits="userSpaceOnUse" patternTransform="scale(1.5)">
+                <polygon points="50,0 93.3,25 93.3,75 50,100 6.7,75 6.7,25" fill="none" stroke="#f97316" strokeWidth="1.5"/>
+              </pattern>
+            </defs>
+            <rect width="100%" height="100%" fill="url(#hexagons)" />
+          </svg>
+        </div>
+
+        {/* Circuit board style connections */}
+        <div className="absolute inset-0 opacity-10">
+          <div className="absolute top-1/4 left-1/4 w-20 h-20 border-2 border-orange-500 rounded-full"></div>
+          <div className="absolute top-1/4 right-1/4 w-20 h-20 border-2 border-yellow-500 rounded-full"></div>
+          <div className="absolute bottom-1/3 left-1/3 w-20 h-20 border-2 border-orange-400 rounded-full"></div>
+          <svg className="absolute inset-0 w-full h-full" xmlns="http://www.w3.org/2000/svg">
+            <line x1="25%" y1="25%" x2="75%" y2="25%" stroke="#f97316" strokeWidth="2" strokeDasharray="10,5" />
+            <line x1="25%" y1="25%" x2="33%" y2="66%" stroke="#f97316" strokeWidth="2" strokeDasharray="10,5" />
+            <line x1="75%" y1="25%" x2="33%" y2="66%" stroke="#f97316" strokeWidth="2" strokeDasharray="10,5" />
+          </svg>
+        </div>
+
+        {/* Digital grid overlay */}
+        <div className="absolute inset-0 opacity-5" style={{
+          backgroundImage: `
+            linear-gradient(90deg, #f97316 1px, transparent 1px),
+            linear-gradient(0deg, #f97316 1px, transparent 1px)
+          `,
+          backgroundSize: '40px 40px'
+        }}></div>
+
+        <div className="relative z-10 max-w-5xl mx-auto px-6 py-20 text-center">
+          <h1 className="text-5xl md:text-6xl font-bold text-white mb-6">
+            Co-Managed IT Services
+          </h1>
+          <p className="text-xl md:text-2xl text-white/90 max-w-4xl mx-auto">
+            Enterprise-grade tools and expertise that empower your IT team to do more
+          </p>
+        </div>
+      </section>
 
       <section className="relative bg-gradient-to-br from-gray-900 via-black to-yellow-900 py-20">
         <div className="max-w-7xl mx-auto px-6">

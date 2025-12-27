@@ -130,13 +130,41 @@ export default function ConstructionIT() {
       <Header />
       <Breadcrumbs />
 
-      <PageHero
-        title="Construction IT Services"
-        subtitle="Managed IT and CMMC compliance for construction companies, contractors, and builders in Central New York"
-        imageBackground="/construction.webp"
-        textAlign="center"
-        verticalPosition="center"
-      />
+      {/* Hero */}
+      <section className="relative min-h-[500px] flex items-center justify-center overflow-hidden bg-black">
+        {/* DeWalt-inspired diagonal stripes */}
+        <div className="absolute inset-0 opacity-20">
+          <div className="absolute inset-0" style={{
+            backgroundImage: `repeating-linear-gradient(
+              45deg,
+              #facc15 0px,
+              #facc15 40px,
+              transparent 40px,
+              transparent 80px
+            )`
+          }}></div>
+        </div>
+
+        {/* Solid yellow accent bars */}
+        <div className="absolute top-0 left-0 right-0 h-2 bg-yellow-400"></div>
+        <div className="absolute bottom-0 left-0 right-0 h-2 bg-yellow-400"></div>
+
+        {/* Construction geometric shapes */}
+        <div className="absolute inset-0 opacity-10">
+          <div className="absolute top-1/4 left-10 w-20 h-20 border-4 border-yellow-400 rotate-45"></div>
+          <div className="absolute bottom-1/3 right-20 w-32 h-32 border-4 border-yellow-400"></div>
+          <div className="absolute top-1/2 right-1/3 w-0 h-0 border-l-[30px] border-l-transparent border-r-[30px] border-r-transparent border-b-[50px] border-b-yellow-400"></div>
+        </div>
+
+        <div className="relative z-10 max-w-5xl mx-auto px-6 py-20 text-center">
+          <h1 className="text-5xl md:text-6xl font-bold text-white mb-6">
+            Construction IT Services
+          </h1>
+          <p className="text-xl md:text-2xl text-yellow-400 max-w-4xl mx-auto font-semibold">
+            Managed IT and CMMC compliance for construction companies, contractors, and builders in Central New York
+          </p>
+        </div>
+      </section>
 
       <section className="relative bg-gradient-to-br from-black via-black to-yellow-400 py-20">
         <div className="max-w-7xl mx-auto px-6">

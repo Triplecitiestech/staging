@@ -130,13 +130,43 @@ export default function ProfessionalServicesIT() {
       <Header />
       <Breadcrumbs />
 
-      <PageHero
-        title="Professional Services IT"
-        subtitle="Managed IT services for law firms, accounting practices, and professional service firms in Central New York"
-        imageBackground="/proservice.webp"
-        textAlign="center"
-        verticalPosition="center"
-      />
+      {/* Hero */}
+      <section className="relative min-h-[500px] flex items-center justify-center overflow-hidden bg-gradient-to-br from-gray-900 via-black to-purple-900">
+        {/* Elegant diagonal waves */}
+        <div className="absolute inset-0 opacity-15">
+          <svg className="absolute inset-0 w-full h-full" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <pattern id="diagonal-waves" x="0" y="0" width="100" height="100" patternUnits="userSpaceOnUse">
+                <path d="M0,50 Q25,30 50,50 T100,50" stroke="#a855f7" strokeWidth="2" fill="none" />
+                <path d="M0,70 Q25,50 50,70 T100,70" stroke="#d946ef" strokeWidth="2" fill="none" />
+              </pattern>
+            </defs>
+            <rect width="100%" height="100%" fill="url(#diagonal-waves)" />
+          </svg>
+        </div>
+
+        {/* Professional geometric accents */}
+        <div className="absolute inset-0 opacity-10">
+          <div className="absolute top-24 right-20 w-40 h-40 border-2 border-purple-500 rounded-lg transform rotate-12"></div>
+          <div className="absolute bottom-32 left-24 w-32 h-32 border-2 border-pink-500 rounded-lg transform -rotate-12"></div>
+          <div className="absolute top-1/2 left-1/2 w-24 h-24 border-2 border-purple-400 rounded-full"></div>
+        </div>
+
+        {/* Subtle dot pattern */}
+        <div className="absolute inset-0 opacity-5" style={{
+          backgroundImage: 'radial-gradient(circle, #a855f7 1px, transparent 1px)',
+          backgroundSize: '30px 30px'
+        }}></div>
+
+        <div className="relative z-10 max-w-5xl mx-auto px-6 py-20 text-center">
+          <h1 className="text-5xl md:text-6xl font-bold text-white mb-6">
+            Professional Services IT
+          </h1>
+          <p className="text-xl md:text-2xl text-white/90 max-w-4xl mx-auto">
+            Managed IT services for law firms, accounting practices, and professional service firms in Central New York
+          </p>
+        </div>
+      </section>
 
       <section className="relative bg-gradient-to-br from-gray-900 via-black to-purple-900 py-20">
         <div className="max-w-7xl mx-auto px-6">
