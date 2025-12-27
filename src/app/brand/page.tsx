@@ -333,47 +333,47 @@ export default function BrandGuidelines() {
 
         {/* TCT Fortress */}
         <section className="mb-20">
-          <h2 className="text-4xl font-bold text-white mb-6 border-b-2 border-orange-500 pb-4">TCT Fortress Service Bundle</h2>
-          <div className="bg-gradient-to-br from-orange-900/20 to-red-900/20 border border-orange-500/50 rounded-2xl p-8">
+          <h2 className="text-4xl font-bold text-white mb-6 border-b-2 border-emerald-500 pb-4">TCT Fortress Service Bundle</h2>
+          <div className="bg-gradient-to-br from-emerald-900/20 to-teal-900/20 border border-emerald-500/50 rounded-2xl p-8">
             <p className="text-slate-300 mb-6">TCT Fortress is a premium service bundle offering comprehensive cybersecurity and managed IT protection.</p>
 
             <div className="grid md:grid-cols-2 gap-6">
               <div>
-                <h3 className="text-xl font-bold text-orange-400 mb-3">Fortress Brand Colors</h3>
+                <h3 className="text-xl font-bold text-emerald-400 mb-3">Fortress Brand Colors</h3>
                 <div className="space-y-3">
                   <div className="flex items-center space-x-3">
-                    <div className="w-16 h-16 bg-orange-500 rounded-lg cursor-pointer" onClick={() => copyToClipboard('#f97316', '#f97316')}></div>
+                    <div className="w-16 h-16 bg-emerald-500 rounded-lg cursor-pointer" onClick={() => copyToClipboard('#10b981', '#10b981')}></div>
                     <div>
-                      <p className="text-white font-semibold">Orange</p>
-                      <p className="text-orange-400 font-mono text-sm">#f97316</p>
+                      <p className="text-white font-semibold">Emerald</p>
+                      <p className="text-emerald-400 font-mono text-sm">#10b981</p>
                     </div>
                   </div>
                   <div className="flex items-center space-x-3">
-                    <div className="w-16 h-16 bg-red-600 rounded-lg cursor-pointer" onClick={() => copyToClipboard('#dc2626', '#dc2626')}></div>
+                    <div className="w-16 h-16 bg-teal-500 rounded-lg cursor-pointer" onClick={() => copyToClipboard('#14b8a6', '#14b8a6')}></div>
                     <div>
-                      <p className="text-white font-semibold">Red</p>
-                      <p className="text-red-400 font-mono text-sm">#dc2626</p>
+                      <p className="text-white font-semibold">Teal</p>
+                      <p className="text-teal-400 font-mono text-sm">#14b8a6</p>
                     </div>
                   </div>
                 </div>
               </div>
               <div>
-                <h3 className="text-xl font-bold text-orange-400 mb-3">Usage Guidelines</h3>
+                <h3 className="text-xl font-bold text-emerald-400 mb-3">Usage Guidelines</h3>
                 <ul className="space-y-2 text-slate-300 text-sm">
                   <li className="flex items-start">
-                    <span className="text-orange-400 mr-2">•</span>
+                    <span className="text-emerald-400 mr-2">•</span>
                     <span>Use Fortress branding for security-focused communications</span>
                   </li>
                   <li className="flex items-start">
-                    <span className="text-orange-400 mr-2">•</span>
+                    <span className="text-emerald-400 mr-2">•</span>
                     <span>Pair with shield/protection imagery</span>
                   </li>
                   <li className="flex items-start">
-                    <span className="text-orange-400 mr-2">•</span>
+                    <span className="text-emerald-400 mr-2">•</span>
                     <span>Can be used alongside main TCT branding</span>
                   </li>
                   <li className="flex items-start">
-                    <span className="text-orange-400 mr-2">•</span>
+                    <span className="text-emerald-400 mr-2">•</span>
                     <span>Maintain same typography and design elements</span>
                   </li>
                 </ul>
