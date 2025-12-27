@@ -2,9 +2,8 @@
 
 import Header from '@/components/layout/Header'
 import Footer from '@/components/layout/Footer'
-import PageHero from '@/components/shared/PageHero'
 import Breadcrumbs from '@/components/seo/Breadcrumbs'
-import { CheckCircleIcon, ShieldCheckIcon, ClockIcon, PhoneIcon, MailIcon, CalendarIcon } from '@/components/icons/TechIcons'
+import { CheckCircleIcon, ShieldCheckIcon, ClockIcon, PhoneIcon, CalendarIcon } from '@/components/icons/TechIcons'
 import Link from 'next/link'
 import { CONTACT_INFO } from '@/constants/data'
 import Script from 'next/script'
@@ -131,13 +130,32 @@ export default function HealthcareIT() {
       <Breadcrumbs />
 
       {/* Hero */}
-      <PageHero
-        title="Healthcare IT Services"
-        subtitle="HIPAA-compliant managed IT and cybersecurity for medical practices, clinics, and healthcare providers in Central New York"
-        imageBackground="/medical.webp"
-        textAlign="center"
-        verticalPosition="center"
-      />
+      <section className="relative min-h-[500px] flex items-center justify-center overflow-hidden bg-gradient-to-br from-gray-900 via-black to-emerald-900">
+        {/* Medical Cross Pattern */}
+        <div className="absolute inset-0 opacity-10">
+          <div className="absolute inset-0" style={{
+            backgroundImage: `repeating-linear-gradient(0deg, transparent, transparent 50px, #10b981 50px, #10b981 52px, transparent 52px, transparent 100px),
+                            repeating-linear-gradient(90deg, transparent, transparent 50px, #10b981 50px, #10b981 52px, transparent 52px, transparent 100px)`
+          }}></div>
+        </div>
+
+        {/* Floating medical icons pattern */}
+        <div className="absolute inset-0 opacity-5">
+          <div className="absolute top-20 left-20 w-32 h-32 border-4 border-emerald-500 rounded-full"></div>
+          <div className="absolute bottom-40 right-32 w-24 h-24 border-4 border-teal-400 rounded-full"></div>
+          <div className="absolute top-1/3 right-1/4 w-16 h-2 bg-emerald-500 rotate-45"></div>
+          <div className="absolute top-1/3 right-1/4 w-2 h-16 bg-emerald-500 rotate-45"></div>
+        </div>
+
+        <div className="relative z-10 max-w-5xl mx-auto px-6 py-20 text-center">
+          <h1 className="text-5xl md:text-6xl font-bold text-white mb-6">
+            Healthcare IT Services
+          </h1>
+          <p className="text-xl md:text-2xl text-white/90 max-w-4xl mx-auto">
+            HIPAA-compliant managed IT and cybersecurity for medical practices, clinics, and healthcare providers in Central New York
+          </p>
+        </div>
+      </section>
 
       {/* Pain Points */}
       <section className="relative bg-gradient-to-br from-gray-900 via-black to-emerald-900 py-20">

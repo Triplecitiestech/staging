@@ -2,7 +2,6 @@
 
 import Header from '@/components/layout/Header'
 import Footer from '@/components/layout/Footer'
-import PageHero from '@/components/shared/PageHero'
 import Breadcrumbs from '@/components/seo/Breadcrumbs'
 import { CheckCircleIcon, ShieldCheckIcon, ClockIcon, PhoneIcon, CalendarIcon } from '@/components/icons/TechIcons'
 import Link from 'next/link'
@@ -130,13 +129,40 @@ export default function ManufacturingIT() {
       <Header />
       <Breadcrumbs />
 
-      <PageHero
-        title="Manufacturing IT Services"
-        subtitle="Managed IT and CMMC compliance for manufacturers, fabricators, and industrial companies in Central New York"
-        imageBackground="/manufacturing.webp"
-        textAlign="center"
-        verticalPosition="center"
-      />
+      {/* Hero */}
+      <section className="relative min-h-[500px] flex items-center justify-center overflow-hidden bg-gradient-to-br from-gray-900 via-black to-blue-900">
+        {/* Industrial grid pattern */}
+        <div className="absolute inset-0 opacity-15">
+          <div className="absolute inset-0" style={{
+            backgroundImage: `
+              linear-gradient(90deg, #3b82f6 1px, transparent 1px),
+              linear-gradient(0deg, #3b82f6 1px, transparent 1px)
+            `,
+            backgroundSize: '60px 60px'
+          }}></div>
+        </div>
+
+        {/* Hexagon pattern */}
+        <div className="absolute inset-0 opacity-10">
+          <div className="absolute top-20 left-1/4 w-24 h-24 border-4 border-blue-500" style={{ clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)' }}></div>
+          <div className="absolute bottom-32 right-1/4 w-32 h-32 border-4 border-indigo-400" style={{ clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)' }}></div>
+          <div className="absolute top-1/2 left-1/3 w-16 h-16 border-4 border-blue-400" style={{ clipPath: 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)' }}></div>
+        </div>
+
+        {/* Gear teeth accent */}
+        <div className="absolute top-0 left-0 right-0 h-3 bg-blue-500" style={{
+          clipPath: 'polygon(0 0, 5% 0, 5% 100%, 10% 100%, 10% 0, 15% 0, 15% 100%, 20% 100%, 20% 0, 25% 0, 25% 100%, 30% 100%, 30% 0, 35% 0, 35% 100%, 40% 100%, 40% 0, 45% 0, 45% 100%, 50% 100%, 50% 0, 55% 0, 55% 100%, 60% 100%, 60% 0, 65% 0, 65% 100%, 70% 100%, 70% 0, 75% 0, 75% 100%, 80% 100%, 80% 0, 85% 0, 85% 100%, 90% 100%, 90% 0, 95% 0, 95% 100%, 100% 100%, 100% 0)'
+        }}></div>
+
+        <div className="relative z-10 max-w-5xl mx-auto px-6 py-20 text-center">
+          <h1 className="text-5xl md:text-6xl font-bold text-white mb-6">
+            Manufacturing IT Services
+          </h1>
+          <p className="text-xl md:text-2xl text-white/90 max-w-4xl mx-auto">
+            Managed IT and CMMC compliance for manufacturers, fabricators, and industrial companies in Central New York
+          </p>
+        </div>
+      </section>
 
       <section className="relative bg-gradient-to-br from-gray-900 via-black to-blue-900 py-20">
         <div className="max-w-7xl mx-auto px-6">
