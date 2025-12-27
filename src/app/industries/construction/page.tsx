@@ -133,11 +133,12 @@ export default function ConstructionIT() {
       <PageHero
         title="Construction IT Services"
         subtitle="Managed IT and CMMC compliance for construction companies, contractors, and builders in Central New York"
+        imageBackground="/construction.webp"
         textAlign="center"
         verticalPosition="center"
       />
 
-      <section className="relative bg-gradient-to-br from-gray-900 via-black to-yellow-600 py-20">
+      <section className="relative bg-gradient-to-br from-black via-black to-yellow-400 py-20">
         <div className="max-w-7xl mx-auto px-6">
           <div className="text-center mb-12">
             <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">Construction IT Challenges We Solve</h2>
@@ -146,7 +147,7 @@ export default function ConstructionIT() {
 
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
             {painPoints.map((point, index) => (
-              <div key={index} className="bg-white/10 backdrop-blur-sm border border-yellow-500/30 rounded-xl p-6 hover:bg-white/15 transition-all">
+              <div key={index} className="bg-yellow-400/10 backdrop-blur-sm border border-yellow-400/40 rounded-xl p-6 hover:bg-yellow-400/20 transition-all">
                 <p className="text-white/90 text-lg">{point}</p>
               </div>
             ))}
@@ -154,7 +155,7 @@ export default function ConstructionIT() {
         </div>
       </section>
 
-      <section className="relative bg-gradient-to-br from-black via-gray-900 to-yellow-700 py-20">
+      <section className="relative bg-gradient-to-br from-yellow-400 via-black to-black py-20">
         <div className="max-w-7xl mx-auto px-6">
           <div className="text-center mb-12">
             <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">Our Construction IT Solutions</h2>
@@ -163,8 +164,8 @@ export default function ConstructionIT() {
 
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
             {solutions.map((solution, index) => (
-              <div key={index} className="bg-white/10 backdrop-blur-sm border border-yellow-500/30 rounded-2xl p-8 hover:border-yellow-500 transition-all group">
-                <div className="w-16 h-16 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+              <div key={index} className="bg-black/40 backdrop-blur-sm border border-yellow-400/40 rounded-2xl p-8 hover:border-yellow-400 transition-all group">
+                <div className="w-16 h-16 bg-yellow-400 rounded-xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform shadow-lg shadow-yellow-400/50">
                   <solution.icon size={32} className="text-black" />
                 </div>
                 <h3 className="text-2xl font-bold text-white mb-4">{solution.title}</h3>
@@ -175,7 +176,7 @@ export default function ConstructionIT() {
         </div>
       </section>
 
-      <section className="relative bg-gradient-to-br from-yellow-600 via-black to-gray-900 py-20">
+      <section className="relative bg-gradient-to-br from-black via-black to-yellow-400 py-20">
         <div className="max-w-7xl mx-auto px-6">
           <div className="text-center mb-12">
             <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">What You'll Achieve</h2>
@@ -184,7 +185,7 @@ export default function ConstructionIT() {
 
           <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
             {benefits.map((benefit, index) => (
-              <div key={index} className="flex items-start space-x-4 bg-white/5 backdrop-blur-sm border border-yellow-500/30 rounded-xl p-6">
+              <div key={index} className="flex items-start space-x-4 bg-yellow-400/10 backdrop-blur-sm border border-yellow-400/40 rounded-xl p-6">
                 <CheckCircleIcon size={24} className="text-yellow-400 flex-shrink-0 mt-1" />
                 <p className="text-white text-lg">{benefit}</p>
               </div>
@@ -193,7 +194,7 @@ export default function ConstructionIT() {
         </div>
       </section>
 
-      <section className="relative bg-gradient-to-br from-black via-gray-900 to-yellow-600 py-20">
+      <section className="relative bg-gradient-to-br from-yellow-400 via-black to-black py-20">
         <div className="max-w-4xl mx-auto px-6">
           <div className="text-center mb-12">
             <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">Frequently Asked Questions</h2>
@@ -202,7 +203,7 @@ export default function ConstructionIT() {
 
           <div className="space-y-6">
             {faqs.map((faq, index) => (
-              <div key={index} className="bg-white/10 backdrop-blur-sm border border-yellow-500/30 rounded-xl p-8">
+              <div key={index} className="bg-black/40 backdrop-blur-sm border border-yellow-400/40 rounded-xl p-8">
                 <h3 className="text-xl font-bold text-yellow-400 mb-4">{faq.question}</h3>
                 <p className="text-white/90 leading-relaxed">{faq.answer}</p>
               </div>
@@ -211,7 +212,7 @@ export default function ConstructionIT() {
         </div>
       </section>
 
-      <section className="relative bg-gradient-to-br from-yellow-500 to-yellow-600 py-20">
+      <section className="relative bg-gradient-to-br from-yellow-400 to-yellow-500 py-20">
         <div className="max-w-4xl mx-auto px-6 text-center">
           <h2 className="text-4xl md:text-5xl font-bold text-black mb-6">Ready for IT That Keeps Up With Your Projects?</h2>
           <p className="text-xl text-black/90 mb-10">Let's discuss how we can support your field teams, secure your project data, and help you win more government contracts.</p>
