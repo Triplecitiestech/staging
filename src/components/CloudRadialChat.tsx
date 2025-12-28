@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect } from 'react'
-import Script from 'next/script'
 
 // Extend Window interface for CloudRadial
 declare global {
@@ -12,46 +11,51 @@ declare global {
 
 export default function CloudRadialChat() {
   useEffect(() => {
+    // Load the CSS
+    const link = document.createElement('link')
+    link.rel = 'stylesheet'
+    link.href = 'https://cdn.chatstyle.ai/chatbox/crchat-chatwidget.css'
+    document.head.appendChild(link)
+
+    // Load the script
+    const script = document.createElement('script')
+    script.src = 'https://cdn.chatstyle.ai/chatbox/crchat-chatwidget.js'
+    script.async = true
+    document.body.appendChild(script)
+
     // Define the CloudRadialUserInit function on window
-    // This allows Cloud Radial to initialize user info if needed
-    if (typeof window !== 'undefined') {
-      window.CloudRadialUserInit = function(email: string, displayname: string, companyname: string) {
-        const chatbox = document.querySelector('#chatbox') as HTMLElement & {
-          userInfo?: {
-            email: string
-            displayName: string
-            companyName: string
-          }
+    window.CloudRadialUserInit = function(email: string, displayname: string, companyname: string) {
+      const chatbox = document.querySelector('#chatbox') as HTMLElement & {
+        userInfo?: {
+          email: string
+          displayName: string
+          companyName: string
         }
-        if (chatbox) {
-          chatbox.userInfo = {
-            email,
-            displayName: displayname,
-            companyName: companyname
-          }
+      }
+      if (chatbox) {
+        chatbox.userInfo = {
+          email,
+          displayName: displayname,
+          companyName: companyname
         }
       }
     }
+
+    // Create the chatbot element
+    const chatWidget = document.createElement('crchat-chatwidget')
+    chatWidget.setAttribute('id', 'chatbox')
+    chatWidget.setAttribute('channel', 'fa448a9b-ca96-4c29-95bc-5faa24c75d02')
+    chatWidget.setAttribute('version', '')
+    chatWidget.setAttribute('options', '{"isOpen":"false", "authRequired": "false", "autoStart":"true"}')
+    document.body.appendChild(chatWidget)
+
+    return () => {
+      // Cleanup
+      if (link.parentNode) link.parentNode.removeChild(link)
+      if (script.parentNode) script.parentNode.removeChild(script)
+      if (chatWidget.parentNode) chatWidget.parentNode.removeChild(chatWidget)
+    }
   }, [])
 
-  return (
-    <>
-      {/* Cloud Radial Chat Widget Styles */}
-      <link rel='stylesheet' href='https://cdn.chatstyle.ai/chatbox/crchat-chatwidget.css' />
-
-      {/* Cloud Radial Chat Widget Script */}
-      <Script
-        src='https://cdn.chatstyle.ai/chatbox/crchat-chatwidget.js'
-        strategy="lazyOnload"
-      />
-
-      {/* Chat Widget Element */}
-      <crchat-chatwidget
-        id='chatbox'
-        channel='fa448a9b-ca96-4c29-95bc-5faa24c75d02'
-        version=''
-        options='{"isOpen":"false", "authRequired": "false", "autoStart":"true"}'
-      />
-    </>
-  )
+  return null
 }
