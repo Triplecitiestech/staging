@@ -11,12 +11,7 @@ declare global {
 }
 
 export default function CloudRadialChat() {
-  const isEnabled = process.env.NEXT_PUBLIC_ENABLE_CHATBOT === 'true'
-
   useEffect(() => {
-    // Only run if chatbot is enabled
-    if (!isEnabled) return
-
     // Define the CloudRadialUserInit function on window
     // This allows Cloud Radial to initialize user info if needed
     if (typeof window !== 'undefined') {
@@ -37,12 +32,7 @@ export default function CloudRadialChat() {
         }
       }
     }
-  }, [isEnabled])
-
-  // Don't render anything if chatbot is disabled
-  if (!isEnabled) {
-    return null
-  }
+  }, [])
 
   return (
     <>
