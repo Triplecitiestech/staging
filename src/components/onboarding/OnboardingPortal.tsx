@@ -19,17 +19,16 @@ interface OnboardingPortalProps {
 
 export default function OnboardingPortal({
   companySlug,
-  isAuthenticated: initialAuth,
+  isAuthenticated,
   onboardingData: initialData,
 }: OnboardingPortalProps) {
   const router = useRouter()
-  const [isAuthenticated, setIsAuthenticated] = useState(initialAuth)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
 
   const handleAuthenticated = () => {
     // Refresh the page to get the authenticated data from the server
+    // Don't update local state - let the server component handle it with the new cookie
     router.refresh()
-    setIsAuthenticated(true)
   }
 
   const handleLogout = async () => {
@@ -42,8 +41,8 @@ export default function OnboardingPortal({
 
       if (response.ok) {
         // Refresh the page to clear the authenticated state
+        // Let the server component handle the state with the cleared cookie
         router.refresh()
-        setIsAuthenticated(false)
       }
     } catch (error) {
       console.error('Logout error:', error)
@@ -53,7 +52,7 @@ export default function OnboardingPortal({
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-br from-gray-100 via-gray-50 to-cyan-100">
+    <div className="min-h-screen flex flex-col" style={{ background: 'linear-gradient(135deg, #f0f4f8 0%, #d9e8f5 50%, #e0f2fe 100%)' }}>
       <Header />
 
       <main className="flex-1 pt-20">
