@@ -4,7 +4,6 @@ import ScrollToTop from '@/components/ui/ScrollToTop'
 import FAQSchema from '@/components/seo/FAQSchema'
 import ServiceSchema from '@/components/seo/ServiceSchema'
 import AIMetadata from '@/components/seo/AIMetadata'
-import CloudRadialChat from '@/components/CloudRadialChat'
 
 export const metadata: Metadata = {
   title: 'Triple Cities Tech | Managed IT Services for Small Business | Central NY',
@@ -233,7 +232,6 @@ export default function RootLayout({
         <div className="min-h-screen w-full prevent-overflow">
           {children}
           <ScrollToTop />
-          <CloudRadialChat />
         </div>
       </body>
     </html>
