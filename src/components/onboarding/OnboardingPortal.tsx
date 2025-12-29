@@ -63,8 +63,9 @@ export default function OnboardingPortal({
           // Authenticated view - show onboarding timeline
           <Container className="py-12 mt-4">
             {/* Header with logout */}
-            <div className="mb-8 flex items-center justify-between flex-wrap gap-4">
-              <div>
+            <div className="mb-8">
+              {/* Centered title */}
+              <div className="text-center mb-6">
                 <h1 className="text-4xl font-bold bg-gradient-to-r from-cyan-400 to-cyan-500 bg-clip-text text-transparent mb-2">
                   {initialData.companyDisplayName} Onboarding
                 </h1>
@@ -77,11 +78,12 @@ export default function OnboardingPortal({
                 </p>
               </div>
 
-              <div className="flex gap-3">
+              {/* Action buttons */}
+              <div className="flex gap-3 justify-center">
                 <Button
                   onClick={() => router.refresh()}
                   variant="outline"
-                  className="border-cyan-600 text-cyan-600 hover:bg-cyan-50"
+                  className="border-cyan-600 text-cyan-400 hover:bg-cyan-500/10"
                   leftIcon={<RefreshCw size={16} />}
                 >
                   Refresh
@@ -89,7 +91,7 @@ export default function OnboardingPortal({
                 <Button
                   onClick={handleLogout}
                   variant="outline"
-                  className="border-gray-300 text-gray-700 hover:bg-gray-50"
+                  className="border-gray-600 text-gray-300 hover:bg-gray-700"
                   isLoading={isLoggingOut}
                   leftIcon={!isLoggingOut ? <LogOut size={16} /> : undefined}
                 >
