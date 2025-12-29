@@ -53,16 +53,16 @@ export default function OnboardingPortal({
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-br from-gray-50 via-white to-cyan-50">
+    <div className="min-h-screen flex flex-col bg-gradient-to-br from-gray-100 via-gray-50 to-cyan-100">
       <Header />
 
-      <main className="flex-1">
+      <main className="flex-1 pt-20">
         {!isAuthenticated ? (
           // Unauthenticated view - show password gate
           <PasswordGate companyName={companySlug} onAuthenticated={handleAuthenticated} />
         ) : initialData ? (
           // Authenticated view - show onboarding timeline
-          <Container className="py-12">
+          <Container className="py-12 mt-4">
             {/* Header with logout */}
             <div className="mb-8 flex items-center justify-between flex-wrap gap-4">
               <div>
@@ -130,16 +130,33 @@ export default function OnboardingPortal({
             </div>
           </Container>
         ) : (
-          // Error state (should not happen, but just in case)
-          <Container className="py-12">
-            <div className="text-center">
-              <h1 className="text-2xl font-bold text-gray-900 mb-4">Error Loading Data</h1>
-              <p className="text-gray-600 mb-6">
-                We couldn't load your onboarding information. Please try refreshing the page.
+          // Error state - authenticated but no data
+          <Container className="py-12 mt-4">
+            <div className="text-center max-w-2xl mx-auto">
+              <div className="mb-6 text-6xl">⚠️</div>
+              <h1 className="text-2xl font-bold text-gray-900 mb-4">Configuration Issue</h1>
+              <p className="text-gray-600 mb-4">
+                Authentication was successful, but we couldn't load your onboarding data.
               </p>
-              <Button onClick={() => router.refresh()}>
-                Refresh Page
-              </Button>
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6 text-left">
+                <p className="text-sm text-amber-900 font-semibold mb-2">Possible causes:</p>
+                <ul className="text-sm text-amber-800 space-y-1 list-disc list-inside">
+                  <li>Company data not configured in server database</li>
+                  <li>Company slug mismatch: <code className="bg-amber-100 px-2 py-0.5 rounded">{companySlug}</code></li>
+                  <li>Server configuration error</li>
+                </ul>
+              </div>
+              <div className="flex gap-3 justify-center flex-wrap">
+                <Button onClick={() => router.refresh()} leftIcon={<RefreshCw size={16} />}>
+                  Refresh Page
+                </Button>
+                <Button onClick={handleLogout} variant="outline" leftIcon={<LogOut size={16} />}>
+                  Log Out
+                </Button>
+              </div>
+              <p className="text-sm text-gray-500 mt-6">
+                If this issue persists, please contact your Triple Cities Tech account manager.
+              </p>
             </div>
           </Container>
         )}

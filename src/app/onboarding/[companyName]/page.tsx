@@ -26,17 +26,26 @@ export default async function OnboardingPage({ params }: PageProps) {
   const { companyName } = await params
   const companySlug = companyName.toLowerCase().trim()
 
+  console.log('[Onboarding Page] Company slug:', companySlug)
+
   // Check if company exists (for 404 handling)
-  if (!companyExists(companySlug)) {
+  const exists = companyExists(companySlug)
+  console.log('[Onboarding Page] Company exists:', exists)
+
+  if (!exists) {
     redirect('/404')
   }
 
   // Check authentication
   const authenticatedCompany = await getAuthenticatedCompany()
   const isAuthenticated = authenticatedCompany === companySlug
+  console.log('[Onboarding Page] Authenticated company:', authenticatedCompany)
+  console.log('[Onboarding Page] Is authenticated:', isAuthenticated)
 
   // Get onboarding data only if authenticated
   const onboardingData = isAuthenticated ? getOnboardingData(companySlug) : null
+  console.log('[Onboarding Page] Onboarding data loaded:', onboardingData !== null)
+  console.log('[Onboarding Page] Onboarding data:', onboardingData)
 
   return (
     <OnboardingPortal
