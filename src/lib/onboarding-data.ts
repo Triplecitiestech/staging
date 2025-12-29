@@ -14,13 +14,23 @@ export function getCompanyPassword(companySlug: string): string | null {
 export function validateCompanyPassword(companySlug: string, password: string): boolean {
   const correctPassword = getCompanyPassword(companySlug)
 
+  console.log('[Password Validation]', {
+    companySlug,
+    hasPassword: !!correctPassword,
+    envKey: `ONBOARDING_PASSWORD_${companySlug.toUpperCase().replace(/-/g, '_')}`,
+    passwordProvided: password.length > 0
+  })
+
   if (!correctPassword) {
     // Company doesn't exist or password not configured
+    console.log('[Password Validation] No password configured for company:', companySlug)
     return false
   }
 
   // Constant-time comparison to prevent timing attacks
-  return timingSafeEqual(password, correctPassword)
+  const isValid = timingSafeEqual(password, correctPassword)
+  console.log('[Password Validation] Result:', isValid)
+  return isValid
 }
 
 // Timing-safe string comparison

@@ -121,6 +121,12 @@ export async function POST(request: NextRequest) {
     // Sanitize company name (convert to lowercase slug format)
     const companySlug = sanitizeInput(companyName).toLowerCase().trim()
 
+    console.log('[Auth API] Login attempt:', {
+      companySlug,
+      passwordLength: password.length,
+      ip: validation.ip
+    })
+
     // Security: Onboarding-specific rate limiting
     const rateLimitCheck = OnboardingRateLimiter.checkLimit(validation.ip, companySlug)
 

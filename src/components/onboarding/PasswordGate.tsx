@@ -35,11 +35,15 @@ export default function PasswordGate({ companyName, onAuthenticated }: PasswordG
 
       const data = await response.json()
 
+      console.log('[Password Gate] Auth response:', { status: response.status, data })
+
       if (response.ok && data.success) {
         // Success! Do a full page reload to get authenticated content
+        console.log('[Password Gate] Authentication successful, reloading page...')
         window.location.reload()
       } else {
         // Show error message
+        console.error('[Password Gate] Authentication failed:', data)
         setError(data.message || 'Invalid password')
         setPassword('') // Clear password field
       }
