@@ -53,7 +53,7 @@ export default function OnboardingPortal({
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-br from-gray-50 via-white to-cyan-50">
+    <div className="min-h-screen flex flex-col bg-gradient-to-br from-gray-100 via-gray-50 to-cyan-100">
       <Header />
 
       <main className="flex-1 pt-20">
