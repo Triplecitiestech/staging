@@ -12,6 +12,7 @@
   "dependencies": {
     "@marsidev/react-turnstile": "^1.4.0",
     "clsx": "^2.1.1",
+    "lucide-react": "^0.562.0",
     "next": "15.5.9",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
