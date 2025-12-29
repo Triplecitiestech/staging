@@ -98,11 +98,11 @@ function PhaseCard({ phase, isCurrent, isLast }: { phase: OnboardingPhase; isCur
       {/* Phase card */}
       <div
         className={cn(
-          'relative bg-white rounded-lg border-2 transition-all duration-200',
+          'relative bg-gray-800/50 backdrop-blur-sm rounded-lg border-2 transition-all duration-200',
           isCurrent
-            ? 'border-cyan-500 shadow-lg shadow-cyan-500/20'
-            : colors.border,
-          'hover:shadow-md'
+            ? 'border-cyan-500 shadow-lg shadow-cyan-500/30'
+            : 'border-gray-700',
+          'hover:shadow-md hover:shadow-cyan-500/10'
         )}
       >
         {/* Current phase indicator */}
@@ -115,7 +115,7 @@ function PhaseCard({ phase, isCurrent, isLast }: { phase: OnboardingPhase; isCur
         {/* Header */}
         <button
           onClick={() => setIsExpanded(!isExpanded)}
-          className="w-full p-6 text-left flex items-start gap-4 hover:bg-gray-50 transition-colors rounded-lg"
+          className="w-full p-6 text-left flex items-start gap-4 hover:bg-gray-700/30 transition-colors rounded-lg"
         >
           {/* Status icon */}
           <div className={cn('flex-shrink-0 mt-1', colors.icon)}>
@@ -125,15 +125,15 @@ function PhaseCard({ phase, isCurrent, isLast }: { phase: OnboardingPhase; isCur
           {/* Content */}
           <div className="flex-1 min-w-0">
             <div className="flex items-start justify-between gap-4 mb-2">
-              <h3 className="text-lg font-bold text-gray-900 leading-tight">
+              <h3 className="text-lg font-bold text-white leading-tight">
                 {phase.title}
               </h3>
-              <div className={cn('flex-shrink-0', isExpanded ? 'text-gray-600' : 'text-gray-400')}>
+              <div className={cn('flex-shrink-0', isExpanded ? 'text-gray-300' : 'text-gray-500')}>
                 {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
               </div>
             </div>
 
-            <p className="text-sm text-gray-600 mb-3">
+            <p className="text-sm text-gray-300 mb-3">
               {phase.description}
             </p>
 
@@ -149,7 +149,7 @@ function PhaseCard({ phase, isCurrent, isLast }: { phase: OnboardingPhase; isCur
 
               {/* Owner badge */}
               {phase.owner && (
-                <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
+                <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-gray-700/50 text-gray-300 border border-gray-600">
                   <User size={12} />
                   {phase.owner}
                 </span>
@@ -188,11 +188,11 @@ function PhaseCard({ phase, isCurrent, isLast }: { phase: OnboardingPhase; isCur
             {/* Details */}
             {phase.details && phase.details.length > 0 && (
               <div>
-                <p className="text-sm font-semibold text-gray-900 mb-2">Details:</p>
+                <p className="text-sm font-semibold text-white mb-2">Details:</p>
                 <ul className="space-y-2">
                   {phase.details.map((detail, index) => (
-                    <li key={index} className="flex items-start gap-2 text-sm text-gray-700">
-                      <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-cyan-500 mt-2" />
+                    <li key={index} className="flex items-start gap-2 text-sm text-gray-300">
+                      <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-cyan-400 mt-2" />
                       <span>{detail}</span>
                     </li>
                   ))}
@@ -211,8 +211,8 @@ export default function OnboardingTimeline({ phases, currentPhaseId }: Onboardin
     <div className="space-y-6">
       {/* Timeline header */}
       <div className="text-center mb-8">
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">Onboarding Timeline</h2>
-        <p className="text-gray-600">Track your progress through our comprehensive onboarding process</p>
+        <h2 className="text-2xl font-bold text-white mb-2">Onboarding Timeline</h2>
+        <p className="text-gray-300">Track your progress through our comprehensive onboarding process</p>
       </div>
 
       {/* Timeline */}
@@ -228,13 +228,13 @@ export default function OnboardingTimeline({ phases, currentPhaseId }: Onboardin
       </div>
 
       {/* Legend */}
-      <div className="mt-12 p-6 bg-gray-50 rounded-lg border border-gray-200">
-        <h3 className="text-sm font-semibold text-gray-900 mb-4">Status Legend</h3>
+      <div className="mt-12 p-6 bg-gray-800/30 rounded-lg border border-gray-700">
+        <h3 className="text-sm font-semibold text-white mb-4">Status Legend</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {Object.entries(statusColors).map(([status, colors]) => (
             <div key={status} className="flex items-center gap-2">
               <span className={cn('w-3 h-3 rounded-full', colors.bg, colors.border, 'border-2')} />
-              <span className="text-xs text-gray-700">{status}</span>
+              <span className="text-xs text-gray-300">{status}</span>
             </div>
           ))}
         </div>

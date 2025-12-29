@@ -36,8 +36,8 @@ export default function PasswordGate({ companyName, onAuthenticated }: PasswordG
       const data = await response.json()
 
       if (response.ok && data.success) {
-        // Success! Trigger re-render to show authenticated content
-        onAuthenticated()
+        // Success! Do a full page reload to get authenticated content
+        window.location.reload()
       } else {
         // Show error message
         setError(data.message || 'Invalid password')
@@ -56,23 +56,23 @@ export default function PasswordGate({ companyName, onAuthenticated }: PasswordG
       <div className="w-full max-w-md">
         {/* Header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-cyan-500 to-cyan-600 rounded-full mb-4 shadow-lg">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-cyan-500 to-cyan-600 rounded-full mb-4 shadow-lg shadow-cyan-500/50">
             <Lock className="text-white" size={32} />
           </div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
+          <h1 className="text-3xl font-bold text-white mb-2">
             Customer Onboarding
           </h1>
-          <p className="text-gray-600">
+          <p className="text-gray-300">
             Enter the access password to view your onboarding status
           </p>
         </div>
 
         {/* Form card */}
-        <div className="bg-white rounded-lg shadow-lg border border-gray-200 p-8">
+        <div className="bg-gray-800/50 backdrop-blur-sm rounded-lg shadow-xl border border-gray-700 p-8">
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Password input */}
             <div>
-              <label htmlFor="password" className="block text-sm font-semibold text-gray-900 mb-2">
+              <label htmlFor="password" className="block text-sm font-semibold text-gray-200 mb-2">
                 Access Password
               </label>
               <div className="relative">
@@ -82,11 +82,11 @@ export default function PasswordGate({ companyName, onAuthenticated }: PasswordG
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className={cn(
-                    'w-full px-4 py-3 pr-12 rounded-lg border-2 transition-colors',
+                    'w-full px-4 py-3 pr-12 rounded-lg border-2 transition-colors text-white',
                     'focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500',
                     error
-                      ? 'border-red-300 bg-red-50'
-                      : 'border-gray-300 bg-white'
+                      ? 'border-red-500 bg-red-900/20'
+                      : 'border-gray-600 bg-gray-700/50'
                   )}
                   placeholder="Enter password"
                   required
@@ -96,7 +96,7 @@ export default function PasswordGate({ companyName, onAuthenticated }: PasswordG
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-200 transition-colors"
                   tabIndex={-1}
                 >
                   {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
@@ -106,7 +106,7 @@ export default function PasswordGate({ companyName, onAuthenticated }: PasswordG
 
             {/* Error message */}
             {error && (
-              <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800">
+              <div className="flex items-start gap-2 p-3 bg-red-900/30 border border-red-500/50 rounded-lg text-sm text-red-200">
                 <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
                 <span>{error}</span>
               </div>
@@ -115,7 +115,7 @@ export default function PasswordGate({ companyName, onAuthenticated }: PasswordG
             {/* Submit button */}
             <Button
               type="submit"
-              className="w-full bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700 text-white font-semibold py-3 px-6 rounded-lg shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700 text-white font-semibold py-3 px-6 rounded-lg shadow-lg shadow-cyan-500/30 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
               isLoading={isLoading}
               disabled={isLoading || !password}
             >
@@ -125,7 +125,7 @@ export default function PasswordGate({ companyName, onAuthenticated }: PasswordG
         </div>
 
         {/* Help text */}
-        <p className="mt-6 text-center text-sm text-gray-500">
+        <p className="mt-6 text-center text-sm text-gray-400">
           If you don't have the access password, please contact your account manager at Triple Cities Tech.
         </p>
       </div>
