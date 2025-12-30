@@ -138,9 +138,11 @@ export default function PhaseCard({ phase, index }: { phase: Phase; index: numbe
               className="px-2 py-1 bg-slate-800 border border-white/20 rounded text-xs text-white"
             >
               <option value="NOT_STARTED">Not Started</option>
+              <option value="SCHEDULED">Scheduled</option>
+              <option value="WAITING_ON_CUSTOMER">Waiting On Customer</option>
               <option value="IN_PROGRESS">In Progress</option>
-              <option value="WAITING_CUSTOMER">Waiting Customer</option>
-              <option value="BLOCKED">Blocked</option>
+              <option value="REQUIRES_CUSTOMER_COORDINATION">Requires Customer Coordination</option>
+              <option value="DISCUSSED">Discussed</option>
               <option value="COMPLETE">Complete</option>
             </select>
           ) : (

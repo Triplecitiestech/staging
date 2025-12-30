@@ -20,7 +20,7 @@ export async function PATCH(
     const { id } = await params
     const data = await req.json()
 
-    const task = await prisma.task.update({
+    const task = await prisma.phaseTask.update({
       where: { id },
       data: {
         taskText: data.taskText,
