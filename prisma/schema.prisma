@@ -208,6 +208,7 @@ model PhaseTask {
   completed    Boolean   @default(false)
   completedBy  String?           // Staff email
   completedAt  DateTime?
+  notes        String?   @db.Text
   orderIndex   Int               // For sorting
   createdAt    DateTime  @default(now())
 
