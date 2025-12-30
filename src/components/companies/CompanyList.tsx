@@ -7,7 +7,7 @@ interface Company {
   id: string
   displayName: string
   officialName?: string
-  domain: string | null
+  domain?: string | null
   _count?: {
     projects: number
   }
