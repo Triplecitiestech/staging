@@ -63,18 +63,6 @@ export async function POST(request: NextRequest) {
       counter++
     }
 
-    // Create project data
-    const projectData = {
-      companyId,
-      projectType: projectType as ProjectType,
-      title,
-      slug,
-      status: 'ACTIVE',
-      createdBy: createdBy || session.user.email,
-      lastModifiedBy: lastModifiedBy || session.user.email,
-      aiGenerated: false,
-    }
-
     // If using template, fetch template and create phases
     let phasesData: Array<{
       title: string
@@ -124,7 +112,14 @@ export async function POST(request: NextRequest) {
     // Create project with phases
     const project = await prisma.project.create({
       data: {
-        ...projectData,
+        companyId,
+        projectType: projectType as ProjectType,
+        title,
+        slug,
+        status: 'ACTIVE',
+        createdBy: createdBy || session.user.email,
+        lastModifiedBy: lastModifiedBy || session.user.email,
+        aiGenerated: false,
         phases: phasesData.length > 0 ? {
           create: phasesData
         } : undefined,
