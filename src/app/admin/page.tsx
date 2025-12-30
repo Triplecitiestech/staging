@@ -1,7 +1,7 @@
-import { redirect } from 'next/navigation'
+import Link from 'next/link'
 
 export default function AdminPage() {
-  // For now, redirect to a placeholder until we implement authentication
+  // For now, show placeholder until we implement authentication
   // TODO: Add NextAuth + Microsoft OAuth authentication
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
@@ -14,18 +14,18 @@ export default function AdminPage() {
             Microsoft OAuth authentication coming soon
           </p>
           <div className="space-y-4">
-            <a
+            <Link
               href="/admin/setup"
               className="block w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-lg transition-colors"
             >
               Database Setup
-            </a>
-            <a
+            </Link>
+            <Link
               href="/"
               className="block w-full bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-3 px-4 rounded-lg transition-colors"
             >
               Back to Home
-            </a>
+            </Link>
           </div>
 
           <div className="mt-8 pt-8 border-t border-gray-200">
