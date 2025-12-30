@@ -1,13 +1,25 @@
 // Database Seed Script
 // Populates initial data for Triple Cities Tech Project Status Platform
 
+import { config } from 'dotenv'
 import { PrismaClient, StaffRole, ProjectType } from '@prisma/client'
 import { withAccelerate } from '@prisma/extension-accelerate'
 import bcrypt from 'bcryptjs'
 
+// Load environment variables from .env.local
+config({ path: '.env.local' })
+
+// Verify we have the required URL
+const accelerateUrl = process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
+if (!accelerateUrl) {
+  throw new Error('PRISMA_DATABASE_URL or DATABASE_URL environment variable is required')
+}
+
+console.log('Using database URL:', accelerateUrl.substring(0, 20) + '...')
+
 // Prisma 7 with Accelerate - use accelerateUrl parameter
 const prisma = new PrismaClient({
-  accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
+  accelerateUrl
 }).$extends(withAccelerate())
 
 async function main() {
