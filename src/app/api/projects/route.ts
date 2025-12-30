@@ -7,6 +7,15 @@ const prisma = new PrismaClient({
   accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
 }).$extends(withAccelerate())
 
+// Type for template phase JSON structure
+interface TemplatePhase {
+  title: string
+  description?: string
+  estimatedDays?: number
+  owner?: string
+  tasks?: string[]
+}
+
 // Create a URL-friendly slug
 function createSlug(companyName: string, title: string): string {
   const combined = `${companyName}-${title}`
@@ -55,7 +64,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Create project data
-    const projectData: any = {
+    const projectData = {
       companyId,
       projectType: projectType as ProjectType,
       title,
@@ -67,14 +76,30 @@ export async function POST(request: NextRequest) {
     }
 
     // If using template, fetch template and create phases
-    let phasesData: any[] = []
+    let phasesData: Array<{
+      title: string
+      description: string | null
+      status: PhaseStatus
+      owner: PhaseOwner | null
+      estimatedDays: number | null
+      orderIndex: number
+      customerNotes: null
+      internalNotes: null
+      tasks: {
+        create: Array<{
+          taskText: string
+          completed: boolean
+          orderIndex: number
+        }>
+      }
+    }> = []
     if (useTemplate && templateId) {
       const template = await prisma.projectTemplate.findUnique({
         where: { id: templateId }
       })
 
       if (template && Array.isArray(template.phasesJson)) {
-        phasesData = template.phasesJson.map((phase: any, index: number) => ({
+        phasesData = (template.phasesJson as TemplatePhase[]).map((phase, index) => ({
           title: phase.title,
           description: phase.description || null,
           status: 'NOT_STARTED' as PhaseStatus,

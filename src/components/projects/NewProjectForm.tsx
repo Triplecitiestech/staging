@@ -4,6 +4,14 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { Company, ProjectTemplate, ProjectType } from '@prisma/client'
 
+interface TemplatePhase {
+  title: string
+  description?: string
+  estimatedDays?: number
+  owner?: string
+  tasks?: string[]
+}
+
 interface NewProjectFormProps {
   companies: Company[]
   templates: ProjectTemplate[]
@@ -167,7 +175,7 @@ export default function NewProjectForm({ companies, templates, userEmail }: NewP
                         <div>
                           <span className="font-medium">{selectedTemplate.phasesJson.length} phases:</span>
                           <ul className="mt-1 space-y-1 ml-4">
-                            {selectedTemplate.phasesJson.map((phase: any, idx: number) => (
+                            {(selectedTemplate.phasesJson as TemplatePhase[]).map((phase, idx) => (
                               <li key={idx}>• {phase.title}</li>
                             ))}
                           </ul>
