@@ -6,9 +6,9 @@ import { useRouter } from 'next/navigation'
 interface Company {
   id: string
   displayName: string
-  officialName: string
+  officialName?: string
   domain: string | null
-  _count: {
+  _count?: {
     projects: number
   }
 }
@@ -25,7 +25,7 @@ export default function CompanyList({ companies }: { companies: Company[] }) {
       const res = await fetch(`/api/companies?id=${id}`, { method: 'DELETE' })
       if (!res.ok) throw new Error('Failed to delete')
       router.refresh()
-    } catch (error) {
+    } catch {
       alert('Failed to delete company')
       setDeleting(null)
     }
@@ -61,7 +61,7 @@ export default function CompanyList({ companies }: { companies: Company[] }) {
                 )}
               </td>
               <td className="px-6 py-4 text-sm text-slate-300">{company.domain || '—'}</td>
-              <td className="px-6 py-4 text-sm text-slate-300">{company._count.projects}</td>
+              <td className="px-6 py-4 text-sm text-slate-300">{company._count?.projects || 0}</td>
               <td className="px-6 py-4 text-right">
                 <button
                   onClick={() => handleDelete(company.id, company.displayName)}

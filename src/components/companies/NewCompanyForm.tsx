@@ -27,7 +27,7 @@ export default function NewCompanyForm() {
 
       router.push('/admin/companies')
       router.refresh()
-    } catch (error) {
+    } catch {
       alert('Failed to create company')
       setLoading(false)
     }

@@ -27,7 +27,7 @@ export default function ProjectList({ projects }: { projects: Project[] }) {
       const res = await fetch(`/api/projects/${id}`, { method: 'DELETE' })
       if (!res.ok) throw new Error('Failed to delete')
       router.refresh()
-    } catch (error) {
+    } catch {
       alert('Failed to delete project')
       setDeleting(null)
     }
