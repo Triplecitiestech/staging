@@ -11,4 +11,7 @@ export default defineConfig({
   datasource: {
     url: process.env["DATABASE_URL"],
   },
+  accelerate: {
+    url: process.env["PRISMA_DATABASE_URL"],
+  },
 });
