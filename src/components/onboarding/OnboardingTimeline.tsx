@@ -83,6 +83,7 @@ function formatDate(isoDate: string): string {
   })
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function PhaseCard({ phase, isCurrent, isLast }: { phase: OnboardingPhase; isCurrent: boolean; isLast: boolean }) {
   const [isExpanded, setIsExpanded] = useState(isCurrent)
   const colors = statusColors[phase.status]

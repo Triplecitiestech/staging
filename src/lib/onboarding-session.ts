@@ -67,6 +67,7 @@ export function validateSession(token: string): string | null {
 }
 
 // Destroy a session (no-op since we don't have server-side storage)
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function destroySession(token: string): void {
   // With signed cookies, we just clear the cookie client-side
   // No server-side cleanup needed
