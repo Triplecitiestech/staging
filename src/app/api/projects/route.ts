@@ -99,7 +99,7 @@ export async function POST(request: NextRequest) {
       })
 
       if (template && Array.isArray(template.phasesJson)) {
-        phasesData = (template.phasesJson as TemplatePhase[]).map((phase, index) => ({
+        phasesData = (template.phasesJson as unknown as TemplatePhase[]).map((phase, index) => ({
           title: phase.title,
           description: phase.description || null,
           status: 'NOT_STARTED' as PhaseStatus,

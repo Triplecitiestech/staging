@@ -175,7 +175,7 @@ export default function NewProjectForm({ companies, templates, userEmail }: NewP
                         <div>
                           <span className="font-medium">{selectedTemplate.phasesJson.length} phases:</span>
                           <ul className="mt-1 space-y-1 ml-4">
-                            {(selectedTemplate.phasesJson as TemplatePhase[]).map((phase, idx) => (
+                            {(selectedTemplate.phasesJson as unknown as TemplatePhase[]).map((phase, idx) => (
                               <li key={idx}>• {phase.title}</li>
                             ))}
                           </ul>
