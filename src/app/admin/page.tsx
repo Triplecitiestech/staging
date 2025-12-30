@@ -1,8 +1,30 @@
 import Link from 'next/link'
+import { auth } from '@/auth'
+import { SignInButton, SignOutButton } from '@/components/auth/AuthButtons'
 
-export default function AdminPage() {
-  // For now, show placeholder until we implement authentication
-  // TODO: Add NextAuth + Microsoft OAuth authentication
+export default async function AdminPage() {
+  const session = await auth()
+
+  // If not authenticated, show sign-in page
+  if (!session) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-8">
+          <div className="text-center">
+            <h1 className="text-3xl font-bold text-gray-900 mb-4">
+              Admin Dashboard
+            </h1>
+            <p className="text-gray-600 mb-6">
+              Sign in with your Microsoft account to access the admin dashboard
+            </p>
+            <SignInButton />
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // User is authenticated - show dashboard
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
       <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-8">
@@ -10,9 +32,16 @@ export default function AdminPage() {
           <h1 className="text-3xl font-bold text-gray-900 mb-4">
             Admin Dashboard
           </h1>
-          <p className="text-gray-600 mb-6">
-            Microsoft OAuth authentication coming soon
-          </p>
+
+          <div className="mb-6 p-4 bg-blue-50 rounded-lg">
+            <p className="text-sm text-gray-600 mb-1">Signed in as</p>
+            <p className="font-semibold text-gray-900">{session.user?.name}</p>
+            <p className="text-sm text-gray-600">{session.user?.email}</p>
+            {session.user?.role && (
+              <p className="text-xs text-blue-600 mt-1 uppercase">{session.user.role}</p>
+            )}
+          </div>
+
           <div className="space-y-4">
             <Link
               href="/admin/setup"
@@ -26,6 +55,7 @@ export default function AdminPage() {
             >
               Back to Home
             </Link>
+            <SignOutButton />
           </div>
 
           <div className="mt-8 pt-8 border-t border-gray-200">
