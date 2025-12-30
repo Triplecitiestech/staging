@@ -1,12 +1,20 @@
 import Link from 'next/link'
 import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
-import { PrismaClient } from '@prisma/client'
+import { PrismaClient, Prisma } from '@prisma/client'
 import { withAccelerate } from '@prisma/extension-accelerate'
 
 const prisma = new PrismaClient({
   accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
 }).$extends(withAccelerate())
+
+type ProjectWithRelations = Prisma.ProjectGetPayload<{
+  include: {
+    company: true
+    creator: true
+    phases: true
+  }
+}>
 
 export default async function ProjectsPage() {
   const session = await auth()
@@ -16,7 +24,7 @@ export default async function ProjectsPage() {
   }
 
   // Fetch all projects with related data
-  const projects = await prisma.project.findMany({
+  const projects: ProjectWithRelations[] = await prisma.project.findMany({
     include: {
       company: true,
       creator: true,
@@ -25,7 +33,7 @@ export default async function ProjectsPage() {
       }
     },
     orderBy: { createdAt: 'desc' }
-  })
+  }) as ProjectWithRelations[]
 
   const getStatusColor = (status: string) => {
     switch (status) {
