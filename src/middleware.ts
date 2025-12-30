@@ -51,7 +51,7 @@ export function middleware(request: NextRequest) {
     }
   })
 
-  // Block requests to sensitive files
+  // Block requests to sensitive files (but allow /admin routes for our app)
   const sensitivePaths = [
     '/.env',
     '/.git',
@@ -59,7 +59,6 @@ export function middleware(request: NextRequest) {
     '/wp-admin',
     '/wp-content',
     '/wp-includes',
-    '/admin',
     '/phpmyadmin',
     '/.htaccess',
     '/web.config'
