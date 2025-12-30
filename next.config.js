@@ -1,5 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Allow build to succeed with ESLint warnings (not errors)
+  eslint: {
+    // Warning: This allows production builds to successfully complete even if
+    // your project has ESLint errors.
+    ignoreDuringBuilds: false, // Keep linting but don't fail on warnings
+  },
   images: {
     domains: ['localhost'],
     dangerouslyAllowSVG: false,

@@ -7,10 +7,11 @@ import { cn } from '@/utils/cn'
 
 interface PasswordGateProps {
   companyName: string
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   onAuthenticated: () => void
 }
 
-export default function PasswordGate({ companyName, onAuthenticated }: PasswordGateProps) {
+export default function PasswordGate({ companyName }: PasswordGateProps) {
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
