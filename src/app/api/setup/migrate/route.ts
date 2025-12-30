@@ -32,13 +32,15 @@ export async function POST(request: Request) {
       output: stdout,
       stderr: stderr || null
     })
-  } catch (error: any) {
+  } catch (error) {
     console.error('Migration failed:', error)
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+    const errorObj = error as { stdout?: string; stderr?: string }
     return NextResponse.json({
       success: false,
-      error: error.message,
-      stdout: error.stdout,
-      stderr: error.stderr
+      error: errorMessage,
+      stdout: errorObj.stdout,
+      stderr: errorObj.stderr
     }, { status: 500 })
   }
 }
