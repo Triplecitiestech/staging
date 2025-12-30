@@ -1,12 +1,14 @@
 // ONE-TIME SETUP ROUTE - DELETE AFTER USE
 // This route runs the database migration
-// Call this once after deploying to create all database tables
+// Call this once after deploying to add missing columns
 
-import { exec } from 'child_process'
-import { promisify } from 'util'
 import { NextResponse } from 'next/server'
+import { PrismaClient } from '@prisma/client'
+import { withAccelerate } from '@prisma/extension-accelerate'
 
-const execAsync = promisify(exec)
+const prisma = new PrismaClient({
+  accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
+}).$extends(withAccelerate())
 
 export async function POST(request: Request) {
   try {
@@ -20,27 +22,45 @@ export async function POST(request: Request) {
 
     console.log('Starting database migration...')
 
-    // Run prisma db push
-    const { stdout, stderr } = await execAsync('npx prisma db push --accept-data-loss')
+    const results = []
 
-    console.log('Migration stdout:', stdout)
-    if (stderr) console.error('Migration stderr:', stderr)
+    // Check if notes column exists in phase_tasks table
+    try {
+      const checkColumn = await prisma.$executeRaw`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_name = 'phase_tasks'
+        AND column_name = 'notes'
+      `
+
+      if (checkColumn === 0) {
+        // Add notes column if it doesn't exist
+        console.log('Adding notes column to phase_tasks table...')
+        await prisma.$executeRaw`
+          ALTER TABLE phase_tasks
+          ADD COLUMN IF NOT EXISTS notes TEXT
+        `
+        results.push('Added notes column to phase_tasks')
+      } else {
+        results.push('notes column already exists in phase_tasks')
+      }
+    } catch (error) {
+      console.error('Error with notes column:', error)
+      results.push(`Error with notes column: ${error}`)
+    }
 
     return NextResponse.json({
       success: true,
       message: 'Database migration completed successfully',
-      output: stdout,
-      stderr: stderr || null
+      results
     })
   } catch (error) {
     console.error('Migration failed:', error)
     const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-    const errorObj = error as { stdout?: string; stderr?: string }
     return NextResponse.json({
       success: false,
       error: errorMessage,
-      stdout: errorObj.stdout,
-      stderr: errorObj.stderr
+      suggestion: 'Check Vercel logs for details'
     }, { status: 500 })
   }
 }
