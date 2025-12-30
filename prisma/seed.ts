@@ -2,15 +2,16 @@
 // Populates initial data for Triple Cities Tech Project Status Platform
 
 import { PrismaClient, StaffRole, ProjectType } from '@prisma/client'
-import { PrismaPg } from '@prisma/adapter-pg'
-import { Pool } from 'pg'
 import bcrypt from 'bcryptjs'
 
-// Prisma 7 requires an adapter for database connections
-const connectionString = process.env.DATABASE_URL
-const pool = new Pool({ connectionString })
-const adapter = new PrismaPg(pool)
-const prisma = new PrismaClient({ adapter })
+// Prisma 7 with Accelerate - use the accelerate URL directly
+const prisma = new PrismaClient({
+  datasources: {
+    db: {
+      url: process.env.DATABASE_URL
+    }
+  }
+})
 
 async function main() {
   console.log('🌱 Starting database seed...\n')
