@@ -14,19 +14,21 @@ export async function POST(req: Request) {
   }
 
   try {
-    const { displayName, officialName, domain } = await req.json()
+    const { displayName, primaryContact, contactEmail, contactTitle } = await req.json()
 
     const company = await prisma.company.create({
       data: {
         displayName,
-        officialName: officialName || displayName,
-        domain: domain || null,
+        slug: displayName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''),
+        primaryContact: primaryContact || null,
+        contactEmail: contactEmail || null,
+        contactTitle: contactTitle || null,
+        passwordHash: 'temp', // Placeholder - should be set properly later
       }
     })
 
     return NextResponse.json(company)
-  } catch (error) {
-    console.error('Error creating company:', error)
+  } catch {
     return NextResponse.json({ error: 'Failed to create company' }, { status: 500 })
   }
 }

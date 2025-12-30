@@ -8,8 +8,9 @@ export default function NewCompanyForm() {
   const [loading, setLoading] = useState(false)
   const [formData, setFormData] = useState({
     displayName: '',
-    officialName: '',
-    domain: '',
+    primaryContact: '',
+    contactEmail: '',
+    contactTitle: '',
   })
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -49,24 +50,35 @@ export default function NewCompanyForm() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-slate-200 mb-2">Official Legal Name</label>
+          <label className="block text-sm font-medium text-slate-200 mb-2">Primary Contact</label>
           <input
             type="text"
-            value={formData.officialName}
-            onChange={(e) => setFormData({ ...formData, officialName: e.target.value })}
+            value={formData.primaryContact}
+            onChange={(e) => setFormData({ ...formData, primaryContact: e.target.value })}
             className="w-full px-3 py-2 bg-slate-900/50 border border-white/20 rounded-lg text-white placeholder-slate-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-            placeholder="e.g., Acme Corporation LLC"
+            placeholder="e.g., John Smith"
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-slate-200 mb-2">Domain</label>
+          <label className="block text-sm font-medium text-slate-200 mb-2">Contact Title</label>
           <input
             type="text"
-            value={formData.domain}
-            onChange={(e) => setFormData({ ...formData, domain: e.target.value })}
+            value={formData.contactTitle}
+            onChange={(e) => setFormData({ ...formData, contactTitle: e.target.value })}
             className="w-full px-3 py-2 bg-slate-900/50 border border-white/20 rounded-lg text-white placeholder-slate-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-            placeholder="e.g., acme.com"
+            placeholder="e.g., CEO"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-slate-200 mb-2">Contact Email</label>
+          <input
+            type="email"
+            value={formData.contactEmail}
+            onChange={(e) => setFormData({ ...formData, contactEmail: e.target.value })}
+            className="w-full px-3 py-2 bg-slate-900/50 border border-white/20 rounded-lg text-white placeholder-slate-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+            placeholder="e.g., john@acme.com"
           />
         </div>
       </div>

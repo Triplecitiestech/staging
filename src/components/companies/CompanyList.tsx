@@ -6,8 +6,8 @@ import { useRouter } from 'next/navigation'
 interface Company {
   id: string
   displayName: string
-  officialName?: string
-  domain?: string | null
+  primaryContact?: string | null
+  contactEmail?: string | null
   _count?: {
     projects: number
   }
@@ -46,7 +46,7 @@ export default function CompanyList({ companies }: { companies: Company[] }) {
         <thead className="bg-slate-900/50">
           <tr>
             <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">Company Name</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">Domain</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">Contact</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">Projects</th>
             <th className="px-6 py-3 text-right text-xs font-medium text-slate-400 uppercase">Actions</th>
           </tr>
@@ -56,11 +56,11 @@ export default function CompanyList({ companies }: { companies: Company[] }) {
             <tr key={company.id} className="hover:bg-slate-700/30 transition-colors">
               <td className="px-6 py-4">
                 <div className="text-sm font-medium text-white">{company.displayName}</div>
-                {company.officialName !== company.displayName && (
-                  <div className="text-xs text-slate-400">{company.officialName}</div>
-                )}
               </td>
-              <td className="px-6 py-4 text-sm text-slate-300">{company.domain || '—'}</td>
+              <td className="px-6 py-4">
+                {company.primaryContact && <div className="text-sm text-slate-300">{company.primaryContact}</div>}
+                {company.contactEmail && <div className="text-xs text-slate-400">{company.contactEmail}</div>}
+              </td>
               <td className="px-6 py-4 text-sm text-slate-300">{company._count?.projects || 0}</td>
               <td className="px-6 py-4 text-right">
                 <button
