@@ -34,9 +34,9 @@ export default function SetupPage() {
         setStatus('error')
         setMessage(`❌ Migration failed: ${data.error || 'Unknown error'}\n\n${data.stderr || ''}`)
       }
-    } catch (error: any) {
+    } catch (error) {
       setStatus('error')
-      setMessage(`❌ Network error: ${error.message}`)
+      setMessage(`❌ Network error: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
