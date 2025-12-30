@@ -1,10 +1,12 @@
 import Link from 'next/link'
 
-export default function AuthErrorPage({
+export default async function AuthErrorPage({
   searchParams,
 }: {
-  searchParams: { error?: string }
+  searchParams: Promise<{ error?: string }>
 }) {
+  const params = await searchParams
+
   const errorMessages: Record<string, string> = {
     AccessDenied: 'You do not have permission to access the admin dashboard. Please contact your administrator.',
     Configuration: 'There is a problem with the server configuration.',
@@ -12,7 +14,7 @@ export default function AuthErrorPage({
     Default: 'An error occurred during authentication.',
   }
 
-  const error = searchParams.error || 'Default'
+  const error = params.error || 'Default'
   const message = errorMessages[error] || errorMessages.Default
 
   return (

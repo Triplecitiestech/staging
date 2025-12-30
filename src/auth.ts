@@ -19,7 +19,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     }),
   ],
   callbacks: {
-    async signIn({ user, account, profile }) {
+    async signIn({ user }) {
       // Only allow sign-in for users in the staff_users table
       if (!user.email) return false
 
@@ -45,7 +45,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         return false
       }
     },
-    async session({ session, user }) {
+    async session({ session }) {
       // Add staff role and details to session
       if (session.user?.email) {
         try {

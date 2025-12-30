@@ -1,6 +1,5 @@
 import Link from 'next/link'
 import { auth } from '@/auth'
-import { redirect } from 'next/navigation'
 import { SignInButton, SignOutButton } from '@/components/auth/AuthButtons'
 
 export default async function AdminPage() {
