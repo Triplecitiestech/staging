@@ -65,15 +65,15 @@ export default function NewProjectForm({ companies, templates, userEmail }: NewP
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <p className="text-sm text-red-800">{error}</p>
+        <div className="bg-red-500/20 border border-red-500/30 rounded-lg p-4">
+          <p className="text-sm text-red-300">{error}</p>
         </div>
       )}
 
-      <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-6">
+      <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-sm border border-white/10 rounded-lg p-6 space-y-6">
         {/* Company Selection */}
         <div>
-          <label htmlFor="companyId" className="block text-sm font-medium text-gray-700 mb-2">
+          <label htmlFor="companyId" className="block text-sm font-medium text-slate-200 mb-2">
             Company *
           </label>
           <select
@@ -81,7 +81,7 @@ export default function NewProjectForm({ companies, templates, userEmail }: NewP
             required
             value={formData.companyId}
             onChange={(e) => setFormData({ ...formData, companyId: e.target.value })}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-3 py-2 bg-slate-900/50 border border-white/20 rounded-lg text-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
           >
             <option value="">Select a company...</option>
             {companies.map((company) => (
@@ -94,7 +94,7 @@ export default function NewProjectForm({ companies, templates, userEmail }: NewP
 
         {/* Project Type */}
         <div>
-          <label htmlFor="projectType" className="block text-sm font-medium text-gray-700 mb-2">
+          <label htmlFor="projectType" className="block text-sm font-medium text-slate-200 mb-2">
             Project Type *
           </label>
           <select
@@ -105,7 +105,7 @@ export default function NewProjectForm({ companies, templates, userEmail }: NewP
               const type = e.target.value as ProjectType
               setFormData({ ...formData, projectType: type, templateId: '' })
             }}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-3 py-2 bg-slate-900/50 border border-white/20 rounded-lg text-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
           >
             <option value="">Select project type...</option>
             <option value="M365_MIGRATION">Microsoft 365 Migration</option>
@@ -117,7 +117,7 @@ export default function NewProjectForm({ companies, templates, userEmail }: NewP
 
         {/* Project Title */}
         <div>
-          <label htmlFor="title" className="block text-sm font-medium text-gray-700 mb-2">
+          <label htmlFor="title" className="block text-sm font-medium text-slate-200 mb-2">
             Project Title *
           </label>
           <input
@@ -127,7 +127,7 @@ export default function NewProjectForm({ companies, templates, userEmail }: NewP
             value={formData.title}
             onChange={(e) => setFormData({ ...formData, title: e.target.value })}
             placeholder="e.g., Microsoft 365 Migration & Security Setup"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-3 py-2 bg-slate-900/50 border border-white/20 rounded-lg text-white placeholder-slate-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
           />
         </div>
 
@@ -135,7 +135,7 @@ export default function NewProjectForm({ companies, templates, userEmail }: NewP
         {formData.projectType && (
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="block text-sm font-medium text-gray-700">
+              <label className="block text-sm font-medium text-slate-200">
                 Use Template (Optional)
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
@@ -143,9 +143,9 @@ export default function NewProjectForm({ companies, templates, userEmail }: NewP
                   type="checkbox"
                   checked={formData.useTemplate}
                   onChange={(e) => setFormData({ ...formData, useTemplate: e.target.checked, templateId: '' })}
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  className="rounded border-white/20 text-cyan-500 focus:ring-cyan-500 bg-slate-900/50"
                 />
-                <span className="text-sm text-gray-600">Use template</span>
+                <span className="text-sm text-slate-300">Use template</span>
               </label>
             </div>
 
@@ -154,7 +154,7 @@ export default function NewProjectForm({ companies, templates, userEmail }: NewP
                 <select
                   value={formData.templateId}
                   onChange={(e) => setFormData({ ...formData, templateId: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 bg-slate-900/50 border border-white/20 rounded-lg text-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                 >
                   <option value="">Select a template...</option>
                   {templates
@@ -167,13 +167,13 @@ export default function NewProjectForm({ companies, templates, userEmail }: NewP
                 </select>
 
                 {selectedTemplate && (
-                  <div className="mt-3 p-4 bg-blue-50 rounded-lg">
-                    <p className="text-sm font-medium text-blue-900 mb-2">Template Preview:</p>
-                    <p className="text-sm text-blue-800 mb-3">{selectedTemplate.description}</p>
-                    <div className="text-xs text-blue-700">
+                  <div className="mt-3 p-4 bg-cyan-500/10 border border-cyan-500/30 rounded-lg">
+                    <p className="text-sm font-medium text-cyan-300 mb-2">Template Preview:</p>
+                    <p className="text-sm text-slate-300 mb-3">{selectedTemplate.description}</p>
+                    <div className="text-xs text-slate-400">
                       {Array.isArray(selectedTemplate.phasesJson) && (
                         <div>
-                          <span className="font-medium">{selectedTemplate.phasesJson.length} phases:</span>
+                          <span className="font-medium text-cyan-400">{selectedTemplate.phasesJson.length} phases:</span>
                           <ul className="mt-1 space-y-1 ml-4">
                             {(selectedTemplate.phasesJson as unknown as TemplatePhase[]).map((phase, idx) => (
                               <li key={idx}>• {phase.title}</li>
@@ -195,7 +195,7 @@ export default function NewProjectForm({ companies, templates, userEmail }: NewP
         <button
           type="button"
           onClick={() => router.push('/admin/projects')}
-          className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+          className="px-4 py-2 border border-white/20 rounded-lg text-slate-300 hover:bg-white/10 hover:text-white transition-all"
           disabled={loading}
         >
           Cancel
@@ -203,7 +203,7 @@ export default function NewProjectForm({ companies, templates, userEmail }: NewP
         <button
           type="submit"
           disabled={loading}
-          className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="px-6 py-2 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-white rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed font-medium"
         >
           {loading ? 'Creating...' : 'Create Project'}
         </button>
