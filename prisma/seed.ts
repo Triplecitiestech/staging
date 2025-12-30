@@ -2,16 +2,13 @@
 // Populates initial data for Triple Cities Tech Project Status Platform
 
 import { PrismaClient, StaffRole, ProjectType } from '@prisma/client'
+import { withAccelerate } from '@prisma/extension-accelerate'
 import bcrypt from 'bcryptjs'
 
-// Prisma 7 with Accelerate - use the accelerate URL directly
+// Prisma 7 with Accelerate - use accelerateUrl parameter
 const prisma = new PrismaClient({
-  datasources: {
-    db: {
-      url: process.env.DATABASE_URL
-    }
-  }
-})
+  accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
+}).$extends(withAccelerate())
 
 async function main() {
   console.log('🌱 Starting database seed...\n')
