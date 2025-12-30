@@ -1,0 +1,219 @@
+// Prisma Schema for Triple Cities Tech Project Status Platform
+// Supports AI-generated project plans with customer-facing status pages
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================
+// STAFF USERS & AUTHENTICATION
+// ============================================
+
+model StaffUser {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  name          String
+  role          StaffRole @default(VIEWER)
+  isActive      Boolean  @default(true)
+  lastLogin     DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  projectsCreated   Project[] @relation("CreatedBy")
+  projectsModified  Project[] @relation("ModifiedBy")
+  auditLogs         AuditLog[]
+  templatesCreated  ProjectTemplate[]
+
+  @@map("staff_users")
+}
+
+enum StaffRole {
+  ADMIN      // Full control - can manage staff, delete projects
+  MANAGER    // Can create/edit projects and templates
+  VIEWER     // Read-only access to admin dashboard
+}
+
+// ============================================
+// COMPANIES & PROJECTS
+// ============================================
+
+model Company {
+  id              String   @id @default(uuid())
+  slug            String   @unique // URL-friendly: 'acme-manufacturing'
+  displayName     String            // 'Acme Manufacturing'
+  primaryContact  String?
+  contactTitle    String?
+  contactEmail    String?
+  passwordHash    String            // bcrypt hash for customer portal access
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  projects        Project[]
+
+  @@map("companies")
+}
+
+model Project {
+  id                String      @id @default(uuid())
+  companyId         String
+  projectType       ProjectType
+  title             String              // 'Microsoft 365 Migration & Security'
+  slug              String      @unique // 'acme-manufacturing-m365-migration'
+  currentPhaseId    String?             // Track which phase they're on
+  status            ProjectStatus @default(ACTIVE)
+  estimatedDuration String?             // '30 days', '6 weeks'
+  startedAt         DateTime?
+  completedAt       DateTime?
+  createdBy         String              // Staff email
+  lastModifiedBy    String              // Staff email
+  aiGenerated       Boolean    @default(false)
+  generationPrompt  String?    @db.Text // Original prompt sent to Claude API
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  // Relations
+  company           Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  creator           StaffUser  @relation("CreatedBy", fields: [createdBy], references: [email])
+  modifier          StaffUser  @relation("ModifiedBy", fields: [lastModifiedBy], references: [email])
+  phases            Phase[]
+  auditLogs         AuditLog[]
+
+  @@map("projects")
+}
+
+enum ProjectType {
+  ONBOARDING         // New client onboarding
+  M365_MIGRATION     // Microsoft 365 migration
+  FORTRESS           // TCT Fortress security implementation
+  CUSTOM             // Custom project
+}
+
+enum ProjectStatus {
+  ACTIVE
+  COMPLETED
+  ON_HOLD
+  CANCELLED
+}
+
+// ============================================
+// PHASES & TASKS
+// ============================================
+
+model Phase {
+  id              String     @id @default(uuid())
+  projectId       String
+  title           String
+  description     String?    @db.Text
+  status          PhaseStatus @default(NOT_STARTED)
+  owner           PhaseOwner?
+  estimatedDays   Int?
+  scheduledDate   DateTime?
+  completedDate   DateTime?
+  orderIndex      Int                 // For sorting (1, 2, 3...)
+  customerNotes   String?    @db.Text // Visible to customer
+  internalNotes   String?    @db.Text // STAFF ONLY - hidden from customer
+  nextAction      String?    @db.Text
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  // Relations
+  project         Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks           PhaseTask[]
+  auditLogs       AuditLog[]
+
+  @@map("phases")
+}
+
+enum PhaseStatus {
+  NOT_STARTED
+  SCHEDULED
+  WAITING_ON_CUSTOMER
+  IN_PROGRESS
+  REQUIRES_CUSTOMER_COORDINATION
+  DISCUSSED
+  COMPLETE
+}
+
+enum PhaseOwner {
+  TCT
+  CUSTOMER
+  BOTH
+}
+
+model PhaseTask {
+  id           String    @id @default(uuid())
+  phaseId      String
+  taskText     String    @db.Text
+  completed    Boolean   @default(false)
+  completedBy  String?           // Staff email
+  completedAt  DateTime?
+  orderIndex   Int               // For sorting
+  createdAt    DateTime  @default(now())
+
+  // Relations
+  phase        Phase     @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+
+  @@map("phase_tasks")
+}
+
+// ============================================
+// AUDIT LOGGING
+// ============================================
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  projectId   String
+  phaseId     String?
+  staffEmail  String
+  staffName   String?
+  staffRole   StaffRole?
+  actionType  AuditAction
+  entityType  String          // 'project', 'phase', 'task'
+  changes     Json?           // { before: {...}, after: {...} }
+  notes       String?  @db.Text
+  createdAt   DateTime @default(now())
+
+  // Relations
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  phase       Phase?   @relation(fields: [phaseId], references: [id], onDelete: SetNull)
+  staff       StaffUser @relation(fields: [staffEmail], references: [email])
+
+  @@map("audit_logs")
+}
+
+enum AuditAction {
+  CREATED
+  UPDATED
+  STATUS_CHANGED
+  DELETED
+  AI_GENERATED
+  TEMPLATE_APPLIED
+  PASSWORD_CHANGED
+}
+
+// ============================================
+// PROJECT TEMPLATES
+// ============================================
+
+model ProjectTemplate {
+  id          String      @id @default(uuid())
+  name        String              // 'M365 Migration', 'TCT Fortress Onboarding'
+  description String?     @db.Text
+  projectType ProjectType
+  phasesJson  Json                // Pre-defined phase structure
+  createdBy   String              // Staff email
+  isActive    Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  // Relations
+  creator     StaffUser   @relation(fields: [createdBy], references: [email])
+
+  @@map("project_templates")
+}

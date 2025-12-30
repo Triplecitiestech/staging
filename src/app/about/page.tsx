@@ -13,11 +13,9 @@ import {
   LayersIcon,
   HandshakeIcon,
   TargetIcon,
-  BookOpenIcon,
   PhoneIcon,
   MailIcon,
-  CalendarIcon,
-  GlobeIcon
+  CalendarIcon
 } from '@/components/icons/TechIcons'
 
 export default function About() {
