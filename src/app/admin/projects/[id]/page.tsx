@@ -4,6 +4,7 @@ import { auth } from '@/auth'
 import { redirect, notFound } from 'next/navigation'
 import { PrismaClient, Prisma } from '@prisma/client'
 import { withAccelerate } from '@prisma/extension-accelerate'
+import PhaseCard from '@/components/projects/PhaseCard'
 
 const prisma = new PrismaClient({
   accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
@@ -181,96 +182,9 @@ export default async function ProjectDetailPage({
             </div>
           ) : (
             <div className="space-y-4">
-              {project.phases.map((phase, index) => {
-                const completedTasks = phase.tasks.filter(t => t.completed).length
-                const totalTasks = phase.tasks.length
-                const phaseProgress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0
-
-                return (
-                  <div
-                    key={phase.id}
-                    className="bg-slate-900/50 border border-white/10 rounded-lg p-5 hover:border-white/20 transition-all"
-                  >
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="flex items-start gap-3 flex-1">
-                        <div className="flex items-center justify-center w-8 h-8 bg-cyan-500/20 rounded-lg text-cyan-400 font-bold text-sm">
-                          {index + 1}
-                        </div>
-                        <div className="flex-1">
-                          <h3 className="text-lg font-semibold text-white mb-1">{phase.title}</h3>
-                          {phase.description && (
-                            <p className="text-sm text-slate-300 mb-2">{phase.description}</p>
-                          )}
-                          <div className="flex items-center gap-3 text-xs text-slate-400">
-                            {phase.owner && (
-                              <span className="flex items-center gap-1">
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                                </svg>
-                                {phase.owner}
-                              </span>
-                            )}
-                            {phase.estimatedDays && (
-                              <span className="flex items-center gap-1">
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                                {phase.estimatedDays} days
-                              </span>
-                            )}
-                            <span className="flex items-center gap-1">
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                              </svg>
-                              {completedTasks}/{totalTasks} tasks
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      <span className={`px-3 py-1 text-xs font-semibold rounded-full ${getStatusColor(phase.status)}`}>
-                        {phase.status.replace('_', ' ')}
-                      </span>
-                    </div>
-
-                    {/* Phase Progress */}
-                    {totalTasks > 0 && (
-                      <div className="flex items-center gap-3 mt-3">
-                        <div className="flex-1 bg-slate-700 rounded-full h-2">
-                          <div
-                            className="bg-gradient-to-r from-cyan-500 to-cyan-600 h-2 rounded-full transition-all"
-                            style={{ width: `${phaseProgress}%` }}
-                          />
-                        </div>
-                        <span className="text-xs text-slate-300 font-medium w-12 text-right">{phaseProgress}%</span>
-                      </div>
-                    )}
-
-                    {/* Tasks */}
-                    {phase.tasks.length > 0 && (
-                      <div className="mt-4 space-y-2">
-                        {phase.tasks.map(task => (
-                          <div key={task.id} className="flex items-center gap-2 text-sm">
-                            <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${
-                              task.completed
-                                ? 'bg-cyan-500 border-cyan-500'
-                                : 'border-slate-500'
-                            }`}>
-                              {task.completed && (
-                                <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                </svg>
-                              )}
-                            </div>
-                            <span className={task.completed ? 'text-slate-400 line-through' : 'text-slate-300'}>
-                              {task.taskText}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
+              {project.phases.map((phase, index) => (
+                <PhaseCard key={phase.id} phase={phase} index={index} />
+              ))}
             </div>
           )}
         </div>
