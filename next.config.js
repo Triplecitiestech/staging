@@ -1,5 +1,17 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Enable instrumentation for automatic migrations
+  experimental: {
+    instrumentationHook: true,
+  },
+  // Webpack configuration
+  webpack: (config, { isServer }) => {
+    if (isServer) {
+      // Don't bundle these server-side packages
+      config.externals = [...(config.externals || []), 'pg', 'pg-native']
+    }
+    return config
+  },
   // Allow build to succeed with ESLint warnings (not errors)
   eslint: {
     // Warning: This allows production builds to successfully complete even if
