@@ -43,7 +43,7 @@ export async function POST(req: Request) {
     const passwordHash = await bcrypt.hash(tempPassword, 10)
 
     // Generate base slug
-    let baseSlug = displayName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+    const baseSlug = displayName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
     let slug = baseSlug
 
     // Check if slug exists and make it unique
