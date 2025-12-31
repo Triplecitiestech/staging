@@ -9,8 +9,6 @@ interface Company {
   displayName: string
   primaryContact?: string | null
   contactEmail?: string | null
-  invitedAt?: Date | null
-  inviteCount?: number
   _count?: {
     projects: number
   }
@@ -84,7 +82,6 @@ export default function CompanyList({ companies }: { companies: Company[] }) {
             <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">Company Name</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">Contact</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">Projects</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">Portal Access</th>
             <th className="px-6 py-3 text-right text-xs font-medium text-slate-400 uppercase">Actions</th>
           </tr>
         </thead>
@@ -100,62 +97,26 @@ export default function CompanyList({ companies }: { companies: Company[] }) {
                 {!company.contactEmail && <div className="text-xs text-red-400">No email</div>}
               </td>
               <td className="px-6 py-4 text-sm text-slate-300">{company._count?.projects || 0}</td>
-              <td className="px-6 py-4">
-                {company.invitedAt ? (
-                  <div className="text-xs">
-                    <div className="text-green-400 font-medium">✓ Invited</div>
-                    <div className="text-slate-400">
-                      {new Date(company.invitedAt).toLocaleDateString()}
-                    </div>
-                    {company.inviteCount && company.inviteCount > 1 && (
-                      <div className="text-slate-500">({company.inviteCount}x)</div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="text-xs text-slate-500">Not invited</div>
-                )}
-              </td>
               <td className="px-6 py-4 text-right">
                 <div className="flex items-center justify-end gap-2">
-                  {!company.invitedAt ? (
-                    <button
-                      onClick={() => handleInvite(company.id, company.contactEmail, false)}
-                      disabled={sending === company.id || !company.contactEmail}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 bg-cyan-600 hover:bg-cyan-700 disabled:bg-slate-600 text-white text-xs font-medium rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      title={!company.contactEmail ? 'Add email first' : 'Send portal invite'}
-                    >
-                      {sending === company.id ? (
-                        <>
-                          <RefreshCw size={14} className="animate-spin" />
-                          Sending...
-                        </>
-                      ) : (
-                        <>
-                          <Mail size={14} />
-                          Send Invite
-                        </>
-                      )}
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => handleInvite(company.id, company.contactEmail, true)}
-                      disabled={sending === company.id || !company.contactEmail}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-600 hover:bg-slate-700 disabled:bg-slate-600 text-white text-xs font-medium rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      title="Resend invite with new password"
-                    >
-                      {sending === company.id ? (
-                        <>
-                          <RefreshCw size={14} className="animate-spin" />
-                          Sending...
-                        </>
-                      ) : (
-                        <>
-                          <RefreshCw size={14} />
-                          Resend
-                        </>
-                      )}
-                    </button>
-                  )}
+                  <button
+                    onClick={() => handleInvite(company.id, company.contactEmail, true)}
+                    disabled={sending === company.id || !company.contactEmail}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 bg-cyan-600 hover:bg-cyan-700 disabled:bg-slate-600 text-white text-xs font-medium rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title={!company.contactEmail ? 'Add email first' : 'Send portal invite'}
+                  >
+                    {sending === company.id ? (
+                      <>
+                        <RefreshCw size={14} className="animate-spin" />
+                        Sending...
+                      </>
+                    ) : (
+                      <>
+                        <Mail size={14} />
+                        Send Invite
+                      </>
+                    )}
+                  </button>
                   <button
                     onClick={() => handleDelete(company.id, company.displayName)}
                     disabled={deleting === company.id}
