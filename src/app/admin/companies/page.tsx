@@ -17,20 +17,38 @@ export default async function CompaniesPage() {
     redirect('/admin')
   }
 
-  const companies = await prisma.company.findMany({
-    select: {
-      id: true,
-      displayName: true,
-      primaryContact: true,
-      contactEmail: true,
-      invitedAt: true,
-      inviteCount: true,
-      _count: {
-        select: { projects: true }
-      }
-    },
-    orderBy: { displayName: 'asc' }
-  })
+  // Try to fetch with invite columns, fallback if they don't exist yet
+  let companies
+  try {
+    companies = await prisma.company.findMany({
+      select: {
+        id: true,
+        displayName: true,
+        primaryContact: true,
+        contactEmail: true,
+        invitedAt: true,
+        inviteCount: true,
+        _count: {
+          select: { projects: true }
+        }
+      },
+      orderBy: { displayName: 'asc' }
+    })
+  } catch {
+    // Fallback if invitedAt/inviteCount columns don't exist yet
+    companies = await prisma.company.findMany({
+      select: {
+        id: true,
+        displayName: true,
+        primaryContact: true,
+        contactEmail: true,
+        _count: {
+          select: { projects: true }
+        }
+      },
+      orderBy: { displayName: 'asc' }
+    })
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-gray-900 to-slate-950">
