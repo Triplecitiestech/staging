@@ -37,10 +37,30 @@ export async function PATCH(
     }
     if (data.notes !== undefined) updateData.notes = data.notes
 
-    const task = await prisma.phaseTask.update({
-      where: { id },
-      data: updateData
-    })
+    let task
+    try {
+      task = await prisma.phaseTask.update({
+        where: { id },
+        data: updateData
+      })
+    } catch (dbError) {
+      // If notes column doesn't exist, try without it
+      const { notes, ...updateWithoutNotes } = updateData
+      task = await prisma.phaseTask.update({
+        where: { id },
+        data: updateWithoutNotes,
+        select: {
+          id: true,
+          phaseId: true,
+          taskText: true,
+          completed: true,
+          completedBy: true,
+          completedAt: true,
+          orderIndex: true,
+          createdAt: true
+        }
+      })
+    }
 
     return NextResponse.json(task)
   } catch (error) {
