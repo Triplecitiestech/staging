@@ -36,19 +36,50 @@ export default async function ProjectDetailPage({
   const { id } = await params
 
   // Fetch project with all related data
-  const project: ProjectWithRelations | null = await prisma.project.findUnique({
-    where: { id },
-    include: {
-      company: true,
-      creator: true,
-      phases: {
-        include: {
-          tasks: true
-        },
-        orderBy: { orderIndex: 'asc' }
+  let project: ProjectWithRelations | null = null
+
+  try {
+    project = await prisma.project.findUnique({
+      where: { id },
+      include: {
+        company: true,
+        creator: true,
+        phases: {
+          include: {
+            tasks: true
+          },
+          orderBy: { orderIndex: 'asc' }
+        }
       }
-    }
-  }) as ProjectWithRelations | null
+    }) as ProjectWithRelations | null
+  } catch (error) {
+    // If notes column doesn't exist yet, fall back to fetching without it
+    console.error('Error fetching project with tasks:', error)
+    project = await prisma.project.findUnique({
+      where: { id },
+      include: {
+        company: true,
+        creator: true,
+        phases: {
+          include: {
+            tasks: {
+              select: {
+                id: true,
+                phaseId: true,
+                taskText: true,
+                completed: true,
+                completedBy: true,
+                completedAt: true,
+                orderIndex: true,
+                createdAt: true
+              }
+            }
+          },
+          orderBy: { orderIndex: 'asc' }
+        }
+      }
+    }) as ProjectWithRelations | null
+  }
 
   if (!project) {
     notFound()
