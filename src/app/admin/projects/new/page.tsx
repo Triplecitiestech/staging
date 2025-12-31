@@ -18,15 +18,33 @@ export default async function NewProjectPage() {
   }
 
   // Fetch companies and templates for the form
-  const [companies, templates] = await Promise.all([
-    prisma.company.findMany({
+  let companies
+  try {
+    companies = await prisma.company.findMany({
       orderBy: { displayName: 'asc' }
-    }),
-    prisma.projectTemplate.findMany({
-      where: { isActive: true },
-      orderBy: { name: 'asc' }
     })
-  ])
+  } catch {
+    // Fallback if there are any schema issues
+    companies = await prisma.company.findMany({
+      select: {
+        id: true,
+        slug: true,
+        displayName: true,
+        primaryContact: true,
+        contactEmail: true,
+        contactTitle: true,
+        passwordHash: true,
+        createdAt: true,
+        updatedAt: true
+      },
+      orderBy: { displayName: 'asc' }
+    })
+  }
+
+  const templates = await prisma.projectTemplate.findMany({
+    where: { isActive: true },
+    orderBy: { name: 'asc' }
+  })
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-gray-900 to-slate-950">
