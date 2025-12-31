@@ -66,6 +66,38 @@ export async function POST(request: Request) {
       sqlCommands.push('ALTER TABLE phase_tasks ADD COLUMN IF NOT EXISTS notes TEXT;')
     }
 
+    // Check if Company invite columns exist
+    try {
+      const companyColumns = await prisma.$queryRaw<Array<{ column_name: string }>>`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_name = 'companies'
+        AND column_name IN ('invited_at', 'invite_count')
+      `
+
+      const hasInvitedAt = companyColumns.some(c => c.column_name === 'invited_at')
+      const hasInviteCount = companyColumns.some(c => c.column_name === 'invite_count')
+
+      if (!hasInvitedAt || !hasInviteCount) {
+        results.push('⚠️ Company invite columns do not exist')
+        needsManualMigration = true
+        if (!hasInvitedAt) {
+          sqlCommands.push('ALTER TABLE companies ADD COLUMN IF NOT EXISTS invited_at TIMESTAMP;')
+        }
+        if (!hasInviteCount) {
+          sqlCommands.push('ALTER TABLE companies ADD COLUMN IF NOT EXISTS invite_count INTEGER DEFAULT 0;')
+        }
+      } else {
+        results.push('✅ Company invite columns already exist')
+      }
+    } catch (error) {
+      console.error('Error checking company columns:', error)
+      results.push(`⚠️ Error checking company columns: ${error}`)
+      needsManualMigration = true
+      sqlCommands.push('ALTER TABLE companies ADD COLUMN IF NOT EXISTS invited_at TIMESTAMP;')
+      sqlCommands.push('ALTER TABLE companies ADD COLUMN IF NOT EXISTS invite_count INTEGER DEFAULT 0;')
+    }
+
     // Test if we can actually read/write to the notes column
     try {
       const testTask = await prisma.phaseTask.findFirst()
