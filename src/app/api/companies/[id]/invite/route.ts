@@ -105,7 +105,7 @@ export async function POST(
     const emailResult = await resend.emails.send({
       from: 'Triple Cities Tech <noreply@triplecitiestech.com>',
       to: company.contactEmail,
-      subject: 'Your Triple Cities Tech Project Portal Access',
+      subject: 'Triple Cities Tech Project Portal',
       html: `
         <!DOCTYPE html>
         <html>

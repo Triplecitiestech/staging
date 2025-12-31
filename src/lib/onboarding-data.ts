@@ -11,26 +11,52 @@ export function getCompanyPassword(companySlug: string): string | null {
 }
 
 // Validate password for a company
-export function validateCompanyPassword(companySlug: string, password: string): boolean {
+export async function validateCompanyPassword(companySlug: string, password: string): Promise<boolean> {
+  // First check static companies with env passwords
   const correctPassword = getCompanyPassword(companySlug)
 
-  console.log('[Password Validation]', {
-    companySlug,
-    hasPassword: !!correctPassword,
-    envKey: `ONBOARDING_PASSWORD_${companySlug.toUpperCase().replace(/-/g, '_')}`,
-    passwordProvided: password.length > 0
-  })
+  if (correctPassword) {
+    console.log('[Password Validation]', {
+      companySlug,
+      hasPassword: !!correctPassword,
+      envKey: `ONBOARDING_PASSWORD_${companySlug.toUpperCase().replace(/-/g, '_')}`,
+      passwordProvided: password.length > 0
+    })
 
-  if (!correctPassword) {
-    // Company doesn't exist or password not configured
-    console.log('[Password Validation] No password configured for company:', companySlug)
-    return false
+    // Constant-time comparison to prevent timing attacks
+    const isValid = timingSafeEqual(password, correctPassword)
+    console.log('[Password Validation] Result:', isValid)
+    return isValid
   }
 
-  // Constant-time comparison to prevent timing attacks
-  const isValid = timingSafeEqual(password, correctPassword)
-  console.log('[Password Validation] Result:', isValid)
-  return isValid
+  // Check database for dynamically created companies
+  try {
+    const { PrismaClient } = await import('@prisma/client')
+    const { withAccelerate } = await import('@prisma/extension-accelerate')
+    const bcrypt = await import('bcrypt')
+
+    const prisma = new PrismaClient({
+      accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
+    }).$extends(withAccelerate())
+
+    const company = await prisma.company.findUnique({
+      where: { slug: companySlug },
+      select: { passwordHash: true }
+    })
+
+    if (!company) {
+      console.log('[Password Validation] No password configured for company:', companySlug)
+      return false
+    }
+
+    // Use bcrypt to compare the password
+    const isValid = await bcrypt.compare(password, company.passwordHash)
+    console.log('[Password Validation] Database company result:', isValid)
+    return isValid
+  } catch (error) {
+    console.error('[Password Validation] Error:', error)
+    return false
+  }
 }
 
 // Timing-safe string comparison

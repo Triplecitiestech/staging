@@ -157,7 +157,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if company exists
-    if (!companyExists(companySlug)) {
+    if (!(await companyExists(companySlug))) {
       // Record failure but don't reveal that company doesn't exist
       OnboardingRateLimiter.recordFailure(validation.ip, companySlug)
 
@@ -173,7 +173,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate password
-    const isValid = validateCompanyPassword(companySlug, password)
+    const isValid = await validateCompanyPassword(companySlug, password)
 
     if (!isValid) {
       // Record failure for brute-force protection
