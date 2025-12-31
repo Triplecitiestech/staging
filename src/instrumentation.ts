@@ -1,14 +1,21 @@
 // This file runs once when the Next.js server starts
 export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
-    // Run migrations automatically on server startup
-    await runMigrations()
+    // Run migrations automatically on server startup (only in production)
+    if (process.env.NODE_ENV === 'production') {
+      await runMigrations().catch(err => {
+        console.error('Migration failed:', err)
+      })
+    }
   }
 }
 
 async function runMigrations() {
   try {
-    const { Client } = await import('pg')
+    // Dynamic import to avoid bundling issues
+    const pg = await import('pg')
+    const Client = pg.default.Client || pg.Client
+
     const databaseUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL
 
     if (!databaseUrl) {
