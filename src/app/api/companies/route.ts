@@ -42,7 +42,16 @@ export async function POST(req: Request) {
     const tempPassword = generatePassword()
     const passwordHash = await bcrypt.hash(tempPassword, 10)
 
-    const slug = displayName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+    // Generate base slug
+    let baseSlug = displayName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+    let slug = baseSlug
+
+    // Check if slug exists and make it unique
+    let counter = 1
+    while (await prisma.company.findUnique({ where: { slug } })) {
+      slug = `${baseSlug}-${counter}`
+      counter++
+    }
 
     const company = await prisma.company.create({
       data: {
