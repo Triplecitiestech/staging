@@ -35,7 +35,7 @@ export default async function OnboardingPage({ params }: PageProps) {
   console.log('[Onboarding Page] Company slug:', companySlug)
 
   // Check if company exists (for 404 handling)
-  const exists = companyExists(companySlug)
+  const exists = await companyExists(companySlug)
   console.log('[Onboarding Page] Company exists:', exists)
 
   if (!exists) {

@@ -121,7 +121,7 @@ export async function POST(
               color: #e2e8f0;
               margin: 0;
               padding: 0;
-              background-color: #0f172a;
+              background-color: #020617;
             }
             .container {
               max-width: 600px;
@@ -129,20 +129,21 @@ export async function POST(
               background: #1e293b;
               border-radius: 16px;
               overflow: hidden;
-              box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
+              box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
             }
             .header {
               background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-              padding: 48px 32px;
+              padding: 56px 32px;
               text-align: center;
-              border-bottom: 2px solid #06b6d4;
+              border-bottom: 3px solid #06b6d4;
             }
             .header h1 {
-              color: #e2e8f0;
+              color: #ffffff;
               margin: 0;
-              font-size: 28px;
+              font-size: 32px;
               font-weight: 900;
               letter-spacing: -0.025em;
+              text-shadow: 0 2px 10px rgba(6, 182, 212, 0.3);
             }
             .content {
               padding: 40px 32px;
@@ -197,17 +198,29 @@ export async function POST(
               color: #e2e8f0;
               word-break: break-all;
             }
+            .credential-value a {
+              color: #06b6d4;
+              text-decoration: none;
+              word-break: break-all;
+            }
+            .credential-value a:hover {
+              color: #22d3ee;
+              text-decoration: underline;
+            }
             .button {
               display: inline-block;
               background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
-              color: #ffffff;
-              padding: 16px 48px;
+              color: #ffffff !important;
+              padding: 18px 56px;
               text-decoration: none;
               border-radius: 12px;
               font-weight: 700;
-              font-size: 16px;
-              margin: 24px 0;
-              box-shadow: 0 10px 15px -3px rgba(6, 182, 212, 0.4);
+              font-size: 18px;
+              margin: 32px 0;
+              box-shadow: 0 15px 25px -5px rgba(6, 182, 212, 0.5);
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              border: 2px solid #06b6d4;
             }
             .features-list {
               background: #0f172a;
@@ -286,7 +299,7 @@ export async function POST(
                 <h3>Your Portal Access Credentials</h3>
                 <div class="credential-item">
                   <span class="credential-label">Portal Link:</span>
-                  <div class="credential-value">${portalUrl}</div>
+                  <div class="credential-value"><a href="${portalUrl}">${portalUrl}</a></div>
                 </div>
                 ${password ? `
                 <div class="credential-item">
