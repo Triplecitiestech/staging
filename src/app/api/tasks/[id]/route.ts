@@ -20,17 +20,31 @@ export async function PATCH(
     const { id } = await params
     const data = await req.json()
 
+    // Build update object with only provided fields
+    const updateData: {
+      taskText?: string
+      completed?: boolean
+      notes?: string | null
+      completedBy?: string | null
+      completedAt?: Date | null
+    } = {}
+
+    if (data.taskText !== undefined) updateData.taskText = data.taskText
+    if (data.completed !== undefined) {
+      updateData.completed = data.completed
+      updateData.completedBy = data.completed ? session.user?.email || null : null
+      updateData.completedAt = data.completed ? new Date() : null
+    }
+    if (data.notes !== undefined) updateData.notes = data.notes
+
     const task = await prisma.phaseTask.update({
       where: { id },
-      data: {
-        taskText: data.taskText,
-        completed: data.completed,
-        notes: data.notes,
-      }
+      data: updateData
     })
 
     return NextResponse.json(task)
-  } catch {
+  } catch (error) {
+    console.error('Task update error:', error)
     return NextResponse.json({ error: 'Failed to update task' }, { status: 500 })
   }
 }
