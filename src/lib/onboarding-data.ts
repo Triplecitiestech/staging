@@ -55,8 +55,30 @@ export function getOnboardingData(companySlug: string): OnboardingData | null {
 }
 
 // Check if a company exists
-export function companyExists(companySlug: string): boolean {
-  return onboardingDatabase.has(companySlug)
+export async function companyExists(companySlug: string): Promise<boolean> {
+  // First check the static map
+  if (onboardingDatabase.has(companySlug)) {
+    return true
+  }
+
+  // Then check the database for dynamically created companies
+  try {
+    const { PrismaClient } = await import('@prisma/client')
+    const { withAccelerate } = await import('@prisma/extension-accelerate')
+
+    const prisma = new PrismaClient({
+      accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
+    }).$extends(withAccelerate())
+
+    const company = await prisma.company.findUnique({
+      where: { slug: companySlug }
+    })
+
+    return !!company
+  } catch (error) {
+    console.error('[companyExists] Error checking database:', error)
+    return false
+  }
 }
 
 // Server-only database of onboarding data
