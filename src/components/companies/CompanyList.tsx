@@ -2,12 +2,15 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { Mail, RefreshCw } from 'lucide-react'
 
 interface Company {
   id: string
   displayName: string
   primaryContact?: string | null
   contactEmail?: string | null
+  invitedAt?: Date | null
+  inviteCount?: number
   _count?: {
     projects: number
   }
@@ -16,6 +19,7 @@ interface Company {
 export default function CompanyList({ companies }: { companies: Company[] }) {
   const router = useRouter()
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [sending, setSending] = useState<string | null>(null)
 
   const handleDelete = async (id: string, name: string) => {
     if (!confirm(`Delete ${name}? This will also delete all associated projects.`)) return
@@ -28,6 +32,38 @@ export default function CompanyList({ companies }: { companies: Company[] }) {
     } catch {
       alert('Failed to delete company')
       setDeleting(null)
+    }
+  }
+
+  const handleInvite = async (id: string, email: string | null | undefined, regenerate = false) => {
+    if (!email) {
+      alert('This company has no contact email. Please add an email address first.')
+      return
+    }
+
+    const action = regenerate ? 'resend invite with new password' : 'send portal invite'
+    if (!confirm(`${action} to ${email}?`)) return
+
+    setSending(id)
+    try {
+      const res = await fetch(`/api/companies/${id}/invite`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ regenerate })
+      })
+
+      const data = await res.json()
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to send invite')
+      }
+
+      alert(`✅ ${data.message}`)
+      router.refresh()
+    } catch (error) {
+      alert(`Failed to send invite: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      setSending(null)
     }
   }
 
@@ -48,6 +84,7 @@ export default function CompanyList({ companies }: { companies: Company[] }) {
             <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">Company Name</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">Contact</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">Projects</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">Portal Access</th>
             <th className="px-6 py-3 text-right text-xs font-medium text-slate-400 uppercase">Actions</th>
           </tr>
         </thead>
@@ -60,16 +97,73 @@ export default function CompanyList({ companies }: { companies: Company[] }) {
               <td className="px-6 py-4">
                 {company.primaryContact && <div className="text-sm text-slate-300">{company.primaryContact}</div>}
                 {company.contactEmail && <div className="text-xs text-slate-400">{company.contactEmail}</div>}
+                {!company.contactEmail && <div className="text-xs text-red-400">No email</div>}
               </td>
               <td className="px-6 py-4 text-sm text-slate-300">{company._count?.projects || 0}</td>
+              <td className="px-6 py-4">
+                {company.invitedAt ? (
+                  <div className="text-xs">
+                    <div className="text-green-400 font-medium">✓ Invited</div>
+                    <div className="text-slate-400">
+                      {new Date(company.invitedAt).toLocaleDateString()}
+                    </div>
+                    {company.inviteCount && company.inviteCount > 1 && (
+                      <div className="text-slate-500">({company.inviteCount}x)</div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-xs text-slate-500">Not invited</div>
+                )}
+              </td>
               <td className="px-6 py-4 text-right">
-                <button
-                  onClick={() => handleDelete(company.id, company.displayName)}
-                  disabled={deleting === company.id}
-                  className="text-red-400 hover:text-red-300 text-sm font-medium disabled:opacity-50"
-                >
-                  {deleting === company.id ? 'Deleting...' : 'Delete'}
-                </button>
+                <div className="flex items-center justify-end gap-2">
+                  {!company.invitedAt ? (
+                    <button
+                      onClick={() => handleInvite(company.id, company.contactEmail, false)}
+                      disabled={sending === company.id || !company.contactEmail}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 bg-cyan-600 hover:bg-cyan-700 disabled:bg-slate-600 text-white text-xs font-medium rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      title={!company.contactEmail ? 'Add email first' : 'Send portal invite'}
+                    >
+                      {sending === company.id ? (
+                        <>
+                          <RefreshCw size={14} className="animate-spin" />
+                          Sending...
+                        </>
+                      ) : (
+                        <>
+                          <Mail size={14} />
+                          Send Invite
+                        </>
+                      )}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleInvite(company.id, company.contactEmail, true)}
+                      disabled={sending === company.id || !company.contactEmail}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-600 hover:bg-slate-700 disabled:bg-slate-600 text-white text-xs font-medium rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="Resend invite with new password"
+                    >
+                      {sending === company.id ? (
+                        <>
+                          <RefreshCw size={14} className="animate-spin" />
+                          Sending...
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw size={14} />
+                          Resend
+                        </>
+                      )}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleDelete(company.id, company.displayName)}
+                    disabled={deleting === company.id}
+                    className="text-red-400 hover:text-red-300 text-xs font-medium disabled:opacity-50"
+                  >
+                    {deleting === company.id ? 'Deleting...' : 'Delete'}
+                  </button>
+                </div>
               </td>
             </tr>
           ))}
