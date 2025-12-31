@@ -33,7 +33,7 @@ export async function validateCompanyPassword(companySlug: string, password: str
   try {
     const { PrismaClient } = await import('@prisma/client')
     const { withAccelerate } = await import('@prisma/extension-accelerate')
-    const bcrypt = await import('bcrypt')
+    const bcrypt = await import('bcryptjs')
 
     const prisma = new PrismaClient({
       accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
