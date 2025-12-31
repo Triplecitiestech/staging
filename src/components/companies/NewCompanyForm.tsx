@@ -24,12 +24,19 @@ export default function NewCompanyForm() {
         body: JSON.stringify(formData),
       })
 
-      if (!res.ok) throw new Error('Failed to create company')
+      const data = await res.json()
+
+      if (!res.ok) {
+        // Show detailed error message from API
+        const errorMsg = data.details || data.error || 'Failed to create company'
+        alert(`Error: ${errorMsg}`)
+        throw new Error(errorMsg)
+      }
 
       router.push('/admin/companies')
       router.refresh()
-    } catch {
-      alert('Failed to create company')
+    } catch (error) {
+      console.error('Company creation error:', error)
       setLoading(false)
     }
   }
