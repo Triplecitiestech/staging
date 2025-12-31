@@ -4,6 +4,12 @@ import { getAuthenticatedCompany } from '@/lib/onboarding-session'
 import { getOnboardingData, companyExists } from '@/lib/onboarding-data'
 import OnboardingPortal from '@/components/onboarding/OnboardingPortal'
 import { Metadata } from 'next'
+import { PrismaClient } from '@prisma/client'
+import { withAccelerate } from '@prisma/extension-accelerate'
+
+const prisma = new PrismaClient({
+  accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
+}).$extends(withAccelerate())
 
 interface PageProps {
   params: Promise<{ companyName: string }>
@@ -47,11 +53,81 @@ export default async function OnboardingPage({ params }: PageProps) {
   console.log('[Onboarding Page] Onboarding data loaded:', onboardingData !== null)
   console.log('[Onboarding Page] Onboarding data:', onboardingData)
 
+  // Fetch projects from database if authenticated
+  let projects = null
+  if (isAuthenticated) {
+    try {
+      // First find the company by slug
+      const company = await prisma.company.findUnique({
+        where: { slug: companySlug },
+        select: { id: true }
+      })
+
+      if (company) {
+        // Then fetch projects for this company
+        projects = await prisma.project.findMany({
+          where: { companyId: company.id },
+          include: {
+            phases: {
+              include: {
+                tasks: {
+                  select: {
+                    id: true,
+                    taskText: true,
+                    completed: true,
+                    orderIndex: true,
+                    notes: true
+                  }
+                }
+              },
+              orderBy: { orderIndex: 'asc' }
+            }
+          },
+          orderBy: { createdAt: 'desc' }
+        })
+      }
+    } catch (error) {
+      console.error('[Onboarding Page] Error fetching projects:', error)
+      // If notes column doesn't exist, try without it
+      try {
+        const company = await prisma.company.findUnique({
+          where: { slug: companySlug },
+          select: { id: true }
+        })
+
+        if (company) {
+          projects = await prisma.project.findMany({
+            where: { companyId: company.id },
+            include: {
+              phases: {
+                include: {
+                  tasks: {
+                    select: {
+                      id: true,
+                      taskText: true,
+                      completed: true,
+                      orderIndex: true
+                    }
+                  }
+                },
+                orderBy: { orderIndex: 'asc' }
+              }
+            },
+            orderBy: { createdAt: 'desc' }
+          })
+        }
+      } catch {
+        console.error('[Onboarding Page] Failed to fetch projects without notes')
+      }
+    }
+  }
+
   return (
     <OnboardingPortal
       companySlug={companySlug}
       isAuthenticated={isAuthenticated}
       onboardingData={onboardingData}
+      projects={projects}
     />
   )
 }

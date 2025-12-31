@@ -9,18 +9,21 @@ import { Container } from '@/components/ui/Container'
 import { Button } from '@/components/ui/Button'
 import PasswordGate from './PasswordGate'
 import OnboardingTimeline from './OnboardingTimeline'
+import ProjectsView from './ProjectsView'
 import type { OnboardingData } from '@/types/onboarding'
 
 interface OnboardingPortalProps {
   companySlug: string
   isAuthenticated: boolean
   onboardingData: OnboardingData | null
+  projects?: unknown[] | null
 }
 
 export default function OnboardingPortal({
   companySlug,
   isAuthenticated,
   onboardingData: initialData,
+  projects,
 }: OnboardingPortalProps) {
   const router = useRouter()
   const [isLoggingOut, setIsLoggingOut] = useState(false)
@@ -105,6 +108,21 @@ export default function OnboardingPortal({
               phases={initialData.phases}
               currentPhaseId={initialData.currentPhaseId}
             />
+
+            {/* Projects Section */}
+            {projects && projects.length > 0 && (
+              <div className="mt-16">
+                <div className="mb-8">
+                  <h2 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-cyan-500 bg-clip-text text-transparent mb-2">
+                    Your Projects
+                  </h2>
+                  <p className="text-gray-300">
+                    Track the progress of your active projects
+                  </p>
+                </div>
+                <ProjectsView projects={projects as never} />
+              </div>
+            )}
 
             {/* Contact section */}
             <div className="mt-12 p-6 bg-gray-800/50 backdrop-blur-sm border border-cyan-500/30 rounded-lg shadow-lg shadow-cyan-500/10">
