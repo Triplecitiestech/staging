@@ -44,45 +44,16 @@ export async function POST(req: Request) {
 
     const slug = displayName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
 
-    let company
-
-    try {
-      // Try to create with all fields including invite columns
-      company = await prisma.company.create({
-        data: {
-          displayName,
-          slug,
-          primaryContact: primaryContact || null,
-          contactEmail: contactEmail || null,
-          contactTitle: contactTitle || null,
-          passwordHash,
-          invitedAt: null,
-          inviteCount: 0,
-        }
-      })
-    } catch (createError) {
-      // If invite columns don't exist, create without them
-      company = await prisma.company.create({
-        data: {
-          displayName,
-          slug,
-          primaryContact: primaryContact || null,
-          contactEmail: contactEmail || null,
-          contactTitle: contactTitle || null,
-          passwordHash,
-        },
-        select: {
-          id: true,
-          slug: true,
-          displayName: true,
-          primaryContact: true,
-          contactEmail: true,
-          contactTitle: true,
-          createdAt: true,
-          updatedAt: true,
-        }
-      })
-    }
+    const company = await prisma.company.create({
+      data: {
+        displayName,
+        slug,
+        primaryContact: primaryContact || null,
+        contactEmail: contactEmail || null,
+        contactTitle: contactTitle || null,
+        passwordHash,
+      }
+    })
 
     return NextResponse.json(company)
   } catch (error) {
