@@ -220,7 +220,7 @@ export async function POST(
         <body>
           <div class="container">
             <div class="header">
-              <h1>🚀 Welcome to Your Project Portal</h1>
+              <h1>Welcome to your Triple Cities Tech Project Portal</h1>
             </div>
 
             <div class="content">
@@ -265,12 +265,6 @@ export async function POST(
                   <li>Access important project notes</li>
                 </ul>
               </div>
-
-              ${password ? `
-              <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; border-radius: 4px;">
-                <strong>🔐 Security Tip:</strong> We recommend changing your password after your first login. Keep your credentials secure and don't share them.
-              </div>
-              ` : ''}
             </div>
 
             <div class="footer">
@@ -279,7 +273,7 @@ export async function POST(
                 <p>
                   Our team is here to assist you!<br>
                   📞 Call us: <a href="tel:+16073417500">(607) 341-7500</a><br>
-                  ✉️ Email us: <a href="mailto:info@triplecitiestech.com">info@triplecitiestech.com</a>
+                  ✉️ Email us: <a href="mailto:support@triplecitiestech.com">support@triplecitiestech.com</a>
                 </p>
               </div>
               <p style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #ddd;">
