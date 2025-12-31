@@ -59,8 +59,6 @@ export async function POST(
         primaryContact: true,
         contactEmail: true,
         passwordHash: true,
-        invitedAt: true,
-        inviteCount: true
       }
     })
 
@@ -82,9 +80,9 @@ export async function POST(
       }, { status: 400 })
     }
 
-    // Generate new password if regenerating or first time
+    // Generate new password if regenerating or always generate for simplicity
     let password: string | null = null
-    if (regenerate || !company.invitedAt) {
+    if (regenerate || true) {
       password = generatePassword()
       const passwordHash = await bcrypt.hash(password, 10)
 
@@ -300,15 +298,6 @@ export async function POST(
         details: emailResult.error
       }, { status: 500 })
     }
-
-    // Update company invite tracking
-    await prisma.company.update({
-      where: { id },
-      data: {
-        invitedAt: new Date(),
-        inviteCount: { increment: 1 }
-      }
-    })
 
     return NextResponse.json({
       success: true,
