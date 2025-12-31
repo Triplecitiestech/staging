@@ -241,17 +241,27 @@ export default function PhaseCard({ phase, index }: { phase: Phase; index: numbe
           )}
 
           {!editing && (phase.customerNotes || phase.internalNotes) && (
-            <div className="space-y-2 pt-3 border-t border-white/10 text-xs">
+            <div className="space-y-3 pt-3 border-t border-white/10">
               {phase.customerNotes && (
-                <div>
-                  <span className="text-slate-400">Customer: </span>
-                  <span className="text-slate-300">{phase.customerNotes}</span>
+                <div className="bg-cyan-500/10 border-l-4 border-cyan-500 rounded px-3 py-2">
+                  <div className="flex items-center gap-2 mb-1">
+                    <svg className="w-4 h-4 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                    <span className="text-xs font-semibold text-cyan-300 uppercase tracking-wide">Customer Note</span>
+                  </div>
+                  <p className="text-sm text-slate-300 leading-relaxed">{phase.customerNotes}</p>
                 </div>
               )}
               {phase.internalNotes && (
-                <div>
-                  <span className="text-slate-400">Internal: </span>
-                  <span className="text-slate-300">{phase.internalNotes}</span>
+                <div className="bg-orange-500/10 border-l-4 border-orange-500 rounded px-3 py-2">
+                  <div className="flex items-center gap-2 mb-1">
+                    <svg className="w-4 h-4 text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                    </svg>
+                    <span className="text-xs font-semibold text-orange-300 uppercase tracking-wide">Internal Only</span>
+                  </div>
+                  <p className="text-sm text-slate-300 leading-relaxed">{phase.internalNotes}</p>
                 </div>
               )}
             </div>
