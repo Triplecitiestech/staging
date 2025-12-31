@@ -113,107 +113,157 @@ export async function POST(
           <meta charset="UTF-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <style>
+            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;900&display=swap');
+
             body {
-              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+              font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
               line-height: 1.6;
-              color: #333;
+              color: #e2e8f0;
               margin: 0;
               padding: 0;
-              background-color: #f4f4f4;
+              background-color: #0f172a;
             }
             .container {
               max-width: 600px;
               margin: 20px auto;
-              background: white;
-              border-radius: 8px;
+              background: #1e293b;
+              border-radius: 16px;
               overflow: hidden;
-              box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+              box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
             }
             .header {
-              background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
-              padding: 40px 20px;
+              background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+              padding: 48px 32px;
               text-align: center;
+              border-bottom: 2px solid #06b6d4;
             }
             .header h1 {
-              color: white;
+              color: #e2e8f0;
               margin: 0;
               font-size: 28px;
+              font-weight: 900;
+              letter-spacing: -0.025em;
             }
             .content {
-              padding: 40px 30px;
+              padding: 40px 32px;
+              background: #1e293b;
             }
             .greeting {
               font-size: 18px;
-              color: #333;
-              margin-bottom: 20px;
+              color: #e2e8f0;
+              margin-bottom: 24px;
+              font-weight: 600;
             }
             .message {
-              color: #666;
+              color: #cbd5e1;
               margin-bottom: 30px;
+              font-size: 15px;
+            }
+            .message p {
+              margin-bottom: 16px;
             }
             .credentials-box {
-              background: #f8f9fa;
-              border-left: 4px solid #06b6d4;
-              padding: 20px;
-              margin: 30px 0;
-              border-radius: 4px;
+              background: #0f172a;
+              border: 2px solid #06b6d4;
+              padding: 24px;
+              margin: 32px 0;
+              border-radius: 12px;
             }
             .credentials-box h3 {
-              margin: 0 0 15px 0;
-              color: #333;
-              font-size: 16px;
+              margin: 0 0 20px 0;
+              color: #06b6d4;
+              font-size: 18px;
+              font-weight: 700;
             }
             .credential-item {
-              margin: 10px 0;
+              margin: 16px 0;
             }
             .credential-label {
               font-weight: 600;
-              color: #666;
+              color: #94a3b8;
               display: block;
-              margin-bottom: 5px;
-              font-size: 14px;
+              margin-bottom: 8px;
+              font-size: 13px;
+              text-transform: uppercase;
+              letter-spacing: 0.05em;
             }
             .credential-value {
               font-family: 'Courier New', monospace;
-              background: white;
-              padding: 12px;
-              border-radius: 4px;
-              border: 1px solid #e0e0e0;
-              font-size: 16px;
-              color: #333;
+              background: #1e293b;
+              padding: 14px 16px;
+              border-radius: 8px;
+              border: 1px solid #334155;
+              font-size: 15px;
+              color: #e2e8f0;
               word-break: break-all;
             }
             .button {
               display: inline-block;
               background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
-              color: white;
-              padding: 16px 40px;
+              color: #ffffff;
+              padding: 16px 48px;
               text-decoration: none;
-              border-radius: 6px;
-              font-weight: 600;
+              border-radius: 12px;
+              font-weight: 700;
               font-size: 16px;
-              margin: 20px 0;
-              box-shadow: 0 4px 6px rgba(6, 182, 212, 0.3);
+              margin: 24px 0;
+              box-shadow: 0 10px 15px -3px rgba(6, 182, 212, 0.4);
             }
-            .button:hover {
-              background: linear-gradient(135deg, #0891b2 0%, #0e7490 100%);
+            .features-list {
+              background: #0f172a;
+              border-radius: 12px;
+              padding: 24px;
+              margin-top: 32px;
+            }
+            .features-list ul {
+              list-style: none;
+              padding: 0;
+              margin: 16px 0 0 0;
+            }
+            .features-list li {
+              color: #cbd5e1;
+              padding: 8px 0 8px 28px;
+              position: relative;
+              font-size: 15px;
+            }
+            .features-list li:before {
+              content: "✓";
+              position: absolute;
+              left: 0;
+              color: #06b6d4;
+              font-weight: bold;
+              font-size: 18px;
             }
             .footer {
-              background: #f8f9fa;
-              padding: 30px;
+              background: #0f172a;
+              padding: 32px;
               text-align: center;
-              color: #666;
+              color: #94a3b8;
               font-size: 14px;
-              border-top: 1px solid #e0e0e0;
+              border-top: 1px solid #334155;
             }
             .contact-info {
-              margin-top: 20px;
-              padding-top: 20px;
-              border-top: 1px solid #e0e0e0;
+              margin-bottom: 24px;
+            }
+            .contact-info p {
+              margin: 8px 0;
+              color: #cbd5e1;
+            }
+            .contact-info strong {
+              color: #e2e8f0;
+              font-size: 16px;
             }
             .contact-info a {
               color: #06b6d4;
               text-decoration: none;
+              font-weight: 600;
+            }
+            .copyright {
+              margin-top: 24px;
+              padding-top: 24px;
+              border-top: 1px solid #334155;
+              color: #64748b;
+              font-size: 13px;
             }
           </style>
         </head>
@@ -233,7 +283,7 @@ export async function POST(
               </div>
 
               <div class="credentials-box">
-                <h3>📋 Your Portal Access Credentials</h3>
+                <h3>Your Portal Access Credentials</h3>
                 <div class="credential-item">
                   <span class="credential-label">Portal Link:</span>
                   <div class="credential-value">${portalUrl}</div>
@@ -256,8 +306,8 @@ export async function POST(
                 <a href="${portalUrl}" class="button">Access Your Portal →</a>
               </center>
 
-              <div class="message" style="margin-top: 30px;">
-                <p><strong>What you can do in the portal:</strong></p>
+              <div class="features-list">
+                <p style="color: #e2e8f0; font-weight: 600; margin: 0 0 16px 0;"><strong>What you can do in the portal:</strong></p>
                 <ul>
                   <li>View real-time project progress</li>
                   <li>Track completed tasks and milestones</li>
@@ -272,13 +322,13 @@ export async function POST(
                 <p><strong>Need Help or Have Questions?</strong></p>
                 <p>
                   Our team is here to assist you!<br>
-                  📞 Call us: <a href="tel:+16073417500">(607) 341-7500</a><br>
-                  ✉️ Email us: <a href="mailto:support@triplecitiestech.com">support@triplecitiestech.com</a>
+                  Call us: <a href="tel:+16073417500">(607) 341-7500</a><br>
+                  Email us: <a href="mailto:support@triplecitiestech.com">support@triplecitiestech.com</a>
                 </p>
               </div>
-              <p style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #ddd;">
+              <div class="copyright">
                 © ${new Date().getFullYear()} Triple Cities Tech. All rights reserved.
-              </p>
+              </div>
             </div>
           </div>
         </body>
