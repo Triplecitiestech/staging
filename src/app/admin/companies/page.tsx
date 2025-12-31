@@ -18,7 +18,13 @@ export default async function CompaniesPage() {
   }
 
   const companies = await prisma.company.findMany({
-    include: {
+    select: {
+      id: true,
+      displayName: true,
+      primaryContact: true,
+      contactEmail: true,
+      invitedAt: true,
+      inviteCount: true,
       _count: {
         select: { projects: true }
       }
