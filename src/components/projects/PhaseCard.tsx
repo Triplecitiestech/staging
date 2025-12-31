@@ -7,7 +7,7 @@ interface Task {
   id: string
   taskText: string
   completed: boolean
-  notes: string | null
+  notes?: string | null
 }
 
 interface Phase {
