@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next'
+import Script from 'next/script'
 import './globals.css'
 import ScrollToTop from '@/components/ui/ScrollToTop'
 import FAQSchema from '@/components/seo/FAQSchema'
@@ -233,7 +234,9 @@ export default function RootLayout({
           {children}
           <ScrollToTop />
         </div>
-        <script
+        <Script
+          id="chatgenie-config"
+          strategy="afterInteractive"
           dangerouslySetInnerHTML={{
             __html: `
               var chatgenieParams = {
