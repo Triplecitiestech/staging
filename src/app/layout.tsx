@@ -233,6 +233,16 @@ export default function RootLayout({
           {children}
           <ScrollToTop />
         </div>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              var chatgenieParams = {
+                appId: "3de45b0b-6349-42fa-a1d7-5a299b4c5ab2"
+              }
+              function run(ch){ch.default.messenger().initialize(chatgenieParams);}!function(){var e=window.chatgenie;if(e)run(e);else{function t(){var t=document.createElement("script");t.type="text/javascript",t.async=true,t.readyState?t.onreadystatechange=function(){"loaded"!==t.readyState&&"complete"!==t.readyState||(t.onreadystatechange=null,window.chatgenie&&(e=window.chatgenie,run(e)))}:t.onload=function(){window.chatgenie&&(e=window.chatgenie,run(e))},t.src="https://messenger.chatgenie.io/widget.js";var n=document.getElementsByTagName("script")[0];n.parentNode.insertBefore(t,n)}window.attachEvent?window.attachEvent("onload",t):window.addEventListener("load",t,!1)}}();
+            `
+          }}
+        />
       </body>
     </html>
   )
