@@ -28,6 +28,7 @@ model StaffUser {
   projectsModified  Project[] @relation("ModifiedBy")
   auditLogs         AuditLog[]
   templatesCreated  ProjectTemplate[]
+  blogPosts         BlogPost[]
 
   @@map("staff_users")
 }
@@ -272,4 +273,126 @@ model ProjectTemplate {
   creator     StaffUser   @relation(fields: [createdBy], references: [email])
 
   @@map("project_templates")
+}
+
+// ============================================
+// BLOG SYSTEM
+// ============================================
+
+model BlogPost {
+  id              String        @id @default(uuid())
+  slug            String        @unique
+  title           String
+  excerpt         String        @db.Text
+  content         String        @db.Text
+  featuredImage   String?
+
+  // AI Generation metadata
+  sourceUrls      String[]      // URLs used for inspiration
+  aiPrompt        String?       @db.Text
+  aiModel         String?       // "claude-sonnet-4-5-20250929"
+
+  // Publishing status
+  status          BlogStatus    @default(DRAFT)
+  scheduledFor    DateTime?
+  publishedAt     DateTime?
+
+  // SEO
+  metaTitle       String?
+  metaDescription String?       @db.Text
+  keywords        String[]
+
+  // Social media
+  facebookPostId  String?
+  instagramPostId String?
+  linkedinPostId  String?
+  twitterPostId   String?
+
+  // Approval workflow
+  sentForApproval DateTime?
+  approvedAt      DateTime?
+  approvedBy      String?       // Email of approver
+  approvalToken   String?       @unique
+  rejectionReason String?       @db.Text
+  revisionCount   Int           @default(0)
+
+  // Analytics
+  views           Int           @default(0)
+  shares          Int           @default(0)
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  // Relations
+  author          StaffUser?    @relation(fields: [authorId], references: [id])
+  authorId        String?
+  category        BlogCategory? @relation(fields: [categoryId], references: [id])
+  categoryId      String?
+  tags            BlogTag[]
+
+  @@map("blog_posts")
+  @@index([status, publishedAt])
+  @@index([slug])
+  @@index([approvalToken])
+}
+
+enum BlogStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  PUBLISHED
+  REJECTED
+  ARCHIVED
+}
+
+model BlogCategory {
+  id          String     @id @default(uuid())
+  name        String     @unique
+  slug        String     @unique
+  description String?    @db.Text
+  posts       BlogPost[]
+
+  @@map("blog_categories")
+}
+
+model BlogTag {
+  id    String     @id @default(uuid())
+  name  String     @unique
+  slug  String     @unique
+  posts BlogPost[]
+
+  @@map("blog_tags")
+}
+
+model ContentSource {
+  id              String   @id @default(uuid())
+  name            String
+  url             String
+  rssFeedUrl      String?
+  apiEndpoint     String?
+  isActive        Boolean  @default(true)
+  lastFetched     DateTime?
+  fetchFrequency  String   @default("daily") // "hourly", "daily", "weekly"
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("content_sources")
+}
+
+model SocialMediaPost {
+  id          String   @id @default(uuid())
+  blogPostId  String
+  platform    String   // "facebook", "instagram", "linkedin", "twitter"
+  platformId  String?  // Platform-specific post ID
+  content     String   @db.Text
+  imageUrl    String?
+  status      String   @default("pending") // "pending", "posted", "failed"
+  postedAt    DateTime?
+  error       String?  @db.Text
+
+  createdAt   DateTime @default(now())
+
+  @@map("social_media_posts")
+  @@index([blogPostId, platform])
 }
