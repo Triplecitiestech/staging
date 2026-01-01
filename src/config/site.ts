@@ -50,7 +50,7 @@ export const siteConfig = {
     }
   },
   features: {
-    blog: false,
+    blog: true,
     newsletter: true,
     testimonials: true,
     caseStudies: false,

@@ -3,12 +3,14 @@ export const NAVIGATION = {
   desktop: [
     { label: 'Industries', href: '/industries' },
     { label: 'Services', href: '/services' },
+    { label: 'Blog', href: '/blog' },
     { label: 'About', href: '/about' }
   ],
   mobile: [
     { label: 'Home', href: '/' },
     { label: 'Industries', href: '/industries' },
     { label: 'Services', href: '/services' },
+    { label: 'Blog', href: '/blog' },
     { label: 'About', href: '/about' },
     { label: 'Contact Us', href: '/contact' }
   ],
@@ -27,6 +29,7 @@ export const NAVIGATION = {
     ],
     company: [
       { label: 'About Us', href: '/about' },
+      { label: 'Blog', href: '/blog' },
       { label: 'Contact', href: '/contact' },
       { label: 'Careers', href: '/careers' }
     ]
