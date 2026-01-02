@@ -21,7 +21,14 @@ export async function PATCH(
     const data = await req.json()
 
     // Build update object with only provided fields
-    const updateData: any = {}
+    const updateData: {
+      title?: string
+      description?: string | null
+      status?: PhaseStatus
+      customerNotes?: string | null
+      internalNotes?: string | null
+      isVisibleToCustomer?: boolean
+    } = {}
 
     if (data.title !== undefined) updateData.title = data.title
     if (data.description !== undefined) updateData.description = data.description

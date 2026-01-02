@@ -20,7 +20,11 @@ export async function GET(req: NextRequest) {
     const taskId = searchParams.get('taskId')
     const assigneeEmail = searchParams.get('assigneeEmail')
 
-    const where: any = {}
+    const where: {
+      phaseId?: string
+      taskId?: string
+      assigneeEmail?: string
+    } = {}
     if (phaseId) where.phaseId = phaseId
     if (taskId) where.taskId = taskId
     if (assigneeEmail) where.assigneeEmail = assigneeEmail

@@ -18,7 +18,10 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url)
     const unreadOnly = searchParams.get('unreadOnly') === 'true'
 
-    const where: any = {
+    const where: {
+      recipientEmail: string
+      isRead?: boolean
+    } = {
       recipientEmail: session.user.email
     }
 

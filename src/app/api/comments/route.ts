@@ -27,7 +27,11 @@ export async function GET(req: NextRequest) {
       )
     }
 
-    const where: any = {}
+    const where: {
+      phaseId?: string
+      taskId?: string
+      isInternal?: boolean
+    } = {}
     if (phaseId) where.phaseId = phaseId
     if (taskId) where.taskId = taskId
 
