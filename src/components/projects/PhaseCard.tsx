@@ -4,6 +4,16 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import StatusDropdown from './StatusDropdown'
 import TaskStatusDropdown from './TaskStatusDropdown'
+import CommentThread from './CommentThread'
+
+interface Comment {
+  id: string
+  content: string
+  isInternal: boolean
+  createdAt: string
+  authorName: string
+  authorEmail: string
+}
 
 interface Task {
   id: string
@@ -12,6 +22,7 @@ interface Task {
   notes?: string | null
   orderIndex: number
   status?: string
+  comments?: Comment[]
 }
 
 interface Phase {
@@ -261,9 +272,7 @@ export default function PhaseCard({ phase, index }: { phase: Phase; index: numbe
                             <button className="px-2 py-1 text-xs font-semibold rounded border bg-slate-700/50 text-slate-300 border-slate-600/50 hover:bg-slate-700 transition-colors" title="Assign task (coming soon)">
                               👤 Assign
                             </button>
-                            <button className="px-2 py-1 text-xs font-semibold rounded border bg-slate-700/50 text-slate-300 border-slate-600/50 hover:bg-slate-700 transition-colors" title="Add comment (coming soon)">
-                              💬 Comment
-                            </button>
+                            <CommentThread taskId={task.id} comments={task.comments || []} />
                           </div>
                         </div>
                       )}
