@@ -50,7 +50,13 @@ export default async function ProjectDetailPage({
         creator: true,
         phases: {
           include: {
-            tasks: true
+            tasks: {
+              include: {
+                comments: {
+                  orderBy: { createdAt: 'asc' }
+                }
+              }
+            }
           },
           orderBy: { orderIndex: 'asc' }
         }
