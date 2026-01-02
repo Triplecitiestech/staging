@@ -7,6 +7,9 @@ import { withAccelerate } from '@prisma/extension-accelerate'
 import PhaseCard from '@/components/projects/PhaseCard'
 import AIProjectAssistant from '@/components/admin/AIProjectAssistant'
 
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 const prisma = new PrismaClient({
   accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
 }).$extends(withAccelerate())

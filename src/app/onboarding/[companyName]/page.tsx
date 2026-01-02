@@ -68,12 +68,16 @@ export default async function OnboardingPage({ params }: PageProps) {
             phases: {
               include: {
                 tasks: {
+                  where: {
+                    isVisibleToCustomer: true
+                  },
                   select: {
                     id: true,
                     taskText: true,
                     completed: true,
                     orderIndex: true,
-                    notes: true
+                    notes: true,
+                    status: true
                   }
                 }
               },
