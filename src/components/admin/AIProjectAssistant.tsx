@@ -14,13 +14,19 @@ interface AIProjectAssistantProps {
     companyName?: string
     description?: string
   }
+  projectId?: string
   onInsertStructure?: (structure: unknown) => void
 }
 
+const STORAGE_KEY_PREFIX = 'ai-chat-messages-'
+
 export default function AIProjectAssistant({
   projectContext,
+  projectId,
   onInsertStructure
 }: AIProjectAssistantProps) {
+  const storageKey = `${STORAGE_KEY_PREFIX}${projectId || 'new'}`
+
   const [isOpen, setIsOpen] = useState(false)
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -31,7 +37,28 @@ export default function AIProjectAssistant({
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
+  const [insertSuccess, setInsertSuccess] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  // Load messages from localStorage on mount
+  useEffect(() => {
+    const stored = localStorage.getItem(storageKey)
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored)
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setMessages(parsed)
+        }
+      } catch (e) {
+        console.error('Failed to parse stored messages:', e)
+      }
+    }
+  }, [storageKey])
+
+  // Save messages to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem(storageKey, JSON.stringify(messages))
+  }, [messages, storageKey])
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -117,6 +144,90 @@ export default function AIProjectAssistant({
     return null
   }
 
+  const handleInsertStructure = async (json: object) => {
+    if (onInsertStructure) {
+      onInsertStructure(json)
+      setInsertSuccess(true)
+      setTimeout(() => setInsertSuccess(false), 3000)
+    } else if (projectId) {
+      // If we have a projectId, directly create phases and tasks
+      try {
+        const structure = json as { phases?: Array<{
+          name: string
+          description?: string
+          orderIndex: number
+          tasks?: Array<{
+            taskText: string
+            completed: boolean
+            orderIndex: number
+            notes?: string
+          }>
+        }> }
+
+        if (!structure.phases || !Array.isArray(structure.phases)) {
+          throw new Error('Invalid structure: phases array not found')
+        }
+
+        // Create phases sequentially to maintain order
+        for (const phase of structure.phases) {
+          const phaseResponse = await fetch('/api/phases', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              projectId: projectId,
+              title: phase.name,
+              description: phase.description || '',
+              orderIndex: phase.orderIndex,
+            }),
+          })
+
+          if (!phaseResponse.ok) {
+            const errorData = await phaseResponse.json()
+            throw new Error(errorData.error || `Failed to create phase: ${phase.name}`)
+          }
+
+          const createdPhase = await phaseResponse.json()
+
+          // Create tasks for this phase if any
+          if (phase.tasks && Array.isArray(phase.tasks)) {
+            for (const task of phase.tasks) {
+              const taskResponse = await fetch('/api/tasks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  phaseId: createdPhase.id,
+                  taskText: task.taskText,
+                  completed: task.completed || false,
+                  orderIndex: task.orderIndex,
+                  notes: task.notes || '',
+                }),
+              })
+
+              if (!taskResponse.ok) {
+                const errorData = await taskResponse.json()
+                throw new Error(errorData.error || `Failed to create task: ${task.taskText}`)
+              }
+            }
+          }
+        }
+
+        setInsertSuccess(true)
+        setTimeout(() => {
+          setInsertSuccess(false)
+          // Reload the page to show the new phases
+          window.location.reload()
+        }, 1500)
+
+      } catch (error) {
+        console.error('Error inserting structure:', error)
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `Failed to insert structure: ${error instanceof Error ? error.message : 'Unknown error'}\n\nPlease try again or create phases manually.`
+        }])
+      }
+    }
+  }
+
   if (!isOpen) {
     return (
       <button
@@ -137,12 +248,31 @@ export default function AIProjectAssistant({
           <Sparkles size={20} className="text-white" />
           <h3 className="text-white font-bold">AI Project Assistant</h3>
         </div>
-        <button
-          onClick={() => setIsOpen(false)}
-          className="text-white/80 hover:text-white transition-colors"
-        >
-          <X size={20} />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              if (confirm('Start a new conversation? This will clear your current chat history.')) {
+                localStorage.removeItem(storageKey)
+                setMessages([{
+                  role: 'assistant',
+                  content: 'Hi! I\'m your AI project assistant. I can help you:\n\n• Generate project phases and tasks\n• Structure timelines\n• Suggest milestones\n• Create detailed task lists\n\nJust describe what kind of project you\'re building, and I\'ll help structure it!'
+                }])
+              }
+            }}
+            className="text-white/80 hover:text-white transition-colors p-1"
+            title="Start Over"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          </button>
+          <button
+            onClick={() => setIsOpen(false)}
+            className="text-white/80 hover:text-white transition-colors"
+          >
+            <X size={20} />
+          </button>
+        </div>
       </div>
 
       {/* Messages */}
@@ -187,16 +317,26 @@ export default function AIProjectAssistant({
                     )}
                   </button>
 
-                  {extractJSON(message.content) && onInsertStructure && (
+                  {extractJSON(message.content) && (onInsertStructure || projectId) && (
                     <button
                       onClick={() => {
                         const json = extractJSON(message.content)
-                        if (json) onInsertStructure(json)
+                        if (json) handleInsertStructure(json)
                       }}
-                      className="text-xs text-purple-400 hover:text-purple-300 flex items-center space-x-1 transition-colors"
+                      disabled={isLoading || insertSuccess}
+                      className="text-xs text-purple-400 hover:text-purple-300 disabled:text-green-400 flex items-center space-x-1 transition-colors"
                     >
-                      <Sparkles size={12} />
-                      <span>Insert into Form</span>
+                      {insertSuccess ? (
+                        <>
+                          <CheckCircle size={12} />
+                          <span>Inserted!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles size={12} />
+                          <span>{projectId ? 'Create Phases' : 'Insert into Form'}</span>
+                        </>
+                      )}
                     </button>
                   )}
                 </div>

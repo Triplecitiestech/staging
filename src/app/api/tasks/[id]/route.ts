@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
+import { TaskStatus, Priority } from '@prisma/client'
 
 
 export async function PATCH(
@@ -23,6 +24,12 @@ export async function PATCH(
       notes?: string | null
       completedBy?: string | null
       completedAt?: Date | null
+      status?: TaskStatus
+      isVisibleToCustomer?: boolean
+      assignedTo?: string | null
+      assignedToName?: string | null
+      dueDate?: Date | null
+      priority?: Priority
     } = {}
 
     if (data.taskText !== undefined) updateData.taskText = data.taskText
@@ -33,15 +40,23 @@ export async function PATCH(
     }
     if (data.notes !== undefined) updateData.notes = data.notes
 
+    // New fields for enhanced task management
+    if (data.status !== undefined) updateData.status = data.status as TaskStatus
+    if (data.isVisibleToCustomer !== undefined) updateData.isVisibleToCustomer = data.isVisibleToCustomer
+    if (data.assignedTo !== undefined) updateData.assignedTo = data.assignedTo
+    if (data.assignedToName !== undefined) updateData.assignedToName = data.assignedToName
+    if (data.dueDate !== undefined) updateData.dueDate = data.dueDate ? new Date(data.dueDate) : null
+    if (data.priority !== undefined) updateData.priority = data.priority as Priority
+
     let task
     try {
       task = await prisma.phaseTask.update({
         where: { id },
         data: updateData
       })
-    } catch (dbError) {
+    } catch {
       // If notes column doesn't exist, try without it
-      const { notes, ...updateWithoutNotes } = updateData
+      const { notes: _notes, ...updateWithoutNotes } = updateData
       task = await prisma.phaseTask.update({
         where: { id },
         data: updateWithoutNotes,

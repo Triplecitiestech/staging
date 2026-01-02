@@ -2,12 +2,14 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import StatusDropdown from './StatusDropdown'
 
 interface Task {
   id: string
   taskText: string
   completed: boolean
   notes?: string | null
+  orderIndex: number
 }
 
 interface Phase {
@@ -28,6 +30,8 @@ export default function PhaseCard({ phase, index }: { phase: Phase; index: numbe
   const [collapsed, setCollapsed] = useState(false)
   const [editing, setEditing] = useState(false)
   const [editingTask, setEditingTask] = useState<string | null>(null)
+  const [draggedTask, setDraggedTask] = useState<string | null>(null)
+  const [tasks, setTasks] = useState(phase.tasks.sort((a, b) => a.orderIndex - b.orderIndex))
   const [formData, setFormData] = useState({
     title: phase.title,
     description: phase.description || '',
@@ -84,15 +88,47 @@ export default function PhaseCard({ phase, index }: { phase: Phase; index: numbe
     }
   }
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'COMPLETE': return 'bg-blue-500/20 text-blue-300 border-blue-500/30'
-      case 'IN_PROGRESS': return 'bg-green-500/20 text-green-300 border-green-500/30'
-      case 'WAITING_ON_CUSTOMER': return 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30'
-      case 'REQUIRES_CUSTOMER_COORDINATION': return 'bg-orange-500/20 text-orange-300 border-orange-500/30'
-      case 'SCHEDULED': return 'bg-purple-500/20 text-purple-300 border-purple-500/30'
-      case 'DISCUSSED': return 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30'
-      default: return 'bg-slate-500/20 text-slate-300 border-slate-500/30'
+  const handleDragStart = (taskId: string) => {
+    setDraggedTask(taskId)
+  }
+
+  const handleDragOver = (e: React.DragEvent, targetTaskId: string) => {
+    e.preventDefault()
+    if (!draggedTask || draggedTask === targetTaskId) return
+
+    const draggedIndex = tasks.findIndex(t => t.id === draggedTask)
+    const targetIndex = tasks.findIndex(t => t.id === targetTaskId)
+
+    if (draggedIndex === -1 || targetIndex === -1) return
+
+    const newTasks = [...tasks]
+    const [removed] = newTasks.splice(draggedIndex, 1)
+    newTasks.splice(targetIndex, 0, removed)
+    setTasks(newTasks)
+  }
+
+  const handleDragEnd = async () => {
+    if (!draggedTask) return
+
+    // Update orderIndex for all tasks
+    const taskOrders = tasks.map((task, idx) => ({
+      id: task.id,
+      orderIndex: idx,
+    }))
+
+    try {
+      const res = await fetch('/api/tasks/reorder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskOrders }),
+      })
+      if (!res.ok) throw new Error()
+      router.refresh()
+    } catch {
+      alert('Failed to reorder tasks')
+      setTasks(phase.tasks.sort((a, b) => a.orderIndex - b.orderIndex))
+    } finally {
+      setDraggedTask(null)
     }
   }
 
@@ -133,25 +169,7 @@ export default function PhaseCard({ phase, index }: { phase: Phase; index: numbe
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {editing ? (
-            <select
-              value={formData.status}
-              onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-              className="px-2 py-1 bg-slate-800 border border-white/20 rounded text-xs text-white"
-            >
-              <option value="NOT_STARTED">Not Started</option>
-              <option value="SCHEDULED">Scheduled</option>
-              <option value="WAITING_ON_CUSTOMER">Waiting On Customer</option>
-              <option value="IN_PROGRESS">In Progress</option>
-              <option value="REQUIRES_CUSTOMER_COORDINATION">Requires Customer Coordination</option>
-              <option value="DISCUSSED">Discussed</option>
-              <option value="COMPLETE">Complete</option>
-            </select>
-          ) : (
-            <span className={`px-3 py-1 text-xs font-semibold rounded-full border ${getStatusColor(phase.status)}`}>
-              {phase.status.replace('_', ' ')}
-            </span>
-          )}
+          {!editing && <StatusDropdown phaseId={phase.id} currentStatus={phase.status} />}
           {editing ? (
             <>
               <button onClick={savePhase} className="text-green-400 hover:text-green-300 text-sm px-2">Save</button>
@@ -174,14 +192,26 @@ export default function PhaseCard({ phase, index }: { phase: Phase; index: numbe
             </div>
           )}
 
-          {phase.tasks.length > 0 && (
+          {tasks.length > 0 && (
             <div className="space-y-2 mb-4">
-              {phase.tasks.map(task => (
-                <div key={task.id} className="space-y-2">
+              {tasks.map(task => (
+                <div
+                  key={task.id}
+                  draggable
+                  onDragStart={() => handleDragStart(task.id)}
+                  onDragOver={(e) => handleDragOver(e, task.id)}
+                  onDragEnd={handleDragEnd}
+                  className={`group space-y-2 ${draggedTask === task.id ? 'opacity-50' : ''}`}
+                >
                   <div className="flex items-start gap-2">
+                    <div className="mt-0.5 cursor-move opacity-0 group-hover:opacity-100 transition-opacity">
+                      <svg className="w-4 h-4 text-slate-500" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M9 3h2v2H9V3zm0 4h2v2H9V7zm0 4h2v2H9v-2zm0 4h2v2H9v-2zm0 4h2v2H9v-2zm4-16h2v2h-2V3zm0 4h2v2h-2V7zm0 4h2v2h-2v-2zm0 4h2v2h-2v-2zm0 4h2v2h-2v-2z"/>
+                      </svg>
+                    </div>
                     <button
                       onClick={() => toggleTask(task.id, !task.completed)}
-                      className={`mt-0.5 w-4 h-4 rounded border-2 flex items-center justify-center ${
+                      className={`mt-0.5 w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 ${
                         task.completed ? 'bg-cyan-500 border-cyan-500' : 'border-slate-500'
                       }`}
                     >
