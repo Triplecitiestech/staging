@@ -7,10 +7,10 @@ import { prisma } from '@/lib/prisma';
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { token: string } }
+  { params }: { params: Promise<{ token: string }> }
 ) {
   try {
-    const { token } = params;
+    const { token } = await params;
 
     // Find blog post by approval token
     const blogPost = await prisma.blogPost.findUnique({
@@ -61,7 +61,17 @@ export async function GET(
   }
 }
 
-function generatePreviewHTML(post: any): string {
+interface BlogPostPreview {
+  title: string;
+  content: string;
+  excerpt: string;
+  keywords: string[];
+  sourceUrls: string[];
+  approvalToken: string | null;
+  category: { name: string } | null;
+}
+
+function generatePreviewHTML(post: BlogPostPreview): string {
   // Convert markdown to HTML (simple version)
   let contentHtml = post.content;
   contentHtml = contentHtml.replace(/^### (.*$)/gim, '<h3>$1</h3>');

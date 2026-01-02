@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 
 export default function BlogSetupPage() {
   const [status, setStatus] = useState<'idle' | 'running' | 'success' | 'error'>('idle');
@@ -154,12 +155,12 @@ export default function BlogSetupPage() {
                 </div>
 
                 <div className="flex gap-4 justify-center">
-                  <a
+                  <Link
                     href="/blog"
                     className="bg-gradient-to-r from-purple-600 to-blue-600 text-white px-8 py-3 rounded-lg font-semibold hover:shadow-lg transform hover:scale-105 transition-all duration-200"
                   >
                     Visit Your Blog
-                  </a>
+                  </Link>
                   <button
                     onClick={() => window.location.reload()}
                     className="bg-gray-200 text-gray-700 px-8 py-3 rounded-lg font-semibold hover:bg-gray-300 transition-colors"

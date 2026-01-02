@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { DEFAULT_SOURCES } from '@/lib/content-curator';
 
+// Disable static generation for this API route
+export const dynamic = 'force-dynamic';
+
 /**
  * Initialize default content sources
  * POST /api/blog/setup/sources

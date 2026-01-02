@@ -7,19 +7,21 @@ import ReactMarkdown from 'react-markdown';
 export const revalidate = 60; // ISR revalidation
 
 interface BlogPostPageProps {
-  params: {
+  params: Promise<{
     slug: string;
-  };
+  }>;
 }
 
 export async function generateMetadata({ params }: BlogPostPageProps): Promise<Metadata> {
+  const { slug } = await params;
   const post = await prisma.blogPost.findUnique({
     where: {
-      slug: params.slug,
+      slug: slug,
       status: 'PUBLISHED'
     },
     include: {
-      category: true
+      category: true,
+      author: true
     }
   });
 
@@ -65,9 +67,10 @@ export async function generateStaticParams() {
 }
 
 export default async function BlogPostPage({ params }: BlogPostPageProps) {
+  const { slug } = await params;
   const post = await prisma.blogPost.findUnique({
     where: {
-      slug: params.slug,
+      slug: slug,
       status: 'PUBLISHED'
     },
     include: {
@@ -166,15 +169,15 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
         <div className="prose prose-lg max-w-none">
           <ReactMarkdown
             components={{
-              h2: ({ node, ...props }) => <h2 className="text-3xl font-bold mt-8 mb-4 text-gray-900" {...props} />,
-              h3: ({ node, ...props }) => <h3 className="text-2xl font-bold mt-6 mb-3 text-gray-900" {...props} />,
-              p: ({ node, ...props }) => <p className="mb-4 text-gray-700 leading-relaxed" {...props} />,
-              ul: ({ node, ...props }) => <ul className="list-disc list-inside mb-4 space-y-2" {...props} />,
-              ol: ({ node, ...props }) => <ol className="list-decimal list-inside mb-4 space-y-2" {...props} />,
-              li: ({ node, ...props }) => <li className="text-gray-700" {...props} />,
-              a: ({ node, ...props }) => <a className="text-purple-600 hover:text-purple-700 underline" {...props} />,
-              strong: ({ node, ...props }) => <strong className="font-bold text-gray-900" {...props} />,
-              blockquote: ({ node, ...props }) => (
+              h2: (props) => <h2 className="text-3xl font-bold mt-8 mb-4 text-gray-900" {...props} />,
+              h3: (props) => <h3 className="text-2xl font-bold mt-6 mb-3 text-gray-900" {...props} />,
+              p: (props) => <p className="mb-4 text-gray-700 leading-relaxed" {...props} />,
+              ul: (props) => <ul className="list-disc list-inside mb-4 space-y-2" {...props} />,
+              ol: (props) => <ol className="list-decimal list-inside mb-4 space-y-2" {...props} />,
+              li: (props) => <li className="text-gray-700" {...props} />,
+              a: (props) => <a className="text-purple-600 hover:text-purple-700 underline" {...props} />,
+              strong: (props) => <strong className="font-bold text-gray-900" {...props} />,
+              blockquote: (props) => (
                 <blockquote className="border-l-4 border-purple-600 pl-4 italic my-4 text-gray-700" {...props} />
               )
             }}
