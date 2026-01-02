@@ -67,7 +67,8 @@ export default async function AdminPreviewPage({ params }: PageProps) {
             },
             orderBy: { orderIndex: 'asc' }
           }
-        }
+        },
+        orderBy: { updatedAt: 'desc' } // Get most recently updated project first
       }
     }
   }) as CompanyWithProjects | null
@@ -76,12 +77,15 @@ export default async function AdminPreviewPage({ params }: PageProps) {
     notFound()
   }
 
+  // Find the most recent active project, or fall back to most recently updated
+  const activeProject = company.projects.find(p => p.status === 'ACTIVE') || company.projects[0]
+
   // Transform data for OnboardingPortal component
-  const onboardingData = company.projects.length > 0 ? {
+  const onboardingData = activeProject ? {
     companySlug: slug,
     companyDisplayName: company.displayName,
-    lastUpdated: company.projects[0].updatedAt.toISOString(),
-    phases: company.projects[0].phases.map(phase => ({
+    lastUpdated: activeProject.updatedAt.toISOString(),
+    phases: activeProject.phases.map(phase => ({
       id: phase.id,
       title: phase.title,
       description: phase.description || '',
@@ -94,8 +98,16 @@ export default async function AdminPreviewPage({ params }: PageProps) {
   return (
     <div className="relative">
       {/* Admin Preview Banner */}
-      <div className="fixed top-0 left-0 right-0 z-50 bg-purple-600 text-white px-4 py-2 text-center text-sm font-semibold">
-        Admin Preview Mode • Viewing as: {company.displayName}
+      <div className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-r from-slate-900 via-gray-900 to-slate-900 border-b border-cyan-500/30 text-white px-4 py-2 text-center text-sm font-semibold shadow-lg backdrop-blur-sm">
+        <div className="flex items-center justify-center gap-2">
+          <svg className="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+          </svg>
+          <span className="text-cyan-300">Admin Preview Mode</span>
+          <span className="text-slate-400">•</span>
+          <span className="text-slate-300">Viewing as: {company.displayName}</span>
+        </div>
       </div>
 
       {/* Add padding to account for banner */}
