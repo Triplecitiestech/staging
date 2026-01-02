@@ -247,16 +247,24 @@ export default function PhaseCard({ phase, index }: { phase: Phase; index: numbe
                           autoFocus
                         />
                       ) : (
-                        <div className="flex items-center gap-2 flex-wrap">
+                        <div className="space-y-2">
                           <span
                             onClick={() => setEditingTask(task.id)}
-                            className={`cursor-pointer text-sm ${task.completed ? 'text-slate-400 line-through' : 'text-slate-300'}`}
+                            className={`cursor-pointer text-sm block ${task.completed ? 'text-slate-400 line-through' : 'text-slate-300'}`}
                           >
                             {task.taskText}
                           </span>
-                          {task.status && (
-                            <TaskStatusDropdown taskId={task.id} currentStatus={task.status} />
-                          )}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {task.status && (
+                              <TaskStatusDropdown taskId={task.id} currentStatus={task.status} />
+                            )}
+                            <button className="px-2 py-1 text-xs font-semibold rounded border bg-slate-700/50 text-slate-300 border-slate-600/50 hover:bg-slate-700 transition-colors" title="Assign task (coming soon)">
+                              👤 Assign
+                            </button>
+                            <button className="px-2 py-1 text-xs font-semibold rounded border bg-slate-700/50 text-slate-300 border-slate-600/50 hover:bg-slate-700 transition-colors" title="Add comment (coming soon)">
+                              💬 Comment
+                            </button>
+                          </div>
                         </div>
                       )}
                       {task.notes && <p className="text-xs text-slate-500 mt-1 italic">{task.notes}</p>}
