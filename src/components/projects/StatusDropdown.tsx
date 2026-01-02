@@ -15,13 +15,13 @@ export default function StatusDropdown({ phaseId, currentStatus }: StatusDropdow
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   const statuses = [
-    { value: 'NOT_STARTED', label: 'Not Started', color: 'bg-slate-500/20 text-slate-300 border-slate-500/30' },
-    { value: 'SCHEDULED', label: 'Scheduled', color: 'bg-purple-500/20 text-purple-300 border-purple-500/30' },
-    { value: 'WAITING_ON_CUSTOMER', label: 'Waiting On Customer', color: 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30' },
-    { value: 'IN_PROGRESS', label: 'In Progress', color: 'bg-green-500/20 text-green-300 border-green-500/30' },
-    { value: 'REQUIRES_CUSTOMER_COORDINATION', label: 'Requires Coordination', color: 'bg-orange-500/20 text-orange-300 border-orange-500/30' },
-    { value: 'DISCUSSED', label: 'Discussed', color: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30' },
-    { value: 'COMPLETE', label: 'Complete', color: 'bg-blue-500/20 text-blue-300 border-blue-500/30' },
+    { value: 'NOT_STARTED', label: 'Not Started', color: 'bg-pink-500/20 text-pink-300 border-pink-500/50' },
+    { value: 'SCHEDULED', label: 'Scheduled', color: 'bg-purple-500/20 text-purple-300 border-purple-500/50' },
+    { value: 'WAITING_ON_CUSTOMER', label: 'Waiting On Customer', color: 'bg-amber-500/20 text-amber-300 border-amber-500/50' },
+    { value: 'IN_PROGRESS', label: 'In Progress', color: 'bg-blue-500/20 text-blue-300 border-blue-500/50' },
+    { value: 'REQUIRES_CUSTOMER_COORDINATION', label: 'Requires Coordination', color: 'bg-orange-500/20 text-orange-300 border-orange-500/50' },
+    { value: 'DISCUSSED', label: 'Discussed', color: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/50' },
+    { value: 'COMPLETE', label: 'Complete', color: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50' },
   ]
 
   const currentStatusObj = statuses.find(s => s.value === currentStatus) || statuses[0]

@@ -10,49 +10,49 @@ interface OnboardingTimelineProps {
   currentPhaseId?: string
 }
 
-// Status color mappings
+// Status color mappings - vibrant and unique colors
 const statusColors: Record<PhaseStatus, { bg: string; text: string; border: string; icon: string }> = {
   'Complete': {
-    bg: 'bg-emerald-50',
-    text: 'text-emerald-700',
-    border: 'border-emerald-300',
-    icon: 'text-emerald-600'
+    bg: 'bg-emerald-500/20',
+    text: 'text-emerald-300',
+    border: 'border-emerald-500/50',
+    icon: 'text-emerald-400'
   },
   'In Progress': {
-    bg: 'bg-blue-50',
-    text: 'text-blue-700',
-    border: 'border-blue-300',
-    icon: 'text-blue-600'
+    bg: 'bg-blue-500/20',
+    text: 'text-blue-300',
+    border: 'border-blue-500/50',
+    icon: 'text-blue-400'
   },
   'Scheduled': {
-    bg: 'bg-purple-50',
-    text: 'text-purple-700',
-    border: 'border-purple-300',
-    icon: 'text-purple-600'
+    bg: 'bg-purple-500/20',
+    text: 'text-purple-300',
+    border: 'border-purple-500/50',
+    icon: 'text-purple-400'
   },
   'Waiting on Customer': {
-    bg: 'bg-amber-50',
-    text: 'text-amber-700',
-    border: 'border-amber-300',
-    icon: 'text-amber-600'
+    bg: 'bg-amber-500/20',
+    text: 'text-amber-300',
+    border: 'border-amber-500/50',
+    icon: 'text-amber-400'
   },
   'Requires Customer Coordination': {
-    bg: 'bg-orange-50',
-    text: 'text-orange-700',
-    border: 'border-orange-300',
-    icon: 'text-orange-600'
+    bg: 'bg-orange-500/20',
+    text: 'text-orange-300',
+    border: 'border-orange-500/50',
+    icon: 'text-orange-400'
   },
   'Discussed': {
-    bg: 'bg-indigo-50',
-    text: 'text-indigo-700',
-    border: 'border-indigo-300',
-    icon: 'text-indigo-600'
+    bg: 'bg-indigo-500/20',
+    text: 'text-indigo-300',
+    border: 'border-indigo-500/50',
+    icon: 'text-indigo-400'
   },
   'Not Started': {
-    bg: 'bg-gray-50',
-    text: 'text-gray-600',
-    border: 'border-gray-300',
-    icon: 'text-gray-400'
+    bg: 'bg-pink-500/20',
+    text: 'text-pink-300',
+    border: 'border-pink-500/50',
+    icon: 'text-pink-400'
   },
 }
 
@@ -209,29 +209,155 @@ function PhaseCard({ phase, isCurrent, isLast }: { phase: OnboardingPhase; isCur
 
 export default function OnboardingTimeline({ phases, currentPhaseId }: OnboardingTimelineProps) {
   const [selectedPhase, setSelectedPhase] = useState<OnboardingPhase | null>(null)
+  const [viewMode, setViewMode] = useState<'horizontal' | 'vertical'>('horizontal')
+
+  const showScrollWarning = phases.length > 6
 
   return (
     <div className="space-y-8">
-      {/* Timeline header */}
+      {/* Timeline header with toggle */}
       <div className="text-center mb-8">
-        <h2 className="text-2xl font-bold text-white mb-2">Onboarding Progress</h2>
-        <p className="text-gray-300">Track your progress through our comprehensive onboarding process</p>
+        <h2 className="text-2xl font-bold text-white mb-2">Onboarding Timeline</h2>
+        <p className="text-gray-300 mb-4">Track your progress through our comprehensive onboarding process</p>
+
+        {/* View toggle */}
+        <div className="flex items-center justify-center gap-2 mb-4">
+          <button
+            onClick={() => setViewMode('horizontal')}
+            className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors ${
+              viewMode === 'horizontal'
+                ? 'bg-cyan-500 text-white'
+                : 'bg-slate-700/50 text-slate-300 hover:bg-slate-700'
+            }`}
+          >
+            Horizontal View
+          </button>
+          <button
+            onClick={() => setViewMode('vertical')}
+            className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors ${
+              viewMode === 'vertical'
+                ? 'bg-cyan-500 text-white'
+                : 'bg-slate-700/50 text-slate-300 hover:bg-slate-700'
+            }`}
+          >
+            Vertical View
+          </button>
+        </div>
+
+        {/* Warning for too many phases in horizontal view */}
+        {viewMode === 'horizontal' && showScrollWarning && (
+          <div className="inline-block px-4 py-2 bg-amber-500/20 border border-amber-500/50 rounded-lg text-amber-300 text-sm">
+            ⚠️ With {phases.length} phases, horizontal scrolling may occur. Consider switching to vertical view.
+          </div>
+        )}
       </div>
 
-      {/* Phases List */}
-      <div className="space-y-6">
-        {phases.map((phase, index) => (
-          <PhaseCard
-            key={phase.id}
-            phase={phase}
-            isCurrent={phase.id === currentPhaseId}
-            isLast={index === phases.length - 1}
-          />
-        ))}
-      </div>
+      {/* Horizontal Timeline */}
+      {viewMode === 'horizontal' && (
+        <div className="relative overflow-x-auto pb-8">
+          <div className="flex items-center min-w-max px-4">
+            {/* Start Marker */}
+            <div className="flex flex-col items-center flex-shrink-0">
+              <div className="w-16 h-16 rounded-full bg-gradient-to-br from-green-500 to-green-600 flex items-center justify-center shadow-lg shadow-green-500/50 mb-3">
+                <span className="text-white font-bold text-sm">START</span>
+              </div>
+              <span className="text-xs text-gray-400 font-medium">Day 1</span>
+            </div>
 
-      {/* Selected Phase Details (legacy - keeping for compatibility) */}
-      {selectedPhase && false && (
+            {/* Phases */}
+            {phases.map((phase, index) => {
+              const isCurrent = phase.id === currentPhaseId
+              const colors = statusColors[phase.status]
+              const StatusIcon = getStatusIcon(phase.status)
+
+              return (
+                <React.Fragment key={phase.id}>
+                  {/* Connector Line */}
+                  <div className="flex-shrink-0 h-1 w-12 md:w-24 bg-gradient-to-r from-cyan-500 to-cyan-400" />
+
+                  {/* Phase Node */}
+                  <div className="flex flex-col items-center flex-shrink-0 relative">
+                    {/* "YOU ARE HERE" indicator */}
+                    {isCurrent && (
+                      <div className="absolute -top-8 whitespace-nowrap bg-cyan-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg z-10">
+                        YOU ARE HERE
+                      </div>
+                    )}
+
+                    {/* Phase Circle */}
+                    <button
+                      onClick={() => setSelectedPhase(selectedPhase?.id === phase.id ? null : phase)}
+                      className={cn(
+                        'w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all mb-3 border-4',
+                        isCurrent
+                          ? 'border-cyan-400 bg-gradient-to-br from-cyan-500 to-cyan-600 shadow-cyan-500/50 scale-110'
+                          : 'border-gray-700 bg-gray-800 hover:border-cyan-500/50 hover:scale-105',
+                        selectedPhase?.id === phase.id && 'ring-4 ring-cyan-500/30'
+                      )}
+                    >
+                      <StatusIcon
+                        size={24}
+                        className={isCurrent ? 'text-white' : colors.icon}
+                        strokeWidth={2.5}
+                      />
+                    </button>
+
+                    {/* Phase Number */}
+                    <span className="text-xs text-cyan-400 font-bold mb-1">
+                      Phase {index + 1}
+                    </span>
+
+                    {/* Phase Title (truncated) */}
+                    <span className="text-xs text-gray-300 font-medium text-center max-w-[120px] line-clamp-2">
+                      {phase.title}
+                    </span>
+
+                    {/* Status Badge */}
+                    <span className={cn(
+                      'mt-2 px-2 py-1 rounded-full text-xs font-semibold whitespace-nowrap border',
+                      colors.bg,
+                      colors.text,
+                      colors.border
+                    )}>
+                      {phase.status}
+                    </span>
+                  </div>
+                </React.Fragment>
+              )
+            })}
+
+            {/* End Marker */}
+            <>
+              <div className="flex-shrink-0 h-1 w-12 md:w-24 bg-gradient-to-r from-cyan-500 to-cyan-400" />
+              <div className="flex flex-col items-center flex-shrink-0">
+                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center shadow-lg shadow-purple-500/50 mb-3">
+                  <span className="text-white font-bold text-sm text-center leading-tight">
+                    FINISH
+                  </span>
+                </div>
+                <span className="text-xs text-gray-400 font-medium whitespace-nowrap">30 Days</span>
+              </div>
+            </>
+          </div>
+        </div>
+      )}
+
+      {/* Vertical Timeline */}
+      {viewMode === 'vertical' && (
+        <div className="space-y-6">
+          {phases.map((phase, index) => (
+            <PhaseCard
+              key={phase.id}
+              phase={phase}
+              isCurrent={phase.id === currentPhaseId}
+              isLast={index === phases.length - 1}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Selected Phase Details */}
+      {selectedPhase && (
         <div className="bg-gray-800/50 backdrop-blur-sm border-2 border-cyan-500 rounded-lg p-6 shadow-lg shadow-cyan-500/20">
           <div className="flex items-start justify-between mb-4">
             <div>
