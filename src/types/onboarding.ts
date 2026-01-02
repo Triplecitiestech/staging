@@ -8,6 +8,7 @@ export type PhaseStatus =
   | 'Requires Customer Coordination'
   | 'Discussed'
   | 'Complete'
+  | 'Completed'
 
 export type PhaseOwner = 'TCT' | 'Customer' | 'Both'
 

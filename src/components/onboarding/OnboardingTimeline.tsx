@@ -18,6 +18,12 @@ const statusColors: Record<PhaseStatus, { bg: string; text: string; border: stri
     border: 'border-emerald-500/50',
     icon: 'text-emerald-600'
   },
+  'Completed': {
+    bg: 'bg-green-500/20',
+    text: 'text-green-300',
+    border: 'border-green-500/50',
+    icon: 'text-green-600'
+  },
   'In Progress': {
     bg: 'bg-blue-500/20',
     text: 'text-blue-300',
@@ -60,6 +66,7 @@ const statusColors: Record<PhaseStatus, { bg: string; text: string; border: stri
 const getStatusIcon = (status: PhaseStatus) => {
   switch (status) {
     case 'Complete':
+    case 'Completed':
       return CheckCircle
     case 'In Progress':
     case 'Discussed':
