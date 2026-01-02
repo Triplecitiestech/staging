@@ -1,6 +1,6 @@
 import { auth } from '@/auth'
 import { redirect, notFound } from 'next/navigation'
-import { PrismaClient } from '@prisma/client'
+import { PrismaClient, Prisma } from '@prisma/client'
 import { withAccelerate } from '@prisma/extension-accelerate'
 import OnboardingPortal from '@/components/onboarding/OnboardingPortal'
 
@@ -8,8 +8,40 @@ const prisma = new PrismaClient({
   accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
 }).$extends(withAccelerate())
 
+type CompanyWithProjects = Prisma.CompanyGetPayload<{
+  include: {
+    projects: {
+      include: {
+        phases: {
+          include: {
+            tasks: true
+          }
+        }
+      }
+    }
+  }
+}>
+
 interface PageProps {
   params: Promise<{ slug: string }>
+}
+
+// Convert database status to display format
+function convertStatus(status: string): 'Not Started' | 'Scheduled' | 'Waiting on Customer' | 'In Progress' | 'Requires Customer Coordination' | 'Discussed' | 'Complete' {
+  switch (status) {
+    case 'NOT_STARTED': return 'Not Started'
+    case 'IN_PROGRESS': return 'In Progress'
+    case 'COMPLETED': return 'Complete'
+    case 'ON_HOLD': return 'Waiting on Customer' // Map ON_HOLD to a valid status
+    default: return 'Not Started'
+  }
+}
+
+// Convert database owner to display format
+function convertOwner(owner: string | null): 'TCT' | 'Customer' | 'Both' {
+  if (owner === 'CUSTOMER') return 'Customer'
+  if (owner === 'BOTH') return 'Both'
+  return 'TCT'
 }
 
 export default async function AdminPreviewPage({ params }: PageProps) {
@@ -38,7 +70,7 @@ export default async function AdminPreviewPage({ params }: PageProps) {
         }
       }
     }
-  })
+  }) as CompanyWithProjects | null
 
   if (!company) {
     notFound()
@@ -46,27 +78,18 @@ export default async function AdminPreviewPage({ params }: PageProps) {
 
   // Transform data for OnboardingPortal component
   const onboardingData = company.projects.length > 0 ? {
-    companyName: company.displayName,
-    projectName: company.projects[0].title,
+    companySlug: slug,
+    companyDisplayName: company.displayName,
+    lastUpdated: company.projects[0].updatedAt.toISOString(),
     phases: company.projects[0].phases.map(phase => ({
       id: phase.id,
       title: phase.title,
-      description: phase.description,
-      status: phase.status,
-      customerNotes: phase.customerNotes,
-      internalNotes: null, // Hide internal notes from preview
-      estimatedDays: phase.estimatedDays,
-      owner: phase.owner,
-      orderIndex: phase.orderIndex,
-      tasks: phase.tasks.map(task => ({
-        id: task.id,
-        taskText: task.taskText,
-        completed: task.completed,
-        notes: task.notes,
-        orderIndex: task.orderIndex
-      }))
+      description: phase.description || '',
+      status: convertStatus(phase.status),
+      owner: convertOwner(phase.owner),
+      notes: phase.customerNotes || undefined, // Use customer notes as the notes field
     }))
-  } : undefined
+  } : null
 
   return (
     <div className="relative">

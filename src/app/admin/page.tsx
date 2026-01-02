@@ -3,12 +3,19 @@ import Image from 'next/image'
 import { auth } from '@/auth'
 import { SignInButton, SignOutButton } from '@/components/auth/AuthButtons'
 import AdminNav from '@/components/admin/AdminNav'
-import { PrismaClient } from '@prisma/client'
+import { PrismaClient, Prisma } from '@prisma/client'
 import { withAccelerate } from '@prisma/extension-accelerate'
 
 const prisma = new PrismaClient({
   accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
 }).$extends(withAccelerate())
+
+type ProjectWithRelations = Prisma.ProjectGetPayload<{
+  include: {
+    company: true
+    phases: true
+  }
+}>
 
 export default async function AdminPage() {
   const session = await auth()
@@ -55,7 +62,7 @@ export default async function AdminPage() {
       company: true,
       phases: true
     }
-  })
+  }) as ProjectWithRelations[]
 
   const completedProjects = await prisma.project.count({ where: { status: 'COMPLETED' } })
   const onHoldProjects = await prisma.project.count({ where: { status: 'ON_HOLD' } })
