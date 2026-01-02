@@ -3,12 +3,19 @@ import Image from 'next/image'
 import { auth } from '@/auth'
 import { SignInButton, SignOutButton } from '@/components/auth/AuthButtons'
 import AdminNav from '@/components/admin/AdminNav'
-import { PrismaClient } from '@prisma/client'
+import { PrismaClient, Prisma } from '@prisma/client'
 import { withAccelerate } from '@prisma/extension-accelerate'
 
 const prisma = new PrismaClient({
   accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
 }).$extends(withAccelerate())
+
+type ProjectWithRelations = Prisma.ProjectGetPayload<{
+  include: {
+    company: true
+    phases: true
+  }
+}>
 
 export default async function AdminPage() {
   const session = await auth()
@@ -48,7 +55,7 @@ export default async function AdminPage() {
     prisma.company.count(),
   ])
 
-  const recentProjects = await prisma.project.findMany({
+  const recentProjects: ProjectWithRelations[] = await prisma.project.findMany({
     take: 5,
     orderBy: { updatedAt: 'desc' },
     include: {
