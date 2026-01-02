@@ -248,12 +248,31 @@ export default function AIProjectAssistant({
           <Sparkles size={20} className="text-white" />
           <h3 className="text-white font-bold">AI Project Assistant</h3>
         </div>
-        <button
-          onClick={() => setIsOpen(false)}
-          className="text-white/80 hover:text-white transition-colors"
-        >
-          <X size={20} />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              if (confirm('Start a new conversation? This will clear your current chat history.')) {
+                localStorage.removeItem(storageKey)
+                setMessages([{
+                  role: 'assistant',
+                  content: 'Hi! I\'m your AI project assistant. I can help you:\n\n• Generate project phases and tasks\n• Structure timelines\n• Suggest milestones\n• Create detailed task lists\n\nJust describe what kind of project you\'re building, and I\'ll help structure it!'
+                }])
+              }
+            }}
+            className="text-white/80 hover:text-white transition-colors p-1"
+            title="Start Over"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          </button>
+          <button
+            onClick={() => setIsOpen(false)}
+            className="text-white/80 hover:text-white transition-colors"
+          >
+            <X size={20} />
+          </button>
+        </div>
       </div>
 
       {/* Messages */}

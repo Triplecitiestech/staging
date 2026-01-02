@@ -132,7 +132,7 @@ export default async function ProjectDetailPage({
             </div>
             <div className="flex items-center gap-4">
               <Link
-                href={`/onboarding/${project.company.slug}`}
+                href={`/admin/preview/${project.company.slug}`}
                 target="_blank"
                 className="px-4 py-2 bg-cyan-500/20 border border-cyan-500/30 rounded-lg text-cyan-300 hover:bg-cyan-500/30 transition-all text-sm font-medium flex items-center gap-2"
               >
