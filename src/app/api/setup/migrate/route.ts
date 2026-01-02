@@ -3,15 +3,13 @@
 // Call this once after deploying to add missing columns
 
 import { NextResponse } from 'next/server'
-import { PrismaClient } from '@prisma/client'
-import { withAccelerate } from '@prisma/extension-accelerate'
 
-const prisma = new PrismaClient({
-  accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
-}).$extends(withAccelerate())
+export const dynamic = 'force-dynamic'
 
 export async function POST(request: Request) {
   try {
+    const { prisma } = await import('@/lib/prisma')
+
     // Security check - only allow in development or with secret token
     const authHeader = request.headers.get('authorization')
     const expectedToken = process.env.MIGRATION_SECRET || 'CHANGE_ME_BEFORE_DEPLOY'

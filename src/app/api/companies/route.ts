@@ -1,12 +1,8 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
-import { PrismaClient } from '@prisma/client'
-import { withAccelerate } from '@prisma/extension-accelerate'
 import bcrypt from 'bcryptjs'
 
-const prisma = new PrismaClient({
-  accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
-}).$extends(withAccelerate())
+export const dynamic = 'force-dynamic'
 
 // Generate secure random password
 function generatePassword(length = 16): string {
@@ -36,6 +32,7 @@ export async function POST(req: Request) {
   }
 
   try {
+    const { prisma } = await import('@/lib/prisma')
     const { displayName, primaryContact, contactEmail, contactTitle } = await req.json()
 
     // Generate and hash a temporary password
@@ -81,6 +78,7 @@ export async function DELETE(req: Request) {
   }
 
   try {
+    const { prisma } = await import('@/lib/prisma')
     const { searchParams } = new URL(req.url)
     const id = searchParams.get('id')
 
