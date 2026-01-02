@@ -56,13 +56,13 @@ export default async function AdminPage() {
     })
   ])
 
-  const completedProjects = await prisma.project.count({ where: { status: 'COMPLETE' } })
+  const completedProjects = await prisma.project.count({ where: { status: 'COMPLETED' } })
   const onHoldProjects = await prisma.project.count({ where: { status: 'ON_HOLD' } })
 
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'ACTIVE': return 'bg-green-500/20 text-green-300 border-green-500/30'
-      case 'COMPLETE': return 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+      case 'COMPLETED': return 'bg-blue-500/20 text-blue-300 border-blue-500/30'
       case 'ON_HOLD': return 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30'
       case 'CANCELLED': return 'bg-red-500/20 text-red-300 border-red-500/30'
       case 'NOT_STARTED': return 'bg-slate-500/20 text-slate-300 border-slate-500/30'
