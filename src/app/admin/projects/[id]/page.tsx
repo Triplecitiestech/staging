@@ -5,6 +5,7 @@ import { redirect, notFound } from 'next/navigation'
 import { PrismaClient, Prisma } from '@prisma/client'
 import { withAccelerate } from '@prisma/extension-accelerate'
 import PhaseCard from '@/components/projects/PhaseCard'
+import AIProjectAssistant from '@/components/admin/AIProjectAssistant'
 
 const prisma = new PrismaClient({
   accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
@@ -220,6 +221,15 @@ export default async function ProjectDetailPage({
           )}
         </div>
       </main>
+
+      {/* AI Assistant */}
+      <AIProjectAssistant
+        projectContext={{
+          projectName: project.title,
+          companyName: project.company.displayName,
+          description: `${getProjectTypeLabel(project.projectType)} project for ${project.company.displayName}`
+        }}
+      />
     </div>
   )
 }

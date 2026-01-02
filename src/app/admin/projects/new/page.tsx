@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation'
 import { PrismaClient } from '@prisma/client'
 import { withAccelerate } from '@prisma/extension-accelerate'
 import NewProjectForm from '@/components/projects/NewProjectForm'
+import AIProjectAssistant from '@/components/admin/AIProjectAssistant'
 
 const prisma = new PrismaClient({
   accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
@@ -85,6 +86,13 @@ export default async function NewProjectPage() {
           userEmail={session.user?.email || ''}
         />
       </main>
+
+      {/* AI Assistant */}
+      <AIProjectAssistant
+        projectContext={{
+          projectName: 'New Project'
+        }}
+      />
     </div>
   )
 }
