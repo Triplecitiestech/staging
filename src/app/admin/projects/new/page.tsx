@@ -2,15 +2,12 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
-import { PrismaClient } from '@prisma/client'
-import { withAccelerate } from '@prisma/extension-accelerate'
 import NewProjectForm from '@/components/projects/NewProjectForm'
 
-const prisma = new PrismaClient({
-  accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
-}).$extends(withAccelerate())
+export const dynamic = 'force-dynamic'
 
 export default async function NewProjectPage() {
+  const { prisma } = await import("@/lib/prisma")
   const session = await auth()
 
   if (!session) {

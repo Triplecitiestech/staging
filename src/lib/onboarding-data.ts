@@ -31,13 +31,8 @@ export async function validateCompanyPassword(companySlug: string, password: str
 
   // Check database for dynamically created companies
   try {
-    const { PrismaClient } = await import('@prisma/client')
-    const { withAccelerate } = await import('@prisma/extension-accelerate')
+    const { prisma } = await import('@/lib/prisma')
     const bcrypt = await import('bcryptjs')
-
-    const prisma = new PrismaClient({
-      accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
-    }).$extends(withAccelerate())
 
     const company = await prisma.company.findUnique({
       where: { slug: companySlug },
@@ -89,12 +84,7 @@ export async function companyExists(companySlug: string): Promise<boolean> {
 
   // Then check the database for dynamically created companies
   try {
-    const { PrismaClient } = await import('@prisma/client')
-    const { withAccelerate } = await import('@prisma/extension-accelerate')
-
-    const prisma = new PrismaClient({
-      accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
-    }).$extends(withAccelerate())
+    const { prisma } = await import('@/lib/prisma')
 
     const company = await prisma.company.findUnique({
       where: { slug: companySlug }

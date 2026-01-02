@@ -2,15 +2,11 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
-import { PrismaClient } from '@prisma/client'
-import { withAccelerate } from '@prisma/extension-accelerate'
 import CompanyList from '@/components/companies/CompanyList'
 
-const prisma = new PrismaClient({
-  accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
-}).$extends(withAccelerate())
 
 export default async function CompaniesPage() {
+  const { prisma } = await import("@/lib/prisma")
   const session = await auth()
 
   if (!session) {
