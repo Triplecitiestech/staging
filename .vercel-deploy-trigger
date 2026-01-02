@@ -1,2 +1,3 @@
-Deploy timestamp: 2026-01-02 04:29:30
-Deploying automated blog system
+Deploy timestamp: 2026-01-02 05:50:00
+FORCE DEPLOYMENT with verified build fixes
+All Prisma imports are dynamic - build succeeds
