@@ -3,7 +3,7 @@
 
 set -e
 
-BRANCH="claude/review-website-issues-01BHnzh8LZ7mPDR2aYGwb8po"
+BRANCH="claude/automated-blog-sharing-p8YSC"
 MAIN_BRANCH="main"
 SITE_URL="https://www.triplecitiestech.com"
 
@@ -31,11 +31,17 @@ fi
 # 4. Create PR if it doesn't exist
 echo "🔀 Creating/updating pull request..."
 PR_URL=$(gh pr create --base "$MAIN_BRANCH" --head "$BRANCH" \
-  --title "Auto-deploy: Database migrations and bug fixes" \
+  --title "Auto-deploy: Automated Blog System with AI Content Generation" \
   --body "Automated deployment with:
-- Database migration system
-- Server error fixes
-- Invite system improvements
+- Complete automated blog system with AI-powered content generation
+- Multi-platform social media sharing (Facebook, Instagram, LinkedIn)
+- Email approval workflow with one-click approval
+- One-click setup interface at /blog/setup
+- Automatic database migration system
+- SEO optimization and schema.org markup
+- Scheduled content generation (Mon/Wed/Fri)
+
+Visit /blog after deployment to run automatic setup.
 
 This PR is auto-generated and will be auto-merged after verification." \
   2>&1 | grep -o 'https://github.com[^ ]*' || gh pr view "$BRANCH" --json url -q .url 2>&1 || echo "")
@@ -78,9 +84,24 @@ else
   echo "⚠️  Migration response: $MIGRATION_RESPONSE"
 fi
 
+# Test blog pages
+if curl -sf "$SITE_URL/blog" > /dev/null; then
+  echo "✅ Blog page is live"
+else
+  echo "❌ Blog page failed"
+fi
+
+if curl -sf "$SITE_URL/blog/setup" > /dev/null; then
+  echo "✅ Blog setup page is live"
+else
+  echo "❌ Blog setup page failed"
+fi
+
 echo ""
 echo "🎉 Deployment pipeline complete!"
 echo "🌐 Site: $SITE_URL"
 echo "📊 Check these URLs:"
+echo "   - $SITE_URL/blog (Blog - will show setup page)"
+echo "   - $SITE_URL/blog/setup (One-click setup)"
 echo "   - $SITE_URL/admin/companies"
 echo "   - $SITE_URL/admin/projects"
