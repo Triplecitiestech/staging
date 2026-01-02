@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import StatusDropdown from './StatusDropdown'
+import TaskStatusDropdown from './TaskStatusDropdown'
 
 interface Task {
   id: string
@@ -10,6 +11,7 @@ interface Task {
   completed: boolean
   notes?: string | null
   orderIndex: number
+  status?: string
 }
 
 interface Phase {
@@ -85,6 +87,20 @@ export default function PhaseCard({ phase, index }: { phase: Phase; index: numbe
       router.refresh()
     } catch {
       alert('Failed to update task')
+    }
+  }
+
+  const deletePhase = async () => {
+    if (!confirm('Are you sure you want to delete this phase? All tasks will also be deleted.')) return
+
+    try {
+      const res = await fetch(`/api/phases/${phase.id}`, {
+        method: 'DELETE',
+      })
+      if (!res.ok) throw new Error()
+      router.refresh()
+    } catch {
+      alert('Failed to delete phase')
     }
   }
 
@@ -174,6 +190,7 @@ export default function PhaseCard({ phase, index }: { phase: Phase; index: numbe
             <>
               <button onClick={savePhase} className="text-green-400 hover:text-green-300 text-sm px-2">Save</button>
               <button onClick={() => setEditing(false)} className="text-slate-400 hover:text-slate-300 text-sm px-2">Cancel</button>
+              <button onClick={deletePhase} className="text-red-400 hover:text-red-300 text-sm px-2">Delete</button>
             </>
           ) : (
             <button onClick={() => setEditing(true)} className="text-cyan-400 hover:text-cyan-300 text-sm px-2">Edit</button>
@@ -230,12 +247,17 @@ export default function PhaseCard({ phase, index }: { phase: Phase; index: numbe
                           autoFocus
                         />
                       ) : (
-                        <span
-                          onClick={() => setEditingTask(task.id)}
-                          className={`cursor-pointer text-sm ${task.completed ? 'text-slate-400 line-through' : 'text-slate-300'}`}
-                        >
-                          {task.taskText}
-                        </span>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span
+                            onClick={() => setEditingTask(task.id)}
+                            className={`cursor-pointer text-sm ${task.completed ? 'text-slate-400 line-through' : 'text-slate-300'}`}
+                          >
+                            {task.taskText}
+                          </span>
+                          {task.status && (
+                            <TaskStatusDropdown taskId={task.id} currentStatus={task.status} />
+                          )}
+                        </div>
                       )}
                       {task.notes && <p className="text-xs text-slate-500 mt-1 italic">{task.notes}</p>}
                     </div>
