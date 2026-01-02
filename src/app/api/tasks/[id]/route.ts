@@ -43,9 +43,9 @@ export async function PATCH(
         where: { id },
         data: updateData
       })
-    } catch (dbError) {
+    } catch {
       // If notes column doesn't exist, try without it
-      const { notes, ...updateWithoutNotes } = updateData
+      const { notes: _notes, ...updateWithoutNotes } = updateData
       task = await prisma.phaseTask.update({
         where: { id },
         data: updateWithoutNotes,
