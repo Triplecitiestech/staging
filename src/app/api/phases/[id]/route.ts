@@ -58,6 +58,7 @@ export async function DELETE(
   }
 
   try {
+    const { prisma } = await import("@/lib/prisma")
     const { id } = await params
 
     // Verify phase exists
