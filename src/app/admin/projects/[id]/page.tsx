@@ -2,13 +2,10 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { auth } from '@/auth'
 import { redirect, notFound } from 'next/navigation'
-import { PrismaClient, Prisma } from '@prisma/client'
-import { withAccelerate } from '@prisma/extension-accelerate'
 import PhaseCard from '@/components/projects/PhaseCard'
+import { Prisma } from '@prisma/client'
 
-const prisma = new PrismaClient({
-  accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
-}).$extends(withAccelerate())
+export const dynamic = 'force-dynamic'
 
 type ProjectWithRelations = Prisma.ProjectGetPayload<{
   include: {
@@ -23,10 +20,11 @@ type ProjectWithRelations = Prisma.ProjectGetPayload<{
 }>
 
 export default async function ProjectDetailPage({
-  params,
+  params
 }: {
   params: Promise<{ id: string }>
 }) {
+  const { prisma } = await import("@/lib/prisma")
   const session = await auth()
 
   if (!session) {
