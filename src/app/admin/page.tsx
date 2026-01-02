@@ -116,7 +116,7 @@ export default async function AdminPage() {
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         {/* Welcome Section */}
-        <div className="mb-8">
+        <div className="mb-8 text-center">
           <h2 className="text-3xl font-bold text-white mb-2">Welcome back, {session.user?.name?.split(' ')[0]}!</h2>
           <p className="text-slate-400">Here's what's happening with your projects</p>
         </div>
@@ -284,7 +284,7 @@ export default async function AdminPage() {
         {/* Quick Actions */}
         <div>
           <h2 className="text-xl font-bold text-white mb-6">Quick Actions</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <Link
               href="/admin/projects/new"
               className="group relative p-6 bg-gradient-to-br from-cyan-600/20 to-cyan-500/10 hover:from-cyan-600/30 hover:to-cyan-500/20 backdrop-blur-sm border border-cyan-500/30 hover:border-cyan-400/50 rounded-lg transition-all duration-300 hover:scale-105"
@@ -337,6 +337,24 @@ export default async function AdminPage() {
               </div>
               <h3 className="text-lg font-bold text-white mb-2">Manage Companies</h3>
               <p className="text-sm text-slate-300">View all clients</p>
+            </Link>
+
+            <Link
+              href="/admin/projects"
+              className="group relative p-6 bg-gradient-to-br from-orange-600/20 to-orange-500/10 hover:from-orange-600/30 hover:to-orange-500/20 backdrop-blur-sm border border-orange-500/30 hover:border-orange-400/50 rounded-lg transition-all duration-300 hover:scale-105"
+            >
+              <div className="flex items-start justify-between mb-4">
+                <div className="p-3 bg-orange-500/20 rounded-lg">
+                  <svg className="w-6 h-6 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                  </svg>
+                </div>
+                <svg className="w-5 h-5 text-orange-400 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-bold text-white mb-2">Manage Projects</h3>
+              <p className="text-sm text-slate-300">View and edit all projects</p>
             </Link>
           </div>
         </div>
