@@ -1,10 +1,10 @@
 import { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { prisma } from '@/lib/prisma';
 import ReactMarkdown from 'react-markdown';
 
 export const revalidate = 60; // ISR revalidation
+export const dynamic = 'force-dynamic';
 
 interface BlogPostPageProps {
   params: Promise<{
@@ -13,60 +13,77 @@ interface BlogPostPageProps {
 }
 
 export async function generateMetadata({ params }: BlogPostPageProps): Promise<Metadata> {
-  const { slug } = await params;
-  const post = await prisma.blogPost.findUnique({
-    where: {
-      slug: slug,
-      status: 'PUBLISHED'
-    },
-    include: {
-      category: true,
-      author: true
+  try {
+    const { prisma } = await import('@/lib/prisma');
+    const { slug } = await params;
+    const post = await prisma.blogPost.findUnique({
+      where: {
+        slug: slug,
+        status: 'PUBLISHED'
+      },
+      include: {
+        category: true,
+        author: true
+      }
+    });
+
+    if (!post) {
+      return {
+        title: 'Post Not Found'
+      };
     }
-  });
 
-  if (!post) {
     return {
-      title: 'Post Not Found'
-    };
-  }
-
-  return {
-    title: post.metaTitle || post.title,
-    description: post.metaDescription || post.excerpt,
-    keywords: post.keywords.join(', '),
-    openGraph: {
       title: post.metaTitle || post.title,
       description: post.metaDescription || post.excerpt,
-      type: 'article',
-      publishedTime: post.publishedAt?.toISOString(),
-      authors: [post.author?.name || 'Triple Cities Tech'],
-      tags: post.keywords
-    },
-    twitter: {
-      card: 'summary_large_image',
-      title: post.metaTitle || post.title,
-      description: post.metaDescription || post.excerpt
-    }
-  };
+      keywords: post.keywords.join(', '),
+      openGraph: {
+        title: post.metaTitle || post.title,
+        description: post.metaDescription || post.excerpt,
+        type: 'article',
+        publishedTime: post.publishedAt?.toISOString(),
+        authors: [post.author?.name || 'Triple Cities Tech'],
+        tags: post.keywords
+      },
+      twitter: {
+        card: 'summary_large_image',
+        title: post.metaTitle || post.title,
+        description: post.metaDescription || post.excerpt
+      }
+    };
+  } catch (error) {
+    // During build, database might not be available
+    console.warn('Could not generate metadata for blog post:', error);
+    return {
+      title: 'Blog Post | Triple Cities Tech'
+    };
+  }
 }
 
 export async function generateStaticParams() {
-  const posts = await prisma.blogPost.findMany({
-    where: {
-      status: 'PUBLISHED'
-    },
-    select: {
-      slug: true
-    }
-  });
+  try {
+    const { prisma } = await import('@/lib/prisma');
+    const posts = await prisma.blogPost.findMany({
+      where: {
+        status: 'PUBLISHED'
+      },
+      select: {
+        slug: true
+      }
+    });
 
-  return posts.map((post) => ({
-    slug: post.slug
-  }));
+    return posts.map((post) => ({
+      slug: post.slug
+    }));
+  } catch (error) {
+    // During build, database might not be available
+    console.warn('Could not generate static params for blog posts:', error);
+    return [];
+  }
 }
 
 export default async function BlogPostPage({ params }: BlogPostPageProps) {
+  const { prisma } = await import('@/lib/prisma');
   const { slug } = await params;
   const post = await prisma.blogPost.findUnique({
     where: {

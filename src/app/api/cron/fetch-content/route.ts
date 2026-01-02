@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { contentCurator } from '@/lib/content-curator';
-import { prisma } from '@/lib/prisma';
+
+// Disable static generation for this API route
+export const dynamic = 'force-dynamic';
 
 /**
  * Cron endpoint to fetch latest content from RSS feeds
@@ -11,6 +13,9 @@ import { prisma } from '@/lib/prisma';
  */
 export async function POST(request: NextRequest) {
   try {
+    // Dynamic import to prevent Prisma loading during build
+    const { prisma } = await import('@/lib/prisma');
+
     // Verify cron secret
     const authHeader = request.headers.get('authorization');
     const secret = process.env.BLOG_CRON_SECRET;

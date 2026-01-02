@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
 import { createSocialMediaPublisher, type PublishResult } from '@/lib/social-publisher';
 import type { BlogPostDraft } from '@/lib/blog-generator';
 import { Resend } from 'resend';
@@ -18,6 +17,9 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
  */
 export async function POST(request: NextRequest) {
   try {
+    // Dynamic import to prevent Prisma loading during build
+    const { prisma } = await import('@/lib/prisma');
+
     // Verify cron secret
     const authHeader = request.headers.get('authorization');
     const secret = process.env.BLOG_CRON_SECRET;

@@ -1,6 +1,5 @@
 import { Metadata } from 'next';
 import Link from 'next/link';
-import { prisma } from '@/lib/prisma';
 
 export const metadata: Metadata = {
   title: 'Blog | Triple Cities Tech - Cybersecurity & IT Insights',
@@ -13,6 +12,7 @@ export const metadata: Metadata = {
 };
 
 export const revalidate = 60; // Revalidate every 60 seconds (ISR)
+export const dynamic = 'force-dynamic';
 
 interface PostWithRelations {
   id: string;
@@ -33,6 +33,9 @@ interface CategoryWithCount {
 }
 
 export default async function BlogPage() {
+  // Dynamic import to prevent Prisma loading during build
+  const { prisma } = await import('@/lib/prisma');
+
   // Check if blog system is set up
   let posts: PostWithRelations[] = [];
   let categories: CategoryWithCount[] = [];
