@@ -15,35 +15,70 @@ export const metadata: Metadata = {
 export const revalidate = 60; // Revalidate every 60 seconds (ISR)
 
 export default async function BlogPage() {
-  // Fetch published blog posts
-  const posts = await prisma.blogPost.findMany({
-    where: {
-      status: 'PUBLISHED'
-    },
-    include: {
-      category: true,
-      author: true
-    },
-    orderBy: {
-      publishedAt: 'desc'
-    },
-    take: 20
-  });
+  // Check if blog system is set up
+  let posts: any[] = [];
+  let categories: any[] = [];
+  let needsSetup = false;
 
-  // Fetch categories for sidebar
-  const categories = await prisma.blogCategory.findMany({
-    include: {
-      _count: {
-        select: {
-          posts: {
-            where: {
-              status: 'PUBLISHED'
+  try {
+    // Fetch published blog posts
+    posts = await prisma.blogPost.findMany({
+      where: {
+        status: 'PUBLISHED'
+      },
+      include: {
+        category: true,
+        author: true
+      },
+      orderBy: {
+        publishedAt: 'desc'
+      },
+      take: 20
+    });
+
+    // Fetch categories for sidebar
+    categories = await prisma.blogCategory.findMany({
+      include: {
+        _count: {
+          select: {
+            posts: {
+              where: {
+                status: 'PUBLISHED'
+              }
             }
           }
         }
       }
-    }
-  });
+    });
+  } catch (error) {
+    // Database tables don't exist, redirect to setup
+    needsSetup = true;
+  }
+
+  // If blog system not set up, show setup prompt
+  if (needsSetup || categories.length === 0) {
+    return (
+      <main className="min-h-screen bg-gradient-to-br from-purple-600 via-blue-600 to-indigo-700 py-20">
+        <div className="container mx-auto px-4">
+          <div className="max-w-2xl mx-auto bg-white rounded-2xl shadow-2xl p-8 text-center">
+            <div className="text-6xl mb-6">🚀</div>
+            <h1 className="text-3xl font-bold text-gray-900 mb-4">
+              Blog System Setup Required
+            </h1>
+            <p className="text-gray-600 mb-8">
+              The automated blog system needs to be set up. This only takes 30 seconds!
+            </p>
+            <a
+              href="/blog/setup"
+              className="inline-block bg-gradient-to-r from-purple-600 to-blue-600 text-white px-8 py-4 rounded-lg text-lg font-semibold hover:shadow-lg transform hover:scale-105 transition-all duration-200"
+            >
+              Run Automatic Setup
+            </a>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-white to-gray-50">
