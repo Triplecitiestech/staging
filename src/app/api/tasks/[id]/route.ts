@@ -27,6 +27,12 @@ export async function PATCH(
       notes?: string | null
       completedBy?: string | null
       completedAt?: Date | null
+      status?: string
+      isVisibleToCustomer?: boolean
+      assignedTo?: string | null
+      assignedToName?: string | null
+      dueDate?: Date | null
+      priority?: string
     } = {}
 
     if (data.taskText !== undefined) updateData.taskText = data.taskText
@@ -36,6 +42,14 @@ export async function PATCH(
       updateData.completedAt = data.completed ? new Date() : null
     }
     if (data.notes !== undefined) updateData.notes = data.notes
+
+    // New fields for enhanced task management
+    if (data.status !== undefined) updateData.status = data.status
+    if (data.isVisibleToCustomer !== undefined) updateData.isVisibleToCustomer = data.isVisibleToCustomer
+    if (data.assignedTo !== undefined) updateData.assignedTo = data.assignedTo
+    if (data.assignedToName !== undefined) updateData.assignedToName = data.assignedToName
+    if (data.dueDate !== undefined) updateData.dueDate = data.dueDate ? new Date(data.dueDate) : null
+    if (data.priority !== undefined) updateData.priority = data.priority
 
     let task
     try {
