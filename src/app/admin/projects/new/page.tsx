@@ -2,12 +2,16 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
+import { PrismaClient } from '@prisma/client'
+import { withAccelerate } from '@prisma/extension-accelerate'
 import NewProjectForm from '@/components/projects/NewProjectForm'
+import AIProjectAssistant from '@/components/admin/AIProjectAssistant'
 
-export const dynamic = 'force-dynamic'
+const prisma = new PrismaClient({
+  accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
+}).$extends(withAccelerate())
 
 export default async function NewProjectPage() {
-  const { prisma } = await import("@/lib/prisma")
   const session = await auth()
 
   if (!session) {
@@ -82,6 +86,13 @@ export default async function NewProjectPage() {
           userEmail={session.user?.email || ''}
         />
       </main>
+
+      {/* AI Assistant */}
+      <AIProjectAssistant
+        projectContext={{
+          projectName: 'New Project'
+        }}
+      />
     </div>
   )
 }
