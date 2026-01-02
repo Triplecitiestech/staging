@@ -30,13 +30,22 @@ export async function POST(req: NextRequest) {
     }
 
     if (!anthropic) {
+      console.error('AI Chat error: Anthropic API key not configured')
       return NextResponse.json({
-        error: 'AI service not configured'
+        error: 'AI service not configured. Please check ANTHROPIC_API_KEY environment variable.'
       }, { status: 500 })
     }
 
     const body: ChatRequest = await req.json()
     const { messages, projectContext } = body
+
+    if (!messages || messages.length === 0) {
+      return NextResponse.json({
+        error: 'No messages provided'
+      }, { status: 400 })
+    }
+
+    console.log('[AI Chat] Processing request with', messages.length, 'messages')
 
     // Build system prompt with project context
     const systemPrompt = `You are an expert project management assistant helping to structure IT service projects. Your role is to help create detailed project phases, tasks, and timelines.
@@ -79,6 +88,8 @@ Always format project structures as valid JSON that can be copied and used direc
       content: msg.content
     }))
 
+    console.log('[AI Chat] Calling Anthropic API...')
+
     // Call Anthropic API
     const response = await anthropic.messages.create({
       model: 'claude-3-5-sonnet-20241022',
@@ -86,6 +97,8 @@ Always format project structures as valid JSON that can be copied and used direc
       system: systemPrompt,
       messages: anthropicMessages
     })
+
+    console.log('[AI Chat] Received response, usage:', response.usage)
 
     // Extract the assistant's response
     const assistantMessage = response.content[0]
@@ -97,10 +110,32 @@ Always format project structures as valid JSON that can be copied and used direc
     })
 
   } catch (error) {
-    console.error('AI Chat error:', error)
+    console.error('[AI Chat] Error details:', {
+      error,
+      message: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
+    })
+
+    // Provide more specific error messages
+    let errorMessage = 'Failed to process chat request'
+    let statusCode = 500
+
+    if (error instanceof Error) {
+      if (error.message.includes('API key')) {
+        errorMessage = 'Invalid API key configuration'
+      } else if (error.message.includes('rate limit')) {
+        errorMessage = 'Rate limit exceeded. Please try again in a moment.'
+        statusCode = 429
+      } else if (error.message.includes('network') || error.message.includes('fetch')) {
+        errorMessage = 'Network error. Please check your connection and try again.'
+      } else {
+        errorMessage = `AI service error: ${error.message}`
+      }
+    }
+
     return NextResponse.json(
-      { error: 'Failed to process chat request' },
-      { status: 500 }
+      { error: errorMessage },
+      { status: statusCode }
     )
   }
 }
