@@ -394,7 +394,7 @@ function convertMarkdownToHtml(markdown: string): string {
   html = html.replace(/^- (.*$)/gim, '<li>$1</li>');
 
   // Wrap lists
-  html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+  html = html.replace(/(<li>[\s\S]*?<\/li>)/g, '<ul>$1</ul>');
 
   // Line breaks
   html = html.replace(/\n\n/g, '</p><p>');

@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
+// Disable static generation for this API route
+export const dynamic = 'force-dynamic';
+
 /**
  * Verify blog system configuration
  * GET /api/blog/setup/verify

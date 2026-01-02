@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
+// Disable static generation for this API route
+export const dynamic = 'force-dynamic';
+
 /**
  * Automatic database migration for blog system
  * Creates all necessary tables and indexes

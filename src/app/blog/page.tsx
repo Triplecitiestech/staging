@@ -14,10 +14,28 @@ export const metadata: Metadata = {
 
 export const revalidate = 60; // Revalidate every 60 seconds (ISR)
 
+interface PostWithRelations {
+  id: string;
+  title: string;
+  slug: string;
+  excerpt: string;
+  publishedAt: Date | null;
+  featuredImage: string | null;
+  category: { name: string; slug: string } | null;
+  author: { name: string } | null;
+}
+
+interface CategoryWithCount {
+  id: string;
+  name: string;
+  slug: string;
+  _count: { posts: number };
+}
+
 export default async function BlogPage() {
   // Check if blog system is set up
-  let posts: any[] = [];
-  let categories: any[] = [];
+  let posts: PostWithRelations[] = [];
+  let categories: CategoryWithCount[] = [];
   let needsSetup = false;
 
   try {
@@ -50,7 +68,7 @@ export default async function BlogPage() {
         }
       }
     });
-  } catch (error) {
+  } catch {
     // Database tables don't exist, redirect to setup
     needsSetup = true;
   }
@@ -68,12 +86,12 @@ export default async function BlogPage() {
             <p className="text-gray-600 mb-8">
               The automated blog system needs to be set up. This only takes 30 seconds!
             </p>
-            <a
+            <Link
               href="/blog/setup"
               className="inline-block bg-gradient-to-r from-purple-600 to-blue-600 text-white px-8 py-4 rounded-lg text-lg font-semibold hover:shadow-lg transform hover:scale-105 transition-all duration-200"
             >
               Run Automatic Setup
-            </a>
+            </Link>
           </div>
         </div>
       </main>

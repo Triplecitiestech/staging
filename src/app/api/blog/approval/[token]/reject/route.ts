@@ -7,10 +7,10 @@ import { prisma } from '@/lib/prisma';
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { token: string } }
+  { params }: { params: Promise<{ token: string }> }
 ) {
   try {
-    const { token } = params;
+    const { token } = await params;
     const { searchParams } = new URL(request.url);
     const reason = searchParams.get('reason') || 'No reason provided';
 
@@ -97,10 +97,10 @@ export async function GET(
  */
 export async function POST(
   request: NextRequest,
-  { params }: { params: { token: string } }
+  { params }: { params: Promise<{ token: string }> }
 ) {
   try {
-    const { token } = params;
+    const { token } = await params;
     const formData = await request.formData();
     const reason = formData.get('reason') as string || 'No reason provided';
 
