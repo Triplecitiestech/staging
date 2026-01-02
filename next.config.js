@@ -1,9 +1,5 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Enable instrumentation for automatic migrations
-  experimental: {
-    instrumentationHook: true,
-  },
   // Webpack configuration
   webpack: (config, { isServer }) => {
     if (isServer) {

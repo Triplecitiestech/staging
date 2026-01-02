@@ -14,14 +14,14 @@ datasource db {
 // ============================================
 
 model StaffUser {
-  id            String   @id @default(uuid())
-  email         String   @unique
-  name          String
-  role          StaffRole @default(VIEWER)
-  isActive      Boolean  @default(true)
-  lastLogin     DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id        String    @id @default(uuid())
+  email     String    @unique
+  name      String
+  role      StaffRole @default(VIEWER)
+  isActive  Boolean   @default(true)
+  lastLogin DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   // Relations
   projectsCreated   Project[] @relation("CreatedBy")
@@ -34,9 +34,9 @@ model StaffUser {
 }
 
 enum StaffRole {
-  ADMIN      // Full control - can manage staff, delete projects
-  MANAGER    // Can create/edit projects and templates
-  VIEWER     // Read-only access to admin dashboard
+  ADMIN // Full control - can manage staff, delete projects
+  MANAGER // Can create/edit projects and templates
+  VIEWER // Read-only access to admin dashboard
 }
 
 // ============================================
@@ -99,55 +99,55 @@ model VerificationToken {
 // ============================================
 
 model Company {
-  id              String   @id @default(uuid())
-  slug            String   @unique // URL-friendly: 'acme-manufacturing'
-  displayName     String            // 'Acme Manufacturing'
-  primaryContact  String?
-  contactTitle    String?
-  contactEmail    String?
-  passwordHash    String            // bcrypt hash for customer portal access
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id             String   @id @default(uuid())
+  slug           String   @unique // URL-friendly: 'acme-manufacturing'
+  displayName    String // 'Acme Manufacturing'
+  primaryContact String?
+  contactTitle   String?
+  contactEmail   String?
+  passwordHash   String // bcrypt hash for customer portal access
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   // Relations
-  projects        Project[]
+  projects Project[]
 
   @@map("companies")
 }
 
 model Project {
-  id                String      @id @default(uuid())
+  id                String        @id @default(uuid())
   companyId         String
   projectType       ProjectType
-  title             String              // 'Microsoft 365 Migration & Security'
-  slug              String      @unique // 'acme-manufacturing-m365-migration'
-  currentPhaseId    String?             // Track which phase they're on
+  title             String // 'Microsoft 365 Migration & Security'
+  slug              String        @unique // 'acme-manufacturing-m365-migration'
+  currentPhaseId    String? // Track which phase they're on
   status            ProjectStatus @default(ACTIVE)
-  estimatedDuration String?             // '30 days', '6 weeks'
+  estimatedDuration String? // '30 days', '6 weeks'
   startedAt         DateTime?
   completedAt       DateTime?
-  createdBy         String              // Staff email
-  lastModifiedBy    String              // Staff email
-  aiGenerated       Boolean    @default(false)
-  generationPrompt  String?    @db.Text // Original prompt sent to Claude API
-  createdAt         DateTime   @default(now())
-  updatedAt         DateTime   @updatedAt
+  createdBy         String // Staff email
+  lastModifiedBy    String // Staff email
+  aiGenerated       Boolean       @default(false)
+  generationPrompt  String?       @db.Text // Original prompt sent to Claude API
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
 
   // Relations
-  company           Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  creator           StaffUser  @relation("CreatedBy", fields: [createdBy], references: [email])
-  modifier          StaffUser  @relation("ModifiedBy", fields: [lastModifiedBy], references: [email])
-  phases            Phase[]
-  auditLogs         AuditLog[]
+  company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  creator   StaffUser  @relation("CreatedBy", fields: [createdBy], references: [email])
+  modifier  StaffUser  @relation("ModifiedBy", fields: [lastModifiedBy], references: [email])
+  phases    Phase[]
+  auditLogs AuditLog[]
 
   @@map("projects")
 }
 
 enum ProjectType {
-  ONBOARDING         // New client onboarding
-  M365_MIGRATION     // Microsoft 365 migration
-  FORTRESS           // TCT Fortress security implementation
-  CUSTOM             // Custom project
+  ONBOARDING // New client onboarding
+  M365_MIGRATION // Microsoft 365 migration
+  FORTRESS // TCT Fortress security implementation
+  CUSTOM // Custom project
 }
 
 enum ProjectStatus {
@@ -162,26 +162,32 @@ enum ProjectStatus {
 // ============================================
 
 model Phase {
-  id              String     @id @default(uuid())
-  projectId       String
-  title           String
-  description     String?    @db.Text
-  status          PhaseStatus @default(NOT_STARTED)
-  owner           PhaseOwner?
-  estimatedDays   Int?
-  scheduledDate   DateTime?
-  completedDate   DateTime?
-  orderIndex      Int                 // For sorting (1, 2, 3...)
-  customerNotes   String?    @db.Text // Visible to customer
-  internalNotes   String?    @db.Text // STAFF ONLY - hidden from customer
-  nextAction      String?    @db.Text
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+  id            String      @id @default(uuid())
+  projectId     String
+  title         String
+  description   String?     @db.Text
+  status        PhaseStatus @default(NOT_STARTED)
+  owner         PhaseOwner?
+  estimatedDays Int?
+  scheduledDate DateTime?
+  completedDate DateTime?
+  orderIndex    Int // For sorting (1, 2, 3...)
+  customerNotes String?     @db.Text // Visible to customer
+  internalNotes String?     @db.Text // STAFF ONLY - hidden from customer
+  nextAction    String?     @db.Text
+
+  // New fields for enhanced phase management
+  isVisibleToCustomer Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  project         Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  tasks           PhaseTask[]
-  auditLogs       AuditLog[]
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks       PhaseTask[]
+  auditLogs   AuditLog[]
+  comments    Comment[]
+  assignments Assignment[]
 
   @@map("phases")
 }
@@ -202,21 +208,120 @@ enum PhaseOwner {
   BOTH
 }
 
+enum TaskStatus {
+  NOT_STARTED
+  ASSIGNED
+  WORK_IN_PROGRESS
+  WAITING_ON_VENDOR
+  WAITING_ON_CLIENT
+  NEEDS_REVIEW
+  STUCK
+  INFORMATION_RECEIVED
+  REVIEWED_AND_DONE
+  ITG_DOCUMENTED
+  NOT_APPLICABLE
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
 model PhaseTask {
-  id           String    @id @default(uuid())
-  phaseId      String
-  taskText     String    @db.Text
-  completed    Boolean   @default(false)
-  completedBy  String?           // Staff email
-  completedAt  DateTime?
-  notes        String?   @db.Text
-  orderIndex   Int               // For sorting
-  createdAt    DateTime  @default(now())
+  id          String    @id @default(uuid())
+  phaseId     String
+  taskText    String    @db.Text
+  completed   Boolean   @default(false)
+  completedBy String? // Staff email
+  completedAt DateTime?
+  notes       String?   @db.Text
+  orderIndex  Int // For sorting
+
+  // New fields for enhanced task management
+  status              TaskStatus @default(NOT_STARTED)
+  isVisibleToCustomer Boolean    @default(true)
+  assignedTo          String? // Primary assignee email
+  assignedToName      String? // Primary assignee display name
+  dueDate             DateTime?
+  priority            Priority   @default(MEDIUM)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  phase        Phase     @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  phase       Phase        @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  comments    Comment[]
+  assignments Assignment[]
 
   @@map("phase_tasks")
+}
+
+// ============================================
+// COMMENTS SYSTEM
+// ============================================
+
+model Comment {
+  id          String   @id @default(uuid())
+  phaseId     String?
+  taskId      String?
+  content     String   @db.Text
+  isInternal  Boolean  @default(false) // true = staff only, false = customer can see
+  authorEmail String // Staff email or "customer"
+  authorName  String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  phase Phase?     @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  task  PhaseTask? @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@map("comments")
+}
+
+// ============================================
+// ASSIGNMENTS & NOTIFICATIONS
+// ============================================
+
+enum NotificationType {
+  ASSIGNMENT
+  COMMENT
+  STATUS_CHANGE
+  MENTION
+}
+
+model Assignment {
+  id            String   @id @default(uuid())
+  phaseId       String?
+  taskId        String?
+  assigneeEmail String // M365 user email
+  assigneeName  String
+  assignedBy    String // Staff email who made assignment
+  assignedAt    DateTime @default(now())
+
+  // Relations
+  phase Phase?     @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  task  PhaseTask? @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([phaseId, assigneeEmail])
+  @@unique([taskId, assigneeEmail])
+  @@map("assignments")
+}
+
+model Notification {
+  id             String           @id @default(uuid())
+  recipientEmail String
+  type           NotificationType
+  entityType     String // 'phase', 'task', 'comment'
+  entityId       String
+  title          String
+  message        String           @db.Text
+  isRead         Boolean          @default(false)
+  linkUrl        String?
+  createdAt      DateTime         @default(now())
+
+  @@map("notifications")
 }
 
 // ============================================
@@ -224,22 +329,22 @@ model PhaseTask {
 // ============================================
 
 model AuditLog {
-  id          String   @id @default(uuid())
-  projectId   String
-  phaseId     String?
-  staffEmail  String
-  staffName   String?
-  staffRole   StaffRole?
-  actionType  AuditAction
-  entityType  String          // 'project', 'phase', 'task'
-  changes     Json?           // { before: {...}, after: {...} }
-  notes       String?  @db.Text
-  createdAt   DateTime @default(now())
+  id         String      @id @default(uuid())
+  projectId  String
+  phaseId    String?
+  staffEmail String
+  staffName  String?
+  staffRole  StaffRole?
+  actionType AuditAction
+  entityType String // 'project', 'phase', 'task'
+  changes    Json? // { before: {...}, after: {...} }
+  notes      String?     @db.Text
+  createdAt  DateTime    @default(now())
 
   // Relations
-  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  phase       Phase?   @relation(fields: [phaseId], references: [id], onDelete: SetNull)
-  staff       StaffUser @relation(fields: [staffEmail], references: [email])
+  project Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  phase   Phase?    @relation(fields: [phaseId], references: [id], onDelete: SetNull)
+  staff   StaffUser @relation(fields: [staffEmail], references: [email])
 
   @@map("audit_logs")
 }
@@ -260,17 +365,17 @@ enum AuditAction {
 
 model ProjectTemplate {
   id          String      @id @default(uuid())
-  name        String              // 'M365 Migration', 'TCT Fortress Onboarding'
+  name        String // 'M365 Migration', 'TCT Fortress Onboarding'
   description String?     @db.Text
   projectType ProjectType
-  phasesJson  Json                // Pre-defined phase structure
-  createdBy   String              // Staff email
+  phasesJson  Json // Pre-defined phase structure
+  createdBy   String // Staff email
   isActive    Boolean     @default(true)
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
   // Relations
-  creator     StaffUser   @relation(fields: [createdBy], references: [email])
+  creator StaffUser @relation(fields: [createdBy], references: [email])
 
   @@map("project_templates")
 }

@@ -2,10 +2,14 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { auth } from '@/auth'
 import { redirect, notFound } from 'next/navigation'
+import { PrismaClient, Prisma } from '@prisma/client'
+import { withAccelerate } from '@prisma/extension-accelerate'
 import PhaseCard from '@/components/projects/PhaseCard'
-import { Prisma } from '@prisma/client'
+import AIProjectAssistant from '@/components/admin/AIProjectAssistant'
 
-export const dynamic = 'force-dynamic'
+const prisma = new PrismaClient({
+  accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
+}).$extends(withAccelerate())
 
 type ProjectWithRelations = Prisma.ProjectGetPayload<{
   include: {
@@ -20,11 +24,10 @@ type ProjectWithRelations = Prisma.ProjectGetPayload<{
 }>
 
 export default async function ProjectDetailPage({
-  params
+  params,
 }: {
   params: Promise<{ id: string }>
 }) {
-  const { prisma } = await import("@/lib/prisma")
   const session = await auth()
 
   if (!session) {
@@ -129,6 +132,17 @@ export default async function ProjectDetailPage({
             </div>
             <div className="flex items-center gap-4">
               <Link
+                href={`/admin/preview/${project.company.slug}`}
+                target="_blank"
+                className="px-4 py-2 bg-cyan-500/20 border border-cyan-500/30 rounded-lg text-cyan-300 hover:bg-cyan-500/30 transition-all text-sm font-medium flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+                View as Customer
+              </Link>
+              <Link
                 href="/admin/projects"
                 className="text-slate-300 hover:text-white transition-colors text-sm font-medium"
               >
@@ -218,6 +232,16 @@ export default async function ProjectDetailPage({
           )}
         </div>
       </main>
+
+      {/* AI Assistant */}
+      <AIProjectAssistant
+        projectId={project.id}
+        projectContext={{
+          projectName: project.title,
+          companyName: project.company.displayName,
+          description: `${getProjectTypeLabel(project.projectType)} project for ${project.company.displayName}`
+        }}
+      />
     </div>
   )
 }
