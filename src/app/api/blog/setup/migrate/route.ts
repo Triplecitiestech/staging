@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
 
 // Disable static generation for this API route
 export const dynamic = 'force-dynamic';
@@ -11,6 +10,9 @@ export const dynamic = 'force-dynamic';
  */
 export async function POST() {
   try {
+    // Dynamic import to prevent Prisma loading during build
+    const { prisma } = await import('@/lib/prisma');
+
     console.log('🚀 Starting blog database migration...');
 
     const tablesCreated: string[] = [];

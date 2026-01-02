@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { contentCurator } from '@/lib/content-curator';
 import { blogGenerator } from '@/lib/blog-generator';
 import { generateBlogApprovalEmail, generateBlogApprovalEmailText } from '@/lib/email-templates/blog-approval';
-import { prisma } from '@/lib/prisma';
 import { Resend } from 'resend';
 import crypto from 'crypto';
+
+// Disable static generation for this API route
+export const dynamic = 'force-dynamic';
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
@@ -17,6 +19,9 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
  */
 export async function POST(request: NextRequest) {
   try {
+    // Dynamic import to prevent Prisma loading during build
+    const { prisma } = await import('@/lib/prisma');
+
     // Verify cron secret
     const authHeader = request.headers.get('authorization');
     const secret = process.env.BLOG_CRON_SECRET;

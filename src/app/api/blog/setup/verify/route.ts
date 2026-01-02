@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
 
 // Disable static generation for this API route
 export const dynamic = 'force-dynamic';
@@ -10,6 +9,9 @@ export const dynamic = 'force-dynamic';
  */
 export async function GET() {
   try {
+    // Dynamic import to prevent Prisma loading during build
+    const { prisma } = await import('@/lib/prisma');
+
     const checks = {
       database: false,
       categories: false,
