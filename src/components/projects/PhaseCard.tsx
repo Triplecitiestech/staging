@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import StatusDropdown from './StatusDropdown'
 import TaskStatusDropdown from './TaskStatusDropdown'
 import CommentThread from './CommentThread'
+import AssignmentPicker from './AssignmentPicker'
 
 interface Comment {
   id: string
@@ -15,6 +16,14 @@ interface Comment {
   authorEmail: string
 }
 
+interface Assignment {
+  id: string
+  assigneeEmail: string
+  assigneeName: string
+  assignedBy: string
+  assignedAt: string
+}
+
 interface Task {
   id: string
   taskText: string
@@ -23,6 +32,7 @@ interface Task {
   orderIndex: number
   status?: string
   comments?: Comment[]
+  assignments?: Assignment[]
 }
 
 interface Phase {
@@ -269,9 +279,7 @@ export default function PhaseCard({ phase, index }: { phase: Phase; index: numbe
                             {task.status && (
                               <TaskStatusDropdown taskId={task.id} currentStatus={task.status} />
                             )}
-                            <button className="px-2 py-1 text-xs font-semibold rounded border bg-slate-700/50 text-slate-300 border-slate-600/50 hover:bg-slate-700 transition-colors" title="Assign task (coming soon)">
-                              👤 Assign
-                            </button>
+                            <AssignmentPicker taskId={task.id} assignments={task.assignments || []} />
                             <CommentThread taskId={task.id} comments={task.comments || []} />
                           </div>
                         </div>
