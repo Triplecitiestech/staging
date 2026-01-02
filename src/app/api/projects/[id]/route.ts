@@ -1,11 +1,6 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
-import { PrismaClient } from '@prisma/client'
-import { withAccelerate } from '@prisma/extension-accelerate'
 
-const prisma = new PrismaClient({
-  accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
-}).$extends(withAccelerate())
 
 export async function DELETE(
   req: Request,
@@ -17,6 +12,7 @@ export async function DELETE(
   }
 
   try {
+    const { prisma } = await import("@/lib/prisma")
     const { id } = await params
 
     await prisma.project.delete({ where: { id } })

@@ -4,12 +4,8 @@ import { getAuthenticatedCompany } from '@/lib/onboarding-session'
 import { getOnboardingData, companyExists } from '@/lib/onboarding-data'
 import OnboardingPortal from '@/components/onboarding/OnboardingPortal'
 import { Metadata } from 'next'
-import { PrismaClient } from '@prisma/client'
-import { withAccelerate } from '@prisma/extension-accelerate'
 
-const prisma = new PrismaClient({
-  accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
-}).$extends(withAccelerate())
+export const dynamic = 'force-dynamic'
 
 interface PageProps {
   params: Promise<{ companyName: string }>
@@ -29,6 +25,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 }
 
 export default async function OnboardingPage({ params }: PageProps) {
+  const { prisma } = await import('@/lib/prisma')
   const { companyName } = await params
   const companySlug = companyName.toLowerCase().trim()
 

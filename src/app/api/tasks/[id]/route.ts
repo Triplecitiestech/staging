@@ -1,11 +1,7 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
-import { PrismaClient, TaskStatus, Priority } from '@prisma/client'
-import { withAccelerate } from '@prisma/extension-accelerate'
+import { TaskStatus, Priority } from '@prisma/client'
 
-const prisma = new PrismaClient({
-  accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
-}).$extends(withAccelerate())
 
 export async function PATCH(
   req: Request,
@@ -17,6 +13,7 @@ export async function PATCH(
   }
 
   try {
+    const { prisma } = await import("@/lib/prisma")
     const { id } = await params
     const data = await req.json()
 

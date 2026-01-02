@@ -1,11 +1,8 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
-import { PrismaClient, PhaseStatus } from '@prisma/client'
-import { withAccelerate } from '@prisma/extension-accelerate'
+import { PhaseStatus } from '@prisma/client'
 
-const prisma = new PrismaClient({
-  accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
-}).$extends(withAccelerate())
+export const dynamic = 'force-dynamic'
 
 export async function PATCH(
   req: Request,
@@ -17,6 +14,7 @@ export async function PATCH(
   }
 
   try {
+    const { prisma } = await import("@/lib/prisma")
     const { id } = await params
     const data = await req.json()
 

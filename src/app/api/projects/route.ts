@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
-import { PrismaClient, ProjectType, PhaseStatus, PhaseOwner } from '@prisma/client'
-import { withAccelerate } from '@prisma/extension-accelerate'
+import { PhaseStatus, PhaseOwner, ProjectType } from '@prisma/client'
 
-const prisma = new PrismaClient({
-  accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
-}).$extends(withAccelerate())
+export const dynamic = 'force-dynamic'
 
 // Type for template phase JSON structure
 interface TemplatePhase {
@@ -28,6 +25,7 @@ function createSlug(companyName: string, title: string): string {
 
 export async function POST(request: NextRequest) {
   try {
+    const { prisma } = await import("@/lib/prisma")
     const session = await auth()
     if (!session?.user?.email) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -159,6 +157,7 @@ export async function POST(request: NextRequest) {
 
 export async function GET() {
   try {
+    const { prisma } = await import("@/lib/prisma")
     const session = await auth()
     if (!session?.user?.email) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

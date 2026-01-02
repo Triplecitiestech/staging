@@ -1,13 +1,9 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
-import { PrismaClient } from '@prisma/client'
-import { withAccelerate } from '@prisma/extension-accelerate'
 import { Resend } from 'resend'
 import bcrypt from 'bcryptjs'
 
-const prisma = new PrismaClient({
-  accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
-}).$extends(withAccelerate())
+export const dynamic = 'force-dynamic'
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null
 
@@ -40,6 +36,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { prisma } = await import('@/lib/prisma')
     const session = await auth()
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
