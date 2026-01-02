@@ -170,18 +170,20 @@ export default function AIProjectAssistant({
 
         // Create phases sequentially to maintain order
         for (const phase of structure.phases) {
-          const phaseResponse = await fetch(`/api/projects/${projectId}/phases`, {
+          const phaseResponse = await fetch('/api/phases', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              name: phase.name,
+              projectId: projectId,
+              title: phase.name,
               description: phase.description || '',
               orderIndex: phase.orderIndex,
             }),
           })
 
           if (!phaseResponse.ok) {
-            throw new Error(`Failed to create phase: ${phase.name}`)
+            const errorData = await phaseResponse.json()
+            throw new Error(errorData.error || `Failed to create phase: ${phase.name}`)
           }
 
           const createdPhase = await phaseResponse.json()
@@ -202,7 +204,8 @@ export default function AIProjectAssistant({
               })
 
               if (!taskResponse.ok) {
-                throw new Error(`Failed to create task: ${task.taskText}`)
+                const errorData = await taskResponse.json()
+                throw new Error(errorData.error || `Failed to create task: ${task.taskText}`)
               }
             }
           }
