@@ -10,49 +10,49 @@ interface OnboardingTimelineProps {
   currentPhaseId?: string
 }
 
-// Status color mappings - vibrant and unique colors
+// Status color mappings - vibrant bubble colors with original icon colors
 const statusColors: Record<PhaseStatus, { bg: string; text: string; border: string; icon: string }> = {
   'Complete': {
     bg: 'bg-emerald-500/20',
     text: 'text-emerald-300',
     border: 'border-emerald-500/50',
-    icon: 'text-emerald-400'
+    icon: 'text-emerald-600'
   },
   'In Progress': {
     bg: 'bg-blue-500/20',
     text: 'text-blue-300',
     border: 'border-blue-500/50',
-    icon: 'text-blue-400'
+    icon: 'text-blue-600'
   },
   'Scheduled': {
     bg: 'bg-purple-500/20',
     text: 'text-purple-300',
     border: 'border-purple-500/50',
-    icon: 'text-purple-400'
+    icon: 'text-purple-600'
   },
   'Waiting on Customer': {
     bg: 'bg-amber-500/20',
     text: 'text-amber-300',
     border: 'border-amber-500/50',
-    icon: 'text-amber-400'
+    icon: 'text-amber-600'
   },
   'Requires Customer Coordination': {
     bg: 'bg-orange-500/20',
     text: 'text-orange-300',
     border: 'border-orange-500/50',
-    icon: 'text-orange-400'
+    icon: 'text-orange-600'
   },
   'Discussed': {
     bg: 'bg-indigo-500/20',
     text: 'text-indigo-300',
     border: 'border-indigo-500/50',
-    icon: 'text-indigo-400'
+    icon: 'text-indigo-600'
   },
   'Not Started': {
-    bg: 'bg-pink-500/20',
-    text: 'text-pink-300',
-    border: 'border-pink-500/50',
-    icon: 'text-pink-400'
+    bg: 'bg-gray-50',
+    text: 'text-gray-600',
+    border: 'border-gray-300',
+    icon: 'text-gray-400'
   },
 }
 
@@ -254,8 +254,8 @@ export default function OnboardingTimeline({ phases, currentPhaseId }: Onboardin
 
       {/* Horizontal Timeline */}
       {viewMode === 'horizontal' && (
-        <div className="relative overflow-x-auto pb-8">
-          <div className="flex items-center min-w-max px-4">
+        <div className="relative pb-8 overflow-hidden">
+          <div className={`flex items-center px-4 ${phases.length > 6 ? 'scale-75 origin-center' : phases.length > 4 ? 'scale-90 origin-center' : ''}`} style={{ width: 'max-content', margin: '0 auto' }}>
             {/* Start Marker */}
             <div className="flex flex-col items-center flex-shrink-0">
               <div className="w-16 h-16 rounded-full bg-gradient-to-br from-green-500 to-green-600 flex items-center justify-center shadow-lg shadow-green-500/50 mb-3">
