@@ -37,6 +37,7 @@ interface ProjectsViewProps {
 
 export default function ProjectsView({ projects }: ProjectsViewProps) {
   const [viewMode, setViewMode] = useState<'horizontal' | 'vertical'>('horizontal')
+  const [selectedPhase, setSelectedPhase] = useState<string | null>(null)
 
   if (!projects || projects.length === 0) {
     return (
@@ -150,9 +151,14 @@ export default function ProjectsView({ projects }: ProjectsViewProps) {
                     return (
                       <div key={phase.id} className="flex flex-col items-center text-center">
                         {/* Phase Icon */}
-                        <div className={`w-20 h-20 rounded-full ${getStatusColor(phase.status)} flex items-center justify-center text-white font-bold text-lg mb-3 shadow-lg relative z-10`}>
+                        <button
+                          onClick={() => setSelectedPhase(selectedPhase === phase.id ? null : phase.id)}
+                          className={`w-20 h-20 rounded-full ${getStatusColor(phase.status)} flex items-center justify-center text-white font-bold text-lg mb-3 shadow-lg relative z-10 hover:scale-110 transition-transform cursor-pointer ${
+                            selectedPhase === phase.id ? 'ring-4 ring-cyan-500' : ''
+                          }`}
+                        >
                           {index + 1}
-                        </div>
+                        </button>
 
                         {/* Phase Title */}
                         <div className="mb-2">
@@ -180,6 +186,74 @@ export default function ProjectsView({ projects }: ProjectsViewProps) {
                     )
                   })}
                 </div>
+
+                {/* Selected Phase Details */}
+                {selectedPhase && (() => {
+                  const phase = project.phases.find(p => p.id === selectedPhase)
+                  if (!phase) return null
+
+                  return (
+                    <div className="mt-8 bg-gray-800/50 border border-cyan-500 rounded-lg p-6 shadow-lg">
+                      <div className="flex items-start justify-between mb-4">
+                        <div>
+                          <h3 className="text-xl font-bold text-white mb-1">{phase.title}</h3>
+                          {phase.description && (
+                            <p className="text-sm text-gray-400 mb-2">{phase.description}</p>
+                          )}
+                          <span className={`inline-block px-3 py-1 rounded-full text-xs ${getStatusColor(phase.status)} text-white`}>
+                            {getStatusLabel(phase.status)}
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => setSelectedPhase(null)}
+                          className="text-gray-400 hover:text-white transition-colors"
+                        >
+                          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+
+                      {/* Customer Notes */}
+                      {phase.customerNotes && (
+                        <div className="mb-4 p-3 bg-cyan-500/10 border border-cyan-500/30 rounded">
+                          <p className="text-xs font-semibold text-cyan-300 mb-1">Note:</p>
+                          <p className="text-sm text-gray-300">{phase.customerNotes}</p>
+                        </div>
+                      )}
+
+                      {/* Tasks */}
+                      {phase.tasks.length > 0 && (
+                        <div>
+                          <p className="text-sm font-semibold text-white uppercase mb-3">Tasks ({phase.tasks.length})</p>
+                          <div className="space-y-2">
+                            {phase.tasks.map((task) => (
+                              <div key={task.id} className="flex items-start gap-3 p-3 bg-gray-900/50 rounded-lg">
+                                <div className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${
+                                  task.completed ? 'bg-green-500 border-green-500' : 'border-gray-600'
+                                }`}>
+                                  {task.completed && (
+                                    <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                    </svg>
+                                  )}
+                                </div>
+                                <div className="flex-1">
+                                  <span className={`text-sm ${task.completed ? 'text-gray-500 line-through' : 'text-gray-300'}`}>
+                                    {task.taskText}
+                                  </span>
+                                  {task.notes && (
+                                    <p className="text-xs text-gray-500 mt-1 italic">{task.notes}</p>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
               </div>
             )}
 
