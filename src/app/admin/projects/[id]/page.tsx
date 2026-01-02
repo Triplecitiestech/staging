@@ -54,6 +54,9 @@ export default async function ProjectDetailPage({
               include: {
                 comments: {
                   orderBy: { createdAt: 'asc' }
+                },
+                assignments: {
+                  orderBy: { assignedAt: 'asc' }
                 }
               }
             }
