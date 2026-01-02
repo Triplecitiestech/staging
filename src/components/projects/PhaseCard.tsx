@@ -136,12 +136,12 @@ export default function PhaseCard({ phase, index }: { phase: Phase; index: numbe
     <div className="bg-slate-900/50 border border-white/10 rounded-lg p-5">
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-start gap-3 flex-1">
-          <button onClick={() => setCollapsed(!collapsed)} className="mt-1">
+          <button onClick={() => setCollapsed(!collapsed)} className="mt-1 flex-shrink-0">
             <svg className={`w-5 h-5 text-slate-400 transition-transform ${collapsed ? '' : 'rotate-90'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
           </button>
-          <div className="flex items-center justify-center w-8 h-8 bg-cyan-500/20 rounded-lg text-cyan-400 font-bold text-sm">{index + 1}</div>
+          <div className="flex items-center justify-center w-10 h-10 bg-cyan-500/20 rounded-full text-cyan-400 font-bold text-sm flex-shrink-0">{index + 1}</div>
           <div className="flex-1">
             {editing ? (
               <input
