@@ -5,6 +5,7 @@ import ScrollToTop from '@/components/ui/ScrollToTop'
 import FAQSchema from '@/components/seo/FAQSchema'
 import ServiceSchema from '@/components/seo/ServiceSchema'
 import AIMetadata from '@/components/seo/AIMetadata'
+import { SpeedInsights } from '@vercel/speed-insights/next'
 
 export const metadata: Metadata = {
   title: 'Triple Cities Tech | Managed IT Services for Small Business | Central NY',
@@ -234,6 +235,7 @@ export default function RootLayout({
           {children}
           <ScrollToTop />
         </div>
+        <SpeedInsights />
         <Script
           id="chatgenie-config"
           strategy="afterInteractive"
