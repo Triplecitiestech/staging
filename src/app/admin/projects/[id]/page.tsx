@@ -224,6 +224,7 @@ export default async function ProjectDetailPage({
 
       {/* AI Assistant */}
       <AIProjectAssistant
+        projectId={project.id}
         projectContext={{
           projectName: project.title,
           companyName: project.company.displayName,
