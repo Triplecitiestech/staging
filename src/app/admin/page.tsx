@@ -42,22 +42,24 @@ export default async function AdminPage() {
   }
 
   // Fetch analytics data
-  const [totalProjects, activeProjects, totalCompanies, recentProjects] = await Promise.all([
+  const [totalProjects, activeProjects, totalCompanies] = await Promise.all([
     prisma.project.count(),
     prisma.project.count({ where: { status: 'ACTIVE' } }),
     prisma.company.count(),
-    prisma.project.findMany({
-      take: 5,
-      orderBy: { updatedAt: 'desc' },
-      include: {
-        company: true,
-        phases: true
-      }
-    })
   ])
+
+  const recentProjects = await prisma.project.findMany({
+    take: 5,
+    orderBy: { updatedAt: 'desc' },
+    include: {
+      company: true,
+      phases: true
+    }
+  })
 
   const completedProjects = await prisma.project.count({ where: { status: 'COMPLETED' } })
   const onHoldProjects = await prisma.project.count({ where: { status: 'ON_HOLD' } })
+  const totalPhases = await prisma.phase.count()
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -201,7 +203,7 @@ export default async function AdminPage() {
                 <p className="text-sm text-slate-400 mb-1">Avg. Phases/Project</p>
                 <p className="text-2xl font-bold text-white">
                   {totalProjects > 0
-                    ? Math.round((recentProjects.reduce((sum, p) => sum + p.phases.length, 0) / Math.min(totalProjects, 5)) * 10) / 10
+                    ? Math.round((totalPhases / totalProjects) * 10) / 10
                     : 0}
                 </p>
               </div>
