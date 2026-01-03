@@ -7,12 +7,14 @@ import TaskStatusDropdown from './TaskStatusDropdown'
 interface Task {
   id: string
   taskText: string
-  status: string
+  status?: string
   completed: boolean
   notes?: string | null
   orderIndex: number
   parentTaskId?: string | null
   subTasks?: Task[]
+  comments?: any[]
+  assignments?: any[]
 }
 
 interface TaskItemProps {
@@ -44,7 +46,6 @@ export default function TaskItem({
   const [taskText, setTaskText] = useState(task.taskText)
   const [notes, setNotes] = useState(task.notes || '')
   const [collapsed, setCollapsed] = useState(false)
-  const [creatingSubTask, setCreatingSubTask] = useState(false)
 
   const saveTask = async () => {
     try {
@@ -73,7 +74,6 @@ export default function TaskItem({
         throw new Error(error.error || 'Failed to create sub-task')
       }
       setCollapsed(false)
-      setCreatingSubTask(false)
       router.refresh()
     } catch (error) {
       alert(error instanceof Error ? error.message : 'Failed to create sub-task')
@@ -183,7 +183,7 @@ export default function TaskItem({
         </div>
 
         {/* Status dropdown */}
-        <TaskStatusDropdown taskId={task.id} currentStatus={task.status} />
+        {task.status && <TaskStatusDropdown taskId={task.id} currentStatus={task.status} />}
 
         {/* Action buttons */}
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">

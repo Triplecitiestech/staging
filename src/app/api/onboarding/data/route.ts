@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthenticatedCompany } from '@/lib/onboarding-session'
 import { getOnboardingData } from '@/lib/onboarding-data'
-import type { OnboardingData } from '@/types/onboarding'
 
 export async function GET(request: NextRequest) {
   try {
