@@ -27,11 +27,16 @@ interface PageProps {
 }
 
 // Convert database status to display format
-function convertStatus(status: string): 'Not Started' | 'Scheduled' | 'Waiting on Customer' | 'In Progress' | 'Requires Customer Coordination' | 'Discussed' | 'Complete' {
+function convertStatus(status: string): 'Not Started' | 'Scheduled' | 'Waiting on Customer' | 'In Progress' | 'Requires Customer Coordination' | 'Discussed' | 'Complete' | 'Completed' {
   switch (status) {
     case 'NOT_STARTED': return 'Not Started'
+    case 'SCHEDULED': return 'Scheduled'
+    case 'WAITING_ON_CUSTOMER': return 'Waiting on Customer'
     case 'IN_PROGRESS': return 'In Progress'
-    case 'COMPLETED': return 'Complete'
+    case 'REQUIRES_CUSTOMER_COORDINATION': return 'Requires Customer Coordination'
+    case 'DISCUSSED': return 'Discussed'
+    case 'COMPLETE': return 'Complete'
+    case 'COMPLETED': return 'Completed'
     case 'ON_HOLD': return 'Waiting on Customer' // Map ON_HOLD to a valid status
     default: return 'Not Started'
   }
@@ -116,6 +121,7 @@ export default async function AdminPreviewPage({ params }: PageProps) {
           companySlug={slug}
           isAuthenticated={true}
           onboardingData={onboardingData}
+          projects={activeProject ? [activeProject] : null}
         />
       </div>
     </div>
