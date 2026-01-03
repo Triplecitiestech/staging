@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import TaskStatusDropdown from './TaskStatusDropdown'
+import AssignmentPicker from './AssignmentPicker'
+import CommentThread from './CommentThread'
 
 interface Comment {
   id: string
@@ -185,7 +187,7 @@ export default function TaskItem({
               </div>
             </div>
           ) : (
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="space-y-2">
               <span
                 onClick={() => onEdit(task.id)}
                 className="cursor-pointer text-sm block text-slate-300"
@@ -193,14 +195,18 @@ export default function TaskItem({
                 {task.taskText}
               </span>
               {task.notes && (
-                <span className="text-xs text-slate-500 italic">({task.notes})</span>
+                <p className="text-xs text-slate-500 italic">{task.notes}</p>
               )}
+              <div className="flex items-center gap-2 flex-wrap">
+                {task.status && (
+                  <TaskStatusDropdown taskId={task.id} currentStatus={task.status} />
+                )}
+                <AssignmentPicker taskId={task.id} assignments={task.assignments || []} />
+                <CommentThread taskId={task.id} comments={task.comments || []} />
+              </div>
             </div>
           )}
         </div>
-
-        {/* Status dropdown */}
-        {task.status && <TaskStatusDropdown taskId={task.id} currentStatus={task.status} />}
 
         {/* Action buttons */}
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
