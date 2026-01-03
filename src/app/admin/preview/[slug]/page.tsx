@@ -50,55 +50,89 @@ function convertOwner(owner: string | null): 'TCT' | 'Customer' | 'Both' {
 }
 
 export default async function AdminPreviewPage({ params }: PageProps) {
-  // Verify admin authentication
-  const session = await auth()
-  if (!session) {
-    redirect('/admin')
-  }
+  try {
+    // Verify admin authentication
+    const session = await auth()
+    if (!session) {
+      redirect('/admin')
+    }
 
-  const { slug } = await params
+    const { slug } = await params
+    console.log('[Admin Preview] Loading preview for slug:', slug)
 
-  // Fetch company from database
-  const company = await prisma.company.findUnique({
-    where: { slug },
-    include: {
-      projects: {
+    // Fetch company from database
+    let company
+    try {
+      company = await prisma.company.findUnique({
+        where: { slug },
         include: {
-          phases: {
+          projects: {
             include: {
-              tasks: {
+              phases: {
+                include: {
+                  tasks: {
+                    where: {
+                      isVisibleToCustomer: true
+                    },
+                    select: {
+                      id: true,
+                      taskText: true,
+                      completed: true,
+                      orderIndex: true,
+                      status: true
+                    },
+                    orderBy: { orderIndex: 'asc' }
+                  }
+                },
                 orderBy: { orderIndex: 'asc' }
               }
             },
-            orderBy: { orderIndex: 'asc' }
+            orderBy: { updatedAt: 'desc' }
           }
-        },
-        orderBy: { updatedAt: 'desc' } // Get most recently updated project first
-      }
+        }
+      }) as CompanyWithProjects | null
+    } catch (dbError) {
+      console.error('[Admin Preview] Database error fetching company:', dbError)
+      // Try without specific task fields if there's a schema mismatch
+      company = await prisma.company.findUnique({
+        where: { slug },
+        include: {
+          projects: {
+            include: {
+              phases: {
+                orderBy: { orderIndex: 'asc' }
+              }
+            },
+            orderBy: { updatedAt: 'desc' }
+          }
+        }
+      }) as CompanyWithProjects | null
     }
-  }) as CompanyWithProjects | null
 
-  if (!company) {
-    notFound()
-  }
+    if (!company) {
+      console.log('[Admin Preview] Company not found:', slug)
+      notFound()
+    }
 
-  // Find the most recent active project, or fall back to most recently updated
-  const activeProject = company.projects.find(p => p.status === 'ACTIVE') || company.projects[0]
+    console.log('[Admin Preview] Found company:', company.displayName, 'Projects:', company.projects.length)
 
-  // Transform data for OnboardingPortal component
-  const onboardingData = activeProject ? {
-    companySlug: slug,
-    companyDisplayName: company.displayName,
-    lastUpdated: activeProject.updatedAt.toISOString(),
-    phases: activeProject.phases.map(phase => ({
-      id: phase.id,
-      title: phase.title,
-      description: phase.description || '',
-      status: convertStatus(phase.status),
-      owner: convertOwner(phase.owner),
-      notes: phase.customerNotes || undefined, // Use customer notes as the notes field
-    }))
-  } : null
+    // Find the most recent active project, or fall back to most recently updated
+    const activeProject = company.projects.find(p => p.status === 'ACTIVE') || company.projects[0]
+
+    // Transform data for OnboardingPortal component
+    const onboardingData = activeProject ? {
+      companySlug: slug,
+      companyDisplayName: company.displayName,
+      lastUpdated: activeProject.updatedAt.toISOString(),
+      phases: activeProject.phases.map(phase => ({
+        id: phase.id,
+        title: phase.title,
+        description: phase.description || '',
+        status: convertStatus(phase.status),
+        owner: convertOwner(phase.owner),
+        notes: phase.customerNotes || undefined,
+      }))
+    } : null
 
   return (
     <div className="relative">
@@ -126,4 +160,25 @@ export default async function AdminPreviewPage({ params }: PageProps) {
       </div>
     </div>
   )
+  } catch (error) {
+    console.error('[Admin Preview] Fatal error:', error)
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-gray-900 to-slate-950 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-red-900/20 backdrop-blur-md border border-red-500/30 rounded-lg p-8">
+          <h1 className="text-2xl font-bold text-red-400 mb-4">Preview Error</h1>
+          <p className="text-slate-300 mb-4">
+            Failed to load preview. This could be due to:
+          </p>
+          <ul className="text-slate-400 text-sm space-y-2 mb-6 list-disc list-inside">
+            <li>Company not found in database</li>
+            <li>Database migration pending</li>
+            <li>Database connection issue</li>
+          </ul>
+          <p className="text-xs text-slate-500">
+            Error: {error instanceof Error ? error.message : 'Unknown error'}
+          </p>
+        </div>
+      </div>
+    )
+  }
 }
