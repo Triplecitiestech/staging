@@ -346,21 +346,9 @@ export default function PhaseCard({ phase, index }: { phase: Phase; index: numbe
                         type="checkbox"
                         checked={selectedTasks.has(task.id)}
                         onChange={() => toggleTaskSelection(task.id)}
-                        className="mt-0.5 w-4 h-4 rounded border-slate-500"
+                        className="mt-0.5 w-4 h-4 rounded border-2 border-slate-500 bg-transparent checked:bg-cyan-500 checked:border-cyan-500 cursor-pointer accent-cyan-500"
                       />
-                      <button
-                        onClick={() => toggleTask(task.id, !task.completed)}
-                        className={`mt-0.5 w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 ${
-                          task.completed ? 'bg-cyan-500 border-cyan-500' : 'border-slate-500'
-                        }`}
-                      >
-                        {task.completed && (
-                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                          </svg>
-                        )}
-                      </button>
-                    <div className="flex-1">
+                      <div className="flex-1">
                       {editingTask === task.id ? (
                         <input
                           defaultValue={task.taskText}
@@ -372,7 +360,7 @@ export default function PhaseCard({ phase, index }: { phase: Phase; index: numbe
                         <div className="space-y-2">
                           <span
                             onClick={() => setEditingTask(task.id)}
-                            className={`cursor-pointer text-sm block ${task.completed ? 'text-slate-400 line-through' : 'text-slate-300'}`}
+                            className="cursor-pointer text-sm block text-slate-300"
                           >
                             {task.taskText}
                           </span>
