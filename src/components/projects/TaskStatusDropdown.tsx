@@ -57,11 +57,16 @@ export default function TaskStatusDropdown({ taskId, currentStatus }: TaskStatus
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus }),
       })
-      if (!res.ok) throw new Error()
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}))
+        console.error('Status update failed:', res.status, errorData)
+        throw new Error(errorData.error || 'Failed to update')
+      }
       setIsOpen(false)
       router.refresh()
-    } catch {
-      alert('Failed to update task status')
+    } catch (error) {
+      console.error('Task status update error:', error)
+      alert(`Failed to update task status: ${error instanceof Error ? error.message : 'Unknown error'}`)
     } finally {
       setUpdating(false)
     }
