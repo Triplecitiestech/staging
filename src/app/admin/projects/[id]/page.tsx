@@ -1,11 +1,11 @@
 import Link from 'next/link'
-import Image from 'next/image'
 import { auth } from '@/auth'
 import { redirect, notFound } from 'next/navigation'
 import { PrismaClient, Prisma } from '@prisma/client'
 import { withAccelerate } from '@prisma/extension-accelerate'
 import PhaseCard from '@/components/projects/PhaseCard'
 import AIProjectAssistant from '@/components/admin/AIProjectAssistant'
+import AdminHeader from '@/components/admin/AdminHeader'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -125,48 +125,7 @@ export default async function ProjectDetailPage({
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-gray-900 to-slate-950">
-      {/* Header */}
-      <header className="bg-black/20 backdrop-blur-md border-b border-white/10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center space-x-3">
-              <Image
-                src="/logo/tctlogo.webp"
-                alt="Triple Cities Tech Logo"
-                width={48}
-                height={48}
-                className="w-12 h-12 object-contain"
-              />
-              <div>
-                <h1 className="text-2xl font-bold text-white">{project.title}</h1>
-                <p className="text-sm text-slate-400">{project.company.displayName}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
-              <Link
-                href={`/admin/preview/${project.company.slug}`}
-                target="_blank"
-                className="px-4 py-2 bg-cyan-500/20 border border-cyan-500/30 rounded-lg text-cyan-300 hover:bg-cyan-500/30 transition-all text-sm font-medium flex items-center gap-2"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                </svg>
-                View as Customer
-              </Link>
-              <Link
-                href="/admin"
-                className="text-slate-300 hover:text-white transition-colors text-sm font-medium flex items-center gap-1"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                </svg>
-                Back to Dashboard
-              </Link>
-            </div>
-          </div>
-        </div>
-      </header>
+      <AdminHeader />
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">

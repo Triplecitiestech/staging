@@ -261,11 +261,11 @@ export default function OnboardingTimeline({ phases, currentPhaseId }: Onboardin
 
       {/* Horizontal Timeline */}
       {viewMode === 'horizontal' && (
-        <div className="relative pb-8 overflow-hidden">
-          <div className={`flex items-center px-4 ${phases.length > 6 ? 'scale-75 origin-center' : phases.length > 4 ? 'scale-90 origin-center' : ''}`} style={{ width: 'max-content', margin: '0 auto' }}>
+        <div className="relative pb-8">
+          <div className={`flex items-start px-4 ${phases.length > 6 ? 'scale-75 origin-center' : phases.length > 4 ? 'scale-90 origin-center' : ''}`} style={{ width: 'max-content', margin: '0 auto' }}>
             {/* Start Marker */}
-            <div className="flex flex-col items-center flex-shrink-0 relative">
-              <div className="w-16 h-16 rounded-full bg-gradient-to-br from-green-500 to-green-600 flex items-center justify-center shadow-lg shadow-green-500/50 mb-3 relative z-10">
+            <div className="flex flex-col items-center flex-shrink-0">
+              <div className="w-16 h-16 rounded-full bg-gradient-to-br from-green-500 to-green-600 flex items-center justify-center shadow-lg shadow-green-500/50 mb-3">
                 <span className="text-white font-bold text-sm">START</span>
               </div>
               <span className="text-xs text-gray-400 font-medium">Day 1</span>
@@ -280,7 +280,7 @@ export default function OnboardingTimeline({ phases, currentPhaseId }: Onboardin
               return (
                 <React.Fragment key={phase.id}>
                   {/* Connector Line */}
-                  <div className="flex-shrink-0 h-1 w-12 md:w-24 bg-gradient-to-r from-cyan-500 to-cyan-400 self-start" style={{ marginTop: '32px' }} />
+                  <div className="flex-shrink-0 h-1 w-12 md:w-24 bg-gradient-to-r from-cyan-500 to-cyan-400" style={{ marginTop: '32px' }} />
 
                   {/* Phase Node */}
                   <div className="flex flex-col items-center flex-shrink-0 relative">
@@ -335,9 +335,9 @@ export default function OnboardingTimeline({ phases, currentPhaseId }: Onboardin
 
             {/* End Marker */}
             <>
-              <div className="flex-shrink-0 h-1 w-12 md:w-24 bg-gradient-to-r from-cyan-500 to-cyan-400 self-start" style={{ marginTop: '32px' }} />
-              <div className="flex flex-col items-center flex-shrink-0 relative">
-                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center shadow-lg shadow-purple-500/50 mb-3 relative z-10">
+              <div className="flex-shrink-0 h-1 w-12 md:w-24 bg-gradient-to-r from-cyan-500 to-cyan-400" style={{ marginTop: '32px' }} />
+              <div className="flex flex-col items-center flex-shrink-0">
+                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center shadow-lg shadow-purple-500/50 mb-3">
                   <span className="text-white font-bold text-sm text-center leading-tight">
                     FINISH
                   </span>

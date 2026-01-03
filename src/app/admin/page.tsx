@@ -1,8 +1,8 @@
 import Link from 'next/link'
 import Image from 'next/image'
 import { auth } from '@/auth'
-import { SignInButton, SignOutButton } from '@/components/auth/AuthButtons'
-import AdminNav from '@/components/admin/AdminNav'
+import { SignInButton } from '@/components/auth/AuthButtons'
+import AdminHeader from '@/components/admin/AdminHeader'
 import { PrismaClient, Prisma } from '@prisma/client'
 import { withAccelerate } from '@prisma/extension-accelerate'
 
@@ -36,7 +36,7 @@ export default async function AdminPage() {
               />
             </div>
             <h1 className="text-3xl font-bold text-white mb-4">
-              Admin Dashboard
+              Admin Project Management Dashboard
             </h1>
             <p className="text-slate-300 mb-8">
               Sign in with your Microsoft account to access the admin dashboard
@@ -82,36 +82,7 @@ export default async function AdminPage() {
   // User is authenticated - show dashboard
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-gray-900 to-slate-950">
-      {/* Header */}
-      <header className="bg-black/20 backdrop-blur-md border-b border-white/10 sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center space-x-3">
-              <Image
-                src="/logo/tctlogo.webp"
-                alt="Triple Cities Tech Logo"
-                width={48}
-                height={48}
-                className="w-12 h-12 object-contain"
-              />
-              <div>
-                <h1 className="text-2xl font-bold text-white">Admin Dashboard</h1>
-                <p className="text-sm text-slate-400">Triple Cities Tech</p>
-              </div>
-            </div>
-            <div className="flex items-center space-x-4">
-              <AdminNav />
-              <Link
-                href="/"
-                className="text-slate-300 hover:text-white transition-colors text-sm font-medium"
-              >
-                Back to Website
-              </Link>
-              <SignOutButton />
-            </div>
-          </div>
-        </div>
-      </header>
+      <AdminHeader />
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
