@@ -247,11 +247,16 @@ model PhaseTask {
   dueDate             DateTime?
   priority            Priority   @default(MEDIUM)
 
+  // Sub-tasks support (up to 3 levels deep)
+  parentTaskId String? // null for top-level tasks
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   // Relations
   phase       Phase        @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  parent      PhaseTask?   @relation("SubTasks", fields: [parentTaskId], references: [id], onDelete: Cascade)
+  subTasks    PhaseTask[]  @relation("SubTasks")
   comments    Comment[]
   assignments Assignment[]
 

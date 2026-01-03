@@ -51,12 +51,24 @@ export default async function ProjectDetailPage({
         phases: {
           include: {
             tasks: {
+              where: {
+                parentTaskId: null // Only fetch top-level tasks
+              },
               include: {
                 comments: {
                   orderBy: { createdAt: 'asc' }
                 },
                 assignments: {
                   orderBy: { assignedAt: 'asc' }
+                },
+                subTasks: {
+                  include: {
+                    subTasks: {
+                      include: {
+                        subTasks: true // 3 levels deep
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -173,6 +185,24 @@ export default async function ProjectDetailPage({
 
           {/* Quick Stats */}
           <div className="space-y-6">
+            {/* Preview as Customer Button */}
+            <Link
+              href={`/onboarding/${project.company.slug}`}
+              target="_blank"
+              className="block bg-gradient-to-r from-purple-600/20 to-purple-500/10 backdrop-blur-sm border border-purple-500/30 rounded-lg p-4 hover:border-purple-500/50 transition-all group"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-purple-300 mb-1">Preview</p>
+                  <p className="text-lg font-bold text-white group-hover:text-purple-300 transition-colors">Customer View</p>
+                </div>
+                <svg className="w-6 h-6 text-purple-400 group-hover:text-purple-300 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+              </div>
+            </Link>
+
             <div className="bg-gradient-to-br from-cyan-600/20 to-cyan-500/10 backdrop-blur-sm border border-cyan-500/30 rounded-lg p-6">
               <p className="text-sm text-cyan-300 mb-1">Total Phases</p>
               <p className="text-3xl font-bold text-white">{totalPhases}</p>
