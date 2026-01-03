@@ -1,7 +1,7 @@
 // Server-only onboarding data - NEVER expose to client
 // This file should only be imported in API routes and server components
 
-import { OnboardingData } from '@/types/onboarding'
+import { OnboardingData, PhaseStatus, PhaseOwner } from '@/types/onboarding'
 
 // Get password from environment variable
 // Format: ONBOARDING_PASSWORD_<COMPANY_SLUG_UPPERCASE>
@@ -97,7 +97,7 @@ export async function getOnboardingData(companySlug: string): Promise<Onboarding
       const project = company.projects[0]
 
       // Map database phase statuses to OnboardingData format
-      const mapPhaseStatus = (status: string): string => {
+      const mapPhaseStatus = (status: string): PhaseStatus => {
         switch (status) {
           case 'NOT_STARTED': return 'Not Started'
           case 'SCHEDULED': return 'Scheduled'
@@ -107,7 +107,7 @@ export async function getOnboardingData(companySlug: string): Promise<Onboarding
           case 'DISCUSSED': return 'Discussed'
           case 'COMPLETE': return 'Complete'
           case 'COMPLETED': return 'Completed'
-          default: return status
+          default: return 'Not Started'
         }
       }
 
@@ -120,8 +120,8 @@ export async function getOnboardingData(companySlug: string): Promise<Onboarding
           id: phase.id,
           title: phase.title,
           description: phase.description || '',
-          status: mapPhaseStatus(phase.status) as any,
-          owner: (phase.owner as any) || 'TCT',
+          status: mapPhaseStatus(phase.status),
+          owner: (phase.owner as PhaseOwner) || 'TCT',
           notes: phase.customerNotes || undefined,
           nextAction: undefined,
           details: []
