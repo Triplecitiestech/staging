@@ -134,7 +134,6 @@ export default function PhaseCard({ phase, index }: { phase: Phase; index: numbe
       )
       setSelectedTasks(new Set())
       setBulkStatus('')
-      setShowBulkActions(false)
       router.refresh()
     } catch {
       alert('Failed to update tasks')
