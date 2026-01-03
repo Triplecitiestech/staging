@@ -36,7 +36,7 @@ export default async function AdminPage() {
               />
             </div>
             <h1 className="text-3xl font-bold text-white mb-4">
-              Admin Project Management Dashboard
+              Project Management Dashboard
             </h1>
             <p className="text-slate-300 mb-8">
               Sign in with your Microsoft account to access the admin dashboard
