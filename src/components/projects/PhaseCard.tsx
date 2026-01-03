@@ -57,6 +57,8 @@ export default function PhaseCard({ phase, index }: { phase: Phase; index: numbe
   const [tasks, setTasks] = useState(phase.tasks.sort((a, b) => a.orderIndex - b.orderIndex))
   const [selectedTasks, setSelectedTasks] = useState<Set<string>>(new Set())
   const [bulkStatus, setBulkStatus] = useState('')
+  const [bulkAssignTo, setBulkAssignTo] = useState('')
+  const [bulkAssignToName, setBulkAssignToName] = useState('')
   const [showBulkActions, setShowBulkActions] = useState(false)
   const [formData, setFormData] = useState({
     title: phase.title,
@@ -166,6 +168,31 @@ export default function PhaseCard({ phase, index }: { phase: Phase; index: numbe
       router.refresh()
     } catch {
       alert('Failed to update tasks')
+    }
+  }
+
+  const applyBulkAssign = async () => {
+    if (!bulkAssignTo || selectedTasks.size === 0) return
+
+    try {
+      await Promise.all(
+        Array.from(selectedTasks).map(taskId =>
+          fetch(`/api/tasks/${taskId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              assignedTo: bulkAssignTo,
+              assignedToName: bulkAssignToName || bulkAssignTo
+            }),
+          })
+        )
+      )
+      setSelectedTasks(new Set())
+      setBulkAssignTo('')
+      setBulkAssignToName('')
+      router.refresh()
+    } catch {
+      alert('Failed to assign tasks')
     }
   }
 
@@ -288,7 +315,7 @@ export default function PhaseCard({ phase, index }: { phase: Phase; index: numbe
                   {selectedTasks.size > 0 ? `${selectedTasks.size} selected` : 'Select all'}
                 </span>
                 {selectedTasks.size > 0 && (
-                  <div className="flex-1 flex items-center gap-2">
+                  <div className="flex-1 flex items-center gap-2 flex-wrap">
                     <select
                       value={bulkStatus}
                       onChange={(e) => setBulkStatus(e.target.value)}
@@ -313,7 +340,22 @@ export default function PhaseCard({ phase, index }: { phase: Phase; index: numbe
                       disabled={!bulkStatus}
                       className="px-3 py-1 text-xs bg-cyan-500 text-white rounded hover:bg-cyan-600 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      Apply
+                      Apply Status
+                    </button>
+                    <div className="h-4 w-px bg-slate-600" />
+                    <input
+                      type="text"
+                      value={bulkAssignTo}
+                      onChange={(e) => setBulkAssignTo(e.target.value)}
+                      placeholder="Assign to (email)..."
+                      className="px-2 py-1 text-xs bg-slate-800 border border-white/20 rounded text-slate-300 w-40"
+                    />
+                    <button
+                      onClick={applyBulkAssign}
+                      disabled={!bulkAssignTo}
+                      className="px-3 py-1 text-xs bg-purple-500 text-white rounded hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Assign
                     </button>
                     <button
                       onClick={() => setSelectedTasks(new Set())}

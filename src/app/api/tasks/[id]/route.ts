@@ -54,7 +54,8 @@ export async function PATCH(
         where: { id },
         data: updateData
       })
-    } catch {
+    } catch (error) {
+      console.error('Task update error (attempting without notes):', error)
       // If notes column doesn't exist, try without it
       const { notes: _notes, ...updateWithoutNotes } = updateData
       task = await prisma.phaseTask.update({
@@ -68,7 +69,14 @@ export async function PATCH(
           completedBy: true,
           completedAt: true,
           orderIndex: true,
-          createdAt: true
+          status: true,
+          isVisibleToCustomer: true,
+          assignedTo: true,
+          assignedToName: true,
+          dueDate: true,
+          priority: true,
+          createdAt: true,
+          updatedAt: true
         }
       })
     }
