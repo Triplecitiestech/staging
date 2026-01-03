@@ -100,6 +100,7 @@ export async function POST(request: NextRequest) {
                   taskText: task,
                   completed: false,
                   orderIndex: taskIndex + 1,
+                  status: 'NOT_STARTED',
                 }))
               : []
           }
