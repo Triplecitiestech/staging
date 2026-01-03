@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Get the onboarding data
-    const data = getOnboardingData(authenticatedCompany)
+    const data = await getOnboardingData(authenticatedCompany)
 
     if (!data) {
       return NextResponse.json(
@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    return NextResponse.json(data as OnboardingData, { status: 200 })
+    return NextResponse.json(data, { status: 200 })
 
   } catch (error) {
     console.error('Onboarding data error:', error)
