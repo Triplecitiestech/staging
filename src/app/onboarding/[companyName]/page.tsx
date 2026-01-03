@@ -70,7 +70,8 @@ export default async function OnboardingPage({ params }: PageProps) {
               include: {
                 tasks: {
                   where: {
-                    isVisibleToCustomer: true
+                    isVisibleToCustomer: true,
+                    parentTaskId: null // Only show top-level tasks
                   },
                   select: {
                     id: true,
@@ -79,7 +80,8 @@ export default async function OnboardingPage({ params }: PageProps) {
                     orderIndex: true,
                     notes: true,
                     status: true
-                  }
+                  },
+                  orderBy: { orderIndex: 'asc' }
                 }
               },
               orderBy: { orderIndex: 'asc' }
@@ -89,8 +91,8 @@ export default async function OnboardingPage({ params }: PageProps) {
         })
       }
     } catch (error) {
-      console.error('[Onboarding Page] Error fetching projects:', error)
-      // If notes column doesn't exist, try without it
+      console.error('[Onboarding Page] Error fetching projects (possibly parentTaskId column missing):', error)
+      // If parentTaskId column doesn't exist yet, try without filtering by it
       try {
         const company = await prisma.company.findUnique({
           where: { slug: companySlug },
@@ -104,12 +106,17 @@ export default async function OnboardingPage({ params }: PageProps) {
               phases: {
                 include: {
                   tasks: {
+                    where: {
+                      isVisibleToCustomer: true
+                    },
                     select: {
                       id: true,
                       taskText: true,
                       completed: true,
-                      orderIndex: true
-                    }
+                      orderIndex: true,
+                      status: true
+                    },
+                    orderBy: { orderIndex: 'asc' }
                   }
                 },
                 orderBy: { orderIndex: 'asc' }
@@ -118,8 +125,8 @@ export default async function OnboardingPage({ params }: PageProps) {
             orderBy: { createdAt: 'desc' }
           })
         }
-      } catch {
-        console.error('[Onboarding Page] Failed to fetch projects without notes')
+      } catch (fallbackError) {
+        console.error('[Onboarding Page] Failed to fetch projects with fallback:', fallbackError)
       }
     }
   }
