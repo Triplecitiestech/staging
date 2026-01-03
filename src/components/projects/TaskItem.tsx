@@ -4,6 +4,23 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import TaskStatusDropdown from './TaskStatusDropdown'
 
+interface Comment {
+  id: string
+  content: string
+  isInternal: boolean
+  createdAt: string
+  authorName: string
+  authorEmail: string
+}
+
+interface Assignment {
+  id: string
+  assigneeEmail: string
+  assigneeName: string
+  assignedBy: string
+  assignedAt: string
+}
+
 interface Task {
   id: string
   taskText: string
@@ -13,8 +30,8 @@ interface Task {
   orderIndex: number
   parentTaskId?: string | null
   subTasks?: Task[]
-  comments?: any[]
-  assignments?: any[]
+  comments?: Comment[]
+  assignments?: Assignment[]
 }
 
 interface TaskItemProps {
