@@ -6,6 +6,7 @@ import StatusDropdown from './StatusDropdown'
 import TaskStatusDropdown from './TaskStatusDropdown'
 import CommentThread from './CommentThread'
 import AssignmentPicker from './AssignmentPicker'
+import TaskItem from './TaskItem'
 
 interface Comment {
   id: string
@@ -368,58 +369,22 @@ export default function PhaseCard({ phase, index }: { phase: Phase; index: numbe
               </div>
 
               {/* Task list */}
-              <div className="space-y-2 mb-4">
+              <div className="space-y-1 mb-4">
                 {tasks.map(task => (
-                  <div
+                  <TaskItem
                     key={task.id}
-                    draggable
-                    onDragStart={() => handleDragStart(task.id)}
-                    onDragOver={(e) => handleDragOver(e, task.id)}
+                    task={task}
+                    level={0}
+                    isSelected={selectedTasks.has(task.id)}
+                    onToggleSelection={toggleTaskSelection}
+                    onEdit={setEditingTask}
+                    editingTaskId={editingTask}
+                    draggedTaskId={draggedTask}
+                    onDragStart={handleDragStart}
+                    onDragOver={handleDragOver}
                     onDragEnd={handleDragEnd}
-                    className={`group space-y-2 ${draggedTask === task.id ? 'opacity-50' : ''} ${selectedTasks.has(task.id) ? 'bg-cyan-500/10 rounded-lg p-2' : ''}`}
-                  >
-                    <div className="flex items-start gap-2">
-                      <div className="mt-0.5 cursor-move opacity-0 group-hover:opacity-100 transition-opacity">
-                        <svg className="w-4 h-4 text-slate-500" fill="currentColor" viewBox="0 0 24 24">
-                          <path d="M9 3h2v2H9V3zm0 4h2v2H9V7zm0 4h2v2H9v-2zm0 4h2v2H9v-2zm0 4h2v2H9v-2zm4-16h2v2h-2V3zm0 4h2v2h-2V7zm0 4h2v2h-2v-2zm0 4h2v2h-2v-2zm0 4h2v2h-2v-2z"/>
-                        </svg>
-                      </div>
-                      <input
-                        type="checkbox"
-                        checked={selectedTasks.has(task.id)}
-                        onChange={() => toggleTaskSelection(task.id)}
-                        className="mt-0.5 w-4 h-4 rounded border-2 border-slate-500 bg-transparent checked:bg-cyan-500 checked:border-cyan-500 cursor-pointer accent-cyan-500"
-                      />
-                      <div className="flex-1">
-                      {editingTask === task.id ? (
-                        <input
-                          defaultValue={task.taskText}
-                          onBlur={(e) => saveTask(task.id, e.target.value, task.notes || '')}
-                          className="w-full px-2 py-1 bg-slate-800 border border-white/20 rounded text-slate-300 text-sm"
-                          autoFocus
-                        />
-                      ) : (
-                        <div className="space-y-2">
-                          <span
-                            onClick={() => setEditingTask(task.id)}
-                            className="cursor-pointer text-sm block text-slate-300"
-                          >
-                            {task.taskText}
-                          </span>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            {task.status && (
-                              <TaskStatusDropdown taskId={task.id} currentStatus={task.status} />
-                            )}
-                            <AssignmentPicker taskId={task.id} assignments={task.assignments || []} />
-                            <CommentThread taskId={task.id} comments={task.comments || []} />
-                          </div>
-                        </div>
-                      )}
-                      {task.notes && <p className="text-xs text-slate-500 mt-1 italic">{task.notes}</p>}
-                    </div>
-                  </div>
-                </div>
-              ))}
+                  />
+                ))}
               </div>
             </>
           )}

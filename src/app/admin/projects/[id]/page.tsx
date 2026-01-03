@@ -51,12 +51,24 @@ export default async function ProjectDetailPage({
         phases: {
           include: {
             tasks: {
+              where: {
+                parentTaskId: null // Only fetch top-level tasks
+              },
               include: {
                 comments: {
                   orderBy: { createdAt: 'asc' }
                 },
                 assignments: {
                   orderBy: { assignedAt: 'asc' }
+                },
+                subTasks: {
+                  include: {
+                    subTasks: {
+                      include: {
+                        subTasks: true // 3 levels deep
+                      }
+                    }
+                  }
                 }
               }
             }
