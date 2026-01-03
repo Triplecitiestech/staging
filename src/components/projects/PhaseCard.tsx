@@ -3,9 +3,6 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import StatusDropdown from './StatusDropdown'
-import TaskStatusDropdown from './TaskStatusDropdown'
-import CommentThread from './CommentThread'
-import AssignmentPicker from './AssignmentPicker'
 import TaskItem from './TaskItem'
 
 interface Comment {
@@ -32,6 +29,8 @@ interface Task {
   notes?: string | null
   orderIndex: number
   status?: string
+  parentTaskId?: string | null
+  subTasks?: Task[]
   comments?: Comment[]
   assignments?: Assignment[]
 }
@@ -60,7 +59,6 @@ export default function PhaseCard({ phase, index }: { phase: Phase; index: numbe
   const [bulkStatus, setBulkStatus] = useState('')
   const [bulkAssignTo, setBulkAssignTo] = useState('')
   const [bulkAssignToName, setBulkAssignToName] = useState('')
-  const [showBulkActions, setShowBulkActions] = useState(false)
   const [formData, setFormData] = useState({
     title: phase.title,
     description: phase.description || '',
@@ -85,35 +83,6 @@ export default function PhaseCard({ phase, index }: { phase: Phase; index: numbe
       router.refresh()
     } catch {
       alert('Failed to update phase')
-    }
-  }
-
-  const toggleTask = async (taskId: string, completed: boolean) => {
-    try {
-      const res = await fetch(`/api/tasks/${taskId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ completed }),
-      })
-      if (!res.ok) throw new Error()
-      router.refresh()
-    } catch {
-      alert('Failed to update task')
-    }
-  }
-
-  const saveTask = async (taskId: string, taskText: string, notes: string) => {
-    try {
-      const res = await fetch(`/api/tasks/${taskId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskText, notes }),
-      })
-      if (!res.ok) throw new Error()
-      setEditingTask(null)
-      router.refresh()
-    } catch {
-      alert('Failed to update task')
     }
   }
 
