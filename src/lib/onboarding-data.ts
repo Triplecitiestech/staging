@@ -70,7 +70,69 @@ function timingSafeEqual(a: string, b: string): boolean {
 
 // Get onboarding data for a company
 // Returns null if company doesn't exist
-export function getOnboardingData(companySlug: string): OnboardingData | null {
+export async function getOnboardingData(companySlug: string): Promise<OnboardingData | null> {
+  // First try to get from database (dynamic projects)
+  try {
+    const { prisma } = await import('@/lib/prisma')
+
+    const company = await prisma.company.findUnique({
+      where: { slug: companySlug },
+      include: {
+        projects: {
+          where: {
+            projectType: 'ONBOARDING'
+          },
+          include: {
+            phases: {
+              orderBy: { orderIndex: 'asc' }
+            }
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 1 // Get the most recent onboarding project
+        }
+      }
+    })
+
+    if (company && company.projects.length > 0) {
+      const project = company.projects[0]
+
+      // Map database phase statuses to OnboardingData format
+      const mapPhaseStatus = (status: string): string => {
+        switch (status) {
+          case 'NOT_STARTED': return 'Not Started'
+          case 'SCHEDULED': return 'Scheduled'
+          case 'WAITING_ON_CUSTOMER': return 'Waiting on Customer'
+          case 'IN_PROGRESS': return 'In Progress'
+          case 'REQUIRES_CUSTOMER_COORDINATION': return 'Requires Customer Coordination'
+          case 'DISCUSSED': return 'Discussed'
+          case 'COMPLETE': return 'Complete'
+          case 'COMPLETED': return 'Completed'
+          default: return status
+        }
+      }
+
+      return {
+        companySlug: company.slug,
+        companyDisplayName: company.displayName,
+        currentPhaseId: project.phases.find(p => p.status === 'IN_PROGRESS')?.id,
+        lastUpdated: project.updatedAt.toISOString(),
+        phases: project.phases.map(phase => ({
+          id: phase.id,
+          title: phase.title,
+          description: phase.description || '',
+          status: mapPhaseStatus(phase.status) as any,
+          owner: (phase.owner as any) || 'TCT',
+          notes: phase.customerNotes || undefined,
+          nextAction: undefined,
+          details: []
+        }))
+      }
+    }
+  } catch (error) {
+    console.error('[getOnboardingData] Error fetching from database:', error)
+  }
+
+  // Fall back to static data if no database entry
   const data = onboardingDatabase.get(companySlug)
   return data || null
 }

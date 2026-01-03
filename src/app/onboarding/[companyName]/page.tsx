@@ -47,7 +47,7 @@ export default async function OnboardingPage({ params }: PageProps) {
   console.log('[Onboarding Page] Is authenticated:', isAuthenticated)
 
   // Get onboarding data only if authenticated
-  const onboardingData = isAuthenticated ? getOnboardingData(companySlug) : null
+  const onboardingData = isAuthenticated ? await getOnboardingData(companySlug) : null
   console.log('[Onboarding Page] Onboarding data loaded:', onboardingData !== null)
   console.log('[Onboarding Page] Onboarding data:', onboardingData)
 
