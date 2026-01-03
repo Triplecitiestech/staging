@@ -6,6 +6,7 @@ import OnboardingPortal from '@/components/onboarding/OnboardingPortal'
 import { Metadata } from 'next'
 
 export const dynamic = 'force-dynamic'
+export const revalidate = 0
 
 interface PageProps {
   params: Promise<{ companyName: string }>

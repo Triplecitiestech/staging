@@ -15,17 +15,18 @@ export default function TaskStatusDropdown({ taskId, currentStatus }: TaskStatus
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   const statuses = [
-    { value: 'NOT_STARTED', label: 'Not Started', color: 'bg-pink-500/20 text-pink-300 border-pink-500/50' },
     { value: 'ASSIGNED', label: 'Assigned', color: 'bg-purple-500/20 text-purple-300 border-purple-500/50' },
-    { value: 'WORK_IN_PROGRESS', label: 'Work in Progress', color: 'bg-sky-500/20 text-sky-300 border-sky-500/50' },
-    { value: 'WAITING_ON_VENDOR', label: 'Waiting on Vendor', color: 'bg-amber-500/20 text-amber-300 border-amber-500/50' },
-    { value: 'WAITING_ON_CLIENT', label: 'Waiting on Client', color: 'bg-orange-500/20 text-orange-300 border-orange-500/50' },
-    { value: 'NEEDS_REVIEW', label: 'Needs Review', color: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50' },
-    { value: 'STUCK', label: 'Stuck', color: 'bg-red-500/20 text-red-300 border-red-500/50' },
+    { value: 'COMPLETE', label: 'Complete', color: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50' },
     { value: 'INFORMATION_RECEIVED', label: 'Information Received', color: 'bg-teal-500/20 text-teal-300 border-teal-500/50' },
-    { value: 'REVIEWED_AND_DONE', label: 'Reviewed and Done', color: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50' },
     { value: 'ITG_DOCUMENTED', label: 'ITG Documented', color: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/50' },
+    { value: 'NEEDS_REVIEW', label: 'Needs Review', color: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50' },
     { value: 'NOT_APPLICABLE', label: 'Not Applicable', color: 'bg-slate-500/20 text-slate-300 border-slate-500/50' },
+    { value: 'NOT_STARTED', label: 'Not Started', color: 'bg-pink-500/20 text-pink-300 border-pink-500/50' },
+    { value: 'REVIEWED_AND_DONE', label: 'Reviewed and Done', color: 'bg-green-500/20 text-green-300 border-green-500/50' },
+    { value: 'STUCK', label: 'Stuck', color: 'bg-red-500/20 text-red-300 border-red-500/50' },
+    { value: 'WAITING_ON_CLIENT', label: 'Waiting on Client', color: 'bg-orange-500/20 text-orange-300 border-orange-500/50' },
+    { value: 'WAITING_ON_VENDOR', label: 'Waiting on Vendor', color: 'bg-amber-500/20 text-amber-300 border-amber-500/50' },
+    { value: 'WORK_IN_PROGRESS', label: 'Work in Progress', color: 'bg-sky-500/20 text-sky-300 border-sky-500/50' },
   ]
 
   const currentStatusObj = statuses.find(s => s.value === currentStatus) || statuses[0]
