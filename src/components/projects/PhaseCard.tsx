@@ -55,6 +55,9 @@ export default function PhaseCard({ phase, index }: { phase: Phase; index: numbe
   const [editingTask, setEditingTask] = useState<string | null>(null)
   const [draggedTask, setDraggedTask] = useState<string | null>(null)
   const [tasks, setTasks] = useState(phase.tasks.sort((a, b) => a.orderIndex - b.orderIndex))
+  const [selectedTasks, setSelectedTasks] = useState<Set<string>>(new Set())
+  const [bulkStatus, setBulkStatus] = useState('')
+  const [showBulkActions, setShowBulkActions] = useState(false)
   const [formData, setFormData] = useState({
     title: phase.title,
     description: phase.description || '',
@@ -122,6 +125,47 @@ export default function PhaseCard({ phase, index }: { phase: Phase; index: numbe
       router.refresh()
     } catch {
       alert('Failed to delete phase')
+    }
+  }
+
+  // Bulk operations
+  const toggleSelectAll = () => {
+    if (selectedTasks.size === tasks.length) {
+      setSelectedTasks(new Set())
+    } else {
+      setSelectedTasks(new Set(tasks.map(t => t.id)))
+    }
+  }
+
+  const toggleTaskSelection = (taskId: string) => {
+    const newSelected = new Set(selectedTasks)
+    if (newSelected.has(taskId)) {
+      newSelected.delete(taskId)
+    } else {
+      newSelected.add(taskId)
+    }
+    setSelectedTasks(newSelected)
+  }
+
+  const applyBulkStatus = async () => {
+    if (!bulkStatus || selectedTasks.size === 0) return
+
+    try {
+      await Promise.all(
+        Array.from(selectedTasks).map(taskId =>
+          fetch(`/api/tasks/${taskId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: bulkStatus }),
+          })
+        )
+      )
+      setSelectedTasks(new Set())
+      setBulkStatus('')
+      setShowBulkActions(false)
+      router.refresh()
+    } catch {
+      alert('Failed to update tasks')
     }
   }
 
@@ -231,34 +275,91 @@ export default function PhaseCard({ phase, index }: { phase: Phase; index: numbe
           )}
 
           {tasks.length > 0 && (
-            <div className="space-y-2 mb-4">
-              {tasks.map(task => (
-                <div
-                  key={task.id}
-                  draggable
-                  onDragStart={() => handleDragStart(task.id)}
-                  onDragOver={(e) => handleDragOver(e, task.id)}
-                  onDragEnd={handleDragEnd}
-                  className={`group space-y-2 ${draggedTask === task.id ? 'opacity-50' : ''}`}
-                >
-                  <div className="flex items-start gap-2">
-                    <div className="mt-0.5 cursor-move opacity-0 group-hover:opacity-100 transition-opacity">
-                      <svg className="w-4 h-4 text-slate-500" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M9 3h2v2H9V3zm0 4h2v2H9V7zm0 4h2v2H9v-2zm0 4h2v2H9v-2zm0 4h2v2H9v-2zm4-16h2v2h-2V3zm0 4h2v2h-2V7zm0 4h2v2h-2v-2zm0 4h2v2h-2v-2zm0 4h2v2h-2v-2z"/>
-                      </svg>
-                    </div>
-                    <button
-                      onClick={() => toggleTask(task.id, !task.completed)}
-                      className={`mt-0.5 w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 ${
-                        task.completed ? 'bg-cyan-500 border-cyan-500' : 'border-slate-500'
-                      }`}
+            <>
+              {/* Bulk actions toolbar */}
+              <div className="flex items-center gap-3 mb-3 pb-3 border-b border-slate-700">
+                <input
+                  type="checkbox"
+                  checked={selectedTasks.size === tasks.length && tasks.length > 0}
+                  onChange={toggleSelectAll}
+                  className="w-4 h-4 rounded border-slate-500"
+                />
+                <span className="text-xs text-slate-400">
+                  {selectedTasks.size > 0 ? `${selectedTasks.size} selected` : 'Select all'}
+                </span>
+                {selectedTasks.size > 0 && (
+                  <div className="flex-1 flex items-center gap-2">
+                    <select
+                      value={bulkStatus}
+                      onChange={(e) => setBulkStatus(e.target.value)}
+                      className="px-2 py-1 text-xs bg-slate-800 border border-white/20 rounded text-slate-300"
                     >
-                      {task.completed && (
-                        <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                        </svg>
-                      )}
+                      <option value="">Set Status...</option>
+                      <option value="ASSIGNED">Assigned</option>
+                      <option value="COMPLETE">Complete</option>
+                      <option value="INFORMATION_RECEIVED">Information Received</option>
+                      <option value="ITG_DOCUMENTED">ITG Documented</option>
+                      <option value="NEEDS_REVIEW">Needs Review</option>
+                      <option value="NOT_APPLICABLE">Not Applicable</option>
+                      <option value="NOT_STARTED">Not Started</option>
+                      <option value="REVIEWED_AND_DONE">Reviewed and Done</option>
+                      <option value="STUCK">Stuck</option>
+                      <option value="WAITING_ON_CLIENT">Waiting on Client</option>
+                      <option value="WAITING_ON_VENDOR">Waiting on Vendor</option>
+                      <option value="WORK_IN_PROGRESS">Work in Progress</option>
+                    </select>
+                    <button
+                      onClick={applyBulkStatus}
+                      disabled={!bulkStatus}
+                      className="px-3 py-1 text-xs bg-cyan-500 text-white rounded hover:bg-cyan-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Apply
                     </button>
+                    <button
+                      onClick={() => setSelectedTasks(new Set())}
+                      className="px-2 py-1 text-xs text-slate-400 hover:text-slate-300"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Task list */}
+              <div className="space-y-2 mb-4">
+                {tasks.map(task => (
+                  <div
+                    key={task.id}
+                    draggable
+                    onDragStart={() => handleDragStart(task.id)}
+                    onDragOver={(e) => handleDragOver(e, task.id)}
+                    onDragEnd={handleDragEnd}
+                    className={`group space-y-2 ${draggedTask === task.id ? 'opacity-50' : ''} ${selectedTasks.has(task.id) ? 'bg-cyan-500/10 rounded-lg p-2' : ''}`}
+                  >
+                    <div className="flex items-start gap-2">
+                      <div className="mt-0.5 cursor-move opacity-0 group-hover:opacity-100 transition-opacity">
+                        <svg className="w-4 h-4 text-slate-500" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M9 3h2v2H9V3zm0 4h2v2H9V7zm0 4h2v2H9v-2zm0 4h2v2H9v-2zm0 4h2v2H9v-2zm4-16h2v2h-2V3zm0 4h2v2h-2V7zm0 4h2v2h-2v-2zm0 4h2v2h-2v-2zm0 4h2v2h-2v-2z"/>
+                        </svg>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={selectedTasks.has(task.id)}
+                        onChange={() => toggleTaskSelection(task.id)}
+                        className="mt-0.5 w-4 h-4 rounded border-slate-500"
+                      />
+                      <button
+                        onClick={() => toggleTask(task.id, !task.completed)}
+                        className={`mt-0.5 w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 ${
+                          task.completed ? 'bg-cyan-500 border-cyan-500' : 'border-slate-500'
+                        }`}
+                      >
+                        {task.completed && (
+                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </button>
                     <div className="flex-1">
                       {editingTask === task.id ? (
                         <input
@@ -289,7 +390,8 @@ export default function PhaseCard({ phase, index }: { phase: Phase; index: numbe
                   </div>
                 </div>
               ))}
-            </div>
+              </div>
+            </>
           )}
 
           {editing && (
