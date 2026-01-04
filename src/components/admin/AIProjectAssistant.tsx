@@ -31,7 +31,7 @@ export default function AIProjectAssistant({
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'assistant',
-      content: 'Hi! I\'m your AI project assistant. I can help you:\n\n• Generate project phases and tasks\n• Structure timelines\n• Suggest milestones\n• Create detailed task lists\n\nJust describe what kind of project you\'re building, and I\'ll help structure it!'
+      content: 'Hi! I\'m your AI project assistant. I can help you create project phases and tasks.\n\n**How to use:**\n1. Tell me about your project (e.g., "Create a website redesign project")\n2. I\'ll generate phases and tasks as JSON\n3. Click the "Insert into Form" or "Create Phases" button\n4. Your phases will be automatically added!\n\nWhat kind of project are you building?'
     }
   ])
   const [input, setInput] = useState('')
@@ -232,8 +232,9 @@ export default function AIProjectAssistant({
     return (
       <button
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 right-6 z-40 w-14 h-14 bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white rounded-full shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-110 flex items-center justify-center group"
+        className="fixed bottom-6 left-6 z-40 w-14 h-14 bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white rounded-full shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-110 flex items-center justify-center group"
         aria-label="Open AI Assistant"
+        title="AI Project Assistant - Click to create phases and tasks"
       >
         <Sparkles size={24} className="group-hover:scale-110 transition-transform" />
       </button>
@@ -241,7 +242,7 @@ export default function AIProjectAssistant({
   }
 
   return (
-    <div className="fixed bottom-6 right-6 z-40 w-96 h-[600px] bg-slate-900 rounded-2xl shadow-2xl border border-purple-500/30 flex flex-col overflow-hidden">
+    <div className="fixed bottom-6 left-6 z-40 w-96 h-[600px] bg-slate-900 rounded-2xl shadow-2xl border border-purple-500/30 flex flex-col overflow-hidden">
       {/* Header */}
       <div className="bg-gradient-to-r from-purple-600 to-indigo-600 p-4 flex items-center justify-between">
         <div className="flex items-center space-x-2">
@@ -255,7 +256,7 @@ export default function AIProjectAssistant({
                 localStorage.removeItem(storageKey)
                 setMessages([{
                   role: 'assistant',
-                  content: 'Hi! I\'m your AI project assistant. I can help you:\n\n• Generate project phases and tasks\n• Structure timelines\n• Suggest milestones\n• Create detailed task lists\n\nJust describe what kind of project you\'re building, and I\'ll help structure it!'
+                  content: 'Hi! I\'m your AI project assistant. I can help you create project phases and tasks.\n\n**How to use:**\n1. Tell me about your project (e.g., "Create a website redesign project")\n2. I\'ll generate phases and tasks as JSON\n3. Click the "Insert into Form" or "Create Phases" button\n4. Your phases will be automatically added!\n\nWhat kind of project are you building?'
                 }])
               }
             }}
@@ -324,17 +325,17 @@ export default function AIProjectAssistant({
                         if (json) handleInsertStructure(json)
                       }}
                       disabled={isLoading || insertSuccess}
-                      className="text-xs text-purple-400 hover:text-purple-300 disabled:text-green-400 flex items-center space-x-1 transition-colors"
+                      className="text-xs px-3 py-1.5 rounded-md font-semibold bg-purple-600 hover:bg-purple-700 disabled:bg-green-600 text-white flex items-center space-x-1 transition-colors shadow-sm"
                     >
                       {insertSuccess ? (
                         <>
-                          <CheckCircle size={12} />
-                          <span>Inserted!</span>
+                          <CheckCircle size={14} />
+                          <span>✓ Added to Project!</span>
                         </>
                       ) : (
                         <>
-                          <Sparkles size={12} />
-                          <span>{projectId ? 'Create Phases' : 'Insert into Form'}</span>
+                          <Sparkles size={14} />
+                          <span>{projectId ? '➕ Create Phases Now' : '➕ Insert into Form'}</span>
                         </>
                       )}
                     </button>
