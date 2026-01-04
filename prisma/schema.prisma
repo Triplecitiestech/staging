@@ -122,8 +122,8 @@ model Project {
   estimatedDuration String? // '30 days', '6 weeks'
   startedAt         DateTime?
   completedAt       DateTime?
-  createdBy         String // Staff email - no foreign key to avoid production DB issues
-  lastModifiedBy    String // Staff email - no foreign key to avoid production DB issues
+  createdBy         String? // Staff email - optional for production DB compatibility
+  lastModifiedBy    String? // Staff email - optional for production DB compatibility
   generationPrompt  String?       @db.Text // Original prompt sent to Claude API
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
