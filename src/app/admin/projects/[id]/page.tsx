@@ -17,7 +17,6 @@ const prisma = new PrismaClient({
 type ProjectWithRelations = Prisma.ProjectGetPayload<{
   include: {
     company: true
-    creator: true
     phases: {
       include: {
         tasks: true
@@ -47,7 +46,6 @@ export default async function ProjectDetailPage({
       where: { id },
       include: {
         company: true,
-        creator: true,
         phases: {
           include: {
             tasks: {
@@ -84,7 +82,6 @@ export default async function ProjectDetailPage({
       where: { id },
       include: {
         company: true,
-        creator: true,
         phases: {
           include: {
             tasks: {
@@ -213,7 +210,7 @@ export default async function ProjectDetailPage({
             </div>
             <div className="bg-gradient-to-br from-slate-700/20 to-slate-800/10 backdrop-blur-sm border border-white/10 rounded-lg p-6">
               <p className="text-sm text-slate-300 mb-1">Created By</p>
-              <p className="text-white text-sm">{project.creator?.name || project.createdBy}</p>
+              <p className="text-white text-sm">{project.createdBy}</p>
             </div>
           </div>
         </div>
