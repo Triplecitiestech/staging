@@ -65,8 +65,8 @@ export default function OlujoPlanPage() {
           <div className="grid md:grid-cols-3 gap-6">
             {/* Adam */}
             <div className="bg-slate-900/50 border border-cyan-500/30 rounded-lg p-6">
-              <h3 className="text-xl font-bold text-cyan-400 mb-2">Adam — Project Lead</h3>
-              <p className="text-sm text-slate-400 mb-4">(Olujo)</p>
+              <h3 className="text-xl font-bold text-cyan-400 mb-2">Adam — Executive Owner</h3>
+              <p className="text-sm text-slate-400 mb-4">(Olujo - High Level)</p>
 
               <div>
                 <p className="text-sm font-semibold text-white mb-2">Owns:</p>
@@ -85,7 +85,7 @@ export default function OlujoPlanPage() {
                   </li>
                   <li className="flex items-start gap-2">
                     <CheckCircle2 size={16} className="text-green-400 mt-0.5 flex-shrink-0" />
-                    <span>Validation of downstream purchases (bottle counts)</span>
+                    <span>Strategic oversight and approval</span>
                   </li>
                 </ul>
               </div>
@@ -93,8 +93,8 @@ export default function OlujoPlanPage() {
 
             {/* Jeff */}
             <div className="bg-slate-900/50 border border-purple-500/30 rounded-lg p-6">
-              <h3 className="text-xl font-bold text-purple-400 mb-2">Jeff — Business PM</h3>
-              <p className="text-sm text-slate-400 mb-4">(Olujo)</p>
+              <h3 className="text-xl font-bold text-purple-400 mb-2">Jeff — Operations Lead</h3>
+              <p className="text-sm text-slate-400 mb-4">(Olujo - Day-to-Day)</p>
 
               <div>
                 <p className="text-sm font-semibold text-white mb-2">Owns:</p>
@@ -109,20 +109,20 @@ export default function OlujoPlanPage() {
                   </li>
                   <li className="flex items-start gap-2">
                     <CheckCircle2 size={16} className="text-green-400 mt-0.5 flex-shrink-0" />
-                    <span>Reporting review with Adam</span>
+                    <span>Purchase validation and reporting</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <CheckCircle2 size={16} className="text-green-400 mt-0.5 flex-shrink-0" />
-                    <span>Purchase confirmation inputs to TCT</span>
+                    <span>Coordination with Kurtis on system needs</span>
                   </li>
                 </ul>
               </div>
             </div>
 
-            {/* Triple Cities Tech */}
+            {/* Kurtis */}
             <div className="bg-slate-900/50 border border-blue-500/30 rounded-lg p-6">
-              <h3 className="text-xl font-bold text-blue-400 mb-2">Triple Cities Tech</h3>
-              <p className="text-sm text-slate-400 mb-4">Technical Owner</p>
+              <h3 className="text-xl font-bold text-blue-400 mb-2">Kurtis — Technical Lead</h3>
+              <p className="text-sm text-slate-400 mb-4">(Triple Cities Tech)</p>
 
               <div>
                 <p className="text-sm font-semibold text-white mb-2">Owns:</p>
@@ -181,9 +181,9 @@ export default function OlujoPlanPage() {
               "Project roles formally acknowledged"
             ]}
             owners={[
-              { name: "Adam", role: "approves" },
-              { name: "Jeff", role: "reviews" },
-              { name: "Triple Cities Tech", role: "documents + enforces" }
+              { name: "Adam", role: "final approval" },
+              { name: "Jeff", role: "reviews + coordinates" },
+              { name: "Kurtis (TCT)", role: "documents + enforces" }
             ]}
             exitCriteria={[
               "Adam signs off on scope",
@@ -212,7 +212,7 @@ export default function OlujoPlanPage() {
             owners={[
               { name: "Adam", role: "brand approval" },
               { name: "Jeff", role: "operational feedback" },
-              { name: "TCT", role: "structure + compliance framing" }
+              { name: "Kurtis (TCT)", role: "structure + compliance framing" }
             ]}
             exitCriteria={[
               "Script can be read by any rep with no interpretation",
@@ -242,8 +242,8 @@ export default function OlujoPlanPage() {
             ]}
             owners={[
               { name: "Jeff", role: "interview coordination" },
-              { name: "Adam", role: "optional final veto" },
-              { name: "TCT", role: "onboarding SOP + compliance rules" }
+              { name: "Adam", role: "strategic veto only" },
+              { name: "Kurtis (TCT)", role: "onboarding SOP + compliance rules" }
             ]}
             exitCriteria={[
               "First 2–3 reps fully trained",
@@ -275,7 +275,7 @@ export default function OlujoPlanPage() {
               "CSV import format finalized"
             ]}
             owners={[
-              { name: "TCT", role: "scraping + normalization" },
+              { name: "Kurtis (TCT)", role: "scraping + normalization" },
               { name: "Jeff", role: "spot-check accuracy" }
             ]}
             exitCriteria={[
@@ -316,7 +316,7 @@ export default function OlujoPlanPage() {
               "Needs Review (QA)"
             ]}
             owners={[
-              { name: "Triple Cities Tech", role: "end-to-end" }
+              { name: "Kurtis (TCT)", role: "end-to-end" }
             ]}
             exitCriteria={[
               "Reps can complete full workflow in CRM",
@@ -350,8 +350,8 @@ export default function OlujoPlanPage() {
             ]}
             owners={[
               { name: "Jeff", role: "daily ops" },
-              { name: "TCT", role: "system monitoring" },
-              { name: "Adam", role: "high-level review" }
+              { name: "Kurtis (TCT)", role: "system monitoring" },
+              { name: "Adam", role: "strategic review" }
             ]}
             exitCriteria={[
               "≥95% proof compliance",
@@ -382,8 +382,8 @@ export default function OlujoPlanPage() {
             ]}
             owners={[
               { name: "Jeff", role: "people + ops" },
-              { name: "TCT", role: "reporting + data integrity" },
-              { name: "Adam", role: "growth decisions" }
+              { name: "Kurtis (TCT)", role: "reporting + data integrity" },
+              { name: "Adam", role: "growth approval" }
             ]}
             exitCriteria={[
               "Consistent quality across reps",
@@ -401,7 +401,7 @@ export default function OlujoPlanPage() {
             color="purple"
             goal="Ensure commissions are fair, provable, and undisputed."
             process={[
-              "Adam/Jeff confirms store purchase",
+              "Jeff confirms store purchase",
               "Bottle count verified",
               "Admin records purchase in CRM",
               "System attributes rep (last-touch within window)",
@@ -409,9 +409,9 @@ export default function OlujoPlanPage() {
               "Approved → paid"
             ]}
             owners={[
-              { name: "Adam", role: "confirms purchase reality" },
-              { name: "Jeff", role: "provides inputs" },
-              { name: "TCT", role: "system enforcement" }
+              { name: "Jeff", role: "validates purchases" },
+              { name: "Kurtis (TCT)", role: "system enforcement" },
+              { name: "Adam", role: "final approval for disputes" }
             ]}
             exitCriteria={[
               "Zero commission disputes",
@@ -439,8 +439,8 @@ export default function OlujoPlanPage() {
               "Heatmaps of brand recognition by region"
             ]}
             owners={[
-              { name: "Adam", role: "business value decision" },
-              { name: "TCT", role: "technical roadmap" }
+              { name: "Adam", role: "prioritization & ROI approval" },
+              { name: "Kurtis (TCT)", role: "technical roadmap" }
             ]}
           />
         </div>
