@@ -113,15 +113,13 @@ export async function POST(request: NextRequest) {
 
     console.log('[Project Creation] Phases data:', JSON.stringify(phasesData, null, 2))
 
-    // Create project - provide all required fields for production database
+    // Create project - only include fields that exist in production database
     const projectData = {
       companyId,
       projectType: projectType as ProjectType,
       title,
       slug,
       status: 'ACTIVE' as const,
-      createdBy: createdBy || session.user.email,
-      lastModifiedBy: lastModifiedBy || session.user.email,
       phases: phasesData.length > 0 ? {
         create: phasesData
       } : undefined,
@@ -153,8 +151,6 @@ export async function POST(request: NextRequest) {
         title,
         slug,
         status: 'ACTIVE' as const,
-        createdBy: createdBy || session.user.email,
-        lastModifiedBy: lastModifiedBy || session.user.email,
       }
       project = await prisma.project.create({
         data: simpleProjectData,
