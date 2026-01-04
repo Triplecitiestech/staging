@@ -32,6 +32,9 @@ export async function GET() {
             title: 'TEST_DELETE_ME',
             slug: 'test-delete-me-' + Date.now(),
             status: 'ACTIVE',
+            createdBy: session.user.email,
+            lastModifiedBy: session.user.email,
+            aiGenerated: false,
           }
         })
       }
