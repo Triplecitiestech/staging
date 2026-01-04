@@ -49,7 +49,8 @@ export default function NewProjectForm({ companies, templates, userEmail }: NewP
 
       if (!response.ok) {
         const data = await response.json()
-        throw new Error(data.error || 'Failed to create project')
+        const errorMessage = data.details ? `${data.error}: ${data.details}` : (data.error || 'Failed to create project')
+        throw new Error(errorMessage)
       }
 
       const project = await response.json()
