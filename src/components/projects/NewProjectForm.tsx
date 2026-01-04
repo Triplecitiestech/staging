@@ -49,7 +49,8 @@ export default function NewProjectForm({ companies, templates, userEmail }: NewP
 
       if (!response.ok) {
         const data = await response.json()
-        const errorMessage = data.details ? `${data.error}: ${data.details}` : (data.error || 'Failed to create project')
+        console.error('Full API error response:', data)
+        const errorMessage = data.fullError || data.details || data.error || 'Failed to create project'
         throw new Error(errorMessage)
       }
 
