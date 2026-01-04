@@ -106,7 +106,7 @@ export async function getOnboardingData(companySlug: string): Promise<Onboarding
           case 'REQUIRES_CUSTOMER_COORDINATION': return 'Requires Customer Coordination'
           case 'DISCUSSED': return 'Discussed'
           case 'COMPLETE': return 'Complete'
-          case 'COMPLETED': return 'Completed'
+          case 'COMPLETED': return 'Complete' // Map old COMPLETED to Complete
           default: return 'Not Started'
         }
       }
