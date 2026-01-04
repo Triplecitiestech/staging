@@ -1,7 +1,7 @@
 'use client'
 
-import React, { useState } from 'react'
-import { ChevronDown, ChevronUp, CheckCircle, Clock, AlertCircle, Calendar, User } from 'lucide-react'
+import React, { useState, useRef } from 'react'
+import { ChevronDown, ChevronUp, CheckCircle, Clock, AlertCircle, Calendar, User, ChevronLeft, ChevronRight } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import type { OnboardingPhase, PhaseStatus } from '@/types/onboarding'
 
@@ -217,8 +217,21 @@ function PhaseCard({ phase, isCurrent, isLast }: { phase: OnboardingPhase; isCur
 export default function OnboardingTimeline({ phases, currentPhaseId }: OnboardingTimelineProps) {
   const [selectedPhase, setSelectedPhase] = useState<OnboardingPhase | null>(null)
   const [viewMode, setViewMode] = useState<'horizontal' | 'vertical'>('horizontal')
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
 
   const showScrollWarning = phases.length > 6
+
+  const scrollLeft = () => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollBy({ left: -300, behavior: 'smooth' })
+    }
+  }
+
+  const scrollRight = () => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollBy({ left: 300, behavior: 'smooth' })
+    }
+  }
 
   return (
     <div className="space-y-8">
@@ -262,7 +275,31 @@ export default function OnboardingTimeline({ phases, currentPhaseId }: Onboardin
       {/* Horizontal Timeline */}
       {viewMode === 'horizontal' && (
         <div className="relative pb-8">
-          <div className={`flex items-start gap-3 px-4 ${phases.length > 6 ? 'scale-75 origin-center' : phases.length > 4 ? 'scale-90 origin-center' : ''}`} style={{ width: 'max-content', margin: '0 auto' }}>
+          {/* Left arrow */}
+          <button
+            onClick={scrollLeft}
+            className="absolute left-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
+            aria-label="Scroll left"
+          >
+            <ChevronLeft size={20} />
+          </button>
+
+          {/* Right arrow */}
+          <button
+            onClick={scrollRight}
+            className="absolute right-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
+            aria-label="Scroll right"
+          >
+            <ChevronRight size={20} />
+          </button>
+
+          {/* Scrollable container */}
+          <div
+            ref={scrollContainerRef}
+            className="overflow-x-auto scrollbar-hide px-12"
+            style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+          >
+            <div className={`flex items-start gap-3 px-4 ${phases.length > 6 ? 'scale-75 origin-center' : phases.length > 4 ? 'scale-90 origin-center' : ''}`} style={{ width: 'max-content', margin: '0 auto' }}>
             {/* Start Marker */}
             <div className="flex flex-col items-center flex-shrink-0">
               <div className="w-16 h-16 rounded-full bg-gradient-to-br from-green-500 to-green-600 flex items-center justify-center shadow-lg shadow-green-500/50 mb-3">
@@ -345,6 +382,7 @@ export default function OnboardingTimeline({ phases, currentPhaseId }: Onboardin
                 <span className="text-xs text-gray-400 font-medium whitespace-nowrap">30 Days</span>
               </div>
             </>
+          </div>
           </div>
         </div>
       )}

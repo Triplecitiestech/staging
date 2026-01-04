@@ -1,8 +1,5 @@
 'use client'
 
-import { useState } from 'react'
-import { LayoutList, LayoutGrid } from 'lucide-react'
-
 interface Task {
   id: string
   taskText: string
@@ -36,8 +33,6 @@ interface ProjectsViewProps {
 }
 
 export default function ProjectsView({ projects }: ProjectsViewProps) {
-  const [viewMode, setViewMode] = useState<'horizontal' | 'vertical'>('horizontal')
-  const [selectedPhase, setSelectedPhase] = useState<string | null>(null)
 
   if (!projects || projects.length === 0) {
     return (
@@ -92,34 +87,6 @@ export default function ProjectsView({ projects }: ProjectsViewProps) {
               </div>
             </div>
 
-            {/* View Toggle */}
-            <div className="flex justify-end mb-6">
-              <div className="inline-flex bg-gray-800/50 border border-cyan-500/30 rounded-lg p-1">
-                <button
-                  onClick={() => setViewMode('horizontal')}
-                  className={`px-4 py-2 rounded-md transition-all flex items-center gap-2 ${
-                    viewMode === 'horizontal'
-                      ? 'bg-cyan-500 text-white'
-                      : 'text-gray-400 hover:text-white'
-                  }`}
-                >
-                  <LayoutGrid size={16} />
-                  Horizontal
-                </button>
-                <button
-                  onClick={() => setViewMode('vertical')}
-                  className={`px-4 py-2 rounded-md transition-all flex items-center gap-2 ${
-                    viewMode === 'vertical'
-                      ? 'bg-cyan-500 text-white'
-                      : 'text-gray-400 hover:text-white'
-                  }`}
-                >
-                  <LayoutList size={16} />
-                  Vertical
-                </button>
-              </div>
-            </div>
-
             {/* Progress Bar */}
             <div className="mb-8 bg-gray-800/50 rounded-full h-3 overflow-hidden">
               <div
@@ -128,138 +95,8 @@ export default function ProjectsView({ projects }: ProjectsViewProps) {
               />
             </div>
 
-            {/* Horizontal View (Timeline) */}
-            {viewMode === 'horizontal' && (
-              <div className="relative">
-                {/* Timeline connector line */}
-                <div className="absolute top-10 left-0 right-0 h-1 bg-gray-700" style={{ marginLeft: '48px', marginRight: '48px' }} />
-                <div
-                  className="absolute top-10 left-0 h-1 bg-gradient-to-r from-cyan-500 to-cyan-600 transition-all duration-500"
-                  style={{
-                    width: `calc(${progress}% - 48px)`,
-                    marginLeft: '48px'
-                  }}
-                />
-
-                {/* Phases */}
-                <div className="grid gap-8" style={{ gridTemplateColumns: `repeat(${Math.min(project.phases.length, 5)}, 1fr)` }}>
-                  {project.phases.map((phase, index) => {
-                    const phaseTasks = phase.tasks.length
-                    const completedTasks = phase.tasks.filter(t => t.completed).length
-                    const phaseProgress = phaseTasks > 0 ? Math.round((completedTasks / phaseTasks) * 100) : 0
-
-                    return (
-                      <div key={phase.id} className="flex flex-col items-center text-center">
-                        {/* Phase Icon */}
-                        <button
-                          onClick={() => setSelectedPhase(selectedPhase === phase.id ? null : phase.id)}
-                          className={`w-20 h-20 rounded-full ${getStatusColor(phase.status)} flex items-center justify-center text-white font-bold text-lg mb-3 shadow-lg relative z-10 hover:scale-110 transition-transform cursor-pointer ${
-                            selectedPhase === phase.id ? 'ring-4 ring-cyan-500' : ''
-                          }`}
-                        >
-                          {index + 1}
-                        </button>
-
-                        {/* Phase Title */}
-                        <div className="mb-2">
-                          <h3 className="font-bold text-white text-sm mb-1">{phase.title}</h3>
-                          <span className={`inline-block px-2 py-1 rounded text-xs ${getStatusColor(phase.status)} text-white`}>
-                            {getStatusLabel(phase.status)}
-                          </span>
-                        </div>
-
-                        {/* Phase Progress */}
-                        {phaseTasks > 0 && (
-                          <div className="text-xs text-gray-400 mb-2">
-                            {completedTasks}/{phaseTasks} tasks • {phaseProgress}%
-                          </div>
-                        )}
-
-                        {/* Customer Notes */}
-                        {phase.customerNotes && (
-                          <div className="mt-2 w-full bg-cyan-500/10 border border-cyan-500/30 rounded p-2 text-left">
-                            <p className="text-xs text-cyan-300 font-semibold mb-1">Note:</p>
-                            <p className="text-xs text-gray-300">{phase.customerNotes}</p>
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-
-                {/* Selected Phase Details */}
-                {selectedPhase && (() => {
-                  const phase = project.phases.find(p => p.id === selectedPhase)
-                  if (!phase) return null
-
-                  return (
-                    <div className="mt-8 bg-gray-800/50 border border-cyan-500 rounded-lg p-6 shadow-lg">
-                      <div className="flex items-start justify-between mb-4">
-                        <div>
-                          <h3 className="text-xl font-bold text-white mb-1">{phase.title}</h3>
-                          {phase.description && (
-                            <p className="text-sm text-gray-400 mb-2">{phase.description}</p>
-                          )}
-                          <span className={`inline-block px-3 py-1 rounded-full text-xs ${getStatusColor(phase.status)} text-white`}>
-                            {getStatusLabel(phase.status)}
-                          </span>
-                        </div>
-                        <button
-                          onClick={() => setSelectedPhase(null)}
-                          className="text-gray-400 hover:text-white transition-colors"
-                        >
-                          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
-                      </div>
-
-                      {/* Customer Notes */}
-                      {phase.customerNotes && (
-                        <div className="mb-4 p-3 bg-cyan-500/10 border border-cyan-500/30 rounded">
-                          <p className="text-xs font-semibold text-cyan-300 mb-1">Note:</p>
-                          <p className="text-sm text-gray-300">{phase.customerNotes}</p>
-                        </div>
-                      )}
-
-                      {/* Tasks */}
-                      {phase.tasks.length > 0 && (
-                        <div>
-                          <p className="text-sm font-semibold text-white uppercase mb-3">Tasks ({phase.tasks.length})</p>
-                          <div className="space-y-2">
-                            {phase.tasks.map((task) => (
-                              <div key={task.id} className="flex items-start gap-3 p-3 bg-gray-900/50 rounded-lg">
-                                <div className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${
-                                  task.completed ? 'bg-green-500 border-green-500' : 'border-gray-600'
-                                }`}>
-                                  {task.completed && (
-                                    <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                    </svg>
-                                  )}
-                                </div>
-                                <div className="flex-1">
-                                  <span className={`text-sm ${task.completed ? 'text-gray-500 line-through' : 'text-gray-300'}`}>
-                                    {task.taskText}
-                                  </span>
-                                  {task.notes && (
-                                    <p className="text-xs text-gray-500 mt-1 italic">{task.notes}</p>
-                                  )}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })()}
-              </div>
-            )}
-
-            {/* Vertical View (List) */}
-            {viewMode === 'vertical' && (
-              <div className="space-y-4">
+            {/* Project Phases */}
+            <div className="space-y-4">
                 {project.phases.map((phase, index) => {
                   const phaseTasks = phase.tasks.length
                   const completedTasks = phase.tasks.filter(t => t.completed).length
@@ -304,7 +141,7 @@ export default function ProjectsView({ projects }: ProjectsViewProps) {
                           )}
 
                           {/* Tasks */}
-                          {phaseTasks > 0 && (
+                          {phase.tasks && phaseTasks > 0 && (
                             <div className="mb-3">
                               <p className="text-xs font-semibold text-gray-400 uppercase mb-2">Tasks</p>
                               <div className="space-y-1">
@@ -346,7 +183,6 @@ export default function ProjectsView({ projects }: ProjectsViewProps) {
                   )
                 })}
               </div>
-            )}
           </div>
         )
       })}
