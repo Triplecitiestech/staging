@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import Image from 'next/image'
-import { ArrowLeft, CheckCircle2, Users, Target, Database, Megaphone, TrendingUp, DollarSign, Zap } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, Users, Target, Database, Megaphone, TrendingUp, DollarSign, Zap, FileText } from 'lucide-react'
 
 export default function OlujoPlanPage() {
   return (
@@ -187,6 +187,9 @@ export default function OlujoPlanPage() {
               "Adam signs off on scope",
               "No open 'we'll decide later' items"
             ]}
+            documents={[
+              { title: "Executive Summary", href: "/admin/projects/olujo-docs/executive-summary" }
+            ]}
           />
 
           {/* Phase 1 */}
@@ -213,6 +216,9 @@ export default function OlujoPlanPage() {
               "Script can be read by any rep with no interpretation",
               "Jeff can explain the rules in one minute",
               "Adam confirms brand comfort"
+            ]}
+            documents={[
+              { title: "Call Handling SOP", href: "/admin/projects/olujo-docs/call-handling" }
             ]}
           />
 
@@ -241,6 +247,10 @@ export default function OlujoPlanPage() {
               "First 2–3 reps fully trained",
               "Social profiles approved",
               "Reps understand \"we do NOT sell\""
+            ]}
+            documents={[
+              { title: "Hiring Guidelines", href: "/admin/projects/olujo-docs/hiring-guidelines" },
+              { title: "Contractor Agreement", href: "/admin/projects/olujo-docs/contractor-agreement" }
             ]}
           />
 
@@ -310,6 +320,9 @@ export default function OlujoPlanPage() {
               "Reps can complete full workflow in CRM",
               "Proof cannot be skipped",
               "Admin can verify purchases"
+            ]}
+            documents={[
+              { title: "CRM Handling SOP", href: "/admin/projects/olujo-docs/crm-handling" }
             ]}
           />
 
@@ -402,6 +415,9 @@ export default function OlujoPlanPage() {
               "Zero commission disputes",
               "Every commission tied to proof"
             ]}
+            documents={[
+              { title: "CRM Handling SOP", href: "/admin/projects/olujo-docs/crm-handling" }
+            ]}
           />
 
           {/* Phase 8 */}
@@ -475,6 +491,7 @@ interface PhaseCardProps {
   measured?: string[]
   owners: Array<{ name: string; role: string }>
   exitCriteria?: string[]
+  documents?: Array<{ title: string; href: string }>
 }
 
 function PhaseCard({
@@ -494,7 +511,8 @@ function PhaseCard({
   enhancements,
   measured,
   owners,
-  exitCriteria
+  exitCriteria,
+  documents
 }: PhaseCardProps) {
   const colorClasses = {
     green: 'from-green-600/20 to-green-500/10 border-green-500/50',
@@ -535,6 +553,28 @@ function PhaseCard({
         <p className="text-sm font-semibold text-cyan-400 mb-2">Goal:</p>
         <p className="text-white">{goal}</p>
       </div>
+
+      {/* Related Documents */}
+      {documents && documents.length > 0 && (
+        <div className="mb-6 bg-cyan-900/20 border border-cyan-500/30 rounded-lg p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <FileText className="w-4 h-4 text-cyan-400" />
+            <p className="text-sm font-semibold text-cyan-400">Related Documents:</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {documents.map((doc, idx) => (
+              <Link
+                key={idx}
+                href={doc.href}
+                className="inline-flex items-center gap-2 px-3 py-1.5 bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 rounded text-sm text-cyan-300 hover:text-cyan-200 transition-all"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                {doc.title}
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Key Outcomes */}
       {outcomes && (
