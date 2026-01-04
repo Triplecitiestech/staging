@@ -191,22 +191,23 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(project, { status: 201 })
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const err = error as { message?: string; code?: string; meta?: unknown; stack?: string }
     console.error('Error creating project:', error)
     console.error('Error details:', error instanceof Error ? error.message : 'Unknown error')
     console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace')
     console.error('Full error object:', JSON.stringify(error, null, 2))
 
     // Log Prisma-specific error details
-    if (error.code) console.error('Prisma error code:', error.code)
-    if (error.meta) console.error('Prisma error meta:', JSON.stringify(error.meta, null, 2))
+    if (err.code) console.error('Prisma error code:', err.code)
+    if (err.meta) console.error('Prisma error meta:', JSON.stringify(err.meta, null, 2))
 
     return NextResponse.json(
       {
         error: 'Failed to create project',
         details: error instanceof Error ? error.message : 'Unknown error',
-        prismaCode: error.code,
-        prismaMeta: error.meta,
+        prismaCode: err.code,
+        prismaMeta: err.meta,
         fullError: JSON.stringify(error, null, 2)
       },
       { status: 500 }
