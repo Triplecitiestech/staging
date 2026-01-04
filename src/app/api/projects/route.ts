@@ -139,17 +139,24 @@ export async function POST(request: NextRequest) {
       }
     })
 
-    // Create audit log
-    await prisma.auditLog.create({
-      data: {
-        projectId: project.id,
-        staffEmail: session.user.email,
-        staffName: session.user.name || null,
-        actionType: 'CREATED',
-        entityType: 'project',
-        notes: useTemplate && templateId ? `Project created using template` : 'Project created manually',
-      }
-    })
+    console.log('[Project Creation] Project created successfully:', project.id)
+
+    // Create audit log (non-blocking - don't fail if this errors)
+    try {
+      await prisma.auditLog.create({
+        data: {
+          projectId: project.id,
+          staffEmail: session.user.email,
+          staffName: session.user.name || null,
+          actionType: 'CREATED',
+          entityType: 'project',
+          notes: useTemplate && templateId ? `Project created using template` : 'Project created manually',
+        }
+      })
+    } catch (auditError) {
+      console.error('[Project Creation] Audit log creation failed (non-critical):', auditError)
+      // Continue anyway - audit log failure shouldn't prevent project creation
+    }
 
     return NextResponse.json(project, { status: 201 })
   } catch (error) {
@@ -177,7 +184,6 @@ export async function GET() {
     const projects = await prisma.project.findMany({
       include: {
         company: true,
-        creator: true,
         phases: {
           orderBy: { orderIndex: 'asc' }
         }
