@@ -4,8 +4,7 @@ import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import { PrismaClient } from '@prisma/client'
 import { withAccelerate } from '@prisma/extension-accelerate'
-import NewProjectForm from '@/components/projects/NewProjectForm'
-import AIProjectAssistant from '@/components/admin/AIProjectAssistant'
+import NewProjectWithAI from '@/components/projects/NewProjectWithAI'
 
 const prisma = new PrismaClient({
   accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
@@ -78,21 +77,14 @@ export default async function NewProjectPage() {
         </div>
       </header>
 
-      {/* Form */}
+      {/* Form with AI Assistant */}
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <NewProjectForm
+        <NewProjectWithAI
           companies={companies}
           templates={templates}
           userEmail={session.user?.email || ''}
         />
       </main>
-
-      {/* AI Assistant */}
-      <AIProjectAssistant
-        projectContext={{
-          projectName: 'New Project'
-        }}
-      />
     </div>
   )
 }
