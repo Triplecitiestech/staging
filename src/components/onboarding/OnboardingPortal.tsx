@@ -67,14 +67,21 @@ export default function OnboardingPortal({
           <Container className="py-12 mt-4">
             {/* Header with logout */}
             <div className="mb-8">
-              {/* Centered title */}
+              {/* Company name at top */}
+              <div className="text-center mb-2">
+                <p className="text-sm text-cyan-400 font-semibold uppercase tracking-wide">
+                  {initialData.companyDisplayName}
+                </p>
+              </div>
+
+              {/* Project title */}
               <div className="text-center mb-6">
                 <h1 className="text-4xl font-bold bg-gradient-to-r from-cyan-400 to-cyan-500 bg-clip-text text-transparent mb-2">
                   {projects && projects.length === 1
                     ? (projects[0] as { title: string }).title
                     : projects && projects.length > 1
                     ? 'Your Projects'
-                    : `${initialData.companyDisplayName} Onboarding`}
+                    : 'Onboarding Program'}
                 </h1>
                 <p className="text-gray-300">
                   Last updated: {new Date(initialData.lastUpdated).toLocaleDateString('en-US', {
@@ -111,6 +118,7 @@ export default function OnboardingPortal({
             <OnboardingTimeline
               phases={initialData.phases}
               currentPhaseId={initialData.currentPhaseId}
+              title={projects && projects.length === 1 ? (projects[0] as { title: string }).title : undefined}
             />
 
             {/* Projects Section */}
@@ -118,7 +126,7 @@ export default function OnboardingPortal({
               <div className="mt-16">
                 <div className="mb-8">
                   <h2 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-cyan-500 bg-clip-text text-transparent mb-2">
-                    Your Projects
+                    Project Details
                   </h2>
                   <p className="text-gray-300">
                     Track the progress of your active projects
@@ -195,7 +203,7 @@ export default function OnboardingPortal({
             <div className="mb-16">
               <div className="mb-8">
                 <h2 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-cyan-500 bg-clip-text text-transparent mb-2">
-                  Your Projects
+                  Project Details
                 </h2>
                 <p className="text-gray-300">
                   Track the progress of your active projects

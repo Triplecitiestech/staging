@@ -8,6 +8,7 @@ import type { OnboardingPhase, PhaseStatus } from '@/types/onboarding'
 interface OnboardingTimelineProps {
   phases: OnboardingPhase[]
   currentPhaseId?: string
+  title?: string
 }
 
 // Status color mappings - vibrant bubble colors with original icon colors
@@ -17,12 +18,6 @@ const statusColors: Record<PhaseStatus, { bg: string; text: string; border: stri
     text: 'text-emerald-300',
     border: 'border-emerald-500/50',
     icon: 'text-emerald-600'
-  },
-  'Completed': {
-    bg: 'bg-green-500/20',
-    text: 'text-green-300',
-    border: 'border-green-500/50',
-    icon: 'text-green-600'
   },
   'In Progress': {
     bg: 'bg-blue-500/20',
@@ -66,7 +61,6 @@ const statusColors: Record<PhaseStatus, { bg: string; text: string; border: stri
 const getStatusIcon = (status: PhaseStatus) => {
   switch (status) {
     case 'Complete':
-    case 'Completed':
       return CheckCircle
     case 'In Progress':
     case 'Discussed':
@@ -214,7 +208,7 @@ function PhaseCard({ phase, isCurrent, isLast }: { phase: OnboardingPhase; isCur
   )
 }
 
-export default function OnboardingTimeline({ phases, currentPhaseId }: OnboardingTimelineProps) {
+export default function OnboardingTimeline({ phases, currentPhaseId, title }: OnboardingTimelineProps) {
   const [selectedPhase, setSelectedPhase] = useState<OnboardingPhase | null>(null)
   const [viewMode, setViewMode] = useState<'horizontal' | 'vertical'>('horizontal')
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -237,8 +231,8 @@ export default function OnboardingTimeline({ phases, currentPhaseId }: Onboardin
     <div className="space-y-8">
       {/* Timeline header with toggle */}
       <div className="text-center mb-8">
-        <h2 className="text-2xl font-bold text-white mb-2">Onboarding Timeline</h2>
-        <p className="text-gray-300 mb-4">Track your progress through our comprehensive onboarding process</p>
+        <h2 className="text-2xl font-bold text-white mb-2">{title || 'Project Timeline'}</h2>
+        <p className="text-gray-300 mb-4">Track your progress through the project phases</p>
 
         {/* View toggle */}
         <div className="flex items-center justify-center gap-2 mb-4">
@@ -275,10 +269,16 @@ export default function OnboardingTimeline({ phases, currentPhaseId }: Onboardin
       {/* Horizontal Timeline */}
       {viewMode === 'horizontal' && (
         <div className="relative pb-8">
+          {/* Left fade overlay */}
+          <div className="absolute left-0 top-0 bottom-0 w-16 bg-gradient-to-r from-gray-900 to-transparent z-10 pointer-events-none" />
+
+          {/* Right fade overlay */}
+          <div className="absolute right-0 top-0 bottom-0 w-16 bg-gradient-to-l from-gray-900 to-transparent z-10 pointer-events-none" />
+
           {/* Left arrow */}
           <button
             onClick={scrollLeft}
-            className="absolute left-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
+            className="absolute left-2 top-8 z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
             aria-label="Scroll left"
           >
             <ChevronLeft size={20} />
@@ -287,7 +287,7 @@ export default function OnboardingTimeline({ phases, currentPhaseId }: Onboardin
           {/* Right arrow */}
           <button
             onClick={scrollRight}
-            className="absolute right-0 top-1/2 -translate-y-1/2 z-10 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
+            className="absolute right-2 top-8 z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
             aria-label="Scroll right"
           >
             <ChevronRight size={20} />
@@ -296,10 +296,11 @@ export default function OnboardingTimeline({ phases, currentPhaseId }: Onboardin
           {/* Scrollable container */}
           <div
             ref={scrollContainerRef}
-            className="overflow-x-auto scrollbar-hide px-12"
+            className="overflow-x-auto scrollbar-hide px-16"
             style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
           >
-            <div className={`flex items-start gap-3 px-4 ${phases.length > 6 ? 'scale-75 origin-center' : phases.length > 4 ? 'scale-90 origin-center' : ''}`} style={{ width: 'max-content', margin: '0 auto' }}>
+            <div className="flex items-start gap-3 px-4 justify-center"
+            style={{ minWidth: '100%' }}>
             {/* Start Marker */}
             <div className="flex flex-col items-center flex-shrink-0">
               <div className="w-16 h-16 rounded-full bg-gradient-to-br from-green-500 to-green-600 flex items-center justify-center shadow-lg shadow-green-500/50 mb-3">
@@ -447,6 +448,36 @@ export default function OnboardingTimeline({ phases, currentPhaseId }: Onboardin
             <div className="mb-4 p-3 bg-amber-900/30 border border-amber-500/50 rounded-lg">
               <p className="text-sm font-semibold text-amber-300 mb-1">Notes:</p>
               <p className="text-sm text-amber-200">{selectedPhase.notes}</p>
+            </div>
+          )}
+
+          {/* Tasks (if available from project data) */}
+          {(selectedPhase as unknown as { tasks?: Array<{ id: string; taskText: string; completed: boolean; notes?: string }> }).tasks && (selectedPhase as unknown as { tasks: Array<{ id: string; taskText: string; completed: boolean; notes?: string }> }).tasks.length > 0 && (
+            <div className="mb-4">
+              <p className="text-sm font-semibold text-white uppercase mb-3">Tasks ({(selectedPhase as unknown as { tasks: Array<unknown> }).tasks.length})</p>
+              <div className="space-y-2">
+                {(selectedPhase as unknown as { tasks: Array<{ id: string; taskText: string; completed: boolean; notes?: string }> }).tasks.map((task) => (
+                  <div key={task.id} className="flex items-start gap-3 p-3 bg-gray-900/50 rounded-lg">
+                    <div className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${
+                      task.completed ? 'bg-green-500 border-green-500' : 'border-gray-600'
+                    }`}>
+                      {task.completed && (
+                        <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                    </div>
+                    <div className="flex-1">
+                      <span className={`text-sm ${task.completed ? 'text-gray-500 line-through' : 'text-gray-300'}`}>
+                        {task.taskText}
+                      </span>
+                      {task.notes && (
+                        <p className="text-xs text-gray-500 mt-1 italic">{task.notes}</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
