@@ -70,7 +70,11 @@ export default function OnboardingPortal({
               {/* Centered title */}
               <div className="text-center mb-6">
                 <h1 className="text-4xl font-bold bg-gradient-to-r from-cyan-400 to-cyan-500 bg-clip-text text-transparent mb-2">
-                  {initialData.companyDisplayName} Onboarding
+                  {projects && projects.length === 1
+                    ? (projects[0] as { title: string }).title
+                    : projects && projects.length > 1
+                    ? 'Your Projects'
+                    : `${initialData.companyDisplayName} Onboarding`}
                 </h1>
                 <p className="text-gray-300">
                   Last updated: {new Date(initialData.lastUpdated).toLocaleDateString('en-US', {
@@ -156,7 +160,9 @@ export default function OnboardingPortal({
               {/* Centered title */}
               <div className="text-center mb-6">
                 <h1 className="text-4xl font-bold bg-gradient-to-r from-cyan-400 to-cyan-500 bg-clip-text text-transparent mb-2">
-                  Your Project Portal
+                  {projects && projects.length === 1
+                    ? (projects[0] as { title: string }).title
+                    : 'Your Projects'}
                 </h1>
                 <p className="text-gray-300">
                   Track the progress of your projects with Triple Cities Tech

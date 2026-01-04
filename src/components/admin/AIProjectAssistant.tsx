@@ -232,7 +232,7 @@ export default function AIProjectAssistant({
     return (
       <button
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 left-6 z-40 w-14 h-14 bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white rounded-full shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-110 flex items-center justify-center group"
+        className="fixed bottom-6 right-6 z-40 w-14 h-14 bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white rounded-full shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-110 flex items-center justify-center group"
         aria-label="Open AI Assistant"
       >
         <Sparkles size={24} className="group-hover:scale-110 transition-transform" />
@@ -241,7 +241,7 @@ export default function AIProjectAssistant({
   }
 
   return (
-    <div className="fixed bottom-6 left-6 z-40 w-96 h-[600px] bg-slate-900 rounded-2xl shadow-2xl border border-purple-500/30 flex flex-col overflow-hidden">
+    <div className="fixed bottom-6 right-6 z-40 w-96 h-[600px] bg-slate-900 rounded-2xl shadow-2xl border border-purple-500/30 flex flex-col overflow-hidden">
       {/* Header */}
       <div className="bg-gradient-to-r from-purple-600 to-indigo-600 p-4 flex items-center justify-between">
         <div className="flex items-center space-x-2">
