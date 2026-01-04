@@ -10,7 +10,7 @@ interface Project {
   status: string
   projectType: string
   createdAt: Date
-  aiGenerated: boolean
+  aiGenerated?: boolean
   company: { displayName: string }
   phases: Array<{ status: string }>
 }
@@ -76,7 +76,7 @@ export default function ProjectList({ projects }: { projects: Project[] }) {
               <tr key={project.id} className="hover:bg-slate-700/30 transition-colors">
                 <td className="px-6 py-4">
                   <div className="text-sm font-medium text-white">{project.title}</div>
-                  {project.aiGenerated && <div className="text-xs text-purple-400 mt-1">AI Generated</div>}
+                  {project.aiGenerated === true && <div className="text-xs text-purple-400 mt-1">AI Generated</div>}
                 </td>
                 <td className="px-6 py-4 text-sm text-slate-200">{project.company.displayName}</td>
                 <td className="px-6 py-4 text-sm text-slate-300">{getProjectTypeLabel(project.projectType)}</td>
