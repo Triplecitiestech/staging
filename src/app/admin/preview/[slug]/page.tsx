@@ -27,7 +27,7 @@ interface PageProps {
 }
 
 // Convert database status to display format
-function convertStatus(status: string): 'Not Started' | 'Scheduled' | 'Waiting on Customer' | 'In Progress' | 'Requires Customer Coordination' | 'Discussed' | 'Complete' | 'Completed' {
+function convertStatus(status: string): 'Not Started' | 'Scheduled' | 'Waiting on Customer' | 'In Progress' | 'Requires Customer Coordination' | 'Discussed' | 'Complete' {
   switch (status) {
     case 'NOT_STARTED': return 'Not Started'
     case 'SCHEDULED': return 'Scheduled'
@@ -36,7 +36,7 @@ function convertStatus(status: string): 'Not Started' | 'Scheduled' | 'Waiting o
     case 'REQUIRES_CUSTOMER_COORDINATION': return 'Requires Customer Coordination'
     case 'DISCUSSED': return 'Discussed'
     case 'COMPLETE': return 'Complete'
-    case 'COMPLETED': return 'Completed'
+    case 'COMPLETED': return 'Complete' // Map old COMPLETED to Complete
     case 'ON_HOLD': return 'Waiting on Customer' // Map ON_HOLD to a valid status
     default: return 'Not Started'
   }
