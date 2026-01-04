@@ -26,13 +26,26 @@ export default function OlujoPlanPage() {
                 </p>
               </div>
             </div>
-            <Link
-              href="/admin/projects"
-              className="px-4 py-2 border border-white/20 rounded-lg text-slate-300 hover:bg-white/10 hover:text-white transition-all flex items-center gap-2"
-            >
-              <ArrowLeft size={16} />
-              Back to Projects
-            </Link>
+            <div className="flex items-center gap-3">
+              <Link
+                href="/admin/preview/olujo"
+                target="_blank"
+                className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700 text-white rounded-lg transition-all flex items-center gap-2 font-semibold"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+                View Customer Portal
+              </Link>
+              <Link
+                href="/admin/projects"
+                className="px-4 py-2 border border-white/20 rounded-lg text-slate-300 hover:bg-white/10 hover:text-white transition-all flex items-center gap-2"
+              >
+                <ArrowLeft size={16} />
+                Back to Projects
+              </Link>
+            </div>
           </div>
         </div>
       </header>
@@ -53,7 +66,7 @@ export default function OlujoPlanPage() {
               <h3 className="text-xl font-bold text-cyan-400 mb-2">Adam — Project Lead</h3>
               <p className="text-sm text-slate-400 mb-4">(Olujo)</p>
 
-              <div className="mb-4">
+              <div>
                 <p className="text-sm font-semibold text-white mb-2">Owns:</p>
                 <ul className="space-y-1 text-sm text-slate-300">
                   <li className="flex items-start gap-2">
@@ -72,15 +85,6 @@ export default function OlujoPlanPage() {
                     <CheckCircle2 size={16} className="text-green-400 mt-0.5 flex-shrink-0" />
                     <span>Validation of downstream purchases (bottle counts)</span>
                   </li>
-                </ul>
-              </div>
-
-              <div>
-                <p className="text-sm font-semibold text-red-400 mb-2">Does NOT own:</p>
-                <ul className="space-y-1 text-sm text-slate-400">
-                  <li>• CRM architecture</li>
-                  <li>• Technical design decisions</li>
-                  <li>• Tooling implementation</li>
                 </ul>
               </div>
             </div>
@@ -159,7 +163,7 @@ export default function OlujoPlanPage() {
             title="Alignment & Governance"
             subtitle="REQUIRED FIRST"
             icon={<Target className="w-6 h-6" />}
-            color="red"
+            color="blue"
             goal="Lock scope, rules, ownership, and prevent rework."
             outcomes={[
               "Everyone agrees this is awareness only",
@@ -191,7 +195,7 @@ export default function OlujoPlanPage() {
             title="Sales & Awareness Playbook"
             subtitle="NON-TECH"
             icon={<Megaphone className="w-6 h-6" />}
-            color="orange"
+            color="indigo"
             goal="Create a repeatable, compliant human process before tooling."
             deliverables={[
               "Awareness-only call scripts",
@@ -218,7 +222,7 @@ export default function OlujoPlanPage() {
             title="Hiring & Onboarding Pipeline"
             subtitle=""
             icon={<Users className="w-6 h-6" />}
-            color="yellow"
+            color="purple"
             goal="Recruit reps who sound natural, look legitimate, and can follow rules."
             deliverables={[
               "onlinejobs.ph job post",
@@ -275,7 +279,7 @@ export default function OlujoPlanPage() {
             title="CRM Build (MVP)"
             subtitle=""
             icon={<Database className="w-6 h-6" />}
-            color="blue"
+            color="cyan"
             goal="Create a proof-first CRM that enforces behavior and attribution."
             capabilities={[
               "Lead list with mandatory statuses",
@@ -315,7 +319,7 @@ export default function OlujoPlanPage() {
             title="Pilot Launch (New York)"
             subtitle=""
             icon={<Zap className="w-6 h-6" />}
-            color="purple"
+            color="blue"
             goal="Validate the system with real calls and real proof."
             scope={[
               "2–3 reps",
@@ -379,7 +383,7 @@ export default function OlujoPlanPage() {
             title="Purchase Attribution & Commissions"
             subtitle=""
             icon={<DollarSign className="w-6 h-6" />}
-            color="green"
+            color="purple"
             goal="Ensure commissions are fair, provable, and undisputed."
             process={[
               "Adam/Jeff confirms store purchase",
@@ -458,7 +462,7 @@ interface PhaseCardProps {
   title: string
   subtitle?: string
   icon: React.ReactNode
-  color: 'red' | 'orange' | 'yellow' | 'green' | 'blue' | 'indigo' | 'purple' | 'cyan'
+  color: 'green' | 'blue' | 'indigo' | 'purple' | 'cyan'
   goal: string
   outcomes?: string[]
   scope?: string[]
@@ -493,9 +497,6 @@ function PhaseCard({
   exitCriteria
 }: PhaseCardProps) {
   const colorClasses = {
-    red: 'from-red-600/20 to-red-500/10 border-red-500/50',
-    orange: 'from-orange-600/20 to-orange-500/10 border-orange-500/50',
-    yellow: 'from-yellow-600/20 to-yellow-500/10 border-yellow-500/50',
     green: 'from-green-600/20 to-green-500/10 border-green-500/50',
     blue: 'from-blue-600/20 to-blue-500/10 border-blue-500/50',
     indigo: 'from-indigo-600/20 to-indigo-500/10 border-indigo-500/50',
@@ -504,9 +505,6 @@ function PhaseCard({
   }
 
   const iconColorClasses = {
-    red: 'text-red-400',
-    orange: 'text-orange-400',
-    yellow: 'text-yellow-400',
     green: 'text-green-400',
     blue: 'text-blue-400',
     indigo: 'text-indigo-400',
