@@ -8,42 +8,44 @@ export default function CRMHandlingPage() {
       {/* Header */}
       <header className="bg-black/20 backdrop-blur-md border-b border-white/10 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-center space-x-3 sm:space-x-4">
               <Image
                 src="/logo/tctlogo.webp"
                 alt="Triple Cities Tech Logo"
                 width={48}
                 height={48}
-                className="w-12 h-12 object-contain"
+                className="w-10 h-10 sm:w-12 sm:h-12 object-contain flex-shrink-0"
               />
-              <div>
-                <h1 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-cyan-500 bg-clip-text text-transparent">
+              <div className="min-w-0">
+                <h1 className="text-lg sm:text-xl lg:text-2xl font-bold bg-gradient-to-r from-cyan-400 to-cyan-500 bg-clip-text text-transparent">
                   CRM Handling SOP
                 </h1>
-                <p className="text-sm text-slate-400">
+                <p className="text-xs sm:text-sm text-slate-400 truncate">
                   Lead Management &amp; Data Integrity Standards
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-3">
               <Link
                 href="/admin/preview/olujo"
                 target="_blank"
-                className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700 text-white rounded-lg transition-all flex items-center gap-2 font-semibold"
+                className="px-3 py-2 sm:px-4 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700 text-white rounded-lg transition-all flex items-center gap-2 font-semibold text-sm sm:text-base whitespace-nowrap"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                 </svg>
-                View Customer Portal
+                <span className="hidden sm:inline">View Customer Portal</span>
+                <span className="sm:hidden">Portal</span>
               </Link>
               <Link
                 href="/admin/projects/olujo-plan"
-                className="px-4 py-2 border border-white/20 rounded-lg text-slate-300 hover:bg-white/10 hover:text-white transition-all flex items-center gap-2"
+                className="px-3 py-2 sm:px-4 border border-white/20 rounded-lg text-slate-300 hover:bg-white/10 hover:text-white transition-all flex items-center gap-2 text-sm sm:text-base whitespace-nowrap"
               >
-                <ArrowLeft size={16} />
-                Back to Plan
+                <ArrowLeft size={16} className="flex-shrink-0" />
+                <span className="hidden sm:inline">Back to Plan</span>
+                <span className="sm:hidden">Back</span>
               </Link>
             </div>
           </div>
