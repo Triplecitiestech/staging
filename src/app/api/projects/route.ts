@@ -123,8 +123,6 @@ export async function POST(request: NextRequest) {
           title,
           slug,
           status: 'ACTIVE',
-          createdBy: createdBy || session.user.email,
-          lastModifiedBy: lastModifiedBy || session.user.email,
           phases: phasesData.length > 0 ? {
             create: phasesData
           } : undefined,
@@ -150,8 +148,6 @@ export async function POST(request: NextRequest) {
           title,
           slug,
           status: 'ACTIVE',
-          createdBy: createdBy || session.user.email,
-          lastModifiedBy: lastModifiedBy || session.user.email,
         },
         include: {
           company: true,
