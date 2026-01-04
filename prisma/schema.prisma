@@ -122,11 +122,12 @@ model Project {
   estimatedDuration String? // '30 days', '6 weeks'
   startedAt         DateTime?
   completedAt       DateTime?
-  createdBy         String? // Staff email - optional for production DB compatibility
-  lastModifiedBy    String? // Staff email - optional for production DB compatibility
-  generationPrompt  String?       @db.Text // Original prompt sent to Claude API
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  createdBy         String // Staff email
+  lastModifiedBy    String // Staff email
+  aiGenerated       Boolean @default(false)
+  generationPrompt  String? @db.Text // Original prompt sent to Claude API
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   // Relations
   company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
