@@ -113,33 +113,60 @@ export async function POST(request: NextRequest) {
 
     console.log('[Project Creation] Phases data:', JSON.stringify(phasesData, null, 2))
 
-    // Create project with phases
-    const project = await prisma.project.create({
-      data: {
-        companyId,
-        projectType: projectType as ProjectType,
-        title,
-        slug,
-        status: 'ACTIVE',
-        createdBy: createdBy || session.user.email,
-        lastModifiedBy: lastModifiedBy || session.user.email,
-        aiGenerated: false,
-        phases: phasesData.length > 0 ? {
-          create: phasesData
-        } : undefined,
-      },
-      include: {
-        company: true,
-        phases: {
-          include: {
-            tasks: true
-          },
-          orderBy: { orderIndex: 'asc' }
+    // Create project with phases - try with phases first, then without if it fails
+    let project
+    try {
+      project = await prisma.project.create({
+        data: {
+          companyId,
+          projectType: projectType as ProjectType,
+          title,
+          slug,
+          status: 'ACTIVE',
+          createdBy: createdBy || session.user.email,
+          lastModifiedBy: lastModifiedBy || session.user.email,
+          aiGenerated: false,
+          phases: phasesData.length > 0 ? {
+            create: phasesData
+          } : undefined,
+        },
+        include: {
+          company: true,
+          phases: {
+            include: {
+              tasks: true
+            },
+            orderBy: { orderIndex: 'asc' }
+          }
         }
-      }
-    })
-
-    console.log('[Project Creation] Project created successfully:', project.id)
+      })
+      console.log('[Project Creation] Project created successfully with phases:', project.id)
+    } catch (phaseError) {
+      console.error('[Project Creation] Failed to create with phases, creating without:', phaseError)
+      // If creating with phases fails, create without them
+      project = await prisma.project.create({
+        data: {
+          companyId,
+          projectType: projectType as ProjectType,
+          title,
+          slug,
+          status: 'ACTIVE',
+          createdBy: createdBy || session.user.email,
+          lastModifiedBy: lastModifiedBy || session.user.email,
+          aiGenerated: false,
+        },
+        include: {
+          company: true,
+          phases: {
+            include: {
+              tasks: true
+            },
+            orderBy: { orderIndex: 'asc' }
+          }
+        }
+      })
+      console.log('[Project Creation] Project created successfully without phases:', project.id)
+    }
 
     // Create audit log (non-blocking - don't fail if this errors)
     try {
