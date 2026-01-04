@@ -13,6 +13,19 @@ interface TemplatePhase {
   tasks?: string[]
 }
 
+// Type for AI-generated phase structure
+interface AIPhase {
+  name: string
+  description?: string
+  orderIndex: number
+  tasks?: Array<{
+    taskText: string
+    completed: boolean
+    orderIndex: number
+    notes?: string
+  }>
+}
+
 // Create a URL-friendly slug
 function createSlug(companyName: string, title: string): string {
   const combined = `${companyName}-${title}`
@@ -32,9 +45,9 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { companyId, projectType, title, templateId, useTemplate, createdBy, lastModifiedBy } = body
+    const { companyId, projectType, title, templateId, useTemplate, createdBy, lastModifiedBy, aiPhases } = body
 
-    console.log('[Project Creation] Request body:', { companyId, projectType, title, templateId, useTemplate })
+    console.log('[Project Creation] Request body:', { companyId, projectType, title, templateId, useTemplate, aiPhases: aiPhases?.length || 0 })
 
     // Validate required fields
     if (!companyId || !projectType || !title) {
@@ -82,7 +95,32 @@ export async function POST(request: NextRequest) {
         }>
       }
     }> = []
-    if (useTemplate && templateId) {
+
+    // Priority: AI-generated phases > Template phases
+    if (aiPhases && Array.isArray(aiPhases) && aiPhases.length > 0) {
+      console.log('[Project Creation] Using AI-generated phases')
+      phasesData = (aiPhases as AIPhase[]).map((phase) => ({
+        title: phase.name,
+        description: phase.description || null,
+        status: 'NOT_STARTED' as PhaseStatus,
+        owner: null,
+        estimatedDays: null,
+        orderIndex: phase.orderIndex,
+        customerNotes: null,
+        internalNotes: null,
+        tasks: {
+          create: Array.isArray(phase.tasks)
+            ? phase.tasks.map((task) => ({
+                taskText: task.taskText,
+                completed: task.completed || false,
+                orderIndex: task.orderIndex,
+                status: (task.completed ? 'COMPLETE' : 'NOT_STARTED') as TaskStatus,
+              }))
+            : []
+        }
+      }))
+    } else if (useTemplate && templateId) {
+      console.log('[Project Creation] Using template phases')
       const template = await prisma.projectTemplate.findUnique({
         where: { id: templateId }
       })
