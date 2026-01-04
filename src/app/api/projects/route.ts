@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
-import { PhaseStatus, PhaseOwner, ProjectType } from '@prisma/client'
+import { PhaseStatus, PhaseOwner, ProjectType, TaskStatus } from '@prisma/client'
 
 export const dynamic = 'force-dynamic'
 
@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
           taskText: string
           completed: boolean
           orderIndex: number
-          status: string
+          status: TaskStatus
         }>
       }
     }> = []
@@ -103,7 +103,7 @@ export async function POST(request: NextRequest) {
                   taskText: task,
                   completed: false,
                   orderIndex: taskIndex + 1,
-                  status: 'NOT_STARTED',
+                  status: 'NOT_STARTED' as TaskStatus,
                 }))
               : []
           }
