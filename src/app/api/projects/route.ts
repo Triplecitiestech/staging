@@ -76,6 +76,7 @@ export async function POST(request: NextRequest) {
           taskText: string
           completed: boolean
           orderIndex: number
+          status: string
         }>
       }
     }> = []
