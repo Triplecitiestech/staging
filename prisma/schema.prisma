@@ -24,11 +24,7 @@ model StaffUser {
   updatedAt DateTime  @updatedAt
 
   // Relations
-  projectsCreated   Project[] @relation("CreatedBy")
-  projectsModified  Project[] @relation("ModifiedBy")
-  auditLogs         AuditLog[]
-  templatesCreated  ProjectTemplate[]
-  blogPosts         BlogPost[]
+  blogPosts BlogPost[]
 
   @@map("staff_users")
 }
@@ -126,16 +122,14 @@ model Project {
   estimatedDuration String? // '30 days', '6 weeks'
   startedAt         DateTime?
   completedAt       DateTime?
-  createdBy         String? // Staff email
-  lastModifiedBy    String? // Staff email
+  createdBy         String // Staff email - no foreign key to avoid production DB issues
+  lastModifiedBy    String // Staff email - no foreign key to avoid production DB issues
   generationPrompt  String?       @db.Text // Original prompt sent to Claude API
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
   // Relations
-  company   Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  creator   StaffUser?  @relation("CreatedBy", fields: [createdBy], references: [email])
-  modifier  StaffUser?  @relation("ModifiedBy", fields: [lastModifiedBy], references: [email])
+  company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
   phases    Phase[]
   auditLogs AuditLog[]
 
@@ -346,9 +340,8 @@ model AuditLog {
   createdAt  DateTime    @default(now())
 
   // Relations
-  project Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  phase   Phase?    @relation(fields: [phaseId], references: [id], onDelete: SetNull)
-  staff   StaffUser @relation(fields: [staffEmail], references: [email])
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  phase   Phase?  @relation(fields: [phaseId], references: [id], onDelete: SetNull)
 
   @@map("audit_logs")
 }
@@ -373,13 +366,10 @@ model ProjectTemplate {
   description String?     @db.Text
   projectType ProjectType
   phasesJson  Json // Pre-defined phase structure
-  createdBy   String // Staff email
+  createdBy   String // Staff email - no foreign key to avoid production DB issues
   isActive    Boolean     @default(true)
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
-
-  // Relations
-  creator StaffUser @relation(fields: [createdBy], references: [email])
 
   @@map("project_templates")
 }

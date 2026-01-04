@@ -10,7 +10,6 @@ export const dynamic = 'force-dynamic'
 type ProjectWithRelations = Prisma.ProjectGetPayload<{
   include: {
     company: true
-    creator: true
     phases: true
   }
 }>
@@ -27,7 +26,6 @@ export default async function ProjectsPage() {
   const projects: ProjectWithRelations[] = await prisma.project.findMany({
     include: {
       company: true,
-      creator: true,
       phases: {
         orderBy: { orderIndex: 'asc' }
       }

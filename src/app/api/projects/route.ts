@@ -113,20 +113,26 @@ export async function POST(request: NextRequest) {
 
     console.log('[Project Creation] Phases data:', JSON.stringify(phasesData, null, 2))
 
-    // Create project with phases - try with phases first, then without if it fails
+    // Create project - provide all required fields for production database
+    const projectData = {
+      companyId,
+      projectType: projectType as ProjectType,
+      title,
+      slug,
+      status: 'ACTIVE' as const,
+      createdBy: createdBy || session.user.email,
+      lastModifiedBy: lastModifiedBy || session.user.email,
+      phases: phasesData.length > 0 ? {
+        create: phasesData
+      } : undefined,
+    }
+
+    console.log('[Project Creation] Creating project with data:', JSON.stringify(projectData, null, 2))
+
     let project
     try {
       project = await prisma.project.create({
-        data: {
-          companyId,
-          projectType: projectType as ProjectType,
-          title,
-          slug,
-          status: 'ACTIVE',
-          phases: phasesData.length > 0 ? {
-            create: phasesData
-          } : undefined,
-        },
+        data: projectData,
         include: {
           company: true,
           phases: {
@@ -141,14 +147,17 @@ export async function POST(request: NextRequest) {
     } catch (phaseError) {
       console.error('[Project Creation] Failed to create with phases, creating without:', phaseError)
       // If creating with phases fails, create without them
+      const simpleProjectData = {
+        companyId,
+        projectType: projectType as ProjectType,
+        title,
+        slug,
+        status: 'ACTIVE' as const,
+        createdBy: createdBy || session.user.email,
+        lastModifiedBy: lastModifiedBy || session.user.email,
+      }
       project = await prisma.project.create({
-        data: {
-          companyId,
-          projectType: projectType as ProjectType,
-          title,
-          slug,
-          status: 'ACTIVE',
-        },
+        data: simpleProjectData,
         include: {
           company: true,
           phases: {
