@@ -34,6 +34,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { companyId, projectType, title, templateId, useTemplate, createdBy, lastModifiedBy } = body
 
+    console.log('[Project Creation] Request body:', { companyId, projectType, title, templateId, useTemplate })
+
     // Validate required fields
     if (!companyId || !projectType || !title) {
       return NextResponse.json(
@@ -109,6 +111,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    console.log('[Project Creation] Phases data:', JSON.stringify(phasesData, null, 2))
+
     // Create project with phases
     const project = await prisma.project.create({
       data: {
@@ -150,8 +154,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(project, { status: 201 })
   } catch (error) {
     console.error('Error creating project:', error)
+    console.error('Error details:', error instanceof Error ? error.message : 'Unknown error')
+    console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace')
     return NextResponse.json(
-      { error: 'Failed to create project' },
+      {
+        error: 'Failed to create project',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      },
       { status: 500 }
     )
   }
