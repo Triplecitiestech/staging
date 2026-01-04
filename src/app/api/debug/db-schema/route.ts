@@ -35,11 +35,12 @@ export async function GET() {
           }
         })
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
+      const err = e as { message?: string; code?: string; meta?: unknown }
       testError = {
-        message: e.message,
-        code: e.code,
-        meta: e.meta,
+        message: err.message || 'Unknown error',
+        code: err.code || 'UNKNOWN',
+        meta: err.meta,
         fullError: JSON.stringify(e, null, 2)
       }
     }
@@ -50,9 +51,10 @@ export async function GET() {
       testCreationError: testError,
       schemaInfo: 'Check what fields are required vs optional'
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const err = error as { message?: string }
     return NextResponse.json({
-      error: error.message,
+      error: err.message || 'Unknown error',
       fullError: JSON.stringify(error, null, 2)
     }, { status: 500 })
   }
