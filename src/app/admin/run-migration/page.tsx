@@ -11,23 +11,41 @@ export default function RunMigrationPage() {
 
   const runMigration = async () => {
     setStatus('running')
-    setMessage('Removing foreign key constraints...')
+    setMessage('Step 1/2: Removing foreign key constraints...')
 
     try {
-      const response = await fetch('/api/migrations/remove-fkeys', {
+      // Step 1: Remove foreign keys
+      const response1 = await fetch('/api/migrations/remove-fkeys', {
         method: 'POST',
         credentials: 'include'
       })
 
-      const data = await response.json()
+      const data1 = await response1.json()
 
-      if (response.ok) {
+      if (!response1.ok) {
+        setStatus('error')
+        setMessage('Step 1 failed: ' + (data1.error || 'Migration failed'))
+        console.error('Migration error:', data1)
+        return
+      }
+
+      setMessage('Step 2/2: Adding parentTaskId column...')
+
+      // Step 2: Add parentTaskId column
+      const response2 = await fetch('/api/migrations/add-parent-task', {
+        method: 'POST',
+        credentials: 'include'
+      })
+
+      const data2 = await response2.json()
+
+      if (response2.ok) {
         setStatus('success')
-        setMessage(data.message || 'Migration completed successfully!')
+        setMessage('All migrations completed successfully!')
       } else {
         setStatus('error')
-        setMessage(data.error || 'Migration failed')
-        console.error('Migration error:', data)
+        setMessage('Step 2 failed: ' + (data2.error || 'Migration failed'))
+        console.error('Migration error:', data2)
       }
     } catch (error) {
       setStatus('error')
@@ -41,8 +59,9 @@ export default function RunMigrationPage() {
       <div className="max-w-2xl w-full bg-slate-800/50 backdrop-blur-md border border-white/10 rounded-lg shadow-2xl p-8">
         <h1 className="text-3xl font-bold text-white mb-4">Database Migration</h1>
         <p className="text-slate-300 mb-6">
-          This will remove foreign key constraints from the projects, project_templates, and audit_logs tables
-          to allow project creation without StaffUser records.
+          This will run two migrations:
+          <br />1. Remove foreign key constraints from projects, project_templates, and audit_logs tables
+          <br />2. Add parentTaskId column to phase_tasks table for subtask support
         </p>
 
         {status === 'idle' && (
