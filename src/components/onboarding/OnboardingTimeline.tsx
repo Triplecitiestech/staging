@@ -391,11 +391,11 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
 
       {/* Horizontal Timeline */}
       {viewMode === 'horizontal' && (
-        <div className="relative pb-8 pt-64">
+        <div className="relative pb-8 pt-16">
           {/* Left arrow - positioned outside the timeline, aligned with blue connector line */}
           <button
             onClick={scrollLeft}
-            className="absolute -left-14 top-[290px] z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
+            className="absolute -left-14 top-[112px] z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
             aria-label="Scroll left"
           >
             <ChevronLeft size={20} />
@@ -404,19 +404,19 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
           {/* Right arrow - positioned outside the timeline, aligned with blue connector line */}
           <button
             onClick={scrollRight}
-            className="absolute -right-14 top-[290px] z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
+            className="absolute -right-14 top-[112px] z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
             aria-label="Scroll right"
           >
             <ChevronRight size={20} />
           </button>
 
-          {/* Scrollable container */}
+          {/* Scrollable container - padding here prevents ring clipping */}
           <div
             ref={scrollContainerRef}
-            className="overflow-x-auto scrollbar-hide px-4"
+            className="overflow-x-auto scrollbar-hide px-4 py-16"
             style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
           >
-            <div className="flex items-start min-w-max">
+            <div className="flex items-start gap-4 min-w-max">
             {/* Start Marker */}
             <div className="flex flex-col items-center flex-shrink-0">
               <div className="w-16 h-16 rounded-full bg-gradient-to-br from-green-500 to-green-600 flex items-center justify-center shadow-lg shadow-green-500/50 mb-3">
@@ -433,13 +433,11 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
 
               return (
                 <React.Fragment key={phase.id}>
-                  {/* Phase with Connector - grouped together */}
-                  <div className="flex items-start flex-shrink-0">
-                    {/* Connector Line - equal spacing on both sides */}
-                    <div className="flex-shrink-0 h-1 w-20 bg-gradient-to-r from-cyan-500 to-cyan-400 mx-4" style={{ marginTop: '32px' }} />
+                  {/* Connector Line */}
+                  <div className="flex-shrink-0 h-1 w-20 bg-gradient-to-r from-cyan-500 to-cyan-400" style={{ marginTop: '32px' }} />
 
-                    {/* Phase Node */}
-                    <div className="flex flex-col items-center flex-shrink-0 relative">
+                  {/* Phase Node */}
+                  <div className="flex flex-col items-center flex-shrink-0 relative">
                     {/* "YOU ARE HERE" indicator */}
                     {isCurrent && (
                       <div className="absolute -top-8 whitespace-nowrap bg-cyan-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg z-10">
@@ -484,25 +482,22 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
                     )}>
                       {phase.status}
                     </span>
-                    </div>
                   </div>
                 </React.Fragment>
               )
             })}
 
-            {/* End Marker with Connector */}
-            <div className="flex items-start flex-shrink-0">
-              {/* Connector Line - equal spacing on both sides */}
-              <div className="flex-shrink-0 h-1 w-20 bg-gradient-to-r from-cyan-500 to-cyan-400 mx-4" style={{ marginTop: '32px' }} />
+            {/* Connector Line */}
+            <div className="flex-shrink-0 h-1 w-20 bg-gradient-to-r from-cyan-500 to-cyan-400" style={{ marginTop: '32px' }} />
 
-              <div className="flex flex-col items-center flex-shrink-0">
-                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center shadow-lg shadow-purple-500/50 mb-3">
-                  <span className="text-white font-bold text-sm text-center leading-tight">
-                    FINISH
-                  </span>
-                </div>
-                <span className="text-xs text-gray-400 font-medium whitespace-nowrap">30 Days</span>
+            {/* End Marker */}
+            <div className="flex flex-col items-center flex-shrink-0">
+              <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center shadow-lg shadow-purple-500/50 mb-3">
+                <span className="text-white font-bold text-sm text-center leading-tight">
+                  FINISH
+                </span>
               </div>
+              <span className="text-xs text-gray-400 font-medium whitespace-nowrap">30 Days</span>
             </div>
           </div>
           </div>
