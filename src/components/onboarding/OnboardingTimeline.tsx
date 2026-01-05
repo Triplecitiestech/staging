@@ -613,6 +613,32 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
                         </div>
                       )}
 
+                      {/* Admin Comments */}
+                      {phase.adminComments && phase.adminComments.length > 0 && (
+                        <div className="mb-4">
+                          <p className="text-sm font-semibold text-white uppercase mb-3">Messages from TCT</p>
+                          <div className="space-y-2">
+                            {phase.adminComments.map((comment) => (
+                              <div key={comment.id} className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                                <div className="flex items-start justify-between gap-2 mb-1">
+                                  <p className="text-xs font-semibold text-blue-300">{comment.authorName}</p>
+                                  <p className="text-xs text-gray-400">
+                                    {new Date(comment.createdAt).toLocaleDateString('en-US', {
+                                      month: 'short',
+                                      day: 'numeric',
+                                      year: 'numeric',
+                                      hour: 'numeric',
+                                      minute: '2-digit'
+                                    })}
+                                  </p>
+                                </div>
+                                <p className="text-sm text-gray-200 whitespace-pre-wrap">{comment.content}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
                       {/* Notes */}
                       <div className="mb-4">
                         <div className="flex items-center justify-between mb-2">
@@ -705,6 +731,28 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
                                     </button>
                                   )}
                                 </div>
+
+                                {/* Task Admin Comments */}
+                                {(task as unknown as { adminComments?: Array<{ id: string; content: string; authorName: string; createdAt: string }> }).adminComments && (task as unknown as { adminComments: Array<{ id: string; content: string; authorName: string; createdAt: string }> }).adminComments.length > 0 && (
+                                  <div className="mt-2 space-y-1">
+                                    {(task as unknown as { adminComments: Array<{ id: string; content: string; authorName: string; createdAt: string }> }).adminComments.map((comment) => (
+                                      <div key={comment.id} className="p-2 bg-blue-500/10 border border-blue-500/30 rounded text-xs">
+                                        <div className="flex items-start justify-between gap-2 mb-0.5">
+                                          <p className="font-semibold text-blue-300">{comment.authorName}</p>
+                                          <p className="text-gray-400 text-[10px]">
+                                            {new Date(comment.createdAt).toLocaleDateString('en-US', {
+                                              month: 'short',
+                                              day: 'numeric',
+                                              hour: 'numeric',
+                                              minute: '2-digit'
+                                            })}
+                                          </p>
+                                        </div>
+                                        <p className="text-gray-200 whitespace-pre-wrap">{comment.content}</p>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
 
                                 {editingTaskNote === task.id ? (
                                   <div className="mt-2 space-y-2">
@@ -831,6 +879,32 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
             </div>
           )}
 
+          {/* Admin Comments */}
+          {selectedPhase.adminComments && selectedPhase.adminComments.length > 0 && (
+            <div className="mb-4">
+              <p className="text-sm font-semibold text-white uppercase mb-3">Messages from TCT</p>
+              <div className="space-y-2">
+                {selectedPhase.adminComments.map((comment) => (
+                  <div key={comment.id} className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                    <div className="flex items-start justify-between gap-2 mb-1">
+                      <p className="text-xs font-semibold text-blue-300">{comment.authorName}</p>
+                      <p className="text-xs text-gray-400">
+                        {new Date(comment.createdAt).toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
+                          hour: 'numeric',
+                          minute: '2-digit'
+                        })}
+                      </p>
+                    </div>
+                    <p className="text-sm text-gray-200 whitespace-pre-wrap">{comment.content}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Notes */}
           <div className="mb-4">
             <div className="flex items-center justify-between mb-2">
@@ -923,6 +997,28 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
                         </button>
                       )}
                     </div>
+
+                    {/* Task Admin Comments */}
+                    {(task as unknown as { adminComments?: Array<{ id: string; content: string; authorName: string; createdAt: string }> }).adminComments && (task as unknown as { adminComments: Array<{ id: string; content: string; authorName: string; createdAt: string }> }).adminComments.length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        {(task as unknown as { adminComments: Array<{ id: string; content: string; authorName: string; createdAt: string }> }).adminComments.map((comment) => (
+                          <div key={comment.id} className="p-2 bg-blue-500/10 border border-blue-500/30 rounded text-xs">
+                            <div className="flex items-start justify-between gap-2 mb-0.5">
+                              <p className="font-semibold text-blue-300">{comment.authorName}</p>
+                              <p className="text-gray-400 text-[10px]">
+                                {new Date(comment.createdAt).toLocaleDateString('en-US', {
+                                  month: 'short',
+                                  day: 'numeric',
+                                  hour: 'numeric',
+                                  minute: '2-digit'
+                                })}
+                              </p>
+                            </div>
+                            <p className="text-gray-200 whitespace-pre-wrap">{comment.content}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
 
                     {editingTaskNote === task.id ? (
                       <div className="mt-2 space-y-2">

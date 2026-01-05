@@ -11,6 +11,13 @@ export type PhaseStatus =
 
 export type PhaseOwner = 'TCT' | 'Customer' | 'Both'
 
+export interface Comment {
+  id: string
+  content: string
+  authorName: string
+  createdAt: string // ISO date string
+}
+
 export interface OnboardingPhase {
   id: string
   title: string
@@ -21,6 +28,15 @@ export interface OnboardingPhase {
   notes?: string
   nextAction?: string
   details?: string[] // Additional bullet points for expanded view
+  adminComments?: Comment[] // Comments from admin/staff visible to customer
+  tasks?: Array<{
+    id: string
+    taskText: string
+    completed: boolean
+    status?: string
+    notes?: string
+    adminComments?: Comment[] // Task-level comments from admin
+  }>
 }
 
 export interface OnboardingData {
