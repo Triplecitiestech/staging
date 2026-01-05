@@ -79,9 +79,12 @@ export default function PurchaseTrackingPage() {
               <div className="flex items-start gap-3">
                 <CheckCircle2 size={24} className="text-green-400 flex-shrink-0 mt-1" />
                 <div>
-                  <h3 className="text-xl font-bold text-green-400 mb-2">$25 per bottle</h3>
+                  <h3 className="text-xl font-bold text-green-400 mb-2">$25 One-Time Commission</h3>
                   <p className="text-slate-300">
-                    Contractors earn a flat <strong className="text-white">$25 commission per bottle</strong> purchased by a store, if the purchase occurs within 30 days of the contractor&apos;s last logged interaction with that store.
+                    Contractors earn a <strong className="text-white">one-time $25 commission</strong> when a store makes a purchase, if the purchase occurs within 30 days of the contractor&apos;s last logged interaction with that store.
+                  </p>
+                  <p className="text-slate-400 text-sm mt-3 italic">
+                    This is a one-time payment per store purchase event, regardless of the number of bottles purchased.
                   </p>
                 </div>
               </div>
@@ -90,7 +93,7 @@ export default function PurchaseTrackingPage() {
 
           <div className="mt-6 bg-blue-500/10 border-l-4 border-blue-500 rounded px-6 py-4">
             <p className="text-slate-300">
-              <strong className="text-white">Example:</strong> If a store purchases 12 bottles of Olujo and the purchase is attributed to Contractor A, Contractor A earns <strong className="text-white">$300 commission</strong> (12 bottles × $25).
+              <strong className="text-white">Example:</strong> If Store X purchases Olujo (whether 1 bottle or 12 bottles) and the purchase is attributed to Contractor A, Contractor A earns a <strong className="text-white">one-time $25 commission</strong> for that purchase.
             </p>
           </div>
         </section>
@@ -216,7 +219,7 @@ export default function PurchaseTrackingPage() {
                   </div>
                   <div className="flex-1">
                     <p className="text-slate-300">
-                      <strong className="text-white">Calculate commission:</strong> Multiply number of bottles by $25
+                      <strong className="text-white">Calculate commission:</strong> One-time $25 commission for the attributed contractor (check if this store already received commission previously - if yes, no additional commission is paid)
                     </p>
                   </div>
                 </div>
@@ -238,27 +241,27 @@ export default function PurchaseTrackingPage() {
         {/* Edge Cases */}
         <section className="mb-12 bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-sm border border-white/10 rounded-lg p-8">
           <div className="flex items-center gap-3 mb-6">
-            <AlertCircle className="w-8 h-8 text-yellow-400" />
+            <AlertCircle className="w-8 h-8 text-orange-400" />
             <h2 className="text-3xl font-bold text-white">Edge Cases &amp; Special Situations</h2>
           </div>
 
           <div className="space-y-6">
-            <div className="bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-6">
-              <h3 className="text-lg font-bold text-yellow-400 mb-3">No Logged Interactions Found</h3>
+            <div className="bg-orange-900/20 border border-orange-500/30 rounded-lg p-6">
+              <h3 className="text-lg font-bold text-orange-400 mb-3">No Logged Interactions Found</h3>
               <p className="text-slate-300">
                 If a store purchases but there are <strong className="text-white">no logged interactions in the CRM</strong>, no commission is paid. This purchase may be organic or from another marketing channel.
               </p>
             </div>
 
-            <div className="bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-6">
-              <h3 className="text-lg font-bold text-yellow-400 mb-3">Last Interaction Is Older Than 30 Days</h3>
+            <div className="bg-orange-900/20 border border-orange-500/30 rounded-lg p-6">
+              <h3 className="text-lg font-bold text-orange-400 mb-3">Last Interaction Is Older Than 30 Days</h3>
               <p className="text-slate-300">
                 If the most recent logged interaction is <strong className="text-white">more than 30 days old</strong>, no commission is paid. The purchase is considered organic or influenced by other factors.
               </p>
             </div>
 
-            <div className="bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-6">
-              <h3 className="text-lg font-bold text-yellow-400 mb-3">Missing or Incomplete Transcript</h3>
+            <div className="bg-orange-900/20 border border-orange-500/30 rounded-lg p-6">
+              <h3 className="text-lg font-bold text-orange-400 mb-3">Missing or Incomplete Transcript</h3>
               <p className="text-slate-300 mb-3">
                 If the last interaction <strong className="text-white">does not have a call transcript or logged content</strong>, no commission is paid, even if it&apos;s within 30 days.
               </p>
@@ -267,8 +270,8 @@ export default function PurchaseTrackingPage() {
               </p>
             </div>
 
-            <div className="bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-6">
-              <h3 className="text-lg font-bold text-yellow-400 mb-3">Disputed Attribution</h3>
+            <div className="bg-orange-900/20 border border-orange-500/30 rounded-lg p-6">
+              <h3 className="text-lg font-bold text-orange-400 mb-3">Disputed Attribution</h3>
               <p className="text-slate-300 mb-3">
                 If there is a dispute about which contractor should receive credit, Jeff&apos;s team will review the CRM timeline and make the final determination based on:
               </p>
@@ -279,10 +282,13 @@ export default function PurchaseTrackingPage() {
               </div>
             </div>
 
-            <div className="bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-6">
-              <h3 className="text-lg font-bold text-yellow-400 mb-3">Repeat Purchases from Same Store</h3>
-              <p className="text-slate-300">
-                Each purchase is treated independently. If a store makes multiple purchases, each one is evaluated separately using the same attribution rules. A different contractor may receive credit for each purchase depending on who made the last documented contact.
+            <div className="bg-orange-900/20 border border-orange-500/30 rounded-lg p-6">
+              <h3 className="text-lg font-bold text-orange-400 mb-3">Repeat Purchases from Same Store</h3>
+              <p className="text-slate-300 mb-3">
+                The <strong className="text-white">$25 commission is a one-time payment</strong> per store. Once a contractor has earned commission for a store&apos;s first purchase, no additional commissions are paid for subsequent purchases from that same store.
+              </p>
+              <p className="text-slate-400 text-sm italic">
+                This ensures contractors focus on bringing new stores into the Olujo ecosystem rather than repeatedly contacting the same stores.
               </p>
             </div>
           </div>

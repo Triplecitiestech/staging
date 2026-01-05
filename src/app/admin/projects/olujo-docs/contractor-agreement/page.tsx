@@ -154,11 +154,11 @@ export default function ContractorAgreementPage() {
                 </p>
                 <div className="bg-slate-900/50 rounded p-4">
                   <p className="text-slate-300">
-                    • <strong className="text-white">$25 per bottle</strong> if a store purchases within 30 days of the Contractor's outreach
+                    • <strong className="text-white">One-time $25 commission</strong> when a store makes their first purchase within 30 days of the Contractor's outreach
                   </p>
                 </div>
                 <p className="text-slate-400 text-sm italic mt-4">
-                  Commission is based on last-touch attribution within a 30-day window. No transcript = no commission credit.
+                  Commission is based on last-touch attribution within a 30-day window. No transcript = no commission credit. This is a one-time payment per store.
                 </p>
               </div>
             </div>

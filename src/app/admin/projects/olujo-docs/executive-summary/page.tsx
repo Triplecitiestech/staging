@@ -248,7 +248,7 @@ export default function ExecutiveSummaryPage() {
               <span>Paid hourly</span>
             </div>
             <div className="bg-green-900/20 border border-green-500/30 rounded-lg p-4 mt-4">
-              <p className="text-green-300 font-semibold mb-2">Commission Eligibility: $25 per bottle sold</p>
+              <p className="text-green-300 font-semibold mb-2">Commission Eligibility: One-time $25 commission per store purchase</p>
               <p className="text-sm text-slate-300 mb-2">Only if:</p>
               <ul className="space-y-1 text-sm text-slate-300">
                 <li className="flex items-start gap-2">
