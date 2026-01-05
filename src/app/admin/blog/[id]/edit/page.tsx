@@ -31,10 +31,29 @@ export default async function BlogPostEditPage({ params }: BlogPostEditPageProps
     notFound()
   }
 
+  // Serialize post data for client component (convert Dates to strings)
+  const serializedPost = {
+    id: post.id,
+    title: post.title,
+    slug: post.slug,
+    excerpt: post.excerpt,
+    content: post.content,
+    status: post.status,
+    metaTitle: post.metaTitle,
+    metaDescription: post.metaDescription,
+    keywords: post.keywords,
+    views: post.views,
+    publishedAt: post.publishedAt?.toISOString() || null,
+    category: post.category ? {
+      id: post.category.id,
+      name: post.category.name,
+    } : null
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-gray-900 to-slate-950">
       <AdminHeader />
-      <BlogPostEditor post={post} />
+      <BlogPostEditor post={serializedPost} />
     </div>
   )
 }

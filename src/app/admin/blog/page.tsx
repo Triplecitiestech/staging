@@ -186,7 +186,18 @@ export default async function BlogManagementPage() {
         {/* Quick Actions */}
         <div className="mt-8 bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg p-6">
           <h3 className="text-lg font-semibold text-white mb-4">Quick Actions</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <Link
+              href="/admin/blog/settings"
+              className="flex items-center gap-3 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg hover:bg-yellow-500/20 transition-colors"
+            >
+              <span className="text-2xl">⚙️</span>
+              <div>
+                <p className="font-medium text-yellow-300">Settings</p>
+                <p className="text-xs text-slate-400">Guidelines & RSS feeds</p>
+              </div>
+            </Link>
+
             <a
               href="/api/cron/generate-blog"
               target="_blank"

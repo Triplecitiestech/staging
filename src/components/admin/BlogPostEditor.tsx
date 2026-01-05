@@ -16,7 +16,7 @@ interface BlogPost {
   metaDescription: string | null
   keywords: string[]
   views: number
-  publishedAt: Date | null
+  publishedAt: string | null
   category: {
     id: string
     name: string
