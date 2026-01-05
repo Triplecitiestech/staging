@@ -1101,19 +1101,6 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
           )}
         </div>
       )}
-
-      {/* Legend */}
-      <div className="mt-8 p-6 bg-gray-800/30 rounded-lg border border-gray-700">
-        <h3 className="text-sm font-semibold text-white mb-4">Status Legend</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {Object.entries(statusColors).map(([status, colors]) => (
-            <div key={status} className="flex items-center gap-2">
-              <span className={cn('w-3 h-3 rounded-full', colors.bg, colors.border, 'border-2')} />
-              <span className="text-xs text-gray-300">{status}</span>
-            </div>
-          ))}
-        </div>
-      </div>
     </div>
   )
 }

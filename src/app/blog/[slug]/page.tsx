@@ -2,6 +2,8 @@ import { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
+import Header from '@/components/layout/Header';
+import Footer from '@/components/layout/Footer';
 
 export const revalidate = 60; // ISR revalidation
 export const dynamic = 'force-dynamic';
@@ -130,26 +132,28 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
   const postUrl = `${baseUrl}/blog/${post.slug}`;
 
   return (
-    <main className="min-h-screen bg-white">
-      {/* Article Header */}
-      <article className="max-w-4xl mx-auto px-4 py-12">
-        {/* Category Badge */}
-        {post.category && (
-          <Link
-            href={`/blog/category/${post.category.slug}`}
-            className="inline-block bg-purple-100 text-purple-700 px-4 py-2 rounded-full text-sm font-semibold mb-4 hover:bg-purple-200 transition-colors"
-          >
-            {post.category.name}
-          </Link>
-        )}
+    <>
+      <Header />
+      <main className="min-h-screen bg-gradient-to-b from-gray-900 via-black to-gray-900">
+        {/* Article Header */}
+        <article className="max-w-4xl mx-auto px-4 py-12">
+          {/* Category Badge */}
+          {post.category && (
+            <Link
+              href={`/blog/category/${post.category.slug}`}
+              className="inline-block bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 px-4 py-2 rounded-full text-sm font-semibold mb-4 hover:bg-cyan-500/30 transition-colors"
+            >
+              {post.category.name}
+            </Link>
+          )}
 
-        {/* Title */}
-        <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-6 leading-tight">
-          {post.title}
-        </h1>
+          {/* Title */}
+          <h1 className="text-4xl md:text-5xl font-bold text-white mb-6 leading-tight">
+            {post.title}
+          </h1>
 
-        {/* Meta Info */}
-        <div className="flex flex-wrap items-center gap-6 text-gray-600 mb-8 pb-8 border-b border-gray-200">
+          {/* Meta Info */}
+          <div className="flex flex-wrap items-center gap-6 text-gray-400 mb-8 pb-8 border-b border-gray-700">
           <div className="flex items-center gap-2">
             <span className="text-2xl">📅</span>
             <span>{new Date(post.publishedAt!).toLocaleDateString('en-US', {
@@ -170,59 +174,59 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
           </div>
         </div>
 
-        {/* Excerpt */}
-        <div className="text-xl text-gray-700 italic mb-8 p-6 bg-gray-50 border-l-4 border-purple-600 rounded">
-          {post.excerpt}
-        </div>
-
-        {/* Featured Image Placeholder */}
-        {post.featuredImage && (
-          <div className="mb-8 rounded-lg overflow-hidden">
-            <div className="h-96 bg-gradient-to-r from-purple-500 to-blue-500" />
+          {/* Excerpt */}
+          <div className="text-xl text-gray-300 italic mb-8 p-6 bg-gray-800/50 backdrop-blur-md border-l-4 border-cyan-500 rounded">
+            {post.excerpt}
           </div>
-        )}
 
-        {/* Blog Content */}
-        <div className="prose prose-lg max-w-none">
-          <ReactMarkdown
-            components={{
-              h2: (props) => <h2 className="text-3xl font-bold mt-8 mb-4 text-gray-900" {...props} />,
-              h3: (props) => <h3 className="text-2xl font-bold mt-6 mb-3 text-gray-900" {...props} />,
-              p: (props) => <p className="mb-4 text-gray-700 leading-relaxed" {...props} />,
-              ul: (props) => <ul className="list-disc list-inside mb-4 space-y-2" {...props} />,
-              ol: (props) => <ol className="list-decimal list-inside mb-4 space-y-2" {...props} />,
-              li: (props) => <li className="text-gray-700" {...props} />,
-              a: (props) => <a className="text-purple-600 hover:text-purple-700 underline" {...props} />,
-              strong: (props) => <strong className="font-bold text-gray-900" {...props} />,
-              blockquote: (props) => (
-                <blockquote className="border-l-4 border-purple-600 pl-4 italic my-4 text-gray-700" {...props} />
-              )
-            }}
-          >
-            {post.content}
-          </ReactMarkdown>
-        </div>
-
-        {/* Keywords/Tags */}
-        {post.keywords.length > 0 && (
-          <div className="mt-12 pt-8 border-t border-gray-200">
-            <h3 className="text-sm font-semibold text-gray-600 mb-3">TAGS:</h3>
-            <div className="flex flex-wrap gap-2">
-              {post.keywords.map((keyword, idx) => (
-                <span
-                  key={idx}
-                  className="bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-sm"
-                >
-                  {keyword}
-                </span>
-              ))}
+          {/* Featured Image Placeholder */}
+          {post.featuredImage && (
+            <div className="mb-8 rounded-lg overflow-hidden">
+              <div className="h-96 bg-gradient-to-r from-cyan-500 to-cyan-600" />
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Social Share Buttons */}
-        <div className="mt-8 pt-8 border-t border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Share this article:</h3>
+          {/* Blog Content */}
+          <div className="prose prose-lg max-w-none">
+            <ReactMarkdown
+              components={{
+                h2: (props) => <h2 className="text-3xl font-bold mt-8 mb-4 text-white" {...props} />,
+                h3: (props) => <h3 className="text-2xl font-bold mt-6 mb-3 text-white" {...props} />,
+                p: (props) => <p className="mb-4 text-gray-300 leading-relaxed" {...props} />,
+                ul: (props) => <ul className="list-disc list-inside mb-4 space-y-2" {...props} />,
+                ol: (props) => <ol className="list-decimal list-inside mb-4 space-y-2" {...props} />,
+                li: (props) => <li className="text-gray-300" {...props} />,
+                a: (props) => <a className="text-cyan-400 hover:text-cyan-300 underline" {...props} />,
+                strong: (props) => <strong className="font-bold text-white" {...props} />,
+                blockquote: (props) => (
+                  <blockquote className="border-l-4 border-cyan-500 pl-4 italic my-4 text-gray-300" {...props} />
+                )
+              }}
+            >
+              {post.content}
+            </ReactMarkdown>
+          </div>
+
+          {/* Keywords/Tags */}
+          {post.keywords.length > 0 && (
+            <div className="mt-12 pt-8 border-t border-gray-700">
+              <h3 className="text-sm font-semibold text-gray-400 mb-3">TAGS:</h3>
+              <div className="flex flex-wrap gap-2">
+                {post.keywords.map((keyword, idx) => (
+                  <span
+                    key={idx}
+                    className="bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 px-3 py-1 rounded-full text-sm"
+                  >
+                    {keyword}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Social Share Buttons */}
+          <div className="mt-8 pt-8 border-t border-gray-700">
+            <h3 className="text-lg font-semibold text-white mb-4">Share this article:</h3>
           <div className="flex gap-4">
             <a
               href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(postUrl)}`}
@@ -251,19 +255,19 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
           </div>
         </div>
 
-        {/* CTA Section */}
-        <div className="mt-12 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg p-8">
-          <h3 className="text-2xl font-bold mb-3">Need IT Support?</h3>
-          <p className="mb-6 text-purple-100">
-            Triple Cities Tech provides comprehensive IT services and cybersecurity solutions for small businesses in Central New York.
-          </p>
-          <Link
-            href="/contact"
-            className="inline-block bg-white text-purple-600 px-6 py-3 rounded-lg font-semibold hover:bg-gray-100 transition-colors"
-          >
-            Get in Touch
-          </Link>
-        </div>
+          {/* CTA Section */}
+          <div className="mt-12 bg-gradient-to-r from-cyan-500 to-cyan-600 text-white rounded-lg shadow-lg shadow-cyan-500/20 p-8">
+            <h3 className="text-2xl font-bold mb-3">Need IT Support?</h3>
+            <p className="mb-6 text-cyan-100">
+              Triple Cities Tech provides comprehensive IT services and cybersecurity solutions for small businesses in Central New York.
+            </p>
+            <Link
+              href="/contact"
+              className="inline-block bg-white text-cyan-600 px-6 py-3 rounded-lg font-semibold hover:bg-gray-100 transition-colors"
+            >
+              Get in Touch
+            </Link>
+          </div>
 
         {/* Schema.org Article Markup */}
         <script
@@ -298,41 +302,43 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
         />
       </article>
 
-      {/* Related Posts */}
-      {relatedPosts.length > 0 && (
-        <section className="bg-gray-50 py-12">
-          <div className="max-w-6xl mx-auto px-4">
-            <h2 className="text-3xl font-bold text-gray-900 mb-8">Related Articles</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {relatedPosts.map((relatedPost) => (
-                <Link
-                  key={relatedPost.id}
-                  href={`/blog/${relatedPost.slug}`}
-                  className="bg-white rounded-lg shadow-lg hover:shadow-xl transition-shadow p-6 block"
-                >
-                  <h3 className="text-xl font-bold mb-2 text-gray-900 hover:text-purple-600 transition-colors">
-                    {relatedPost.title}
-                  </h3>
-                  <p className="text-gray-600 line-clamp-3 mb-3">
-                    {relatedPost.excerpt}
-                  </p>
-                  <span className="text-purple-600 font-semibold">Read More →</span>
-                </Link>
-              ))}
+        {/* Related Posts */}
+        {relatedPosts.length > 0 && (
+          <section className="bg-gray-800/30 py-12 mt-12">
+            <div className="max-w-6xl mx-auto px-4">
+              <h2 className="text-3xl font-bold text-white mb-8">Related Articles</h2>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {relatedPosts.map((relatedPost) => (
+                  <Link
+                    key={relatedPost.id}
+                    href={`/blog/${relatedPost.slug}`}
+                    className="bg-gray-800/50 backdrop-blur-md border border-cyan-500/20 rounded-lg shadow-lg hover:shadow-xl hover:shadow-cyan-500/10 transition-all p-6 block"
+                  >
+                    <h3 className="text-xl font-bold mb-2 text-white hover:text-cyan-400 transition-colors">
+                      {relatedPost.title}
+                    </h3>
+                    <p className="text-gray-300 line-clamp-3 mb-3">
+                      {relatedPost.excerpt}
+                    </p>
+                    <span className="text-cyan-400 font-semibold">Read More →</span>
+                  </Link>
+                ))}
+              </div>
             </div>
-          </div>
-        </section>
-      )}
+          </section>
+        )}
 
-      {/* Back to Blog */}
-      <div className="max-w-4xl mx-auto px-4 py-8">
-        <Link
-          href="/blog"
-          className="text-purple-600 hover:text-purple-700 font-semibold"
-        >
-          ← Back to Blog
-        </Link>
-      </div>
-    </main>
+        {/* Back to Blog */}
+        <div className="max-w-4xl mx-auto px-4 py-8">
+          <Link
+            href="/blog"
+            className="text-cyan-400 hover:text-cyan-300 font-semibold"
+          >
+            ← Back to Blog
+          </Link>
+        </div>
+      </main>
+      <Footer />
+    </>
   );
 }
