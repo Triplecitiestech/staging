@@ -117,7 +117,11 @@ export default function HiringGuidelinesPage() {
                 </div>
                 <div className="flex items-start gap-3">
                   <CheckCircle2 size={20} className="text-purple-400 flex-shrink-0 mt-1" />
-                  <span className="text-slate-300">Must upload call transcripts and paste screenshots</span>
+                  <span className="text-slate-300">Must upload call transcripts</span>
+                </div>
+                <div className="flex items-start gap-3">
+                  <CheckCircle2 size={20} className="text-purple-400 flex-shrink-0 mt-1" />
+                  <span className="text-slate-300">Must log any and every interaction with a business</span>
                 </div>
                 <div className="flex items-start gap-3">
                   <CheckCircle2 size={20} className="text-purple-400 flex-shrink-0 mt-1" />
@@ -126,17 +130,32 @@ export default function HiringGuidelinesPage() {
               </div>
             </div>
 
-            {/* Instagram-Capable */}
+            {/* Social Media & Outreach Capable */}
             <div className="bg-cyan-900/20 border border-cyan-500/30 rounded-lg p-6">
-              <h3 className="text-xl font-bold text-cyan-400 mb-4">Instagram-Capable</h3>
+              <h3 className="text-xl font-bold text-cyan-400 mb-4">Social Media & Outreach Capable</h3>
               <div className="space-y-2">
                 <div className="flex items-start gap-3">
                   <CheckCircle2 size={20} className="text-cyan-400 flex-shrink-0 mt-1" />
-                  <span className="text-slate-300">Must be able to send Instagram messages to stores</span>
+                  <span className="text-slate-300">Must be able to send Instagram and Facebook messages to stores</span>
                 </div>
                 <div className="flex items-start gap-3">
                   <CheckCircle2 size={20} className="text-cyan-400 flex-shrink-0 mt-1" />
-                  <span className="text-slate-300">Must be able to log conversations and screenshots into the CRM timeline</span>
+                  <span className="text-slate-300">Must log all conversations and interactions into the CRM</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Technical Requirements */}
+            <div className="bg-indigo-900/20 border border-indigo-500/30 rounded-lg p-6">
+              <h3 className="text-xl font-bold text-indigo-400 mb-4">Technical Requirements</h3>
+              <div className="space-y-2">
+                <div className="flex items-start gap-3">
+                  <CheckCircle2 size={20} className="text-indigo-400 flex-shrink-0 mt-1" />
+                  <span className="text-slate-300">Must use the assigned VOIP Softphone (likely RingCentral) for all calls</span>
+                </div>
+                <div className="flex items-start gap-3">
+                  <CheckCircle2 size={20} className="text-indigo-400 flex-shrink-0 mt-1" />
+                  <span className="text-slate-300">Must know how to perform basic tasks inside a CRM</span>
                 </div>
               </div>
             </div>
@@ -163,17 +182,17 @@ export default function HiringGuidelinesPage() {
         </section>
 
         {/* Identity & Social Requirements */}
-        <section className="mb-12 bg-gradient-to-br from-amber-600/20 to-amber-500/10 backdrop-blur-sm border-2 border-amber-500/50 rounded-lg p-8">
+        <section className="mb-12 bg-gradient-to-br from-blue-600/20 to-blue-500/10 backdrop-blur-sm border-2 border-blue-500/50 rounded-lg p-8">
           <h2 className="text-3xl font-bold text-white mb-6">Identity &amp; Social Requirements</h2>
 
           <div className="space-y-6">
-            <div className="bg-amber-900/20 rounded-lg p-6">
-              <h3 className="text-xl font-bold text-amber-400 mb-4">Alias System</h3>
+            <div className="bg-blue-900/20 rounded-lg p-6">
+              <h3 className="text-xl font-bold text-blue-400 mb-4">Alias System</h3>
               <p className="text-slate-300 mb-4">
                 Every contractor must use a U.S.-sounding alias to avoid distrust or confusion. This is not deceptive — it's professional brand representation.
               </p>
               <div className="bg-slate-900/50 rounded p-4">
-                <p className="text-sm font-semibold text-amber-300 mb-2">Examples:</p>
+                <p className="text-sm font-semibold text-blue-300 mb-2">Examples:</p>
                 <ul className="space-y-1 text-slate-300">
                   <li>• Alex Johnson</li>
                   <li>• Jordan Lee</li>
@@ -183,22 +202,22 @@ export default function HiringGuidelinesPage() {
               </div>
             </div>
 
-            <div className="bg-amber-900/20 rounded-lg p-6">
-              <h3 className="text-xl font-bold text-amber-400 mb-4">Instagram &amp; Facebook Accounts</h3>
+            <div className="bg-blue-900/20 rounded-lg p-6">
+              <h3 className="text-xl font-bold text-blue-400 mb-4">Instagram &amp; Facebook Accounts</h3>
               <p className="text-slate-300 mb-4">
                 Contractors must have active Instagram and Facebook accounts under their alias. These do not need to be elaborate — but they must:
               </p>
               <div className="space-y-2">
                 <div className="flex items-start gap-3">
-                  <CheckCircle2 size={20} className="text-amber-400 flex-shrink-0 mt-1" />
+                  <CheckCircle2 size={20} className="text-blue-400 flex-shrink-0 mt-1" />
                   <span className="text-slate-300">Look like real, personal accounts</span>
                 </div>
                 <div className="flex items-start gap-3">
-                  <CheckCircle2 size={20} className="text-amber-400 flex-shrink-0 mt-1" />
+                  <CheckCircle2 size={20} className="text-blue-400 flex-shrink-0 mt-1" />
                   <span className="text-slate-300">Not appear to be spam or brand-only pages</span>
                 </div>
                 <div className="flex items-start gap-3">
-                  <CheckCircle2 size={20} className="text-amber-400 flex-shrink-0 mt-1" />
+                  <CheckCircle2 size={20} className="text-blue-400 flex-shrink-0 mt-1" />
                   <span className="text-slate-300">Have a few posts (3–5 minimum) to appear legitimate</span>
                 </div>
               </div>
@@ -211,6 +230,12 @@ export default function HiringGuidelinesPage() {
           <div className="flex items-center gap-3 mb-6">
             <Phone className="w-8 h-8 text-cyan-400" />
             <h2 className="text-3xl font-bold text-white">Interview Process</h2>
+          </div>
+
+          <div className="mb-6 bg-cyan-500/10 border-l-4 border-cyan-500 rounded px-6 py-4">
+            <p className="text-white font-semibold">
+              <strong>CRITICAL:</strong> A live phone call or video call is required during the interview process to ask questions on the fly and measure the candidate's accent, responsiveness, and communication skills in real-time.
+            </p>
           </div>
 
           <div className="space-y-6">
