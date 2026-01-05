@@ -17,9 +17,24 @@ interface BlogPost {
   keywords: string[]
   views: number
   publishedAt: string | null
+  scheduledFor?: string | null
+  sentForApproval?: string | null
+  approvedAt?: string | null
+  createdAt?: string
+  updatedAt?: string
   category: {
     id: string
     name: string
+  } | null
+  tags?: Array<{
+    id: string
+    name: string
+    slug: string
+  }>
+  author?: {
+    id: string
+    name: string
+    email: string
   } | null
 }
 

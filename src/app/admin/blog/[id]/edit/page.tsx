@@ -44,9 +44,24 @@ export default async function BlogPostEditPage({ params }: BlogPostEditPageProps
     keywords: post.keywords,
     views: post.views,
     publishedAt: post.publishedAt?.toISOString() || null,
+    scheduledFor: post.scheduledFor?.toISOString() || null,
+    sentForApproval: post.sentForApproval?.toISOString() || null,
+    approvedAt: post.approvedAt?.toISOString() || null,
+    createdAt: post.createdAt.toISOString(),
+    updatedAt: post.updatedAt.toISOString(),
     category: post.category ? {
       id: post.category.id,
       name: post.category.name,
+    } : null,
+    tags: post.tags.map(tag => ({
+      id: tag.id,
+      name: tag.name,
+      slug: tag.slug,
+    })),
+    author: post.author ? {
+      id: post.author.id,
+      name: post.author.name,
+      email: post.author.email,
     } : null
   }
 
