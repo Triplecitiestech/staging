@@ -453,7 +453,7 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
                         isCurrent
                           ? 'border-cyan-400 bg-gradient-to-br from-cyan-500 to-cyan-600 shadow-cyan-500/50 scale-110'
                           : 'border-gray-700 bg-gray-800 hover:border-cyan-500/50 hover:scale-105',
-                        selectedPhase?.id === phase.id && 'ring-8 ring-cyan-400 scale-110 border-cyan-300 shadow-cyan-400/70'
+                        selectedPhase?.id === phase.id && 'ring-4 ring-cyan-400 scale-110 border-cyan-300 shadow-cyan-400/70'
                       )}
                     >
                       <StatusIcon
@@ -546,7 +546,7 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
                         isCurrent
                           ? 'border-cyan-400 bg-gradient-to-br from-cyan-500 to-cyan-600 shadow-cyan-500/50 scale-110'
                           : 'border-gray-700 bg-gray-800 hover:border-cyan-500/50 hover:scale-105',
-                        isExpanded && 'ring-8 ring-cyan-400 scale-110 border-cyan-300 shadow-cyan-400/70'
+                        isExpanded && 'ring-4 ring-cyan-400 scale-110 border-cyan-300 shadow-cyan-400/70'
                       )}
                     >
                       <StatusIcon
@@ -767,7 +767,7 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
 
                 {/* Connector line between phases */}
                 {index < phases.length - 1 && (
-                  <div className="flex justify-center mb-0">
+                  <div className="flex justify-center my-8">
                     <div className="w-1 h-16 bg-gradient-to-b from-cyan-500 to-cyan-400" />
                   </div>
                 )}
