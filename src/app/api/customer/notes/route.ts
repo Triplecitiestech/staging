@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
 import { withAccelerate } from '@prisma/extension-accelerate'
 import { getAuthenticatedCompany } from '@/lib/onboarding-session'
+import { auth } from '@/auth'
 
 const prisma = new PrismaClient({
   accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
@@ -19,17 +20,29 @@ export async function POST(request: NextRequest) {
 
     console.log('[Customer Notes API] Request body:', { phaseId, taskId, contentLength: content?.length })
 
-    // Verify customer authentication via session cookie
+    // Check authentication - either customer session OR admin session
     const authenticatedCompany = await getAuthenticatedCompany()
+    const adminSession = await auth()
 
-    console.log('[Customer Notes API] Authenticated company result:', authenticatedCompany)
+    console.log('[Customer Notes API] Auth check:', {
+      customerAuth: !!authenticatedCompany,
+      adminAuth: !!adminSession
+    })
 
-    if (!authenticatedCompany) {
-      console.log('[Customer Notes API] Not authenticated - no valid session found')
+    // Allow access if either customer is authenticated OR admin is authenticated (for preview mode)
+    if (!authenticatedCompany && !adminSession) {
+      console.log('[Customer Notes API] Not authenticated - no valid customer or admin session found')
       return NextResponse.json(
         { error: 'Unauthorized - please log in again. Your session may have expired.' },
         { status: 401 }
       )
+    }
+
+    // Log which auth method was used
+    if (adminSession) {
+      console.log('[Customer Notes API] Using admin session for authentication')
+    } else {
+      console.log('[Customer Notes API] Using customer session for authentication')
     }
 
     if (phaseId) {
