@@ -131,6 +131,13 @@ export default async function AdminPreviewPage({ params }: PageProps) {
         status: convertStatus(phase.status),
         owner: convertOwner(phase.owner),
         notes: phase.customerNotes || undefined,
+        tasks: phase.tasks?.map(task => ({
+          id: task.id,
+          taskText: task.taskText,
+          completed: task.completed,
+          status: task.status || 'NOT_STARTED',
+          notes: undefined
+        })) || []
       }))
     } : null
 

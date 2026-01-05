@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useRef } from 'react'
-import { ChevronDown, ChevronUp, CheckCircle, Clock, AlertCircle, Calendar, User, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronDown, ChevronUp, CheckCircle, Clock, AlertCircle, Calendar, User, ChevronLeft, ChevronRight, Edit, Save, X } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import type { OnboardingPhase, PhaseStatus } from '@/types/onboarding'
 
@@ -9,6 +9,7 @@ interface OnboardingTimelineProps {
   phases: OnboardingPhase[]
   currentPhaseId?: string
   title?: string
+  companySlug?: string
 }
 
 // Status color mappings - vibrant bubble colors with original icon colors
@@ -208,12 +209,15 @@ function PhaseCard({ phase, isCurrent, isLast }: { phase: OnboardingPhase; isCur
   )
 }
 
-export default function OnboardingTimeline({ phases, currentPhaseId, title }: OnboardingTimelineProps) {
+export default function OnboardingTimeline({ phases, currentPhaseId, title, companySlug }: OnboardingTimelineProps) {
   const [selectedPhase, setSelectedPhase] = useState<OnboardingPhase | null>(null)
   const [viewMode, setViewMode] = useState<'horizontal' | 'vertical'>('horizontal')
   const scrollContainerRef = useRef<HTMLDivElement>(null)
-
-  const showScrollWarning = phases.length > 6
+  const [editingPhaseNote, setEditingPhaseNote] = useState<string | null>(null)
+  const [editingTaskNote, setEditingTaskNote] = useState<string | null>(null)
+  const [phaseNoteText, setPhaseNoteText] = useState('')
+  const [taskNoteText, setTaskNoteText] = useState('')
+  const [savingNote, setSavingNote] = useState(false)
 
   const scrollLeft = () => {
     if (scrollContainerRef.current) {
@@ -227,15 +231,96 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title }: On
     }
   }
 
+  const handleSavePhaseNote = async (phaseId: string) => {
+    if (!companySlug) return
+
+    setSavingNote(true)
+    try {
+      const response = await fetch('/api/customer/notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phaseId,
+          content: phaseNoteText,
+          companySlug
+        })
+      })
+
+      if (response.ok) {
+        // Update local state
+        if (selectedPhase && selectedPhase.id === phaseId) {
+          setSelectedPhase({ ...selectedPhase, notes: phaseNoteText })
+        }
+        setEditingPhaseNote(null)
+        // Refresh the page to get updated data
+        window.location.reload()
+      }
+    } catch (error) {
+      console.error('Error saving phase note:', error)
+    } finally {
+      setSavingNote(false)
+    }
+  }
+
+  const handleSaveTaskNote = async (taskId: string) => {
+    if (!companySlug) return
+
+    setSavingNote(true)
+    try {
+      const response = await fetch('/api/customer/notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          taskId,
+          content: taskNoteText,
+          companySlug
+        })
+      })
+
+      if (response.ok) {
+        setEditingTaskNote(null)
+        // Refresh the page to get updated data
+        window.location.reload()
+      }
+    } catch (error) {
+      console.error('Error saving task note:', error)
+    } finally {
+      setSavingNote(false)
+    }
+  }
+
+  // Scroll to current phase or Phase 1 on mount
+  React.useEffect(() => {
+    if (scrollContainerRef.current && viewMode === 'horizontal') {
+      const container = scrollContainerRef.current
+      // Find the current phase or default to Phase 1 (index 0)
+      const currentPhaseIndex = currentPhaseId
+        ? phases.findIndex(p => p.id === currentPhaseId)
+        : 0
+
+      const phaseIndex = currentPhaseIndex >= 0 ? currentPhaseIndex : 0
+
+      // Calculate scroll position to center the phase
+      // Each phase node is approximately 120px wide with 80px spacing
+      const phaseWidth = 200
+      const scrollPosition = (phaseIndex * phaseWidth) - (container.offsetWidth / 2) + (phaseWidth / 2)
+
+      // Scroll with a slight delay to ensure DOM is ready
+      setTimeout(() => {
+        container.scrollTo({ left: Math.max(0, scrollPosition), behavior: 'smooth' })
+      }, 100)
+    }
+  }, [phases, currentPhaseId, viewMode])
+
   return (
     <div className="space-y-8">
       {/* Timeline header with toggle */}
       <div className="text-center mb-8">
         <h2 className="text-2xl font-bold text-white mb-2">{title || 'Project Timeline'}</h2>
-        <p className="text-gray-300 mb-4">Track your progress through the project phases</p>
+        <p className="text-gray-300 mb-4">Follow each phase as we bring your project to life</p>
 
         {/* View toggle */}
-        <div className="flex items-center justify-center gap-2 mb-4">
+        <div className="flex items-center justify-center gap-2">
           <button
             onClick={() => setViewMode('horizontal')}
             className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors ${
@@ -257,37 +342,30 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title }: On
             Vertical View
           </button>
         </div>
-
-        {/* Warning for too many phases in horizontal view */}
-        {viewMode === 'horizontal' && showScrollWarning && (
-          <div className="inline-block px-4 py-2 bg-amber-500/20 border border-amber-500/50 rounded-lg text-amber-300 text-sm">
-            ⚠️ With {phases.length} phases, horizontal scrolling may occur. Consider switching to vertical view.
-          </div>
-        )}
       </div>
 
       {/* Horizontal Timeline */}
       {viewMode === 'horizontal' && (
         <div className="relative pb-8">
-          {/* Left fade overlay */}
-          <div className="absolute left-0 top-0 bottom-0 w-16 bg-gradient-to-r from-gray-900 to-transparent z-10 pointer-events-none" />
+          {/* Left fade overlay - gradual smooth fade */}
+          <div className="absolute left-0 top-0 bottom-0 w-32 bg-gradient-to-r from-gray-900 via-gray-900/80 via-gray-900/40 to-transparent z-10 pointer-events-none" />
 
-          {/* Right fade overlay */}
-          <div className="absolute right-0 top-0 bottom-0 w-16 bg-gradient-to-l from-gray-900 to-transparent z-10 pointer-events-none" />
+          {/* Right fade overlay - gradual smooth fade */}
+          <div className="absolute right-0 top-0 bottom-0 w-32 bg-gradient-to-l from-gray-900 via-gray-900/80 via-gray-900/40 to-transparent z-10 pointer-events-none" />
 
-          {/* Left arrow */}
+          {/* Left arrow - positioned outside the fade area */}
           <button
             onClick={scrollLeft}
-            className="absolute left-2 top-8 z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
+            className="absolute left-0 top-1/2 -translate-y-1/2 z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
             aria-label="Scroll left"
           >
             <ChevronLeft size={20} />
           </button>
 
-          {/* Right arrow */}
+          {/* Right arrow - positioned outside the fade area */}
           <button
             onClick={scrollRight}
-            className="absolute right-2 top-8 z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
+            className="absolute right-0 top-1/2 -translate-y-1/2 z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
             aria-label="Scroll right"
           >
             <ChevronRight size={20} />
@@ -296,7 +374,7 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title }: On
           {/* Scrollable container */}
           <div
             ref={scrollContainerRef}
-            className="overflow-x-auto scrollbar-hide px-16"
+            className="overflow-x-auto scrollbar-hide px-12"
             style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
           >
             <div className="flex items-start gap-3 px-4 justify-center"
@@ -444,12 +522,61 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title }: On
           )}
 
           {/* Notes */}
-          {selectedPhase.notes && (
-            <div className="mb-4 p-3 bg-amber-900/30 border border-amber-500/50 rounded-lg">
-              <p className="text-sm font-semibold text-amber-300 mb-1">Notes:</p>
-              <p className="text-sm text-amber-200">{selectedPhase.notes}</p>
+          <div className="mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-semibold text-white uppercase">Your Notes</p>
+              {editingPhaseNote !== selectedPhase.id && (
+                <button
+                  onClick={() => {
+                    setEditingPhaseNote(selectedPhase.id)
+                    setPhaseNoteText(selectedPhase.notes || '')
+                  }}
+                  className="flex items-center gap-1 px-3 py-1 text-xs bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 rounded transition-colors"
+                >
+                  <Edit size={12} />
+                  {selectedPhase.notes ? 'Edit Note' : 'Add Note'}
+                </button>
+              )}
             </div>
-          )}
+
+            {editingPhaseNote === selectedPhase.id ? (
+              <div className="space-y-2">
+                <textarea
+                  value={phaseNoteText}
+                  onChange={(e) => setPhaseNoteText(e.target.value)}
+                  placeholder="Add your notes about this phase..."
+                  className="w-full p-3 bg-gray-900/50 border border-gray-600 rounded-lg text-sm text-gray-300 focus:border-cyan-500 focus:outline-none resize-none"
+                  rows={4}
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleSavePhaseNote(selectedPhase.id)}
+                    disabled={savingNote}
+                    className="flex items-center gap-1 px-3 py-1.5 text-xs bg-cyan-500 hover:bg-cyan-600 text-white rounded transition-colors disabled:opacity-50"
+                  >
+                    <Save size={12} />
+                    {savingNote ? 'Saving...' : 'Save Note'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setEditingPhaseNote(null)
+                      setPhaseNoteText('')
+                    }}
+                    className="flex items-center gap-1 px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition-colors"
+                  >
+                    <X size={12} />
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : selectedPhase.notes ? (
+              <div className="p-3 bg-amber-900/30 border border-amber-500/50 rounded-lg">
+                <p className="text-sm text-amber-200">{selectedPhase.notes}</p>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500 italic">No notes yet. Click "Add Note" to add your thoughts.</p>
+            )}
+          </div>
 
           {/* Tasks (if available from project data) */}
           {(selectedPhase as unknown as { tasks?: Array<{ id: string; taskText: string; completed: boolean; notes?: string }> }).tasks && (selectedPhase as unknown as { tasks: Array<{ id: string; taskText: string; completed: boolean; notes?: string }> }).tasks.length > 0 && (
@@ -457,24 +584,71 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title }: On
               <p className="text-sm font-semibold text-white uppercase mb-3">Tasks ({(selectedPhase as unknown as { tasks: Array<unknown> }).tasks.length})</p>
               <div className="space-y-2">
                 {(selectedPhase as unknown as { tasks: Array<{ id: string; taskText: string; completed: boolean; notes?: string }> }).tasks.map((task) => (
-                  <div key={task.id} className="flex items-start gap-3 p-3 bg-gray-900/50 rounded-lg">
-                    <div className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${
-                      task.completed ? 'bg-green-500 border-green-500' : 'border-gray-600'
-                    }`}>
-                      {task.completed && (
-                        <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                        </svg>
+                  <div key={task.id} className="p-3 bg-gray-900/50 rounded-lg">
+                    <div className="flex items-start gap-3">
+                      <div className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${
+                        task.completed ? 'bg-green-500 border-green-500' : 'border-gray-600'
+                      }`}>
+                        {task.completed && (
+                          <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </div>
+                      <div className="flex-1">
+                        <span className={`text-sm ${task.completed ? 'text-gray-500 line-through' : 'text-gray-300'}`}>
+                          {task.taskText}
+                        </span>
+                      </div>
+                      {editingTaskNote !== task.id && (
+                        <button
+                          onClick={() => {
+                            setEditingTaskNote(task.id)
+                            setTaskNoteText(task.notes || '')
+                          }}
+                          className="flex items-center gap-1 px-2 py-1 text-xs bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 rounded transition-colors flex-shrink-0"
+                        >
+                          <Edit size={10} />
+                          Note
+                        </button>
                       )}
                     </div>
-                    <div className="flex-1">
-                      <span className={`text-sm ${task.completed ? 'text-gray-500 line-through' : 'text-gray-300'}`}>
-                        {task.taskText}
-                      </span>
-                      {task.notes && (
-                        <p className="text-xs text-gray-500 mt-1 italic">{task.notes}</p>
-                      )}
-                    </div>
+
+                    {editingTaskNote === task.id ? (
+                      <div className="mt-2 space-y-2">
+                        <textarea
+                          value={taskNoteText}
+                          onChange={(e) => setTaskNoteText(e.target.value)}
+                          placeholder="Add your notes about this task..."
+                          className="w-full p-2 bg-gray-800/50 border border-gray-600 rounded text-xs text-gray-300 focus:border-cyan-500 focus:outline-none resize-none"
+                          rows={3}
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleSaveTaskNote(task.id)}
+                            disabled={savingNote}
+                            className="flex items-center gap-1 px-2 py-1 text-xs bg-cyan-500 hover:bg-cyan-600 text-white rounded transition-colors disabled:opacity-50"
+                          >
+                            <Save size={10} />
+                            {savingNote ? 'Saving...' : 'Save'}
+                          </button>
+                          <button
+                            onClick={() => {
+                              setEditingTaskNote(null)
+                              setTaskNoteText('')
+                            }}
+                            className="flex items-center gap-1 px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition-colors"
+                          >
+                            <X size={10} />
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : task.notes ? (
+                      <p className="text-xs text-amber-300 mt-2 p-2 bg-amber-900/20 border border-amber-500/30 rounded">
+                        <strong>Your note:</strong> {task.notes}
+                      </p>
+                    ) : null}
                   </div>
                 ))}
               </div>

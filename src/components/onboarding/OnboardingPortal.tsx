@@ -9,7 +9,6 @@ import { Container } from '@/components/ui/Container'
 import { Button } from '@/components/ui/Button'
 import PasswordGate from './PasswordGate'
 import OnboardingTimeline from './OnboardingTimeline'
-import ProjectsView from './ProjectsView'
 import type { OnboardingData } from '@/types/onboarding'
 
 interface OnboardingPortalProps {
@@ -119,22 +118,8 @@ export default function OnboardingPortal({
               phases={initialData.phases}
               currentPhaseId={initialData.currentPhaseId}
               title={projects && projects.length === 1 ? (projects[0] as { title: string }).title : undefined}
+              companySlug={companySlug}
             />
-
-            {/* Projects Section */}
-            {projects && projects.length > 0 && (
-              <div className="mt-16">
-                <div className="mb-8">
-                  <h2 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-cyan-500 bg-clip-text text-transparent mb-2">
-                    Project Details
-                  </h2>
-                  <p className="text-gray-300">
-                    Track the progress of your active projects
-                  </p>
-                </div>
-                <ProjectsView projects={projects as never} />
-              </div>
-            )}
 
             {/* Contact section */}
             <div className="mt-12 p-6 bg-gray-800/50 backdrop-blur-sm border border-cyan-500/30 rounded-lg shadow-lg shadow-cyan-500/10 text-center">
@@ -143,82 +128,6 @@ export default function OnboardingPortal({
               </h3>
               <p className="text-gray-300 mb-4">
                 Our team is here to assist you throughout your onboarding journey.
-              </p>
-              <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                <a
-                  href="tel:+16073417500"
-                  className="inline-flex items-center justify-center px-6 py-3 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700 text-white font-semibold rounded-lg shadow-lg shadow-cyan-500/30 transition-all"
-                >
-                  Call (607) 341-7500
-                </a>
-                <a
-                  href="mailto:support@triplecitiestech.com"
-                  className="inline-flex items-center justify-center px-6 py-3 bg-gray-700/50 hover:bg-gray-700 text-cyan-400 font-semibold rounded-lg border-2 border-cyan-500/50 hover:border-cyan-500 transition-all"
-                >
-                  Email Support
-                </a>
-              </div>
-            </div>
-          </Container>
-        ) : projects && projects.length > 0 ? (
-          // Authenticated with projects but no onboarding data - show projects only
-          <Container className="py-12 mt-4">
-            {/* Header with logout */}
-            <div className="mb-8">
-              {/* Centered title */}
-              <div className="text-center mb-6">
-                <h1 className="text-4xl font-bold bg-gradient-to-r from-cyan-400 to-cyan-500 bg-clip-text text-transparent mb-2">
-                  {projects && projects.length === 1
-                    ? (projects[0] as { title: string }).title
-                    : 'Your Projects'}
-                </h1>
-                <p className="text-gray-300">
-                  Track the progress of your projects with Triple Cities Tech
-                </p>
-              </div>
-
-              {/* Action buttons */}
-              <div className="flex gap-3 justify-center">
-                <Button
-                  onClick={() => router.refresh()}
-                  variant="outline"
-                  className="border-cyan-600 text-cyan-400 hover:bg-cyan-500/10"
-                  leftIcon={<RefreshCw size={16} />}
-                >
-                  Refresh
-                </Button>
-                <Button
-                  onClick={handleLogout}
-                  variant="outline"
-                  className="border-gray-600 text-gray-300 hover:bg-gray-700"
-                  isLoading={isLoggingOut}
-                  leftIcon={!isLoggingOut ? <LogOut size={16} /> : undefined}
-                >
-                  Log Out
-                </Button>
-              </div>
-            </div>
-
-            {/* Projects Section */}
-            <div className="mb-16">
-              <div className="mb-8">
-                <h2 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-cyan-500 bg-clip-text text-transparent mb-2">
-                  Project Details
-                </h2>
-                <p className="text-gray-300">
-                  Track the progress of your active projects
-                </p>
-              </div>
-              <ProjectsView projects={projects as never} />
-            </div>
-
-            {/* Contact section */}
-            <div className="mt-12 p-6 bg-gray-800/50 backdrop-blur-sm border border-cyan-500/30 rounded-lg shadow-lg shadow-cyan-500/10 text-center">
-              <h3 className="text-lg font-bold text-cyan-400 mb-2">
-                Need Help or Have Questions?
-              </h3>
-              <p className="text-gray-300 mb-4">
-                Our team is here to assist you throughout your project.
               </p>
               <div className="flex flex-col sm:flex-row gap-3 justify-center">
                 <a
