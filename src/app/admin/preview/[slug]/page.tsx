@@ -79,9 +79,35 @@ export default async function AdminPreviewPage({ params }: PageProps) {
                       taskText: true,
                       completed: true,
                       orderIndex: true,
-                      status: true
+                      status: true,
+                      comments: {
+                        where: {
+                          isInternal: false
+                        },
+                        orderBy: { createdAt: 'asc' },
+                        select: {
+                          id: true,
+                          content: true,
+                          authorName: true,
+                          authorEmail: true,
+                          createdAt: true
+                        }
+                      }
                     },
                     orderBy: { orderIndex: 'asc' }
+                  },
+                  comments: {
+                    where: {
+                      isInternal: false
+                    },
+                    orderBy: { createdAt: 'asc' },
+                    select: {
+                      id: true,
+                      content: true,
+                      authorName: true,
+                      authorEmail: true,
+                      createdAt: true
+                    }
                   }
                 },
                 orderBy: { orderIndex: 'asc' }
@@ -131,11 +157,23 @@ export default async function AdminPreviewPage({ params }: PageProps) {
         status: convertStatus(phase.status),
         owner: convertOwner(phase.owner),
         notes: phase.customerNotes || undefined,
+        adminComments: (phase as unknown as { comments?: Array<{ id: string; content: string; authorName: string; createdAt: Date }> }).comments?.map(comment => ({
+          id: comment.id,
+          content: comment.content,
+          authorName: comment.authorName,
+          createdAt: comment.createdAt.toISOString()
+        })) || [],
         tasks: phase.tasks?.map(task => ({
           id: task.id,
           taskText: task.taskText,
           completed: task.completed,
-          status: task.status || 'NOT_STARTED'
+          status: task.status || 'NOT_STARTED',
+          adminComments: (task as unknown as { comments?: Array<{ id: string; content: string; authorName: string; createdAt: Date }> }).comments?.map(comment => ({
+            id: comment.id,
+            content: comment.content,
+            authorName: comment.authorName,
+            createdAt: comment.createdAt.toISOString()
+          })) || []
         })) || []
       }))
     } : null
