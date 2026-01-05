@@ -49,10 +49,12 @@ export default async function AdminPage() {
   }
 
   // Fetch analytics data
-  const [totalProjects, activeProjects, totalCompanies] = await Promise.all([
+  const [totalProjects, activeProjects, totalCompanies, totalBlogPosts, publishedBlogPosts] = await Promise.all([
     prisma.project.count(),
     prisma.project.count({ where: { status: 'ACTIVE' } }),
     prisma.company.count(),
+    prisma.blogPost.count(),
+    prisma.blogPost.count({ where: { status: 'PUBLISHED' } }),
   ])
 
   const recentProjects = await prisma.project.findMany({
@@ -189,6 +191,85 @@ export default async function AdminPage() {
                 <svg className="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
                 </svg>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Blog Management Section */}
+        <div className="bg-gradient-to-br from-purple-900/30 to-purple-800/20 backdrop-blur-sm border border-purple-500/30 rounded-lg p-6 mb-12">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                <span>📝</span>
+                Blog Management
+              </h2>
+              <p className="text-sm text-purple-300 mt-1">Automated content generation Mon/Wed/Fri at 8 AM EST</p>
+            </div>
+            <Link
+              href="/admin/blog"
+              className="text-purple-400 hover:text-purple-300 text-sm font-medium flex items-center gap-1"
+            >
+              Manage Blog
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </Link>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Blog Stats */}
+            <div className="bg-slate-900/50 border border-purple-500/20 rounded-lg p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-purple-300">Blog Statistics</h3>
+                <span className="text-2xl">📊</span>
+              </div>
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400 text-sm">Total Posts</span>
+                  <span className="text-white font-bold text-lg">{totalBlogPosts}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400 text-sm">Published</span>
+                  <span className="text-green-400 font-bold text-lg">{publishedBlogPosts}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400 text-sm">Drafts</span>
+                  <span className="text-slate-300 font-bold text-lg">{totalBlogPosts - publishedBlogPosts}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Actions */}
+            <div className="bg-slate-900/50 border border-purple-500/20 rounded-lg p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-purple-300">Quick Actions</h3>
+                <span className="text-2xl">⚡</span>
+              </div>
+              <div className="space-y-2">
+                <Link
+                  href="/admin/blog"
+                  className="flex items-center gap-2 text-sm text-cyan-400 hover:text-cyan-300 transition-colors"
+                >
+                  <span>✏️</span>
+                  Edit Blog Posts
+                </Link>
+                <Link
+                  href="/blog"
+                  target="_blank"
+                  className="flex items-center gap-2 text-sm text-cyan-400 hover:text-cyan-300 transition-colors"
+                >
+                  <span>🌐</span>
+                  View Public Blog
+                </Link>
+                <a
+                  href="/api/cron/generate-blog"
+                  target="_blank"
+                  className="flex items-center gap-2 text-sm text-cyan-400 hover:text-cyan-300 transition-colors"
+                >
+                  <span>🤖</span>
+                  Generate New Post (AI)
+                </a>
               </div>
             </div>
           </div>

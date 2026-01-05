@@ -29,6 +29,10 @@ export default function AdminHeader() {
       label: 'New Company',
       href: '/admin/companies/new',
     },
+    {
+      label: 'Blog',
+      href: '/admin/blog',
+    },
   ]
 
   return (
@@ -44,7 +48,7 @@ export default function AdminHeader() {
               className="w-10 h-10 object-contain"
             />
             <div>
-              <h1 className="text-xl font-bold text-white">Project Management Dashboard</h1>
+              <h1 className="text-xl font-bold text-white">Admin Dashboard</h1>
               <p className="text-xs text-slate-400">Triple Cities Tech</p>
             </div>
           </div>
