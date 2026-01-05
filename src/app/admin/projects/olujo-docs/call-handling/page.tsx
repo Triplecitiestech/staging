@@ -182,19 +182,19 @@ export default function CallHandlingPage() {
         </section>
 
         {/* Documentation Requirement */}
-        <section className="mb-12 bg-gradient-to-br from-amber-600/20 to-amber-500/10 backdrop-blur-sm border-2 border-amber-500/50 rounded-lg p-8">
+        <section className="mb-12 bg-gradient-to-br from-teal-600/20 to-teal-500/10 backdrop-blur-sm border-2 border-teal-500/50 rounded-lg p-8">
           <div className="flex items-center gap-3 mb-6">
-            <CheckCircle2 className="w-8 h-8 text-amber-400" />
+            <CheckCircle2 className="w-8 h-8 text-teal-400" />
             <h2 className="text-3xl font-bold text-white">Call Documentation Requirement</h2>
           </div>
           <p className="text-white text-lg mb-6">After every call, the contractor must:</p>
           <div className="space-y-4">
             <div className="flex items-start gap-3">
-              <CheckCircle2 size={20} className="text-amber-400 flex-shrink-0 mt-1" />
+              <CheckCircle2 size={20} className="text-teal-400 flex-shrink-0 mt-1" />
               <span className="text-slate-300">Upload or paste the call transcript into the CRM</span>
             </div>
             <div className="flex items-start gap-3">
-              <CheckCircle2 size={20} className="text-amber-400 flex-shrink-0 mt-1" />
+              <CheckCircle2 size={20} className="text-teal-400 flex-shrink-0 mt-1" />
               <div className="flex-1">
                 <p className="text-slate-300 mb-2">Log:</p>
                 <ul className="ml-6 space-y-1 text-slate-400">
@@ -205,11 +205,11 @@ export default function CallHandlingPage() {
               </div>
             </div>
             <div className="flex items-start gap-3">
-              <CheckCircle2 size={20} className="text-amber-400 flex-shrink-0 mt-1" />
+              <CheckCircle2 size={20} className="text-teal-400 flex-shrink-0 mt-1" />
               <span className="text-slate-300">Update the lead status</span>
             </div>
             <div className="flex items-start gap-3">
-              <CheckCircle2 size={20} className="text-amber-400 flex-shrink-0 mt-1" />
+              <CheckCircle2 size={20} className="text-teal-400 flex-shrink-0 mt-1" />
               <span className="text-slate-300">Ensure they are recorded as the last-touch rep</span>
             </div>
           </div>

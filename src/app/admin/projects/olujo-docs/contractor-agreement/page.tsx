@@ -61,7 +61,7 @@ export default function ContractorAgreementPage() {
             <h2 className="text-3xl font-bold text-white">Agreement Overview</h2>
           </div>
           <p className="text-slate-300 leading-relaxed mb-4">
-            This Independent Contractor Agreement ("Agreement") is entered into between <strong className="text-white">Triple Cities Tech</strong> ("Company") and the individual or entity performing outreach services ("Contractor") for the Olujo Brand Awareness Outreach Program ("Program").
+            This Independent Contractor Agreement ("Agreement") is entered into between <strong className="text-white">Olujo</strong> ("Company") and the individual or entity performing outreach services ("Contractor") for the Olujo Brand Awareness Outreach Program ("Program").
           </p>
           <p className="text-slate-300 leading-relaxed">
             By accepting this engagement, the Contractor agrees to the following terms and conditions.
@@ -76,7 +76,7 @@ export default function ContractorAgreementPage() {
               The Contractor is engaged as an <strong className="text-white">independent contractor</strong>, not as an employee, agent, partner, or joint venturer of the Company.
             </p>
             <p>
-              The Contractor will perform awareness-only outreach services for Olujo Tequila, including phone calls and Instagram messaging to liquor stores in assigned territories.
+              The Contractor will perform awareness-only outreach services for Olujo Tequila, including phone calls, Instagram messaging, and Facebook messages or posts to liquor stores in assigned territories.
             </p>
           </div>
         </section>
@@ -97,11 +97,11 @@ export default function ContractorAgreementPage() {
               </div>
               <div className="flex items-start gap-3">
                 <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 mt-2 flex-shrink-0"></div>
-                <span className="text-slate-300">Send Instagram messages as directed</span>
+                <span className="text-slate-300">Send Instagram and Facebook messages as directed</span>
               </div>
               <div className="flex items-start gap-3">
                 <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 mt-2 flex-shrink-0"></div>
-                <span className="text-slate-300">Log all interactions in the CRM with transcripts and screenshots</span>
+                <span className="text-slate-300">Log all interactions in the CRM with call transcripts</span>
               </div>
               <div className="flex items-start gap-3">
                 <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 mt-2 flex-shrink-0"></div>
@@ -120,10 +120,13 @@ export default function ContractorAgreementPage() {
           <h2 className="text-2xl font-bold text-cyan-400 mb-4">3. Schedule</h2>
           <div className="space-y-4 text-slate-300">
             <p>
-              The Contractor will work <strong className="text-white">5 days per week, 4 hours per day</strong> during agreed-upon shifts.
+              The Contractor will work <strong className="text-white">8 hours per day, Monday through Friday, 10 AM to 7 PM EST</strong>.
             </p>
             <p>
-              The Contractor is responsible for managing their own schedule within the agreed shift times. The Company may adjust shift assignments based on performance and territory needs.
+              As the program expands to additional markets in different timezones, schedules may be adjusted to ensure outreach occurs during normal business hours in the target market. The goal is to reach out to liquor stores when they are open for business, which is estimated to be 10 AM or later in their respective timezones.
+            </p>
+            <p>
+              Contractors must clock in and out using <strong className="text-white">Gusto</strong> each day. Activity should begin immediately upon clocking in.
             </p>
           </div>
         </section>
@@ -136,7 +139,7 @@ export default function ContractorAgreementPage() {
             <div className="bg-green-900/20 rounded-lg p-6">
               <h3 className="text-lg font-bold text-green-400 mb-4">Hourly Rate</h3>
               <p className="text-slate-300 mb-2">
-                The Contractor will be paid <strong className="text-white">$8 per hour</strong> for documented outreach activity.
+                The Contractor will be paid <strong className="text-white">$3 per hour</strong> for documented outreach activity.
               </p>
               <p className="text-slate-400 text-sm italic">
                 Payment is contingent on proper CRM logging. Hours without logged activity will not be compensated.
@@ -149,16 +152,13 @@ export default function ContractorAgreementPage() {
                 <p className="text-slate-300">
                   The Contractor will earn commission on store purchases attributed to their outreach:
                 </p>
-                <div className="bg-slate-900/50 rounded p-4 space-y-2">
+                <div className="bg-slate-900/50 rounded p-4">
                   <p className="text-slate-300">
-                    • <strong className="text-white">First purchase:</strong> $50 per case
-                  </p>
-                  <p className="text-slate-300">
-                    • <strong className="text-white">Repeat purchase (same store):</strong> $25 per case
+                    • <strong className="text-white">$25 per bottle</strong> if a store purchases within 30 days of the Contractor's outreach
                   </p>
                 </div>
                 <p className="text-slate-400 text-sm italic mt-4">
-                  Commission is based on last-touch attribution within a 30-day window. No transcript or screenshot = no commission credit.
+                  Commission is based on last-touch attribution within a 30-day window. No transcript = no commission credit.
                 </p>
               </div>
             </div>
@@ -166,16 +166,16 @@ export default function ContractorAgreementPage() {
             <div className="bg-green-900/20 rounded-lg p-6">
               <h3 className="text-lg font-bold text-green-400 mb-4">Payment Terms</h3>
               <p className="text-slate-300">
-                Payments are processed <strong className="text-white">bi-weekly</strong> via the Contractor's chosen payment method (PayPal, Wise, bank transfer, etc.).
+                Payments are processed <strong className="text-white">bi-weekly via Gusto</strong>. All contractors will be paid through the Gusto platform for both hourly wages and commission.
               </p>
             </div>
           </div>
         </section>
 
         {/* Section 5: Monitoring */}
-        <section className="mb-8 bg-gradient-to-br from-amber-600/20 to-amber-500/10 backdrop-blur-sm border-2 border-amber-500/50 rounded-lg p-8">
+        <section className="mb-8 bg-gradient-to-br from-purple-600/20 to-purple-500/10 backdrop-blur-sm border-2 border-purple-500/50 rounded-lg p-8">
           <div className="flex items-center gap-3 mb-6">
-            <AlertTriangle className="w-8 h-8 text-amber-400" />
+            <AlertTriangle className="w-8 h-8 text-purple-400" />
             <h2 className="text-2xl font-bold text-white">5. Monitoring &amp; Quality Assurance</h2>
           </div>
 
@@ -183,21 +183,25 @@ export default function ContractorAgreementPage() {
             <p>
               The Contractor acknowledges and agrees that:
             </p>
-            <div className="bg-amber-900/20 rounded-lg p-6 space-y-3">
+            <div className="bg-purple-900/20 rounded-lg p-6 space-y-3">
               <div className="flex items-start gap-3">
-                <div className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-2 flex-shrink-0"></div>
+                <div className="w-1.5 h-1.5 rounded-full bg-purple-400 mt-2 flex-shrink-0"></div>
                 <span className="text-slate-300">All phone calls may be recorded for quality assurance and training purposes</span>
               </div>
               <div className="flex items-start gap-3">
-                <div className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-2 flex-shrink-0"></div>
+                <div className="w-1.5 h-1.5 rounded-full bg-purple-400 mt-2 flex-shrink-0"></div>
                 <span className="text-slate-300">All CRM activity is monitored and audited</span>
               </div>
               <div className="flex items-start gap-3">
-                <div className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-2 flex-shrink-0"></div>
-                <span className="text-slate-300">The Company reserves the right to review transcripts, screenshots, and logged data at any time</span>
+                <div className="w-1.5 h-1.5 rounded-full bg-purple-400 mt-2 flex-shrink-0"></div>
+                <span className="text-slate-300">RingCentral and CRM analytics track productivity, start times, and activity levels</span>
               </div>
               <div className="flex items-start gap-3">
-                <div className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-2 flex-shrink-0"></div>
+                <div className="w-1.5 h-1.5 rounded-full bg-purple-400 mt-2 flex-shrink-0"></div>
+                <span className="text-slate-300">The Company reserves the right to review transcripts and logged data at any time</span>
+              </div>
+              <div className="flex items-start gap-3">
+                <div className="w-1.5 h-1.5 rounded-full bg-purple-400 mt-2 flex-shrink-0"></div>
                 <span className="text-slate-300">Failure to follow SOPs or falsification of data will result in immediate termination</span>
               </div>
             </div>
@@ -267,10 +271,13 @@ export default function ContractorAgreementPage() {
           <h2 className="text-2xl font-bold text-cyan-400 mb-4">8. Termination</h2>
           <div className="space-y-4 text-slate-300">
             <p>
-              Either party may terminate this Agreement at any time with <strong className="text-white">7 days' written notice</strong>.
+              The Company may terminate this Agreement <strong className="text-white">at any time without warning or prior notice</strong>.
             </p>
             <p>
-              The Company may terminate this Agreement immediately for cause, including but not limited to:
+              The Contractor must provide <strong className="text-white">7 business days' written notice</strong> if they wish to terminate this Agreement.
+            </p>
+            <p>
+              Immediate termination by the Company may occur for cause, including but not limited to:
             </p>
             <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-6 space-y-3">
               <div className="flex items-start gap-3">
@@ -331,9 +338,14 @@ export default function ContractorAgreementPage() {
         {/* Section 10: Governing Law */}
         <section className="mb-8 bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-sm border border-white/10 rounded-lg p-8">
           <h2 className="text-2xl font-bold text-cyan-400 mb-4">10. Governing Law</h2>
-          <p className="text-slate-300">
-            This Agreement shall be governed by and construed in accordance with the laws of the State of New York, without regard to its conflict of law provisions.
-          </p>
+          <div className="space-y-4 text-slate-300">
+            <p>
+              This Agreement shall be governed by and construed in accordance with the laws of the State of New York, without regard to its conflict of law provisions.
+            </p>
+            <p>
+              For contractors based in the Philippines, this Agreement shall also comply with applicable Philippine labor laws and regulations. In the event of any conflict between New York law and Philippine labor law, the provisions most favorable to the Contractor under Philippine law shall prevail to the extent required by Philippine law.
+            </p>
+          </div>
         </section>
 
         {/* Acceptance */}
