@@ -347,25 +347,25 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
       {/* Horizontal Timeline */}
       {viewMode === 'horizontal' && (
         <div className="relative pb-8">
-          {/* Left fade overlay - gradual smooth fade */}
-          <div className="absolute left-0 top-0 bottom-0 w-32 bg-gradient-to-r from-gray-900 via-gray-900/80 via-gray-900/40 to-transparent z-10 pointer-events-none" />
+          {/* Left fade overlay - smaller, gradual fade */}
+          <div className="absolute left-0 top-0 bottom-0 w-20 bg-gradient-to-r from-gray-900 via-gray-900/60 to-transparent z-10 pointer-events-none" />
 
-          {/* Right fade overlay - gradual smooth fade */}
-          <div className="absolute right-0 top-0 bottom-0 w-32 bg-gradient-to-l from-gray-900 via-gray-900/80 via-gray-900/40 to-transparent z-10 pointer-events-none" />
+          {/* Right fade overlay - smaller, gradual fade */}
+          <div className="absolute right-0 top-0 bottom-0 w-20 bg-gradient-to-l from-gray-900 via-gray-900/60 to-transparent z-10 pointer-events-none" />
 
-          {/* Left arrow - positioned outside the fade area */}
+          {/* Left arrow - aligned with phase icons */}
           <button
             onClick={scrollLeft}
-            className="absolute left-0 top-1/2 -translate-y-1/2 z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
+            className="absolute left-2 top-[72px] z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
             aria-label="Scroll left"
           >
             <ChevronLeft size={20} />
           </button>
 
-          {/* Right arrow - positioned outside the fade area */}
+          {/* Right arrow - aligned with phase icons */}
           <button
             onClick={scrollRight}
-            className="absolute right-0 top-1/2 -translate-y-1/2 z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
+            className="absolute right-2 top-[72px] z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
             aria-label="Scroll right"
           >
             <ChevronRight size={20} />
@@ -374,11 +374,10 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
           {/* Scrollable container */}
           <div
             ref={scrollContainerRef}
-            className="overflow-x-auto scrollbar-hide px-12"
+            className="overflow-x-auto scrollbar-hide px-4"
             style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
           >
-            <div className="flex items-start gap-3 px-4 justify-center"
-            style={{ minWidth: '100%' }}>
+            <div className="flex items-start gap-3 min-w-max">
             {/* Start Marker */}
             <div className="flex flex-col items-center flex-shrink-0">
               <div className="w-16 h-16 rounded-full bg-gradient-to-br from-green-500 to-green-600 flex items-center justify-center shadow-lg shadow-green-500/50 mb-3">
@@ -468,15 +467,123 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
 
       {/* Vertical Timeline */}
       {viewMode === 'vertical' && (
-        <div className="space-y-6">
-          {phases.map((phase, index) => (
-            <PhaseCard
-              key={phase.id}
-              phase={phase}
-              isCurrent={phase.id === currentPhaseId}
-              isLast={index === phases.length - 1}
-            />
-          ))}
+        <div className="max-w-4xl mx-auto">
+          {/* Start Marker */}
+          <div className="flex items-center gap-4 mb-6">
+            <div className="flex flex-col items-center flex-shrink-0">
+              <div className="w-16 h-16 rounded-full bg-gradient-to-br from-green-500 to-green-600 flex items-center justify-center shadow-lg shadow-green-500/50">
+                <span className="text-white font-bold text-sm">START</span>
+              </div>
+            </div>
+            <div className="text-sm text-gray-400">Day 1</div>
+          </div>
+
+          {/* Phases */}
+          {phases.map((phase, index) => {
+            const isCurrent = phase.id === currentPhaseId
+            const colors = statusColors[phase.status]
+            const StatusIcon = getStatusIcon(phase.status)
+            const isExpanded = selectedPhase?.id === phase.id
+
+            return (
+              <div key={phase.id} className="relative">
+                {/* Connector Line */}
+                {index < phases.length - 1 && (
+                  <div className="absolute left-8 top-20 bottom-0 w-1 bg-gradient-to-b from-cyan-500 to-cyan-400 z-0" style={{ height: 'calc(100% + 24px)' }} />
+                )}
+
+                {/* Phase Container */}
+                <div className="flex items-start gap-4 mb-6 relative z-10">
+                  {/* Phase Circle */}
+                  <div className="flex flex-col items-center flex-shrink-0">
+                    <button
+                      onClick={() => setSelectedPhase(isExpanded ? null : phase)}
+                      className={cn(
+                        'w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all border-4',
+                        isCurrent
+                          ? 'border-cyan-400 bg-gradient-to-br from-cyan-500 to-cyan-600 shadow-cyan-500/50 scale-110'
+                          : 'border-gray-700 bg-gray-800 hover:border-cyan-500/50 hover:scale-105',
+                        isExpanded && 'ring-4 ring-cyan-500/30'
+                      )}
+                    >
+                      <StatusIcon
+                        size={24}
+                        className={isCurrent ? 'text-white' : colors.icon}
+                        strokeWidth={2.5}
+                      />
+                    </button>
+                  </div>
+
+                  {/* Phase Info */}
+                  <div className="flex-1 pt-2">
+                    {/* Current indicator */}
+                    {isCurrent && (
+                      <div className="mb-2">
+                        <span className="bg-cyan-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg">
+                          YOU ARE HERE
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Phase Number & Title */}
+                    <div className="mb-2">
+                      <div className="text-xs text-cyan-400 font-bold mb-1">Phase {index + 1}</div>
+                      <h3 className="text-lg font-bold text-white">{phase.title}</h3>
+                    </div>
+
+                    {/* Status Badge */}
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      <span className={cn(
+                        'px-3 py-1 rounded-full text-xs font-semibold border',
+                        colors.bg,
+                        colors.text,
+                        colors.border
+                      )}>
+                        {phase.status}
+                      </span>
+                      {phase.owner && (
+                        <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-gray-700/50 text-gray-300 border border-gray-600">
+                          <User size={12} />
+                          {phase.owner}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Description */}
+                    <p className="text-sm text-gray-300 mb-3">{phase.description}</p>
+
+                    {/* Expand/Collapse Button */}
+                    <button
+                      onClick={() => setSelectedPhase(isExpanded ? null : phase)}
+                      className="text-sm text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
+                    >
+                      {isExpanded ? (
+                        <>
+                          <ChevronUp size={16} />
+                          Hide Details
+                        </>
+                      ) : (
+                        <>
+                          <ChevronDown size={16} />
+                          View Details
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+
+          {/* End Marker */}
+          <div className="flex items-center gap-4 mt-6">
+            <div className="flex flex-col items-center flex-shrink-0">
+              <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center shadow-lg shadow-purple-500/50">
+                <span className="text-white font-bold text-sm text-center leading-tight">FINISH</span>
+              </div>
+            </div>
+            <div className="text-sm text-gray-400">30 Days</div>
+          </div>
         </div>
       )}
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
 import { withAccelerate } from '@prisma/extension-accelerate'
+import { getAuthenticatedCompany } from '@/lib/onboarding-session'
 
 const prisma = new PrismaClient({
   accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
@@ -10,41 +11,45 @@ const prisma = new PrismaClient({
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { phaseId, taskId, content, companySlug } = body
+    const { phaseId, taskId, content } = body
 
-    if (!companySlug) {
-      return NextResponse.json(
-        { error: 'Company slug is required' },
-        { status: 400 }
-      )
-    }
+    console.log('[Customer Notes API] Request:', { phaseId, taskId, contentLength: content?.length })
 
-    // Verify customer authentication via cookie
-    const authCookie = request.cookies.get('customer_auth')
-    if (!authCookie || authCookie.value !== companySlug) {
+    // Verify customer authentication via session cookie
+    const authenticatedCompany = await getAuthenticatedCompany()
+
+    console.log('[Customer Notes API] Authenticated company:', authenticatedCompany)
+
+    if (!authenticatedCompany) {
+      console.log('[Customer Notes API] Not authenticated')
       return NextResponse.json(
-        { error: 'Unauthorized' },
+        { error: 'Unauthorized - please log in again' },
         { status: 401 }
       )
     }
 
     if (phaseId) {
       // Update phase customer notes
+      console.log('[Customer Notes API] Updating phase notes:', phaseId)
       await prisma.phase.update({
         where: { id: phaseId },
         data: { customerNotes: content }
       })
 
+      console.log('[Customer Notes API] Phase notes updated successfully')
       return NextResponse.json({ success: true, type: 'phase' })
     } else if (taskId) {
       // Update task notes
+      console.log('[Customer Notes API] Updating task notes:', taskId)
       await prisma.phaseTask.update({
         where: { id: taskId },
         data: { notes: content }
       })
 
+      console.log('[Customer Notes API] Task notes updated successfully')
       return NextResponse.json({ success: true, type: 'task' })
     } else {
+      console.log('[Customer Notes API] Missing phaseId and taskId')
       return NextResponse.json(
         { error: 'Either phaseId or taskId is required' },
         { status: 400 }
@@ -53,7 +58,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('[Customer Notes API] Error:', error)
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     )
   }
