@@ -61,14 +61,27 @@ export default async function ProjectDetailPage({
                 },
                 subTasks: {
                   include: {
+                    comments: {
+                      orderBy: { createdAt: 'asc' }
+                    },
+                    assignments: {
+                      orderBy: { assignedAt: 'asc' }
+                    },
                     subTasks: {
                       include: {
+                        comments: {
+                          orderBy: { createdAt: 'asc' }
+                        },
+                        assignments: {
+                          orderBy: { assignedAt: 'asc' }
+                        },
                         subTasks: true // 3 levels deep
                       }
                     }
                   }
                 }
-              }
+              },
+              orderBy: { orderIndex: 'asc' }
             }
           },
           orderBy: { orderIndex: 'asc' }
@@ -227,7 +240,12 @@ export default async function ProjectDetailPage({
           ) : (
             <div className="space-y-4">
               {project.phases.map((phase, index) => (
-                <PhaseCard key={phase.id} phase={phase} index={index} />
+                <PhaseCard
+                  key={phase.id}
+                  phase={phase}
+                  index={index}
+                  companyName={project.company.displayName}
+                />
               ))}
             </div>
           )}
