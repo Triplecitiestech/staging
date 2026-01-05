@@ -395,7 +395,7 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
           {/* Left arrow - positioned outside the timeline, aligned with blue connector line */}
           <button
             onClick={scrollLeft}
-            className="absolute -left-14 top-[112px] z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
+            className="absolute -left-14 top-[162px] z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
             aria-label="Scroll left"
           >
             <ChevronLeft size={20} />
@@ -404,7 +404,7 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
           {/* Right arrow - positioned outside the timeline, aligned with blue connector line */}
           <button
             onClick={scrollRight}
-            className="absolute -right-14 top-[112px] z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
+            className="absolute -right-14 top-[162px] z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
             aria-label="Scroll right"
           >
             <ChevronRight size={20} />
