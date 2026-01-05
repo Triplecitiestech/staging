@@ -14,14 +14,17 @@ interface Assignment {
 interface AssignmentPickerProps {
   taskId: string
   assignments: Assignment[]
+  currentResponsibleParty?: 'TCT' | 'CUSTOMER' | 'BOTH' | null
+  companyName?: string
 }
 
-export default function AssignmentPicker({ taskId, assignments: initialAssignments }: AssignmentPickerProps) {
+export default function AssignmentPicker({ taskId, assignments: initialAssignments, currentResponsibleParty, companyName }: AssignmentPickerProps) {
   const router = useRouter()
   const [isOpen, setIsOpen] = useState(false)
   const [assignments, setAssignments] = useState(initialAssignments)
   const [assigneeName, setAssigneeName] = useState('')
   const [assigneeEmail, setAssigneeEmail] = useState('')
+  const [responsibleParty, setResponsibleParty] = useState<'TCT' | 'CUSTOMER' | 'BOTH' | ''>(currentResponsibleParty || '')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const pickerRef = useRef<HTMLDivElement>(null)
 
@@ -88,6 +91,23 @@ export default function AssignmentPicker({ taskId, assignments: initialAssignmen
     }
   }
 
+  const handleResponsibilityChange = async (party: 'TCT' | 'CUSTOMER' | 'BOTH') => {
+    try {
+      const res = await fetch(`/api/tasks/${taskId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ responsibleParty: party }),
+      })
+
+      if (!res.ok) throw new Error()
+
+      setResponsibleParty(party)
+      router.refresh()
+    } catch {
+      alert('Failed to update responsibility')
+    }
+  }
+
   const assignmentCount = assignments.length
   const hasAssignments = assignmentCount > 0
 
@@ -108,6 +128,43 @@ export default function AssignmentPicker({ taskId, assignments: initialAssignmen
         <div className="absolute left-0 mt-2 w-80 max-w-[calc(100vw-2rem)] bg-slate-800 border border-white/20 rounded-lg shadow-xl z-50 overflow-hidden">
           <div className="p-4 border-b border-white/10">
             <h3 className="text-sm font-semibold text-white mb-3">Task Assignment</h3>
+
+            {/* Responsibility Party Selector */}
+            <div className="mb-4">
+              <label className="text-xs text-slate-400 mb-2 block">Responsible Party</label>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  onClick={() => handleResponsibilityChange('TCT')}
+                  className={`px-3 py-2 text-xs font-semibold rounded border transition-colors ${
+                    responsibleParty === 'TCT'
+                      ? 'bg-emerald-500/30 text-emerald-200 border-emerald-500/50'
+                      : 'bg-slate-700/50 text-slate-300 border-slate-600/50 hover:bg-slate-700'
+                  }`}
+                >
+                  🏢 TCT
+                </button>
+                <button
+                  onClick={() => handleResponsibilityChange('CUSTOMER')}
+                  className={`px-3 py-2 text-xs font-semibold rounded border transition-colors ${
+                    responsibleParty === 'CUSTOMER'
+                      ? 'bg-amber-500/30 text-amber-200 border-amber-500/50'
+                      : 'bg-slate-700/50 text-slate-300 border-slate-600/50 hover:bg-slate-700'
+                  }`}
+                >
+                  👤 {companyName || 'Customer'}
+                </button>
+                <button
+                  onClick={() => handleResponsibilityChange('BOTH')}
+                  className={`px-3 py-2 text-xs font-semibold rounded border transition-colors ${
+                    responsibleParty === 'BOTH'
+                      ? 'bg-indigo-500/30 text-indigo-200 border-indigo-500/50'
+                      : 'bg-slate-700/50 text-slate-300 border-slate-600/50 hover:bg-slate-700'
+                  }`}
+                >
+                  🤝 Both
+                </button>
+              </div>
+            </div>
 
             {/* Assignment list */}
             {hasAssignments ? (

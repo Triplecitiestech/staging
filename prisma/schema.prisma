@@ -234,12 +234,13 @@ model PhaseTask {
   orderIndex  Int // For sorting
 
   // New fields for enhanced task management
-  status              TaskStatus @default(NOT_STARTED)
-  isVisibleToCustomer Boolean    @default(true)
+  status              TaskStatus   @default(NOT_STARTED)
+  isVisibleToCustomer Boolean      @default(true)
   assignedTo          String? // Primary assignee email
   assignedToName      String? // Primary assignee display name
   dueDate             DateTime?
-  priority            Priority   @default(MEDIUM)
+  priority            Priority     @default(MEDIUM)
+  responsibleParty    PhaseOwner? // TCT, CUSTOMER, or BOTH
 
   // Sub-tasks support (up to 3 levels deep)
   parentTaskId String? // null for top-level tasks

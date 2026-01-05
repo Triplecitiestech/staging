@@ -33,6 +33,8 @@ interface Task {
   subTasks?: Task[]
   comments?: Comment[]
   assignments?: Assignment[]
+  dueDate?: string | null
+  responsibleParty?: 'TCT' | 'CUSTOMER' | 'BOTH' | null
 }
 
 interface Phase {
@@ -48,7 +50,7 @@ interface Phase {
   tasks: Task[]
 }
 
-export default function PhaseCard({ phase, index }: { phase: Phase; index: number }) {
+export default function PhaseCard({ phase, index, companyName }: { phase: Phase; index: number; companyName?: string }) {
   const router = useRouter()
   const [collapsed, setCollapsed] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -351,6 +353,7 @@ export default function PhaseCard({ phase, index }: { phase: Phase; index: numbe
                     onDragStart={handleDragStart}
                     onDragOver={handleDragOver}
                     onDragEnd={handleDragEnd}
+                    companyName={companyName}
                   />
                 ))}
               </div>

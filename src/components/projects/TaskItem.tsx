@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import TaskStatusDropdown from './TaskStatusDropdown'
 import AssignmentPicker from './AssignmentPicker'
 import CommentThread from './CommentThread'
+import DueDatePicker from './DueDatePicker'
 
 interface Comment {
   id: string
@@ -34,6 +35,8 @@ interface Task {
   subTasks?: Task[]
   comments?: Comment[]
   assignments?: Assignment[]
+  dueDate?: string | null
+  responsibleParty?: 'TCT' | 'CUSTOMER' | 'BOTH' | null
 }
 
 interface TaskItemProps {
@@ -47,6 +50,7 @@ interface TaskItemProps {
   onDragStart: (taskId: string) => void
   onDragOver: (e: React.DragEvent, taskId: string) => void
   onDragEnd: () => void
+  companyName?: string
 }
 
 export default function TaskItem({
@@ -59,7 +63,8 @@ export default function TaskItem({
   draggedTaskId,
   onDragStart,
   onDragOver,
-  onDragEnd
+  onDragEnd,
+  companyName
 }: TaskItemProps) {
   const router = useRouter()
   const [taskText, setTaskText] = useState(task.taskText)
@@ -198,10 +203,32 @@ export default function TaskItem({
                 <p className="text-xs text-slate-500 italic">{task.notes}</p>
               )}
               <div className="flex items-center gap-2 flex-wrap">
+                {/* Responsibility Indicator */}
+                {task.responsibleParty && (
+                  <span
+                    className={`px-2 py-1 text-xs font-semibold rounded border ${
+                      task.responsibleParty === 'TCT'
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                        : task.responsibleParty === 'CUSTOMER'
+                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                        : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+                    }`}
+                  >
+                    {task.responsibleParty === 'TCT' && '🏢 TCT'}
+                    {task.responsibleParty === 'CUSTOMER' && '👤 Customer'}
+                    {task.responsibleParty === 'BOTH' && '🤝 Both'}
+                  </span>
+                )}
                 {task.status && (
                   <TaskStatusDropdown taskId={task.id} currentStatus={task.status} />
                 )}
-                <AssignmentPicker taskId={task.id} assignments={task.assignments || []} />
+                <AssignmentPicker
+                  taskId={task.id}
+                  assignments={task.assignments || []}
+                  currentResponsibleParty={task.responsibleParty}
+                  companyName={companyName}
+                />
+                <DueDatePicker taskId={task.id} currentDueDate={task.dueDate || null} />
                 <CommentThread taskId={task.id} comments={task.comments || []} />
               </div>
             </div>
@@ -249,6 +276,7 @@ export default function TaskItem({
               onDragStart={onDragStart}
               onDragOver={onDragOver}
               onDragEnd={onDragEnd}
+              companyName={companyName}
             />
           ))}
         </div>
