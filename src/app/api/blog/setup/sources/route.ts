@@ -6,9 +6,9 @@ export const dynamic = 'force-dynamic';
 
 /**
  * Initialize default content sources
- * POST /api/blog/setup/sources
+ * POST or GET /api/blog/setup/sources
  */
-export async function POST() {
+async function setupSources() {
   try {
     // Dynamic import to prevent Prisma loading during build
     const { prisma } = await import('@/lib/prisma');
@@ -68,4 +68,13 @@ export async function POST() {
       { status: 500 }
     );
   }
+}
+
+// Export both GET and POST handlers
+export async function GET() {
+  return setupSources();
+}
+
+export async function POST() {
+  return setupSources();
 }
