@@ -221,18 +221,18 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
 
   const scrollLeft = () => {
     if (scrollContainerRef.current) {
-      // Calculate the width of one phase (icon + connector)
-      // Icon is 64px (w-16) + connector is 80px (w-20) = 144px
-      const phaseWidth = 144
+      // Calculate the width of one phase (icon + gap + connector + gap)
+      // Icon is 64px (w-16) + gap is 16px (gap-4) + connector is 80px (w-20) + gap is 16px (gap-4) = 176px
+      const phaseWidth = 176
       scrollContainerRef.current.scrollBy({ left: -phaseWidth, behavior: 'smooth' })
     }
   }
 
   const scrollRight = () => {
     if (scrollContainerRef.current) {
-      // Calculate the width of one phase (icon + connector)
-      // Icon is 64px (w-16) + connector is 80px (w-20) = 144px
-      const phaseWidth = 144
+      // Calculate the width of one phase (icon + gap + connector + gap)
+      // Icon is 64px (w-16) + gap is 16px (gap-4) + connector is 80px (w-20) + gap is 16px (gap-4) = 176px
+      const phaseWidth = 176
       scrollContainerRef.current.scrollBy({ left: phaseWidth, behavior: 'smooth' })
     }
   }
@@ -392,19 +392,19 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
       {/* Horizontal Timeline */}
       {viewMode === 'horizontal' && (
         <div className="relative pb-8 pt-48">
-          {/* Left arrow - positioned outside the timeline, aligned with phase circle center */}
+          {/* Left arrow - positioned outside the timeline, aligned with blue connector line */}
           <button
             onClick={scrollLeft}
-            className="absolute -left-14 top-[224px] z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
+            className="absolute -left-14 top-[226px] z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
             aria-label="Scroll left"
           >
             <ChevronLeft size={20} />
           </button>
 
-          {/* Right arrow - positioned outside the timeline, aligned with phase circle center */}
+          {/* Right arrow - positioned outside the timeline, aligned with blue connector line */}
           <button
             onClick={scrollRight}
-            className="absolute -right-14 top-[224px] z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
+            className="absolute -right-14 top-[226px] z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
             aria-label="Scroll right"
           >
             <ChevronRight size={20} />
@@ -416,7 +416,7 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
             className="overflow-x-auto scrollbar-hide px-4"
             style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
           >
-            <div className="flex items-start gap-0 min-w-max">
+            <div className="flex items-start gap-4 min-w-max">
             {/* Start Marker */}
             <div className="flex flex-col items-center flex-shrink-0">
               <div className="w-16 h-16 rounded-full bg-gradient-to-br from-green-500 to-green-600 flex items-center justify-center shadow-lg shadow-green-500/50 mb-3">
