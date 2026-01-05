@@ -23,6 +23,7 @@ interface PostWithRelations {
   excerpt: string;
   publishedAt: Date | null;
   featuredImage: string | null;
+  views: number;
   category: { name: string; slug: string } | null;
   author: { name: string } | null;
 }
