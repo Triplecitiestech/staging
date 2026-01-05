@@ -54,7 +54,7 @@ export default async function BlogPostEditPage({ params }: BlogPostEditPageProps
         id: post.category.id,
         name: post.category.name,
       } : null,
-      tags: post.tags.map(tag => ({
+      tags: (post.tags || []).map(tag => ({
         id: tag.id,
         name: tag.name,
         slug: tag.slug,
