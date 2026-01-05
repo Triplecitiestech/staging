@@ -95,20 +95,23 @@ export async function GET() {
 
     const { prisma } = await import('@/lib/prisma')
 
-    // Try to get guidelines from database
-    const setting = await prisma.blogSettings.findUnique({
-      where: { key: 'ai_guidelines' }
-    })
+    try {
+      // Try to get guidelines from database
+      const setting = await prisma.blogSettings.findUnique({
+        where: { key: 'ai_guidelines' }
+      })
 
-    const guidelines = setting?.value || DEFAULT_GUIDELINES
-
-    return NextResponse.json({ guidelines })
+      const guidelines = setting?.value || DEFAULT_GUIDELINES
+      return NextResponse.json({ guidelines })
+    } catch (dbError) {
+      // If BlogSettings table doesn't exist yet, return defaults
+      console.log('BlogSettings table not found, using default guidelines:', dbError)
+      return NextResponse.json({ guidelines: DEFAULT_GUIDELINES })
+    }
   } catch (error) {
     console.error('Error fetching guidelines:', error)
-    return NextResponse.json(
-      { error: 'Failed to fetch guidelines' },
-      { status: 500 }
-    )
+    // Even on error, return default guidelines so the UI works
+    return NextResponse.json({ guidelines: DEFAULT_GUIDELINES })
   }
 }
 
@@ -126,21 +129,32 @@ export async function POST(request: NextRequest) {
     const { guidelines } = await request.json()
     const { prisma } = await import('@/lib/prisma')
 
-    // Upsert guidelines in database
-    await prisma.blogSettings.upsert({
-      where: { key: 'ai_guidelines' },
-      update: {
-        value: guidelines,
-        updatedBy: session.user?.email || 'unknown'
-      },
-      create: {
-        key: 'ai_guidelines',
-        value: guidelines,
-        updatedBy: session.user?.email || 'unknown'
-      }
-    })
+    try {
+      // Upsert guidelines in database
+      await prisma.blogSettings.upsert({
+        where: { key: 'ai_guidelines' },
+        update: {
+          value: guidelines,
+          updatedBy: session.user?.email || 'unknown'
+        },
+        create: {
+          key: 'ai_guidelines',
+          value: guidelines,
+          updatedBy: session.user?.email || 'unknown'
+        }
+      })
 
-    return NextResponse.json({ success: true })
+      return NextResponse.json({ success: true })
+    } catch (dbError) {
+      console.error('Database error saving guidelines (table may not exist yet):', dbError)
+      return NextResponse.json(
+        {
+          error: 'Database table not ready. Please wait for deployment to complete.',
+          details: dbError instanceof Error ? dbError.message : 'Unknown error'
+        },
+        { status: 503 }
+      )
+    }
   } catch (error) {
     console.error('Error saving guidelines:', error)
     return NextResponse.json(
