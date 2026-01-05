@@ -35,7 +35,7 @@ export async function POST() {
     try {
       await prisma.$executeRawUnsafe(`
         CREATE TABLE IF NOT EXISTS "blog_categories" (
-          "id" TEXT NOT NULL PRIMARY KEY,
+          "id" TEXT NOT NULL PRIMARY KEY DEFAULT gen_random_uuid()::text,
           "name" TEXT NOT NULL UNIQUE,
           "slug" TEXT NOT NULL UNIQUE,
           "description" TEXT
@@ -50,7 +50,7 @@ export async function POST() {
     try {
       await prisma.$executeRawUnsafe(`
         CREATE TABLE IF NOT EXISTS "blog_tags" (
-          "id" TEXT NOT NULL PRIMARY KEY,
+          "id" TEXT NOT NULL PRIMARY KEY DEFAULT gen_random_uuid()::text,
           "name" TEXT NOT NULL UNIQUE,
           "slug" TEXT NOT NULL UNIQUE
         );
@@ -64,7 +64,7 @@ export async function POST() {
     try {
       await prisma.$executeRawUnsafe(`
         CREATE TABLE IF NOT EXISTS "blog_posts" (
-          "id" TEXT NOT NULL PRIMARY KEY,
+          "id" TEXT NOT NULL PRIMARY KEY DEFAULT gen_random_uuid()::text,
           "slug" TEXT NOT NULL UNIQUE,
           "title" TEXT NOT NULL,
           "excerpt" TEXT NOT NULL,
@@ -107,17 +107,17 @@ export async function POST() {
     // Create junction table for blog post tags
     try {
       await prisma.$executeRawUnsafe(`
-        CREATE TABLE IF NOT EXISTS "_BlogPostToTag" (
+        CREATE TABLE IF NOT EXISTS "_BlogPostToBlogTag" (
           "A" TEXT NOT NULL,
           "B" TEXT NOT NULL,
-          CONSTRAINT "_BlogPostToTag_AB_unique" UNIQUE ("A", "B"),
-          CONSTRAINT "_BlogPostToTag_A_fkey" FOREIGN KEY ("A") REFERENCES "blog_posts"("id") ON DELETE CASCADE ON UPDATE CASCADE,
-          CONSTRAINT "_BlogPostToTag_B_fkey" FOREIGN KEY ("B") REFERENCES "blog_tags"("id") ON DELETE CASCADE ON UPDATE CASCADE
+          CONSTRAINT "_BlogPostToBlogTag_AB_pkey" PRIMARY KEY ("A", "B"),
+          CONSTRAINT "_BlogPostToBlogTag_A_fkey" FOREIGN KEY ("A") REFERENCES "blog_posts"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+          CONSTRAINT "_BlogPostToBlogTag_B_fkey" FOREIGN KEY ("B") REFERENCES "blog_tags"("id") ON DELETE CASCADE ON UPDATE CASCADE
         );
       `);
-      tablesCreated.push('_BlogPostToTag');
+      tablesCreated.push('_BlogPostToBlogTag');
     } catch (error) {
-      console.log('⚠️ _BlogPostToTag error:', error);
+      console.log('⚠️ _BlogPostToBlogTag error:', error);
     }
 
     // Create content_sources table
@@ -162,12 +162,28 @@ export async function POST() {
       console.log('⚠️ social_media_posts error:', error);
     }
 
+    // Create blog_settings table
+    try {
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "blog_settings" (
+          "id" TEXT NOT NULL PRIMARY KEY DEFAULT gen_random_uuid()::text,
+          "key" TEXT NOT NULL UNIQUE,
+          "value" TEXT NOT NULL,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedBy" TEXT
+        );
+      `);
+      tablesCreated.push('blog_settings');
+    } catch (error) {
+      console.log('⚠️ blog_settings error:', error);
+    }
+
     // Create indexes
     try {
       await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "blog_posts_status_publishedAt_idx" ON "blog_posts"("status", "publishedAt");`);
       await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "blog_posts_slug_idx" ON "blog_posts"("slug");`);
       await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "blog_posts_approvalToken_idx" ON "blog_posts"("approvalToken");`);
-      await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "_BlogPostToTag_B_idx" ON "_BlogPostToTag"("B");`);
+      await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "_BlogPostToBlogTag_B_index" ON "_BlogPostToBlogTag"("B");`);
       await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "social_media_posts_blogPostId_platform_idx" ON "social_media_posts"("blogPostId", "platform");`);
       console.log('✅ Indexes created');
     } catch (error) {
