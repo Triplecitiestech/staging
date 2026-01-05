@@ -60,7 +60,7 @@ export class BlogGenerator {
     const sourceMaterial = this.prepareSourceMaterial(articles, trendingTopics);
 
     // Generate blog post content
-    const prompt = this.createPrompt(sourceMaterial, trendingTopics);
+    const prompt = await this.createPrompt(sourceMaterial, trendingTopics);
 
     const response = await anthropic.messages.create({
       model: MODEL,
@@ -115,14 +115,19 @@ export class BlogGenerator {
   }
 
   /**
-   * Create the AI prompt for blog generation
+   * Load custom guidelines from file
    */
-  private createPrompt(sourceMaterial: string, trendingTopics?: TrendingTopic[]): string {
-    const trendingContext = trendingTopics && trendingTopics.length > 0
-      ? `\n\nTRENDING TOPICS:\n${trendingTopics.map(t => `- ${t.keyword} (${t.frequency} mentions, relevance: ${t.relevanceScore})`).join('\n')}\n\nPrioritize the most trending and relevant topic for small businesses.`
-      : '';
-
-    return `You are an expert cybersecurity and IT services content writer for Triple Cities Tech, a managed IT services provider in Central New York serving small to medium businesses (20-50 employees).
+  private async loadGuidelines(): Promise<string> {
+    try {
+      const { readFile } = await import('fs/promises');
+      const path = await import('path');
+      const guidelinesPath = path.join(process.cwd(), 'data', 'blog-guidelines.txt');
+      const guidelines = await readFile(guidelinesPath, 'utf-8');
+      return guidelines;
+    } catch (error) {
+      // Return default guidelines if file doesn't exist
+      console.log('Using default guidelines (custom guidelines file not found)');
+      return `You are an expert cybersecurity and IT services content writer for Triple Cities Tech, a managed IT services provider in Central New York serving small to medium businesses (20-50 employees).
 
 BRAND VOICE:
 - Professional but approachable and conversational
@@ -146,7 +151,28 @@ TARGET AUDIENCE:
 - Small business owners in Central New York (Binghamton, Johnson City, Endicott area)
 - Decision makers worried about cybersecurity but not technical experts
 - Budget-conscious but understand the value of protection
-- Looking for trusted local IT partners
+- Looking for trusted local IT partners`;
+    }
+  }
+
+  /**
+   * Create the AI prompt for blog generation
+   */
+  private async createPrompt(sourceMaterial: string, trendingTopics?: TrendingTopic[]): Promise<string> {
+    const guidelines = await this.loadGuidelines();
+
+    const trendingContext = trendingTopics && trendingTopics.length > 0
+      ? `\n\nTRENDING TOPICS:\n${trendingTopics.map(t => `- ${t.keyword} (${t.frequency} mentions, relevance: ${t.relevanceScore})`).join('\n')}\n\nPrioritize the most trending and relevant topic for small businesses.`
+      : '';
+
+    return `${guidelines}
+
+CONTENT REQUIREMENTS:
+- Original content (synthesize insights, don't plagiarize)
+- SEO-optimized with natural keyword integration
+- Use markdown formatting (headers, lists, bold, italics)
+- Engaging opening hook
+- Scannable structure (use headers, bullet points, short paragraphs)
 
 SOURCE MATERIAL:
 ${sourceMaterial}${trendingContext}
