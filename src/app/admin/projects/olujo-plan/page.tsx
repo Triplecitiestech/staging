@@ -159,9 +159,9 @@ export default function OlujoPlanPage() {
 
         {/* Phases */}
         <div className="space-y-8">
-          {/* Phase 0 */}
+          {/* Phase 1 */}
           <PhaseCard
-            number={0}
+            number={1}
             title="Alignment & Governance"
             subtitle="REQUIRED FIRST"
             icon={<Target className="w-6 h-6" />}
@@ -194,9 +194,9 @@ export default function OlujoPlanPage() {
             ]}
           />
 
-          {/* Phase 1 */}
+          {/* Phase 2 */}
           <PhaseCard
-            number={1}
+            number={2}
             title="Sales & Awareness Playbook"
             subtitle="NON-TECH"
             icon={<Megaphone className="w-6 h-6" />}
@@ -224,9 +224,9 @@ export default function OlujoPlanPage() {
             ]}
           />
 
-          {/* Phase 2 */}
+          {/* Phase 3 */}
           <PhaseCard
-            number={2}
+            number={3}
             title="Hiring & Onboarding Pipeline"
             subtitle=""
             icon={<Users className="w-6 h-6" />}
@@ -256,38 +256,40 @@ export default function OlujoPlanPage() {
             ]}
           />
 
-          {/* Phase 3 */}
+          {/* Phase 4 */}
           <PhaseCard
-            number={3}
+            number={4}
             title="Data Acquisition (Leads)"
             subtitle=""
             icon={<Database className="w-6 h-6" />}
             color="green"
-            goal="Build a clean, deduplicated liquor store list for outreach."
+            goal="Build a clean, deduplicated liquor store database for nationwide outreach."
             scope={[
               "Liquor stores only",
-              "Start with New York",
-              "Florida added later"
+              "Start with New York and Florida simultaneously",
+              "Expand to additional high-value markets based on traction",
+              "Long-term goal: Every liquor store in the United States"
             ]}
             deliverables={[
-              "Scraping approach selected (Apify / Playwright / provider)",
-              "Normalized lead dataset: Store name, Phone, City/state, Website (if available), IG/FB links (if available)",
-              "CSV import format finalized"
+              "Scraping method determined (AI-based experimental but cost-effective vs. traditional methods)",
+              "Normalized lead dataset with agreed data points: Business name, Phone, PoC name, Facebook page, Instagram page",
+              "CSV import format finalized",
+              "Data quality validation process established"
             ]}
             owners={[
               { name: "Kurtis (TCT)", role: "scraping + normalization" },
               { name: "Jeff", role: "spot-check accuracy" }
             ]}
             exitCriteria={[
-              "NY dataset imported",
+              "NY and FL datasets imported simultaneously",
               "No duplicate phone/address conflicts",
               "Reps can begin calling immediately"
             ]}
           />
 
-          {/* Phase 4 */}
+          {/* Phase 5 */}
           <PhaseCard
-            number={4}
+            number={5}
             title="CRM Build (MVP)"
             subtitle=""
             icon={<Database className="w-6 h-6" />}
@@ -296,8 +298,11 @@ export default function OlujoPlanPage() {
             capabilities={[
               "Lead list with mandatory statuses",
               "Lead detail page with full timeline",
-              "Call log with transcript paste/upload",
-              "Social activity logging (exact text)",
+              "Contact data fields: Business name, Phone, PoC name, Facebook page, Instagram page",
+              "Notes field for rep observations",
+              "Call transcript upload functionality",
+              "Call log with metadata",
+              "Social activity logging (FB messages/posts, IG DMs)",
               "Rep assignment & last-touch tracking",
               "Admin-only purchase & commission entry",
               "Audit-friendly (no deletes)"
@@ -319,7 +324,9 @@ export default function OlujoPlanPage() {
               { name: "Kurtis (TCT)", role: "end-to-end" }
             ]}
             exitCriteria={[
+              "All agreed contact data points implemented",
               "Reps can complete full workflow in CRM",
+              "Call transcript upload functional",
               "Proof cannot be skipped",
               "Admin can verify purchases"
             ]}
@@ -328,18 +335,18 @@ export default function OlujoPlanPage() {
             ]}
           />
 
-          {/* Phase 5 */}
+          {/* Phase 6 */}
           <PhaseCard
-            number={5}
-            title="Pilot Launch (New York)"
+            number={6}
+            title="Pilot Launch (NY & FL)"
             subtitle=""
             icon={<Zap className="w-6 h-6" />}
             color="blue"
-            goal="Validate the system with real calls and real proof."
+            goal="Validate the system with real calls and real proof in initial markets."
             scope={[
               "2–3 reps",
-              "NY only",
-              "Awareness calls + limited social comments"
+              "NY and FL simultaneously",
+              "Awareness calls + social outreach (FB & IG)"
             ]}
             measured={[
               "Calls per rep per day",
@@ -360,17 +367,17 @@ export default function OlujoPlanPage() {
             ]}
           />
 
-          {/* Phase 6 */}
+          {/* Phase 7 */}
           <PhaseCard
-            number={6}
-            title="Scale Up (NY → FL)"
+            number={7}
+            title="Scale Up & Expand Markets"
             subtitle=""
             icon={<TrendingUp className="w-6 h-6" />}
             color="indigo"
-            goal="Increase volume without breaking discipline."
+            goal="Increase volume and expand to additional markets based on traction."
             changes={[
               "Hire up to 10 reps",
-              "Add Florida leads",
+              "Expand to additional high-value markets",
               "Increase QA sampling",
               "Add reporting dashboards"
             ]}
@@ -392,78 +399,56 @@ export default function OlujoPlanPage() {
             ]}
           />
 
-          {/* Phase 7 */}
+          {/* Phase 8 */}
           <PhaseCard
-            number={7}
-            title="Purchase Attribution & Commissions"
+            number={8}
+            title="Purchase Tracking & Commission Processing"
             subtitle=""
             icon={<DollarSign className="w-6 h-6" />}
             color="purple"
             goal="Ensure commissions are fair, provable, and undisputed."
             process={[
-              "Jeff confirms store purchase",
+              "Jeff's team tracks store purchases",
               "Bottle count verified",
-              "Admin records purchase in CRM",
-              "System attributes rep (last-touch within window)",
-              "Commission calculated ($25/bottle)",
-              "Approved → paid"
+              "CRM correlates purchase to rep outreach",
+              "System attributes rep (last-touch within 30 days)",
+              "Commission calculated ($25 per bottle sold)",
+              "Payment processed via Gusto"
             ]}
             owners={[
-              { name: "Jeff", role: "validates purchases" },
+              { name: "Jeff", role: "validates purchases & processes commissions" },
               { name: "Kurtis (TCT)", role: "system enforcement" },
               { name: "Adam", role: "final approval for disputes" }
             ]}
             exitCriteria={[
               "Zero commission disputes",
-              "Every commission tied to proof"
+              "Every commission tied to documented outreach"
             ]}
             documents={[
-              { title: "CRM Handling SOP", href: "/admin/projects/olujo-docs/crm-handling" }
-            ]}
-          />
-
-          {/* Phase 8 */}
-          <PhaseCard
-            number={8}
-            title="Optimization & Optional Automation"
-            subtitle=""
-            icon={<Zap className="w-6 h-6" />}
-            color="cyan"
-            goal="Make the system cheaper and smarter after it works."
-            enhancements={[
-              "RingCentral API metadata sync",
-              "Duplicate-call prevention",
-              "Smarter lead rotation",
-              "Automated QA flagging",
-              "Email follow-ups (still optional)",
-              "Heatmaps of brand recognition by region"
-            ]}
-            owners={[
-              { name: "Adam", role: "prioritization & ROI approval" },
-              { name: "Kurtis (TCT)", role: "technical roadmap" }
+              { title: "Purchase Tracking SOP", href: "/admin/projects/olujo-docs/purchase-tracking" }
             ]}
           />
         </div>
 
         {/* Final Principle */}
-        <div className="mt-12 bg-gradient-to-br from-amber-600/20 to-amber-500/10 backdrop-blur-sm border-2 border-amber-500/50 rounded-lg p-8">
-          <h2 className="text-2xl font-bold text-amber-400 mb-4 text-center">Final Principle (For Adam & Jeff)</h2>
+        <div className="mt-12 bg-gradient-to-br from-blue-600/20 to-blue-500/10 backdrop-blur-sm border-2 border-blue-500/50 rounded-lg p-8">
+          <h2 className="text-2xl font-bold text-blue-400 mb-4 text-center">Final Principle (For Adam & Jeff)</h2>
           <p className="text-white text-lg text-center mb-6">
             This project does <strong>not</strong> win by persuasion.
           </p>
           <p className="text-white text-xl font-bold text-center mb-4">It wins by:</p>
           <div className="grid md:grid-cols-4 gap-4 mb-6">
-            <div className="bg-amber-900/30 border border-amber-500/30 rounded-lg p-4 text-center">
-              <p className="text-2xl font-bold text-amber-300">Repetition</p>
+            <div className="bg-blue-900/30 border border-blue-500/30 rounded-lg p-4 text-center">
+              <p className="text-2xl font-bold text-blue-300">Repetition</p>
             </div>
-            <div className="bg-amber-900/30 border border-amber-500/30 rounded-lg p-4 text-center">
-              <p className="text-2xl font-bold text-amber-300">Recognition</p>
+            <div className="bg-blue-900/30 border border-blue-500/30 rounded-lg p-4 text-center">
+              <p className="text-2xl font-bold text-blue-300">Recognition</p>
             </div>
-            <div className="bg-amber-900/30 border border-amber-500/30 rounded-lg p-4 text-center">
-              <p className="text-2xl font-bold text-amber-300">Proof</p>
+            <div className="bg-blue-900/30 border border-blue-500/30 rounded-lg p-4 text-center">
+              <p className="text-2xl font-bold text-blue-300">Proof</p>
             </div>
-            <div className="bg-amber-900/30 border border-amber-500/30 rounded-lg p-4 text-center">
-              <p className="text-2xl font-bold text-amber-300">Attribution</p>
+            <div className="bg-blue-900/30 border border-blue-500/30 rounded-lg p-4 text-center">
+              <p className="text-2xl font-bold text-blue-300">Attribution</p>
             </div>
           </div>
           <p className="text-white text-lg text-center italic">
