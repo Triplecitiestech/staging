@@ -20,8 +20,7 @@ export async function generateMetadata({ params }: BlogPostPageProps): Promise<M
     const { slug } = await params;
     const post = await prisma.blogPost.findUnique({
       where: {
-        slug: slug,
-        status: 'PUBLISHED'
+        slug: slug
       },
       include: {
         category: true,
@@ -29,7 +28,8 @@ export async function generateMetadata({ params }: BlogPostPageProps): Promise<M
       }
     });
 
-    if (!post) {
+    // Check if post is published
+    if (!post || post.status !== 'PUBLISHED') {
       return {
         title: 'Post Not Found'
       };
@@ -89,8 +89,7 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
   const { slug } = await params;
   const post = await prisma.blogPost.findUnique({
     where: {
-      slug: slug,
-      status: 'PUBLISHED'
+      slug: slug
     },
     include: {
       category: true,
@@ -99,7 +98,7 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
     }
   });
 
-  if (!post) {
+  if (!post || post.status !== 'PUBLISHED') {
     notFound();
   }
 
