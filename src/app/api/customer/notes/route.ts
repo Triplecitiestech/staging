@@ -10,20 +10,24 @@ const prisma = new PrismaClient({
 // POST /api/customer/notes - Save a customer note on a phase or task
 export async function POST(request: NextRequest) {
   try {
+    console.log('[Customer Notes API] Starting request')
+    console.log('[Customer Notes API] Headers:', Object.fromEntries(request.headers.entries()))
+    console.log('[Customer Notes API] Cookies:', request.cookies.getAll())
+
     const body = await request.json()
     const { phaseId, taskId, content } = body
 
-    console.log('[Customer Notes API] Request:', { phaseId, taskId, contentLength: content?.length })
+    console.log('[Customer Notes API] Request body:', { phaseId, taskId, contentLength: content?.length })
 
     // Verify customer authentication via session cookie
     const authenticatedCompany = await getAuthenticatedCompany()
 
-    console.log('[Customer Notes API] Authenticated company:', authenticatedCompany)
+    console.log('[Customer Notes API] Authenticated company result:', authenticatedCompany)
 
     if (!authenticatedCompany) {
-      console.log('[Customer Notes API] Not authenticated')
+      console.log('[Customer Notes API] Not authenticated - no valid session found')
       return NextResponse.json(
-        { error: 'Unauthorized - please log in again' },
+        { error: 'Unauthorized - please log in again. Your session may have expired.' },
         { status: 401 }
       )
     }
