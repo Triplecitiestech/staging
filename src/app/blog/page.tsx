@@ -110,148 +110,85 @@ export default async function BlogPage() {
   return (
     <>
       <Header />
-      <main className="min-h-screen bg-gradient-to-b from-gray-900 via-black to-gray-900">
-        {/* Hero Section */}
-        <section className="bg-gradient-to-r from-cyan-500 to-cyan-600 text-white py-20">
-        <div className="container mx-auto px-4">
-          <div className="max-w-4xl mx-auto text-center">
-            <h1 className="text-4xl md:text-6xl font-bold mb-6">
+      <main className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900 pt-20">
+        <div className="container mx-auto px-4 py-12">
+          {/* Header - centered like customer view */}
+          <div className="mb-12 text-center">
+            <h1 className="text-5xl font-bold text-white mb-2">
               Triple Cities Tech Blog
             </h1>
-            <p className="text-xl md:text-2xl text-cyan-100">
-              Expert insights on cybersecurity, IT management, and technology solutions for small businesses
+            <p className="text-2xl text-cyan-400 font-semibold">
+              Expert insights on cybersecurity, IT management, and technology solutions
             </p>
           </div>
-        </div>
-      </section>
 
-      {/* Main Content */}
-      <section className="container mx-auto px-4 py-12">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Blog Posts */}
-          <div className="lg:col-span-2">
+          {/* Blog Posts - centered layout */}
+          <div className="max-w-4xl mx-auto">
             {posts.length === 0 ? (
               <div className="text-center py-12">
                 <p className="text-gray-400 text-lg">No blog posts yet. Check back soon!</p>
               </div>
             ) : (
-              <div className="space-y-8">
+              <div className="space-y-6">
                 {posts.map((post) => (
-                  <article
+                  <Link
                     key={post.id}
-                    className="bg-gray-800/50 backdrop-blur-md border border-cyan-500/20 rounded-lg shadow-lg hover:shadow-xl hover:shadow-cyan-500/10 transition-all duration-300 overflow-hidden"
+                    href={`/blog/${post.slug}`}
+                    className="block"
                   >
-                    {/* Featured Image Placeholder */}
-                    {post.featuredImage && (
-                      <div className="h-64 bg-gradient-to-r from-cyan-500 to-cyan-600" />
-                    )}
-
-                    <div className="p-6">
+                    <article className="bg-gray-800/50 backdrop-blur-sm border border-cyan-500/30 rounded-lg shadow-lg shadow-cyan-500/10 p-8 hover:border-cyan-500/50 hover:shadow-cyan-500/20 transition-all duration-300">
                       {/* Category Badge */}
                       {post.category && (
-                        <Link
-                          href={`/blog/category/${post.category.slug}`}
-                          className="inline-block bg-cyan-500/20 text-cyan-300 px-3 py-1 rounded-full text-sm font-semibold mb-3 hover:bg-cyan-500/30 border border-cyan-500/30 transition-colors"
-                        >
+                        <span className="inline-block bg-cyan-500/20 text-cyan-300 px-3 py-1 rounded-full text-sm font-semibold mb-4 border border-cyan-500/30">
                           {post.category.name}
-                        </Link>
+                        </span>
                       )}
 
                       {/* Title */}
-                      <h2 className="text-2xl md:text-3xl font-bold mb-3 text-white hover:text-cyan-400 transition-colors">
-                        <Link href={`/blog/${post.slug}`}>
-                          {post.title}
-                        </Link>
+                      <h2 className="text-3xl font-bold mb-3 text-white hover:text-cyan-400 transition-colors">
+                        {post.title}
                       </h2>
 
                       {/* Excerpt */}
-                      <p className="text-gray-300 mb-4 line-clamp-3">
+                      <p className="text-gray-300 mb-4 leading-relaxed">
                         {post.excerpt}
                       </p>
 
                       {/* Meta Info */}
-                      <div className="flex items-center justify-between text-sm text-gray-400">
-                        <div className="flex items-center gap-4">
-                          <span>📅 {new Date(post.publishedAt!).toLocaleDateString()}</span>
-                          <span>👤 {post.author?.name || 'Triple Cities Tech'}</span>
-                        </div>
-
-                        <Link
-                          href={`/blog/${post.slug}`}
-                          className="text-cyan-400 font-semibold hover:text-cyan-300 transition-colors"
-                        >
-                          Read More →
-                        </Link>
+                      <div className="flex items-center gap-6 text-sm text-gray-400 pt-4 border-t border-gray-700">
+                        <span>📅 {new Date(post.publishedAt!).toLocaleDateString('en-US', {
+                          year: 'numeric',
+                          month: 'long',
+                          day: 'numeric'
+                        })}</span>
+                        <span>👤 {post.author?.name || 'Triple Cities Tech'}</span>
+                        {post.views > 0 && <span>👁️ {post.views} views</span>}
                       </div>
-                    </div>
-                  </article>
+                    </article>
+                  </Link>
                 ))}
               </div>
             )}
-          </div>
 
-          {/* Sidebar */}
-          <aside className="space-y-8">
-            {/* Categories */}
-            <div className="bg-gray-800/50 backdrop-blur-md border border-cyan-500/20 rounded-lg shadow-lg p-6">
-              <h3 className="text-xl font-bold mb-4 text-white">Categories</h3>
-              <ul className="space-y-2">
-                {categories.map((category) => (
-                  <li key={category.id}>
-                    <Link
-                      href={`/blog/category/${category.slug}`}
-                      className="flex items-center justify-between text-gray-300 hover:text-cyan-400 transition-colors"
-                    >
-                      <span>{category.name}</span>
-                      <span className="bg-cyan-500/20 text-cyan-300 px-2 py-1 rounded text-xs border border-cyan-500/30">
-                        {category._count.posts}
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            {/* Newsletter Signup (Optional) */}
-            <div className="bg-gradient-to-br from-cyan-500 to-cyan-600 text-white rounded-lg shadow-lg shadow-cyan-500/20 p-6">
-              <h3 className="text-xl font-bold mb-3">Stay Updated</h3>
-              <p className="mb-4 text-cyan-100">
-                Get the latest cybersecurity insights delivered to your inbox.
+            {/* Contact CTA - like the customer view */}
+            <div className="mt-12 p-8 bg-gray-800/50 backdrop-blur-sm border border-cyan-500/30 rounded-lg shadow-lg shadow-cyan-500/10 text-center">
+              <h3 className="text-lg font-bold text-cyan-400 mb-2">
+                Need IT Support or Cybersecurity Guidance?
+              </h3>
+              <p className="text-gray-300 mb-6">
+                Our team provides comprehensive IT services and cybersecurity solutions for businesses in Central New York.
               </p>
               <Link
                 href="/contact"
-                className="block w-full bg-white text-cyan-600 text-center py-2 rounded-lg font-semibold hover:bg-gray-100 transition-colors"
+                className="inline-block px-6 py-3 bg-cyan-500 hover:bg-cyan-600 text-white font-semibold rounded-lg transition-colors duration-300"
               >
-                Contact Us
+                Get in Touch
               </Link>
             </div>
-
-            {/* Recent Posts */}
-            {posts.length > 3 && (
-              <div className="bg-gray-800/50 backdrop-blur-md border border-cyan-500/20 rounded-lg shadow-lg p-6">
-                <h3 className="text-xl font-bold mb-4 text-white">Recent Posts</h3>
-                <ul className="space-y-3">
-                  {posts.slice(0, 5).map((post) => (
-                    <li key={post.id}>
-                      <Link
-                        href={`/blog/${post.slug}`}
-                        className="text-gray-300 hover:text-cyan-400 transition-colors line-clamp-2"
-                      >
-                        {post.title}
-                      </Link>
-                      <p className="text-xs text-gray-500 mt-1">
-                        {new Date(post.publishedAt!).toLocaleDateString()}
-                      </p>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </aside>
+          </div>
         </div>
-      </section>
-    </main>
-    <Footer />
-  </>
+      </main>
+      <Footer />
+    </>
   );
 }
