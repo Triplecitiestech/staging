@@ -241,6 +241,7 @@ export default async function ProjectDetailPage({
             <div className="space-y-4">
               {project.phases.map((phase, index) => {
                 // Convert Date objects to ISO strings for all tasks and subtasks
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const convertTaskDates = (task: any): any => ({
                   ...task,
                   dueDate: task.dueDate ? task.dueDate.toISOString() : null,
