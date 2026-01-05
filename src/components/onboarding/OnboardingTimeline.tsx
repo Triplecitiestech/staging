@@ -221,13 +221,19 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
 
   const scrollLeft = () => {
     if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollBy({ left: -300, behavior: 'smooth' })
+      // Calculate the width of one phase (icon + connector)
+      // Icon is 64px (w-16) + connector is 80px (w-20) = 144px
+      const phaseWidth = 144
+      scrollContainerRef.current.scrollBy({ left: -phaseWidth, behavior: 'smooth' })
     }
   }
 
   const scrollRight = () => {
     if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollBy({ left: 300, behavior: 'smooth' })
+      // Calculate the width of one phase (icon + connector)
+      // Icon is 64px (w-16) + connector is 80px (w-20) = 144px
+      const phaseWidth = 144
+      scrollContainerRef.current.scrollBy({ left: phaseWidth, behavior: 'smooth' })
     }
   }
 
@@ -374,11 +380,11 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
 
       {/* Horizontal Timeline */}
       {viewMode === 'horizontal' && (
-        <div className="relative pb-8 pt-20">
+        <div className="relative pb-8 pt-32">
           {/* Left arrow - positioned outside the timeline, aligned with phase circle center */}
           <button
             onClick={scrollLeft}
-            className="absolute -left-14 top-[88px] z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
+            className="absolute -left-14 top-[120px] z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
             aria-label="Scroll left"
           >
             <ChevronLeft size={20} />
@@ -387,7 +393,7 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
           {/* Right arrow - positioned outside the timeline, aligned with phase circle center */}
           <button
             onClick={scrollRight}
-            className="absolute -right-14 top-[88px] z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
+            className="absolute -right-14 top-[120px] z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
             aria-label="Scroll right"
           >
             <ChevronRight size={20} />
