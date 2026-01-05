@@ -242,7 +242,25 @@ export default async function ProjectDetailPage({
               {project.phases.map((phase, index) => (
                 <PhaseCard
                   key={phase.id}
-                  phase={phase}
+                  phase={{
+                    ...phase,
+                    tasks: phase.tasks.map(task => ({
+                      ...task,
+                      dueDate: task.dueDate ? task.dueDate.toISOString() : null,
+                      subTasks: task.subTasks?.map(st => ({
+                        ...st,
+                        dueDate: st.dueDate ? st.dueDate.toISOString() : null,
+                        subTasks: st.subTasks?.map(st2 => ({
+                          ...st2,
+                          dueDate: st2.dueDate ? st2.dueDate.toISOString() : null,
+                          subTasks: st2.subTasks?.map(st3 => ({
+                            ...st3,
+                            dueDate: st3.dueDate ? st3.dueDate.toISOString() : null
+                          }))
+                        }))
+                      }))
+                    }))
+                  }}
                   index={index}
                   companyName={project.company.displayName}
                 />
