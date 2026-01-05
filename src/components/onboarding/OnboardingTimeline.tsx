@@ -263,14 +263,13 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
       console.log('[Save Phase Note] Response data:', data)
 
       if (response.ok) {
-        console.log('[Save Phase Note] Success! Updating local state and reloading')
-        // Update local state
+        console.log('[Save Phase Note] Success! Updating local state')
+        // Update local state - keep the phase details open
         if (selectedPhase && selectedPhase.id === phaseId) {
           setSelectedPhase({ ...selectedPhase, notes: phaseNoteText })
         }
         setEditingPhaseNote(null)
-        // Refresh the page to get updated data
-        window.location.reload()
+        // Don't reload - keep the phase details open so user can see their note
       } else {
         console.error('[Save Phase Note] Failed:', data.error)
         alert(`Failed to save note: ${data.error}`)
@@ -309,10 +308,22 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
       console.log('[Save Task Note] Response data:', data)
 
       if (response.ok) {
-        console.log('[Save Task Note] Success! Reloading page')
+        console.log('[Save Task Note] Success! Updating local state')
+        // Update local state - keep the phase details open
+        if (selectedPhase) {
+          // Update the task note in the selected phase
+          const updatedPhase = { ...selectedPhase }
+          const tasks = (updatedPhase as unknown as { tasks?: Array<{ id: string; taskText: string; completed: boolean; notes?: string }> }).tasks
+          if (tasks) {
+            const task = tasks.find(t => t.id === taskId)
+            if (task) {
+              task.notes = taskNoteText
+            }
+          }
+          setSelectedPhase(updatedPhase)
+        }
         setEditingTaskNote(null)
-        // Refresh the page to get updated data
-        window.location.reload()
+        // Don't reload - keep the phase details open so user can see their note
       } else {
         console.error('[Save Task Note] Failed:', data.error)
         alert(`Failed to save note: ${data.error}`)
@@ -380,11 +391,11 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
 
       {/* Horizontal Timeline */}
       {viewMode === 'horizontal' && (
-        <div className="relative pb-8 pt-32">
+        <div className="relative pb-8 pt-48">
           {/* Left arrow - positioned outside the timeline, aligned with phase circle center */}
           <button
             onClick={scrollLeft}
-            className="absolute -left-14 top-[120px] z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
+            className="absolute -left-14 top-[224px] z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
             aria-label="Scroll left"
           >
             <ChevronLeft size={20} />
@@ -393,7 +404,7 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
           {/* Right arrow - positioned outside the timeline, aligned with phase circle center */}
           <button
             onClick={scrollRight}
-            className="absolute -right-14 top-[120px] z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
+            className="absolute -right-14 top-[224px] z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
             aria-label="Scroll right"
           >
             <ChevronRight size={20} />
@@ -651,8 +662,8 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
                             </div>
                           </div>
                         ) : phase.notes ? (
-                          <div className="p-3 bg-amber-900/30 border border-amber-500/50 rounded-lg">
-                            <p className="text-sm text-amber-200">{phase.notes}</p>
+                          <div className="p-3 bg-gray-800/50 border border-gray-600 rounded-lg">
+                            <p className="text-sm text-gray-200">{phase.notes}</p>
                           </div>
                         ) : (
                           <p className="text-sm text-gray-500 italic">No notes yet. Click "Add Note" to add your thoughts.</p>
@@ -726,7 +737,7 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
                                     </div>
                                   </div>
                                 ) : task.notes ? (
-                                  <p className="text-xs text-amber-300 mt-2 p-2 bg-amber-900/20 border border-amber-500/30 rounded">
+                                  <p className="text-xs text-gray-300 mt-2 p-2 bg-gray-800/30 border border-gray-600/50 rounded">
                                     <strong>Your note:</strong> {task.notes}
                                   </p>
                                 ) : null}
@@ -869,8 +880,8 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
                 </div>
               </div>
             ) : selectedPhase.notes ? (
-              <div className="p-3 bg-amber-900/30 border border-amber-500/50 rounded-lg">
-                <p className="text-sm text-amber-200">{selectedPhase.notes}</p>
+              <div className="p-3 bg-gray-800/50 border border-gray-600 rounded-lg">
+                <p className="text-sm text-gray-200">{selectedPhase.notes}</p>
               </div>
             ) : (
               <p className="text-sm text-gray-500 italic">No notes yet. Click "Add Note" to add your thoughts.</p>
@@ -944,7 +955,7 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
                         </div>
                       </div>
                     ) : task.notes ? (
-                      <p className="text-xs text-amber-300 mt-2 p-2 bg-amber-900/20 border border-amber-500/30 rounded">
+                      <p className="text-xs text-gray-300 mt-2 p-2 bg-gray-800/30 border border-gray-600/50 rounded">
                         <strong>Your note:</strong> {task.notes}
                       </p>
                     ) : null}
