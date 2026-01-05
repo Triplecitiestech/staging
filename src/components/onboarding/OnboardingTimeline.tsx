@@ -232,21 +232,31 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
   }
 
   const handleSavePhaseNote = async (phaseId: string) => {
-    if (!companySlug) return
+    if (!companySlug) {
+      console.error('[Save Phase Note] No company slug provided')
+      return
+    }
 
     setSavingNote(true)
     try {
+      console.log('[Save Phase Note] Sending request:', { phaseId, content: phaseNoteText })
+
       const response = await fetch('/api/customer/notes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           phaseId,
-          content: phaseNoteText,
-          companySlug
+          content: phaseNoteText
         })
       })
 
+      console.log('[Save Phase Note] Response status:', response.status)
+
+      const data = await response.json()
+      console.log('[Save Phase Note] Response data:', data)
+
       if (response.ok) {
+        console.log('[Save Phase Note] Success! Updating local state and reloading')
         // Update local state
         if (selectedPhase && selectedPhase.id === phaseId) {
           setSelectedPhase({ ...selectedPhase, notes: phaseNoteText })
@@ -254,36 +264,54 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
         setEditingPhaseNote(null)
         // Refresh the page to get updated data
         window.location.reload()
+      } else {
+        console.error('[Save Phase Note] Failed:', data.error)
+        alert(`Failed to save note: ${data.error}`)
       }
     } catch (error) {
-      console.error('Error saving phase note:', error)
+      console.error('[Save Phase Note] Error:', error)
+      alert('Error saving note. Please try again.')
     } finally {
       setSavingNote(false)
     }
   }
 
   const handleSaveTaskNote = async (taskId: string) => {
-    if (!companySlug) return
+    if (!companySlug) {
+      console.error('[Save Task Note] No company slug provided')
+      return
+    }
 
     setSavingNote(true)
     try {
+      console.log('[Save Task Note] Sending request:', { taskId, content: taskNoteText })
+
       const response = await fetch('/api/customer/notes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           taskId,
-          content: taskNoteText,
-          companySlug
+          content: taskNoteText
         })
       })
 
+      console.log('[Save Task Note] Response status:', response.status)
+
+      const data = await response.json()
+      console.log('[Save Task Note] Response data:', data)
+
       if (response.ok) {
+        console.log('[Save Task Note] Success! Reloading page')
         setEditingTaskNote(null)
         // Refresh the page to get updated data
         window.location.reload()
+      } else {
+        console.error('[Save Task Note] Failed:', data.error)
+        alert(`Failed to save note: ${data.error}`)
       }
     } catch (error) {
-      console.error('Error saving task note:', error)
+      console.error('[Save Task Note] Error:', error)
+      alert('Error saving note. Please try again.')
     } finally {
       setSavingNote(false)
     }
@@ -314,12 +342,10 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
 
   return (
     <div className="space-y-8">
-      {/* Timeline header with toggle */}
+      {/* View toggle */}
       <div className="text-center mb-8">
-        <h2 className="text-2xl font-bold text-white mb-2">{title || 'Project Timeline'}</h2>
-        <p className="text-gray-300 mb-4">Follow each phase as we bring your project to life</p>
+        <p className="text-gray-300 mb-4">Track your progress through each project phase</p>
 
-        {/* View toggle */}
         <div className="flex items-center justify-center gap-2">
           <button
             onClick={() => setViewMode('horizontal')}
@@ -346,26 +372,20 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
 
       {/* Horizontal Timeline */}
       {viewMode === 'horizontal' && (
-        <div className="relative pb-8">
-          {/* Left fade overlay - smaller, gradual fade */}
-          <div className="absolute left-0 top-0 bottom-0 w-20 bg-gradient-to-r from-gray-900 via-gray-900/60 to-transparent z-10 pointer-events-none" />
-
-          {/* Right fade overlay - smaller, gradual fade */}
-          <div className="absolute right-0 top-0 bottom-0 w-20 bg-gradient-to-l from-gray-900 via-gray-900/60 to-transparent z-10 pointer-events-none" />
-
-          {/* Left arrow - aligned with phase icons */}
+        <div className="relative pb-8 pt-12">
+          {/* Left arrow - positioned outside the timeline */}
           <button
             onClick={scrollLeft}
-            className="absolute left-2 top-[72px] z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
+            className="absolute -left-6 top-[72px] z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
             aria-label="Scroll left"
           >
             <ChevronLeft size={20} />
           </button>
 
-          {/* Right arrow - aligned with phase icons */}
+          {/* Right arrow - positioned outside the timeline */}
           <button
             onClick={scrollRight}
-            className="absolute right-2 top-[72px] z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
+            className="absolute -right-6 top-[72px] z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
             aria-label="Scroll right"
           >
             <ChevronRight size={20} />
@@ -469,7 +489,7 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
       {viewMode === 'vertical' && (
         <div className="max-w-4xl mx-auto">
           {/* Start Marker */}
-          <div className="flex items-center gap-4 mb-6">
+          <div className="flex items-center gap-4 mb-6 justify-center">
             <div className="flex flex-col items-center flex-shrink-0">
               <div className="w-16 h-16 rounded-full bg-gradient-to-br from-green-500 to-green-600 flex items-center justify-center shadow-lg shadow-green-500/50">
                 <span className="text-white font-bold text-sm">START</span>
@@ -488,95 +508,270 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
             return (
               <div key={phase.id} className="relative">
                 {/* Connector Line */}
-                {index < phases.length - 1 && (
-                  <div className="absolute left-8 top-20 bottom-0 w-1 bg-gradient-to-b from-cyan-500 to-cyan-400 z-0" style={{ height: 'calc(100% + 24px)' }} />
+                {index < phases.length - 1 && !isExpanded && (
+                  <div className="absolute left-1/2 -translate-x-1/2 top-20 w-1 bg-gradient-to-b from-cyan-500 to-cyan-400 z-0" style={{ height: 'calc(100% + 24px)' }} />
+                )}
+                {index < phases.length - 1 && isExpanded && (
+                  <div className="absolute left-1/2 -translate-x-1/2 top-20 w-1 bg-gradient-to-b from-cyan-500 to-cyan-400 z-0" style={{ height: 'calc(100% - 100px)' }} />
                 )}
 
                 {/* Phase Container */}
-                <div className="flex items-start gap-4 mb-6 relative z-10">
-                  {/* Phase Circle */}
-                  <div className="flex flex-col items-center flex-shrink-0">
-                    <button
-                      onClick={() => setSelectedPhase(isExpanded ? null : phase)}
-                      className={cn(
-                        'w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all border-4',
-                        isCurrent
-                          ? 'border-cyan-400 bg-gradient-to-br from-cyan-500 to-cyan-600 shadow-cyan-500/50 scale-110'
-                          : 'border-gray-700 bg-gray-800 hover:border-cyan-500/50 hover:scale-105',
-                        isExpanded && 'ring-4 ring-cyan-500/30'
-                      )}
-                    >
-                      <StatusIcon
-                        size={24}
-                        className={isCurrent ? 'text-white' : colors.icon}
-                        strokeWidth={2.5}
-                      />
-                    </button>
-                  </div>
+                <div className="flex flex-col items-center mb-6 relative z-10">
+                  {/* Phase Header */}
+                  <div className="flex items-start gap-4">
+                    {/* Phase Circle */}
+                    <div className="flex flex-col items-center flex-shrink-0">
+                      <button
+                        onClick={() => setSelectedPhase(isExpanded ? null : phase)}
+                        className={cn(
+                          'w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all border-4',
+                          isCurrent
+                            ? 'border-cyan-400 bg-gradient-to-br from-cyan-500 to-cyan-600 shadow-cyan-500/50 scale-110'
+                            : 'border-gray-700 bg-gray-800 hover:border-cyan-500/50 hover:scale-105',
+                          isExpanded && 'ring-4 ring-cyan-500/30'
+                        )}
+                      >
+                        <StatusIcon
+                          size={24}
+                          className={isCurrent ? 'text-white' : colors.icon}
+                          strokeWidth={2.5}
+                        />
+                      </button>
+                    </div>
 
-                  {/* Phase Info */}
-                  <div className="flex-1 pt-2">
-                    {/* Current indicator */}
-                    {isCurrent && (
+                    {/* Phase Info */}
+                    <div className="flex-1 pt-2">
+                      {/* Current indicator */}
+                      {isCurrent && (
+                        <div className="mb-2">
+                          <span className="bg-cyan-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg">
+                            YOU ARE HERE
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Phase Number & Title */}
                       <div className="mb-2">
-                        <span className="bg-cyan-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg">
-                          YOU ARE HERE
-                        </span>
+                        <div className="text-xs text-cyan-400 font-bold mb-1">Phase {index + 1}</div>
+                        <h3 className="text-lg font-bold text-white">{phase.title}</h3>
                       </div>
-                    )}
 
-                    {/* Phase Number & Title */}
-                    <div className="mb-2">
-                      <div className="text-xs text-cyan-400 font-bold mb-1">Phase {index + 1}</div>
-                      <h3 className="text-lg font-bold text-white">{phase.title}</h3>
-                    </div>
-
-                    {/* Status Badge */}
-                    <div className="flex flex-wrap gap-2 mb-3">
-                      <span className={cn(
-                        'px-3 py-1 rounded-full text-xs font-semibold border',
-                        colors.bg,
-                        colors.text,
-                        colors.border
-                      )}>
-                        {phase.status}
-                      </span>
-                      {phase.owner && (
-                        <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-gray-700/50 text-gray-300 border border-gray-600">
-                          <User size={12} />
-                          {phase.owner}
+                      {/* Status Badge */}
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        <span className={cn(
+                          'px-3 py-1 rounded-full text-xs font-semibold border',
+                          colors.bg,
+                          colors.text,
+                          colors.border
+                        )}>
+                          {phase.status}
                         </span>
+                        {phase.owner && (
+                          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-gray-700/50 text-gray-300 border border-gray-600">
+                            <User size={12} />
+                            {phase.owner}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Description */}
+                      <p className="text-sm text-gray-300 mb-3">{phase.description}</p>
+
+                      {/* Expand/Collapse Button */}
+                      <button
+                        onClick={() => setSelectedPhase(isExpanded ? null : phase)}
+                        className="text-sm text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
+                      >
+                        {isExpanded ? (
+                          <>
+                            <ChevronUp size={16} />
+                            Hide Details
+                          </>
+                        ) : (
+                          <>
+                            <ChevronDown size={16} />
+                            View Details
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Expanded Details - shown inline */}
+                  {isExpanded && (
+                    <div className="w-full mt-6 bg-gray-800/50 backdrop-blur-sm border-2 border-cyan-500 rounded-lg p-6 shadow-lg shadow-cyan-500/20">
+                      {/* Next Action */}
+                      {phase.nextAction && (
+                        <div className="mb-4 p-3 bg-blue-900/30 border border-blue-500/50 rounded-lg">
+                          <p className="text-sm font-semibold text-blue-300 mb-1">Next Action:</p>
+                          <p className="text-sm text-blue-200">{phase.nextAction}</p>
+                        </div>
+                      )}
+
+                      {/* Notes */}
+                      <div className="mb-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-sm font-semibold text-white uppercase">Your Notes</p>
+                          {editingPhaseNote !== phase.id && (
+                            <button
+                              onClick={() => {
+                                setEditingPhaseNote(phase.id)
+                                setPhaseNoteText(phase.notes || '')
+                              }}
+                              className="flex items-center gap-1 px-3 py-1 text-xs bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 rounded transition-colors"
+                            >
+                              <Edit size={12} />
+                              {phase.notes ? 'Edit Note' : 'Add Note'}
+                            </button>
+                          )}
+                        </div>
+
+                        {editingPhaseNote === phase.id ? (
+                          <div className="space-y-2">
+                            <textarea
+                              value={phaseNoteText}
+                              onChange={(e) => setPhaseNoteText(e.target.value)}
+                              placeholder="Add your notes about this phase..."
+                              className="w-full p-3 bg-gray-900/50 border border-gray-600 rounded-lg text-sm text-gray-300 focus:border-cyan-500 focus:outline-none resize-none"
+                              rows={4}
+                            />
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => handleSavePhaseNote(phase.id)}
+                                disabled={savingNote}
+                                className="flex items-center gap-1 px-3 py-1.5 text-xs bg-cyan-500 hover:bg-cyan-600 text-white rounded transition-colors disabled:opacity-50"
+                              >
+                                <Save size={12} />
+                                {savingNote ? 'Saving...' : 'Save Note'}
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setEditingPhaseNote(null)
+                                  setPhaseNoteText('')
+                                }}
+                                className="flex items-center gap-1 px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition-colors"
+                              >
+                                <X size={12} />
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : phase.notes ? (
+                          <div className="p-3 bg-amber-900/30 border border-amber-500/50 rounded-lg">
+                            <p className="text-sm text-amber-200">{phase.notes}</p>
+                          </div>
+                        ) : (
+                          <p className="text-sm text-gray-500 italic">No notes yet. Click "Add Note" to add your thoughts.</p>
+                        )}
+                      </div>
+
+                      {/* Tasks */}
+                      {(phase as unknown as { tasks?: Array<{ id: string; taskText: string; completed: boolean; notes?: string }> }).tasks && (phase as unknown as { tasks: Array<{ id: string; taskText: string; completed: boolean; notes?: string }> }).tasks.length > 0 && (
+                        <div className="mb-4">
+                          <p className="text-sm font-semibold text-white uppercase mb-3">Tasks ({(phase as unknown as { tasks: Array<unknown> }).tasks.length})</p>
+                          <div className="space-y-2">
+                            {(phase as unknown as { tasks: Array<{ id: string; taskText: string; completed: boolean; notes?: string }> }).tasks.map((task) => (
+                              <div key={task.id} className="p-3 bg-gray-900/50 rounded-lg">
+                                <div className="flex items-start gap-3">
+                                  <div className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${
+                                    task.completed ? 'bg-green-500 border-green-500' : 'border-gray-600'
+                                  }`}>
+                                    {task.completed && (
+                                      <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                      </svg>
+                                    )}
+                                  </div>
+                                  <div className="flex-1">
+                                    <span className={`text-sm ${task.completed ? 'text-gray-500 line-through' : 'text-gray-300'}`}>
+                                      {task.taskText}
+                                    </span>
+                                  </div>
+                                  {editingTaskNote !== task.id && (
+                                    <button
+                                      onClick={() => {
+                                        setEditingTaskNote(task.id)
+                                        setTaskNoteText(task.notes || '')
+                                      }}
+                                      className="flex items-center gap-1 px-2 py-1 text-xs bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 rounded transition-colors flex-shrink-0"
+                                    >
+                                      <Edit size={10} />
+                                      Note
+                                    </button>
+                                  )}
+                                </div>
+
+                                {editingTaskNote === task.id ? (
+                                  <div className="mt-2 space-y-2">
+                                    <textarea
+                                      value={taskNoteText}
+                                      onChange={(e) => setTaskNoteText(e.target.value)}
+                                      placeholder="Add your notes about this task..."
+                                      className="w-full p-2 bg-gray-800/50 border border-gray-600 rounded text-xs text-gray-300 focus:border-cyan-500 focus:outline-none resize-none"
+                                      rows={3}
+                                    />
+                                    <div className="flex gap-2">
+                                      <button
+                                        onClick={() => handleSaveTaskNote(task.id)}
+                                        disabled={savingNote}
+                                        className="flex items-center gap-1 px-2 py-1 text-xs bg-cyan-500 hover:bg-cyan-600 text-white rounded transition-colors disabled:opacity-50"
+                                      >
+                                        <Save size={10} />
+                                        {savingNote ? 'Saving...' : 'Save'}
+                                      </button>
+                                      <button
+                                        onClick={() => {
+                                          setEditingTaskNote(null)
+                                          setTaskNoteText('')
+                                        }}
+                                        className="flex items-center gap-1 px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition-colors"
+                                      >
+                                        <X size={10} />
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : task.notes ? (
+                                  <p className="text-xs text-amber-300 mt-2 p-2 bg-amber-900/20 border border-amber-500/30 rounded">
+                                    <strong>Your note:</strong> {task.notes}
+                                  </p>
+                                ) : null}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Details */}
+                      {phase.details && phase.details.length > 0 && (
+                        <div>
+                          <p className="text-sm font-semibold text-white mb-2">Details:</p>
+                          <ul className="space-y-2">
+                            {phase.details.map((detail, index) => (
+                              <li key={index} className="flex items-start gap-2 text-sm text-gray-300">
+                                <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-cyan-400 mt-2" />
+                                <span>{detail}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
                       )}
                     </div>
-
-                    {/* Description */}
-                    <p className="text-sm text-gray-300 mb-3">{phase.description}</p>
-
-                    {/* Expand/Collapse Button */}
-                    <button
-                      onClick={() => setSelectedPhase(isExpanded ? null : phase)}
-                      className="text-sm text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
-                    >
-                      {isExpanded ? (
-                        <>
-                          <ChevronUp size={16} />
-                          Hide Details
-                        </>
-                      ) : (
-                        <>
-                          <ChevronDown size={16} />
-                          View Details
-                        </>
-                      )}
-                    </button>
-                  </div>
+                  )}
                 </div>
+
+                {/* Connector line after expanded details */}
+                {index < phases.length - 1 && isExpanded && (
+                  <div className="flex justify-center mb-6">
+                    <div className="w-1 h-12 bg-gradient-to-b from-cyan-500 to-cyan-400" />
+                  </div>
+                )}
               </div>
             )
           })}
 
           {/* End Marker */}
-          <div className="flex items-center gap-4 mt-6">
+          <div className="flex items-center gap-4 mt-6 justify-center">
             <div className="flex flex-col items-center flex-shrink-0">
               <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center shadow-lg shadow-purple-500/50">
                 <span className="text-white font-bold text-sm text-center leading-tight">FINISH</span>
@@ -587,8 +782,8 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
         </div>
       )}
 
-      {/* Selected Phase Details */}
-      {selectedPhase && (
+      {/* Selected Phase Details - only show in horizontal view */}
+      {selectedPhase && viewMode === 'horizontal' && (
         <div className="bg-gray-800/50 backdrop-blur-sm border-2 border-cyan-500 rounded-lg p-6 shadow-lg shadow-cyan-500/20">
           <div className="flex items-start justify-between mb-4">
             <div>

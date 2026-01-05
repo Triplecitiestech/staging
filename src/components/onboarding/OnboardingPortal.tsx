@@ -64,60 +64,27 @@ export default function OnboardingPortal({
         ) : initialData ? (
           // Authenticated view - show onboarding timeline
           <Container className="py-12 mt-4">
-            {/* Header with logout */}
-            <div className="mb-8">
-              {/* Company name at top */}
-              <div className="text-center mb-2">
-                <p className="text-sm text-cyan-400 font-semibold uppercase tracking-wide">
-                  {initialData.companyDisplayName}
-                </p>
-              </div>
+            {/* Header */}
+            <div className="mb-8 text-center">
+              {/* Company name - bigger font */}
+              <h1 className="text-5xl font-bold text-white mb-2">
+                {initialData.companyDisplayName}
+              </h1>
 
-              {/* Project title */}
-              <div className="text-center mb-6">
-                <h1 className="text-4xl font-bold bg-gradient-to-r from-cyan-400 to-cyan-500 bg-clip-text text-transparent mb-2">
-                  {projects && projects.length === 1
-                    ? (projects[0] as { title: string }).title
-                    : projects && projects.length > 1
-                    ? 'Your Projects'
-                    : 'Onboarding Program'}
-                </h1>
-                <p className="text-gray-300">
-                  Last updated: {new Date(initialData.lastUpdated).toLocaleDateString('en-US', {
-                    month: 'long',
-                    day: 'numeric',
-                    year: 'numeric',
-                  })}
-                </p>
-              </div>
-
-              {/* Action buttons */}
-              <div className="flex gap-3 justify-center">
-                <Button
-                  onClick={() => router.refresh()}
-                  variant="outline"
-                  className="border-cyan-600 text-cyan-400 hover:bg-cyan-500/10"
-                  leftIcon={<RefreshCw size={16} />}
-                >
-                  Refresh
-                </Button>
-                <Button
-                  onClick={handleLogout}
-                  variant="outline"
-                  className="border-gray-600 text-gray-300 hover:bg-gray-700"
-                  isLoading={isLoggingOut}
-                  leftIcon={!isLoggingOut ? <LogOut size={16} /> : undefined}
-                >
-                  Log Out
-                </Button>
-              </div>
+              {/* Project title - smaller than company name */}
+              <p className="text-2xl text-cyan-400 font-semibold">
+                {projects && projects.length === 1
+                  ? (projects[0] as { title: string }).title
+                  : projects && projects.length > 1
+                  ? 'Your Projects'
+                  : 'Onboarding Program'}
+              </p>
             </div>
 
             {/* Timeline */}
             <OnboardingTimeline
               phases={initialData.phases}
               currentPhaseId={initialData.currentPhaseId}
-              title={projects && projects.length === 1 ? (projects[0] as { title: string }).title : undefined}
               companySlug={companySlug}
             />
 
