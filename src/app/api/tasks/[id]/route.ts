@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
-import { TaskStatus, Priority } from '@prisma/client'
+import { TaskStatus, Priority, PhaseOwner } from '@prisma/client'
 
 
 export async function PATCH(
@@ -30,6 +30,7 @@ export async function PATCH(
       assignedToName?: string | null
       dueDate?: Date | null
       priority?: Priority
+      responsibleParty?: PhaseOwner | null
     } = {}
 
     if (data.taskText !== undefined) updateData.taskText = data.taskText
@@ -47,6 +48,7 @@ export async function PATCH(
     if (data.assignedToName !== undefined) updateData.assignedToName = data.assignedToName
     if (data.dueDate !== undefined) updateData.dueDate = data.dueDate ? new Date(data.dueDate) : null
     if (data.priority !== undefined) updateData.priority = data.priority as Priority
+    if (data.responsibleParty !== undefined) updateData.responsibleParty = data.responsibleParty as PhaseOwner | null
 
     let task
     try {
@@ -75,6 +77,7 @@ export async function PATCH(
           assignedToName: true,
           dueDate: true,
           priority: true,
+          responsibleParty: true,
           createdAt: true,
           updatedAt: true
         }
