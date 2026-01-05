@@ -79,8 +79,7 @@ export default async function AdminPreviewPage({ params }: PageProps) {
                       taskText: true,
                       completed: true,
                       orderIndex: true,
-                      status: true,
-                      notes: true
+                      status: true
                     },
                     orderBy: { orderIndex: 'asc' }
                   }
@@ -136,8 +135,7 @@ export default async function AdminPreviewPage({ params }: PageProps) {
           id: task.id,
           taskText: task.taskText,
           completed: task.completed,
-          status: task.status || 'NOT_STARTED',
-          notes: task.notes || undefined
+          status: task.status || 'NOT_STARTED'
         })) || []
       }))
     } : null
