@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { ChevronDown, ChevronUp, CheckCircle, Clock, AlertCircle, Calendar, User, ChevronLeft, ChevronRight, Edit, Save, X } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import type { OnboardingPhase, PhaseStatus } from '@/types/onboarding'
@@ -211,13 +211,37 @@ function PhaseCard({ phase, isCurrent, isLast }: { phase: OnboardingPhase; isCur
 
 export default function OnboardingTimeline({ phases, currentPhaseId, title, companySlug }: OnboardingTimelineProps) {
   const [selectedPhase, setSelectedPhase] = useState<OnboardingPhase | null>(null)
-  const [viewMode, setViewMode] = useState<'horizontal' | 'vertical'>('horizontal')
+  const [viewMode, setViewMode] = useState<'horizontal' | 'vertical'>(() => {
+    // Default to vertical view on mobile devices
+    if (typeof window !== 'undefined') {
+      return window.innerWidth < 768 ? 'vertical' : 'horizontal'
+    }
+    return 'horizontal'
+  })
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [editingPhaseNote, setEditingPhaseNote] = useState<string | null>(null)
   const [editingTaskNote, setEditingTaskNote] = useState<string | null>(null)
   const [phaseNoteText, setPhaseNoteText] = useState('')
   const [taskNoteText, setTaskNoteText] = useState('')
   const [savingNote, setSavingNote] = useState(false)
+
+  // Update view mode when window is resized
+  useEffect(() => {
+    const handleResize = () => {
+      const isMobile = window.innerWidth < 768
+      setViewMode(current => {
+        // Only auto-switch if user hasn't manually changed the view
+        // This prevents disrupting user's manual preference
+        if (isMobile && current === 'horizontal') {
+          return 'vertical'
+        }
+        return current
+      })
+    }
+
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
 
   const scrollLeft = () => {
     if (scrollContainerRef.current) {
