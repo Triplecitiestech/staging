@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
@@ -34,9 +34,9 @@ export default function BlogSettingsManager({ sources: initialSources }: BlogSet
   const router = useRouter()
 
   // Load guidelines on mount
-  useState(() => {
+  useEffect(() => {
     loadGuidelines()
-  })
+  }, [])
 
   const loadGuidelines = async () => {
     setIsLoadingGuidelines(true)
