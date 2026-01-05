@@ -157,14 +157,20 @@ export default function Footer() {
             
             {/* Legal Links */}
             <div className="flex items-center space-x-6">
-              <Link 
-                href="/about" 
+              <Link
+                href="/about"
                 className="text-gray-500 hover:text-cyan-400 text-xs transition-colors duration-300 uppercase tracking-wider font-medium"
               >
                 About
               </Link>
-              <Link 
-                href="/contact" 
+              <Link
+                href="/blog"
+                className="text-gray-500 hover:text-cyan-400 text-xs transition-colors duration-300 uppercase tracking-wider font-medium"
+              >
+                Blog
+              </Link>
+              <Link
+                href="/contact"
                 className="text-gray-500 hover:text-cyan-400 text-xs transition-colors duration-300 uppercase tracking-wider font-medium"
               >
                 Contact
