@@ -211,19 +211,15 @@ export default function CRMHandlingPage() {
 
           <div className="space-y-6">
             <div className="bg-purple-500/10 border-l-4 border-purple-500 rounded px-6 py-4">
-              <h3 className="text-lg font-bold text-purple-400 mb-3">For every Instagram message sent, the contractor must:</h3>
+              <h3 className="text-lg font-bold text-purple-400 mb-3">For every Instagram or Facebook message sent, the contractor must:</h3>
               <div className="space-y-3">
                 <div className="flex items-start gap-3">
                   <CheckCircle2 size={20} className="text-purple-400 flex-shrink-0 mt-1" />
-                  <span className="text-slate-300">Take a screenshot of the message</span>
+                  <span className="text-slate-300">Log the message content in the CRM timeline</span>
                 </div>
                 <div className="flex items-start gap-3">
                   <CheckCircle2 size={20} className="text-purple-400 flex-shrink-0 mt-1" />
-                  <span className="text-slate-300">Upload it to the CRM timeline</span>
-                </div>
-                <div className="flex items-start gap-3">
-                  <CheckCircle2 size={20} className="text-purple-400 flex-shrink-0 mt-1" />
-                  <span className="text-slate-300">Update the lead status to "Instagram Message Sent"</span>
+                  <span className="text-slate-300">Update the lead status to "Instagram Message Sent" or appropriate status</span>
                 </div>
                 <div className="flex items-start gap-3">
                   <CheckCircle2 size={20} className="text-purple-400 flex-shrink-0 mt-1" />
@@ -233,19 +229,15 @@ export default function CRMHandlingPage() {
             </div>
 
             <div className="bg-blue-500/10 border-l-4 border-blue-500 rounded px-6 py-4">
-              <h3 className="text-lg font-bold text-blue-400 mb-3">For every Instagram response received, the contractor must:</h3>
+              <h3 className="text-lg font-bold text-blue-400 mb-3">For every Instagram or Facebook response received, the contractor must:</h3>
               <div className="space-y-3">
                 <div className="flex items-start gap-3">
                   <CheckCircle2 size={20} className="text-blue-400 flex-shrink-0 mt-1" />
-                  <span className="text-slate-300">Take a screenshot of the response</span>
+                  <span className="text-slate-300">Log the response content in the CRM timeline</span>
                 </div>
                 <div className="flex items-start gap-3">
                   <CheckCircle2 size={20} className="text-blue-400 flex-shrink-0 mt-1" />
-                  <span className="text-slate-300">Upload it to the CRM timeline</span>
-                </div>
-                <div className="flex items-start gap-3">
-                  <CheckCircle2 size={20} className="text-blue-400 flex-shrink-0 mt-1" />
-                  <span className="text-slate-300">Update the lead status to "Instagram Response Received"</span>
+                  <span className="text-slate-300">Update the lead status to "Instagram Response Received" or appropriate status</span>
                 </div>
                 <div className="flex items-start gap-3">
                   <CheckCircle2 size={20} className="text-blue-400 flex-shrink-0 mt-1" />
@@ -254,13 +246,13 @@ export default function CRMHandlingPage() {
               </div>
             </div>
 
-            <div className="bg-amber-900/30 border border-amber-500/50 rounded-lg p-6">
+            <div className="bg-indigo-900/30 border border-indigo-500/50 rounded-lg p-6">
               <div className="flex items-start gap-3">
-                <AlertCircle className="w-6 h-6 text-amber-400 flex-shrink-0 mt-1" />
+                <AlertCircle className="w-6 h-6 text-indigo-400 flex-shrink-0 mt-1" />
                 <div>
-                  <h3 className="text-lg font-bold text-amber-400 mb-2">No Exceptions</h3>
+                  <h3 className="text-lg font-bold text-indigo-400 mb-2">No Exceptions</h3>
                   <p className="text-slate-300">
-                    Every Instagram interaction must be documented. If there is no screenshot in the CRM, the interaction did not happen.
+                    Every social media interaction must be logged in the CRM. If there is no logged interaction in the CRM, the interaction did not happen.
                   </p>
                 </div>
               </div>
@@ -307,77 +299,23 @@ export default function CRMHandlingPage() {
           </div>
         </section>
 
-        {/* Purchase & Commission Handling */}
-        <section className="mb-12 bg-gradient-to-br from-green-600/20 to-green-500/10 backdrop-blur-sm border-2 border-green-500/50 rounded-lg p-8">
+        {/* Contractor Scope Note */}
+        <section className="mb-12 bg-gradient-to-br from-blue-600/20 to-blue-500/10 backdrop-blur-sm border-2 border-blue-500/50 rounded-lg p-8">
           <div className="flex items-center gap-3 mb-6">
-            <CheckCircle2 className="w-8 h-8 text-green-400" />
-            <h2 className="text-3xl font-bold text-white">Purchase &amp; Commission Handling</h2>
+            <AlertCircle className="w-8 h-8 text-blue-400" />
+            <h2 className="text-3xl font-bold text-white">Important: Contractor Scope</h2>
           </div>
 
-          <div className="space-y-6">
-            <div className="bg-green-900/20 rounded-lg p-6">
-              <h3 className="text-xl font-bold text-green-400 mb-4">When a store purchases Olujo:</h3>
-              <div className="space-y-3">
-                <div className="flex items-start gap-3">
-                  <CheckCircle2 size={20} className="text-green-400 flex-shrink-0 mt-1" />
-                  <span className="text-slate-300">Update the lead status to "Purchase Confirmed"</span>
-                </div>
-                <div className="flex items-start gap-3">
-                  <CheckCircle2 size={20} className="text-green-400 flex-shrink-0 mt-1" />
-                  <span className="text-slate-300">Log the purchase date</span>
-                </div>
-                <div className="flex items-start gap-3">
-                  <CheckCircle2 size={20} className="text-green-400 flex-shrink-0 mt-1" />
-                  <span className="text-slate-300">Log the number of cases purchased</span>
-                </div>
-                <div className="flex items-start gap-3">
-                  <CheckCircle2 size={20} className="text-green-400 flex-shrink-0 mt-1" />
-                  <span className="text-slate-300">Upload proof (invoice screenshot, email confirmation, etc.)</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-green-900/20 rounded-lg p-6">
-              <h3 className="text-xl font-bold text-green-400 mb-4">Commission Attribution Rules:</h3>
-              <div className="space-y-3">
-                <div className="flex items-start gap-3">
-                  <CheckCircle2 size={20} className="text-green-400 flex-shrink-0 mt-1" />
-                  <div className="flex-1">
-                    <p className="text-slate-300 mb-2">
-                      <strong className="text-white">Last-touch attribution:</strong> The contractor who most recently logged an interaction with the store gets credited for the purchase.
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-3">
-                  <CheckCircle2 size={20} className="text-green-400 flex-shrink-0 mt-1" />
-                  <div className="flex-1">
-                    <p className="text-slate-300 mb-2">
-                      <strong className="text-white">No transcript, no credit:</strong> If the last interaction has no transcript or screenshot, the contractor does not get credit.
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-3">
-                  <CheckCircle2 size={20} className="text-green-400 flex-shrink-0 mt-1" />
-                  <div className="flex-1">
-                    <p className="text-slate-300 mb-2">
-                      <strong className="text-white">30-day commission window:</strong> If a store purchases within 30 days of the last logged interaction, the contractor earns commission.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-slate-900/50 rounded-lg p-6">
-              <h3 className="text-xl font-bold text-green-400 mb-4">Commission Structure:</h3>
-              <div className="space-y-2">
-                <p className="text-slate-300">
-                  • <strong className="text-white">First purchase:</strong> $50 per case
-                </p>
-                <p className="text-slate-300">
-                  • <strong className="text-white">Repeat purchase (same store):</strong> $25 per case
-                </p>
-              </div>
-            </div>
+          <div className="space-y-4 text-slate-300">
+            <p className="text-lg">
+              <strong className="text-white">Purchase tracking and commission processing are handled by Jeff's team, not contractors.</strong>
+            </p>
+            <p>
+              Contractors will earn <strong className="text-white">$25 per bottle</strong> if a store purchases within 30 days of their last logged interaction. However, contractors do not enter purchase data or calculate commissions.
+            </p>
+            <p>
+              For details on how purchases are tracked and how commissions are attributed, see the <Link href="/admin/projects/olujo-docs/purchase-tracking" className="text-blue-400 hover:text-blue-300 underline">Purchase Tracking SOP</Link> (Jeff's team only).
+            </p>
           </div>
         </section>
       </main>
