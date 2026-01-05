@@ -115,18 +115,21 @@ export class BlogGenerator {
   }
 
   /**
-   * Load custom guidelines from file
+   * Load custom guidelines from database
    */
   private async loadGuidelines(): Promise<string> {
     try {
-      const { readFile } = await import('fs/promises');
-      const path = await import('path');
-      const guidelinesPath = path.join(process.cwd(), 'data', 'blog-guidelines.txt');
-      const guidelines = await readFile(guidelinesPath, 'utf-8');
-      return guidelines;
-    } catch (error) {
-      // Return default guidelines if file doesn't exist
-      console.log('Using default guidelines (custom guidelines file not found)');
+      const { prisma } = await import('@/lib/prisma');
+      const setting = await prisma.blogSettings.findUnique({
+        where: { key: 'ai_guidelines' }
+      });
+
+      if (setting?.value) {
+        return setting.value;
+      }
+
+      // Return default guidelines if not found
+      console.log('Using default guidelines (custom guidelines not found in database)');
       return `You are an expert cybersecurity and IT services content writer for Triple Cities Tech, a managed IT services provider in Central New York serving small to medium businesses (20-50 employees).
 
 BRAND VOICE:

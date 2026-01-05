@@ -1,29 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
-import { writeFile, readFile, mkdir } from 'fs/promises'
-import path from 'path'
 
 export const dynamic = 'force-dynamic'
 
-const GUIDELINES_FILE = path.join(process.cwd(), 'data', 'blog-guidelines.txt')
-
-/**
- * GET /api/blog/settings/guidelines
- * Get current AI generation guidelines
- */
-export async function GET() {
-  try {
-    const session = await auth()
-    if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    try {
-      const guidelines = await readFile(GUIDELINES_FILE, 'utf-8')
-      return NextResponse.json({ guidelines })
-    } catch (error) {
-      // File doesn't exist yet - return default guidelines
-      const defaultGuidelines = `# AI Blog Generation Guidelines for Triple Cities Tech
+const DEFAULT_GUIDELINES = `# AI Blog Generation Guidelines for Triple Cities Tech
 
 ## Target Audience
 - Small and mid-sized businesses in Central New York
@@ -102,8 +82,27 @@ export async function GET() {
 
 Remember: The goal is to educate and build trust, not to sell aggressively. Help readers understand their risks and provide practical solutions.`
 
-      return NextResponse.json({ guidelines: defaultGuidelines })
+/**
+ * GET /api/blog/settings/guidelines
+ * Get current AI generation guidelines
+ */
+export async function GET() {
+  try {
+    const session = await auth()
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+
+    const { prisma } = await import('@/lib/prisma')
+
+    // Try to get guidelines from database
+    const setting = await prisma.blogSettings.findUnique({
+      where: { key: 'ai_guidelines' }
+    })
+
+    const guidelines = setting?.value || DEFAULT_GUIDELINES
+
+    return NextResponse.json({ guidelines })
   } catch (error) {
     console.error('Error fetching guidelines:', error)
     return NextResponse.json(
@@ -125,17 +124,21 @@ export async function POST(request: NextRequest) {
     }
 
     const { guidelines } = await request.json()
+    const { prisma } = await import('@/lib/prisma')
 
-    // Ensure data directory exists
-    const dataDir = path.join(process.cwd(), 'data')
-    try {
-      await mkdir(dataDir, { recursive: true })
-    } catch (error) {
-      // Directory might already exist
-    }
-
-    // Write guidelines to file
-    await writeFile(GUIDELINES_FILE, guidelines, 'utf-8')
+    // Upsert guidelines in database
+    await prisma.blogSettings.upsert({
+      where: { key: 'ai_guidelines' },
+      update: {
+        value: guidelines,
+        updatedBy: session.user?.email || 'unknown'
+      },
+      create: {
+        key: 'ai_guidelines',
+        value: guidelines,
+        updatedBy: session.user?.email || 'unknown'
+      }
+    })
 
     return NextResponse.json({ success: true })
   } catch (error) {

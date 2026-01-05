@@ -497,3 +497,13 @@ model SocialMediaPost {
   @@map("social_media_posts")
   @@index([blogPostId, platform])
 }
+
+model BlogSettings {
+  id         String   @id @default(uuid())
+  key        String   @unique
+  value      String   @db.Text
+  updatedAt  DateTime @updatedAt
+  updatedBy  String?
+
+  @@map("blog_settings")
+}
