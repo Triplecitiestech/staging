@@ -1,0 +1,40 @@
+import { auth } from '@/auth'
+import { redirect, notFound } from 'next/navigation'
+import AdminHeader from '@/components/admin/AdminHeader'
+import BlogPostEditor from '@/components/admin/BlogPostEditor'
+
+interface BlogPostEditPageProps {
+  params: Promise<{
+    id: string
+  }>
+}
+
+export default async function BlogPostEditPage({ params }: BlogPostEditPageProps) {
+  const session = await auth()
+  if (!session) {
+    redirect('/admin')
+  }
+
+  const { id } = await params
+  const { prisma } = await import('@/lib/prisma')
+
+  const post = await prisma.blogPost.findUnique({
+    where: { id },
+    include: {
+      category: true,
+      tags: true,
+      author: true
+    }
+  })
+
+  if (!post) {
+    notFound()
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-gray-900 to-slate-950">
+      <AdminHeader />
+      <BlogPostEditor post={post} />
+    </div>
+  )
+}
