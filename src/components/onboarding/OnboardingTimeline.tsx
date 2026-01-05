@@ -244,6 +244,7 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
       const response = await fetch('/api/customer/notes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           phaseId,
           content: phaseNoteText
@@ -289,6 +290,7 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
       const response = await fetch('/api/customer/notes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           taskId,
           content: taskNoteText
@@ -372,20 +374,20 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
 
       {/* Horizontal Timeline */}
       {viewMode === 'horizontal' && (
-        <div className="relative pb-8 pt-12">
-          {/* Left arrow - positioned outside the timeline */}
+        <div className="relative pb-8 pt-20">
+          {/* Left arrow - positioned outside the timeline, aligned with phase circle center */}
           <button
             onClick={scrollLeft}
-            className="absolute -left-6 top-[72px] z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
+            className="absolute -left-14 top-[88px] z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
             aria-label="Scroll left"
           >
             <ChevronLeft size={20} />
           </button>
 
-          {/* Right arrow - positioned outside the timeline */}
+          {/* Right arrow - positioned outside the timeline, aligned with phase circle center */}
           <button
             onClick={scrollRight}
-            className="absolute -right-6 top-[72px] z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
+            className="absolute -right-14 top-[88px] z-20 w-10 h-10 bg-cyan-500 hover:bg-cyan-600 text-white rounded-full shadow-lg flex items-center justify-center transition-all"
             aria-label="Scroll right"
           >
             <ChevronRight size={20} />
@@ -397,7 +399,7 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
             className="overflow-x-auto scrollbar-hide px-4"
             style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
           >
-            <div className="flex items-start gap-3 min-w-max">
+            <div className="flex items-start gap-0 min-w-max">
             {/* Start Marker */}
             <div className="flex flex-col items-center flex-shrink-0">
               <div className="w-16 h-16 rounded-full bg-gradient-to-br from-green-500 to-green-600 flex items-center justify-center shadow-lg shadow-green-500/50 mb-3">
@@ -415,7 +417,7 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
               return (
                 <React.Fragment key={phase.id}>
                   {/* Connector Line */}
-                  <div className="flex-shrink-0 h-1 w-6 md:w-16 bg-gradient-to-r from-cyan-500 to-cyan-400" style={{ marginTop: '32px' }} />
+                  <div className="flex-shrink-0 h-1 w-20 bg-gradient-to-r from-cyan-500 to-cyan-400" style={{ marginTop: '32px' }} />
 
                   {/* Phase Node */}
                   <div className="flex flex-col items-center flex-shrink-0 relative">
@@ -434,7 +436,7 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
                         isCurrent
                           ? 'border-cyan-400 bg-gradient-to-br from-cyan-500 to-cyan-600 shadow-cyan-500/50 scale-110'
                           : 'border-gray-700 bg-gray-800 hover:border-cyan-500/50 hover:scale-105',
-                        selectedPhase?.id === phase.id && 'ring-4 ring-cyan-500/30'
+                        selectedPhase?.id === phase.id && 'ring-8 ring-cyan-400 scale-110 border-cyan-300 shadow-cyan-400/70'
                       )}
                     >
                       <StatusIcon
@@ -470,7 +472,7 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
 
             {/* End Marker */}
             <>
-              <div className="flex-shrink-0 h-1 w-6 md:w-16 bg-gradient-to-r from-cyan-500 to-cyan-400" style={{ marginTop: '32px' }} />
+              <div className="flex-shrink-0 h-1 w-20 bg-gradient-to-r from-cyan-500 to-cyan-400" style={{ marginTop: '32px' }} />
               <div className="flex flex-col items-center flex-shrink-0">
                 <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center shadow-lg shadow-purple-500/50 mb-3">
                   <span className="text-white font-bold text-sm text-center leading-tight">
@@ -489,13 +491,13 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
       {viewMode === 'vertical' && (
         <div className="max-w-4xl mx-auto">
           {/* Start Marker */}
-          <div className="flex items-center gap-4 mb-6 justify-center">
-            <div className="flex flex-col items-center flex-shrink-0">
-              <div className="w-16 h-16 rounded-full bg-gradient-to-br from-green-500 to-green-600 flex items-center justify-center shadow-lg shadow-green-500/50">
-                <span className="text-white font-bold text-sm">START</span>
-              </div>
+          <div className="flex flex-col items-center mb-8">
+            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-green-500 to-green-600 flex items-center justify-center shadow-lg shadow-green-500/50 mb-2">
+              <span className="text-white font-bold text-sm">START</span>
             </div>
-            <div className="text-sm text-gray-400">Day 1</div>
+            <div className="text-sm text-gray-400 mb-8">Day 1</div>
+            {/* Connector after start */}
+            <div className="w-1 h-16 bg-gradient-to-b from-cyan-500 to-cyan-400" />
           </div>
 
           {/* Phases */}
@@ -507,94 +509,80 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
 
             return (
               <div key={phase.id} className="relative">
-                {/* Connector Line */}
-                {index < phases.length - 1 && !isExpanded && (
-                  <div className="absolute left-1/2 -translate-x-1/2 top-20 w-1 bg-gradient-to-b from-cyan-500 to-cyan-400 z-0" style={{ height: 'calc(100% + 24px)' }} />
-                )}
-                {index < phases.length - 1 && isExpanded && (
-                  <div className="absolute left-1/2 -translate-x-1/2 top-20 w-1 bg-gradient-to-b from-cyan-500 to-cyan-400 z-0" style={{ height: 'calc(100% - 100px)' }} />
-                )}
-
-                {/* Phase Container */}
-                <div className="flex flex-col items-center mb-6 relative z-10">
-                  {/* Phase Header */}
-                  <div className="flex items-start gap-4">
-                    {/* Phase Circle */}
-                    <div className="flex flex-col items-center flex-shrink-0">
-                      <button
-                        onClick={() => setSelectedPhase(isExpanded ? null : phase)}
-                        className={cn(
-                          'w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all border-4',
-                          isCurrent
-                            ? 'border-cyan-400 bg-gradient-to-br from-cyan-500 to-cyan-600 shadow-cyan-500/50 scale-110'
-                            : 'border-gray-700 bg-gray-800 hover:border-cyan-500/50 hover:scale-105',
-                          isExpanded && 'ring-4 ring-cyan-500/30'
-                        )}
-                      >
-                        <StatusIcon
-                          size={24}
-                          className={isCurrent ? 'text-white' : colors.icon}
-                          strokeWidth={2.5}
-                        />
-                      </button>
-                    </div>
-
-                    {/* Phase Info */}
-                    <div className="flex-1 pt-2">
-                      {/* Current indicator */}
-                      {isCurrent && (
-                        <div className="mb-2">
-                          <span className="bg-cyan-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg">
-                            YOU ARE HERE
-                          </span>
-                        </div>
-                      )}
-
-                      {/* Phase Number & Title */}
+                {/* Phase Container - Centered */}
+                <div className="flex flex-col items-center mb-8 relative z-10">
+                  {/* Phase Circle with Info */}
+                  <div className="flex flex-col items-center mb-4">
+                    {/* Current indicator */}
+                    {isCurrent && (
                       <div className="mb-2">
-                        <div className="text-xs text-cyan-400 font-bold mb-1">Phase {index + 1}</div>
-                        <h3 className="text-lg font-bold text-white">{phase.title}</h3>
-                      </div>
-
-                      {/* Status Badge */}
-                      <div className="flex flex-wrap gap-2 mb-3">
-                        <span className={cn(
-                          'px-3 py-1 rounded-full text-xs font-semibold border',
-                          colors.bg,
-                          colors.text,
-                          colors.border
-                        )}>
-                          {phase.status}
+                        <span className="bg-cyan-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg">
+                          YOU ARE HERE
                         </span>
-                        {phase.owner && (
-                          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-gray-700/50 text-gray-300 border border-gray-600">
-                            <User size={12} />
-                            {phase.owner}
-                          </span>
-                        )}
                       </div>
+                    )}
 
-                      {/* Description */}
-                      <p className="text-sm text-gray-300 mb-3">{phase.description}</p>
+                    <button
+                      onClick={() => setSelectedPhase(isExpanded ? null : phase)}
+                      className={cn(
+                        'w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-all mb-2 border-4',
+                        isCurrent
+                          ? 'border-cyan-400 bg-gradient-to-br from-cyan-500 to-cyan-600 shadow-cyan-500/50 scale-110'
+                          : 'border-gray-700 bg-gray-800 hover:border-cyan-500/50 hover:scale-105',
+                        isExpanded && 'ring-8 ring-cyan-400 scale-110 border-cyan-300 shadow-cyan-400/70'
+                      )}
+                    >
+                      <StatusIcon
+                        size={24}
+                        className={isCurrent ? 'text-white' : colors.icon}
+                        strokeWidth={2.5}
+                      />
+                    </button>
 
-                      {/* Expand/Collapse Button */}
-                      <button
-                        onClick={() => setSelectedPhase(isExpanded ? null : phase)}
-                        className="text-sm text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
-                      >
-                        {isExpanded ? (
-                          <>
-                            <ChevronUp size={16} />
-                            Hide Details
-                          </>
-                        ) : (
-                          <>
-                            <ChevronDown size={16} />
-                            View Details
-                          </>
-                        )}
-                      </button>
+                    {/* Phase Number & Title */}
+                    <div className="text-center mb-2">
+                      <div className="text-xs text-cyan-400 font-bold mb-1">Phase {index + 1}</div>
+                      <h3 className="text-lg font-bold text-white">{phase.title}</h3>
                     </div>
+
+                    {/* Status Badge */}
+                    <div className="flex flex-wrap gap-2 mb-3 justify-center">
+                      <span className={cn(
+                        'px-3 py-1 rounded-full text-xs font-semibold border',
+                        colors.bg,
+                        colors.text,
+                        colors.border
+                      )}>
+                        {phase.status}
+                      </span>
+                      {phase.owner && (
+                        <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-gray-700/50 text-gray-300 border border-gray-600">
+                          <User size={12} />
+                          {phase.owner}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Description */}
+                    <p className="text-sm text-gray-300 mb-3 text-center max-w-md">{phase.description}</p>
+
+                    {/* Expand/Collapse Button */}
+                    <button
+                      onClick={() => setSelectedPhase(isExpanded ? null : phase)}
+                      className="text-sm text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
+                    >
+                      {isExpanded ? (
+                        <>
+                          <ChevronUp size={16} />
+                          Hide Details
+                        </>
+                      ) : (
+                        <>
+                          <ChevronDown size={16} />
+                          View Details
+                        </>
+                      )}
+                    </button>
                   </div>
 
                   {/* Expanded Details - shown inline */}
@@ -760,22 +748,25 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
                   )}
                 </div>
 
-                {/* Connector line after expanded details */}
-                {index < phases.length - 1 && isExpanded && (
-                  <div className="flex justify-center mb-6">
-                    <div className="w-1 h-12 bg-gradient-to-b from-cyan-500 to-cyan-400" />
+                {/* Connector line between phases */}
+                {index < phases.length - 1 && (
+                  <div className="flex justify-center mb-0">
+                    <div className="w-1 h-16 bg-gradient-to-b from-cyan-500 to-cyan-400" />
                   </div>
                 )}
               </div>
             )
           })}
 
+          {/* Connector before end marker */}
+          <div className="flex justify-center mb-8">
+            <div className="w-1 h-16 bg-gradient-to-b from-cyan-500 to-cyan-400" />
+          </div>
+
           {/* End Marker */}
-          <div className="flex items-center gap-4 mt-6 justify-center">
-            <div className="flex flex-col items-center flex-shrink-0">
-              <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center shadow-lg shadow-purple-500/50">
-                <span className="text-white font-bold text-sm text-center leading-tight">FINISH</span>
-              </div>
+          <div className="flex flex-col items-center">
+            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center shadow-lg shadow-purple-500/50 mb-2">
+              <span className="text-white font-bold text-sm text-center leading-tight">FINISH</span>
             </div>
             <div className="text-sm text-gray-400">30 Days</div>
           </div>
