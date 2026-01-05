@@ -134,7 +134,7 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
   return (
     <>
       <Header />
-      <main className="min-h-screen bg-gradient-to-b from-gray-900 via-black to-gray-900">
+      <main className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900 pt-20">
         {/* Article Header */}
         <article className="max-w-4xl mx-auto px-4 py-12">
           {/* Category Badge */}
@@ -148,69 +148,54 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
           )}
 
           {/* Title */}
-          <h1 className="text-4xl md:text-5xl font-bold text-white mb-6 leading-tight">
+          <h1 className="text-5xl font-bold text-white mb-6 leading-tight">
             {post.title}
           </h1>
 
           {/* Meta Info */}
-          <div className="flex flex-wrap items-center gap-6 text-gray-400 mb-8 pb-8 border-b border-gray-700">
-          <div className="flex items-center gap-2">
-            <span className="text-2xl">📅</span>
-            <span>{new Date(post.publishedAt!).toLocaleDateString('en-US', {
+          <div className="flex flex-wrap items-center gap-6 text-sm text-gray-400 mb-8 pb-8 border-b border-gray-700">
+            <span>📅 {new Date(post.publishedAt!).toLocaleDateString('en-US', {
               year: 'numeric',
               month: 'long',
               day: 'numeric'
             })}</span>
+            <span>👤 {post.author?.name || 'Triple Cities Tech'}</span>
+            {post.views > 0 && <span>👁️ {post.views} views</span>}
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className="text-2xl">👤</span>
-            <span>{post.author?.name || 'Triple Cities Tech'}</span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-2xl">👁️</span>
-            <span>{post.views} views</span>
-          </div>
-        </div>
-
-          {/* Excerpt */}
-          <div className="text-xl text-gray-300 italic mb-8 p-6 bg-gray-800/50 backdrop-blur-md border-l-4 border-cyan-500 rounded">
-            {post.excerpt}
-          </div>
-
-          {/* Featured Image Placeholder */}
-          {post.featuredImage && (
-            <div className="mb-8 rounded-lg overflow-hidden">
-              <div className="h-96 bg-gradient-to-r from-cyan-500 to-cyan-600" />
+          {/* Content Card */}
+          <div className="bg-gray-800/50 backdrop-blur-sm border border-cyan-500/30 rounded-lg shadow-lg shadow-cyan-500/10 p-8 mb-8">
+            {/* Excerpt */}
+            <div className="text-xl text-cyan-300 italic mb-8 pb-8 border-b border-gray-700">
+              {post.excerpt}
             </div>
-          )}
 
-          {/* Blog Content */}
-          <div className="prose prose-lg max-w-none">
-            <ReactMarkdown
-              components={{
-                h2: (props) => <h2 className="text-3xl font-bold mt-8 mb-4 text-white" {...props} />,
-                h3: (props) => <h3 className="text-2xl font-bold mt-6 mb-3 text-white" {...props} />,
-                p: (props) => <p className="mb-4 text-gray-300 leading-relaxed" {...props} />,
-                ul: (props) => <ul className="list-disc list-inside mb-4 space-y-2" {...props} />,
-                ol: (props) => <ol className="list-decimal list-inside mb-4 space-y-2" {...props} />,
-                li: (props) => <li className="text-gray-300" {...props} />,
-                a: (props) => <a className="text-cyan-400 hover:text-cyan-300 underline" {...props} />,
-                strong: (props) => <strong className="font-bold text-white" {...props} />,
-                blockquote: (props) => (
-                  <blockquote className="border-l-4 border-cyan-500 pl-4 italic my-4 text-gray-300" {...props} />
-                )
-              }}
-            >
-              {post.content}
-            </ReactMarkdown>
+            {/* Blog Content */}
+            <div className="prose prose-lg max-w-none">
+              <ReactMarkdown
+                components={{
+                  h2: (props) => <h2 className="text-3xl font-bold mt-8 mb-4 text-white" {...props} />,
+                  h3: (props) => <h3 className="text-2xl font-bold mt-6 mb-3 text-white" {...props} />,
+                  p: (props) => <p className="mb-6 text-gray-300 leading-relaxed text-lg" {...props} />,
+                  ul: (props) => <ul className="list-disc list-inside mb-6 space-y-2 ml-4" {...props} />,
+                  ol: (props) => <ol className="list-decimal list-inside mb-6 space-y-2 ml-4" {...props} />,
+                  li: (props) => <li className="text-gray-300 text-lg" {...props} />,
+                  a: (props) => <a className="text-cyan-400 hover:text-cyan-300 underline" {...props} />,
+                  strong: (props) => <strong className="font-bold text-white" {...props} />,
+                  blockquote: (props) => (
+                    <blockquote className="border-l-4 border-cyan-500 pl-6 py-2 italic my-6 text-gray-300 bg-gray-900/30" {...props} />
+                  ),
+                  code: (props) => <code className="bg-gray-900/50 px-2 py-1 rounded text-cyan-300 text-sm" {...props} />
+                }}
+              >
+                {post.content}
+              </ReactMarkdown>
+            </div>
           </div>
 
           {/* Keywords/Tags */}
           {post.keywords.length > 0 && (
-            <div className="mt-12 pt-8 border-t border-gray-700">
-              <h3 className="text-sm font-semibold text-gray-400 mb-3">TAGS:</h3>
+            <div className="mb-8">
               <div className="flex flex-wrap gap-2">
                 {post.keywords.map((keyword, idx) => (
                   <span
@@ -224,119 +209,64 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
             </div>
           )}
 
-          {/* Social Share Buttons */}
-          <div className="mt-8 pt-8 border-t border-gray-700">
-            <h3 className="text-lg font-semibold text-white mb-4">Share this article:</h3>
-          <div className="flex gap-4">
-            <a
-              href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(postUrl)}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold"
+          {/* Back to Blog */}
+          <div className="mb-8">
+            <Link
+              href="/blog"
+              className="text-cyan-400 hover:text-cyan-300 font-semibold"
             >
-              Facebook
-            </a>
-            <a
-              href={`https://www.linkedin.com/shareArticle?mini=true&url=${encodeURIComponent(postUrl)}&title=${encodeURIComponent(post.title)}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="bg-blue-700 text-white px-6 py-3 rounded-lg hover:bg-blue-800 transition-colors font-semibold"
-            >
-              LinkedIn
-            </a>
-            <a
-              href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(postUrl)}&text=${encodeURIComponent(post.title)}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="bg-black text-white px-6 py-3 rounded-lg hover:bg-gray-800 transition-colors font-semibold"
-            >
-              Twitter
-            </a>
+              ← Back to Blog
+            </Link>
           </div>
-        </div>
 
-          {/* CTA Section */}
-          <div className="mt-12 bg-gradient-to-r from-cyan-500 to-cyan-600 text-white rounded-lg shadow-lg shadow-cyan-500/20 p-8">
-            <h3 className="text-2xl font-bold mb-3">Need IT Support?</h3>
-            <p className="mb-6 text-cyan-100">
-              Triple Cities Tech provides comprehensive IT services and cybersecurity solutions for small businesses in Central New York.
+          {/* CTA Section - like customer view */}
+          <div className="mt-12 p-8 bg-gray-800/50 backdrop-blur-sm border border-cyan-500/30 rounded-lg shadow-lg shadow-cyan-500/10 text-center">
+            <h3 className="text-lg font-bold text-cyan-400 mb-2">
+              Need IT Support or Cybersecurity Guidance?
+            </h3>
+            <p className="text-gray-300 mb-6">
+              Triple Cities Tech provides comprehensive IT services and cybersecurity solutions for businesses in Central New York.
             </p>
             <Link
               href="/contact"
-              className="inline-block bg-white text-cyan-600 px-6 py-3 rounded-lg font-semibold hover:bg-gray-100 transition-colors"
+              className="inline-block px-6 py-3 bg-cyan-500 hover:bg-cyan-600 text-white font-semibold rounded-lg transition-colors duration-300"
             >
               Get in Touch
             </Link>
           </div>
 
-        {/* Schema.org Article Markup */}
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{
-            __html: JSON.stringify({
-              '@context': 'https://schema.org',
-              '@type': 'Article',
-              headline: post.title,
-              description: post.excerpt,
-              author: {
-                '@type': 'Organization',
-                name: 'Triple Cities Tech'
-              },
-              publisher: {
-                '@type': 'Organization',
-                name: 'Triple Cities Tech',
-                logo: {
-                  '@type': 'ImageObject',
-                  url: `${baseUrl}/logo.png`
-                }
-              },
-              datePublished: post.publishedAt?.toISOString(),
-              dateModified: post.updatedAt.toISOString(),
-              mainEntityOfPage: {
-                '@type': 'WebPage',
-                '@id': postUrl
-              },
-              keywords: post.keywords.join(', ')
-            })
-          }}
-        />
-      </article>
-
-        {/* Related Posts */}
-        {relatedPosts.length > 0 && (
-          <section className="bg-gray-800/30 py-12 mt-12">
-            <div className="max-w-6xl mx-auto px-4">
-              <h2 className="text-3xl font-bold text-white mb-8">Related Articles</h2>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {relatedPosts.map((relatedPost) => (
-                  <Link
-                    key={relatedPost.id}
-                    href={`/blog/${relatedPost.slug}`}
-                    className="bg-gray-800/50 backdrop-blur-md border border-cyan-500/20 rounded-lg shadow-lg hover:shadow-xl hover:shadow-cyan-500/10 transition-all p-6 block"
-                  >
-                    <h3 className="text-xl font-bold mb-2 text-white hover:text-cyan-400 transition-colors">
-                      {relatedPost.title}
-                    </h3>
-                    <p className="text-gray-300 line-clamp-3 mb-3">
-                      {relatedPost.excerpt}
-                    </p>
-                    <span className="text-cyan-400 font-semibold">Read More →</span>
-                  </Link>
-                ))}
-              </div>
-            </div>
-          </section>
-        )}
-
-        {/* Back to Blog */}
-        <div className="max-w-4xl mx-auto px-4 py-8">
-          <Link
-            href="/blog"
-            className="text-cyan-400 hover:text-cyan-300 font-semibold"
-          >
-            ← Back to Blog
-          </Link>
-        </div>
+          {/* Schema.org Article Markup */}
+          <script
+            type="application/ld+json"
+            dangerouslySetInnerHTML={{
+              __html: JSON.stringify({
+                '@context': 'https://schema.org',
+                '@type': 'Article',
+                headline: post.title,
+                description: post.excerpt,
+                author: {
+                  '@type': 'Organization',
+                  name: 'Triple Cities Tech'
+                },
+                publisher: {
+                  '@type': 'Organization',
+                  name: 'Triple Cities Tech',
+                  logo: {
+                    '@type': 'ImageObject',
+                    url: `${baseUrl}/logo.png`
+                  }
+                },
+                datePublished: post.publishedAt?.toISOString(),
+                dateModified: post.updatedAt.toISOString(),
+                mainEntityOfPage: {
+                  '@type': 'WebPage',
+                  '@id': postUrl
+                },
+                keywords: post.keywords.join(', ')
+              })
+            }}
+          />
+        </article>
       </main>
       <Footer />
     </>
