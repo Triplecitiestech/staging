@@ -81,7 +81,7 @@ export async function GET() {
     }
 
     // Verify the schema is correct now
-    let verification = {
+    const verification = {
       join_table: false,
       settings_table: false,
       can_query: false
