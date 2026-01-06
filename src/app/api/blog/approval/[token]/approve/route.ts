@@ -27,7 +27,7 @@ export async function GET(
 
     if (!blogPost) {
       return new NextResponse(
-        generateResultHTML('Not Found', 'This approval link is invalid or has expired.', 'error'),
+        generateSimpleHTML('❌ Not Found', 'This approval link is invalid or has expired.'),
         {
           status: 404,
           headers: { 'Content-Type': 'text/html' }
@@ -37,11 +37,7 @@ export async function GET(
 
     if (blogPost.status !== 'PENDING_APPROVAL') {
       return new NextResponse(
-        generateResultHTML(
-          'Already Processed',
-          `This blog post has already been ${blogPost.status.toLowerCase()}.`,
-          'warning'
-        ),
+        generateSimpleHTML('⚠️ Already Processed', `This blog post has already been ${blogPost.status.toLowerCase()}.`),
         {
           status: 400,
           headers: { 'Content-Type': 'text/html' }
@@ -68,15 +64,9 @@ export async function GET(
     console.log(`📅 Scheduled for: ${scheduledFor.toISOString()}`);
 
     return new NextResponse(
-      generateResultHTML(
-        'Approved Successfully!',
-        `
-          <p>The blog post "<strong>${blogPost.title}</strong>" has been approved for publication.</p>
-          <p><strong>Scheduled for:</strong> ${scheduledFor.toLocaleString()}</p>
-          <p>The post will be automatically published to the website and shared on social media platforms.</p>
-          <p>You will receive a confirmation email once it's published.</p>
-        `,
-        'success'
+      generateSimpleHTML(
+        '✅ Approval Successful',
+        `Blog post "${blogPost.title}" approved and will publish on ${scheduledFor.toLocaleDateString()}.`
       ),
       {
         headers: { 'Content-Type': 'text/html' }
@@ -86,11 +76,7 @@ export async function GET(
     console.error('Error approving blog post:', error);
 
     return new NextResponse(
-      generateResultHTML(
-        'Error',
-        'Failed to approve blog post. Please try again or contact support.',
-        'error'
-      ),
+      generateSimpleHTML('❌ Error', 'Failed to approve blog post. Please try again or contact support.'),
       {
         status: 500,
         headers: { 'Content-Type': 'text/html' }
@@ -138,30 +124,7 @@ function calculateNextPublishingSlot(): Date {
   return publishTime;
 }
 
-function generateResultHTML(title: string, message: string, type: 'success' | 'error' | 'warning'): string {
-  const colors = {
-    success: {
-      bg: '#d4edda',
-      border: '#c3e6cb',
-      text: '#155724',
-      icon: '✅'
-    },
-    error: {
-      bg: '#f8d7da',
-      border: '#f5c6cb',
-      text: '#721c24',
-      icon: '❌'
-    },
-    warning: {
-      bg: '#fff3cd',
-      border: '#ffeaa7',
-      text: '#856404',
-      icon: '⚠️'
-    }
-  };
-
-  const color = colors[type];
-
+function generateSimpleHTML(title: string, message: string): string {
   return `
 <!DOCTYPE html>
 <html lang="en">
@@ -180,60 +143,32 @@ function generateResultHTML(title: string, message: string, type: 'success' | 'e
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     }
     .container {
-      max-width: 600px;
+      max-width: 500px;
       background: white;
       padding: 40px;
       border-radius: 12px;
       box-shadow: 0 10px 40px rgba(0,0,0,0.2);
       text-align: center;
     }
-    .icon {
-      font-size: 64px;
-      margin-bottom: 20px;
-    }
     h1 {
       color: #333;
-      margin: 0 0 20px 0;
-      font-size: 28px;
+      margin: 0 0 15px 0;
+      font-size: 24px;
     }
-    .message {
-      background: ${color.bg};
-      border: 1px solid ${color.border};
-      color: ${color.text};
-      padding: 20px;
-      border-radius: 8px;
-      margin: 20px 0;
-      text-align: left;
-    }
-    .message p {
-      margin: 10px 0;
-    }
-    .btn {
-      display: inline-block;
-      padding: 12px 30px;
-      background: #667eea;
-      color: white;
-      text-decoration: none;
-      border-radius: 6px;
-      margin-top: 20px;
-      font-weight: bold;
-      transition: background 0.3s;
-    }
-    .btn:hover {
-      background: #5568d3;
+    p {
+      color: #666;
+      margin: 0;
+      font-size: 16px;
+      line-height: 1.5;
     }
   </style>
 </head>
 <body>
   <div class="container">
-    <div class="icon">${color.icon}</div>
     <h1>${title}</h1>
-    <div class="message">
-      ${message}
-    </div>
-    <a href="https://www.triplecitiestech.com" class="btn">Return to Homepage</a>
+    <p>${message}</p>
   </div>
-  ${type === 'success' ? '<script>setTimeout(() => window.close(), 5000);</script>' : ''}
+  <script>setTimeout(() => window.close(), 3000);</script>
 </body>
 </html>
   `;
