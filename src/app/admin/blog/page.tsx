@@ -199,7 +199,7 @@ export default async function BlogManagementPage() {
             </Link>
 
             <a
-              href="/api/cron/generate-blog"
+              href="/api/blog/generate-now"
               target="_blank"
               className="flex items-center gap-3 p-4 bg-cyan-500/10 border border-cyan-500/30 rounded-lg hover:bg-cyan-500/20 transition-colors"
             >
