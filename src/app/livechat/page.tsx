@@ -8,19 +8,30 @@ import Breadcrumbs from '@/components/seo/Breadcrumbs'
 import { CONTACT_INFO } from '@/constants/data'
 import { PhoneIcon, MailIcon, ClockIcon } from '@/components/icons/TechIcons'
 
+interface ChatGenieWindow extends Window {
+  chatgenie?: {
+    default: {
+      messenger: () => {
+        show?: () => void;
+      };
+    };
+  };
+}
+
 export default function LiveChat() {
   useEffect(() => {
     // Try to open the chat widget automatically after page loads
     const timer = setTimeout(() => {
       // Check if the chat widget is loaded
-      if (typeof window !== 'undefined' && (window as any).chatgenie) {
+      const win = window as ChatGenieWindow
+      if (typeof window !== 'undefined' && win.chatgenie) {
         try {
           // Try to open the messenger programmatically
-          const messenger = (window as any).chatgenie.default.messenger()
+          const messenger = win.chatgenie.default.messenger()
           if (messenger && messenger.show) {
             messenger.show()
           }
-        } catch (error) {
+        } catch {
           console.log('Chat widget not ready yet')
         }
       }
