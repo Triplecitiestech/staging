@@ -88,26 +88,12 @@ export default function LiveChat() {
           <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-3xl p-12 shadow-xl text-center">
             <div className="max-w-2xl mx-auto">
 
-              {/* Animated Chat Icon */}
-              <div className="mb-8 flex justify-center">
-                <div className="relative">
-                  <div className="w-24 h-24 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center shadow-2xl animate-pulse">
-                    <svg className="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                    </svg>
-                  </div>
-                  {/* Pointer Arrow */}
-                  <div className="absolute -right-20 top-1/2 -translate-y-1/2 hidden md:block">
-                    <svg className="w-16 h-16 text-purple-400 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                    </svg>
-                  </div>
-                </div>
-              </div>
-
               <h2 className="text-4xl font-bold text-white mb-4">Click the Chat Bubble to Start</h2>
-              <p className="text-xl text-white/90 mb-8">
+              <p className="text-xl text-white/90 mb-4">
                 Look for the <strong className="text-purple-300">chat bubble</strong> in the <strong className="text-purple-300">bottom-right corner</strong> of your screen and click it to start a conversation with our team.
+              </p>
+              <p className="text-lg text-white/70 mb-8">
+                Limited availability after 5:00pm EST
               </p>
 
               {/* Features */}

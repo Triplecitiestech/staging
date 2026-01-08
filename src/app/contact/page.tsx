@@ -422,7 +422,7 @@ export default function Contact() {
                   <div>
                     <h4 className="text-lg font-bold text-white mb-1 group-hover:text-purple-300 transition-colors duration-300">Live Chat Support</h4>
                     <p className="text-purple-300 group-hover:text-purple-200 transition-colors text-base">
-                      Chat with us in real-time →
+                      Chat with us in real-time
                     </p>
                   </div>
                 </Link>
