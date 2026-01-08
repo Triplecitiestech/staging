@@ -6,7 +6,6 @@ import Footer from '@/components/layout/Footer'
 import PageHero from '@/components/shared/PageHero'
 import Breadcrumbs from '@/components/seo/Breadcrumbs'
 import { CONTACT_INFO } from '@/constants/data'
-import { PhoneIcon, MailIcon, ClockIcon } from '@/components/icons/TechIcons'
 
 interface ChatGenieWindow extends Window {
   chatgenie?: {
@@ -20,22 +19,49 @@ interface ChatGenieWindow extends Window {
 
 export default function LiveChat() {
   useEffect(() => {
-    // Try to open the chat widget automatically after page loads
-    const timer = setTimeout(() => {
-      // Check if the chat widget is loaded
+    // Try multiple times to open the chat widget
+    let attempts = 0
+    const maxAttempts = 10
+
+    const tryOpenChat = () => {
+      attempts++
+
+      // Try clicking the chat button directly
+      const chatButton = document.querySelector('[data-testid="messenger-button"]') as HTMLElement ||
+                        document.querySelector('.chatgenie-button') as HTMLElement ||
+                        document.querySelector('[id*="chatgenie"]') as HTMLElement
+
+      if (chatButton) {
+        console.log('Found chat button, clicking...')
+        chatButton.click()
+        return
+      }
+
+      // Try API method
       const win = window as ChatGenieWindow
-      if (typeof window !== 'undefined' && win.chatgenie) {
+      if (win.chatgenie) {
         try {
-          // Try to open the messenger programmatically
           const messenger = win.chatgenie.default.messenger()
           if (messenger && messenger.show) {
+            console.log('Opening chat via API...')
             messenger.show()
+            return
           }
-        } catch {
-          console.log('Chat widget not ready yet')
+        } catch (e) {
+          console.log('API method failed:', e)
         }
       }
-    }, 1000)
+
+      // Retry if not successful
+      if (attempts < maxAttempts) {
+        setTimeout(tryOpenChat, 500)
+      } else {
+        console.log('Could not auto-open chat after', maxAttempts, 'attempts')
+      }
+    }
+
+    // Start trying after 1 second
+    const timer = setTimeout(tryOpenChat, 1000)
 
     return () => clearTimeout(timer)
   }, [])
@@ -57,47 +83,6 @@ export default function LiveChat() {
 
       <div className="relative bg-gradient-to-br from-black via-gray-900 to-cyan-900 py-16 -mt-8 md:-mt-16">
         <div className="max-w-7xl mx-auto px-6">
-
-          {/* Info Banner */}
-          <div className="bg-white/10 backdrop-blur-sm border border-cyan-400/30 rounded-2xl p-6 mb-8">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-
-              <div className="flex items-center space-x-4">
-                <div className="w-12 h-12 bg-gradient-to-br from-cyan-500 to-blue-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg">
-                  <ClockIcon size={20} className="text-white" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-semibold text-white/70">Available</h3>
-                  <p className="text-base font-bold text-white">{CONTACT_INFO.hours}</p>
-                </div>
-              </div>
-
-              <div className="flex items-center space-x-4">
-                <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg">
-                  <PhoneIcon size={20} className="text-white" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-semibold text-white/70">Call Us</h3>
-                  <a href={`tel:${CONTACT_INFO.phone}`} className="text-base font-bold text-purple-300 hover:text-purple-200 transition-colors">
-                    {CONTACT_INFO.phone}
-                  </a>
-                </div>
-              </div>
-
-              <div className="flex items-center space-x-4">
-                <div className="w-12 h-12 bg-gradient-to-br from-emerald-500 to-teal-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg">
-                  <MailIcon size={20} className="text-white" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-semibold text-white/70">Email Us</h3>
-                  <a href={`mailto:${CONTACT_INFO.email}`} className="text-base font-bold text-emerald-300 hover:text-emerald-200 transition-colors">
-                    {CONTACT_INFO.email}
-                  </a>
-                </div>
-              </div>
-
-            </div>
-          </div>
 
           {/* Chat Instructions */}
           <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-3xl p-12 shadow-xl text-center">
