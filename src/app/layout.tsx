@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import Script from 'next/script'
 import './globals.css'
-import ScrollToTop from '@/components/ui/ScrollToTop'
 import FAQSchema from '@/components/seo/FAQSchema'
 import ServiceSchema from '@/components/seo/ServiceSchema'
 import AIMetadata from '@/components/seo/AIMetadata'
@@ -233,7 +232,6 @@ export default function RootLayout({
       <body className="antialiased overflow-x-hidden bg-black" suppressHydrationWarning={true}>
         <div className="min-h-screen w-full prevent-overflow">
           {children}
-          <ScrollToTop />
         </div>
         <SpeedInsights />
         <script
