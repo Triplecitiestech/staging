@@ -236,9 +236,7 @@ export default function RootLayout({
           <ScrollToTop />
         </div>
         <SpeedInsights />
-        <Script
-          id="chatgenie-widget"
-          strategy="lazyOnload"
+        <script
           dangerouslySetInnerHTML={{
             __html: `
               var chatgenieParams = {
