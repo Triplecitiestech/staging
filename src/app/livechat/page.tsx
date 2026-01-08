@@ -1,4 +1,6 @@
-import type { Metadata } from 'next'
+'use client'
+
+import { useEffect } from 'react'
 import Header from '@/components/layout/Header'
 import Footer from '@/components/layout/Footer'
 import PageHero from '@/components/shared/PageHero'
@@ -6,17 +8,27 @@ import Breadcrumbs from '@/components/seo/Breadcrumbs'
 import { CONTACT_INFO } from '@/constants/data'
 import { PhoneIcon, MailIcon, ClockIcon } from '@/components/icons/TechIcons'
 
-export const metadata: Metadata = {
-  title: 'Live Chat Support | Triple Cities Tech',
-  description: 'Chat with our support team in real-time. Get immediate answers to your IT questions from Triple Cities Tech.',
-  openGraph: {
-    title: 'Live Chat Support | Triple Cities Tech',
-    description: 'Chat with our support team in real-time. Get immediate answers to your IT questions.',
-    type: 'website',
-  }
-}
-
 export default function LiveChat() {
+  useEffect(() => {
+    // Try to open the chat widget automatically after page loads
+    const timer = setTimeout(() => {
+      // Check if the chat widget is loaded
+      if (typeof window !== 'undefined' && (window as any).chatgenie) {
+        try {
+          // Try to open the messenger programmatically
+          const messenger = (window as any).chatgenie.default.messenger()
+          if (messenger && messenger.show) {
+            messenger.show()
+          }
+        } catch (error) {
+          console.log('Chat widget not ready yet')
+        }
+      }
+    }, 1000)
+
+    return () => clearTimeout(timer)
+  }, [])
+
   return (
     <main>
       <Header />
@@ -76,36 +88,74 @@ export default function LiveChat() {
             </div>
           </div>
 
-          {/* Chat Container */}
-          <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-3xl p-8 shadow-xl min-h-[600px]">
-            <div className="text-center mb-8">
-              <h2 className="text-3xl font-bold text-white mb-3">Start a Conversation</h2>
-              <p className="text-white/90 text-lg">
-                Our team is here to help. Start a chat and we'll respond as soon as possible.
-              </p>
-            </div>
+          {/* Chat Instructions */}
+          <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-3xl p-12 shadow-xl text-center">
+            <div className="max-w-2xl mx-auto">
 
-            {/* Thread Messenger Embed */}
-            <div id="thread-messenger-container" className="min-h-[500px]">
-              <script
-                dangerouslySetInnerHTML={{
-                  __html: `
-                    var chatgenieParams = {
-                      appId: "3de45b0b-6349-42fa-a1d7-5a299b4c5ab2"
-                    }
-                    function run(ch){ch.default.messenger().initialize(chatgenieParams);}!function(){var e=window.chatgenie;if(e)run(e);else{function t(){var t=document.createElement("script");t.type="text/javascript",t.async=true,t.readyState?t.onreadystatechange=function(){"loaded"!==t.readyState&&"complete"!==t.readyState||(t.onreadystatechange=null,window.chatgenie&&(e=window.chatgenie,run(e)))}:t.onload=function(){window.chatgenie&&(e=window.chatgenie,run(e))},t.src="https://messenger.chatgenie.io/widget.js";var n=document.getElementsByTagName("script")[0];n.parentNode.insertBefore(t,n)}window.attachEvent?window.attachEvent("onload",t):window.addEventListener("load",t,!1)}}();
-                  `
-                }}
-              />
+              {/* Animated Chat Icon */}
+              <div className="mb-8 flex justify-center">
+                <div className="relative">
+                  <div className="w-24 h-24 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center shadow-2xl animate-pulse">
+                    <svg className="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                    </svg>
+                  </div>
+                  {/* Pointer Arrow */}
+                  <div className="absolute -right-20 top-1/2 -translate-y-1/2 hidden md:block">
+                    <svg className="w-16 h-16 text-purple-400 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+
+              <h2 className="text-4xl font-bold text-white mb-4">Chat Opens Automatically!</h2>
+              <p className="text-xl text-white/90 mb-8">
+                Our chat widget should open automatically. If it doesn't, look for the <strong className="text-purple-300">chat bubble</strong> in the <strong className="text-purple-300">bottom-right corner</strong> of your screen and click it to start chatting.
+              </p>
+
+              {/* Features */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-12">
+                <div className="bg-white/5 rounded-xl p-6">
+                  <div className="w-12 h-12 bg-gradient-to-br from-cyan-500 to-blue-500 rounded-lg flex items-center justify-center mx-auto mb-3">
+                    <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                  </div>
+                  <h3 className="text-lg font-bold text-white mb-2">Fast Response</h3>
+                  <p className="text-white/70 text-sm">Get answers in real-time during business hours</p>
+                </div>
+
+                <div className="bg-white/5 rounded-xl p-6">
+                  <div className="w-12 h-12 bg-gradient-to-br from-emerald-500 to-teal-500 rounded-lg flex items-center justify-center mx-auto mb-3">
+                    <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                    </svg>
+                  </div>
+                  <h3 className="text-lg font-bold text-white mb-2">Secure & Private</h3>
+                  <p className="text-white/70 text-sm">Your conversations are encrypted and confidential</p>
+                </div>
+
+                <div className="bg-white/5 rounded-xl p-6">
+                  <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center mx-auto mb-3">
+                    <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <h3 className="text-lg font-bold text-white mb-2">Available Now</h3>
+                  <p className="text-white/70 text-sm">Monday-Friday, 8:00am-5:00pm EST</p>
+                </div>
+              </div>
+
             </div>
           </div>
 
           {/* Alternative Contact Methods */}
           <div className="mt-8 text-center">
-            <p className="text-white/70 text-sm">
+            <p className="text-white/70 text-base">
               Prefer a different method? You can also{' '}
               <a href={`tel:${CONTACT_INFO.phone}`} className="text-cyan-300 hover:text-cyan-200 transition-colors font-semibold">
-                call us
+                call us at {CONTACT_INFO.phone}
               </a>
               {' '}or{' '}
               <a href={`mailto:${CONTACT_INFO.email}`} className="text-cyan-300 hover:text-cyan-200 transition-colors font-semibold">
