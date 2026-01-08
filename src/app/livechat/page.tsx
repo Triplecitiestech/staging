@@ -105,9 +105,9 @@ export default function LiveChat() {
                 </div>
               </div>
 
-              <h2 className="text-4xl font-bold text-white mb-4">Chat Opens Automatically!</h2>
+              <h2 className="text-4xl font-bold text-white mb-4">Click the Chat Bubble to Start</h2>
               <p className="text-xl text-white/90 mb-8">
-                Our chat widget should open automatically. If it doesn't, look for the <strong className="text-purple-300">chat bubble</strong> in the <strong className="text-purple-300">bottom-right corner</strong> of your screen and click it to start chatting.
+                Look for the <strong className="text-purple-300">chat bubble</strong> in the <strong className="text-purple-300">bottom-right corner</strong> of your screen and click it to start a conversation with our team.
               </p>
 
               {/* Features */}
