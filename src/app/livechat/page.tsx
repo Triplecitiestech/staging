@@ -97,44 +97,44 @@ export default function LiveChat() {
               </p>
 
               {/* Features */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mt-12">
-                <div className="bg-white/5 rounded-xl p-6">
-                  <div className="w-12 h-12 bg-gradient-to-br from-cyan-500 to-blue-500 rounded-lg flex items-center justify-center mx-auto mb-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 mt-12">
+                <div className="bg-white/5 rounded-xl p-8">
+                  <div className="w-12 h-12 bg-gradient-to-br from-cyan-500 to-blue-500 rounded-lg flex items-center justify-center mx-auto mb-4">
                     <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                     </svg>
                   </div>
-                  <h3 className="text-lg font-bold text-white mb-2">Fast Response</h3>
+                  <h3 className="text-lg font-bold text-white mb-3">Fast Response</h3>
                   <p className="text-white/70 text-sm">Get answers in real-time during business hours</p>
                 </div>
 
-                <div className="bg-white/5 rounded-xl p-6">
-                  <div className="w-12 h-12 bg-gradient-to-br from-emerald-500 to-teal-500 rounded-lg flex items-center justify-center mx-auto mb-3">
+                <div className="bg-white/5 rounded-xl p-8">
+                  <div className="w-12 h-12 bg-gradient-to-br from-emerald-500 to-teal-500 rounded-lg flex items-center justify-center mx-auto mb-4">
                     <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                     </svg>
                   </div>
-                  <h3 className="text-lg font-bold text-white mb-2">Secure & Private</h3>
+                  <h3 className="text-lg font-bold text-white mb-3">Secure & Private</h3>
                   <p className="text-white/70 text-sm">Your conversations are encrypted and confidential</p>
                 </div>
 
-                <div className="bg-white/5 rounded-xl p-6">
-                  <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center mx-auto mb-3">
+                <div className="bg-white/5 rounded-xl p-8">
+                  <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center mx-auto mb-4">
                     <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                   </div>
-                  <h3 className="text-lg font-bold text-white mb-2">Available Now</h3>
+                  <h3 className="text-lg font-bold text-white mb-3">Available Now</h3>
                   <p className="text-white/70 text-sm">Monday-Friday, 8:00am-5:00pm EST</p>
                 </div>
 
-                <div className="bg-white/5 rounded-xl p-6">
-                  <div className="w-12 h-12 bg-gradient-to-br from-orange-500 to-red-500 rounded-lg flex items-center justify-center mx-auto mb-3">
+                <div className="bg-white/5 rounded-xl p-8">
+                  <div className="w-12 h-12 bg-gradient-to-br from-orange-500 to-red-500 rounded-lg flex items-center justify-center mx-auto mb-4">
                     <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                     </svg>
                   </div>
-                  <h3 className="text-lg font-bold text-white mb-2">Verification Required</h3>
+                  <h3 className="text-lg font-bold text-white mb-3">Verification Required</h3>
                   <p className="text-white/70 text-sm">We verify your identity to ensure authorized access</p>
                 </div>
               </div>
