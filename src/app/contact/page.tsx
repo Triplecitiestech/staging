@@ -468,7 +468,7 @@ export default function Contact() {
                     <GlobeIcon size={24} className="text-white" />
                   </div>
                   <div>
-                    <h4 className="text-lg font-bold text-white mb-1 group-hover:text-indigo-300 transition-colors duration-300">Client Support Portal</h4>
+                    <h4 className="text-lg font-bold text-white mb-1 group-hover:text-indigo-300 transition-colors duration-300">Support Portal</h4>
                     <p className="text-white/90 text-sm group-hover:text-white transition-colors duration-300">Create and review tickets, documentation, training resources, and more.</p>
                   </div>
                 </a>
