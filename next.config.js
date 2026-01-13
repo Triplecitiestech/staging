@@ -78,7 +78,7 @@ const nextConfig = {
                   "base-uri 'self'",
                   "form-action 'self'",
                   "frame-ancestors 'none'",
-                  "frame-src https://challenges.cloudflare.com https://messenger.chatgenie.io",
+                  "frame-src https://challenges.cloudflare.com https://messenger.chatgenie.io https://www.youtube.com https://youtube.com",
                   "connect-src 'self' https://vercel.live https://vercel.com https://challenges.cloudflare.com https://messenger.chatgenie.io https://api.chatgenie.io https://*.cloudflare.com ws://localhost:* wss://localhost:*",
                 ].join('; ')
               : [
@@ -93,7 +93,7 @@ const nextConfig = {
                   "base-uri 'self'",
                   "form-action 'self'",
                   "frame-ancestors 'none'",
-                  "frame-src https://challenges.cloudflare.com https://messenger.chatgenie.io",
+                  "frame-src https://challenges.cloudflare.com https://messenger.chatgenie.io https://www.youtube.com https://youtube.com",
                   "connect-src 'self' https://vercel.live https://vercel.com https://challenges.cloudflare.com https://messenger.chatgenie.io https://api.chatgenie.io https://*.cloudflare.com",
                   "upgrade-insecure-requests",
                 ].join('; '),
