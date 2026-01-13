@@ -87,13 +87,13 @@ export default function MyGlue() {
 
       {/* Videos Section */}
       <div className="relative bg-gradient-to-br from-gray-900 via-black to-purple-900 py-24">
-        <div className="max-w-7xl mx-auto px-6">
+        <div className="max-w-4xl mx-auto px-6">
           <div className="text-center mb-16">
             <h2 className="text-4xl md:text-5xl font-bold text-white mb-4">Video Tutorials</h2>
             <p className="text-xl text-white/90">Watch these short videos to get started with MyGlue</p>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <div className="space-y-8">
             {videos.map((video, index) => (
               <div key={index} className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl overflow-hidden shadow-xl hover:border-purple-400/50 transition-all duration-300">
                 {/* Video Embed */}
