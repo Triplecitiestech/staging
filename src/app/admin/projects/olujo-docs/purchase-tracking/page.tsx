@@ -22,7 +22,7 @@ export default function PurchaseTrackingPage() {
                   Purchase Tracking SOP
                 </h1>
                 <p className="text-xs sm:text-sm text-slate-400 truncate">
-                  For Jeff&apos;s Team Only – Commission Attribution &amp; Processing
+                  For Kellan&apos;s Team Only – Commission Attribution &amp; Processing
                 </p>
               </div>
             </div>
@@ -62,7 +62,7 @@ export default function PurchaseTrackingPage() {
           </div>
           <div className="space-y-4 text-slate-300">
             <p className="text-lg">
-              This SOP is <strong className="text-white">for Jeff&apos;s team only</strong>. Contractors do not track purchases or process commissions.
+              This SOP is <strong className="text-white">for Kellan&apos;s team only</strong>. Contractors do not track purchases or process commissions.
             </p>
             <p>
               This document outlines how to track store purchases, correlate them with contractor outreach, and calculate commissions fairly and accurately.
@@ -151,7 +151,7 @@ export default function PurchaseTrackingPage() {
 
           <div className="space-y-6">
             <div className="bg-indigo-500/10 border-l-4 border-indigo-500 rounded px-6 py-4">
-              <h3 className="text-lg font-bold text-indigo-400 mb-3">When Jeff&apos;s team learns of a store purchase:</h3>
+              <h3 className="text-lg font-bold text-indigo-400 mb-3">When Kellan&apos;s team learns of a store purchase:</h3>
               <div className="space-y-3">
                 <div className="flex items-start gap-3">
                   <div className="w-6 h-6 rounded-full bg-indigo-400 flex items-center justify-center flex-shrink-0 mt-1">
@@ -273,7 +273,7 @@ export default function PurchaseTrackingPage() {
             <div className="bg-orange-900/20 border border-orange-500/30 rounded-lg p-6">
               <h3 className="text-lg font-bold text-orange-400 mb-3">Disputed Attribution</h3>
               <p className="text-slate-300 mb-3">
-                If there is a dispute about which contractor should receive credit, Jeff&apos;s team will review the CRM timeline and make the final determination based on:
+                If there is a dispute about which contractor should receive credit, Kellan&apos;s team will review the CRM timeline and make the final determination based on:
               </p>
               <div className="space-y-2 ml-4">
                 <p className="text-slate-300">• Most recent logged interaction with proper documentation</p>
@@ -303,7 +303,7 @@ export default function PurchaseTrackingPage() {
               All purchase tracking and commission calculations must be <strong className="text-white">documented in the CRM</strong> to ensure transparency and fairness.
             </p>
             <p>
-              Contractors can view their commission-eligible interactions in the CRM. If they believe they were incorrectly denied commission, they can escalate to Jeff&apos;s team with the CRM record as proof.
+              Contractors can view their commission-eligible interactions in the CRM. If they believe they were incorrectly denied commission, they can escalate to Kellan&apos;s team with the CRM record as proof.
             </p>
             <p>
               The CRM serves as the <strong className="text-white">single source of truth</strong>. No commission disputes will be entertained without proper CRM documentation.
