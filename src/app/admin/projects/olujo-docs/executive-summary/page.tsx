@@ -102,10 +102,10 @@ export default function ExecutiveSummaryPage() {
               </ul>
             </div>
 
-            {/* Jeff */}
+            {/* Kellan */}
             <div className="bg-slate-900/50 border border-purple-500/30 rounded-lg p-6">
               <h3 className="text-xl font-bold text-purple-400 mb-2">Business Project Manager</h3>
-              <p className="text-lg text-white mb-3">Jeff – Olujo</p>
+              <p className="text-lg text-white mb-3">Kellan – Olujo</p>
               <ul className="space-y-2 text-slate-300">
                 <li className="flex items-start gap-2">
                   <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-purple-400 mt-2" />

@@ -308,13 +308,13 @@ export default function CRMHandlingPage() {
 
           <div className="space-y-4 text-slate-300">
             <p className="text-lg">
-              <strong className="text-white">Purchase tracking and commission processing are handled by Jeff's team, not contractors.</strong>
+              <strong className="text-white">Purchase tracking and commission processing are handled by Kellan's team, not contractors.</strong>
             </p>
             <p>
               Contractors will earn a <strong className="text-white">one-time $25 commission</strong> if a store purchases within 30 days of their last logged interaction. However, contractors do not enter purchase data or calculate commissions.
             </p>
             <p>
-              For details on how purchases are tracked and how commissions are attributed, see the <Link href="/admin/projects/olujo-docs/purchase-tracking" className="text-blue-400 hover:text-blue-300 underline">Purchase Tracking SOP</Link> (Jeff's team only).
+              For details on how purchases are tracked and how commissions are attributed, see the <Link href="/admin/projects/olujo-docs/purchase-tracking" className="text-blue-400 hover:text-blue-300 underline">Purchase Tracking SOP</Link> (Kellan's team only).
             </p>
           </div>
         </section>
