@@ -91,9 +91,9 @@ export default function OlujoPlanPage() {
               </div>
             </div>
 
-            {/* Jeff */}
+            {/* Kellan */}
             <div className="bg-slate-900/50 border border-purple-500/30 rounded-lg p-6">
-              <h3 className="text-xl font-bold text-purple-400 mb-2">Jeff — Operations Lead</h3>
+              <h3 className="text-xl font-bold text-purple-400 mb-2">Kellan — Operations Lead</h3>
               <p className="text-sm text-slate-400 mb-4">(Olujo - Day-to-Day)</p>
 
               <div>
@@ -182,7 +182,7 @@ export default function OlujoPlanPage() {
             ]}
             owners={[
               { name: "Adam", role: "final approval" },
-              { name: "Jeff", role: "reviews + coordinates" },
+              { name: "Kellan", role: "reviews + coordinates" },
               { name: "Kurtis (TCT)", role: "documents + enforces" }
             ]}
             exitCriteria={[
@@ -211,12 +211,12 @@ export default function OlujoPlanPage() {
             ]}
             owners={[
               { name: "Adam", role: "brand approval" },
-              { name: "Jeff", role: "operational feedback" },
+              { name: "Kellan", role: "operational feedback" },
               { name: "Kurtis (TCT)", role: "structure + compliance framing" }
             ]}
             exitCriteria={[
               "Script can be read by any rep with no interpretation",
-              "Jeff can explain the rules in one minute",
+              "Kellan can explain the rules in one minute",
               "Adam confirms brand comfort"
             ]}
             documents={[
@@ -241,7 +241,7 @@ export default function OlujoPlanPage() {
               "Day-1 onboarding checklist"
             ]}
             owners={[
-              { name: "Jeff", role: "interview coordination" },
+              { name: "Kellan", role: "interview coordination" },
               { name: "Adam", role: "strategic veto only" },
               { name: "Kurtis (TCT)", role: "onboarding SOP + compliance rules" }
             ]}
@@ -278,7 +278,7 @@ export default function OlujoPlanPage() {
             ]}
             owners={[
               { name: "Kurtis (TCT)", role: "scraping + normalization" },
-              { name: "Jeff", role: "spot-check accuracy" }
+              { name: "Kellan", role: "spot-check accuracy" }
             ]}
             exitCriteria={[
               "NY and FL datasets imported simultaneously",
@@ -356,7 +356,7 @@ export default function OlujoPlanPage() {
               "Script comfort"
             ]}
             owners={[
-              { name: "Jeff", role: "daily ops" },
+              { name: "Kellan", role: "daily ops" },
               { name: "Kurtis (TCT)", role: "system monitoring" },
               { name: "Adam", role: "strategic review" }
             ]}
@@ -388,7 +388,7 @@ export default function OlujoPlanPage() {
               "Commission tracking live"
             ]}
             owners={[
-              { name: "Jeff", role: "people + ops" },
+              { name: "Kellan", role: "people + ops" },
               { name: "Kurtis (TCT)", role: "reporting + data integrity" },
               { name: "Adam", role: "growth approval" }
             ]}
@@ -408,7 +408,7 @@ export default function OlujoPlanPage() {
             color="purple"
             goal="Ensure commissions are fair, provable, and undisputed."
             process={[
-              "Jeff's team tracks store purchases",
+              "Kellan's team tracks store purchases",
               "Bottle count verified",
               "CRM correlates purchase to rep outreach",
               "System attributes rep (last-touch within 30 days)",
@@ -416,7 +416,7 @@ export default function OlujoPlanPage() {
               "Payment processed via Gusto"
             ]}
             owners={[
-              { name: "Jeff", role: "validates purchases & processes commissions" },
+              { name: "Kellan", role: "validates purchases & processes commissions" },
               { name: "Kurtis (TCT)", role: "system enforcement" },
               { name: "Adam", role: "final approval for disputes" }
             ]}
@@ -432,7 +432,7 @@ export default function OlujoPlanPage() {
 
         {/* Final Principle */}
         <div className="mt-12 bg-gradient-to-br from-blue-600/20 to-blue-500/10 backdrop-blur-sm border-2 border-blue-500/50 rounded-lg p-8">
-          <h2 className="text-2xl font-bold text-blue-400 mb-4 text-center">Final Principle (For Adam & Jeff)</h2>
+          <h2 className="text-2xl font-bold text-blue-400 mb-4 text-center">Final Principle (For Adam & Kellan)</h2>
           <p className="text-white text-lg text-center mb-6">
             This project does <strong>not</strong> win by persuasion.
           </p>
