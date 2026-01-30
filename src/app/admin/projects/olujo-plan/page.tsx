@@ -227,45 +227,12 @@ export default function OlujoPlanPage() {
           {/* Phase 3 */}
           <PhaseCard
             number={3}
-            title="Hiring & Onboarding Pipeline"
-            subtitle=""
-            icon={<Users className="w-6 h-6" />}
-            color="purple"
-            goal="Recruit reps who sound natural, look legitimate, and can follow rules."
-            deliverables={[
-              "onlinejobs.ph job post",
-              "Interview rubric (English clarity, tone, socials)",
-              "Alias policy (American-sounding first name)",
-              "Social profile requirements (IG + FB review)",
-              "Contractor agreement (temporary, hourly + commission)",
-              "Day-1 onboarding checklist"
-            ]}
-            owners={[
-              { name: "Kellan", role: "interview coordination" },
-              { name: "Adam", role: "strategic veto only" },
-              { name: "Kurtis (TCT)", role: "onboarding SOP + compliance rules" }
-            ]}
-            exitCriteria={[
-              "First 2–3 reps fully trained",
-              "Social profiles approved",
-              "Reps understand \"we do NOT sell\""
-            ]}
-            documents={[
-              { title: "Hiring Guidelines", href: "/admin/projects/olujo-docs/hiring-guidelines" },
-              { title: "Contractor Agreement", href: "/admin/projects/olujo-docs/contractor-agreement" }
-            ]}
-          />
-
-          {/* Phase 4 */}
-          <PhaseCard
-            number={4}
             title="Lead Acquisition & Normalization"
             subtitle=""
             icon={<Database className="w-6 h-6" />}
             color="green"
-            goal="Acquire a clean, deduplicated liquor store lead dataset using cost-effective, reliable sources, prioritizing speed, legality, and data accuracy over custom engineering."
+            goal="Acquire a clean, deduplicated liquor store lead dataset using cost-effective, reliable sources, prioritizing speed, legality, and data accuracy."
             outcomes={[
-              "No custom lead-scraping software for MVP",
               "Prefer authoritative or existing data sources",
               "Normalize and clean data instead of over-engineering collection",
               "Expand methods only after pilot validation"
@@ -273,8 +240,7 @@ export default function OlujoPlanPage() {
             scope={[
               "Government / Regulatory Sources (e.g., NY State Liquor Authority public license datasets): Authoritative, complete coverage, legally clean, free or low-cost",
               "Existing Commercial Lead Providers: Alcohol/retail datasets, social enrichment tools, faster to market, pre-normalized",
-              "Manual or Semi-Automated Enrichment: Tools to append Facebook pages and Instagram profiles after base dataset is established",
-              "Explicitly Out of Scope (MVP): Custom web scraping systems, AI-driven scraping pipelines, large-scale crawling infrastructure"
+              "Manual or Semi-Automated Enrichment: Tools to append Facebook pages and Instagram profiles after base dataset is established"
             ]}
             deliverables={[
               "Selected acquisition method documented",
@@ -293,6 +259,46 @@ export default function OlujoPlanPage() {
             ]}
           />
 
+          {/* Phase 4 */}
+          <PhaseCard
+            number={4}
+            title="Cost Modeling & Tooling Selection"
+            subtitle="REQUIRED BEFORE PILOT"
+            icon={<DollarSign className="w-6 h-6" />}
+            color="purple"
+            goal="Identify, document, and review all operational costs associated with running the Olujo Brand Awareness Outreach Engine before pilot launch."
+            outcomes={[
+              "Understand monthly cost per contractor",
+              "Identify fixed vs variable expenses",
+              "Review contractual commitments (monthly vs annual)",
+              "Model budget impact at pilot scale and growth scale"
+            ]}
+            scope={[
+              "CRM Costs: HubSpot Starter Plan ($15/user/month monthly, $9/user/month annual) - Used for lead tracking, proof logging, attribution, and auditability",
+              "Phone System: RingCentral (~$30/user/month) - Includes desktop and mobile apps, allows offshore contractors to place U.S.-based calls without international charges. Note: RingCentral commonly prefers annual commitments; month-to-month availability and pricing must be confirmed",
+              "Contractor Labor: Hourly rate, expected weekly hours, pilot headcount (2-3 reps), scaled headcount (up to 10 reps)",
+              "Lead Acquisition: Government/regulatory data sources (e.g., state liquor authority datasets - typically free or low-cost but requires cleanup), Commercial lead providers (per-record or subscription costs, faster access, variable quality)",
+              "Other Potential Costs: Transcription tools (if used), Data enrichment tools (optional), Management or QA tooling (if required)"
+            ]}
+            deliverables={[
+              "Documented cost assumptions by category",
+              "Estimated monthly pilot cost",
+              "Estimated monthly cost at scale",
+              "Identification of fixed costs, per-user costs, and per-lead costs",
+              "Budget discussion and acknowledgment"
+            ]}
+            owners={[
+              { name: "Kellan", role: "cost modeling and tooling decisions" },
+              { name: "Adam", role: "approval authority" },
+              { name: "Kurtis (TCT)", role: "advisory input only" }
+            ]}
+            exitCriteria={[
+              "All major costs identified and reviewed",
+              "Tooling assumptions documented",
+              "Budget acknowledged before pilot launch"
+            ]}
+          />
+
           {/* Phase 5 */}
           <PhaseCard
             number={5}
@@ -300,7 +306,7 @@ export default function OlujoPlanPage() {
             subtitle=""
             icon={<Database className="w-6 h-6" />}
             color="cyan"
-            goal="Configure HubSpot CRM to enforce proof-first behavior and attribution. System configuration and enforcement will be handled within a commercially supported CRM platform (HubSpot). No custom software, hosting, or infrastructure management is in scope."
+            goal="Configure HubSpot CRM to enforce proof-first behavior and attribution. System configuration and enforcement will be handled within a commercially supported CRM platform (HubSpot)."
             capabilities={[
               "Lead list with mandatory statuses",
               "Lead detail page with full timeline",
@@ -345,41 +351,32 @@ export default function OlujoPlanPage() {
           {/* Phase 6 */}
           <PhaseCard
             number={6}
-            title="Cost Modeling & Tooling Selection"
-            subtitle="REQUIRED BEFORE PILOT"
-            icon={<DollarSign className="w-6 h-6" />}
-            color="purple"
-            goal="Identify, document, and review all operational costs associated with running the Olujo Brand Awareness Outreach Engine before pilot launch."
-            outcomes={[
-              "Understand monthly cost per contractor",
-              "Identify fixed vs variable expenses",
-              "Review contractual commitments (monthly vs annual)",
-              "Model budget impact at pilot scale and growth scale"
-            ]}
-            scope={[
-              "CRM Costs: HubSpot Starter Plan ($15/user/month monthly, $9/user/month annual) - Used for lead tracking, proof logging, attribution, and auditability",
-              "Phone System: RingCentral (~$30/user/month) - Includes desktop and mobile apps, allows offshore contractors to place U.S.-based calls without international charges. Note: RingCentral commonly prefers annual commitments; month-to-month availability and pricing must be confirmed",
-              "Contractor Labor: Hourly rate, expected weekly hours, pilot headcount (2-3 reps), scaled headcount (up to 10 reps)",
-              "Lead Acquisition: Government/regulatory data sources (e.g., state liquor authority datasets - typically free or low-cost but requires cleanup), Commercial lead providers (per-record or subscription costs, faster access, variable quality)",
-              "Other Potential Costs: Transcription tools (if used), Data enrichment tools (optional), Management or QA tooling (if required)",
-              "Explicitly Out of Scope: Custom-built scraping systems, AI crawling pipelines"
-            ]}
+            title="Hiring & Onboarding Pipeline"
+            subtitle=""
+            icon={<Users className="w-6 h-6" />}
+            color="indigo"
+            goal="Recruit reps who sound natural, look legitimate, and can follow rules."
             deliverables={[
-              "Documented cost assumptions by category",
-              "Estimated monthly pilot cost",
-              "Estimated monthly cost at scale",
-              "Identification of fixed costs, per-user costs, and per-lead costs",
-              "Budget discussion and acknowledgment"
+              "onlinejobs.ph job post",
+              "Interview rubric (English clarity, tone, socials)",
+              "Alias policy (American-sounding first name)",
+              "Social profile requirements (IG + FB review)",
+              "Contractor agreement (temporary, hourly + commission)",
+              "Day-1 onboarding checklist"
             ]}
             owners={[
-              { name: "Kellan", role: "cost modeling and tooling decisions" },
-              { name: "Adam", role: "approval authority" },
-              { name: "Kurtis (TCT)", role: "advisory input only" }
+              { name: "Kellan", role: "interview coordination and onboarding execution" },
+              { name: "Adam", role: "strategic veto only" },
+              { name: "Kurtis (TCT)", role: "advisory input on compliance and SOP structure" }
             ]}
             exitCriteria={[
-              "All major costs identified and reviewed",
-              "Tooling assumptions documented",
-              "Budget acknowledged before pilot launch"
+              "First 2–3 reps fully trained",
+              "Social profiles approved",
+              "Reps understand \"we do NOT sell\""
+            ]}
+            documents={[
+              { title: "Hiring Guidelines", href: "/admin/projects/olujo-docs/hiring-guidelines" },
+              { title: "Contractor Agreement", href: "/admin/projects/olujo-docs/contractor-agreement" }
             ]}
           />
 
