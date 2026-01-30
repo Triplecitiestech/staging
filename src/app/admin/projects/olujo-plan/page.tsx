@@ -48,7 +48,7 @@ export default function OlujoPlanPage() {
           </div>
           <p className="text-sm text-cyan-300 mb-6 uppercase tracking-wide font-semibold">(Set Once)</p>
 
-          <div className="grid md:grid-cols-3 gap-6">
+          <div className="grid md:grid-cols-4 gap-6">
             {/* Adam */}
             <div className="bg-slate-900/50 border border-cyan-500/30 rounded-lg p-6">
               <h3 className="text-xl font-bold text-cyan-400 mb-2">Adam — Executive Owner</h3>
@@ -91,19 +91,43 @@ export default function OlujoPlanPage() {
                   </li>
                   <li className="flex items-start gap-2">
                     <CheckCircle2 size={16} className="text-green-400 mt-0.5 flex-shrink-0" />
-                    <span>CRM setup, configuration, and enforcement</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <CheckCircle2 size={16} className="text-green-400 mt-0.5 flex-shrink-0" />
                     <span>Lead status usage and workflow compliance</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <CheckCircle2 size={16} className="text-green-400 mt-0.5 flex-shrink-0" />
-                    <span>Purchase validation and commission processing</span>
+                    <span>Routing inbound calls to licensed sales staff</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <CheckCircle2 size={16} className="text-green-400 mt-0.5 flex-shrink-0" />
                     <span>Operational reporting and QA oversight</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            {/* Lucy */}
+            <div className="bg-slate-900/50 border border-green-500/30 rounded-lg p-6">
+              <h3 className="text-xl font-bold text-green-400 mb-2">Lucy — CRM Administrator</h3>
+              <p className="text-sm text-slate-400 mb-4">(Olujo - CRM)</p>
+
+              <div>
+                <p className="text-sm font-semibold text-white mb-2">Owns:</p>
+                <ul className="space-y-1 text-sm text-slate-300">
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 size={16} className="text-green-400 mt-0.5 flex-shrink-0" />
+                    <span>Salesforce CRM configuration and setup</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 size={16} className="text-green-400 mt-0.5 flex-shrink-0" />
+                    <span>Field and status enforcement</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 size={16} className="text-green-400 mt-0.5 flex-shrink-0" />
+                    <span>Contractor permissions and access</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 size={16} className="text-green-400 mt-0.5 flex-shrink-0" />
+                    <span>Data integrity and auditability</span>
                   </li>
                 </ul>
               </div>
@@ -156,14 +180,14 @@ export default function OlujoPlanPage() {
             outcomes={[
               "Everyone agrees this is awareness only",
               "Statuses and proof requirements are frozen",
-              "Commission rules are unambiguous",
+              "Compliance with NY liquor regulations confirmed",
               "No engineering starts without this complete"
             ]}
             deliverables={[
               "Final operating rules (what reps can/can't say)",
               "Final lead statuses (already defined)",
-              "Commission attribution rules (last-touch, verified)",
-              "Contractor requirements (alias, socials, hours)",
+              "Inbound call routing policy (contractors do NOT answer inbound calls)",
+              "Contractor requirements (alias, socials, hours, hourly-only pay)",
               "Project roles formally acknowledged"
             ]}
             owners={[
@@ -225,9 +249,9 @@ export default function OlujoPlanPage() {
               "Model budget impact at pilot scale and growth scale"
             ]}
             scope={[
-              "CRM Costs: HubSpot Starter Plan ($15/user/month monthly, $9/user/month annual) - Used for lead tracking, proof logging, attribution, and auditability",
-              "Phone System: RingCentral (~$30/user/month) - Includes desktop and mobile apps, allows offshore contractors to place U.S.-based calls without international charges. Note: RingCentral commonly prefers annual commitments; month-to-month availability and pricing must be confirmed",
-              "Contractor Labor: Hourly rate, expected weekly hours, pilot headcount (2-3 reps), scaled headcount (up to 10 reps)",
+              "Salesforce CRM: User licenses for lead tracking, proof logging, and auditability. Configuration handled by Lucy.",
+              "Phone System: RingCentral (~$30/user/month) - Includes desktop and mobile apps, allows offshore contractors to place U.S.-based calls without international charges. One phone number per contractor for outbound calls. Note: RingCentral commonly prefers annual commitments; month-to-month availability and pricing must be confirmed",
+              "Contractor Labor: Hourly rate only (no commissions), expected weekly hours, pilot headcount (2-3 reps), scaled headcount (up to 10 reps)",
               "Lead Acquisition: Government/regulatory data sources (e.g., state liquor authority datasets - typically free or low-cost but requires cleanup), Commercial lead providers (per-record or subscription costs, faster access, variable quality)",
               "Other Potential Costs: Transcription tools (if used), Data enrichment tools (optional), Management or QA tooling (if required)"
             ]}
@@ -288,22 +312,22 @@ export default function OlujoPlanPage() {
           {/* Phase 5 */}
           <PhaseCard
             number={5}
-            title="CRM Configuration (HubSpot)"
+            title="CRM Configuration (Salesforce)"
             subtitle=""
             icon={<Database className="w-6 h-6" />}
             color="cyan"
-            goal="Configure HubSpot CRM to enforce proof-first behavior and attribution. System configuration and enforcement will be handled within a commercially supported CRM platform (HubSpot)."
+            goal="Configure Salesforce CRM to enforce proof-first behavior, prevent duplicate touches, and ensure full auditability. Configuration handled by Lucy."
             capabilities={[
               "Lead list with mandatory statuses",
               "Lead detail page with full timeline",
               "Contact data fields: Business name, Phone, PoC name, Facebook page, Instagram page",
               "Notes field for rep observations",
               "Call transcript upload functionality",
-              "Call log with metadata",
+              "Call log with metadata and inbound call tracking",
               "Social activity logging (FB messages/posts, IG DMs)",
-              "Rep assignment & last-touch tracking",
-              "Admin-only purchase & commission entry",
-              "Audit-friendly (no deletes)"
+              "Rep assignment to prevent duplicate contractor touches",
+              "Inbound call logging (visible in Salesforce, routed to licensed sales staff)",
+              "Audit-friendly (no deletes, full history)"
             ]}
             statuses={[
               "New – Uncontacted",
@@ -315,19 +339,22 @@ export default function OlujoPlanPage() {
               "Social Comment Posted",
               "Social Response – Carries Olujo",
               "Social Response – Does Not Carry",
+              "Inbound Interest – Needs Sales Follow-Up",
               "Do Not Call",
               "Needs Review (QA)"
             ]}
             owners={[
-              { name: "Kellan", role: "HubSpot setup and configuration, field and status enforcement, contractor permissions and access, day-to-day CRM operation" },
-              { name: "Kurtis (TCT)", role: "advisory support and review, best-practice recommendations, validation of enforcement approach" }
+              { name: "Lucy", role: "Salesforce configuration, field and status setup, contractor permissions, enforcement structure" },
+              { name: "Kellan", role: "day-to-day CRM usage oversight and compliance monitoring" },
+              { name: "Kurtis (TCT)", role: "advisory support and review, best-practice recommendations" }
             ]}
             exitCriteria={[
               "All agreed contact data points implemented",
-              "Reps can complete full workflow in CRM",
+              "Reps can complete full workflow in Salesforce",
               "Call transcript upload functional",
               "Proof cannot be skipped",
-              "Admin can verify purchases"
+              "Rep assignment prevents duplicate touches",
+              "Inbound call routing visible and functional"
             ]}
             documents={[
               { title: "CRM Handling SOP", href: "/admin/projects/olujo-docs/crm-handling" }
@@ -347,8 +374,8 @@ export default function OlujoPlanPage() {
               "Interview rubric (English clarity, tone, socials)",
               "Alias policy (American-sounding first name)",
               "Social profile requirements (IG + FB review)",
-              "Contractor agreement (temporary, hourly + commission)",
-              "Day-1 onboarding checklist"
+              "Contractor agreement (temporary, hourly-only, no commissions)",
+              "Day-1 onboarding checklist including inbound call policy"
             ]}
             owners={[
               { name: "Kellan", role: "interview coordination and onboarding execution" },
@@ -416,7 +443,7 @@ export default function OlujoPlanPage() {
               "Rep performance reports",
               "Coverage reporting (stores touched by market)",
               "QA flags and coaching notes",
-              "Commission tracking live"
+              "Compliance monitoring dashboard"
             ]}
             owners={[
               { name: "Kellan", role: "people + ops + reporting + data integrity" },
@@ -425,38 +452,36 @@ export default function OlujoPlanPage() {
             ]}
             exitCriteria={[
               "Consistent quality across reps",
-              "Clear attribution for any purchases",
-              "No operational drift"
+              "No operational drift",
+              "Full compliance with NY liquor regulations"
             ]}
           />
 
           {/* Phase 9 */}
           <PhaseCard
             number={9}
-            title="Purchase Tracking & Commission Processing"
+            title="Inbound Sales Handoff & Compliance Monitoring"
             subtitle=""
-            icon={<DollarSign className="w-6 h-6" />}
+            icon={<Target className="w-6 h-6" />}
             color="purple"
-            goal="Ensure commissions are fair, provable, and undisputed."
+            goal="Ensure inbound interest is properly routed to licensed sales staff and all contractor activity remains compliant with NY State liquor regulations."
             process={[
-              "Kellan's team tracks store purchases",
-              "Bottle count verified",
-              "CRM correlates purchase to rep outreach",
-              "System attributes rep (last-touch within 30 days)",
-              "Commission calculated ($25 per bottle sold)",
-              "Payment processed via Gusto"
+              "Inbound calls logged automatically in Salesforce",
+              "Kellan's team reviews inbound call queue daily",
+              "Licensed sales staff follows up on inbound interest",
+              "Contractor activity audited for compliance (no selling, no price quotes, no order-taking)",
+              "Special-order / false-buyer situations flagged and handled by sales team",
+              "Monthly compliance review"
             ]}
             owners={[
-              { name: "Kellan", role: "validates purchases & processes commissions + system enforcement" },
-              { name: "Kurtis (TCT)", role: "advisory review" },
-              { name: "Adam", role: "final approval for disputes" }
+              { name: "Kellan", role: "inbound queue monitoring, routing to sales staff, compliance auditing" },
+              { name: "Kurtis (TCT)", role: "advisory review and risk identification" },
+              { name: "Adam", role: "final compliance approval" }
             ]}
             exitCriteria={[
-              "Zero commission disputes",
-              "Every commission tied to documented outreach"
-            ]}
-            documents={[
-              { title: "Purchase Tracking SOP", href: "/admin/projects/olujo-docs/purchase-tracking" }
+              "Zero instances of contractors answering/returning inbound calls",
+              "All special-order situations properly flagged and handed to sales",
+              "Full regulatory compliance maintained"
             ]}
           />
         </div>

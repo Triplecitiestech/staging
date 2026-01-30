@@ -26,28 +26,14 @@ export default function ExecutiveSummaryPage() {
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2 sm:gap-3">
-              <Link
-                href="/admin/preview/olujo"
-                target="_blank"
-                className="px-3 py-2 sm:px-4 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700 text-white rounded-lg transition-all flex items-center gap-2 font-semibold text-sm sm:text-base whitespace-nowrap"
-              >
-                <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                </svg>
-                <span className="hidden sm:inline">View Customer Portal</span>
-                <span className="sm:hidden">Portal</span>
-              </Link>
-              <Link
-                href="/admin/projects/olujo-plan"
-                className="px-3 py-2 sm:px-4 border border-white/20 rounded-lg text-slate-300 hover:bg-white/10 hover:text-white transition-all flex items-center gap-2 text-sm sm:text-base whitespace-nowrap"
-              >
-                <ArrowLeft size={16} className="flex-shrink-0" />
-                <span className="hidden sm:inline">Back to Plan</span>
-                <span className="sm:hidden">Back</span>
-              </Link>
-            </div>
+            <Link
+              href="/admin/projects/olujo-plan"
+              className="px-3 py-2 sm:px-4 border border-white/20 rounded-lg text-slate-300 hover:bg-white/10 hover:text-white transition-all flex items-center gap-2 text-sm sm:text-base whitespace-nowrap"
+            >
+              <ArrowLeft size={16} className="flex-shrink-0" />
+              <span className="hidden sm:inline">Back to Plan</span>
+              <span className="sm:hidden">Back</span>
+            </Link>
           </div>
         </div>
       </header>
@@ -109,15 +95,15 @@ export default function ExecutiveSummaryPage() {
               <ul className="space-y-2 text-slate-300">
                 <li className="flex items-start gap-2">
                   <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-purple-400 mt-2" />
-                  <span>Manages day-to-day execution</span>
+                  <span>Manages day-to-day execution and contractor oversight</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-purple-400 mt-2" />
-                  <span>Oversees contractors</span>
+                  <span>Reviews reporting, coverage, and compliance</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-purple-400 mt-2" />
-                  <span>Reviews reporting and coverage</span>
+                  <span>Routes inbound calls to licensed sales staff</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-purple-400 mt-2" />
@@ -142,6 +128,26 @@ export default function ExecutiveSummaryPage() {
                 <li className="flex items-start gap-2">
                   <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-blue-400 mt-2" />
                   <span>Olujo owns all tools, accounts, and operational decisions</span>
+                </li>
+              </ul>
+            </div>
+
+            {/* Lucy */}
+            <div className="bg-slate-900/50 border border-green-500/30 rounded-lg p-6">
+              <h3 className="text-xl font-bold text-green-400 mb-2">CRM Administrator</h3>
+              <p className="text-lg text-white mb-3">Lucy – Olujo</p>
+              <ul className="space-y-2 text-slate-300">
+                <li className="flex items-start gap-2">
+                  <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-green-400 mt-2" />
+                  <span>Configures and maintains Salesforce CRM</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-green-400 mt-2" />
+                  <span>Sets up fields, statuses, and contractor permissions</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-green-400 mt-2" />
+                  <span>Ensures CRM enforces proof-first behavior and data integrity</span>
                 </li>
               </ul>
             </div>
@@ -178,11 +184,11 @@ export default function ExecutiveSummaryPage() {
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-green-400 mt-2" />
-                  <span>CRM-based attribution and reporting</span>
+                  <span>Salesforce CRM for lead tracking and attribution</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-green-400 mt-2" />
-                  <span>Commission tracking for post-awareness purchases</span>
+                  <span>Inbound call routing to licensed sales staff</span>
                 </li>
               </ul>
             </div>
@@ -245,29 +251,13 @@ export default function ExecutiveSummaryPage() {
             </div>
             <div className="flex items-start gap-3">
               <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-cyan-400 mt-2" />
-              <span>Paid hourly</span>
+              <span><strong className="text-white">Compensation:</strong> Hourly rate only</span>
             </div>
-            <div className="bg-green-900/20 border border-green-500/30 rounded-lg p-4 mt-4">
-              <p className="text-green-300 font-semibold mb-2">Commission Eligibility: One-time $25 commission per store purchase</p>
-              <p className="text-sm text-slate-300 mb-2">Only if:</p>
-              <ul className="space-y-1 text-sm text-slate-300">
-                <li className="flex items-start gap-2">
-                  <span className="flex-shrink-0">•</span>
-                  <span>A verified awareness call exists</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="flex-shrink-0">•</span>
-                  <span>Transcript is uploaded in CRM</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="flex-shrink-0">•</span>
-                  <span>Contractor is attributed per system rules</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="flex-shrink-0">•</span>
-                  <span>Purchase occurs after the awareness touch</span>
-                </li>
-              </ul>
+            <div className="bg-orange-900/20 border border-orange-500/30 rounded-lg p-4 mt-4">
+              <p className="text-orange-300 font-semibold mb-2">Compliance Requirement</p>
+              <p className="text-sm text-slate-300">
+                Contractors are paid hourly only. No commission, bonuses, or sales-based compensation. This ensures compliance with New York State liquor regulations and maintains the integrity of the awareness-only mission.
+              </p>
             </div>
           </div>
         </section>
@@ -282,15 +272,15 @@ export default function ExecutiveSummaryPage() {
             <div className="grid md:grid-cols-2 gap-3">
               <div className="flex items-start gap-3">
                 <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-orange-400 mt-2" />
-                <span>CRM user licenses</span>
+                <span>Salesforce CRM user licenses</span>
               </div>
               <div className="flex items-start gap-3">
                 <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-orange-400 mt-2" />
-                <span>Phone system licenses</span>
+                <span>RingCentral phone system licenses (~$30/user/month)</span>
               </div>
               <div className="flex items-start gap-3">
                 <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-orange-400 mt-2" />
-                <span>Contractor labor</span>
+                <span>Contractor hourly labor</span>
               </div>
               <div className="flex items-start gap-3">
                 <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-orange-400 mt-2" />
@@ -334,13 +324,19 @@ export default function ExecutiveSummaryPage() {
               <svg className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
-              <span className="text-slate-300">Downstream purchases can be fairly attributed</span>
+              <span className="text-slate-300">Inbound interest properly routed to licensed sales staff</span>
             </div>
             <div className="flex items-start gap-3">
               <svg className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
               <span className="text-slate-300">Zero selling behavior by contractors</span>
+            </div>
+            <div className="flex items-start gap-3">
+              <svg className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              <span className="text-slate-300">Full compliance with NY liquor regulations</span>
             </div>
           </div>
         </section>
