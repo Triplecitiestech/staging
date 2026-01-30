@@ -105,15 +105,19 @@ export default function OlujoPlanPage() {
                   </li>
                   <li className="flex items-start gap-2">
                     <CheckCircle2 size={16} className="text-green-400 mt-0.5 flex-shrink-0" />
-                    <span>Feedback on scripts and store responses</span>
+                    <span>CRM setup, configuration, and enforcement</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <CheckCircle2 size={16} className="text-green-400 mt-0.5 flex-shrink-0" />
-                    <span>Purchase validation and reporting</span>
+                    <span>Lead status usage and workflow compliance</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <CheckCircle2 size={16} className="text-green-400 mt-0.5 flex-shrink-0" />
-                    <span>Coordination with Kurtis on system needs</span>
+                    <span>Purchase validation and commission processing</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <CheckCircle2 size={16} className="text-green-400 mt-0.5 flex-shrink-0" />
+                    <span>Operational reporting and QA oversight</span>
                   </li>
                 </ul>
               </div>
@@ -121,7 +125,7 @@ export default function OlujoPlanPage() {
 
             {/* Kurtis */}
             <div className="bg-slate-900/50 border border-blue-500/30 rounded-lg p-6">
-              <h3 className="text-xl font-bold text-blue-400 mb-2">Kurtis — Technical Lead</h3>
+              <h3 className="text-xl font-bold text-blue-400 mb-2">Kurtis — Technical Advisor</h3>
               <p className="text-sm text-slate-400 mb-4">(Triple Cities Tech)</p>
 
               <div>
@@ -129,27 +133,23 @@ export default function OlujoPlanPage() {
                 <ul className="space-y-1 text-sm text-slate-300">
                   <li className="flex items-start gap-2">
                     <CheckCircle2 size={16} className="text-green-400 mt-0.5 flex-shrink-0" />
-                    <span>CRM design & implementation</span>
+                    <span>Advisory guidance on CRM configuration best practices</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <CheckCircle2 size={16} className="text-green-400 mt-0.5 flex-shrink-0" />
-                    <span>Database schema and statuses</span>
+                    <span>Input on data structure, permissions, and auditability</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <CheckCircle2 size={16} className="text-green-400 mt-0.5 flex-shrink-0" />
-                    <span>Hosting, security, backups</span>
+                    <span>Recommendations for lead acquisition methods</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <CheckCircle2 size={16} className="text-green-400 mt-0.5 flex-shrink-0" />
-                    <span>Data integrity, auditability</span>
+                    <span>Operational guardrails and risk identification</span>
                   </li>
                   <li className="flex items-start gap-2">
                     <CheckCircle2 size={16} className="text-green-400 mt-0.5 flex-shrink-0" />
-                    <span>Tooling selection and delivery</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <CheckCircle2 size={16} className="text-green-400 mt-0.5 flex-shrink-0" />
-                    <span>Operational guardrails inside the system</span>
+                    <span>Sharing proven patterns from offshore workforce systems</span>
                   </li>
                 </ul>
               </div>
@@ -182,8 +182,8 @@ export default function OlujoPlanPage() {
             ]}
             owners={[
               { name: "Adam", role: "final approval" },
-              { name: "Kellan", role: "reviews + coordinates" },
-              { name: "Kurtis (TCT)", role: "documents + enforces" }
+              { name: "Kellan", role: "reviews + coordinates + enforces" },
+              { name: "Kurtis (TCT)", role: "documents + advisory" }
             ]}
             exitCriteria={[
               "Adam signs off on scope",
@@ -259,29 +259,35 @@ export default function OlujoPlanPage() {
           {/* Phase 4 */}
           <PhaseCard
             number={4}
-            title="Data Acquisition (Leads)"
+            title="Lead Acquisition & Normalization"
             subtitle=""
             icon={<Database className="w-6 h-6" />}
             color="green"
-            goal="Build a clean, deduplicated liquor store database for nationwide outreach."
+            goal="Acquire a clean, deduplicated liquor store lead dataset using cost-effective, reliable sources, prioritizing speed, legality, and data accuracy over custom engineering."
+            outcomes={[
+              "No custom lead-scraping software for MVP",
+              "Prefer authoritative or existing data sources",
+              "Normalize and clean data instead of over-engineering collection",
+              "Expand methods only after pilot validation"
+            ]}
             scope={[
-              "Liquor stores only",
-              "Start with New York and Florida simultaneously",
-              "Expand to additional high-value markets based on traction",
-              "Long-term goal: Every liquor store in the United States"
+              "Government / Regulatory Sources (e.g., NY State Liquor Authority public license datasets): Authoritative, complete coverage, legally clean, free or low-cost",
+              "Existing Commercial Lead Providers: Alcohol/retail datasets, social enrichment tools, faster to market, pre-normalized",
+              "Manual or Semi-Automated Enrichment: Tools to append Facebook pages and Instagram profiles after base dataset is established",
+              "Explicitly Out of Scope (MVP): Custom web scraping systems, AI-driven scraping pipelines, large-scale crawling infrastructure"
             ]}
             deliverables={[
-              "Scraping method determined (AI-based experimental but cost-effective vs. traditional methods)",
-              "Normalized lead dataset with agreed data points: Business name, Phone, PoC name, Facebook page, Instagram page",
+              "Selected acquisition method documented",
+              "Normalized dataset with required fields: Business name, Phone, City/State, Facebook page (if available), Instagram page (if available)",
               "CSV import format finalized",
-              "Data quality validation process established"
+              "Data quality spot-check process defined"
             ]}
             owners={[
-              { name: "Kurtis (TCT)", role: "scraping + normalization" },
-              { name: "Kellan", role: "spot-check accuracy" }
+              { name: "Kellan", role: "selection & validation" },
+              { name: "Kurtis (TCT)", role: "advisory input only" }
             ]}
             exitCriteria={[
-              "NY and FL datasets imported simultaneously",
+              "NY and FL datasets acquired and normalized",
               "No duplicate phone/address conflicts",
               "Reps can begin calling immediately"
             ]}
@@ -290,11 +296,11 @@ export default function OlujoPlanPage() {
           {/* Phase 5 */}
           <PhaseCard
             number={5}
-            title="CRM Build (MVP)"
+            title="CRM Configuration (HubSpot)"
             subtitle=""
             icon={<Database className="w-6 h-6" />}
             color="cyan"
-            goal="Create a proof-first CRM that enforces behavior and attribution."
+            goal="Configure HubSpot CRM to enforce proof-first behavior and attribution. System configuration and enforcement will be handled within a commercially supported CRM platform (HubSpot). No custom software, hosting, or infrastructure management is in scope."
             capabilities={[
               "Lead list with mandatory statuses",
               "Lead detail page with full timeline",
@@ -321,7 +327,8 @@ export default function OlujoPlanPage() {
               "Needs Review (QA)"
             ]}
             owners={[
-              { name: "Kurtis (TCT)", role: "end-to-end" }
+              { name: "Kellan", role: "HubSpot setup and configuration, field and status enforcement, contractor permissions and access, day-to-day CRM operation" },
+              { name: "Kurtis (TCT)", role: "advisory support and review, best-practice recommendations, validation of enforcement approach" }
             ]}
             exitCriteria={[
               "All agreed contact data points implemented",
@@ -356,8 +363,8 @@ export default function OlujoPlanPage() {
               "Script comfort"
             ]}
             owners={[
-              { name: "Kellan", role: "daily ops" },
-              { name: "Kurtis (TCT)", role: "system monitoring" },
+              { name: "Kellan", role: "daily ops + system monitoring" },
+              { name: "Kurtis (TCT)", role: "advisory oversight" },
               { name: "Adam", role: "strategic review" }
             ]}
             exitCriteria={[
@@ -388,8 +395,8 @@ export default function OlujoPlanPage() {
               "Commission tracking live"
             ]}
             owners={[
-              { name: "Kellan", role: "people + ops" },
-              { name: "Kurtis (TCT)", role: "reporting + data integrity" },
+              { name: "Kellan", role: "people + ops + reporting + data integrity" },
+              { name: "Kurtis (TCT)", role: "advisory review" },
               { name: "Adam", role: "growth approval" }
             ]}
             exitCriteria={[
@@ -416,8 +423,8 @@ export default function OlujoPlanPage() {
               "Payment processed via Gusto"
             ]}
             owners={[
-              { name: "Kellan", role: "validates purchases & processes commissions" },
-              { name: "Kurtis (TCT)", role: "system enforcement" },
+              { name: "Kellan", role: "validates purchases & processes commissions + system enforcement" },
+              { name: "Kurtis (TCT)", role: "advisory review" },
               { name: "Adam", role: "final approval for disputes" }
             ]}
             exitCriteria={[
