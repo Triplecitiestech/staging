@@ -49,6 +49,25 @@ export default function ContractorAgreementPage() {
           <p className="text-slate-300 leading-relaxed mb-4">
             This Independent Contractor Agreement ("Agreement") is entered into between <strong className="text-white">Olujo</strong> ("Company") and the individual or entity performing outreach services ("Contractor") for the Olujo Brand Awareness Outreach Program ("Program").
           </p>
+          <div className="bg-blue-900/30 border border-blue-500/50 rounded-lg p-6 mb-4">
+            <h3 className="text-lg font-bold text-blue-300 mb-3">Scope of Agreement</h3>
+            <p className="text-slate-300 mb-3">
+              This Agreement applies to <strong className="text-white">both</strong>:
+            </p>
+            <ul className="space-y-2 text-slate-300">
+              <li className="flex items-start gap-2">
+                <span className="flex-shrink-0">•</span>
+                <span><strong className="text-white">Awareness-only agents</strong> who make outbound calls, send social messages, and log data in Salesforce</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="flex-shrink-0">•</span>
+                <span><strong className="text-white">Filipino Operations Manager</strong> who supervises agents, enforces SOPs, trains, and reports to Olujo leadership</span>
+              </li>
+            </ul>
+            <p className="text-slate-400 text-sm mt-3 italic">
+              Both roles are non-selling. Both must follow compliance and documentation rules. Managers are held to a higher standard of conduct and enforcement.
+            </p>
+          </div>
           <p className="text-slate-300 leading-relaxed">
             By accepting this engagement, the Contractor agrees to the following terms and conditions.
           </p>
@@ -62,8 +81,22 @@ export default function ContractorAgreementPage() {
               The Contractor is engaged as an <strong className="text-white">independent contractor</strong>, not as an employee, agent, partner, or joint venturer of the Company.
             </p>
             <p>
-              The Contractor will perform awareness-only outreach services for Olujo Tequila, including phone calls, Instagram messaging, and Facebook messages or posts to liquor stores in assigned territories.
+              The Contractor will perform one of the following roles:
             </p>
+            <div className="bg-slate-900/50 rounded-lg p-6 space-y-4">
+              <div>
+                <h3 className="text-lg font-bold text-cyan-400 mb-2">Awareness-Only Agent</h3>
+                <p className="text-slate-300">
+                  Performs awareness-only outreach services for Olujo Tequila, including phone calls, Instagram messaging, and Facebook messages or posts to liquor stores in assigned territories.
+                </p>
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-orange-400 mb-2">Filipino Operations Manager</h3>
+                <p className="text-slate-300">
+                  Supervises awareness-only agents, enforces SOPs and compliance requirements, conducts agent hiring and training, performs quality assurance, and reports operational metrics to Olujo leadership. Does NOT sell and does NOT contact stores for outreach (except for training or QA purposes).
+                </p>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -354,6 +387,32 @@ export default function ContractorAgreementPage() {
                 <span className="text-slate-300">Consistent failure to meet performance standards</span>
               </div>
             </div>
+
+            <div className="bg-orange-900/30 border border-orange-500/50 rounded-lg p-6 mt-6">
+              <h3 className="text-lg font-bold text-orange-400 mb-4">Additional Termination Grounds for Operations Managers</h3>
+              <p className="text-slate-300 mb-3">
+                Operations Managers are held to a <strong className="text-white">higher standard</strong> of conduct and enforcement. Immediate termination may occur for:
+              </p>
+              <div className="space-y-3">
+                <div className="flex items-start gap-3">
+                  <div className="w-1.5 h-1.5 rounded-full bg-orange-400 mt-2 flex-shrink-0"></div>
+                  <span className="text-slate-300">Failure to enforce SOPs or compliance requirements with agents</span>
+                </div>
+                <div className="flex items-start gap-3">
+                  <div className="w-1.5 h-1.5 rounded-full bg-orange-400 mt-2 flex-shrink-0"></div>
+                  <span className="text-slate-300">Knowingly allowing or ignoring compliance violations by agents</span>
+                </div>
+                <div className="flex items-start gap-3">
+                  <div className="w-1.5 h-1.5 rounded-full bg-orange-400 mt-2 flex-shrink-0"></div>
+                  <span className="text-slate-300">Repeated failure to meet operational expectations or reporting requirements</span>
+                </div>
+                <div className="flex items-start gap-3">
+                  <div className="w-1.5 h-1.5 rounded-full bg-orange-400 mt-2 flex-shrink-0"></div>
+                  <span className="text-slate-300">Misrepresentation of agent performance or data integrity issues</span>
+                </div>
+              </div>
+            </div>
+
             <p className="mt-4">
               Upon termination, the Contractor must immediately cease all outreach activity and return or destroy any Company materials or data.
             </p>

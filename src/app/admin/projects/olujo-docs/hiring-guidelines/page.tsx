@@ -19,10 +19,10 @@ export default function HiringGuidelinesPage() {
               />
               <div className="min-w-0">
                 <h1 className="text-lg sm:text-xl lg:text-2xl font-bold bg-gradient-to-r from-cyan-400 to-cyan-500 bg-clip-text text-transparent">
-                  Hiring Guidelines
+                  Hiring Guidelines (Agents)
                 </h1>
                 <p className="text-xs sm:text-sm text-slate-400 truncate">
-                  Contractor Recruitment Standards
+                  Awareness-Only Agent Recruitment Standards
                 </p>
               </div>
             </div>
@@ -40,17 +40,37 @@ export default function HiringGuidelinesPage() {
 
       {/* Main Content */}
       <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        {/* Scope Notice */}
+        <section className="mb-8 bg-gradient-to-br from-orange-600/20 to-orange-500/10 backdrop-blur-sm border-2 border-orange-500/50 rounded-lg p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <AlertTriangle className="w-6 h-6 text-orange-400" />
+            <h2 className="text-xl font-bold text-white">Scope of This Document</h2>
+          </div>
+          <p className="text-slate-300 mb-3">
+            This hiring guidelines document is for <strong className="text-white">awareness-only agents</strong> who make outbound calls and log data.
+          </p>
+          <p className="text-slate-300">
+            For hiring guidelines for the <strong className="text-white">Filipino Operations Manager</strong> (supervisory role), see:{' '}
+            <Link
+              href="/admin/projects/olujo-docs/manager-hiring"
+              className="text-orange-400 hover:text-orange-300 underline font-semibold"
+            >
+              Operations Manager Hiring Guidelines
+            </Link>
+          </p>
+        </section>
+
         {/* Role Overview */}
         <section className="mb-12 bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-sm border border-white/10 rounded-lg p-8">
           <div className="flex items-center gap-3 mb-6">
             <Users className="w-8 h-8 text-cyan-400" />
-            <h2 className="text-3xl font-bold text-white">Role Overview</h2>
+            <h2 className="text-3xl font-bold text-white">Agent Role Overview</h2>
           </div>
           <p className="text-slate-300 leading-relaxed mb-4">
-            Contractors are awareness-only representatives. They do not sell, they do not pitch, they do not persuade.
+            Agents are awareness-only representatives. They do not sell, they do not pitch, they do not persuade.
           </p>
           <p className="text-slate-300 leading-relaxed">
-            Their job is to execute structured, consistent outreach — by phone and Instagram — following approved scripts, documenting outcomes, and managing leads through the CRM.
+            Their job is to execute structured, consistent outreach — by phone and Instagram — following approved scripts, documenting outcomes, and managing leads through Salesforce.
           </p>
         </section>
 
