@@ -48,7 +48,7 @@ export default function OlujoPlanPage() {
           </div>
           <p className="text-sm text-cyan-300 mb-6 uppercase tracking-wide font-semibold">(Set Once)</p>
 
-          <div className="grid md:grid-cols-4 gap-6">
+          <div className="grid md:grid-cols-4 gap-6 mb-6">
             {/* Adam */}
             <div className="bg-slate-900/50 border border-cyan-500/30 rounded-lg p-6">
               <h3 className="text-xl font-bold text-cyan-400 mb-2">Adam — Executive Owner</h3>
@@ -162,6 +162,51 @@ export default function OlujoPlanPage() {
                     <span>Sharing proven patterns from offshore workforce systems</span>
                   </li>
                 </ul>
+              </div>
+            </div>
+          </div>
+
+          {/* Operations Manager */}
+          <div className="grid md:grid-cols-1 gap-6">
+            <div className="bg-slate-900/50 border border-orange-500/30 rounded-lg p-6">
+              <h3 className="text-xl font-bold text-orange-400 mb-2">Filipino Operations Manager — Agent Supervisor (Contractor)</h3>
+              <p className="text-sm text-slate-400 mb-4">(Senior Contractor - Non-Selling)</p>
+
+              <div>
+                <p className="text-sm font-semibold text-white mb-2">Owns:</p>
+                <div className="grid md:grid-cols-2 gap-4">
+                  <ul className="space-y-1 text-sm text-slate-300">
+                    <li className="flex items-start gap-2">
+                      <CheckCircle2 size={16} className="text-green-400 mt-0.5 flex-shrink-0" />
+                      <span>Day-to-day agent performance management</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <CheckCircle2 size={16} className="text-green-400 mt-0.5 flex-shrink-0" />
+                      <span>Ensuring SOP and compliance adherence</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <CheckCircle2 size={16} className="text-green-400 mt-0.5 flex-shrink-0" />
+                      <span>Agent hiring and interviewing</span>
+                    </li>
+                  </ul>
+                  <ul className="space-y-1 text-sm text-slate-300">
+                    <li className="flex items-start gap-2">
+                      <CheckCircle2 size={16} className="text-green-400 mt-0.5 flex-shrink-0" />
+                      <span>Training and onboarding new agents</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <CheckCircle2 size={16} className="text-green-400 mt-0.5 flex-shrink-0" />
+                      <span>Quality assurance and call transcript review</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <CheckCircle2 size={16} className="text-green-400 mt-0.5 flex-shrink-0" />
+                      <span>Operational reporting to Olujo leadership</span>
+                    </li>
+                  </ul>
+                </div>
+                <p className="text-slate-400 text-xs mt-3 italic">
+                  Does NOT sell, does NOT contact stores for outreach (except training/QA). Acts as operational bridge between agents and Olujo leadership.
+                </p>
               </div>
             </div>
           </div>
@@ -388,7 +433,8 @@ export default function OlujoPlanPage() {
               "Reps understand \"we do NOT sell\""
             ]}
             documents={[
-              { title: "Hiring Guidelines", href: "/admin/projects/olujo-docs/hiring-guidelines" },
+              { title: "Hiring Guidelines (Agents)", href: "/admin/projects/olujo-docs/hiring-guidelines" },
+              { title: "Operations Manager Hiring Guidelines", href: "/admin/projects/olujo-docs/manager-hiring" },
               { title: "Contractor Agreement", href: "/admin/projects/olujo-docs/contractor-agreement" }
             ]}
           />
