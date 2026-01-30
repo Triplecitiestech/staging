@@ -26,28 +26,14 @@ export default function CallHandlingPage() {
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2 sm:gap-3">
-              <Link
-                href="/admin/preview/olujo"
-                target="_blank"
-                className="px-3 py-2 sm:px-4 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700 text-white rounded-lg transition-all flex items-center gap-2 font-semibold text-sm sm:text-base whitespace-nowrap"
-              >
-                <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                </svg>
-                <span className="hidden sm:inline">View Customer Portal</span>
-                <span className="sm:hidden">Portal</span>
-              </Link>
-              <Link
-                href="/admin/projects/olujo-plan"
-                className="px-3 py-2 sm:px-4 border border-white/20 rounded-lg text-slate-300 hover:bg-white/10 hover:text-white transition-all flex items-center gap-2 text-sm sm:text-base whitespace-nowrap"
-              >
-                <ArrowLeft size={16} className="flex-shrink-0" />
-                <span className="hidden sm:inline">Back to Plan</span>
-                <span className="sm:hidden">Back</span>
-              </Link>
-            </div>
+            <Link
+              href="/admin/projects/olujo-plan"
+              className="px-3 py-2 sm:px-4 border border-white/20 rounded-lg text-slate-300 hover:bg-white/10 hover:text-white transition-all flex items-center gap-2 text-sm sm:text-base whitespace-nowrap"
+            >
+              <ArrowLeft size={16} className="flex-shrink-0" />
+              <span className="hidden sm:inline">Back to Plan</span>
+              <span className="sm:hidden">Back</span>
+            </Link>
           </div>
         </div>
       </header>
@@ -170,7 +156,97 @@ export default function CallHandlingPage() {
               <span className="flex-shrink-0 text-red-400 font-bold text-xl">✗</span>
               <span>Argue or persist if the store is not interested</span>
             </li>
+            <li className="flex items-start gap-3 text-slate-300">
+              <span className="flex-shrink-0 text-red-400 font-bold text-xl">✗</span>
+              <span>Answer or return inbound calls</span>
+            </li>
+            <li className="flex items-start gap-3 text-slate-300">
+              <span className="flex-shrink-0 text-red-400 font-bold text-xl">✗</span>
+              <span>Commit to availability, pickup times, or special orders</span>
+            </li>
           </ul>
+        </section>
+
+        {/* Inbound Call Policy */}
+        <section className="mb-12 bg-gradient-to-br from-orange-600/20 to-orange-500/10 backdrop-blur-sm border-2 border-orange-500/50 rounded-lg p-8">
+          <div className="flex items-center gap-3 mb-6">
+            <Phone className="w-8 h-8 text-orange-400" />
+            <h2 className="text-3xl font-bold text-white">Inbound Call Policy</h2>
+          </div>
+          <div className="space-y-4">
+            <div className="bg-orange-900/30 border border-orange-500/50 rounded-lg p-6">
+              <p className="text-orange-200 font-bold text-lg mb-3">
+                Contractors must NEVER answer inbound calls.
+              </p>
+              <p className="text-slate-300 mb-3">
+                Contractors must NEVER return inbound calls.
+              </p>
+              <p className="text-slate-300">
+                All inbound calls are logged automatically in Salesforce and routed to licensed Olujo sales staff for follow-up.
+              </p>
+            </div>
+            <div className="bg-slate-900/50 rounded-lg p-6">
+              <h3 className="text-lg font-bold text-orange-400 mb-3">Why this matters:</h3>
+              <p className="text-slate-300">
+                Contractors are not licensed to sell alcohol in New York. Answering inbound calls or discussing orders, pricing, or availability could create regulatory compliance issues and liability for Olujo.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* Special-Order / False-Buyer Prevention */}
+        <section className="mb-12 bg-gradient-to-br from-purple-600/20 to-purple-500/10 backdrop-blur-sm border-2 border-purple-500/50 rounded-lg p-8">
+          <div className="flex items-center gap-3 mb-6">
+            <AlertTriangle className="w-8 h-8 text-purple-400" />
+            <h2 className="text-3xl font-bold text-white">Special-Order / False-Buyer Prevention</h2>
+          </div>
+          <div className="space-y-6">
+            <div className="bg-purple-900/30 border border-purple-500/50 rounded-lg p-6">
+              <h3 className="text-lg font-bold text-purple-300 mb-3">If a store says:</h3>
+              <ul className="space-y-2 text-slate-300">
+                <li className="flex items-start gap-2">
+                  <span className="flex-shrink-0">•</span>
+                  <span>"I'll bring it in for you"</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="flex-shrink-0">•</span>
+                  <span>"What's your name and number?"</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="flex-shrink-0">•</span>
+                  <span>"When will you pick it up?"</span>
+                </li>
+              </ul>
+            </div>
+
+            <div className="bg-slate-900/50 rounded-lg p-6">
+              <h3 className="text-lg font-bold text-purple-400 mb-4">Contractors must:</h3>
+              <div className="space-y-3">
+                <div className="flex items-start gap-3">
+                  <CheckCircle2 size={20} className="text-purple-400 flex-shrink-0 mt-1" />
+                  <span className="text-slate-300">Politely decline: "I appreciate that, but I'm just helping with brand awareness — I'm not placing orders."</span>
+                </div>
+                <div className="flex items-start gap-3">
+                  <CheckCircle2 size={20} className="text-purple-400 flex-shrink-0 mt-1" />
+                  <span className="text-slate-300">Log the store's interest in Salesforce with a detailed note</span>
+                </div>
+                <div className="flex items-start gap-3">
+                  <CheckCircle2 size={20} className="text-purple-400 flex-shrink-0 mt-1" />
+                  <span className="text-slate-300">Flag the record as "Inbound Interest – Needs Sales Follow-Up"</span>
+                </div>
+                <div className="flex items-start gap-3">
+                  <CheckCircle2 size={20} className="text-purple-400 flex-shrink-0 mt-1" />
+                  <span className="text-slate-300">Do NOT provide contact information or commit to anything</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-red-900/30 border border-red-500/50 rounded-lg p-6">
+              <p className="text-red-300 font-bold text-lg">
+                Creating a false-buyer situation (where a store special-orders product for a contractor who never picks it up) damages the brand and can result in immediate termination.
+              </p>
+            </div>
+          </div>
         </section>
 
         {/* Closing */}

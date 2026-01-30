@@ -26,28 +26,14 @@ export default function HiringGuidelinesPage() {
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2 sm:gap-3">
-              <Link
-                href="/admin/preview/olujo"
-                target="_blank"
-                className="px-3 py-2 sm:px-4 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700 text-white rounded-lg transition-all flex items-center gap-2 font-semibold text-sm sm:text-base whitespace-nowrap"
-              >
-                <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                </svg>
-                <span className="hidden sm:inline">View Customer Portal</span>
-                <span className="sm:hidden">Portal</span>
-              </Link>
-              <Link
-                href="/admin/projects/olujo-plan"
-                className="px-3 py-2 sm:px-4 border border-white/20 rounded-lg text-slate-300 hover:bg-white/10 hover:text-white transition-all flex items-center gap-2 text-sm sm:text-base whitespace-nowrap"
-              >
-                <ArrowLeft size={16} className="flex-shrink-0" />
-                <span className="hidden sm:inline">Back to Plan</span>
-                <span className="sm:hidden">Back</span>
-              </Link>
-            </div>
+            <Link
+              href="/admin/projects/olujo-plan"
+              className="px-3 py-2 sm:px-4 border border-white/20 rounded-lg text-slate-300 hover:bg-white/10 hover:text-white transition-all flex items-center gap-2 text-sm sm:text-base whitespace-nowrap"
+            >
+              <ArrowLeft size={16} className="flex-shrink-0" />
+              <span className="hidden sm:inline">Back to Plan</span>
+              <span className="sm:hidden">Back</span>
+            </Link>
           </div>
         </div>
       </header>
@@ -113,7 +99,7 @@ export default function HiringGuidelinesPage() {
               <div className="space-y-2">
                 <div className="flex items-start gap-3">
                   <CheckCircle2 size={20} className="text-purple-400 flex-shrink-0 mt-1" />
-                  <span className="text-slate-300">Must be able to accurately log data into the CRM</span>
+                  <span className="text-slate-300">Must be able to accurately log data into Salesforce</span>
                 </div>
                 <div className="flex items-start gap-3">
                   <CheckCircle2 size={20} className="text-purple-400 flex-shrink-0 mt-1" />
@@ -155,7 +141,7 @@ export default function HiringGuidelinesPage() {
                 </div>
                 <div className="flex items-start gap-3">
                   <CheckCircle2 size={20} className="text-indigo-400 flex-shrink-0 mt-1" />
-                  <span className="text-slate-300">Must know how to perform basic tasks inside a CRM</span>
+                  <span className="text-slate-300">Must know how to perform basic tasks inside Salesforce</span>
                 </div>
               </div>
             </div>
@@ -299,7 +285,7 @@ export default function HiringGuidelinesPage() {
                 </div>
                 <div className="flex items-start gap-3">
                   <CheckCircle2 size={20} className="text-green-400 flex-shrink-0 mt-1" />
-                  <span className="text-slate-300">Comfortable with CRM and Instagram logging</span>
+                  <span className="text-slate-300">Comfortable with Salesforce and Instagram logging</span>
                 </div>
                 <div className="flex items-start gap-3">
                   <CheckCircle2 size={20} className="text-green-400 flex-shrink-0 mt-1" />
@@ -326,7 +312,7 @@ export default function HiringGuidelinesPage() {
                 </div>
                 <div className="flex items-start gap-3">
                   <AlertTriangle size={20} className="text-red-400 flex-shrink-0 mt-1" />
-                  <span className="text-slate-300">Struggles with basic CRM or Instagram tasks</span>
+                  <span className="text-slate-300">Struggles with basic Salesforce or Instagram tasks</span>
                 </div>
                 <div className="flex items-start gap-3">
                   <AlertTriangle size={20} className="text-red-400 flex-shrink-0 mt-1" />

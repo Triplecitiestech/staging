@@ -26,28 +26,14 @@ export default function CRMHandlingPage() {
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2 sm:gap-3">
-              <Link
-                href="/admin/preview/olujo"
-                target="_blank"
-                className="px-3 py-2 sm:px-4 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700 text-white rounded-lg transition-all flex items-center gap-2 font-semibold text-sm sm:text-base whitespace-nowrap"
-              >
-                <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                </svg>
-                <span className="hidden sm:inline">View Customer Portal</span>
-                <span className="sm:hidden">Portal</span>
-              </Link>
-              <Link
-                href="/admin/projects/olujo-plan"
-                className="px-3 py-2 sm:px-4 border border-white/20 rounded-lg text-slate-300 hover:bg-white/10 hover:text-white transition-all flex items-center gap-2 text-sm sm:text-base whitespace-nowrap"
-              >
-                <ArrowLeft size={16} className="flex-shrink-0" />
-                <span className="hidden sm:inline">Back to Plan</span>
-                <span className="sm:hidden">Back</span>
-              </Link>
-            </div>
+            <Link
+              href="/admin/projects/olujo-plan"
+              className="px-3 py-2 sm:px-4 border border-white/20 rounded-lg text-slate-300 hover:bg-white/10 hover:text-white transition-all flex items-center gap-2 text-sm sm:text-base whitespace-nowrap"
+            >
+              <ArrowLeft size={16} className="flex-shrink-0" />
+              <span className="hidden sm:inline">Back to Plan</span>
+              <span className="sm:hidden">Back</span>
+            </Link>
           </div>
         </div>
       </header>
@@ -61,7 +47,7 @@ export default function CRMHandlingPage() {
             <h2 className="text-3xl font-bold text-white">Required Lead Statuses</h2>
           </div>
           <p className="text-slate-300 mb-6">
-            Every lead must be assigned one of the following statuses in the CRM after every interaction. Do not create custom statuses. Do not leave leads unlabeled.
+            Every lead must be assigned one of the following statuses in Salesforce after every interaction. Do not create custom statuses. Do not leave leads unlabeled.
           </p>
 
           <div className="grid md:grid-cols-2 gap-4">
@@ -138,12 +124,12 @@ export default function CRMHandlingPage() {
               <p className="text-sm text-slate-400">Store asked not to be contacted again</p>
             </div>
 
-            <div className="bg-green-900/20 border border-green-500/30 rounded-lg p-5">
+            <div className="bg-orange-900/20 border border-orange-500/30 rounded-lg p-5">
               <div className="flex items-center gap-2 mb-2">
-                <div className="w-3 h-3 rounded-full bg-green-400"></div>
-                <h3 className="font-bold text-green-400">Purchase Confirmed</h3>
+                <div className="w-3 h-3 rounded-full bg-orange-400"></div>
+                <h3 className="font-bold text-orange-400">Inbound Interest – Needs Sales Follow-Up</h3>
               </div>
-              <p className="text-sm text-slate-400">Store purchased Olujo (commission eligible)</p>
+              <p className="text-sm text-slate-400">Store expressed interest in ordering; must be routed to licensed sales staff</p>
             </div>
 
             <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-5">
@@ -169,7 +155,7 @@ export default function CRMHandlingPage() {
               <div className="space-y-3">
                 <div className="flex items-start gap-3">
                   <CheckCircle2 size={20} className="text-cyan-400 flex-shrink-0 mt-1" />
-                  <span className="text-slate-300">Upload or paste the call transcript into the CRM</span>
+                  <span className="text-slate-300">Upload or paste the call transcript into Salesforce</span>
                 </div>
                 <div className="flex items-start gap-3">
                   <CheckCircle2 size={20} className="text-cyan-400 flex-shrink-0 mt-1" />
@@ -185,7 +171,7 @@ export default function CRMHandlingPage() {
                 </div>
                 <div className="flex items-start gap-3">
                   <CheckCircle2 size={20} className="text-cyan-400 flex-shrink-0 mt-1" />
-                  <span className="text-slate-300">Tag themselves as the last-touch rep</span>
+                  <span className="text-slate-300">Tag themselves as the assigned rep</span>
                 </div>
               </div>
             </div>
@@ -197,7 +183,7 @@ export default function CRMHandlingPage() {
                   <h3 className="text-lg font-bold text-red-400 mb-2">Critical Rule</h3>
                   <p className="text-red-300 font-semibold">No transcript = no credit.</p>
                   <p className="text-slate-300 mt-2">
-                    If a contractor does not upload a transcript, they do not get credited for the call. If they do not get credited for the call, they do not earn commission if that store later purchases.
+                    If a contractor does not upload a transcript, the interaction did not happen. All outreach must be documented in Salesforce for auditability and compliance.
                   </p>
                 </div>
               </div>
@@ -215,7 +201,7 @@ export default function CRMHandlingPage() {
               <div className="space-y-3">
                 <div className="flex items-start gap-3">
                   <CheckCircle2 size={20} className="text-purple-400 flex-shrink-0 mt-1" />
-                  <span className="text-slate-300">Log the message content in the CRM timeline</span>
+                  <span className="text-slate-300">Log the message content in the Salesforce timeline</span>
                 </div>
                 <div className="flex items-start gap-3">
                   <CheckCircle2 size={20} className="text-purple-400 flex-shrink-0 mt-1" />
@@ -223,7 +209,7 @@ export default function CRMHandlingPage() {
                 </div>
                 <div className="flex items-start gap-3">
                   <CheckCircle2 size={20} className="text-purple-400 flex-shrink-0 mt-1" />
-                  <span className="text-slate-300">Tag themselves as the last-touch rep</span>
+                  <span className="text-slate-300">Tag themselves as the assigned rep</span>
                 </div>
               </div>
             </div>
@@ -233,7 +219,7 @@ export default function CRMHandlingPage() {
               <div className="space-y-3">
                 <div className="flex items-start gap-3">
                   <CheckCircle2 size={20} className="text-blue-400 flex-shrink-0 mt-1" />
-                  <span className="text-slate-300">Log the response content in the CRM timeline</span>
+                  <span className="text-slate-300">Log the response content in the Salesforce timeline</span>
                 </div>
                 <div className="flex items-start gap-3">
                   <CheckCircle2 size={20} className="text-blue-400 flex-shrink-0 mt-1" />
@@ -252,7 +238,7 @@ export default function CRMHandlingPage() {
                 <div>
                   <h3 className="text-lg font-bold text-indigo-400 mb-2">No Exceptions</h3>
                   <p className="text-slate-300">
-                    Every social media interaction must be logged in the CRM. If there is no logged interaction in the CRM, the interaction did not happen.
+                    Every social media interaction must be logged in Salesforce. If there is no logged interaction in Salesforce, the interaction did not happen.
                   </p>
                 </div>
               </div>
@@ -308,13 +294,13 @@ export default function CRMHandlingPage() {
 
           <div className="space-y-4 text-slate-300">
             <p className="text-lg">
-              <strong className="text-white">Purchase tracking and commission processing are handled by Kellan's team, not contractors.</strong>
+              <strong className="text-white">Contractors are awareness-only representatives. They are paid hourly only.</strong>
             </p>
             <p>
-              Contractors will earn a <strong className="text-white">one-time $25 commission</strong> if a store purchases within 30 days of their last logged interaction. However, contractors do not enter purchase data or calculate commissions.
+              Contractors do not sell. Contractors do not discuss pricing, availability, or ordering. Contractors do not answer or return inbound calls.
             </p>
             <p>
-              For details on how purchases are tracked and how commissions are attributed, see the <Link href="/admin/projects/olujo-docs/purchase-tracking" className="text-blue-400 hover:text-blue-300 underline">Purchase Tracking SOP</Link> (Kellan's team only).
+              Any inbound interest must be flagged in Salesforce as "Inbound Interest – Needs Sales Follow-Up" and routed to licensed Olujo sales staff.
             </p>
           </div>
         </section>
