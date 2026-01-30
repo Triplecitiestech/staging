@@ -345,6 +345,47 @@ export default function OlujoPlanPage() {
           {/* Phase 6 */}
           <PhaseCard
             number={6}
+            title="Cost Modeling & Tooling Selection"
+            subtitle="REQUIRED BEFORE PILOT"
+            icon={<DollarSign className="w-6 h-6" />}
+            color="purple"
+            goal="Identify, document, and review all operational costs associated with running the Olujo Brand Awareness Outreach Engine before pilot launch."
+            outcomes={[
+              "Understand monthly cost per contractor",
+              "Identify fixed vs variable expenses",
+              "Review contractual commitments (monthly vs annual)",
+              "Model budget impact at pilot scale and growth scale"
+            ]}
+            scope={[
+              "CRM Costs: HubSpot Starter Plan ($15/user/month monthly, $9/user/month annual) - Used for lead tracking, proof logging, attribution, and auditability",
+              "Phone System: RingCentral (~$30/user/month) - Includes desktop and mobile apps, allows offshore contractors to place U.S.-based calls without international charges. Note: RingCentral commonly prefers annual commitments; month-to-month availability and pricing must be confirmed",
+              "Contractor Labor: Hourly rate, expected weekly hours, pilot headcount (2-3 reps), scaled headcount (up to 10 reps)",
+              "Lead Acquisition: Government/regulatory data sources (e.g., state liquor authority datasets - typically free or low-cost but requires cleanup), Commercial lead providers (per-record or subscription costs, faster access, variable quality)",
+              "Other Potential Costs: Transcription tools (if used), Data enrichment tools (optional), Management or QA tooling (if required)",
+              "Explicitly Out of Scope: Custom-built scraping systems, AI crawling pipelines"
+            ]}
+            deliverables={[
+              "Documented cost assumptions by category",
+              "Estimated monthly pilot cost",
+              "Estimated monthly cost at scale",
+              "Identification of fixed costs, per-user costs, and per-lead costs",
+              "Budget discussion and acknowledgment"
+            ]}
+            owners={[
+              { name: "Kellan", role: "cost modeling and tooling decisions" },
+              { name: "Adam", role: "approval authority" },
+              { name: "Kurtis (TCT)", role: "advisory input only" }
+            ]}
+            exitCriteria={[
+              "All major costs identified and reviewed",
+              "Tooling assumptions documented",
+              "Budget acknowledged before pilot launch"
+            ]}
+          />
+
+          {/* Phase 7 */}
+          <PhaseCard
+            number={7}
             title="Pilot Launch (NY & FL)"
             subtitle=""
             icon={<Zap className="w-6 h-6" />}
@@ -374,9 +415,9 @@ export default function OlujoPlanPage() {
             ]}
           />
 
-          {/* Phase 7 */}
+          {/* Phase 8 */}
           <PhaseCard
-            number={7}
+            number={8}
             title="Scale Up & Expand Markets"
             subtitle=""
             icon={<TrendingUp className="w-6 h-6" />}
@@ -406,9 +447,9 @@ export default function OlujoPlanPage() {
             ]}
           />
 
-          {/* Phase 8 */}
+          {/* Phase 9 */}
           <PhaseCard
-            number={8}
+            number={9}
             title="Purchase Tracking & Commission Processing"
             subtitle=""
             icon={<DollarSign className="w-6 h-6" />}

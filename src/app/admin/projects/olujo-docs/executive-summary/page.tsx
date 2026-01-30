@@ -128,20 +128,20 @@ export default function ExecutiveSummaryPage() {
 
             {/* Triple Cities Tech */}
             <div className="bg-slate-900/50 border border-blue-500/30 rounded-lg p-6">
-              <h3 className="text-xl font-bold text-blue-400 mb-2">Technical Owner & System Manager</h3>
+              <h3 className="text-xl font-bold text-blue-400 mb-2">Technical Advisor</h3>
               <p className="text-lg text-white mb-3">Triple Cities Tech</p>
               <ul className="space-y-2 text-slate-300">
                 <li className="flex items-start gap-2">
                   <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-blue-400 mt-2" />
-                  <span>Designs and builds all systems</span>
+                  <span>Provides advisory guidance based on prior experience with offshore teams, CRM enforcement, and operational systems</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-blue-400 mt-2" />
-                  <span>Owns CRM, database, hosting, security, and data integrity</span>
+                  <span>Offers best-practice recommendations on data structure, permissions, and auditability</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-blue-400 mt-2" />
-                  <span>Defines and enforces statuses, workflows, and attribution logic</span>
+                  <span>Olujo owns all tools, accounts, and operational decisions</span>
                 </li>
               </ul>
             </div>
@@ -268,6 +268,42 @@ export default function ExecutiveSummaryPage() {
                   <span>Purchase occurs after the awareness touch</span>
                 </li>
               </ul>
+            </div>
+          </div>
+        </section>
+
+        {/* Cost Awareness & Budget Considerations */}
+        <section className="mb-12 bg-gradient-to-br from-orange-600/20 to-orange-500/10 backdrop-blur-sm border-2 border-orange-500/50 rounded-lg p-8">
+          <h2 className="text-2xl font-bold text-white mb-6">Cost Awareness & Budget Considerations</h2>
+          <div className="space-y-4 text-slate-300">
+            <p className="text-lg">
+              This project includes <strong className="text-white">recurring operational costs</strong> related to:
+            </p>
+            <div className="grid md:grid-cols-2 gap-3">
+              <div className="flex items-start gap-3">
+                <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-orange-400 mt-2" />
+                <span>CRM user licenses</span>
+              </div>
+              <div className="flex items-start gap-3">
+                <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-orange-400 mt-2" />
+                <span>Phone system licenses</span>
+              </div>
+              <div className="flex items-start gap-3">
+                <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-orange-400 mt-2" />
+                <span>Contractor labor</span>
+              </div>
+              <div className="flex items-start gap-3">
+                <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-orange-400 mt-2" />
+                <span>Lead acquisition and data preparation</span>
+              </div>
+            </div>
+            <div className="bg-orange-900/20 border border-orange-500/30 rounded-lg p-6 mt-6">
+              <p className="text-orange-200 font-semibold mb-3">
+                A cost review and budget alignment step is required before CRM configuration, hiring, or pilot execution.
+              </p>
+              <p className="text-slate-300">
+                This ensures the outreach engine can scale responsibly and avoids committing to tooling or contracts without understanding monthly and per-rep cost exposure.
+              </p>
             </div>
           </div>
         </section>
