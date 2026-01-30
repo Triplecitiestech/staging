@@ -26,28 +26,14 @@ export default function OlujoPlanPage() {
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2 sm:gap-3">
-              <Link
-                href="/admin/preview/olujo"
-                target="_blank"
-                className="px-3 py-2 sm:px-4 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700 text-white rounded-lg transition-all flex items-center gap-2 font-semibold text-sm sm:text-base whitespace-nowrap"
-              >
-                <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                </svg>
-                <span className="hidden sm:inline">View Customer Portal</span>
-                <span className="sm:hidden">Portal</span>
-              </Link>
-              <Link
-                href="/admin/projects"
-                className="px-3 py-2 sm:px-4 border border-white/20 rounded-lg text-slate-300 hover:bg-white/10 hover:text-white transition-all flex items-center gap-2 text-sm sm:text-base whitespace-nowrap"
-              >
-                <ArrowLeft size={16} className="flex-shrink-0" />
-                <span className="hidden sm:inline">Back to Projects</span>
-                <span className="sm:hidden">Back</span>
-              </Link>
-            </div>
+            <Link
+              href="/admin/projects"
+              className="px-3 py-2 sm:px-4 border border-white/20 rounded-lg text-slate-300 hover:bg-white/10 hover:text-white transition-all flex items-center gap-2 text-sm sm:text-base whitespace-nowrap"
+            >
+              <ArrowLeft size={16} className="flex-shrink-0" />
+              <span className="hidden sm:inline">Back to Projects</span>
+              <span className="sm:hidden">Back</span>
+            </Link>
           </div>
         </div>
       </header>
@@ -227,41 +213,6 @@ export default function OlujoPlanPage() {
           {/* Phase 3 */}
           <PhaseCard
             number={3}
-            title="Lead Acquisition & Normalization"
-            subtitle=""
-            icon={<Database className="w-6 h-6" />}
-            color="green"
-            goal="Acquire a clean, deduplicated liquor store lead dataset using cost-effective, reliable sources, prioritizing speed, legality, and data accuracy."
-            outcomes={[
-              "Prefer authoritative or existing data sources",
-              "Normalize and clean data instead of over-engineering collection",
-              "Expand methods only after pilot validation"
-            ]}
-            scope={[
-              "Government / Regulatory Sources (e.g., NY State Liquor Authority public license datasets): Authoritative, complete coverage, legally clean, free or low-cost",
-              "Existing Commercial Lead Providers: Alcohol/retail datasets, social enrichment tools, faster to market, pre-normalized",
-              "Manual or Semi-Automated Enrichment: Tools to append Facebook pages and Instagram profiles after base dataset is established"
-            ]}
-            deliverables={[
-              "Selected acquisition method documented",
-              "Normalized dataset with required fields: Business name, Phone, City/State, Facebook page (if available), Instagram page (if available)",
-              "CSV import format finalized",
-              "Data quality spot-check process defined"
-            ]}
-            owners={[
-              { name: "Kellan", role: "selection & validation" },
-              { name: "Kurtis (TCT)", role: "advisory input only" }
-            ]}
-            exitCriteria={[
-              "NY and FL datasets acquired and normalized",
-              "No duplicate phone/address conflicts",
-              "Reps can begin calling immediately"
-            ]}
-          />
-
-          {/* Phase 4 */}
-          <PhaseCard
-            number={4}
             title="Cost Modeling & Tooling Selection"
             subtitle="REQUIRED BEFORE PILOT"
             icon={<DollarSign className="w-6 h-6" />}
@@ -296,6 +247,41 @@ export default function OlujoPlanPage() {
               "All major costs identified and reviewed",
               "Tooling assumptions documented",
               "Budget acknowledged before pilot launch"
+            ]}
+          />
+
+          {/* Phase 4 */}
+          <PhaseCard
+            number={4}
+            title="Lead Acquisition & Normalization"
+            subtitle=""
+            icon={<Database className="w-6 h-6" />}
+            color="green"
+            goal="Acquire a clean, deduplicated liquor store lead dataset using cost-effective, reliable sources, prioritizing speed, legality, and data accuracy."
+            outcomes={[
+              "Prefer authoritative or existing data sources",
+              "Normalize and clean data instead of over-engineering collection",
+              "Expand methods only after pilot validation"
+            ]}
+            scope={[
+              "Government / Regulatory Sources (e.g., NY State Liquor Authority public license datasets): Authoritative, complete coverage, legally clean, free or low-cost",
+              "Existing Commercial Lead Providers: Alcohol/retail datasets, social enrichment tools, faster to market, pre-normalized",
+              "Manual or Semi-Automated Enrichment: Tools to append Facebook pages and Instagram profiles after base dataset is established"
+            ]}
+            deliverables={[
+              "Selected acquisition method documented",
+              "Normalized dataset with required fields: Business name, Phone, City/State, Facebook page (if available), Instagram page (if available)",
+              "CSV import format finalized",
+              "Data quality spot-check process defined"
+            ]}
+            owners={[
+              { name: "Kellan", role: "selection & validation" },
+              { name: "Kurtis (TCT)", role: "advisory input only" }
+            ]}
+            exitCriteria={[
+              "NY and FL datasets acquired and normalized",
+              "No duplicate phone/address conflicts",
+              "Reps can begin calling immediately"
             ]}
           />
 
