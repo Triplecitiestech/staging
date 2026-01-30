@@ -92,9 +92,30 @@ export default function CallHandlingPage() {
               <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-6">
                 <h4 className="text-lg font-bold text-blue-400 mb-3">If the store says NO</h4>
                 <p className="text-white text-lg mb-3">"No worries at all — thanks for checking."</p>
-                <p className="text-slate-300 mb-2"><strong>Optionally:</strong></p>
-                <p className="text-white text-lg mb-2">"Have you heard of it before, or not really?"</p>
-                <p className="text-slate-400">Then end the call.</p>
+
+                <div className="bg-slate-900/50 rounded p-4 mb-3">
+                  <p className="text-sm font-semibold text-blue-300 mb-2">Optional natural follow-up (statement, not question):</p>
+                  <ul className="space-y-2 text-slate-300">
+                    <li className="flex items-start gap-2">
+                      <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-blue-400 mt-2" />
+                      <span>"Got it — thanks. Yeah, my girlfriend had it at a party she went to in New York City and loved it, and we've been trying to find it for her as a gift."</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-blue-400 mt-2" />
+                      <span>"No worries — I've just been trying to track it down because someone brought it to a get-together in the city and it really stood out."</span>
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="bg-blue-900/30 border border-blue-500/30 rounded p-4 mt-3">
+                  <p className="text-blue-200 text-sm mb-2"><strong>Important:</strong></p>
+                  <ul className="space-y-1 text-slate-300 text-sm">
+                    <li>• This is a casual statement, not a question</li>
+                    <li>• Sound mildly disappointed but friendly</li>
+                    <li>• Contractor must stop talking after this unless the store continues the conversation</li>
+                    <li>• No follow-up prompts, no pressure</li>
+                  </ul>
+                </div>
               </div>
 
               {/* If they ask what it is */}
@@ -224,7 +245,7 @@ export default function CallHandlingPage() {
               <div className="space-y-3">
                 <div className="flex items-start gap-3">
                   <CheckCircle2 size={20} className="text-purple-400 flex-shrink-0 mt-1" />
-                  <span className="text-slate-300">Politely decline: "I appreciate that, but I'm just helping with brand awareness — I'm not placing orders."</span>
+                  <span className="text-slate-300">Politely respond: "Got it — thanks, I appreciate that."</span>
                 </div>
                 <div className="flex items-start gap-3">
                   <CheckCircle2 size={20} className="text-purple-400 flex-shrink-0 mt-1" />
@@ -236,8 +257,30 @@ export default function CallHandlingPage() {
                 </div>
                 <div className="flex items-start gap-3">
                   <CheckCircle2 size={20} className="text-purple-400 flex-shrink-0 mt-1" />
-                  <span className="text-slate-300">Do NOT provide contact information or commit to anything</span>
+                  <span className="text-slate-300">End the call politely without committing to pickup, timing, or special orders</span>
                 </div>
+              </div>
+
+              <div className="bg-purple-900/30 border border-purple-500/30 rounded p-4 mt-4">
+                <p className="text-purple-200 text-sm font-semibold mb-2">Contact Information Policy:</p>
+                <ul className="space-y-2 text-slate-300 text-sm">
+                  <li className="flex items-start gap-2">
+                    <span className="text-green-400 flex-shrink-0">✓</span>
+                    <span>CAN provide name/number IF the store voluntarily asks</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-red-400 flex-shrink-0">✗</span>
+                    <span>CANNOT ask the store to call back</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-red-400 flex-shrink-0">✗</span>
+                    <span>CANNOT request special orders</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-red-400 flex-shrink-0">✗</span>
+                    <span>CANNOT promise pickup or commit to timing</span>
+                  </li>
+                </ul>
               </div>
             </div>
 
@@ -290,7 +333,8 @@ export default function CallHandlingPage() {
             </div>
           </div>
           <div className="mt-6 bg-red-900/30 border border-red-500/50 rounded-lg p-4">
-            <p className="text-red-300 font-bold text-lg">No transcript = no credit.</p>
+            <p className="text-red-300 font-bold text-lg mb-2">Quality Assurance & Accountability</p>
+            <p className="text-slate-300">Calls without uploaded transcripts are not considered valid outreach. All activity must be documented in Salesforce for auditability, compliance monitoring, and performance tracking.</p>
           </div>
         </section>
       </main>

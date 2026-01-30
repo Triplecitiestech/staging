@@ -155,11 +155,85 @@ export default function ContractorAgreementPage() {
           </div>
         </section>
 
-        {/* Section 5: Monitoring */}
+        {/* Section 5: Performance Expectations */}
+        <section className="mb-8 bg-gradient-to-br from-blue-600/20 to-blue-500/10 backdrop-blur-sm border-2 border-blue-500/50 rounded-lg p-8">
+          <h2 className="text-2xl font-bold text-blue-400 mb-6">5. Performance Expectations</h2>
+
+          <div className="space-y-6">
+            <p className="text-slate-300">
+              Contractors are expected to maintain consistent daily activity levels to ensure program effectiveness and operational efficiency.
+            </p>
+
+            <div className="bg-blue-900/20 rounded-lg p-6">
+              <h3 className="text-lg font-bold text-blue-400 mb-4">Daily Activity Targets</h3>
+              <p className="text-slate-300 mb-4">
+                While working scheduled hours, contractors should aim to meet the following targets:
+              </p>
+              <div className="space-y-3">
+                <div className="flex items-start gap-3">
+                  <div className="w-1.5 h-1.5 rounded-full bg-blue-400 mt-2 flex-shrink-0"></div>
+                  <span className="text-slate-300"><strong className="text-white">Calls attempted per day:</strong> Minimum 40-60 outbound calls during an 8-hour shift</span>
+                </div>
+                <div className="flex items-start gap-3">
+                  <div className="w-1.5 h-1.5 rounded-full bg-blue-400 mt-2 flex-shrink-0"></div>
+                  <span className="text-slate-300"><strong className="text-white">Calls completed with documentation:</strong> All completed calls must be logged in Salesforce with transcripts</span>
+                </div>
+                <div className="flex items-start gap-3">
+                  <div className="w-1.5 h-1.5 rounded-full bg-blue-400 mt-2 flex-shrink-0"></div>
+                  <span className="text-slate-300"><strong className="text-white">Response rate:</strong> Contractors should maintain regular communication with management and respond to requests within 24 hours</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-slate-900/50 border border-blue-500/30 rounded-lg p-6">
+              <h3 className="text-lg font-bold text-blue-300 mb-3">Important Clarifications</h3>
+              <ul className="space-y-2 text-slate-300 text-sm">
+                <li className="flex items-start gap-2">
+                  <span className="flex-shrink-0">•</span>
+                  <span>These targets are <strong className="text-white">operational expectations</strong>, not tied to sales outcomes or purchase results</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="flex-shrink-0">•</span>
+                  <span>Call volume may vary based on market conditions, store hours, and territory characteristics</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="flex-shrink-0">•</span>
+                  <span>Quality of outreach and SOP compliance is equally important as quantity</span>
+                </li>
+              </ul>
+            </div>
+
+            <div className="bg-orange-900/20 border border-orange-500/50 rounded-lg p-6">
+              <h3 className="text-lg font-bold text-orange-400 mb-4">Performance Enforcement</h3>
+              <p className="text-slate-300 mb-3">
+                Failure to meet performance targets may result in:
+              </p>
+              <div className="space-y-2">
+                <div className="flex items-start gap-3">
+                  <div className="w-1.5 h-1.5 rounded-full bg-orange-400 mt-2 flex-shrink-0"></div>
+                  <span className="text-slate-300"><strong className="text-white">Coaching and feedback:</strong> Management will provide guidance to help contractors improve activity levels</span>
+                </div>
+                <div className="flex items-start gap-3">
+                  <div className="w-1.5 h-1.5 rounded-full bg-orange-400 mt-2 flex-shrink-0"></div>
+                  <span className="text-slate-300"><strong className="text-white">Reduced hours:</strong> Persistent underperformance may lead to reduced scheduled hours or shift reassignment</span>
+                </div>
+                <div className="flex items-start gap-3">
+                  <div className="w-1.5 h-1.5 rounded-full bg-orange-400 mt-2 flex-shrink-0"></div>
+                  <span className="text-slate-300"><strong className="text-white">Termination:</strong> Consistent failure to meet minimum activity expectations may result in termination of this Agreement</span>
+                </div>
+              </div>
+              <p className="text-slate-400 text-sm mt-4 italic">
+                Performance is reviewed on an ongoing basis. Contractors will receive feedback and opportunities to improve before termination is considered.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* Section 6: Monitoring */}
         <section className="mb-8 bg-gradient-to-br from-purple-600/20 to-purple-500/10 backdrop-blur-sm border-2 border-purple-500/50 rounded-lg p-8">
           <div className="flex items-center gap-3 mb-6">
             <AlertTriangle className="w-8 h-8 text-purple-400" />
-            <h2 className="text-2xl font-bold text-white">5. Monitoring &amp; Quality Assurance</h2>
+            <h2 className="text-2xl font-bold text-white">6. Monitoring &amp; Quality Assurance</h2>
           </div>
 
           <div className="space-y-4 text-slate-300">
@@ -191,9 +265,9 @@ export default function ContractorAgreementPage() {
           </div>
         </section>
 
-        {/* Section 6: Confidentiality */}
+        {/* Section 7: Confidentiality */}
         <section className="mb-8 bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-sm border border-white/10 rounded-lg p-8">
-          <h2 className="text-2xl font-bold text-cyan-400 mb-4">6. Confidentiality</h2>
+          <h2 className="text-2xl font-bold text-cyan-400 mb-4">7. Confidentiality</h2>
           <div className="space-y-4 text-slate-300">
             <p>
               The Contractor agrees to keep all information related to the Program confidential, including but not limited to:
@@ -222,9 +296,9 @@ export default function ContractorAgreementPage() {
           </div>
         </section>
 
-        {/* Section 7: Non-Solicitation */}
+        {/* Section 8: Non-Solicitation */}
         <section className="mb-8 bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-sm border border-white/10 rounded-lg p-8">
-          <h2 className="text-2xl font-bold text-cyan-400 mb-4">7. Non-Solicitation</h2>
+          <h2 className="text-2xl font-bold text-cyan-400 mb-4">8. Non-Solicitation</h2>
           <div className="space-y-4 text-slate-300">
             <p>
               The Contractor agrees not to:
@@ -249,9 +323,9 @@ export default function ContractorAgreementPage() {
           </div>
         </section>
 
-        {/* Section 8: Termination */}
+        {/* Section 9: Termination */}
         <section className="mb-8 bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-sm border border-white/10 rounded-lg p-8">
-          <h2 className="text-2xl font-bold text-cyan-400 mb-4">8. Termination</h2>
+          <h2 className="text-2xl font-bold text-cyan-400 mb-4">9. Termination</h2>
           <div className="space-y-4 text-slate-300">
             <p>
               The Company may terminate this Agreement <strong className="text-white">at any time without warning or prior notice</strong>.
@@ -286,9 +360,9 @@ export default function ContractorAgreementPage() {
           </div>
         </section>
 
-        {/* Section 9: Independent Contractor Status */}
+        {/* Section 10: Independent Contractor Status */}
         <section className="mb-8 bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-sm border border-white/10 rounded-lg p-8">
-          <h2 className="text-2xl font-bold text-cyan-400 mb-4">9. Independent Contractor Status</h2>
+          <h2 className="text-2xl font-bold text-cyan-400 mb-4">10. Independent Contractor Status</h2>
           <div className="space-y-4 text-slate-300">
             <p>
               The Contractor acknowledges and agrees that:
@@ -318,9 +392,9 @@ export default function ContractorAgreementPage() {
           </div>
         </section>
 
-        {/* Section 10: Governing Law */}
+        {/* Section 11: Governing Law */}
         <section className="mb-8 bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-sm border border-white/10 rounded-lg p-8">
-          <h2 className="text-2xl font-bold text-cyan-400 mb-4">10. Governing Law</h2>
+          <h2 className="text-2xl font-bold text-cyan-400 mb-4">11. Governing Law</h2>
           <div className="space-y-4 text-slate-300">
             <p>
               This Agreement shall be governed by and construed in accordance with the laws of the State of New York, without regard to its conflict of law provisions.
