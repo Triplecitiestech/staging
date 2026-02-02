@@ -85,7 +85,7 @@ export default function Header() {
               size="md"
               className="bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500"
             >
-              <Link href="/contact">Contact Us</Link>
+              <Link href="/contact#sales">Contact Us</Link>
             </Button>
           </div>
 
