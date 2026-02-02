@@ -71,7 +71,15 @@ export default function Header() {
                 </Link>
               )
             })}
-            <Button 
+            <Button
+              asChild
+              variant="primary"
+              size="md"
+              className="bg-white/10 border border-white/20 hover:bg-white/20 text-white"
+            >
+              <Link href="/contact#customer-support">Get Support</Link>
+            </Button>
+            <Button
               asChild
               variant="primary"
               size="md"
@@ -279,6 +287,21 @@ export default function Header() {
                 </Link>
               )
             })}
+            </div>
+
+            {/* Get Support Button - Mobile */}
+            <div className="px-4 sm:px-6 pb-2" style={{ transform: 'translateZ(30px)' }}>
+              <Link
+                href="/contact#customer-support"
+                onClick={() => setIsMenuOpen(false)}
+                className="block w-full py-4 px-6 rounded-2xl text-center font-bold text-lg text-white bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 transition-all duration-300 transform-gpu hover:scale-105"
+                style={{
+                  boxShadow: '0 8px 24px rgba(6, 182, 212, 0.4), 0 4px 12px rgba(0, 0, 0, 0.2)',
+                  textShadow: '0 2px 4px rgba(0, 0, 0, 0.3)'
+                }}
+              >
+                Get Support
+              </Link>
             </div>
 
             {/* 3D SOCIAL MEDIA LINKS */}
