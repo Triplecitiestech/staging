@@ -10,7 +10,7 @@ export const NAVIGATION = {
     { label: 'Industries', href: '/industries' },
     { label: 'Services', href: '/services' },
     { label: 'About', href: '/about' },
-    { label: 'Contact Us', href: '/contact' }
+    { label: 'Contact Us', href: '/contact#sales' }
   ],
   footer: {
     services: [
