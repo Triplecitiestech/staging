@@ -7,6 +7,7 @@ import crypto from 'crypto';
 
 // Disable static generation for this API route
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
