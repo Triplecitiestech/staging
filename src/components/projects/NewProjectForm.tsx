@@ -79,7 +79,9 @@ export default function NewProjectForm({ companies, templates, userEmail, aiPhas
         throw new Error(result.requestId ? `${errorMessage} (ref: ${result.requestId})` : errorMessage)
       }
 
-      router.push(`/admin/projects/${result.data.id}`)
+      // Use window.location for a full navigation to ensure the server
+      // component fetches fresh data for the newly created project
+      window.location.href = `/admin/projects/${result.data.id}`
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred')
       setLoading(false)
