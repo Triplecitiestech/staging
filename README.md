@@ -142,8 +142,19 @@ docs/                  # Architecture, standards, runbooks
 
 ## Documentation
 
-- [Architecture](docs/ARCHITECTURE.md) — system flows, data model, AI integration
-- [UI Standards](docs/UI_STANDARDS.md) — table layout, forms, loading/error states
-- [Self-Healing & Reliability](docs/SELF_HEALING_AND_RELIABILITY.md) — timeouts, retries, verified-create
+- **[CLAUDE.md](CLAUDE.md)** — **START HERE for development** — Standards, patterns, and AI-assisted coding guide
+- [Architecture](docs/ARCHITECTURE.md) — system flows, data model, AI integration, current vs. target state
+- [UI Standards](docs/UI_STANDARDS.md) — table layout, forms, loading/error states, verified-create pattern
+- [Self-Healing & Reliability](docs/SELF_HEALING_AND_RELIABILITY.md) — timeouts, retries, idempotency (target state)
 - [Runbook](docs/RUNBOOK.md) — incident response, debugging, deploy issues
-- [Changelog](docs/CHANGELOG.md) — release history
+- [Changelog](docs/CHANGELOG.md) — release history and in-progress work
+
+## Development Standards
+
+This project follows the **Smart Sumai engineering model**:
+
+1. **Verified-Create Pattern**: UI never shows success without backend confirmation (`{success, id, url, requestId}`)
+2. **Self-Healing Reliability**: Structured logging, request IDs, timeouts, safe retries, idempotency
+3. **AI Operation Rules**: Create record first, mark as processing, run AI async, update when complete
+
+**Note:** These standards are being incrementally applied across the codebase. See [CLAUDE.md](CLAUDE.md) for implementation guidelines and reference examples.

@@ -139,15 +139,40 @@ See `prisma/schema.prisma` for the full 26-model schema.
 
 ## Structured Logging
 
-All API routes use `src/lib/server-logger.ts`:
-- Every request gets a `requestId` (UUID)
+**Target State:** All API routes use `src/lib/server-logger.ts`
+**Current State:** ~2 of 60+ API routes (company creation, AI chat)
+
+### What's Implemented
+- Request ID generation and correlation
 - Timing captures: total latency, DB time, AI time
 - Structured JSON format: `{ timestamp, requestId, level, message, context }`
 - Security events via `src/lib/security.ts:logSecurityEvent()`
 
+### What's Pending
+- Most API routes still use `console.log` (322 instances across 79 files)
+- No consistent request ID propagation
+- Inconsistent timing measurements
+
+**Files to reference:**
+- ✅ `/src/app/api/companies/route.ts` - Best practice example
+- ✅ `/src/app/api/admin/ai-chat/route.ts` - Best practice example
+- ❌ `/src/app/api/projects/route.ts` - Needs migration
+
 ## Error Handling
 
-- **API routes**: Standard response envelope `{ success, data?, error?, requestId }`
+**Target State:** All API routes use standard response envelope
+**Current State:** ~2 of 60+ API routes
+
+### What's Implemented
+- **API response envelope** (`src/lib/api-response.ts`): `{ success, data?, error?, requestId }`
+- **Company creation**: Uses verified-create pattern with envelope
+- **AI chat**: Uses envelope for errors
 - **Client**: `AdminErrorBoundary` wraps all admin pages
 - **AI calls**: 25s timeout via AbortController; errors surfaced to user
 - **Non-critical failures** (audit logs): caught and logged, don't block primary operation
+
+### What's Pending
+- Most API routes return raw Prisma objects or inconsistent error formats
+- Project/phase/task creation routes need envelope migration
+- No timeout protection on most operations
+- Idempotency header accepted but not enforced

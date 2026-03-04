@@ -136,9 +136,10 @@ Vercel supports instant rollback:
 ## Where to Find Logs
 
 ### Structured Logs (Server)
-- All API routes log via `server-logger.ts`
-- Format: JSON with `{ timestamp, level, requestId, message, context }`
-- Search by `requestId` to trace a full request lifecycle
+- **Currently**: Only ~2 of 60+ API routes use `server-logger.ts` (company creation, AI chat)
+- **Most routes**: Still use `console.log/error/warn` (being migrated)
+- **Format** (where implemented): JSON with `{ timestamp, level, requestId, message, context }`
+- **Search by `requestId`** to trace a full request lifecycle (only works for routes using structured logging)
 
 ### Security Logs
 - Prefixed with `[SECURITY-*]`
