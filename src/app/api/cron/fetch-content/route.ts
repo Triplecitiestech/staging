@@ -11,17 +11,25 @@ export const dynamic = 'force-dynamic';
  * POST /api/cron/fetch-content
  * Authorization: Bearer <BLOG_CRON_SECRET>
  */
+export async function GET(request: NextRequest) {
+  return handleFetchContent(request);
+}
+
 export async function POST(request: NextRequest) {
+  return handleFetchContent(request);
+}
+
+async function handleFetchContent(request: NextRequest) {
   try {
     // Dynamic import to prevent Prisma loading during build
     const { prisma } = await import('@/lib/prisma');
 
-    // Verify cron secret
+    // Verify cron secret (supports both Vercel's CRON_SECRET and custom BLOG_CRON_SECRET)
     const authHeader = request.headers.get('authorization');
-    const secret = process.env.BLOG_CRON_SECRET;
+    const secret = process.env.CRON_SECRET || process.env.BLOG_CRON_SECRET;
 
     if (!secret) {
-      console.warn('⚠️ BLOG_CRON_SECRET not configured');
+      console.warn('⚠️ CRON_SECRET / BLOG_CRON_SECRET not configured');
     } else if (authHeader !== `Bearer ${secret}`) {
       console.error('❌ Invalid cron secret');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

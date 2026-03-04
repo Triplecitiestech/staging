@@ -41,7 +41,7 @@ export default function GenerateBlogPage() {
 
     try {
       const response = await fetch('/api/blog/generate-now', {
-        signal: AbortSignal.timeout(55000),
+        signal: AbortSignal.timeout(65000),
       })
 
       clearInterval(timer)
@@ -83,7 +83,7 @@ export default function GenerateBlogPage() {
       setResult({
         success: false,
         error: isTimeout
-          ? 'Request timed out after 55 seconds. The AI generation may still be running — check the blog dashboard in a minute to see if a post was created.'
+          ? 'Request timed out after 65 seconds. The AI generation may still be running — check the blog dashboard in a minute to see if a post was created.'
           : err instanceof Error ? err.message : 'Network error. Check your connection and try again.',
       })
     }

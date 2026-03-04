@@ -7,6 +7,12 @@
   "functions": {
     "src/app/api/**/*.ts": {
       "maxDuration": 30
+    },
+    "src/app/api/blog/generate-now/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/cron/generate-blog/route.ts": {
+      "maxDuration": 60
     }
   },
   "crons": [

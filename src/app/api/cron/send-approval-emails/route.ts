@@ -13,13 +13,21 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
  * POST /api/cron/send-approval-emails
  * Authorization: Bearer <BLOG_CRON_SECRET>
  */
+export async function GET(request: NextRequest) {
+  return handleSendApprovalEmails(request);
+}
+
 export async function POST(request: NextRequest) {
+  return handleSendApprovalEmails(request);
+}
+
+async function handleSendApprovalEmails(request: NextRequest) {
   try {
     const { prisma } = await import('@/lib/prisma');
 
-    // Verify cron secret
+    // Verify cron secret (supports both Vercel's CRON_SECRET and custom BLOG_CRON_SECRET)
     const authHeader = request.headers.get('authorization');
-    const secret = process.env.BLOG_CRON_SECRET;
+    const secret = process.env.CRON_SECRET || process.env.BLOG_CRON_SECRET;
 
     if (secret && authHeader !== `Bearer ${secret}`) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -154,11 +162,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-/**
- * GET version for testing
- */
-export async function GET() {
-  return POST(new Request('http://localhost', { method: 'POST' }) as NextRequest);
 }
