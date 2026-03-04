@@ -198,9 +198,8 @@ export default async function BlogManagementPage() {
               </div>
             </Link>
 
-            <a
-              href="/api/blog/generate-now"
-              target="_blank"
+            <Link
+              href="/admin/blog/generate"
               className="flex items-center gap-3 p-4 bg-cyan-500/10 border border-cyan-500/30 rounded-lg hover:bg-cyan-500/20 transition-colors"
             >
               <span className="text-2xl">🤖</span>
@@ -208,7 +207,7 @@ export default async function BlogManagementPage() {
                 <p className="font-medium text-cyan-300">Generate New Post</p>
                 <p className="text-xs text-slate-400">Trigger AI blog generation</p>
               </div>
-            </a>
+            </Link>
 
             <Link
               href="/blog"
