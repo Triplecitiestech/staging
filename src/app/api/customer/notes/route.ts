@@ -1,12 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { PrismaClient } from '@prisma/client'
-import { withAccelerate } from '@prisma/extension-accelerate'
 import { getAuthenticatedCompany } from '@/lib/onboarding-session'
 import { auth } from '@/auth'
-
-const prisma = new PrismaClient({
-  accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
-}).$extends(withAccelerate())
 
 // POST /api/customer/notes - Save a customer note on a phase or task
 export async function POST(request: NextRequest) {
@@ -44,6 +38,8 @@ export async function POST(request: NextRequest) {
     } else {
       console.log('[Customer Notes API] Using customer session for authentication')
     }
+
+    const { prisma } = await import('@/lib/prisma')
 
     if (phaseId) {
       // Update phase customer notes

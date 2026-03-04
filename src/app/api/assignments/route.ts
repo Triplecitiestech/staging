@@ -1,11 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
-import { PrismaClient } from '@prisma/client'
-import { withAccelerate } from '@prisma/extension-accelerate'
-
-const prisma = new PrismaClient({
-  accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
-}).$extends(withAccelerate())
 
 // GET assignments for a phase or task
 export async function GET(req: NextRequest) {
@@ -15,6 +9,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    const { prisma } = await import('@/lib/prisma')
     const { searchParams } = new URL(req.url)
     const phaseId = searchParams.get('phaseId')
     const taskId = searchParams.get('taskId')
@@ -52,6 +47,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    const { prisma } = await import('@/lib/prisma')
     const data = await req.json()
 
     // Validate required fields

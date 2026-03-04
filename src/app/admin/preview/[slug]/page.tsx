@@ -1,12 +1,8 @@
 import { auth } from '@/auth'
 import { redirect, notFound } from 'next/navigation'
-import { PrismaClient, Prisma } from '@prisma/client'
-import { withAccelerate } from '@prisma/extension-accelerate'
+import { Prisma } from '@prisma/client'
+import { prisma } from '@/lib/prisma'
 import OnboardingPortal from '@/components/onboarding/OnboardingPortal'
-
-const prisma = new PrismaClient({
-  accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
-}).$extends(withAccelerate())
 
 type CompanyWithProjects = Prisma.CompanyGetPayload<{
   include: {

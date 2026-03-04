@@ -1,11 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
-import { PrismaClient } from '@prisma/client'
-import { withAccelerate } from '@prisma/extension-accelerate'
-
-const prisma = new PrismaClient({
-  accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
-}).$extends(withAccelerate())
 
 export async function POST(req: NextRequest) {
   const session = await auth()
@@ -14,6 +8,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    const { prisma } = await import('@/lib/prisma')
     const data = await req.json()
 
     // Validate required fields
