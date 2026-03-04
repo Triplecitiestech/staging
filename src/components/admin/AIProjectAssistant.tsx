@@ -38,7 +38,28 @@ export default function AIProjectAssistant({
   const [isLoading, setIsLoading] = useState(false)
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
   const [insertSuccess, setInsertSuccess] = useState(false)
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const timerRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Track elapsed time while loading
+  useEffect(() => {
+    if (isLoading) {
+      setElapsedSeconds(0)
+      timerRef.current = setInterval(() => {
+        setElapsedSeconds(prev => prev + 1)
+      }, 1000)
+    } else {
+      if (timerRef.current) {
+        clearInterval(timerRef.current)
+        timerRef.current = null
+      }
+      setElapsedSeconds(0)
+    }
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current)
+    }
+  }, [isLoading])
 
   // Load messages from localStorage on mount
   useEffect(() => {
@@ -76,6 +97,10 @@ export default function AIProjectAssistant({
     setInput('')
     setIsLoading(true)
 
+    // Client-side timeout with AbortController
+    const abortController = new AbortController()
+    const timeoutId = setTimeout(() => abortController.abort(), 30000)
+
     try {
       const response = await fetch('/api/admin/ai-chat', {
         method: 'POST',
@@ -83,9 +108,11 @@ export default function AIProjectAssistant({
         body: JSON.stringify({
           messages: [...messages, userMessage],
           projectContext
-        })
+        }),
+        signal: abortController.signal,
       })
 
+      clearTimeout(timeoutId)
       const data = await response.json()
 
       if (!response.ok) {
@@ -99,8 +126,16 @@ export default function AIProjectAssistant({
 
       setMessages(prev => [...prev, assistantMessage])
     } catch (error) {
+      clearTimeout(timeoutId)
       console.error('Chat error:', error)
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+
+      let errorMessage: string
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        errorMessage = 'Request timed out after 30 seconds. The AI service may be busy — please try again with a shorter message.'
+      } else {
+        errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+      }
+
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: `Sorry, I encountered an error: ${errorMessage}\n\nPlease try again or contact support if the issue persists.`
@@ -349,10 +384,15 @@ export default function AIProjectAssistant({
         {isLoading && (
           <div className="flex justify-start">
             <div className="bg-slate-800 rounded-lg p-3">
-              <div className="flex space-x-2">
+              <div className="flex items-center space-x-2">
                 <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
                 <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
                 <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                {elapsedSeconds >= 5 && (
+                  <span className="text-xs text-slate-400 ml-2">
+                    Still working... ({elapsedSeconds}s)
+                  </span>
+                )}
               </div>
             </div>
           </div>
