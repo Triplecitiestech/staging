@@ -40,10 +40,26 @@ export default function GenerateBlogPage() {
     }, 1000)
 
     try {
-      const response = await fetch('/api/blog/generate-now')
-      const data: GenerationResult = await response.json()
+      const response = await fetch('/api/blog/generate-now', {
+        signal: AbortSignal.timeout(55000),
+      })
 
       clearInterval(timer)
+
+      // Handle non-JSON responses (e.g. Vercel timeout HTML pages)
+      const contentType = response.headers.get('content-type') || ''
+      if (!contentType.includes('application/json')) {
+        setStatus('error')
+        setResult({
+          success: false,
+          error: response.status === 504
+            ? 'Request timed out. The blog generation process took too long. Try again — RSS feeds may have been slow to respond.'
+            : `Server returned an unexpected response (${response.status}). Check that your environment variables are configured correctly.`,
+        })
+        return
+      }
+
+      const data: GenerationResult = await response.json()
 
       if (!response.ok) {
         setStatus('error')
@@ -62,9 +78,13 @@ export default function GenerateBlogPage() {
     } catch (err) {
       clearInterval(timer)
       setStatus('error')
+
+      const isTimeout = err instanceof DOMException && err.name === 'TimeoutError'
       setResult({
         success: false,
-        error: err instanceof Error ? err.message : 'Network error — the request may have timed out. Check the blog dashboard to see if a post was created.',
+        error: isTimeout
+          ? 'Request timed out after 55 seconds. The AI generation may still be running — check the blog dashboard in a minute to see if a post was created.'
+          : err instanceof Error ? err.message : 'Network error. Check your connection and try again.',
       })
     }
   }

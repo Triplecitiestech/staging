@@ -125,7 +125,13 @@ export class ContentCurator {
    */
   async identifyTrendingTopics(daysBack: number = 3): Promise<TrendingTopic[]> {
     const articles = await this.fetchRecentArticles(daysBack);
+    return this.analyzeTrendingTopics(articles);
+  }
 
+  /**
+   * Analyze trending topics from a pre-fetched set of articles (no network calls)
+   */
+  private analyzeTrendingTopics(articles: RSSArticle[]): TrendingTopic[] {
     // Extract keywords from titles and content
     const keywordFrequency = new Map<string, number>();
     const articlesByKeyword = new Map<string, RSSArticle[]>();
@@ -171,6 +177,7 @@ export class ContentCurator {
 
   /**
    * Select best articles for blog content generation
+   * Note: fetches RSS feeds once and reuses for both article selection and trending analysis
    */
   async selectArticlesForBlog(options: {
     maxArticles?: number;
@@ -179,10 +186,14 @@ export class ContentCurator {
   } = {}): Promise<{ articles: RSSArticle[]; trendingTopics: TrendingTopic[] }> {
     const { maxArticles = 5, daysBack = 3, preferTrending = true } = options;
 
-    const [articles, trendingTopics] = await Promise.all([
-      this.fetchRecentArticles(daysBack),
-      preferTrending ? this.identifyTrendingTopics(daysBack) : Promise.resolve([])
-    ]);
+    // Fetch all articles once (avoid double-fetching for trending + selection)
+    const allArticles = await this.fetchRecentArticles(daysBack);
+
+    // Analyze trending topics from the already-fetched articles
+    let trendingTopics: TrendingTopic[] = [];
+    if (preferTrending) {
+      trendingTopics = this.analyzeTrendingTopics(allArticles);
+    }
 
     let selectedArticles: RSSArticle[] = [];
 
@@ -194,7 +205,7 @@ export class ContentCurator {
       console.log(`Selected ${selectedArticles.length} articles about trending topic: ${topTopic.keyword}`);
     } else {
       // Select most recent high-quality articles
-      selectedArticles = articles
+      selectedArticles = allArticles
         .filter(article => this.isHighQuality(article))
         .slice(0, maxArticles);
 
