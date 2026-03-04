@@ -1,13 +1,8 @@
 import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
-import { PrismaClient } from '@prisma/client'
-import { withAccelerate } from '@prisma/extension-accelerate'
+import { prisma } from '@/lib/prisma'
 import NewProjectWithAI from '@/components/projects/NewProjectWithAI'
 import AdminHeader from '@/components/admin/AdminHeader'
-
-const prisma = new PrismaClient({
-  accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
-}).$extends(withAccelerate())
 
 export default async function NewProjectPage() {
   const session = await auth()

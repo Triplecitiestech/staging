@@ -1,11 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
-import { PrismaClient } from '@prisma/client'
-import { withAccelerate } from '@prisma/extension-accelerate'
-
-const prisma = new PrismaClient({
-  accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
-}).$extends(withAccelerate())
 
 interface RouteContext {
   params: Promise<{ id: string }>
@@ -19,6 +13,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
   }
 
   try {
+    const { prisma } = await import('@/lib/prisma')
     const { id } = await context.params
 
     const comment = await prisma.comment.findUnique({
@@ -50,6 +45,7 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
   }
 
   try {
+    const { prisma } = await import('@/lib/prisma')
     const { id } = await context.params
     const data = await req.json()
 
@@ -99,6 +95,7 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
   }
 
   try {
+    const { prisma } = await import('@/lib/prisma')
     const { id } = await context.params
 
     // Verify comment exists and user has permission

@@ -3,12 +3,8 @@ import Image from 'next/image'
 import { auth } from '@/auth'
 import { SignInButton } from '@/components/auth/AuthButtons'
 import AdminHeader from '@/components/admin/AdminHeader'
-import { PrismaClient, Prisma } from '@prisma/client'
-import { withAccelerate } from '@prisma/extension-accelerate'
-
-const prisma = new PrismaClient({
-  accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
-}).$extends(withAccelerate())
+import { Prisma } from '@prisma/client'
+import { prisma } from '@/lib/prisma'
 
 type ProjectWithRelations = Prisma.ProjectGetPayload<{
   include: {

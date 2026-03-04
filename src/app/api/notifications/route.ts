@@ -1,11 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
-import { PrismaClient } from '@prisma/client'
-import { withAccelerate } from '@prisma/extension-accelerate'
-
-const prisma = new PrismaClient({
-  accelerateUrl: process.env.PRISMA_DATABASE_URL || process.env.DATABASE_URL
-}).$extends(withAccelerate())
 
 // GET notifications for current user
 export async function GET(req: NextRequest) {
@@ -15,6 +9,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    const { prisma } = await import('@/lib/prisma')
     const { searchParams } = new URL(req.url)
     const unreadOnly = searchParams.get('unreadOnly') === 'true'
 
@@ -53,6 +48,7 @@ export async function PATCH(req: NextRequest) {
   }
 
   try {
+    const { prisma } = await import('@/lib/prisma')
     const data = await req.json()
 
     // Mark all as read
