@@ -1,91 +1,101 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import AdminHeader from '@/components/admin/AdminHeader'
 
-interface GenerationResult {
-  success: boolean
-  skipped?: boolean
-  reason?: string
-  message?: string
+interface PollResult {
+  id: string
+  status: 'generating' | 'complete' | 'failed'
+  title: string
+  slug: string
+  category?: string
+  blogStatus: string
   error?: string
-  details?: string
-  validationErrors?: string[]
-  blogPost?: {
-    id: string
-    title: string
-    slug: string
-    category: string
-    status: string
-    previewUrl: string
-    approveUrl: string
-  }
-  articlesUsed?: number
-  trendingTopic?: string | null
 }
 
 export default function GenerateBlogPage() {
   const [status, setStatus] = useState<'idle' | 'generating' | 'success' | 'error'>('idle')
-  const [result, setResult] = useState<GenerationResult | null>(null)
   const [elapsed, setElapsed] = useState(0)
+  const [postId, setPostId] = useState<string | null>(null)
+  const [postTitle, setPostTitle] = useState<string | null>(null)
+  const [postCategory, setPostCategory] = useState<string | null>(null)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const cleanup = useCallback(() => {
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+  }, [])
 
   const handleGenerate = async () => {
     setStatus('generating')
-    setResult(null)
+    setErrorMsg(null)
+    setPostId(null)
+    setPostTitle(null)
+    setPostCategory(null)
     setElapsed(0)
 
-    const timer = setInterval(() => {
-      setElapsed(prev => prev + 1)
-    }, 1000)
+    timerRef.current = setInterval(() => setElapsed(prev => prev + 1), 1000)
 
     try {
-      const response = await fetch('/api/blog/generate-now', {
-        signal: AbortSignal.timeout(65000),
-      })
+      // Step 1: Start generation (returns immediately)
+      const res = await fetch('/api/blog/generate-now', { method: 'POST' })
+      const data = await res.json()
 
-      clearInterval(timer)
-
-      // Handle non-JSON responses (e.g. Vercel timeout HTML pages)
-      const contentType = response.headers.get('content-type') || ''
-      if (!contentType.includes('application/json')) {
+      if (!res.ok || !data.success) {
+        cleanup()
         setStatus('error')
-        setResult({
-          success: false,
-          error: response.status === 504
-            ? 'Request timed out. The blog generation process took too long. Try again — RSS feeds may have been slow to respond.'
-            : `Server returned an unexpected response (${response.status}). Check that your environment variables are configured correctly.`,
-        })
-        return
-      }
-
-      const data: GenerationResult = await response.json()
-
-      if (!response.ok) {
-        setStatus('error')
-        setResult(data)
+        setErrorMsg(data.error || data.reason || 'Failed to start generation')
         return
       }
 
       if (data.skipped) {
+        cleanup()
         setStatus('error')
-        setResult({ ...data, error: data.reason })
+        setErrorMsg(data.reason || 'Generation was skipped')
         return
       }
 
-      setStatus('success')
-      setResult(data)
-    } catch (err) {
-      clearInterval(timer)
-      setStatus('error')
+      const id = data.blogPostId
+      setPostId(id)
 
-      const isTimeout = err instanceof DOMException && err.name === 'TimeoutError'
-      setResult({
-        success: false,
-        error: isTimeout
-          ? 'Request timed out after 65 seconds. The AI generation may still be running — check the blog dashboard in a minute to see if a post was created.'
-          : err instanceof Error ? err.message : 'Network error. Check your connection and try again.',
-      })
+      // Step 2: Poll for completion every 3 seconds
+      pollRef.current = setInterval(async () => {
+        try {
+          const pollRes = await fetch(`/api/blog/generate-now?id=${id}`)
+          const pollData: PollResult = await pollRes.json()
+
+          if (pollData.status === 'complete') {
+            cleanup()
+            setPostTitle(pollData.title)
+            setPostCategory(pollData.category || null)
+            setStatus('success')
+          } else if (pollData.status === 'failed') {
+            cleanup()
+            setStatus('error')
+            setErrorMsg(pollData.error || 'Generation failed')
+          }
+          // If still 'generating', keep polling
+        } catch {
+          // Polling network error — don't stop, just try again next interval
+          console.warn('Poll request failed, retrying...')
+        }
+      }, 3000)
+
+      // Safety timeout: stop polling after 90 seconds
+      setTimeout(() => {
+        if (pollRef.current) {
+          cleanup()
+          setStatus('error')
+          setErrorMsg('Generation is taking longer than expected. Check the blog dashboard — the post may still appear shortly.')
+        }
+      }, 90000)
+    } catch (err) {
+      cleanup()
+      setStatus('error')
+      setErrorMsg(err instanceof Error ? err.message : 'Network error. Check your connection and try again.')
     }
   }
 
@@ -110,7 +120,7 @@ export default function GenerateBlogPage() {
             <div>
               <h2 className="text-xl font-semibold text-white">Ready to Generate</h2>
               <p className="text-slate-400 mt-2 max-w-md mx-auto">
-                This will fetch articles from your configured RSS sources, select trending topics, and use AI to write a new blog post. The process typically takes 15-30 seconds.
+                This will fetch articles from your configured RSS sources, select trending topics, and use AI to write a new blog post. The process typically takes 30-60 seconds.
               </p>
             </div>
             <div className="space-y-3">
@@ -139,60 +149,52 @@ export default function GenerateBlogPage() {
             <div>
               <h2 className="text-xl font-semibold text-white">Generating Blog Post...</h2>
               <p className="text-slate-400 mt-2">
-                {elapsed < 5 && 'Fetching RSS feeds and selecting articles...'}
-                {elapsed >= 5 && elapsed < 15 && 'Analyzing trending topics and generating content...'}
-                {elapsed >= 15 && elapsed < 25 && 'Writing blog post with AI — almost there...'}
-                {elapsed >= 25 && 'Still working — this is taking longer than usual...'}
+                {elapsed < 5 && 'Starting generation and fetching RSS feeds...'}
+                {elapsed >= 5 && elapsed < 15 && 'Fetching articles and analyzing trending topics...'}
+                {elapsed >= 15 && elapsed < 30 && 'Writing blog post with AI...'}
+                {elapsed >= 30 && elapsed < 50 && 'AI is crafting your content — almost there...'}
+                {elapsed >= 50 && 'Still working — this is taking longer than usual...'}
               </p>
               <p className="text-sm text-slate-500 mt-3">{elapsed}s elapsed</p>
             </div>
           </div>
         )}
 
-        {status === 'success' && result?.blogPost && (
+        {status === 'success' && postId && (
           <div className="space-y-6">
             <div className="bg-green-500/10 backdrop-blur-sm border border-green-500/30 rounded-lg p-8 space-y-4">
               <div className="flex items-center gap-3">
                 <span className="text-3xl">✅</span>
                 <h2 className="text-xl font-semibold text-green-300">Blog Post Generated!</h2>
               </div>
-              <p className="text-slate-300">{result.message}</p>
+              <p className="text-slate-300">
+                Your blog post has been created and an approval email has been sent.
+              </p>
 
               <div className="bg-slate-900/50 rounded-lg p-4 space-y-2">
-                <h3 className="font-semibold text-white text-lg">{result.blogPost.title}</h3>
+                <h3 className="font-semibold text-white text-lg">{postTitle}</h3>
                 <div className="flex flex-wrap gap-2">
-                  <span className="px-2 py-1 text-xs rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                    {result.blogPost.category}
-                  </span>
+                  {postCategory && (
+                    <span className="px-2 py-1 text-xs rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                      {postCategory}
+                    </span>
+                  )}
                   <span className="px-2 py-1 text-xs rounded-full bg-yellow-500/20 text-yellow-300 border border-yellow-500/30">
-                    {result.blogPost.status.replace(/_/g, ' ')}
+                    PENDING APPROVAL
                   </span>
-                  {result.articlesUsed && (
-                    <span className="px-2 py-1 text-xs rounded-full bg-slate-500/20 text-slate-300 border border-slate-500/30">
-                      {result.articlesUsed} sources used
-                    </span>
-                  )}
-                  {result.trendingTopic && (
-                    <span className="px-2 py-1 text-xs rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
-                      Trending: {result.trendingTopic}
-                    </span>
-                  )}
                 </div>
               </div>
             </div>
 
             <div className="flex flex-wrap gap-3">
               <Link
-                href={`/admin/blog/${result.blogPost.id}/edit`}
+                href={`/admin/blog/${postId}/edit`}
                 className="px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-white rounded-lg transition-all font-medium"
               >
                 Edit Post
               </Link>
               <button
-                onClick={() => {
-                  setStatus('idle')
-                  setResult(null)
-                }}
+                onClick={() => { setStatus('idle'); setPostId(null); setPostTitle(null); setPostCategory(null); setErrorMsg(null) }}
                 className="px-5 py-2.5 border border-white/20 text-slate-300 hover:text-white hover:bg-white/10 rounded-lg transition-all font-medium"
               >
                 Generate Another
@@ -214,22 +216,12 @@ export default function GenerateBlogPage() {
                 <span className="text-3xl">❌</span>
                 <h2 className="text-xl font-semibold text-red-300">Generation Failed</h2>
               </div>
-              <p className="text-slate-300">{result?.error || result?.details || 'An unknown error occurred.'}</p>
-              {result?.validationErrors && (
-                <ul className="list-disc list-inside text-sm text-red-300/80 space-y-1">
-                  {result.validationErrors.map((err, i) => (
-                    <li key={i}>{err}</li>
-                  ))}
-                </ul>
-              )}
+              <p className="text-slate-300">{errorMsg || 'An unknown error occurred.'}</p>
             </div>
 
             <div className="flex flex-wrap gap-3">
               <button
-                onClick={() => {
-                  setStatus('idle')
-                  setResult(null)
-                }}
+                onClick={() => { setStatus('idle'); setPostId(null); setErrorMsg(null) }}
                 className="px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-white rounded-lg transition-all font-medium"
               >
                 Try Again
