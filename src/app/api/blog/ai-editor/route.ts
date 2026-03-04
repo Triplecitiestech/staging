@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import Anthropic from '@anthropic-ai/sdk'
+import { createRequestLogger } from '@/lib/server-logger'
 
 export const dynamic = 'force-dynamic'
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY!
-})
+const AI_TIMEOUT_MS = 25_000
+
+const anthropic = process.env.ANTHROPIC_API_KEY
+  ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  : null
 
 interface Message {
   role: 'user' | 'assistant'
@@ -27,10 +30,19 @@ interface BlogPost {
  * AI assistant for editing blog posts
  */
 export async function POST(request: NextRequest) {
+  const log = createRequestLogger('POST /api/blog/ai-editor')
+
   try {
     const session = await auth()
     if (!session) {
+      log.warn('Unauthorized request')
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    log.info('Authenticated', { userId: session.user?.email })
+
+    if (!anthropic) {
+      log.error('Anthropic API key not configured')
+      return NextResponse.json({ error: 'AI service not configured' }, { status: 500 })
     }
 
     const { post, messages }: { post: BlogPost; messages: Message[] } = await request.json()
@@ -80,13 +92,36 @@ Be concise and helpful. Focus on practical improvements.`
       content: msg.content
     }))
 
-    // Call Claude API
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-5-20250929',
-      max_tokens: 4096,
-      system: systemPrompt,
-      messages: anthropicMessages as Array<{ role: 'user' | 'assistant'; content: string }>
-    })
+    // Call Claude API with timeout
+    const timerAI = log.startTimer('ai-call')
+    const abortController = new AbortController()
+    const timeoutId = setTimeout(() => abortController.abort(), AI_TIMEOUT_MS)
+
+    let response: Anthropic.Message
+    try {
+      response = await anthropic.messages.create(
+        {
+          model: 'claude-sonnet-4-5-20250929',
+          max_tokens: 4096,
+          system: systemPrompt,
+          messages: anthropicMessages as Array<{ role: 'user' | 'assistant'; content: string }>,
+        },
+        { signal: abortController.signal }
+      )
+    } catch (aiError) {
+      clearTimeout(timeoutId)
+      timerAI()
+      if (aiError instanceof Error && aiError.name === 'AbortError') {
+        log.error('AI call timed out', { timeoutMs: AI_TIMEOUT_MS })
+        return NextResponse.json(
+          { error: 'AI service timed out. Please try again.', requestId: log.requestId },
+          { status: 504 }
+        )
+      }
+      throw aiError
+    }
+    clearTimeout(timeoutId)
+    const aiMs = timerAI()
 
     const assistantMessage = response.content[0].type === 'text' ? response.content[0].text : ''
 
@@ -108,16 +143,27 @@ Be concise and helpful. Focus on practical improvements.`
       cleanMessage = assistantMessage.replace(jsonMatch[0], '').trim()
     }
 
+    log.info('AI editor completed', {
+      aiTimeMs: aiMs,
+      hasUpdatedPost: !!updatedPost,
+      durationMs: log.elapsed(),
+    })
+
     return NextResponse.json({
       message: cleanMessage || assistantMessage,
-      updatedPost
+      updatedPost,
+      requestId: log.requestId,
     })
   } catch (error) {
-    console.error('AI Editor error:', error)
+    log.error('AI Editor error', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      durationMs: log.elapsed(),
+    })
     return NextResponse.json(
       {
         error: 'AI assistant encountered an error',
-        message: 'Sorry, I encountered an error. Please try again.'
+        message: 'Sorry, I encountered an error. Please try again.',
+        requestId: log.requestId,
       },
       { status: 500 }
     )

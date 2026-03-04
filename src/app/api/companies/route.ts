@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import bcrypt from 'bcryptjs'
+import { createRequestLogger } from '@/lib/server-logger'
+import { apiSuccess, apiError } from '@/lib/api-response'
 
 export const dynamic = 'force-dynamic'
 
@@ -26,24 +28,43 @@ function generatePassword(length = 16): string {
 }
 
 export async function POST(req: Request) {
+  const log = createRequestLogger('POST /api/companies')
+  log.info('Request received')
+
   const session = await auth()
   if (!session) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    log.warn('Unauthorized request')
+    return apiError('Unauthorized', log.requestId, 401)
   }
+  log.info('Authenticated', { userId: session.user?.email })
 
   try {
     const { prisma } = await import('@/lib/prisma')
     const { displayName, primaryContact, contactEmail, contactTitle } = await req.json()
 
+    if (!displayName || typeof displayName !== 'string' || !displayName.trim()) {
+      log.warn('Missing required field: displayName')
+      return apiError('Company name is required', log.requestId, 400, 'MISSING_DISPLAY_NAME')
+    }
+
+    // Idempotency: check for Idempotency-Key header
+    const idempotencyKey = req.headers.get('Idempotency-Key')
+    if (idempotencyKey) {
+      log.info('Idempotency key provided', { idempotencyKey })
+    }
+
     // Generate and hash a temporary password
+    const timerPassword = log.startTimer('password-hash')
     const tempPassword = generatePassword()
     const passwordHash = await bcrypt.hash(tempPassword, 10)
+    timerPassword()
 
     // Generate base slug
-    const baseSlug = displayName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+    const baseSlug = displayName.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
     let slug = baseSlug
 
     // Check if slug exists and make it unique
+    const timerDb = log.startTimer('db-create')
     let counter = 1
     while (await prisma.company.findUnique({ where: { slug } })) {
       slug = `${baseSlug}-${counter}`
@@ -52,7 +73,7 @@ export async function POST(req: Request) {
 
     const company = await prisma.company.create({
       data: {
-        displayName,
+        displayName: displayName.trim(),
         slug,
         primaryContact: primaryContact || null,
         contactEmail: contactEmail || null,
@@ -60,21 +81,50 @@ export async function POST(req: Request) {
         passwordHash,
       }
     })
+    const dbMs = timerDb()
 
-    return NextResponse.json(company)
+    log.info('Company created', {
+      companyId: company.id,
+      slug: company.slug,
+      dbTimeMs: dbMs,
+      durationMs: log.elapsed(),
+    })
+
+    return apiSuccess(
+      {
+        id: company.id,
+        displayName: company.displayName,
+        slug: company.slug,
+        primaryContact: company.primaryContact,
+        contactEmail: company.contactEmail,
+        contactTitle: company.contactTitle,
+        createdAt: company.createdAt.toISOString(),
+      },
+      `/admin/companies`,
+      log.requestId,
+      201
+    )
   } catch (error) {
-    console.error('Error creating company:', error)
-    return NextResponse.json({
-      error: 'Failed to create company',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    }, { status: 500 })
+    log.error('Failed to create company', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      durationMs: log.elapsed(),
+    })
+    return apiError(
+      'Failed to create company',
+      log.requestId,
+      500
+    )
   }
 }
 
 export async function DELETE(req: Request) {
+  const log = createRequestLogger('DELETE /api/companies')
+  log.info('Request received')
+
   const session = await auth()
   if (!session) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    log.warn('Unauthorized request')
+    return apiError('Unauthorized', log.requestId, 401)
   }
 
   try {
@@ -83,14 +133,17 @@ export async function DELETE(req: Request) {
     const id = searchParams.get('id')
 
     if (!id) {
-      return NextResponse.json({ error: 'Company ID required' }, { status: 400 })
+      return apiError('Company ID required', log.requestId, 400)
     }
 
     await prisma.company.delete({ where: { id } })
 
-    return NextResponse.json({ success: true })
+    log.info('Company deleted', { companyId: id, durationMs: log.elapsed() })
+    return NextResponse.json({ success: true, requestId: log.requestId })
   } catch (error) {
-    console.error('Error deleting company:', error)
-    return NextResponse.json({ error: 'Failed to delete company' }, { status: 500 })
+    log.error('Failed to delete company', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+    })
+    return apiError('Failed to delete company', log.requestId, 500)
   }
 }

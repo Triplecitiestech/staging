@@ -1,6 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { auth } from '@/auth'
 import Anthropic from '@anthropic-ai/sdk'
+import { createRequestLogger } from '@/lib/server-logger'
+import { apiError } from '@/lib/api-response'
+
+const AI_TIMEOUT_MS = 25_000 // 25s timeout (Vercel max is 30s)
 
 const anthropic = process.env.ANTHROPIC_API_KEY
   ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
@@ -22,30 +26,38 @@ interface ChatRequest {
 }
 
 export async function POST(req: NextRequest) {
+  const log = createRequestLogger('POST /api/admin/ai-chat')
+  log.info('Request received')
+
   try {
-    // Check authentication
     const session = await auth()
     if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      log.warn('Unauthorized request')
+      return apiError('Unauthorized', log.requestId, 401)
     }
+    log.info('Authenticated', { userId: session.user?.email })
 
     if (!anthropic) {
-      console.error('AI Chat error: Anthropic API key not configured')
-      return NextResponse.json({
-        error: 'AI service not configured. Please check ANTHROPIC_API_KEY environment variable.'
-      }, { status: 500 })
+      log.error('Anthropic API key not configured')
+      return apiError(
+        'AI service not configured. Please check ANTHROPIC_API_KEY environment variable.',
+        log.requestId,
+        500,
+        'AI_NOT_CONFIGURED'
+      )
     }
 
     const body: ChatRequest = await req.json()
     const { messages, projectContext } = body
 
     if (!messages || messages.length === 0) {
-      return NextResponse.json({
-        error: 'No messages provided'
-      }, { status: 400 })
+      return apiError('No messages provided', log.requestId, 400)
     }
 
-    console.log('[AI Chat] Processing request with', messages.length, 'messages')
+    log.info('Processing AI chat', {
+      messageCount: messages.length,
+      projectName: projectContext?.projectName,
+    })
 
     // Build system prompt with project context
     const systemPrompt = `You are an expert project management assistant helping to structure IT service projects. Your role is to help create detailed project phases, tasks, and timelines.
@@ -88,54 +100,85 @@ Always format project structures as valid JSON that can be copied and used direc
       content: msg.content
     }))
 
-    console.log('[AI Chat] Calling Anthropic API...')
+    // Call Anthropic API with timeout
+    const timerAI = log.startTimer('ai-call')
+    const abortController = new AbortController()
+    const timeoutId = setTimeout(() => abortController.abort(), AI_TIMEOUT_MS)
 
-    // Call Anthropic API
-    const response = await anthropic.messages.create({
-      model: 'claude-3-haiku-20240307',
-      max_tokens: 4096,
-      system: systemPrompt,
-      messages: anthropicMessages
-    })
+    let response: Anthropic.Message
+    try {
+      response = await anthropic.messages.create(
+        {
+          model: 'claude-3-haiku-20240307',
+          max_tokens: 4096,
+          system: systemPrompt,
+          messages: anthropicMessages,
+        },
+        { signal: abortController.signal }
+      )
+    } catch (aiError) {
+      clearTimeout(timeoutId)
+      const aiMs = timerAI()
 
-    console.log('[AI Chat] Received response, usage:', response.usage)
+      // Check if it was a timeout
+      if (aiError instanceof Error && aiError.name === 'AbortError') {
+        log.error('AI call timed out', { aiTimeMs: aiMs, timeoutMs: AI_TIMEOUT_MS })
+        return apiError(
+          `AI service timed out after ${Math.round(AI_TIMEOUT_MS / 1000)}s. Please try a shorter message or try again.`,
+          log.requestId,
+          504,
+          'AI_TIMEOUT'
+        )
+      }
+      throw aiError // re-throw for the outer catch
+    }
+    clearTimeout(timeoutId)
+    const aiMs = timerAI()
 
     // Extract the assistant's response
     const assistantMessage = response.content[0]
     const content = assistantMessage.type === 'text' ? assistantMessage.text : ''
 
-    return NextResponse.json({
+    log.info('AI chat completed', {
+      aiTimeMs: aiMs,
+      usage: response.usage,
+      responseLength: content.length,
+      durationMs: log.elapsed(),
+    })
+
+    return Response.json({
+      success: true,
       message: content,
-      usage: response.usage
+      usage: response.usage,
+      requestId: log.requestId,
     })
 
   } catch (error) {
-    console.error('[AI Chat] Error details:', {
-      error,
-      message: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined
+    log.error('AI chat failed', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      durationMs: log.elapsed(),
     })
 
-    // Provide more specific error messages
     let errorMessage = 'Failed to process chat request'
     let statusCode = 500
+    let code = 'AI_ERROR'
 
     if (error instanceof Error) {
       if (error.message.includes('API key')) {
         errorMessage = 'Invalid API key configuration'
-      } else if (error.message.includes('rate limit')) {
+        code = 'INVALID_API_KEY'
+      } else if (error.message.includes('rate limit') || error.message.includes('429')) {
         errorMessage = 'Rate limit exceeded. Please try again in a moment.'
         statusCode = 429
+        code = 'RATE_LIMITED'
       } else if (error.message.includes('network') || error.message.includes('fetch')) {
         errorMessage = 'Network error. Please check your connection and try again.'
+        code = 'NETWORK_ERROR'
       } else {
         errorMessage = `AI service error: ${error.message}`
       }
     }
 
-    return NextResponse.json(
-      { error: errorMessage },
-      { status: statusCode }
-    )
+    return apiError(errorMessage, log.requestId, statusCode, code)
   }
 }
