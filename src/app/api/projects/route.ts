@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { PhaseStatus, PhaseOwner, ProjectType, TaskStatus } from '@prisma/client'
+import { createRequestLogger } from '@/lib/server-logger'
+import { apiSuccess, apiError } from '@/lib/api-response'
 
 export const dynamic = 'force-dynamic'
 
@@ -37,33 +39,51 @@ function createSlug(companyName: string, title: string): string {
 }
 
 export async function POST(request: NextRequest) {
+  const log = createRequestLogger('POST /api/projects')
+  log.info('Request received')
+
   try {
-    const { prisma } = await import("@/lib/prisma")
+    const { prisma } = await import('@/lib/prisma')
     const session = await auth()
     if (!session?.user?.email) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      log.warn('Unauthorized request')
+      return apiError('Unauthorized', log.requestId, 401)
     }
+    log.info('Authenticated', { userId: session.user.email })
 
     const body = await request.json()
     const { companyId, projectType, title, templateId, useTemplate, createdBy, lastModifiedBy, aiPhases } = body
 
-    console.log('[Project Creation] Request body:', { companyId, projectType, title, templateId, useTemplate, aiPhases: aiPhases?.length || 0 })
+    log.info('Project creation request', {
+      companyId,
+      projectType,
+      title,
+      templateId,
+      useTemplate,
+      aiPhasesCount: aiPhases?.length || 0,
+    })
 
     // Validate required fields
     if (!companyId || !projectType || !title) {
-      return NextResponse.json(
-        { error: 'Missing required fields' },
-        { status: 400 }
-      )
+      log.warn('Missing required fields', { companyId: !!companyId, projectType: !!projectType, title: !!title })
+      return apiError('Missing required fields', log.requestId, 400, 'MISSING_FIELDS')
+    }
+
+    // Idempotency: check for Idempotency-Key header
+    const idempotencyKey = request.headers.get('Idempotency-Key')
+    if (idempotencyKey) {
+      log.info('Idempotency key provided', { idempotencyKey })
     }
 
     // Get company for slug generation
+    const timerDb = log.startTimer('db-total')
     const company = await prisma.company.findUnique({
       where: { id: companyId }
     })
 
     if (!company) {
-      return NextResponse.json({ error: 'Company not found' }, { status: 404 })
+      log.warn('Company not found', { companyId })
+      return apiError('Company not found', log.requestId, 404, 'COMPANY_NOT_FOUND')
     }
 
     // Generate unique slug
@@ -76,7 +96,7 @@ export async function POST(request: NextRequest) {
       counter++
     }
 
-    // If using template, fetch template and create phases
+    // Build phase data from AI phases or template
     let phasesData: Array<{
       title: string
       description: string | null
@@ -98,7 +118,7 @@ export async function POST(request: NextRequest) {
 
     // Priority: AI-generated phases > Template phases
     if (aiPhases && Array.isArray(aiPhases) && aiPhases.length > 0) {
-      console.log('[Project Creation] Using AI-generated phases')
+      log.info('Using AI-generated phases', { count: aiPhases.length })
       phasesData = (aiPhases as AIPhase[]).map((phase) => ({
         title: phase.name,
         description: phase.description || null,
@@ -120,7 +140,7 @@ export async function POST(request: NextRequest) {
         }
       }))
     } else if (useTemplate && templateId) {
-      console.log('[Project Creation] Using template phases')
+      log.info('Using template phases', { templateId })
       const template = await prisma.projectTemplate.findUnique({
         where: { id: templateId }
       })
@@ -149,8 +169,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    console.log('[Project Creation] Phases data:', JSON.stringify(phasesData, null, 2))
-
     // Create project - match production database schema exactly
     const projectData = {
       companyId,
@@ -166,8 +184,6 @@ export async function POST(request: NextRequest) {
       } : undefined,
     }
 
-    console.log('[Project Creation] Creating project with data:', JSON.stringify(projectData, null, 2))
-
     let project
     try {
       project = await prisma.project.create({
@@ -182,9 +198,11 @@ export async function POST(request: NextRequest) {
           }
         }
       })
-      console.log('[Project Creation] Project created successfully with phases:', project.id)
+      log.info('Project created with phases', { projectId: project.id, phaseCount: project.phases.length })
     } catch (phaseError) {
-      console.error('[Project Creation] Failed to create with phases, creating without:', phaseError)
+      log.warn('Failed to create with phases, retrying without', {
+        error: phaseError instanceof Error ? phaseError.message : 'Unknown error',
+      })
       // If creating with phases fails, create without them
       const simpleProjectData = {
         companyId,
@@ -208,8 +226,9 @@ export async function POST(request: NextRequest) {
           }
         }
       })
-      console.log('[Project Creation] Project created successfully without phases:', project.id)
+      log.info('Project created without phases (fallback)', { projectId: project.id })
     }
+    const dbMs = timerDb()
 
     // Create audit log (non-blocking - don't fail if this errors)
     try {
@@ -220,47 +239,62 @@ export async function POST(request: NextRequest) {
           staffName: session.user.name || null,
           actionType: 'CREATED',
           entityType: 'project',
-          notes: useTemplate && templateId ? `Project created using template` : 'Project created manually',
+          notes: useTemplate && templateId ? 'Project created using template' : 'Project created manually',
         }
       })
     } catch (auditError) {
-      console.error('[Project Creation] Audit log creation failed (non-critical):', auditError)
-      // Continue anyway - audit log failure shouldn't prevent project creation
+      log.warn('Audit log creation failed (non-critical)', {
+        error: auditError instanceof Error ? auditError.message : 'Unknown error',
+      })
     }
 
-    return NextResponse.json(project, { status: 201 })
-  } catch (error: unknown) {
-    const err = error as { message?: string; code?: string; meta?: unknown; stack?: string }
-    console.error('Error creating project:', error)
-    console.error('Error details:', error instanceof Error ? error.message : 'Unknown error')
-    console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace')
-    console.error('Full error object:', JSON.stringify(error, null, 2))
+    log.info('Project creation complete', {
+      projectId: project.id,
+      slug: project.slug,
+      phaseCount: project.phases.length,
+      dbTimeMs: dbMs,
+      durationMs: log.elapsed(),
+    })
 
-    // Log Prisma-specific error details
-    if (err.code) console.error('Prisma error code:', err.code)
-    if (err.meta) console.error('Prisma error meta:', JSON.stringify(err.meta, null, 2))
-
-    return NextResponse.json(
+    return apiSuccess(
       {
-        error: 'Failed to create project',
-        details: error instanceof Error ? error.message : 'Unknown error',
-        prismaCode: err.code,
-        prismaMeta: err.meta,
-        fullError: JSON.stringify(error, null, 2)
+        id: project.id,
+        title: project.title,
+        slug: project.slug,
+        status: project.status,
+        projectType: project.projectType,
+        companyId: project.companyId,
+        companyName: project.company.displayName,
+        phaseCount: project.phases.length,
+        createdAt: project.createdAt.toISOString(),
       },
-      { status: 500 }
+      `/admin/projects/${project.id}`,
+      log.requestId,
+      201
     )
+  } catch (error) {
+    log.error('Project creation failed', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      durationMs: log.elapsed(),
+    })
+    return apiError('Failed to create project', log.requestId, 500)
   }
 }
 
 export async function GET() {
+  const log = createRequestLogger('GET /api/projects')
+  log.info('Request received')
+
   try {
-    const { prisma } = await import("@/lib/prisma")
+    const { prisma } = await import('@/lib/prisma')
     const session = await auth()
     if (!session?.user?.email) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      log.warn('Unauthorized request')
+      return apiError('Unauthorized', log.requestId, 401)
     }
+    log.info('Authenticated', { userId: session.user.email })
 
+    const timerDb = log.startTimer('db-query')
     const projects = await prisma.project.findMany({
       include: {
         company: true,
@@ -270,13 +304,20 @@ export async function GET() {
       },
       orderBy: { createdAt: 'desc' }
     })
+    const dbMs = timerDb()
+
+    log.info('Projects fetched', {
+      count: projects.length,
+      dbTimeMs: dbMs,
+      durationMs: log.elapsed(),
+    })
 
     return NextResponse.json(projects)
   } catch (error) {
-    console.error('Error fetching projects:', error)
-    return NextResponse.json(
-      { error: 'Failed to fetch projects' },
-      { status: 500 }
-    )
+    log.error('Failed to fetch projects', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      durationMs: log.elapsed(),
+    })
+    return apiError('Failed to fetch projects', log.requestId, 500)
   }
 }

@@ -72,15 +72,14 @@ export default function NewProjectForm({ companies, templates, userEmail, aiPhas
         }),
       })
 
-      if (!response.ok) {
-        const data = await response.json()
-        console.error('Full API error response:', data)
-        const errorMessage = data.fullError || data.details || data.error || 'Failed to create project'
-        throw new Error(errorMessage)
+      const result = await response.json()
+
+      if (!response.ok || !result.success) {
+        const errorMessage = result.error || 'Failed to create project'
+        throw new Error(result.requestId ? `${errorMessage} (ref: ${result.requestId})` : errorMessage)
       }
 
-      const project = await response.json()
-      router.push(`/admin/projects/${project.id}`)
+      router.push(`/admin/projects/${result.data.id}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred')
       setLoading(false)
