@@ -258,14 +258,13 @@ export default async function AdminPage() {
                   <span>🌐</span>
                   View Public Blog
                 </Link>
-                <a
-                  href="/api/cron/generate-blog"
-                  target="_blank"
+                <Link
+                  href="/admin/blog/generate"
                   className="flex items-center gap-2 text-sm text-cyan-400 hover:text-cyan-300 transition-colors"
                 >
                   <span>🤖</span>
                   Generate New Post (AI)
-                </a>
+                </Link>
               </div>
             </div>
           </div>
