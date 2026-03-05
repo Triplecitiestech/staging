@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
+import { Resend } from 'resend'
+import { getTaskAssignmentEmailHtml } from '@/lib/email-templates'
+
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null
 
 // GET assignments for a phase or task
 export async function GET(req: NextRequest) {
@@ -65,15 +69,17 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Check if assignment already exists
-    const existing = await prisma.assignment.findFirst({
-      where: {
-        OR: [
-          { phaseId: data.phaseId, assigneeEmail: data.assigneeEmail },
-          { taskId: data.taskId, assigneeEmail: data.assigneeEmail }
-        ]
-      }
-    })
+    // Check if assignment already exists (only check the specific phase/task, not broadly)
+    const duplicateWhere: { assigneeEmail: string; phaseId?: string; taskId?: string } = {
+      assigneeEmail: data.assigneeEmail,
+    }
+    if (data.taskId) {
+      duplicateWhere.taskId = data.taskId
+    } else if (data.phaseId) {
+      duplicateWhere.phaseId = data.phaseId
+    }
+
+    const existing = await prisma.assignment.findFirst({ where: duplicateWhere })
 
     if (existing) {
       return NextResponse.json(
@@ -92,8 +98,69 @@ export async function POST(req: NextRequest) {
       }
     })
 
-    // TODO: Create notification for assignee
-    // This will be implemented in Phase 7
+    // Send email notification to assignee
+    if (resend) {
+      try {
+        // Fetch task/phase details for the email
+        let taskText = ''
+        let projectName = ''
+        let phaseName = ''
+        let companySlug = ''
+
+        if (data.taskId) {
+          const task = await prisma.phaseTask.findUnique({
+            where: { id: data.taskId },
+            include: {
+              phase: {
+                include: {
+                  project: {
+                    include: { company: { select: { slug: true, displayName: true } } }
+                  }
+                }
+              }
+            }
+          })
+          if (task) {
+            taskText = task.taskText
+            phaseName = task.phase.title
+            projectName = task.phase.project.title
+            companySlug = task.phase.project.company.slug
+          }
+        } else if (data.phaseId) {
+          const phase = await prisma.phase.findUnique({
+            where: { id: data.phaseId },
+            include: {
+              project: {
+                include: { company: { select: { slug: true, displayName: true } } }
+              }
+            }
+          })
+          if (phase) {
+            phaseName = phase.title
+            projectName = phase.project.title
+            companySlug = phase.project.company.slug
+          }
+        }
+
+        const portalUrl = `${process.env.NEXTAUTH_URL || 'https://www.triplecitiestech.com'}/onboarding/${companySlug}`
+
+        await resend.emails.send({
+          from: 'Triple Cities Tech <noreply@triplecitiestech.com>',
+          to: data.assigneeEmail,
+          subject: `Task Assigned: ${taskText || phaseName || 'New Assignment'}`,
+          html: getTaskAssignmentEmailHtml({
+            assigneeName: data.assigneeName,
+            taskText,
+            phaseName,
+            projectName,
+            assignedBy: session.user?.name || session.user?.email || 'Your project manager',
+            portalUrl,
+          })
+        })
+      } catch (emailErr) {
+        console.warn('Failed to send assignment email:', emailErr)
+      }
+    }
 
     return NextResponse.json(assignment)
   } catch (error) {
