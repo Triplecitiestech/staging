@@ -149,21 +149,29 @@ export default function PhaseCard({ phase, index, companyName }: { phase: Phase;
   }
 
   const applyBulkAssign = async () => {
-    if (!bulkAssignTo || selectedTasks.size === 0) return
+    if (!bulkAssignTo || !bulkAssignToName || selectedTasks.size === 0) return
 
     try {
-      await Promise.all(
+      const results = await Promise.allSettled(
         Array.from(selectedTasks).map(taskId =>
-          fetch(`/api/tasks/${taskId}`, {
-            method: 'PATCH',
+          fetch('/api/assignments', {
+            method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              assignedTo: bulkAssignTo,
-              assignedToName: bulkAssignToName || bulkAssignTo
+              taskId,
+              assigneeEmail: bulkAssignTo,
+              assigneeName: bulkAssignToName,
             }),
+          }).then(res => {
+            if (!res.ok && res.status !== 409) throw new Error('Failed')
+            return res
           })
         )
       )
+      const failures = results.filter(r => r.status === 'rejected').length
+      if (failures > 0) {
+        alert(`Assigned to ${results.length - failures} of ${results.length} tasks. ${failures} failed.`)
+      }
       setSelectedTasks(new Set())
       setBulkAssignTo('')
       setBulkAssignToName('')
@@ -341,14 +349,21 @@ export default function PhaseCard({ phase, index, companyName }: { phase: Phase;
                         <div className="h-4 w-px bg-slate-600" />
                         <input
                           type="text"
+                          value={bulkAssignToName}
+                          onChange={(e) => setBulkAssignToName(e.target.value)}
+                          placeholder="Name..."
+                          className="px-2 py-1 text-xs bg-slate-800 border border-white/20 rounded text-slate-300 w-28"
+                        />
+                        <input
+                          type="email"
                           value={bulkAssignTo}
                           onChange={(e) => setBulkAssignTo(e.target.value)}
-                          placeholder="Assign to (email)..."
+                          placeholder="Email..."
                           className="px-2 py-1 text-xs bg-slate-800 border border-white/20 rounded text-slate-300 w-40"
                         />
                         <button
                           onClick={applyBulkAssign}
-                          disabled={!bulkAssignTo}
+                          disabled={!bulkAssignTo || !bulkAssignToName}
                           className="px-3 py-1 text-xs bg-purple-500 text-white rounded hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           Assign
