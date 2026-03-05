@@ -78,9 +78,20 @@ export default function MyGlue() {
               As a Triple Cities Tech client, you have access to this powerful tool that helps you
               stay organized, secure, and productive.
             </p>
-            <p className="text-lg text-white/90">
+            <p className="text-lg text-white/90 mb-8">
               Watch the videos below to learn how to make the most of MyGlue's features and capabilities.
             </p>
+            <a
+              href="https://my.glue.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold px-8 py-4 rounded-xl transition-all duration-300 hover:scale-105 shadow-lg text-lg"
+            >
+              Sign in to MyGlue
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+            </a>
           </div>
         </div>
       </div>
