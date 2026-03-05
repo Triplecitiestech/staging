@@ -20,6 +20,7 @@ const statuses = [
   { value: 'REVIEWED_AND_DONE', label: 'Done', dotColor: 'bg-green-400', textColor: 'text-green-300' },
   { value: 'ITG_DOCUMENTED', label: 'ITG Documented', dotColor: 'bg-indigo-400', textColor: 'text-indigo-300' },
   { value: 'NOT_APPLICABLE', label: 'N/A', dotColor: 'bg-slate-400', textColor: 'text-slate-400' },
+  { value: 'CUSTOMER_NOTE_ADDED', label: 'Customer Note', dotColor: 'bg-violet-400', textColor: 'text-violet-300' },
 ]
 
 export default function TaskStatusDropdown({ taskId, currentStatus }: TaskStatusDropdownProps) {

@@ -214,6 +214,7 @@ enum TaskStatus {
   REVIEWED_AND_DONE
   ITG_DOCUMENTED
   NOT_APPLICABLE
+  CUSTOMER_NOTE_ADDED
 }
 
 enum Priority {

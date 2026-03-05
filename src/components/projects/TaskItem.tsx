@@ -12,6 +12,7 @@ interface Comment {
   content: string
   isInternal: boolean
   createdAt: string
+  updatedAt?: string
   authorName: string
   authorEmail: string
 }
@@ -66,6 +67,7 @@ const STATUS_BORDER_COLORS: Record<string, string> = {
   REVIEWED_AND_DONE: 'border-l-green-500',
   ITG_DOCUMENTED: 'border-l-indigo-500',
   NOT_APPLICABLE: 'border-l-slate-500',
+  CUSTOMER_NOTE_ADDED: 'border-l-violet-500',
 }
 
 export default function TaskItem({
@@ -84,7 +86,6 @@ export default function TaskItem({
 }: TaskItemProps) {
   const router = useRouter()
   const [taskText, setTaskText] = useState(task.taskText)
-  const [notes, setNotes] = useState(task.notes || '')
   const [collapsed, setCollapsed] = useState(false)
 
   const saveTask = async () => {
@@ -92,7 +93,7 @@ export default function TaskItem({
       const res = await fetch(`/api/tasks/${task.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskText, notes }),
+        body: JSON.stringify({ taskText }),
       })
       if (!res.ok) throw new Error()
       onEdit('')
@@ -137,6 +138,7 @@ export default function TaskItem({
   const hasSubTasks = task.subTasks && task.subTasks.length > 0
   const canAddSubTask = level < 3
   const statusBorderColor = STATUS_BORDER_COLORS[task.status || 'NOT_STARTED'] || 'border-l-slate-600'
+  const commentCount = task.comments?.length || 0
 
   return (
     <div className={`${level > 0 ? 'ml-6 border-l-2 border-slate-700/50 pl-3' : ''}`}>
@@ -180,19 +182,12 @@ export default function TaskItem({
                   className="w-full px-2 py-1 bg-slate-800 border border-white/20 rounded text-slate-300 text-sm"
                   placeholder="Task text..."
                 />
-                <textarea
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  className="w-full px-2 py-1 bg-slate-800 border border-white/20 rounded text-slate-300 text-xs"
-                  placeholder="Notes (optional)..."
-                  rows={2}
-                />
                 <div className="flex gap-2">
                   <button onClick={saveTask} className="px-3 py-1 text-xs bg-cyan-500 text-white rounded hover:bg-cyan-600">
                     Save
                   </button>
                   <button
-                    onClick={() => { setTaskText(task.taskText); setNotes(task.notes || ''); onEdit('') }}
+                    onClick={() => { setTaskText(task.taskText); onEdit('') }}
                     className="px-3 py-1 text-xs bg-slate-700 text-slate-300 rounded hover:bg-slate-600"
                   >
                     Cancel
@@ -222,23 +217,17 @@ export default function TaskItem({
                   )}
                 </div>
 
-                {task.notes && (
-                  <p className="text-xs text-slate-500 italic mb-2">{task.notes}</p>
-                )}
-
-                {/* Row 2: Labeled metadata sections with separators */}
-                <div className="flex items-center gap-3 text-xs mt-1.5">
-                  {/* Status */}
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-slate-500 font-medium uppercase text-[10px] tracking-wide">Status</span>
+                {/* Row 2: Fixed-width grid for metadata */}
+                <div className="grid grid-cols-[minmax(120px,180px)_minmax(100px,160px)_minmax(90px,130px)_auto] gap-x-2 items-center mt-1.5 text-xs">
+                  {/* Status column */}
+                  <div className="flex items-center gap-1">
+                    <span className="text-slate-600 font-medium uppercase text-[10px] tracking-wide shrink-0">Status</span>
                     <TaskStatusDropdown taskId={task.id} currentStatus={task.status || 'NOT_STARTED'} />
                   </div>
 
-                  <span className="text-slate-700">|</span>
-
-                  {/* Assigned */}
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-slate-500 font-medium uppercase text-[10px] tracking-wide">Assigned</span>
+                  {/* Assigned column */}
+                  <div className="flex items-center gap-1 overflow-hidden">
+                    <span className="text-slate-600 font-medium uppercase text-[10px] tracking-wide shrink-0">Assigned</span>
                     <AssignmentPicker
                       taskId={task.id}
                       assignments={task.assignments || []}
@@ -247,18 +236,21 @@ export default function TaskItem({
                     />
                   </div>
 
-                  <span className="text-slate-700">|</span>
-
-                  {/* Due Date */}
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-slate-500 font-medium uppercase text-[10px] tracking-wide">Due</span>
+                  {/* Due date column */}
+                  <div className="flex items-center gap-1">
+                    <span className="text-slate-600 font-medium uppercase text-[10px] tracking-wide shrink-0">Due</span>
                     <DueDatePicker taskId={task.id} currentDueDate={task.dueDate || null} />
                   </div>
 
-                  <span className="text-slate-700">|</span>
-
-                  {/* Comments */}
-                  <CommentThread taskId={task.id} comments={task.comments || []} />
+                  {/* Notes/comments column */}
+                  <div className="flex items-center">
+                    <CommentThread taskId={task.id} comments={task.comments || []} />
+                    {commentCount > 0 && (
+                      <span className="ml-1 text-[10px] text-slate-500">
+                        {commentCount === 1 ? '1 note' : `${commentCount} notes`}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </>
             )}
@@ -269,12 +261,13 @@ export default function TaskItem({
             {canAddSubTask && (
               <button
                 onClick={createSubTask}
-                className="p-1 text-xs text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10 rounded"
+                className="p-1 text-xs text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10 rounded flex items-center gap-1"
                 title="Add sub-task"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                 </svg>
+                <span className="text-[10px]">Subtask</span>
               </button>
             )}
             <button
