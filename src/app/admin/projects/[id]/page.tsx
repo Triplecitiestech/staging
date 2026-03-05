@@ -116,6 +116,31 @@ export default async function ProjectDetailPage({
     notFound()
   }
 
+  // Fetch staff users and company contacts for note notifications
+  let projectContacts: { name: string; email: string; type: 'staff' | 'contact' }[] = []
+  try {
+    const staffUsers = await prisma.staffUser.findMany({
+      where: { isActive: true },
+      select: { name: true, email: true },
+      orderBy: { name: 'asc' }
+    })
+    projectContacts = staffUsers.map(s => ({ name: s.name, email: s.email, type: 'staff' as const }))
+
+    // CompanyContact table may not exist yet (migration pending)
+    try {
+      const companyContacts = await prisma.companyContact.findMany({
+        where: { companyId: project.companyId, isActive: true },
+        select: { name: true, email: true },
+        orderBy: { name: 'asc' }
+      })
+      projectContacts.push(...companyContacts.map(c => ({ name: c.name, email: c.email, type: 'contact' as const })))
+    } catch {
+      // Table doesn't exist yet - that's fine
+    }
+  } catch (err) {
+    console.warn('Failed to fetch contacts for notifications:', err)
+  }
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'ACTIVE': return 'bg-green-500/20 text-green-300 border border-green-500/30'
@@ -253,6 +278,7 @@ export default async function ProjectDetailPage({
                     }}
                     index={index}
                     companyName={project.company.displayName}
+                    projectContacts={projectContacts}
                   />
                 )
               })}

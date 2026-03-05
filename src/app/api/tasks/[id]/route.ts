@@ -117,8 +117,8 @@ export async function PATCH(
       })
     }
 
-    // Auto-sync phase status when a task status changes
-    if (data.status !== undefined && task.phaseId) {
+    // Auto-sync phase status when a task status or completion changes
+    if ((data.status !== undefined || data.completed !== undefined) && task.phaseId) {
       try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await syncPhaseStatus(prisma as any, task.phaseId)
@@ -147,10 +147,26 @@ export async function DELETE(
     const { prisma } = await import("@/lib/prisma")
     const { id } = await params
 
+    // Get task's phaseId before deleting
+    const taskToDelete = await prisma.phaseTask.findUnique({
+      where: { id },
+      select: { phaseId: true }
+    })
+
     // Delete task (CASCADE will delete sub-tasks automatically)
     await prisma.phaseTask.delete({
       where: { id }
     })
+
+    // Re-sync phase status after deletion
+    if (taskToDelete?.phaseId) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await syncPhaseStatus(prisma as any, taskToDelete.phaseId)
+      } catch (syncErr) {
+        console.warn('Failed to sync phase status after delete:', syncErr)
+      }
+    }
 
     return NextResponse.json({ success: true })
   } catch (error) {

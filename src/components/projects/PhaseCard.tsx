@@ -37,6 +37,12 @@ interface Task {
   responsibleParty?: 'TCT' | 'CUSTOMER' | 'BOTH' | null
 }
 
+interface ContactOption {
+  name: string
+  email: string
+  type: 'staff' | 'contact'
+}
+
 interface Phase {
   id: string
   title: string
@@ -50,7 +56,7 @@ interface Phase {
   tasks: Task[]
 }
 
-export default function PhaseCard({ phase, index, companyName }: { phase: Phase; index: number; companyName?: string }) {
+export default function PhaseCard({ phase, index, companyName, projectContacts = [] }: { phase: Phase; index: number; companyName?: string; projectContacts?: ContactOption[] }) {
   const router = useRouter()
   const [collapsed, setCollapsed] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -75,7 +81,8 @@ export default function PhaseCard({ phase, index, companyName }: { phase: Phase;
     internalNotes: phase.internalNotes || '',
   })
 
-  const completedTasks = phase.tasks.filter(t => t.completed).length
+  const DONE_STATUSES = ['REVIEWED_AND_DONE', 'NOT_APPLICABLE', 'ITG_DOCUMENTED']
+  const completedTasks = phase.tasks.filter(t => DONE_STATUSES.includes(t.status || '')).length
   const totalTasks = phase.tasks.length
   const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0
 
@@ -398,6 +405,7 @@ export default function PhaseCard({ phase, index, companyName }: { phase: Phase;
                     onDragEnd={handleDragEnd}
                     companyName={companyName}
                     bulkMode={bulkMode}
+                    projectContacts={projectContacts}
                   />
                 ))}
               </div>

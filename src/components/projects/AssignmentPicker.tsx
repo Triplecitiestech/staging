@@ -22,6 +22,7 @@ export default function AssignmentPicker({ taskId, assignments: initialAssignmen
   const router = useRouter()
   const [isOpen, setIsOpen] = useState(false)
   const [assignments, setAssignments] = useState(initialAssignments)
+  useEffect(() => { setAssignments(initialAssignments) }, [initialAssignments])
   const [assigneeName, setAssigneeName] = useState('')
   const [assigneeEmail, setAssigneeEmail] = useState('')
   const [responsibleParty, setResponsibleParty] = useState<'TCT' | 'CUSTOMER' | 'BOTH' | ''>(currentResponsibleParty || '')

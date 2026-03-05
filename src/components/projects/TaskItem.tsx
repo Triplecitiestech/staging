@@ -40,6 +40,12 @@ interface Task {
   responsibleParty?: 'TCT' | 'CUSTOMER' | 'BOTH' | null
 }
 
+interface ContactOption {
+  name: string
+  email: string
+  type: 'staff' | 'contact'
+}
+
 interface TaskItemProps {
   task: Task
   level: number
@@ -53,6 +59,7 @@ interface TaskItemProps {
   onDragEnd: () => void
   companyName?: string
   bulkMode?: boolean
+  projectContacts?: ContactOption[]
 }
 
 const STATUS_BORDER_COLORS: Record<string, string> = {
@@ -82,7 +89,8 @@ export default function TaskItem({
   onDragOver,
   onDragEnd,
   companyName,
-  bulkMode = false
+  bulkMode = false,
+  projectContacts = []
 }: TaskItemProps) {
   const router = useRouter()
   const [taskText, setTaskText] = useState(task.taskText)
@@ -226,7 +234,7 @@ export default function TaskItem({
                   </div>
 
                   {/* Assigned column */}
-                  <div className="flex items-center gap-1 overflow-hidden">
+                  <div className="flex items-center gap-1 min-w-0">
                     <span className="text-slate-600 font-medium uppercase text-[10px] tracking-wide shrink-0">Assigned</span>
                     <AssignmentPicker
                       taskId={task.id}
@@ -244,7 +252,7 @@ export default function TaskItem({
 
                   {/* Notes/comments column */}
                   <div className="flex items-center">
-                    <CommentThread taskId={task.id} comments={task.comments || []} />
+                    <CommentThread taskId={task.id} comments={task.comments || []} projectContacts={projectContacts} />
                     {commentCount > 0 && (
                       <span className="ml-1 text-[10px] text-slate-500">
                         {commentCount === 1 ? '1 note' : `${commentCount} notes`}
@@ -301,6 +309,7 @@ export default function TaskItem({
               onDragEnd={onDragEnd}
               companyName={companyName}
               bulkMode={bulkMode}
+              projectContacts={projectContacts}
             />
           ))}
         </div>
