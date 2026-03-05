@@ -41,6 +41,40 @@ export async function POST(request: NextRequest) {
 
     const { prisma } = await import('@/lib/prisma')
 
+    // If customer (not admin), verify the resource belongs to their company
+    if (authenticatedCompany && !adminSession) {
+      const company = await prisma.company.findUnique({
+        where: { slug: authenticatedCompany },
+        select: { id: true }
+      })
+
+      if (!company) {
+        return NextResponse.json({ error: 'Company not found' }, { status: 404 })
+      }
+
+      if (phaseId) {
+        const phase = await prisma.phase.findFirst({
+          where: {
+            id: phaseId,
+            project: { companyId: company.id }
+          }
+        })
+        if (!phase) {
+          return NextResponse.json({ error: 'Access denied' }, { status: 403 })
+        }
+      } else if (taskId) {
+        const task = await prisma.phaseTask.findFirst({
+          where: {
+            id: taskId,
+            phase: { project: { companyId: company.id } }
+          }
+        })
+        if (!task) {
+          return NextResponse.json({ error: 'Access denied' }, { status: 403 })
+        }
+      }
+    }
+
     if (phaseId) {
       // Update phase customer notes
       console.log('[Customer Notes API] Updating phase notes:', phaseId)

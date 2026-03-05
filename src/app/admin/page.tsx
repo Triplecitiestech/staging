@@ -93,7 +93,7 @@ export default async function AdminPage() {
         {/* Analytics Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
           {/* Total Projects */}
-          <div className="bg-gradient-to-br from-cyan-600/20 to-cyan-500/10 backdrop-blur-sm border border-cyan-500/30 rounded-lg p-6">
+          <Link href="/admin/projects" className="bg-gradient-to-br from-cyan-600/20 to-cyan-500/10 hover:from-cyan-600/30 hover:to-cyan-500/20 backdrop-blur-sm border border-cyan-500/30 hover:border-cyan-400/50 rounded-lg p-6 transition-all duration-300 hover:scale-105">
             <div className="flex items-center justify-between mb-2">
               <p className="text-sm text-cyan-300 font-semibold">Total Projects</p>
               <svg className="w-8 h-8 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -102,10 +102,10 @@ export default async function AdminPage() {
             </div>
             <p className="text-4xl font-bold text-white mb-1">{totalProjects}</p>
             <p className="text-xs text-cyan-200">All time</p>
-          </div>
+          </Link>
 
           {/* Active Projects */}
-          <div className="bg-gradient-to-br from-green-600/20 to-green-500/10 backdrop-blur-sm border border-green-500/30 rounded-lg p-6">
+          <Link href="/admin/projects" className="bg-gradient-to-br from-green-600/20 to-green-500/10 hover:from-green-600/30 hover:to-green-500/20 backdrop-blur-sm border border-green-500/30 hover:border-green-400/50 rounded-lg p-6 transition-all duration-300 hover:scale-105">
             <div className="flex items-center justify-between mb-2">
               <p className="text-sm text-green-300 font-semibold">Active Projects</p>
               <svg className="w-8 h-8 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -114,10 +114,10 @@ export default async function AdminPage() {
             </div>
             <p className="text-4xl font-bold text-white mb-1">{activeProjects}</p>
             <p className="text-xs text-green-200">In progress</p>
-          </div>
+          </Link>
 
           {/* Completed Projects */}
-          <div className="bg-gradient-to-br from-blue-600/20 to-blue-500/10 backdrop-blur-sm border border-blue-500/30 rounded-lg p-6">
+          <Link href="/admin/projects" className="bg-gradient-to-br from-blue-600/20 to-blue-500/10 hover:from-blue-600/30 hover:to-blue-500/20 backdrop-blur-sm border border-blue-500/30 hover:border-blue-400/50 rounded-lg p-6 transition-all duration-300 hover:scale-105">
             <div className="flex items-center justify-between mb-2">
               <p className="text-sm text-blue-300 font-semibold">Completed</p>
               <svg className="w-8 h-8 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -126,10 +126,10 @@ export default async function AdminPage() {
             </div>
             <p className="text-4xl font-bold text-white mb-1">{completedProjects}</p>
             <p className="text-xs text-blue-200">Finished</p>
-          </div>
+          </Link>
 
           {/* Total Companies */}
-          <div className="bg-gradient-to-br from-purple-600/20 to-purple-500/10 backdrop-blur-sm border border-purple-500/30 rounded-lg p-6">
+          <Link href="/admin/companies" className="bg-gradient-to-br from-purple-600/20 to-purple-500/10 hover:from-purple-600/30 hover:to-purple-500/20 backdrop-blur-sm border border-purple-500/30 hover:border-purple-400/50 rounded-lg p-6 transition-all duration-300 hover:scale-105">
             <div className="flex items-center justify-between mb-2">
               <p className="text-sm text-purple-300 font-semibold">Companies</p>
               <svg className="w-8 h-8 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -138,12 +138,12 @@ export default async function AdminPage() {
             </div>
             <p className="text-4xl font-bold text-white mb-1">{totalCompanies}</p>
             <p className="text-xs text-purple-200">Active clients</p>
-          </div>
+          </Link>
         </div>
 
         {/* Quick Stats Row */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
-          <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-sm border border-white/10 rounded-lg p-6">
+          <Link href="/admin/projects" className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 hover:from-slate-700/80 hover:to-slate-800/80 backdrop-blur-sm border border-white/10 hover:border-yellow-500/30 rounded-lg p-6 transition-all duration-300 hover:scale-105">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-slate-400 mb-1">On Hold</p>
@@ -155,9 +155,9 @@ export default async function AdminPage() {
                 </svg>
               </div>
             </div>
-          </div>
+          </Link>
 
-          <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-sm border border-white/10 rounded-lg p-6">
+          <Link href="/admin/projects" className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 hover:from-slate-700/80 hover:to-slate-800/80 backdrop-blur-sm border border-white/10 hover:border-cyan-500/30 rounded-lg p-6 transition-all duration-300 hover:scale-105">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-slate-400 mb-1">Completion Rate</p>
@@ -171,9 +171,9 @@ export default async function AdminPage() {
                 </svg>
               </div>
             </div>
-          </div>
+          </Link>
 
-          <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-sm border border-white/10 rounded-lg p-6">
+          <Link href="/admin/projects" className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 hover:from-slate-700/80 hover:to-slate-800/80 backdrop-blur-sm border border-white/10 hover:border-purple-500/30 rounded-lg p-6 transition-all duration-300 hover:scale-105">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-slate-400 mb-1">Avg. Phases/Project</p>
@@ -189,7 +189,7 @@ export default async function AdminPage() {
                 </svg>
               </div>
             </div>
-          </div>
+          </Link>
         </div>
 
         {/* Blog Management Section */}

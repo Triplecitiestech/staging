@@ -294,7 +294,6 @@ export default function PhaseCard({ phase, index, companyName }: { phase: Phase;
                     >
                       <option value="">Set Status...</option>
                       <option value="ASSIGNED">Assigned</option>
-                      <option value="COMPLETE">Complete</option>
                       <option value="INFORMATION_RECEIVED">Information Received</option>
                       <option value="ITG_DOCUMENTED">ITG Documented</option>
                       <option value="NEEDS_REVIEW">Needs Review</option>

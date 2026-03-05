@@ -11,10 +11,42 @@ export default function AdminHeader() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   const navItems = [
-    { label: 'Dashboard', href: '/admin', icon: '📊' },
-    { label: 'Projects', href: '/admin/projects', icon: '📁' },
-    { label: 'Companies', href: '/admin/companies', icon: '🏢' },
-    { label: 'Blog', href: '/admin/blog', icon: '📝' },
+    {
+      label: 'Dashboard',
+      href: '/admin',
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h4a1 1 0 011 1v5a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm10 0a1 1 0 011-1h4a1 1 0 011 1v3a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v3a1 1 0 01-1 1H5a1 1 0 01-1-1v-3zm10-2a1 1 0 011-1h4a1 1 0 011 1v5a1 1 0 01-1 1h-4a1 1 0 01-1-1v-5z" />
+        </svg>
+      ),
+    },
+    {
+      label: 'Projects',
+      href: '/admin/projects',
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+        </svg>
+      ),
+    },
+    {
+      label: 'Companies',
+      href: '/admin/companies',
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+        </svg>
+      ),
+    },
+    {
+      label: 'Blog',
+      href: '/admin/blog',
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+        </svg>
+      ),
+    },
   ]
 
   const isActive = (href: string) => {
@@ -55,7 +87,7 @@ export default function AdminHeader() {
                     : 'text-slate-300 hover:text-white hover:bg-white/5'
                 }`}
               >
-                <span className="text-base">{item.icon}</span>
+                {item.icon}
                 <span>{item.label}</span>
               </Link>
             ))}
@@ -109,7 +141,7 @@ export default function AdminHeader() {
                       : 'text-slate-300 hover:text-white hover:bg-white/5'
                   }`}
                 >
-                  <span className="text-xl">{item.icon}</span>
+                  {item.icon}
                   <span>{item.label}</span>
                 </Link>
               ))}
@@ -118,7 +150,9 @@ export default function AdminHeader() {
                 href="/"
                 className="flex items-center gap-3 px-4 py-3 text-sm font-medium text-slate-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
               >
-                <span className="text-xl">🌐</span>
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
                 <span>View Website</span>
               </Link>
               <div className="px-4 py-2">
