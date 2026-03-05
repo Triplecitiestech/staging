@@ -249,7 +249,7 @@ export function getTaskAssignmentEmailHtml({ assigneeName, taskText, phaseName, 
           <tr>
             <td style="background-color: #0f172a; padding: 40px 32px; text-align: center;">
               <h1 style="margin: 0; font-size: 24px; font-weight: 800; color: #ffffff; line-height: 1.3;">
-                You&rsquo;ve Been Assigned a Task
+                We Need Your Input
               </h1>
             </td>
           </tr>
@@ -264,11 +264,15 @@ export function getTaskAssignmentEmailHtml({ assigneeName, taskText, phaseName, 
             <td style="padding: 40px 32px; background-color: #ffffff;">
 
               <p style="margin: 0 0 20px; font-size: 18px; font-weight: 600; color: #1e293b;">
-                Hello ${assigneeName},
+                Hi ${assigneeName},
+              </p>
+
+              <p style="margin: 0 0 12px; font-size: 15px; line-height: 1.7; color: #475569;">
+                We&rsquo;d like to keep things moving on your project, and we need a little help from you! ${assignedBy} has assigned you a task that requires your attention.
               </p>
 
               <p style="margin: 0 0 28px; font-size: 15px; line-height: 1.7; color: #475569;">
-                ${assignedBy} has assigned you a task on your project portal. Please review the details below and sign in to provide updates.
+                Please log in to the <strong>Triple Cities Tech Project Portal</strong> to view the full details and provide any updates.
               </p>
 
               <!-- Assignment Details -->
@@ -333,12 +337,12 @@ export function getTaskAssignmentEmailHtml({ assigneeName, taskText, phaseName, 
                     <!--[if mso]>
                     <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${portalUrl}" style="height:54px;v-text-anchor:middle;width:280px;" arcsize="22%" fillcolor="#7c3aed" stroke="f">
                       <w:anchorlock/>
-                      <center style="color:#ffffff;font-family:sans-serif;font-size:16px;font-weight:bold;">Sign In to Your Portal &rarr;</center>
+                      <center style="color:#ffffff;font-family:sans-serif;font-size:16px;font-weight:bold;">Log In to the Project Portal &rarr;</center>
                     </v:roundrect>
                     <![endif]-->
                     <!--[if !mso]><!-->
                     <a href="${portalUrl}" style="display: inline-block; background-color: #7c3aed; color: #ffffff; padding: 16px 48px; text-decoration: none; border-radius: 10px; font-weight: 700; font-size: 16px; line-height: 1;">
-                      Sign In to Your Portal &rarr;
+                      Log In to the Project Portal &rarr;
                     </a>
                     <!--<![endif]-->
                   </td>
@@ -346,7 +350,7 @@ export function getTaskAssignmentEmailHtml({ assigneeName, taskText, phaseName, 
               </table>
 
               <p style="margin: 0; font-size: 13px; color: #94a3b8; text-align: center;">
-                Replies to this email are not logged in the system. Please use the portal to provide updates.
+                Replies to this email are not monitored. Please use the Triple Cities Tech Project Portal to provide updates.
               </p>
 
             </td>
