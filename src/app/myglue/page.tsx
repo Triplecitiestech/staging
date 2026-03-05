@@ -82,7 +82,7 @@ export default function MyGlue() {
               Watch the videos below to learn how to make the most of MyGlue's features and capabilities.
             </p>
             <a
-              href="https://my.glue.com"
+              href="https://app.myglue.com/"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold px-8 py-4 rounded-xl transition-all duration-300 hover:scale-105 shadow-lg text-lg"
