@@ -411,20 +411,6 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
           >
             Vertical View
           </button>
-          <div className="w-px h-6 bg-slate-600 mx-1" />
-          <button
-            onClick={() => setShowNotes(!showNotes)}
-            className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
-              showNotes
-                ? 'bg-cyan-500 text-white'
-                : 'bg-slate-700/50 text-slate-300 hover:bg-slate-700'
-            }`}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-            </svg>
-            {showNotes ? 'Hide Notes' : 'Show Notes'}
-          </button>
         </div>
       </div>
 
@@ -644,6 +630,22 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
                   {/* Expanded Details - shown inline */}
                   {isExpanded && (
                     <div className="w-full mt-6 bg-gray-800/50 backdrop-blur-sm border-2 border-cyan-500 rounded-lg p-6 shadow-lg shadow-cyan-500/20">
+                      {/* Show Notes Toggle */}
+                      <div className="flex justify-end mb-4">
+                        <button
+                          onClick={() => setShowNotes(!showNotes)}
+                          className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                            showNotes
+                              ? 'bg-cyan-500 text-white'
+                              : 'bg-slate-700/50 text-slate-300 hover:bg-slate-700'
+                          }`}
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                          </svg>
+                          {showNotes ? 'Hide Notes' : 'Show Notes'}
+                        </button>
+                      </div>
                       {/* Next Action */}
                       {phase.nextAction && (
                         <div className="mb-4 p-3 bg-blue-900/30 border border-blue-500/50 rounded-lg">
@@ -743,15 +745,15 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
                             {(phase as unknown as { tasks: Array<{ id: string; taskText: string; completed: boolean; notes?: string }> }).tasks.map((task) => (
                               <div key={task.id} className="p-3 bg-gray-900/50 rounded-lg">
                                 <div className="flex items-start gap-3">
-                                  <div className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${
-                                    task.completed ? 'bg-green-500 border-green-500' : 'border-gray-600'
-                                  }`}>
-                                    {task.completed && (
-                                      <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                      </svg>
-                                    )}
-                                  </div>
+                                  {task.completed ? (
+                                    <svg className="mt-0.5 w-5 h-5 text-green-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                                    </svg>
+                                  ) : (
+                                    <div className="mt-0.5 w-5 h-5 flex items-center justify-center flex-shrink-0">
+                                      <div className="w-2 h-2 rounded-full bg-slate-500" />
+                                    </div>
+                                  )}
                                   <div className="flex-1">
                                     <span className={`text-sm ${task.completed ? 'text-gray-500 line-through' : 'text-gray-300'}`}>
                                       {task.taskText}
@@ -910,6 +912,23 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
             )}
           </div>
 
+          {/* Show Notes Toggle */}
+          <div className="flex justify-end mb-4">
+            <button
+              onClick={() => setShowNotes(!showNotes)}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+                showNotes
+                  ? 'bg-cyan-500 text-white'
+                  : 'bg-slate-700/50 text-slate-300 hover:bg-slate-700'
+              }`}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+              {showNotes ? 'Hide Notes' : 'Show Notes'}
+            </button>
+          </div>
+
           {/* Next Action */}
           {selectedPhase.nextAction && (
             <div className="mb-4 p-3 bg-blue-900/30 border border-blue-500/50 rounded-lg">
@@ -1009,15 +1028,15 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
                 {(selectedPhase as unknown as { tasks: Array<{ id: string; taskText: string; completed: boolean; notes?: string }> }).tasks.map((task) => (
                   <div key={task.id} className="p-3 bg-gray-900/50 rounded-lg">
                     <div className="flex items-start gap-3">
-                      <div className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${
-                        task.completed ? 'bg-green-500 border-green-500' : 'border-gray-600'
-                      }`}>
-                        {task.completed && (
-                          <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                          </svg>
-                        )}
-                      </div>
+                      {task.completed ? (
+                        <svg className="mt-0.5 w-5 h-5 text-green-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                        </svg>
+                      ) : (
+                        <div className="mt-0.5 w-5 h-5 flex items-center justify-center flex-shrink-0">
+                          <div className="w-2 h-2 rounded-full bg-slate-500" />
+                        </div>
+                      )}
                       <div className="flex-1">
                         <span className={`text-sm ${task.completed ? 'text-gray-500 line-through' : 'text-gray-300'}`}>
                           {task.taskText}
