@@ -338,6 +338,7 @@ export default function PhaseCard({ phase, index, companyName }: { phase: Phase;
                           <option value="WAITING_ON_CLIENT">Waiting on Client</option>
                           <option value="WAITING_ON_VENDOR">Waiting on Vendor</option>
                           <option value="WORK_IN_PROGRESS">Work in Progress</option>
+                          <option value="CUSTOMER_NOTE_ADDED">Customer Note Added</option>
                         </select>
                         <button
                           onClick={applyBulkStatus}

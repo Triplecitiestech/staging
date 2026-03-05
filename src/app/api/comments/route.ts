@@ -87,6 +87,94 @@ export async function POST(req: NextRequest) {
       }
     })
 
+    // If this is a customer-facing note on a task (not internal), check if author is a customer
+    // A customer is someone who is NOT a staff user
+    if (data.taskId && !data.isInternal) {
+      try {
+        const staffUser = await prisma.staffUser.findFirst({
+          where: { email: session.user?.email || '' }
+        })
+
+        // If the author is NOT staff, this is a customer note
+        if (!staffUser) {
+          // Update task status to CUSTOMER_NOTE_ADDED
+          await prisma.phaseTask.update({
+            where: { id: data.taskId },
+            data: { status: 'CUSTOMER_NOTE_ADDED' }
+          })
+
+          // Send email notification to internal team
+          try {
+            const { Resend } = await import('resend')
+            const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null
+
+            if (resend) {
+              // Get task details for the notification
+              const task = await prisma.phaseTask.findUnique({
+                where: { id: data.taskId },
+                include: {
+                  phase: {
+                    include: {
+                      project: {
+                        include: { company: { select: { displayName: true } } }
+                      }
+                    }
+                  }
+                }
+              })
+
+              if (task) {
+                // Get all staff users to notify
+                const staffUsers = await prisma.staffUser.findMany({
+                  where: { isActive: true },
+                  select: { email: true }
+                })
+
+                const staffEmails = staffUsers.map(u => u.email).filter(Boolean)
+
+                if (staffEmails.length > 0) {
+                  await resend.emails.send({
+                    from: 'Triple Cities Tech <noreply@triplecitiestech.com>',
+                    to: staffEmails,
+                    subject: `Customer Note: ${task.taskText} - ${task.phase.project.company.displayName}`,
+                    html: `
+                      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+                        <div style="background-color: #0f172a; color: white; padding: 24px; border-radius: 8px 8px 0 0;">
+                          <h2 style="margin: 0; font-size: 18px;">Customer Note Added</h2>
+                        </div>
+                        <div style="background-color: #f8fafc; padding: 24px; border: 1px solid #e2e8f0; border-radius: 0 0 8px 8px;">
+                          <p style="margin: 0 0 16px; color: #475569; font-size: 14px;">
+                            <strong>${session.user?.name || 'A customer'}</strong> from
+                            <strong>${task.phase.project.company.displayName}</strong> added a note to a task.
+                          </p>
+                          <div style="background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+                            <p style="margin: 0 0 8px; font-size: 12px; color: #64748b; text-transform: uppercase; font-weight: 600;">Task</p>
+                            <p style="margin: 0 0 12px; font-size: 15px; color: #1e293b; font-weight: 600;">${task.taskText}</p>
+                            <p style="margin: 0 0 8px; font-size: 12px; color: #64748b; text-transform: uppercase; font-weight: 600;">Note</p>
+                            <p style="margin: 0; font-size: 14px; color: #334155;">${data.content}</p>
+                          </div>
+                          <p style="margin: 0 0 4px; font-size: 12px; color: #94a3b8;">
+                            Project: ${task.phase.project.title} / ${task.phase.title}
+                          </p>
+                          <p style="margin: 0; font-size: 11px; color: #cbd5e1;">
+                            This notification was sent automatically. The task status has been updated to "Customer Note Added."
+                          </p>
+                        </div>
+                      </div>
+                    `,
+                  })
+                }
+              }
+            }
+          } catch (notifyErr) {
+            console.warn('Failed to send customer note notification:', notifyErr)
+          }
+        }
+      } catch (statusErr) {
+        console.warn('Failed to update task status for customer note:', statusErr)
+      }
+    }
+
     return NextResponse.json(comment)
   } catch (error) {
     console.error('Failed to create comment:', error)

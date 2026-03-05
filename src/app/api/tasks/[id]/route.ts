@@ -2,6 +2,39 @@ import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { TaskStatus, Priority, PhaseOwner } from '@prisma/client'
 
+// Compute phase status from its tasks' statuses
+async function syncPhaseStatus(prisma: { phaseTask: { findMany: (args: { where: { phaseId: string; parentTaskId: null }; select: { status: true } }) => Promise<{ status: TaskStatus }[]> }; phase: { update: (args: { where: { id: string }; data: { status: string } }) => Promise<unknown> } }, phaseId: string) {
+  const tasks = await prisma.phaseTask.findMany({
+    where: { phaseId, parentTaskId: null },
+    select: { status: true }
+  })
+
+  if (tasks.length === 0) return
+
+  const statuses = tasks.map(t => t.status)
+  const doneStatuses: TaskStatus[] = ['REVIEWED_AND_DONE', 'NOT_APPLICABLE', 'ITG_DOCUMENTED']
+  const activeStatuses: TaskStatus[] = ['WORK_IN_PROGRESS', 'ASSIGNED', 'WAITING_ON_CLIENT', 'WAITING_ON_VENDOR', 'NEEDS_REVIEW', 'INFORMATION_RECEIVED', 'CUSTOMER_NOTE_ADDED']
+
+  let phaseStatus: string
+
+  if (statuses.every(s => doneStatuses.includes(s))) {
+    phaseStatus = 'COMPLETE'
+  } else if (statuses.some(s => s === 'STUCK')) {
+    phaseStatus = 'REQUIRES_CUSTOMER_COORDINATION'
+  } else if (statuses.some(s => s === 'WAITING_ON_CLIENT' || s === 'CUSTOMER_NOTE_ADDED')) {
+    phaseStatus = 'WAITING_ON_CUSTOMER'
+  } else if (statuses.some(s => activeStatuses.includes(s))) {
+    phaseStatus = 'IN_PROGRESS'
+  } else {
+    phaseStatus = 'NOT_STARTED'
+  }
+
+  await prisma.phase.update({
+    where: { id: phaseId },
+    data: { status: phaseStatus }
+  })
+}
+
 
 export async function PATCH(
   req: Request,
@@ -82,6 +115,16 @@ export async function PATCH(
           updatedAt: true
         }
       })
+    }
+
+    // Auto-sync phase status when a task status changes
+    if (data.status !== undefined && task.phaseId) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await syncPhaseStatus(prisma as any, task.phaseId)
+      } catch (syncErr) {
+        console.warn('Failed to sync phase status:', syncErr)
+      }
     }
 
     return NextResponse.json(task)
