@@ -2,10 +2,11 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Mail, RefreshCw } from 'lucide-react'
+import { Mail, RefreshCw, Eye } from 'lucide-react'
 
 interface Company {
   id: string
+  slug: string
   displayName: string
   primaryContact?: string | null
   contactEmail?: string | null
@@ -18,6 +19,25 @@ export default function CompanyList({ companies }: { companies: Company[] }) {
   const router = useRouter()
   const [deleting, setDeleting] = useState<string | null>(null)
   const [sending, setSending] = useState<string | null>(null)
+  const [impersonating, setImpersonating] = useState<string | null>(null)
+
+  const handleImpersonate = async (slug: string) => {
+    setImpersonating(slug)
+    try {
+      const res = await fetch('/api/onboarding/impersonate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companySlug: slug })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to impersonate')
+      window.open(data.portalUrl, '_blank')
+    } catch (error) {
+      alert(`Failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      setImpersonating(null)
+    }
+  }
 
   const handleDelete = async (id: string, name: string) => {
     if (!confirm(`Delete ${name}? This will also delete all associated projects.`)) return
@@ -99,6 +119,24 @@ export default function CompanyList({ companies }: { companies: Company[] }) {
               <td className="px-6 py-4 text-sm text-slate-300">{company._count?.projects || 0}</td>
               <td className="px-6 py-4 text-right">
                 <div className="flex items-center justify-end gap-2">
+                  <button
+                    onClick={() => handleImpersonate(company.slug)}
+                    disabled={impersonating === company.slug}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-600 text-white text-xs font-medium rounded transition-colors disabled:opacity-50"
+                    title="View portal as this customer"
+                  >
+                    {impersonating === company.slug ? (
+                      <>
+                        <RefreshCw size={14} className="animate-spin" />
+                        Opening...
+                      </>
+                    ) : (
+                      <>
+                        <Eye size={14} />
+                        View Portal
+                      </>
+                    )}
+                  </button>
                   <button
                     onClick={() => handleInvite(company.id, company.contactEmail, true)}
                     disabled={sending === company.id || !company.contactEmail}
