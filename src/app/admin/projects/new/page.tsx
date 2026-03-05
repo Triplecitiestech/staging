@@ -29,7 +29,9 @@ export default async function NewProjectPage() {
         contactTitle: true,
         passwordHash: true,
         createdAt: true,
-        updatedAt: true
+        updatedAt: true,
+        autotaskCompanyId: true,
+        autotaskLastSync: true,
       },
       orderBy: { displayName: 'asc' }
     })

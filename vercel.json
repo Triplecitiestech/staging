@@ -16,6 +16,9 @@
     },
     "src/app/api/cron/generate-blog/route.ts": {
       "maxDuration": 60
+    },
+    "src/app/api/cron/autotask-sync/route.ts": {
+      "maxDuration": 60
     }
   },
   "crons": [
@@ -30,6 +33,10 @@
     {
       "path": "/api/cron/publish-scheduled",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/autotask-sync",
+      "schedule": "*/5 * * * *"
     }
   ]
 }
