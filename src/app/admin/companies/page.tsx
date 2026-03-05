@@ -16,6 +16,7 @@ export default async function CompaniesPage() {
   const companies = await prisma.company.findMany({
     select: {
       id: true,
+      slug: true,
       displayName: true,
       primaryContact: true,
       contactEmail: true,
