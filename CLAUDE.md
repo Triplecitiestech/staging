@@ -171,6 +171,10 @@ This ensures the same mistake never happens twice across sessions.
 
 ## Gotchas
 
+- **Proactive error checking**: After making changes, actively look for potential errors — check browser console output, test API endpoints with edge cases, verify state sync between components (useState must sync with prop changes via useEffect), and confirm that absolute-positioned dropdowns aren't clipped by parent overflow. Don't wait for the user to find bugs. Log and fix them.
+- **useState does not auto-sync with props**: When using `useState(prop)`, the state only initializes on mount. If the prop changes (e.g., via `router.refresh()`), add `useEffect(() => setState(prop), [prop])` to keep them in sync. This applies to all components that receive data as props and store it locally.
+- **overflow-hidden clips absolute dropdowns**: Never use `overflow-hidden` on a parent element that contains an absolute-positioned dropdown (like AssignmentPicker, CommentThread, DueDatePicker). Use `min-w-0` with `truncate` for text overflow instead.
+- **Progress should use status, not `completed` boolean**: Task completion is tracked via status (REVIEWED_AND_DONE, NOT_APPLICABLE, ITG_DOCUMENTED), not the legacy `completed` boolean field.
 - **CSP is strict**: Adding any third-party resource requires updating headers in `next.config.js`
 - **Serverless timeout**: 30s max for API routes (blog generation can be tight)
 - **ChatGenie widget**: Must use standard `<script>` tag, not Next.js `<Script>` component

@@ -1,6 +1,44 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 
+function getNoteNotificationHtml(opts: {
+  authorName: string
+  companyName: string
+  taskText: string
+  noteContent: string
+  projectTitle: string
+  phaseTitle: string
+  isCustomerNote: boolean
+}) {
+  const title = opts.isCustomerNote ? 'Customer Note Added' : 'New Note on Task'
+  const subtitle = opts.isCustomerNote
+    ? `<strong>${opts.authorName}</strong> from <strong>${opts.companyName}</strong> added a note to a task.`
+    : `<strong>${opts.authorName}</strong> added a note to a task for <strong>${opts.companyName}</strong>.`
+
+  return `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto;">
+      <div style="background-color: #0f172a; color: white; padding: 24px; border-radius: 8px 8px 0 0;">
+        <h2 style="margin: 0; font-size: 18px;">${title}</h2>
+      </div>
+      <div style="background-color: #f8fafc; padding: 24px; border: 1px solid #e2e8f0; border-radius: 0 0 8px 8px;">
+        <p style="margin: 0 0 16px; color: #475569; font-size: 14px;">${subtitle}</p>
+        <div style="background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+          <p style="margin: 0 0 8px; font-size: 12px; color: #64748b; text-transform: uppercase; font-weight: 600;">Task</p>
+          <p style="margin: 0 0 12px; font-size: 15px; color: #1e293b; font-weight: 600;">${opts.taskText}</p>
+          <p style="margin: 0 0 8px; font-size: 12px; color: #64748b; text-transform: uppercase; font-weight: 600;">Note</p>
+          <p style="margin: 0; font-size: 14px; color: #334155; white-space: pre-wrap;">${opts.noteContent}</p>
+        </div>
+        <p style="margin: 0 0 4px; font-size: 12px; color: #94a3b8;">
+          Project: ${opts.projectTitle} / ${opts.phaseTitle}
+        </p>
+        <p style="margin: 0; font-size: 11px; color: #cbd5e1;">
+          This notification was sent automatically by Triple Cities Tech.
+        </p>
+      </div>
+    </div>
+  `
+}
+
 // GET comments for a phase or task
 export async function GET(req: NextRequest) {
   const session = await auth()
@@ -87,91 +125,99 @@ export async function POST(req: NextRequest) {
       }
     })
 
-    // If this is a customer-facing note on a task (not internal), check if author is a customer
-    // A customer is someone who is NOT a staff user
-    if (data.taskId && !data.isInternal) {
+    // Notification logic
+    if (data.taskId) {
       try {
         const staffUser = await prisma.staffUser.findFirst({
           where: { email: session.user?.email || '' }
         })
 
-        // If the author is NOT staff, this is a customer note
-        if (!staffUser) {
-          // Update task status to CUSTOMER_NOTE_ADDED
+        // Get task details for any notifications
+        const task = await prisma.phaseTask.findUnique({
+          where: { id: data.taskId },
+          include: {
+            phase: {
+              include: {
+                project: {
+                  include: { company: { select: { displayName: true } } }
+                }
+              }
+            }
+          }
+        })
+
+        // If the author is NOT staff and the note is external, this is a customer note
+        if (!staffUser && !data.isInternal) {
           await prisma.phaseTask.update({
             where: { id: data.taskId },
             data: { status: 'CUSTOMER_NOTE_ADDED' }
           })
 
-          // Send email notification to internal team
+          // Auto-notify all staff on customer notes
           try {
             const { Resend } = await import('resend')
             const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null
 
-            if (resend) {
-              // Get task details for the notification
-              const task = await prisma.phaseTask.findUnique({
-                where: { id: data.taskId },
-                include: {
-                  phase: {
-                    include: {
-                      project: {
-                        include: { company: { select: { displayName: true } } }
-                      }
-                    }
-                  }
-                }
+            if (resend && task) {
+              const allStaff = await prisma.staffUser.findMany({
+                where: { isActive: true },
+                select: { email: true }
               })
+              const staffEmails = allStaff.map(u => u.email).filter(Boolean)
 
-              if (task) {
-                // Get all staff users to notify
-                const staffUsers = await prisma.staffUser.findMany({
-                  where: { isActive: true },
-                  select: { email: true }
+              if (staffEmails.length > 0) {
+                await resend.emails.send({
+                  from: 'Triple Cities Tech <noreply@triplecitiestech.com>',
+                  to: staffEmails,
+                  subject: `Customer Note: ${task.taskText} - ${task.phase.project.company.displayName}`,
+                  html: getNoteNotificationHtml({
+                    authorName: session.user?.name || 'A customer',
+                    companyName: task.phase.project.company.displayName,
+                    taskText: task.taskText,
+                    noteContent: data.content,
+                    projectTitle: task.phase.project.title,
+                    phaseTitle: task.phase.title,
+                    isCustomerNote: true,
+                  }),
                 })
-
-                const staffEmails = staffUsers.map(u => u.email).filter(Boolean)
-
-                if (staffEmails.length > 0) {
-                  await resend.emails.send({
-                    from: 'Triple Cities Tech <noreply@triplecitiestech.com>',
-                    to: staffEmails,
-                    subject: `Customer Note: ${task.taskText} - ${task.phase.project.company.displayName}`,
-                    html: `
-                      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-                        <div style="background-color: #0f172a; color: white; padding: 24px; border-radius: 8px 8px 0 0;">
-                          <h2 style="margin: 0; font-size: 18px;">Customer Note Added</h2>
-                        </div>
-                        <div style="background-color: #f8fafc; padding: 24px; border: 1px solid #e2e8f0; border-radius: 0 0 8px 8px;">
-                          <p style="margin: 0 0 16px; color: #475569; font-size: 14px;">
-                            <strong>${session.user?.name || 'A customer'}</strong> from
-                            <strong>${task.phase.project.company.displayName}</strong> added a note to a task.
-                          </p>
-                          <div style="background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 16px;">
-                            <p style="margin: 0 0 8px; font-size: 12px; color: #64748b; text-transform: uppercase; font-weight: 600;">Task</p>
-                            <p style="margin: 0 0 12px; font-size: 15px; color: #1e293b; font-weight: 600;">${task.taskText}</p>
-                            <p style="margin: 0 0 8px; font-size: 12px; color: #64748b; text-transform: uppercase; font-weight: 600;">Note</p>
-                            <p style="margin: 0; font-size: 14px; color: #334155;">${data.content}</p>
-                          </div>
-                          <p style="margin: 0 0 4px; font-size: 12px; color: #94a3b8;">
-                            Project: ${task.phase.project.title} / ${task.phase.title}
-                          </p>
-                          <p style="margin: 0; font-size: 11px; color: #cbd5e1;">
-                            This notification was sent automatically. The task status has been updated to "Customer Note Added."
-                          </p>
-                        </div>
-                      </div>
-                    `,
-                  })
-                }
               }
             }
           } catch (notifyErr) {
             console.warn('Failed to send customer note notification:', notifyErr)
           }
         }
+
+        // Send selective notifications if notifyEmails were specified
+        if (data.notifyEmails && Array.isArray(data.notifyEmails) && data.notifyEmails.length > 0 && task) {
+          try {
+            const { Resend } = await import('resend')
+            const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null
+
+            if (resend) {
+              const validEmails = data.notifyEmails.filter((e: string) => e && e.includes('@'))
+              if (validEmails.length > 0) {
+                await resend.emails.send({
+                  from: 'Triple Cities Tech <noreply@triplecitiestech.com>',
+                  to: validEmails,
+                  subject: `Note on Task: ${task.taskText} - ${task.phase.project.company.displayName}`,
+                  html: getNoteNotificationHtml({
+                    authorName: session.user?.name || 'Someone',
+                    companyName: task.phase.project.company.displayName,
+                    taskText: task.taskText,
+                    noteContent: data.content,
+                    projectTitle: task.phase.project.title,
+                    phaseTitle: task.phase.title,
+                    isCustomerNote: false,
+                  }),
+                })
+              }
+            }
+          } catch (notifyErr) {
+            console.warn('Failed to send note notification:', notifyErr)
+          }
+        }
       } catch (statusErr) {
-        console.warn('Failed to update task status for customer note:', statusErr)
+        console.warn('Failed to process note notifications:', statusErr)
       }
     }
 
