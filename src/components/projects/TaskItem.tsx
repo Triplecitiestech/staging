@@ -54,6 +54,20 @@ interface TaskItemProps {
   bulkMode?: boolean
 }
 
+const STATUS_COLORS: Record<string, string> = {
+  NOT_STARTED: 'border-l-pink-500',
+  ASSIGNED: 'border-l-purple-500',
+  WORK_IN_PROGRESS: 'border-l-sky-500',
+  WAITING_ON_CLIENT: 'border-l-orange-500',
+  WAITING_ON_VENDOR: 'border-l-amber-500',
+  NEEDS_REVIEW: 'border-l-cyan-500',
+  STUCK: 'border-l-red-500',
+  INFORMATION_RECEIVED: 'border-l-teal-500',
+  REVIEWED_AND_DONE: 'border-l-green-500',
+  ITG_DOCUMENTED: 'border-l-indigo-500',
+  NOT_APPLICABLE: 'border-l-slate-500',
+}
+
 export default function TaskItem({
   task,
   level,
@@ -121,7 +135,8 @@ export default function TaskItem({
   }
 
   const hasSubTasks = task.subTasks && task.subTasks.length > 0
-  const canAddSubTask = level < 3 // Max 3 levels
+  const canAddSubTask = level < 3
+  const statusBorderColor = STATUS_COLORS[task.status || 'NOT_STARTED'] || 'border-l-slate-600'
 
   return (
     <div className={`${level > 0 ? 'ml-8 border-l-2 border-slate-700 pl-4' : ''}`}>
@@ -130,137 +145,139 @@ export default function TaskItem({
         onDragStart={() => onDragStart(task.id)}
         onDragOver={(e) => onDragOver(e, task.id)}
         onDragEnd={onDragEnd}
-        className={`group flex items-start gap-2 py-2 px-2 rounded transition-colors ${
+        className={`group border-l-4 ${statusBorderColor} rounded-r-lg py-3 px-3 mb-1 transition-colors ${
           draggedTaskId === task.id ? 'opacity-50' : 'hover:bg-slate-800/50'
-        }`}
+        } ${isSelected && bulkMode ? 'bg-cyan-500/10' : 'bg-slate-800/30'}`}
       >
-        {/* Selection checkbox (only visible in bulk edit mode) */}
-        {bulkMode && (
-          <input
-            type="checkbox"
-            checked={isSelected}
-            onChange={() => onToggleSelection(task.id)}
-            className="mt-0.5 w-4 h-4 rounded border-2 border-slate-500 bg-transparent checked:bg-cyan-500 checked:border-cyan-500 cursor-pointer accent-cyan-500"
-          />
-        )}
-
-        {/* Collapse button for tasks with subtasks */}
-        {hasSubTasks && (
-          <button
-            onClick={() => setCollapsed(!collapsed)}
-            className="mt-0.5 text-slate-400 hover:text-slate-300"
-          >
-            <svg className={`w-4 h-4 transition-transform ${collapsed ? '' : 'rotate-90'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
-          </button>
-        )}
-
-        {/* Spacer if no collapse button */}
-        {!hasSubTasks && <div className="w-4" />}
-
-        {/* Task content */}
-        <div className="flex-1 min-w-0">
-          {editingTaskId === task.id ? (
-            <div className="space-y-2">
-              <input
-                value={taskText}
-                onChange={(e) => setTaskText(e.target.value)}
-                className="w-full px-2 py-1 bg-slate-800 border border-white/20 rounded text-slate-300 text-sm"
-                placeholder="Task text..."
-              />
-              <textarea
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                className="w-full px-2 py-1 bg-slate-800 border border-white/20 rounded text-slate-300 text-xs"
-                placeholder="Notes (optional)..."
-                rows={2}
-              />
-              <div className="flex gap-2">
-                <button
-                  onClick={saveTask}
-                  className="px-3 py-1 text-xs bg-cyan-500 text-white rounded hover:bg-cyan-600"
-                >
-                  Save
-                </button>
-                <button
-                  onClick={() => {
-                    setTaskText(task.taskText)
-                    setNotes(task.notes || '')
-                    onEdit('')
-                  }}
-                  className="px-3 py-1 text-xs bg-slate-700 text-slate-300 rounded hover:bg-slate-600"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <span
-                onClick={() => onEdit(task.id)}
-                className="cursor-pointer text-sm block text-slate-300"
-              >
-                {task.taskText}
-              </span>
-              {task.notes && (
-                <p className="text-xs text-slate-500 italic">{task.notes}</p>
-              )}
-              <div className="flex items-center gap-2 flex-wrap">
-                {/* Responsibility Indicator */}
-                {task.responsibleParty && (
-                  <span
-                    className={`px-2 py-1 text-xs font-semibold rounded border ${
-                      task.responsibleParty === 'TCT'
-                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                        : task.responsibleParty === 'CUSTOMER'
-                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
-                        : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
-                    }`}
-                  >
-                    {task.responsibleParty === 'TCT' && '🏢 TCT'}
-                    {task.responsibleParty === 'CUSTOMER' && '👤 Customer'}
-                    {task.responsibleParty === 'BOTH' && '🤝 Both'}
-                  </span>
-                )}
-                {task.status && (
-                  <TaskStatusDropdown taskId={task.id} currentStatus={task.status} />
-                )}
-                <AssignmentPicker
-                  taskId={task.id}
-                  assignments={task.assignments || []}
-                  currentResponsibleParty={task.responsibleParty}
-                  companyName={companyName}
-                />
-                <DueDatePicker taskId={task.id} currentDueDate={task.dueDate || null} />
-                <CommentThread taskId={task.id} comments={task.comments || []} />
-              </div>
-            </div>
+        <div className="flex items-start gap-3">
+          {/* Selection checkbox (only visible in bulk edit mode) */}
+          {bulkMode && (
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onChange={() => onToggleSelection(task.id)}
+              className="mt-1 w-4 h-4 rounded border-2 border-slate-500 bg-transparent checked:bg-cyan-500 checked:border-cyan-500 cursor-pointer accent-cyan-500 flex-shrink-0"
+            />
           )}
-        </div>
 
-        {/* Action buttons */}
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          {canAddSubTask && (
+          {/* Collapse button for tasks with subtasks */}
+          {hasSubTasks && (
             <button
-              onClick={createSubTask}
-              className="p-1 text-xs text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10 rounded"
-              title="Add sub-task"
+              onClick={() => setCollapsed(!collapsed)}
+              className="mt-0.5 text-slate-400 hover:text-slate-300 flex-shrink-0"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              <svg className={`w-4 h-4 transition-transform ${collapsed ? '' : 'rotate-90'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
               </svg>
             </button>
           )}
-          <button
-            onClick={deleteTask}
-            className="p-1 text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded"
-            title="Delete task"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
-          </button>
+
+          {/* Task content */}
+          <div className="flex-1 min-w-0">
+            {editingTaskId === task.id ? (
+              <div className="space-y-2">
+                <input
+                  value={taskText}
+                  onChange={(e) => setTaskText(e.target.value)}
+                  className="w-full px-2 py-1 bg-slate-800 border border-white/20 rounded text-slate-300 text-sm"
+                  placeholder="Task text..."
+                />
+                <textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  className="w-full px-2 py-1 bg-slate-800 border border-white/20 rounded text-slate-300 text-xs"
+                  placeholder="Notes (optional)..."
+                  rows={2}
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={saveTask}
+                    className="px-3 py-1 text-xs bg-cyan-500 text-white rounded hover:bg-cyan-600"
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={() => {
+                      setTaskText(task.taskText)
+                      setNotes(task.notes || '')
+                      onEdit('')
+                    }}
+                    className="px-3 py-1 text-xs bg-slate-700 text-slate-300 rounded hover:bg-slate-600"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* Task name row */}
+                <div className="flex items-center gap-2 mb-1">
+                  <span
+                    onClick={() => onEdit(task.id)}
+                    className="cursor-pointer text-sm text-slate-200 font-medium hover:text-white transition-colors"
+                  >
+                    {task.taskText}
+                  </span>
+
+                  {/* Responsibility badge inline with name */}
+                  {task.responsibleParty && (
+                    <span
+                      className={`px-1.5 py-0.5 text-[10px] font-bold rounded uppercase tracking-wide ${
+                        task.responsibleParty === 'TCT'
+                          ? 'bg-emerald-500/20 text-emerald-400'
+                          : task.responsibleParty === 'CUSTOMER'
+                          ? 'bg-amber-500/20 text-amber-400'
+                          : 'bg-indigo-500/20 text-indigo-400'
+                      }`}
+                    >
+                      {task.responsibleParty === 'TCT' ? 'TCT' : task.responsibleParty === 'CUSTOMER' ? 'Client' : 'Both'}
+                    </span>
+                  )}
+                </div>
+
+                {task.notes && (
+                  <p className="text-xs text-slate-500 italic mb-1.5">{task.notes}</p>
+                )}
+
+                {/* Controls row */}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <TaskStatusDropdown taskId={task.id} currentStatus={task.status || 'NOT_STARTED'} />
+                  <AssignmentPicker
+                    taskId={task.id}
+                    assignments={task.assignments || []}
+                    currentResponsibleParty={task.responsibleParty}
+                    companyName={companyName}
+                  />
+                  <DueDatePicker taskId={task.id} currentDueDate={task.dueDate || null} />
+                  <CommentThread taskId={task.id} comments={task.comments || []} />
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+            {canAddSubTask && (
+              <button
+                onClick={createSubTask}
+                className="p-1 text-xs text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10 rounded"
+                title="Add sub-task"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+              </button>
+            )}
+            <button
+              onClick={deleteTask}
+              className="p-1 text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded"
+              title="Delete task"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
 
