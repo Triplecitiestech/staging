@@ -32,10 +32,10 @@ export async function POST(request: Request) {
 
     console.log(`🤖 Processing blog generation for post ${blogPostId}...`);
 
-    // Fetch RSS articles
+    // Fetch RSS articles (limit to 3 to keep prompt small and fast)
     const { articles, trendingTopics } = await contentCurator.selectArticlesForBlog({
-      maxArticles: 5,
-      daysBack: 3,
+      maxArticles: 3,
+      daysBack: 7,
       preferTrending: true
     });
 

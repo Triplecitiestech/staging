@@ -7,7 +7,7 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY!,
 });
 
-const MODEL = 'claude-sonnet-4-5-20250929';
+const MODEL = 'claude-sonnet-4-5-20250514';
 
 export interface BlogPostDraft {
   title: string;
@@ -64,7 +64,7 @@ export class BlogGenerator {
 
     const response = await anthropic.messages.create({
       model: MODEL,
-      max_tokens: 4096,
+      max_tokens: 2048,
       temperature: 0.7,
       messages: [
         {
@@ -97,7 +97,7 @@ export class BlogGenerator {
 
     const response = await anthropic.messages.create({
       model: MODEL,
-      max_tokens: 4096,
+      max_tokens: 2048,
       temperature: 0.7,
       messages: [
         {
@@ -209,44 +209,28 @@ SOURCE MATERIAL:
 ${sourceMaterial}${trendingContext}
 
 YOUR TASK:
-Create a complete blog post package in the following JSON format:
+Create a blog post in the following JSON format:
 
 \`\`\`json
 {
   "title": "Catchy, SEO-friendly title (60 chars max)",
   "excerpt": "Compelling 2-3 sentence summary (150-160 chars)",
-  "content": "Full blog post in markdown format with ## headers, **bold**, lists, etc.",
+  "content": "Full blog post in markdown (800-1200 words). Use ## headers, **bold**, lists.",
   "metaTitle": "SEO title with target keyword (50-60 chars)",
   "metaDescription": "SEO meta description with keyword and CTA (150-160 chars)",
   "keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"],
-  "featuredImagePrompt": "Detailed prompt for generating a featured image (describe visual, style, mood)",
+  "featuredImagePrompt": "Brief prompt for a featured image",
   "category": "Cybersecurity News | IT Tips | Microsoft 365 | Data Protection | Compliance",
-  "tags": ["tag1", "tag2", "tag3"],
-  "facebook": {
-    "title": "Attention-grabbing Facebook post title (80 chars max)",
-    "description": "Engaging description with hook (200 chars max)",
-    "hashtags": ["#Cybersecurity", "#SmallBusiness", "#ITSecurity"]
-  },
-  "instagram": {
-    "caption": "Instagram caption with emojis, line breaks, and call-to-action (2000 chars max)",
-    "hashtags": ["#CyberSecurity", "#SmallBusiness", "#ITSupport", "#Binghamton", "#CentralNY"]
-  },
-  "linkedin": {
-    "title": "Professional LinkedIn title",
-    "content": "Professional LinkedIn post content (3000 chars max)",
-    "hashtags": ["#CyberSecurity", "#SMB", "#ITServices"]
-  }
+  "tags": ["tag1", "tag2", "tag3"]
 }
 \`\`\`
 
 IMPORTANT:
-- Make the content ORIGINAL - synthesize insights from multiple sources
-- Focus on the "so what" for small businesses - why should they care?
-- Include 2-3 specific action items readers can implement
+- Original content - synthesize insights from sources, don't plagiarize
+- Focus on practical advice for small businesses
+- Include 2-3 specific action items
 - Reference Triple Cities Tech naturally (not salesy)
-- Use storytelling and real-world scenarios
-- Make the opening paragraph compelling enough to keep readers engaged
-- Ensure all social media content is platform-optimized
+- Compelling opening paragraph
 
 Return ONLY the JSON object, no additional text.`;
   }
