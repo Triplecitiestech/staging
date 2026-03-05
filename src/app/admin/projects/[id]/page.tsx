@@ -162,9 +162,15 @@ export default async function ProjectDetailPage({
     }
   }
 
+  const DONE_STATUSES = ['REVIEWED_AND_DONE', 'NOT_APPLICABLE', 'ITG_DOCUMENTED']
   const completedPhases = project.phases.filter(p => p.status === 'COMPLETE').length
   const totalPhases = project.phases.length
-  const progress = totalPhases > 0 ? Math.round((completedPhases / totalPhases) * 100) : 0
+  // Compute overall progress from all top-level tasks across all phases
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const allTasks = project.phases.flatMap(p => (p.tasks || []) as any[])
+  const totalTasks = allTasks.length
+  const completedTasks = allTasks.filter(t => DONE_STATUSES.includes(t.status || '')).length
+  const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-gray-900 to-slate-950">
@@ -200,7 +206,7 @@ export default async function ProjectDetailPage({
                   <span className="text-sm text-slate-300 font-medium">{progress}%</span>
                 </div>
                 <p className="text-xs text-slate-400 mt-1">
-                  {completedPhases} of {totalPhases} phases completed
+                  {completedTasks} of {totalTasks} tasks completed ({completedPhases} of {totalPhases} phases)
                 </p>
               </div>
               <div>

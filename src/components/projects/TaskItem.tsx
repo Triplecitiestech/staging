@@ -225,17 +225,15 @@ export default function TaskItem({
                   )}
                 </div>
 
-                {/* Row 2: Fixed-width grid for metadata */}
-                <div className="grid grid-cols-[140px_140px_120px_auto] gap-x-3 items-center mt-1.5 text-xs">
-                  {/* Status column */}
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-slate-600 font-medium uppercase text-[10px] tracking-wide shrink-0">Status</span>
+                {/* Row 2: Metadata row */}
+                <div className="flex items-center gap-4 mt-1.5 text-xs">
+                  {/* Status */}
+                  <div className="w-[130px] shrink-0">
                     <TaskStatusDropdown taskId={task.id} currentStatus={task.status || 'NOT_STARTED'} />
                   </div>
 
-                  {/* Assigned column */}
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <span className="text-slate-600 font-medium uppercase text-[10px] tracking-wide shrink-0">Assigned</span>
+                  {/* Assigned */}
+                  <div className="w-[110px] shrink-0">
                     <AssignmentPicker
                       taskId={task.id}
                       assignments={task.assignments || []}
@@ -245,9 +243,8 @@ export default function TaskItem({
                     />
                   </div>
 
-                  {/* Due date column */}
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-slate-600 font-medium uppercase text-[10px] tracking-wide shrink-0">Due</span>
+                  {/* Due date */}
+                  <div className="w-[110px] shrink-0">
                     <DueDatePicker taskId={task.id} currentDueDate={task.dueDate || null} />
                   </div>
 
