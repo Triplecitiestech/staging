@@ -112,17 +112,23 @@ model Company {
   @@map("companies")
 }
 
+enum PhoneType {
+  MOBILE
+  WORK
+}
+
 model CompanyContact {
-  id        String   @id @default(uuid())
+  id        String     @id @default(uuid())
   companyId String
   name      String
   email     String
   title     String?
   phone     String?
-  isPrimary Boolean  @default(false)
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  phoneType PhoneType?
+  isPrimary Boolean    @default(false)
+  isActive  Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 
   // Relations
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)

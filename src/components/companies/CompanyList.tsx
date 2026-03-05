@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { Mail, RefreshCw, Eye } from 'lucide-react'
 
 interface Company {
@@ -109,7 +110,9 @@ export default function CompanyList({ companies }: { companies: Company[] }) {
           {companies.map((company) => (
             <tr key={company.id} className="hover:bg-slate-700/30 transition-colors">
               <td className="px-6 py-4">
-                <div className="text-sm font-medium text-white">{company.displayName}</div>
+                <Link href={`/admin/companies/${company.id}`} className="text-sm font-medium text-white hover:text-cyan-400 transition-colors">
+                  {company.displayName}
+                </Link>
               </td>
               <td className="px-6 py-4">
                 {company.primaryContact && <div className="text-sm text-slate-300">{company.primaryContact}</div>}
