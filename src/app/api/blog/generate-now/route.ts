@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { after } from 'next/server';
 import { contentCurator } from '@/lib/content-curator';
 import { blogGenerator } from '@/lib/blog-generator';
 import { generateBlogApprovalEmail, generateBlogApprovalEmailText } from '@/lib/email-templates/blog-approval';
@@ -12,142 +11,11 @@ export const maxDuration = 60;
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 /**
- * Background blog generation logic.
- * Runs after the response is sent via after().
- */
-async function runBlogGeneration(blogPostId: string) {
-  const { prisma } = await import('@/lib/prisma');
-
-  try {
-    console.log('🤖 Starting AI blog post generation (background)...');
-
-    // Fetch RSS articles
-    const { articles, trendingTopics } = await contentCurator.selectArticlesForBlog({
-      maxArticles: 5,
-      daysBack: 3,
-      preferTrending: true
-    });
-
-    if (articles.length === 0) {
-      console.log('⚠️ No suitable articles found');
-      await prisma.blogPost.update({
-        where: { id: blogPostId },
-        data: {
-          status: 'REJECTED',
-          content: 'Generation failed: No articles found from RSS feeds.',
-        }
-      });
-      return;
-    }
-
-    console.log(`📚 Selected ${articles.length} articles`);
-
-    // Generate blog post with AI
-    const blogDraft = await blogGenerator.generateBlogPost(articles, trendingTopics);
-    console.log(`✅ Generated: "${blogDraft.title}"`);
-
-    // Validate draft
-    const validation = blogGenerator.validateDraft(blogDraft);
-    if (!validation.valid) {
-      console.error('❌ Validation failed:', validation.errors);
-      await prisma.blogPost.update({
-        where: { id: blogPostId },
-        data: {
-          status: 'REJECTED',
-          content: `Generation failed validation: ${validation.errors.join(', ')}`,
-        }
-      });
-      return;
-    }
-
-    // Find or create category
-    let category = await prisma.blogCategory.findUnique({
-      where: { slug: blogDraft.category.toLowerCase().replace(/\s+/g, '-') }
-    });
-
-    if (!category) {
-      category = await prisma.blogCategory.create({
-        data: {
-          name: blogDraft.category,
-          slug: blogDraft.category.toLowerCase().replace(/\s+/g, '-'),
-          description: `Blog posts about ${blogDraft.category}`
-        }
-      });
-    }
-
-    // Generate approval token
-    const approvalToken = crypto.randomBytes(32).toString('hex');
-
-    // Update the placeholder blog post with real content
-    await prisma.blogPost.update({
-      where: { id: blogPostId },
-      data: {
-        title: blogDraft.title,
-        slug: blogDraft.slug,
-        excerpt: blogDraft.excerpt,
-        content: blogDraft.content,
-        metaTitle: blogDraft.metaTitle,
-        metaDescription: blogDraft.metaDescription,
-        keywords: blogDraft.keywords,
-        sourceUrls: blogDraft.sourceUrls,
-        aiPrompt: blogDraft.aiPrompt,
-        aiModel: blogDraft.aiModel,
-        status: 'PENDING_APPROVAL',
-        categoryId: category.id,
-        approvalToken,
-        sentForApproval: new Date()
-      }
-    });
-
-    console.log(`💾 Updated blog post: ${blogPostId}`);
-
-    // Send approval email
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.triplecitiestech.com';
-    const approvalEmail = process.env.APPROVAL_EMAIL || 'kurtis@triplecitiestech.com';
-
-    const emailProps = {
-      blogPost: blogDraft,
-      approvalToken,
-      previewUrl: `${baseUrl}/api/blog/approval/${approvalToken}/preview`,
-      approveUrl: `${baseUrl}/api/blog/approval/${approvalToken}/approve`,
-      rejectUrl: `${baseUrl}/api/blog/approval/${approvalToken}/reject`,
-      editUrl: `${baseUrl}/admin/blog/${blogPostId}/edit`
-    };
-
-    if (resend) {
-      const emailResult = await resend.emails.send({
-        from: 'Triple Cities Tech Blog <blog@triplecitiestech.com>',
-        to: approvalEmail,
-        subject: `📝 Blog Post Ready for Review: "${blogDraft.title}"`,
-        html: generateBlogApprovalEmail(emailProps),
-        text: generateBlogApprovalEmailText(emailProps)
-      });
-      console.log(`✉️ Approval email sent: ${emailResult.data?.id}`);
-    }
-
-    console.log('✅ Blog generation complete');
-  } catch (error) {
-    console.error('❌ Background generation failed:', error);
-    // Mark the post as failed so the UI can detect it
-    try {
-      await prisma.blogPost.update({
-        where: { id: blogPostId },
-        data: {
-          status: 'REJECTED',
-          content: `Generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        }
-      });
-    } catch (updateError) {
-      console.error('Failed to update blog post status:', updateError);
-    }
-  }
-}
-
-/**
  * POST /api/blog/generate-now
  *
- * Creates a placeholder blog post and kicks off generation in the background.
- * Returns immediately so the client never times out.
+ * Creates a placeholder blog post and returns the ID immediately.
+ * The client then fires a request to /api/blog/process-generation
+ * to do the heavy lifting in a separate function invocation.
  */
 export async function POST() {
   try {
@@ -179,7 +47,7 @@ export async function POST() {
       });
     }
 
-    // Create placeholder blog post with DRAFT status
+    // Create placeholder blog post
     const blogPost = await prisma.blogPost.create({
       data: {
         title: 'Generating...',
@@ -197,21 +65,15 @@ export async function POST() {
       }
     });
 
-    // Run the actual generation AFTER the response is sent
-    after(() => runBlogGeneration(blogPost.id));
-
     return NextResponse.json({
       success: true,
-      message: 'Blog generation started! The post will appear on the blog dashboard when ready.',
+      message: 'Blog generation started!',
       blogPostId: blogPost.id,
     });
   } catch (error) {
     console.error('❌ Error starting blog generation:', error);
     return NextResponse.json(
-      {
-        error: 'Failed to start blog generation',
-        details: error instanceof Error ? error.message : 'Unknown error'
-      },
+      { error: 'Failed to start blog generation', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     );
   }
@@ -221,7 +83,7 @@ export async function POST() {
  * GET /api/blog/generate-now?id=xxx
  *
  * Poll for the status of a blog post being generated.
- * Also supports legacy calls without an ID (triggers generation synchronously for cron compatibility).
+ * Also supports legacy calls without ?id for cron/direct use.
  */
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -248,7 +110,7 @@ export async function GET(request: Request) {
       }
 
       const isGenerating = post.status === 'DRAFT' && post.title === 'Generating...';
-      const isFailed = post.status === 'REJECTED' && post.content?.startsWith('Generation failed');
+      const isFailed = post.status === 'REJECTED' && (post.title === 'Generation Failed' || post.content?.startsWith('Generation failed'));
 
       return NextResponse.json({
         id: post.id,
@@ -267,7 +129,7 @@ export async function GET(request: Request) {
     }
   }
 
-  // Legacy mode: synchronous generation (for backward compat / cron)
+  // Legacy synchronous generation (for cron jobs and direct API use)
   try {
     const { prisma } = await import('@/lib/prisma');
 
@@ -290,12 +152,11 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: false, error: 'Validation failed', validationErrors: validation.errors }, { status: 400 });
     }
 
-    let category = await prisma.blogCategory.findUnique({
-      where: { slug: blogDraft.category.toLowerCase().replace(/\s+/g, '-') }
-    });
+    const categorySlug = blogDraft.category.toLowerCase().replace(/\s+/g, '-');
+    let category = await prisma.blogCategory.findUnique({ where: { slug: categorySlug } });
     if (!category) {
       category = await prisma.blogCategory.create({
-        data: { name: blogDraft.category, slug: blogDraft.category.toLowerCase().replace(/\s+/g, '-'), description: `Blog posts about ${blogDraft.category}` }
+        data: { name: blogDraft.category, slug: categorySlug, description: `Blog posts about ${blogDraft.category}` }
       });
     }
 

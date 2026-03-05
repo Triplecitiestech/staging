@@ -1,18 +1,8 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import Link from 'next/link'
 import AdminHeader from '@/components/admin/AdminHeader'
-
-interface PollResult {
-  id: string
-  status: 'generating' | 'complete' | 'failed'
-  title: string
-  slug: string
-  category?: string
-  blogStatus: string
-  error?: string
-}
 
 export default function GenerateBlogPage() {
   const [status, setStatus] = useState<'idle' | 'generating' | 'success' | 'error'>('idle')
@@ -23,11 +13,20 @@ export default function GenerateBlogPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const safetyRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const statusRef = useRef(status)
+
+  // Keep statusRef in sync so interval callbacks see the latest value
+  useEffect(() => { statusRef.current = status }, [status])
 
   const cleanup = useCallback(() => {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+    if (safetyRef.current) { clearTimeout(safetyRef.current); safetyRef.current = null }
   }, [])
+
+  // Clean up on unmount
+  useEffect(() => cleanup, [cleanup])
 
   const handleGenerate = async () => {
     setStatus('generating')
@@ -37,10 +36,11 @@ export default function GenerateBlogPage() {
     setPostCategory(null)
     setElapsed(0)
 
+    // Elapsed time counter
     timerRef.current = setInterval(() => setElapsed(prev => prev + 1), 1000)
 
     try {
-      // Step 1: Start generation (returns immediately)
+      // Step 1: Create placeholder post (returns instantly)
       const res = await fetch('/api/blog/generate-now', { method: 'POST' })
       const data = await res.json()
 
@@ -61,11 +61,27 @@ export default function GenerateBlogPage() {
       const id = data.blogPostId
       setPostId(id)
 
-      // Step 2: Poll for completion every 3 seconds
+      // Step 2: Fire the processing request (separate Vercel function invocation)
+      // We don't await this — it runs independently on the server
+      fetch('/api/blog/process-generation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ blogPostId: id }),
+      }).catch(() => {
+        // Client-side timeout/error is OK — the server function keeps running
+        console.log('Processing request completed or timed out on client side')
+      })
+
+      // Step 3: Poll for completion every 3 seconds
       pollRef.current = setInterval(async () => {
+        // Stop polling if we've already resolved
+        if (statusRef.current !== 'generating') return
+
         try {
           const pollRes = await fetch(`/api/blog/generate-now?id=${id}`)
-          const pollData: PollResult = await pollRes.json()
+          if (!pollRes.ok) return // Retry on next interval
+
+          const pollData = await pollRes.json()
 
           if (pollData.status === 'complete') {
             cleanup()
@@ -75,28 +91,39 @@ export default function GenerateBlogPage() {
           } else if (pollData.status === 'failed') {
             cleanup()
             setStatus('error')
-            setErrorMsg(pollData.error || 'Generation failed')
+            setErrorMsg(pollData.error || 'Generation failed. Check the Vercel function logs for details.')
           }
-          // If still 'generating', keep polling
+          // 'generating' — keep polling
         } catch {
-          // Polling network error — don't stop, just try again next interval
-          console.warn('Poll request failed, retrying...')
+          // Network blip — just retry next interval
         }
       }, 3000)
 
-      // Safety timeout: stop polling after 90 seconds
-      setTimeout(() => {
-        if (pollRef.current) {
+      // Safety timeout: stop polling after 2 minutes
+      safetyRef.current = setTimeout(() => {
+        if (statusRef.current === 'generating') {
           cleanup()
           setStatus('error')
-          setErrorMsg('Generation is taking longer than expected. Check the blog dashboard — the post may still appear shortly.')
+          setErrorMsg(
+            'Generation is taking longer than expected. The post may still be processing — check the blog dashboard in a minute.'
+          )
         }
-      }, 90000)
+      }, 120000)
     } catch (err) {
       cleanup()
       setStatus('error')
       setErrorMsg(err instanceof Error ? err.message : 'Network error. Check your connection and try again.')
     }
+  }
+
+  const reset = () => {
+    cleanup()
+    setStatus('idle')
+    setPostId(null)
+    setPostTitle(null)
+    setPostCategory(null)
+    setErrorMsg(null)
+    setElapsed(0)
   }
 
   return (
@@ -123,18 +150,12 @@ export default function GenerateBlogPage() {
                 This will fetch articles from your configured RSS sources, select trending topics, and use AI to write a new blog post. The process typically takes 30-60 seconds.
               </p>
             </div>
-            <div className="space-y-3">
-              <button
-                onClick={handleGenerate}
-                className="px-8 py-3 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-white rounded-lg transition-all font-semibold text-lg shadow-lg shadow-cyan-500/20"
-              >
-                Generate New Post
-              </button>
-              <p className="text-xs text-slate-500">
-                Make sure RSS feeds are configured in{' '}
-                <Link href="/admin/blog/settings" className="text-cyan-400 hover:text-cyan-300">Blog Settings</Link>
-              </p>
-            </div>
+            <button
+              onClick={handleGenerate}
+              className="px-8 py-3 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-white rounded-lg transition-all font-semibold text-lg shadow-lg shadow-cyan-500/20"
+            >
+              Generate New Post
+            </button>
           </div>
         )}
 
@@ -149,11 +170,11 @@ export default function GenerateBlogPage() {
             <div>
               <h2 className="text-xl font-semibold text-white">Generating Blog Post...</h2>
               <p className="text-slate-400 mt-2">
-                {elapsed < 5 && 'Starting generation and fetching RSS feeds...'}
-                {elapsed >= 5 && elapsed < 15 && 'Fetching articles and analyzing trending topics...'}
-                {elapsed >= 15 && elapsed < 30 && 'Writing blog post with AI...'}
-                {elapsed >= 30 && elapsed < 50 && 'AI is crafting your content — almost there...'}
-                {elapsed >= 50 && 'Still working — this is taking longer than usual...'}
+                {elapsed < 8 && 'Fetching RSS feeds and selecting articles...'}
+                {elapsed >= 8 && elapsed < 20 && 'Analyzing trending topics...'}
+                {elapsed >= 20 && elapsed < 40 && 'Writing blog post with AI...'}
+                {elapsed >= 40 && elapsed < 60 && 'AI is crafting your content — almost there...'}
+                {elapsed >= 60 && 'Still working — complex topics take a bit longer...'}
               </p>
               <p className="text-sm text-slate-500 mt-3">{elapsed}s elapsed</p>
             </div>
@@ -170,7 +191,6 @@ export default function GenerateBlogPage() {
               <p className="text-slate-300">
                 Your blog post has been created and an approval email has been sent.
               </p>
-
               <div className="bg-slate-900/50 rounded-lg p-4 space-y-2">
                 <h3 className="font-semibold text-white text-lg">{postTitle}</h3>
                 <div className="flex flex-wrap gap-2">
@@ -194,7 +214,7 @@ export default function GenerateBlogPage() {
                 Edit Post
               </Link>
               <button
-                onClick={() => { setStatus('idle'); setPostId(null); setPostTitle(null); setPostCategory(null); setErrorMsg(null) }}
+                onClick={reset}
                 className="px-5 py-2.5 border border-white/20 text-slate-300 hover:text-white hover:bg-white/10 rounded-lg transition-all font-medium"
               >
                 Generate Another
@@ -221,17 +241,11 @@ export default function GenerateBlogPage() {
 
             <div className="flex flex-wrap gap-3">
               <button
-                onClick={() => { setStatus('idle'); setPostId(null); setErrorMsg(null) }}
+                onClick={reset}
                 className="px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-white rounded-lg transition-all font-medium"
               >
                 Try Again
               </button>
-              <Link
-                href="/admin/blog/settings"
-                className="px-5 py-2.5 border border-white/20 text-slate-300 hover:text-white hover:bg-white/10 rounded-lg transition-all font-medium"
-              >
-                Check Settings
-              </Link>
               <Link
                 href="/admin/blog"
                 className="px-5 py-2.5 border border-white/20 text-slate-300 hover:text-white hover:bg-white/10 rounded-lg transition-all font-medium"
