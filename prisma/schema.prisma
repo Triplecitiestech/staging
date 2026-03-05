@@ -105,6 +105,10 @@ model Company {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
+  // Autotask integration
+  autotaskCompanyId String? @unique // Autotask Company/Account ID
+  autotaskLastSync  DateTime? // Last successful sync timestamp
+
   // Relations
   projects Project[]
   contacts CompanyContact[]
@@ -130,6 +134,9 @@ model CompanyContact {
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
+  // Autotask integration
+  autotaskContactId String? @unique // Autotask Contact ID
+
   // Relations
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
@@ -154,6 +161,10 @@ model Project {
   generationPrompt  String? @db.Text // Original prompt sent to Claude API
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+
+  // Autotask integration
+  autotaskProjectId String? @unique // Autotask Project ID
+  autotaskLastSync  DateTime? // Last successful sync timestamp
 
   // Relations
   company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -198,6 +209,9 @@ model Phase {
 
   // New fields for enhanced phase management
   isVisibleToCustomer Boolean @default(true)
+
+  // Autotask integration
+  autotaskPhaseId String? @unique // Autotask Phase/Task ID
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -271,6 +285,9 @@ model PhaseTask {
 
   // Sub-tasks support (up to 3 levels deep)
   parentTaskId String? // null for top-level tasks
+
+  // Autotask integration
+  autotaskTaskId String? @unique // Autotask Task/Ticket ID
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -401,6 +418,31 @@ model ProjectTemplate {
   updatedAt   DateTime    @updatedAt
 
   @@map("project_templates")
+}
+
+// ============================================
+// AUTOTASK INTEGRATION
+// ============================================
+
+model AutotaskSyncLog {
+  id          String   @id @default(uuid())
+  syncType    String // 'full', 'incremental'
+  status      String // 'success', 'partial', 'failed'
+  companiesCreated  Int @default(0)
+  companiesUpdated  Int @default(0)
+  projectsCreated   Int @default(0)
+  projectsUpdated   Int @default(0)
+  contactsCreated   Int @default(0)
+  contactsUpdated   Int @default(0)
+  tasksCreated      Int @default(0)
+  tasksUpdated      Int @default(0)
+  errors      String? @db.Text // JSON array of error messages
+  durationMs  Int? // How long the sync took
+  startedAt   DateTime @default(now())
+  completedAt DateTime?
+
+  @@map("autotask_sync_logs")
+  @@index([startedAt])
 }
 
 // ============================================
