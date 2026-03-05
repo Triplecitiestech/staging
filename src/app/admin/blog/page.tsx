@@ -34,7 +34,7 @@ export default async function BlogManagementPage() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'PUBLISHED': return 'bg-green-500/20 text-green-300 border-green-500/30'
-      case 'PENDING_APPROVAL': return 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30'
+      case 'PENDING_APPROVAL': return 'bg-orange-500/20 text-orange-300 border-orange-500/30'
       case 'APPROVED': return 'bg-blue-500/20 text-blue-300 border-blue-500/30'
       case 'DRAFT': return 'bg-slate-500/20 text-slate-300 border-slate-500/30'
       case 'REJECTED': return 'bg-red-500/20 text-red-300 border-red-500/30'
@@ -71,9 +71,9 @@ export default async function BlogManagementPage() {
             <p className="text-3xl font-bold text-white">{publishedPosts}</p>
           </div>
 
-          <div className="bg-gradient-to-br from-yellow-600/20 to-yellow-500/10 backdrop-blur-sm border border-yellow-500/30 rounded-lg p-6">
+          <div className="bg-gradient-to-br from-orange-600/20 to-orange-500/10 backdrop-blur-sm border border-orange-500/30 rounded-lg p-6">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-sm text-yellow-300 font-semibold">Pending</p>
+              <p className="text-sm text-orange-300 font-semibold">Pending</p>
               <span className="text-3xl">⏳</span>
             </div>
             <p className="text-3xl font-bold text-white">{pendingPosts}</p>
@@ -189,11 +189,11 @@ export default async function BlogManagementPage() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <Link
               href="/admin/blog/settings"
-              className="flex items-center gap-3 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg hover:bg-yellow-500/20 transition-colors"
+              className="flex items-center gap-3 p-4 bg-slate-500/10 border border-slate-500/30 rounded-lg hover:bg-slate-500/20 transition-colors"
             >
               <span className="text-2xl">⚙️</span>
               <div>
-                <p className="font-medium text-yellow-300">Settings</p>
+                <p className="font-medium text-slate-300">Settings</p>
                 <p className="text-xs text-slate-400">Guidelines & RSS feeds</p>
               </div>
             </Link>

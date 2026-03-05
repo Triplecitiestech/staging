@@ -120,7 +120,7 @@ export default async function ProjectDetailPage({
     switch (status) {
       case 'ACTIVE': return 'bg-green-500/20 text-green-300 border border-green-500/30'
       case 'COMPLETE': return 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
-      case 'ON_HOLD': return 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30'
+      case 'ON_HOLD': return 'bg-orange-500/20 text-orange-300 border border-orange-500/30'
       case 'CANCELLED': return 'bg-red-500/20 text-red-300 border border-red-500/30'
       case 'NOT_STARTED': return 'bg-slate-500/20 text-slate-300 border border-slate-500/30'
       default: return 'bg-slate-500/20 text-slate-300 border border-slate-500/30'

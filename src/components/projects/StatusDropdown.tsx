@@ -21,7 +21,7 @@ export default function StatusDropdown({ phaseId, currentStatus }: StatusDropdow
     { value: 'NOT_STARTED', label: 'Not Started', color: 'bg-gray-500/20 text-gray-300 border-gray-500/50' },
     { value: 'REQUIRES_CUSTOMER_COORDINATION', label: 'Requires Coordination', color: 'bg-orange-500/20 text-orange-300 border-orange-500/50' },
     { value: 'SCHEDULED', label: 'Scheduled', color: 'bg-purple-500/20 text-purple-300 border-purple-500/50' },
-    { value: 'WAITING_ON_CUSTOMER', label: 'Waiting On Customer', color: 'bg-amber-500/20 text-amber-300 border-amber-500/50' },
+    { value: 'WAITING_ON_CUSTOMER', label: 'Waiting On Customer', color: 'bg-orange-500/20 text-orange-300 border-orange-500/50' },
   ]
 
   const currentStatusObj = statuses.find(s => s.value === currentStatus) || statuses[0]

@@ -95,19 +95,28 @@ export default function CommentThread({ taskId, comments: initialComments }: Com
     <div className="relative" ref={threadRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className={`px-2 py-1 text-xs font-semibold rounded border transition-colors ${
+        className={`flex items-center gap-1 text-xs transition-colors ${
           hasComments
-            ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30 hover:bg-cyan-500/30'
-            : 'bg-slate-700/50 text-slate-300 border-slate-600/50 hover:bg-slate-700'
+            ? 'text-cyan-400 hover:text-cyan-300'
+            : 'text-slate-500 hover:text-slate-300'
         }`}
       >
-        💬 {commentCount > 0 ? `${commentCount} Comment${commentCount !== 1 ? 's' : ''}` : 'Comment'}
+        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+        </svg>
+        {hasComments ? (
+          <span>{commentCount}</span>
+        ) : (
+          <span>Comment</span>
+        )}
       </button>
 
       {isOpen && (
         <div className="absolute left-0 mt-2 w-96 max-w-[calc(100vw-2rem)] bg-slate-800 border border-white/20 rounded-lg shadow-xl z-50 overflow-hidden">
           <div className="p-4 border-b border-white/10">
-            <h3 className="text-sm font-semibold text-white mb-3">Comments</h3>
+            <h3 className="text-sm font-semibold text-white mb-3">
+              Comments {hasComments && <span className="text-slate-400 font-normal">({commentCount})</span>}
+            </h3>
 
             {/* Comment list */}
             {hasComments ? (
@@ -117,7 +126,7 @@ export default function CommentThread({ taskId, comments: initialComments }: Com
                     key={comment.id}
                     className={`p-3 rounded-lg ${
                       comment.isInternal
-                        ? 'bg-orange-500/10 border border-orange-500/30'
+                        ? 'bg-rose-500/10 border border-rose-500/30'
                         : 'bg-slate-700/50 border border-white/10'
                     }`}
                   >
@@ -129,7 +138,7 @@ export default function CommentThread({ taskId, comments: initialComments }: Com
                         <div className="text-xs text-slate-400">{formatDate(comment.createdAt)}</div>
                       </div>
                       {comment.isInternal && (
-                        <span className="flex-shrink-0 text-xs font-semibold px-2 py-0.5 rounded bg-orange-500/20 text-orange-300 border border-orange-500/30">
+                        <span className="flex-shrink-0 text-xs font-semibold px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
                           Internal
                         </span>
                       )}
@@ -158,11 +167,11 @@ export default function CommentThread({ taskId, comments: initialComments }: Com
                     type="checkbox"
                     checked={isInternal}
                     onChange={(e) => setIsInternal(e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-orange-500 focus:ring-orange-500/50"
+                    className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-rose-500 focus:ring-rose-500/50"
                   />
                   <span className="text-xs text-slate-400">
                     Internal only
-                    <svg className="inline-block w-3 h-3 ml-1 text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className="inline-block w-3 h-3 ml-1 text-rose-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                     </svg>
                   </span>

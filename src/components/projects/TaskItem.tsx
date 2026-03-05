@@ -54,12 +54,12 @@ interface TaskItemProps {
   bulkMode?: boolean
 }
 
-const STATUS_COLORS: Record<string, string> = {
+const STATUS_BORDER_COLORS: Record<string, string> = {
   NOT_STARTED: 'border-l-pink-500',
   ASSIGNED: 'border-l-purple-500',
   WORK_IN_PROGRESS: 'border-l-sky-500',
   WAITING_ON_CLIENT: 'border-l-orange-500',
-  WAITING_ON_VENDOR: 'border-l-amber-500',
+  WAITING_ON_VENDOR: 'border-l-rose-500',
   NEEDS_REVIEW: 'border-l-cyan-500',
   STUCK: 'border-l-red-500',
   INFORMATION_RECEIVED: 'border-l-teal-500',
@@ -136,21 +136,21 @@ export default function TaskItem({
 
   const hasSubTasks = task.subTasks && task.subTasks.length > 0
   const canAddSubTask = level < 3
-  const statusBorderColor = STATUS_COLORS[task.status || 'NOT_STARTED'] || 'border-l-slate-600'
+  const statusBorderColor = STATUS_BORDER_COLORS[task.status || 'NOT_STARTED'] || 'border-l-slate-600'
 
   return (
-    <div className={`${level > 0 ? 'ml-8 border-l-2 border-slate-700 pl-4' : ''}`}>
+    <div className={`${level > 0 ? 'ml-6 border-l-2 border-slate-700/50 pl-3' : ''}`}>
       <div
         draggable
         onDragStart={() => onDragStart(task.id)}
         onDragOver={(e) => onDragOver(e, task.id)}
         onDragEnd={onDragEnd}
-        className={`group border-l-4 ${statusBorderColor} rounded-r-lg py-3 px-3 mb-1 transition-colors ${
-          draggedTaskId === task.id ? 'opacity-50' : 'hover:bg-slate-800/50'
-        } ${isSelected && bulkMode ? 'bg-cyan-500/10' : 'bg-slate-800/30'}`}
+        className={`group border-l-[3px] ${statusBorderColor} rounded-r-lg py-3 px-4 mb-1.5 transition-colors ${
+          draggedTaskId === task.id ? 'opacity-50' : 'hover:bg-slate-800/60'
+        } ${isSelected && bulkMode ? 'bg-cyan-500/10 ring-1 ring-cyan-500/30' : 'bg-slate-800/30'}`}
       >
+        {/* Row 1: Task name + badges + actions */}
         <div className="flex items-start gap-3">
-          {/* Selection checkbox (only visible in bulk edit mode) */}
           {bulkMode && (
             <input
               type="checkbox"
@@ -160,7 +160,6 @@ export default function TaskItem({
             />
           )}
 
-          {/* Collapse button for tasks with subtasks */}
           {hasSubTasks && (
             <button
               onClick={() => setCollapsed(!collapsed)}
@@ -172,7 +171,6 @@ export default function TaskItem({
             </button>
           )}
 
-          {/* Task content */}
           <div className="flex-1 min-w-0">
             {editingTaskId === task.id ? (
               <div className="space-y-2">
@@ -190,18 +188,11 @@ export default function TaskItem({
                   rows={2}
                 />
                 <div className="flex gap-2">
-                  <button
-                    onClick={saveTask}
-                    className="px-3 py-1 text-xs bg-cyan-500 text-white rounded hover:bg-cyan-600"
-                  >
+                  <button onClick={saveTask} className="px-3 py-1 text-xs bg-cyan-500 text-white rounded hover:bg-cyan-600">
                     Save
                   </button>
                   <button
-                    onClick={() => {
-                      setTaskText(task.taskText)
-                      setNotes(task.notes || '')
-                      onEdit('')
-                    }}
+                    onClick={() => { setTaskText(task.taskText); setNotes(task.notes || ''); onEdit('') }}
                     className="px-3 py-1 text-xs bg-slate-700 text-slate-300 rounded hover:bg-slate-600"
                   >
                     Cancel
@@ -210,45 +201,63 @@ export default function TaskItem({
               </div>
             ) : (
               <>
-                {/* Task name row */}
-                <div className="flex items-center gap-2 mb-1">
+                {/* Task name line */}
+                <div className="flex items-center gap-2 mb-0.5">
                   <span
                     onClick={() => onEdit(task.id)}
                     className="cursor-pointer text-sm text-slate-200 font-medium hover:text-white transition-colors"
                   >
                     {task.taskText}
                   </span>
-
-                  {/* Responsibility badge inline with name */}
                   {task.responsibleParty && (
-                    <span
-                      className={`px-1.5 py-0.5 text-[10px] font-bold rounded uppercase tracking-wide ${
-                        task.responsibleParty === 'TCT'
-                          ? 'bg-emerald-500/20 text-emerald-400'
-                          : task.responsibleParty === 'CUSTOMER'
-                          ? 'bg-amber-500/20 text-amber-400'
-                          : 'bg-indigo-500/20 text-indigo-400'
-                      }`}
-                    >
+                    <span className={`px-1.5 py-0.5 text-[10px] font-bold rounded uppercase tracking-wider ${
+                      task.responsibleParty === 'TCT'
+                        ? 'bg-emerald-500/20 text-emerald-400'
+                        : task.responsibleParty === 'CUSTOMER'
+                        ? 'bg-violet-500/20 text-violet-400'
+                        : 'bg-indigo-500/20 text-indigo-400'
+                    }`}>
                       {task.responsibleParty === 'TCT' ? 'TCT' : task.responsibleParty === 'CUSTOMER' ? 'Client' : 'Both'}
                     </span>
                   )}
                 </div>
 
                 {task.notes && (
-                  <p className="text-xs text-slate-500 italic mb-1.5">{task.notes}</p>
+                  <p className="text-xs text-slate-500 italic mb-2">{task.notes}</p>
                 )}
 
-                {/* Controls row */}
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <TaskStatusDropdown taskId={task.id} currentStatus={task.status || 'NOT_STARTED'} />
-                  <AssignmentPicker
-                    taskId={task.id}
-                    assignments={task.assignments || []}
-                    currentResponsibleParty={task.responsibleParty}
-                    companyName={companyName}
-                  />
-                  <DueDatePicker taskId={task.id} currentDueDate={task.dueDate || null} />
+                {/* Row 2: Labeled metadata sections with separators */}
+                <div className="flex items-center gap-3 text-xs mt-1.5">
+                  {/* Status */}
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-slate-500 font-medium uppercase text-[10px] tracking-wide">Status</span>
+                    <TaskStatusDropdown taskId={task.id} currentStatus={task.status || 'NOT_STARTED'} />
+                  </div>
+
+                  <span className="text-slate-700">|</span>
+
+                  {/* Assigned */}
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-slate-500 font-medium uppercase text-[10px] tracking-wide">Assigned</span>
+                    <AssignmentPicker
+                      taskId={task.id}
+                      assignments={task.assignments || []}
+                      currentResponsibleParty={task.responsibleParty}
+                      companyName={companyName}
+                    />
+                  </div>
+
+                  <span className="text-slate-700">|</span>
+
+                  {/* Due Date */}
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-slate-500 font-medium uppercase text-[10px] tracking-wide">Due</span>
+                    <DueDatePicker taskId={task.id} currentDueDate={task.dueDate || null} />
+                  </div>
+
+                  <span className="text-slate-700">|</span>
+
+                  {/* Comments */}
                   <CommentThread taskId={task.id} comments={task.comments || []} />
                 </div>
               </>

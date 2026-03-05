@@ -70,7 +70,7 @@ export default async function AdminPage() {
     switch (status) {
       case 'ACTIVE': return 'bg-green-500/20 text-green-300 border-green-500/30'
       case 'COMPLETED': return 'bg-blue-500/20 text-blue-300 border-blue-500/30'
-      case 'ON_HOLD': return 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30'
+      case 'ON_HOLD': return 'bg-orange-500/20 text-orange-300 border-orange-500/30'
       case 'CANCELLED': return 'bg-red-500/20 text-red-300 border-red-500/30'
       case 'NOT_STARTED': return 'bg-slate-500/20 text-slate-300 border-slate-500/30'
       default: return 'bg-slate-500/20 text-slate-300 border-slate-500/30'
@@ -143,14 +143,14 @@ export default async function AdminPage() {
 
         {/* Quick Stats Row */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
-          <Link href="/admin/projects" className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 hover:from-slate-700/80 hover:to-slate-800/80 backdrop-blur-sm border border-white/10 hover:border-yellow-500/30 rounded-lg p-6 transition-all duration-300 hover:scale-105">
+          <Link href="/admin/projects" className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 hover:from-slate-700/80 hover:to-slate-800/80 backdrop-blur-sm border border-white/10 hover:border-orange-500/30 rounded-lg p-6 transition-all duration-300 hover:scale-105">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-slate-400 mb-1">On Hold</p>
                 <p className="text-2xl font-bold text-white">{onHoldProjects}</p>
               </div>
-              <div className="p-3 bg-yellow-500/20 rounded-lg">
-                <svg className="w-6 h-6 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="p-3 bg-orange-500/20 rounded-lg">
+                <svg className="w-6 h-6 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               </div>

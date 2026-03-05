@@ -33,10 +33,10 @@ const statusColors: Record<PhaseStatus, { bg: string; text: string; border: stri
     icon: 'text-purple-600'
   },
   'Waiting on Customer': {
-    bg: 'bg-amber-500/20',
-    text: 'text-amber-300',
-    border: 'border-amber-500/50',
-    icon: 'text-amber-600'
+    bg: 'bg-orange-500/20',
+    text: 'text-orange-300',
+    border: 'border-orange-500/50',
+    icon: 'text-orange-600'
   },
   'Requires Customer Coordination': {
     bg: 'bg-orange-500/20',
@@ -182,9 +182,9 @@ function PhaseCard({ phase, isCurrent, isLast }: { phase: OnboardingPhase; isCur
 
             {/* Notes */}
             {phase.notes && (
-              <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                <p className="text-sm font-semibold text-amber-900 mb-1">Notes:</p>
-                <p className="text-sm text-amber-800">{phase.notes}</p>
+              <div className="mb-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                <p className="text-sm font-semibold text-orange-900 mb-1">Notes:</p>
+                <p className="text-sm text-orange-800">{phase.notes}</p>
               </div>
             )}
 

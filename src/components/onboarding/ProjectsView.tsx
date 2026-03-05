@@ -46,7 +46,7 @@ export default function ProjectsView({ projects }: ProjectsViewProps) {
     switch (status) {
       case 'COMPLETE': return 'bg-green-500'
       case 'IN_PROGRESS': return 'bg-cyan-500'
-      case 'WAITING_ON_CUSTOMER': return 'bg-yellow-500'
+      case 'WAITING_ON_CUSTOMER': return 'bg-orange-500'
       case 'REQUIRES_CUSTOMER_COORDINATION': return 'bg-orange-500'
       case 'SCHEDULED': return 'bg-purple-500'
       case 'DISCUSSED': return 'bg-blue-500'
