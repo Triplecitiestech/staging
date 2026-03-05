@@ -226,26 +226,27 @@ export default function TaskItem({
                 </div>
 
                 {/* Row 2: Fixed-width grid for metadata */}
-                <div className="grid grid-cols-[minmax(120px,180px)_minmax(100px,160px)_minmax(90px,130px)_auto] gap-x-2 items-center mt-1.5 text-xs">
+                <div className="grid grid-cols-[140px_140px_120px_auto] gap-x-3 items-center mt-1.5 text-xs">
                   {/* Status column */}
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1.5">
                     <span className="text-slate-600 font-medium uppercase text-[10px] tracking-wide shrink-0">Status</span>
                     <TaskStatusDropdown taskId={task.id} currentStatus={task.status || 'NOT_STARTED'} />
                   </div>
 
                   {/* Assigned column */}
-                  <div className="flex items-center gap-1 min-w-0">
+                  <div className="flex items-center gap-1.5 min-w-0">
                     <span className="text-slate-600 font-medium uppercase text-[10px] tracking-wide shrink-0">Assigned</span>
                     <AssignmentPicker
                       taskId={task.id}
                       assignments={task.assignments || []}
                       currentResponsibleParty={task.responsibleParty}
                       companyName={companyName}
+                      projectContacts={projectContacts}
                     />
                   </div>
 
                   {/* Due date column */}
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1.5">
                     <span className="text-slate-600 font-medium uppercase text-[10px] tracking-wide shrink-0">Due</span>
                     <DueDatePicker taskId={task.id} currentDueDate={task.dueDate || null} />
                   </div>

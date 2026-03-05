@@ -85,6 +85,25 @@ export async function POST(req: Request) {
         passwordHash,
       }
     })
+
+    // Auto-create a CompanyContact record for the primary contact
+    if (contactEmail && primaryContact) {
+      try {
+        await prisma.companyContact.create({
+          data: {
+            companyId: company.id,
+            name: primaryContact,
+            email: contactEmail,
+            title: contactTitle || null,
+            isPrimary: true,
+          }
+        })
+      } catch (contactErr) {
+        // Table may not exist yet or contact already exists - not critical
+        console.warn('Failed to create CompanyContact record:', contactErr)
+      }
+    }
+
     const dbMs = timerDb()
 
     log.info('Company created', {

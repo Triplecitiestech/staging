@@ -219,6 +219,7 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
     return 'horizontal'
   })
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const [showNotes, setShowNotes] = useState(false)
   const [editingPhaseNote, setEditingPhaseNote] = useState<string | null>(null)
   const [editingTaskNote, setEditingTaskNote] = useState<string | null>(null)
   const [phaseNoteText, setPhaseNoteText] = useState('')
@@ -409,6 +410,20 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
             }`}
           >
             Vertical View
+          </button>
+          <div className="w-px h-6 bg-slate-600 mx-1" />
+          <button
+            onClick={() => setShowNotes(!showNotes)}
+            className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${
+              showNotes
+                ? 'bg-cyan-500 text-white'
+                : 'bg-slate-700/50 text-slate-300 hover:bg-slate-700'
+            }`}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+            </svg>
+            {showNotes ? 'Hide Notes' : 'Show Notes'}
           </button>
         </div>
       </div>
@@ -637,8 +652,8 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
                         </div>
                       )}
 
-                      {/* Admin Comments */}
-                      {phase.adminComments && phase.adminComments.length > 0 && (
+                      {/* Admin Comments - hidden by default */}
+                      {showNotes && phase.adminComments && phase.adminComments.length > 0 && (
                         <div className="mb-4">
                           <p className="text-sm font-semibold text-white uppercase mb-3">Messages from TCT</p>
                           <div className="space-y-2">
@@ -663,8 +678,8 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
                         </div>
                       )}
 
-                      {/* Notes */}
-                      <div className="mb-4">
+                      {/* Notes - hidden by default */}
+                      {showNotes && <div className="mb-4">
                         <div className="flex items-center justify-between mb-2">
                           <p className="text-sm font-semibold text-white uppercase">Your Notes</p>
                           {editingPhaseNote !== phase.id && (
@@ -718,7 +733,7 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
                         ) : (
                           <p className="text-sm text-gray-500 italic">No notes yet. Click "Add Note" to add your thoughts.</p>
                         )}
-                      </div>
+                      </div>}
 
                       {/* Tasks */}
                       {(phase as unknown as { tasks?: Array<{ id: string; taskText: string; completed: boolean; notes?: string }> }).tasks && (phase as unknown as { tasks: Array<{ id: string; taskText: string; completed: boolean; notes?: string }> }).tasks.length > 0 && (
@@ -742,7 +757,7 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
                                       {task.taskText}
                                     </span>
                                   </div>
-                                  {editingTaskNote !== task.id && (
+                                  {showNotes && editingTaskNote !== task.id && (
                                     <button
                                       onClick={() => {
                                         setEditingTaskNote(task.id)
@@ -756,8 +771,8 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
                                   )}
                                 </div>
 
-                                {/* Task Admin Comments */}
-                                {(task as unknown as { adminComments?: Array<{ id: string; content: string; authorName: string; createdAt: string }> }).adminComments && (task as unknown as { adminComments: Array<{ id: string; content: string; authorName: string; createdAt: string }> }).adminComments.length > 0 && (
+                                {/* Task Admin Comments - hidden by default */}
+                                {showNotes && (task as unknown as { adminComments?: Array<{ id: string; content: string; authorName: string; createdAt: string }> }).adminComments && (task as unknown as { adminComments: Array<{ id: string; content: string; authorName: string; createdAt: string }> }).adminComments.length > 0 && (
                                   <div className="mt-2 space-y-1">
                                     {(task as unknown as { adminComments: Array<{ id: string; content: string; authorName: string; createdAt: string }> }).adminComments.map((comment) => (
                                       <div key={comment.id} className="p-2 bg-blue-500/10 border border-blue-500/30 rounded text-xs">
@@ -778,7 +793,7 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
                                   </div>
                                 )}
 
-                                {editingTaskNote === task.id ? (
+                                {showNotes && editingTaskNote === task.id ? (
                                   <div className="mt-2 space-y-2">
                                     <textarea
                                       value={taskNoteText}
@@ -808,7 +823,7 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
                                       </button>
                                     </div>
                                   </div>
-                                ) : task.notes ? (
+                                ) : showNotes && task.notes ? (
                                   <p className="text-xs text-gray-300 mt-2 p-2 bg-gray-800/30 border border-gray-600/50 rounded">
                                     <strong>Your note:</strong> {task.notes}
                                   </p>
@@ -903,8 +918,8 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
             </div>
           )}
 
-          {/* Admin Comments */}
-          {selectedPhase.adminComments && selectedPhase.adminComments.length > 0 && (
+          {/* Admin Comments - hidden by default */}
+          {showNotes && selectedPhase.adminComments && selectedPhase.adminComments.length > 0 && (
             <div className="mb-4">
               <p className="text-sm font-semibold text-white uppercase mb-3">Messages from TCT</p>
               <div className="space-y-2">
@@ -929,8 +944,8 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
             </div>
           )}
 
-          {/* Notes */}
-          <div className="mb-4">
+          {/* Notes - hidden by default */}
+          {showNotes && <div className="mb-4">
             <div className="flex items-center justify-between mb-2">
               <p className="text-sm font-semibold text-white uppercase">Your Notes</p>
               {editingPhaseNote !== selectedPhase.id && (
@@ -984,7 +999,7 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
             ) : (
               <p className="text-sm text-gray-500 italic">No notes yet. Click "Add Note" to add your thoughts.</p>
             )}
-          </div>
+          </div>}
 
           {/* Tasks (if available from project data) */}
           {(selectedPhase as unknown as { tasks?: Array<{ id: string; taskText: string; completed: boolean; notes?: string }> }).tasks && (selectedPhase as unknown as { tasks: Array<{ id: string; taskText: string; completed: boolean; notes?: string }> }).tasks.length > 0 && (
@@ -1008,7 +1023,7 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
                           {task.taskText}
                         </span>
                       </div>
-                      {editingTaskNote !== task.id && (
+                      {showNotes && editingTaskNote !== task.id && (
                         <button
                           onClick={() => {
                             setEditingTaskNote(task.id)
@@ -1023,7 +1038,7 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
                     </div>
 
                     {/* Task Admin Comments */}
-                    {(task as unknown as { adminComments?: Array<{ id: string; content: string; authorName: string; createdAt: string }> }).adminComments && (task as unknown as { adminComments: Array<{ id: string; content: string; authorName: string; createdAt: string }> }).adminComments.length > 0 && (
+                    {showNotes && (task as unknown as { adminComments?: Array<{ id: string; content: string; authorName: string; createdAt: string }> }).adminComments && (task as unknown as { adminComments: Array<{ id: string; content: string; authorName: string; createdAt: string }> }).adminComments.length > 0 && (
                       <div className="mt-2 space-y-1">
                         {(task as unknown as { adminComments: Array<{ id: string; content: string; authorName: string; createdAt: string }> }).adminComments.map((comment) => (
                           <div key={comment.id} className="p-2 bg-blue-500/10 border border-blue-500/30 rounded text-xs">
@@ -1044,7 +1059,7 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
                       </div>
                     )}
 
-                    {editingTaskNote === task.id ? (
+                    {showNotes && editingTaskNote === task.id ? (
                       <div className="mt-2 space-y-2">
                         <textarea
                           value={taskNoteText}
@@ -1074,7 +1089,7 @@ export default function OnboardingTimeline({ phases, currentPhaseId, title, comp
                           </button>
                         </div>
                       </div>
-                    ) : task.notes ? (
+                    ) : showNotes && task.notes ? (
                       <p className="text-xs text-gray-300 mt-2 p-2 bg-gray-800/30 border border-gray-600/50 rounded">
                         <strong>Your note:</strong> {task.notes}
                       </p>
