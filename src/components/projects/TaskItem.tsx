@@ -51,6 +51,7 @@ interface TaskItemProps {
   onDragOver: (e: React.DragEvent, taskId: string) => void
   onDragEnd: () => void
   companyName?: string
+  bulkMode?: boolean
 }
 
 export default function TaskItem({
@@ -64,7 +65,8 @@ export default function TaskItem({
   onDragStart,
   onDragOver,
   onDragEnd,
-  companyName
+  companyName,
+  bulkMode = false
 }: TaskItemProps) {
   const router = useRouter()
   const [taskText, setTaskText] = useState(task.taskText)
@@ -132,13 +134,15 @@ export default function TaskItem({
           draggedTaskId === task.id ? 'opacity-50' : 'hover:bg-slate-800/50'
         }`}
       >
-        {/* Selection checkbox */}
-        <input
-          type="checkbox"
-          checked={isSelected}
-          onChange={() => onToggleSelection(task.id)}
-          className="mt-0.5 w-4 h-4 rounded border-2 border-slate-500 bg-transparent checked:bg-cyan-500 checked:border-cyan-500 cursor-pointer accent-cyan-500"
-        />
+        {/* Selection checkbox (only visible in bulk edit mode) */}
+        {bulkMode && (
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={() => onToggleSelection(task.id)}
+            className="mt-0.5 w-4 h-4 rounded border-2 border-slate-500 bg-transparent checked:bg-cyan-500 checked:border-cyan-500 cursor-pointer accent-cyan-500"
+          />
+        )}
 
         {/* Collapse button for tasks with subtasks */}
         {hasSubTasks && (
@@ -277,6 +281,7 @@ export default function TaskItem({
               onDragOver={onDragOver}
               onDragEnd={onDragEnd}
               companyName={companyName}
+              bulkMode={bulkMode}
             />
           ))}
         </div>

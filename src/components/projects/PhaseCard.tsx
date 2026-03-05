@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import StatusDropdown from './StatusDropdown'
 import TaskItem from './TaskItem'
@@ -58,6 +58,12 @@ export default function PhaseCard({ phase, index, companyName }: { phase: Phase;
   const [draggedTask, setDraggedTask] = useState<string | null>(null)
   const [tasks, setTasks] = useState(phase.tasks.sort((a, b) => a.orderIndex - b.orderIndex))
   const [selectedTasks, setSelectedTasks] = useState<Set<string>>(new Set())
+  const [bulkMode, setBulkMode] = useState(false)
+
+  // Sync local tasks state when server data refreshes (e.g. after status updates)
+  useEffect(() => {
+    setTasks(phase.tasks.sort((a, b) => a.orderIndex - b.orderIndex))
+  }, [phase.tasks])
   const [bulkStatus, setBulkStatus] = useState('')
   const [bulkAssignTo, setBulkAssignTo] = useState('')
   const [bulkAssignToName, setBulkAssignToName] = useState('')
@@ -276,64 +282,86 @@ export default function PhaseCard({ phase, index, companyName }: { phase: Phase;
             <>
               {/* Bulk actions toolbar */}
               <div className="flex items-center gap-3 mb-3 pb-3 border-b border-slate-700">
-                <input
-                  type="checkbox"
-                  checked={selectedTasks.size === tasks.length && tasks.length > 0}
-                  onChange={toggleSelectAll}
-                  className="w-4 h-4 rounded border-slate-500"
-                />
-                <span className="text-xs text-slate-400">
-                  {selectedTasks.size > 0 ? `${selectedTasks.size} selected` : 'Select all'}
-                </span>
-                {selectedTasks.size > 0 && (
-                  <div className="flex-1 flex items-center gap-2 flex-wrap">
-                    <select
-                      value={bulkStatus}
-                      onChange={(e) => setBulkStatus(e.target.value)}
-                      className="px-2 py-1 text-xs bg-slate-800 border border-white/20 rounded text-slate-300"
-                    >
-                      <option value="">Set Status...</option>
-                      <option value="ASSIGNED">Assigned</option>
-                      <option value="INFORMATION_RECEIVED">Information Received</option>
-                      <option value="ITG_DOCUMENTED">ITG Documented</option>
-                      <option value="NEEDS_REVIEW">Needs Review</option>
-                      <option value="NOT_APPLICABLE">Not Applicable</option>
-                      <option value="NOT_STARTED">Not Started</option>
-                      <option value="REVIEWED_AND_DONE">Reviewed and Done</option>
-                      <option value="STUCK">Stuck</option>
-                      <option value="WAITING_ON_CLIENT">Waiting on Client</option>
-                      <option value="WAITING_ON_VENDOR">Waiting on Vendor</option>
-                      <option value="WORK_IN_PROGRESS">Work in Progress</option>
-                    </select>
-                    <button
-                      onClick={applyBulkStatus}
-                      disabled={!bulkStatus}
-                      className="px-3 py-1 text-xs bg-cyan-500 text-white rounded hover:bg-cyan-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      Apply Status
-                    </button>
-                    <div className="h-4 w-px bg-slate-600" />
+                <button
+                  onClick={() => {
+                    setBulkMode(!bulkMode)
+                    if (bulkMode) {
+                      setSelectedTasks(new Set())
+                      setBulkStatus('')
+                      setBulkAssignTo('')
+                      setBulkAssignToName('')
+                    }
+                  }}
+                  className={`px-3 py-1 text-xs font-semibold rounded border transition-colors ${
+                    bulkMode
+                      ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50'
+                      : 'bg-slate-700/50 text-slate-400 border-slate-600/50 hover:bg-slate-700 hover:text-slate-300'
+                  }`}
+                >
+                  {bulkMode ? 'Exit Bulk Edit' : 'Bulk Edit'}
+                </button>
+                {bulkMode && (
+                  <>
                     <input
-                      type="text"
-                      value={bulkAssignTo}
-                      onChange={(e) => setBulkAssignTo(e.target.value)}
-                      placeholder="Assign to (email)..."
-                      className="px-2 py-1 text-xs bg-slate-800 border border-white/20 rounded text-slate-300 w-40"
+                      type="checkbox"
+                      checked={selectedTasks.size === tasks.length && tasks.length > 0}
+                      onChange={toggleSelectAll}
+                      className="w-4 h-4 rounded border-slate-500"
                     />
-                    <button
-                      onClick={applyBulkAssign}
-                      disabled={!bulkAssignTo}
-                      className="px-3 py-1 text-xs bg-purple-500 text-white rounded hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      Assign
-                    </button>
-                    <button
-                      onClick={() => setSelectedTasks(new Set())}
-                      className="px-2 py-1 text-xs text-slate-400 hover:text-slate-300"
-                    >
-                      Clear
-                    </button>
-                  </div>
+                    <span className="text-xs text-slate-400">
+                      {selectedTasks.size > 0 ? `${selectedTasks.size} of ${tasks.length} selected` : 'Select all'}
+                    </span>
+                    {selectedTasks.size > 0 && (
+                      <div className="flex-1 flex items-center gap-2 flex-wrap">
+                        <select
+                          value={bulkStatus}
+                          onChange={(e) => setBulkStatus(e.target.value)}
+                          className="px-2 py-1 text-xs bg-slate-800 border border-white/20 rounded text-slate-300"
+                        >
+                          <option value="">Set Status...</option>
+                          <option value="ASSIGNED">Assigned</option>
+                          <option value="INFORMATION_RECEIVED">Information Received</option>
+                          <option value="ITG_DOCUMENTED">ITG Documented</option>
+                          <option value="NEEDS_REVIEW">Needs Review</option>
+                          <option value="NOT_APPLICABLE">Not Applicable</option>
+                          <option value="NOT_STARTED">Not Started</option>
+                          <option value="REVIEWED_AND_DONE">Reviewed and Done</option>
+                          <option value="STUCK">Stuck</option>
+                          <option value="WAITING_ON_CLIENT">Waiting on Client</option>
+                          <option value="WAITING_ON_VENDOR">Waiting on Vendor</option>
+                          <option value="WORK_IN_PROGRESS">Work in Progress</option>
+                        </select>
+                        <button
+                          onClick={applyBulkStatus}
+                          disabled={!bulkStatus}
+                          className="px-3 py-1 text-xs bg-cyan-500 text-white rounded hover:bg-cyan-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Apply Status
+                        </button>
+                        <div className="h-4 w-px bg-slate-600" />
+                        <input
+                          type="text"
+                          value={bulkAssignTo}
+                          onChange={(e) => setBulkAssignTo(e.target.value)}
+                          placeholder="Assign to (email)..."
+                          className="px-2 py-1 text-xs bg-slate-800 border border-white/20 rounded text-slate-300 w-40"
+                        />
+                        <button
+                          onClick={applyBulkAssign}
+                          disabled={!bulkAssignTo}
+                          className="px-3 py-1 text-xs bg-purple-500 text-white rounded hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Assign
+                        </button>
+                        <button
+                          onClick={() => setSelectedTasks(new Set())}
+                          className="px-2 py-1 text-xs text-slate-400 hover:text-slate-300"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
 
@@ -353,6 +381,7 @@ export default function PhaseCard({ phase, index, companyName }: { phase: Phase;
                     onDragOver={handleDragOver}
                     onDragEnd={handleDragEnd}
                     companyName={companyName}
+                    bulkMode={bulkMode}
                   />
                 ))}
               </div>
