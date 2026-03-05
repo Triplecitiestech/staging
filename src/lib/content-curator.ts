@@ -12,7 +12,8 @@ export interface RSSArticle {
   categories?: string[];
 }
 
-// Trusted security news sources
+// Trusted security news sources (limited to 3 fastest/most reliable feeds
+// to keep total generation time under 60s on Vercel)
 export const DEFAULT_SOURCES = [
   {
     name: 'Bleeping Computer',
@@ -21,33 +22,15 @@ export const DEFAULT_SOURCES = [
     category: 'Cybersecurity News'
   },
   {
-    name: 'Krebs on Security',
-    url: 'https://krebsonsecurity.com',
-    rssFeedUrl: 'https://krebsonsecurity.com/feed/',
-    category: 'Cybersecurity News'
-  },
-  {
-    name: 'Microsoft Security Blog',
-    url: 'https://www.microsoft.com/security/blog',
-    rssFeedUrl: 'https://www.microsoft.com/security/blog/feed/',
-    category: 'Microsoft Security'
-  },
-  {
-    name: 'CISA Alerts',
-    url: 'https://www.cisa.gov',
-    rssFeedUrl: 'https://www.cisa.gov/uscert/ncas/alerts.xml',
-    category: 'Government Alerts'
-  },
-  {
     name: 'The Hacker News',
     url: 'https://thehackernews.com',
     rssFeedUrl: 'https://feeds.feedburner.com/TheHackersNews',
     category: 'Cybersecurity News'
   },
   {
-    name: 'Dark Reading',
-    url: 'https://www.darkreading.com',
-    rssFeedUrl: 'https://www.darkreading.com/rss_simple.asp',
+    name: 'Krebs on Security',
+    url: 'https://krebsonsecurity.com',
+    rssFeedUrl: 'https://krebsonsecurity.com/feed/',
     category: 'Cybersecurity News'
   }
 ];
@@ -57,7 +40,7 @@ export class ContentCurator {
 
   constructor() {
     this.parser = new Parser({
-      timeout: 5000,
+      timeout: 3000,
       headers: {
         'User-Agent': 'Triple Cities Tech Blog Aggregator/1.0',
         'Accept': 'application/rss+xml, application/xml, text/xml'
