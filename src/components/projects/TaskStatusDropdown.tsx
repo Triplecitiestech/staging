@@ -8,25 +8,25 @@ interface TaskStatusDropdownProps {
   currentStatus: string
 }
 
+const statuses = [
+  { value: 'NOT_STARTED', label: 'Not Started', dotColor: 'bg-pink-400', textColor: 'text-pink-300' },
+  { value: 'ASSIGNED', label: 'Assigned', dotColor: 'bg-purple-400', textColor: 'text-purple-300' },
+  { value: 'WORK_IN_PROGRESS', label: 'Work in Progress', dotColor: 'bg-sky-400', textColor: 'text-sky-300' },
+  { value: 'WAITING_ON_CLIENT', label: 'Waiting on Client', dotColor: 'bg-orange-400', textColor: 'text-orange-300' },
+  { value: 'WAITING_ON_VENDOR', label: 'Waiting on Vendor', dotColor: 'bg-rose-400', textColor: 'text-rose-300' },
+  { value: 'NEEDS_REVIEW', label: 'Needs Review', dotColor: 'bg-cyan-400', textColor: 'text-cyan-300' },
+  { value: 'STUCK', label: 'Stuck', dotColor: 'bg-red-400', textColor: 'text-red-300' },
+  { value: 'INFORMATION_RECEIVED', label: 'Info Received', dotColor: 'bg-teal-400', textColor: 'text-teal-300' },
+  { value: 'REVIEWED_AND_DONE', label: 'Done', dotColor: 'bg-green-400', textColor: 'text-green-300' },
+  { value: 'ITG_DOCUMENTED', label: 'ITG Documented', dotColor: 'bg-indigo-400', textColor: 'text-indigo-300' },
+  { value: 'NOT_APPLICABLE', label: 'N/A', dotColor: 'bg-slate-400', textColor: 'text-slate-400' },
+]
+
 export default function TaskStatusDropdown({ taskId, currentStatus }: TaskStatusDropdownProps) {
   const router = useRouter()
   const [isOpen, setIsOpen] = useState(false)
   const [updating, setUpdating] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
-
-  const statuses = [
-    { value: 'ASSIGNED', label: 'Assigned', color: 'bg-purple-500/20 text-purple-300 border-purple-500/50' },
-    { value: 'INFORMATION_RECEIVED', label: 'Information Received', color: 'bg-teal-500/20 text-teal-300 border-teal-500/50' },
-    { value: 'ITG_DOCUMENTED', label: 'ITG Documented', color: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/50' },
-    { value: 'NEEDS_REVIEW', label: 'Needs Review', color: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50' },
-    { value: 'NOT_APPLICABLE', label: 'Not Applicable', color: 'bg-slate-500/20 text-slate-300 border-slate-500/50' },
-    { value: 'NOT_STARTED', label: 'Not Started', color: 'bg-pink-500/20 text-pink-300 border-pink-500/50' },
-    { value: 'REVIEWED_AND_DONE', label: 'Reviewed and Done', color: 'bg-green-500/20 text-green-300 border-green-500/50' },
-    { value: 'STUCK', label: 'Stuck', color: 'bg-red-500/20 text-red-300 border-red-500/50' },
-    { value: 'WAITING_ON_CLIENT', label: 'Waiting on Client', color: 'bg-orange-500/20 text-orange-300 border-orange-500/50' },
-    { value: 'WAITING_ON_VENDOR', label: 'Waiting on Vendor', color: 'bg-amber-500/20 text-amber-300 border-amber-500/50' },
-    { value: 'WORK_IN_PROGRESS', label: 'Work in Progress', color: 'bg-sky-500/20 text-sky-300 border-sky-500/50' },
-  ]
 
   const currentStatusObj = statuses.find(s => s.value === currentStatus) || statuses[0]
 
@@ -76,24 +76,36 @@ export default function TaskStatusDropdown({ taskId, currentStatus }: TaskStatus
       <button
         onClick={() => setIsOpen(!isOpen)}
         disabled={updating}
-        className={`px-2 py-1 text-xs font-semibold rounded border ${currentStatusObj.color} hover:opacity-80 transition-opacity disabled:opacity-50`}
+        className="flex items-center gap-1.5 text-xs hover:opacity-80 transition-opacity disabled:opacity-50"
       >
-        {updating ? 'Updating...' : currentStatusObj.label}
+        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${currentStatusObj.dotColor}`} />
+        <span className={`font-medium ${currentStatusObj.textColor}`}>
+          {updating ? 'Saving...' : currentStatusObj.label}
+        </span>
+        <svg className="w-3 h-3 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
       </button>
 
       {isOpen && (
-        <div className="absolute left-0 mt-2 w-56 bg-slate-800 border border-white/20 rounded-lg shadow-xl z-50 overflow-hidden max-h-64 overflow-y-auto">
+        <div className="absolute left-0 mt-2 w-52 bg-slate-800 border border-white/20 rounded-lg shadow-xl z-50 overflow-hidden max-h-64 overflow-y-auto">
           {statuses.map((status) => (
             <button
               key={status.value}
               onClick={() => changeStatus(status.value)}
-              className={`w-full px-3 py-2 text-left text-sm transition-colors ${
+              className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors ${
                 status.value === currentStatus
-                  ? 'bg-cyan-500/20 text-cyan-300'
+                  ? 'bg-white/10 text-white'
                   : 'text-slate-300 hover:bg-slate-700'
               }`}
             >
+              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${status.dotColor}`} />
               {status.label}
+              {status.value === currentStatus && (
+                <svg className="w-3.5 h-3.5 ml-auto text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              )}
             </button>
           ))}
         </div>

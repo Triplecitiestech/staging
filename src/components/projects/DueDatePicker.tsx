@@ -61,22 +61,30 @@ export default function DueDatePicker({ taskId, currentDueDate }: DueDatePickerP
   const formatDate = (dateString: string) => {
     if (!dateString) return null
     const date = new Date(dateString)
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
   }
 
   const hasDueDate = selectedDate && selectedDate.length > 0
+
+  // Check if overdue
+  const isOverdue = hasDueDate && new Date(selectedDate) < new Date()
 
   return (
     <div className="relative" ref={pickerRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className={`px-2 py-1 text-xs font-semibold rounded border transition-colors ${
-          hasDueDate
-            ? 'bg-blue-500/20 text-blue-300 border-blue-500/30 hover:bg-blue-500/30'
-            : 'bg-slate-700/50 text-slate-300 border-slate-600/50 hover:bg-slate-700'
+        className={`flex items-center gap-1 text-xs transition-colors ${
+          isOverdue
+            ? 'text-red-400 hover:text-red-300'
+            : hasDueDate
+            ? 'text-slate-300 hover:text-white'
+            : 'text-slate-500 hover:text-slate-300'
         }`}
       >
-        📅 {hasDueDate ? formatDate(selectedDate) : 'Set Date'}
+        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+        </svg>
+        <span>{hasDueDate ? formatDate(selectedDate) : 'No date'}</span>
       </button>
 
       {isOpen && (

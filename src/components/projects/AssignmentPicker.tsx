@@ -108,20 +108,25 @@ export default function AssignmentPicker({ taskId, assignments: initialAssignmen
     }
   }
 
-  const assignmentCount = assignments.length
-  const hasAssignments = assignmentCount > 0
+  const hasAssignments = assignments.length > 0
+
+  // Build display text showing assignee names
+  const assigneeNames = assignments.map(a => a.assigneeName.split(' ')[0]).join(', ')
 
   return (
     <div className="relative" ref={pickerRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className={`px-2 py-1 text-xs font-semibold rounded border transition-colors ${
+        className={`flex items-center gap-1 text-xs transition-colors ${
           hasAssignments
-            ? 'bg-purple-500/20 text-purple-300 border-purple-500/30 hover:bg-purple-500/30'
-            : 'bg-slate-700/50 text-slate-300 border-slate-600/50 hover:bg-slate-700'
+            ? 'text-purple-300 hover:text-purple-200'
+            : 'text-slate-500 hover:text-slate-300'
         }`}
       >
-        👤 {hasAssignments ? `${assignmentCount} Assigned` : 'Assign'}
+        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+        </svg>
+        <span>{hasAssignments ? assigneeNames : 'Unassigned'}</span>
       </button>
 
       {isOpen && (
@@ -141,17 +146,17 @@ export default function AssignmentPicker({ taskId, assignments: initialAssignmen
                       : 'bg-slate-700/50 text-slate-300 border-slate-600/50 hover:bg-slate-700'
                   }`}
                 >
-                  🏢 TCT
+                  TCT
                 </button>
                 <button
                   onClick={() => handleResponsibilityChange('CUSTOMER')}
                   className={`px-3 py-2 text-xs font-semibold rounded border transition-colors ${
                     responsibleParty === 'CUSTOMER'
-                      ? 'bg-amber-500/30 text-amber-200 border-amber-500/50'
+                      ? 'bg-violet-500/30 text-violet-200 border-violet-500/50'
                       : 'bg-slate-700/50 text-slate-300 border-slate-600/50 hover:bg-slate-700'
                   }`}
                 >
-                  👤 {companyName || 'Customer'}
+                  {companyName || 'Client'}
                 </button>
                 <button
                   onClick={() => handleResponsibilityChange('BOTH')}
@@ -161,7 +166,7 @@ export default function AssignmentPicker({ taskId, assignments: initialAssignmen
                       : 'bg-slate-700/50 text-slate-300 border-slate-600/50 hover:bg-slate-700'
                   }`}
                 >
-                  🤝 Both
+                  Both
                 </button>
               </div>
             </div>
@@ -221,10 +226,6 @@ export default function AssignmentPicker({ taskId, assignments: initialAssignmen
                 {isSubmitting ? 'Assigning...' : 'Assign Task'}
               </button>
             </form>
-
-            <p className="text-xs text-slate-500 mt-3 italic">
-              💡 Tip: M365 integration coming soon for user lookup
-            </p>
           </div>
         </div>
       )}

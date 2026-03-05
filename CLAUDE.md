@@ -90,6 +90,8 @@ prisma/
 
 **Styling**: Tailwind utility classes, mobile-first (`base` → `md:` → `lg:`). Custom colors: primary (blues/cyans), secondary (slates). Standard grids: `grid-cols-1 md:grid-cols-2 lg:grid-cols-3`. **Every layout change must be checked at all breakpoints.**
 
+**Forbidden Colors**: NEVER use yellow, amber, gold, or mustard Tailwind classes (`yellow-*`, `amber-*`) anywhere in the UI. Use violet, rose, orange, or other alternatives instead. This applies to backgrounds, text, borders, and any other styling.
+
 **Path alias**: `@/*` maps to `./src/*`.
 
 **API routes**: Try/catch pattern with `NextResponse.json`. Validate input, run business logic, return structured responses.
