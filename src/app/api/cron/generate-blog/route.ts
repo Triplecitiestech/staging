@@ -33,12 +33,21 @@ async function handleGenerateBlog(request: NextRequest) {
 
     // Verify cron secret (supports both Vercel's CRON_SECRET and custom BLOG_CRON_SECRET)
     const authHeader = request.headers.get('authorization');
-    const secret = process.env.CRON_SECRET || process.env.BLOG_CRON_SECRET;
+    const cronSecret = process.env.CRON_SECRET;
+    const blogCronSecret = process.env.BLOG_CRON_SECRET;
 
-    if (!secret) {
-      console.warn('⚠️ CRON_SECRET / BLOG_CRON_SECRET not configured');
-    } else if (authHeader !== `Bearer ${secret}`) {
-      console.error('❌ Invalid cron secret');
+    if (!cronSecret && !blogCronSecret) {
+      console.warn('⚠️ No cron secret configured — skipping auth check');
+    } else if (authHeader) {
+      const isValid =
+        (cronSecret && authHeader === `Bearer ${cronSecret}`) ||
+        (blogCronSecret && authHeader === `Bearer ${blogCronSecret}`);
+      if (!isValid) {
+        console.error('❌ Invalid cron secret');
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+    } else {
+      console.error('❌ Missing Authorization header');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
