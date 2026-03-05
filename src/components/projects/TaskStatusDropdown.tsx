@@ -16,7 +16,6 @@ export default function TaskStatusDropdown({ taskId, currentStatus }: TaskStatus
 
   const statuses = [
     { value: 'ASSIGNED', label: 'Assigned', color: 'bg-purple-500/20 text-purple-300 border-purple-500/50' },
-    { value: 'COMPLETE', label: 'Complete', color: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50' },
     { value: 'INFORMATION_RECEIVED', label: 'Information Received', color: 'bg-teal-500/20 text-teal-300 border-teal-500/50' },
     { value: 'ITG_DOCUMENTED', label: 'ITG Documented', color: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/50' },
     { value: 'NEEDS_REVIEW', label: 'Needs Review', color: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50' },
