@@ -101,6 +101,12 @@ export async function DELETE(
     const { id } = await params
     const { prisma } = await import('@/lib/prisma')
 
+    // Disconnect many-to-many relations (tags) before deleting
+    await prisma.blogPost.update({
+      where: { id },
+      data: { tags: { set: [] } }
+    })
+
     await prisma.blogPost.delete({
       where: { id }
     })
