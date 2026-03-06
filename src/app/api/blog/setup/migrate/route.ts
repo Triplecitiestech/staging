@@ -1,15 +1,18 @@
 import { NextResponse } from 'next/server';
+import { auth } from '@/auth';
 
 // Disable static generation for this API route
 export const dynamic = 'force-dynamic';
 
 /**
- * Automatic database migration for blog system
- * Creates all necessary tables and indexes
+ * Automatic database migration for blog system (auth required)
  * POST /api/blog/setup/migrate
  */
 export async function POST() {
   try {
+    const session = await auth();
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
     // Dynamic import to prevent Prisma loading during build
     const { prisma } = await import('@/lib/prisma');
 

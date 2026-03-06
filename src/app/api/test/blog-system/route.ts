@@ -1,19 +1,17 @@
 import { NextResponse } from 'next/server';
+import { auth } from '@/auth';
 
 // Disable static generation
 export const dynamic = 'force-dynamic';
 
 /**
- * Automated test endpoint for blog system
+ * Automated test endpoint for blog system (auth required)
  * GET /api/test/blog-system
- *
- * This endpoint runs comprehensive tests to verify:
- * - Blog pages are accessible
- * - Setup system works
- * - Database is configured
- * - All components render without errors
  */
 export async function GET() {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   const results: TestResult[] = [];
   const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.triplecitiestech.com';
 

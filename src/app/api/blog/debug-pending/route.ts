@@ -1,13 +1,17 @@
 import { NextResponse } from 'next/server';
+import { auth } from '@/auth';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * Debug endpoint - check pending blog posts
+ * Debug endpoint - check pending blog posts (auth required)
  * GET /api/blog/debug-pending
  */
 export async function GET() {
   try {
+    const session = await auth();
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
     const { prisma } = await import('@/lib/prisma');
 
     const pendingPosts = await prisma.blogPost.findMany({

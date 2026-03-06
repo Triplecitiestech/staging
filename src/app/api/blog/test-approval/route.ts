@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { auth } from '@/auth';
 import { generateBlogApprovalEmail, generateBlogApprovalEmailText } from '@/lib/email-templates/blog-approval';
 import { Resend } from 'resend';
 import crypto from 'crypto';
@@ -8,11 +9,14 @@ export const dynamic = 'force-dynamic';
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 /**
- * Test endpoint for approval workflow (no AI, just mock post)
+ * Test endpoint for approval workflow (auth required)
  * GET /api/blog/test-approval
  */
 export async function GET() {
   try {
+    const session = await auth();
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
     const { prisma } = await import('@/lib/prisma');
 
     console.log('📝 Creating test blog post for approval workflow...');

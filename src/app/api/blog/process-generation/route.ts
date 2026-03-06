@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { auth } from '@/auth';
 import { contentCurator } from '@/lib/content-curator';
 import { blogGenerator } from '@/lib/blog-generator';
 import { generateBlogApprovalEmail, generateBlogApprovalEmailText } from '@/lib/email-templates/blog-approval';
@@ -18,6 +19,9 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
  * Runs in its own Vercel function invocation with maxDuration = 60.
  */
 export async function POST(request: Request) {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   let blogPostId: string | undefined;
 
   try {

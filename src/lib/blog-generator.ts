@@ -217,7 +217,7 @@ Create a blog post in the following JSON format:
   "excerpt": "Compelling 2-3 sentence summary (150-160 chars)",
   "content": "Full blog post in markdown (800-1200 words). Use ## headers, **bold**, lists.",
   "metaTitle": "SEO title with target keyword (50-60 chars)",
-  "metaDescription": "SEO meta description with keyword and CTA (150-160 chars)",
+  "metaDescription": "SEO meta description with keyword and CTA (must be 120-155 chars, NEVER exceed 155)",
   "keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"],
   "featuredImagePrompt": "Brief prompt for a featured image",
   "category": "Cybersecurity News | IT Tips | Microsoft 365 | Data Protection | Compliance",
@@ -324,7 +324,9 @@ ${article.categories ? `Categories: ${article.categories.join(', ')}` : ''}
         excerpt: parsed.excerpt,
         content: parsed.content,
         metaTitle: parsed.metaTitle || parsed.title,
-        metaDescription: parsed.metaDescription || parsed.excerpt,
+        metaDescription: (parsed.metaDescription || parsed.excerpt || '').length > 160
+          ? (parsed.metaDescription || parsed.excerpt || '').substring(0, 157) + '...'
+          : (parsed.metaDescription || parsed.excerpt || ''),
         keywords: parsed.keywords || [],
         featuredImagePrompt: parsed.featuredImagePrompt || `Professional cybersecurity blog header image for "${parsed.title}"`,
         sourceUrls: sourceArticles.map(a => a.link),

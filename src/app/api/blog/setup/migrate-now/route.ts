@@ -1,13 +1,17 @@
 import { NextResponse } from 'next/server';
+import { auth } from '@/auth';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * GET version of migrate - visit in browser to create tables
+ * GET version of migrate (auth required)
  * GET /api/blog/setup/migrate-now
  */
 export async function GET() {
   try {
+    const session = await auth();
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
     const { prisma } = await import('@/lib/prisma');
 
     console.log('🚀 Creating blog tables...');
