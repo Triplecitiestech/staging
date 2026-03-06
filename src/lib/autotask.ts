@@ -91,6 +91,42 @@ export interface AutotaskProjectNote {
   createDateTime?: string;
 }
 
+export interface AutotaskTaskNote {
+  id: number;
+  taskID: number;
+  title: string;
+  description: string;
+  noteType?: number;
+  publish?: number; // 1=All (external), 2=Internal
+  creatorResourceID?: number;
+  lastActivityDate?: string;
+  createDateTime?: string;
+}
+
+export interface AutotaskTimeEntry {
+  id: number;
+  taskID: number;
+  resourceID: number;
+  dateWorked: string;
+  startDateTime?: string;
+  endDateTime?: string;
+  hoursWorked: number;
+  summaryNotes?: string;
+  internalNotes?: string;
+  isNonBillable?: boolean;
+  createDateTime?: string;
+  lastModifiedDateTime?: string;
+}
+
+export interface AutotaskResource {
+  id: number;
+  firstName: string;
+  lastName: string;
+  email: string;
+  isActive: boolean;
+  userName?: string;
+}
+
 interface AutotaskApiResponse<T> {
   items?: T[];
   pageDetails?: {
@@ -437,6 +473,25 @@ export class AutotaskClient {
   }
 
   /**
+   * POST (create) an entity in Autotask
+   */
+  private async post<T>(entityPath: string, data: object): Promise<T> {
+    const url = `${this.baseUrl}/v1.0/${entityPath}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Autotask API POST ${entityPath} failed (${response.status}): ${errorText}`);
+    }
+
+    return response.json() as Promise<T>;
+  }
+
+  /**
    * Update a task's status in Autotask (write-back)
    */
   async updateTaskStatus(atTaskId: string, atStatus: number): Promise<void> {
@@ -444,6 +499,131 @@ export class AutotaskClient {
       id: parseInt(atTaskId, 10),
       status: atStatus,
     });
+  }
+
+  // ============================================
+  // TASK NOTES
+  // ============================================
+
+  /**
+   * Get notes for a specific task
+   */
+  async getTaskNotes(taskId: number): Promise<AutotaskTaskNote[]> {
+    try {
+      return await this.queryAll<AutotaskTaskNote>(
+        `ProjectTasks/${taskId}/Notes`,
+        { op: 'exist', field: 'id' }
+      );
+    } catch {
+      try {
+        return await this.queryAll<AutotaskTaskNote>('TaskNotes', {
+          op: 'eq',
+          field: 'taskID',
+          value: taskId,
+        });
+      } catch {
+        return [];
+      }
+    }
+  }
+
+  /**
+   * Create a note on a task in Autotask
+   */
+  async createTaskNote(taskId: number, data: {
+    title: string;
+    description: string;
+    noteType?: number;
+    publish?: number; // 1=All, 2=Internal
+  }): Promise<AutotaskTaskNote> {
+    const result = await this.post<{ item: AutotaskTaskNote }>('TaskNotes', {
+      taskID: taskId,
+      title: data.title,
+      description: data.description,
+      noteType: data.noteType ?? 1,
+      publish: data.publish ?? 1,
+    });
+    return result.item;
+  }
+
+  // ============================================
+  // TIME ENTRIES
+  // ============================================
+
+  /**
+   * Get time entries for a specific task
+   */
+  async getTaskTimeEntries(taskId: number): Promise<AutotaskTimeEntry[]> {
+    try {
+      return await this.queryAll<AutotaskTimeEntry>('TimeEntries', {
+        op: 'eq',
+        field: 'taskID',
+        value: taskId,
+      });
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Create a time entry on a task in Autotask
+   */
+  async createTimeEntry(data: {
+    taskID: number;
+    resourceID: number;
+    dateWorked: string;
+    hoursWorked: number;
+    summaryNotes?: string;
+    internalNotes?: string;
+  }): Promise<AutotaskTimeEntry> {
+    const result = await this.post<{ item: AutotaskTimeEntry }>('TimeEntries', {
+      taskID: data.taskID,
+      resourceID: data.resourceID,
+      dateWorked: data.dateWorked,
+      hoursWorked: data.hoursWorked,
+      summaryNotes: data.summaryNotes || '',
+      internalNotes: data.internalNotes || '',
+    });
+    return result.item;
+  }
+
+  // ============================================
+  // RESOURCES (Autotask Users)
+  // ============================================
+
+  /**
+   * Get all active resources (Autotask users/technicians)
+   */
+  async getActiveResources(): Promise<AutotaskResource[]> {
+    return this.queryAll<AutotaskResource>('Resources', {
+      op: 'eq',
+      field: 'isActive',
+      value: true,
+    });
+  }
+
+  /**
+   * Get a single resource by ID
+   */
+  async getResource(id: number): Promise<AutotaskResource> {
+    const data = await this.get<{ item: AutotaskResource }>(`/v1.0/Resources/${id}`);
+    return data.item;
+  }
+
+  /**
+   * Find a resource by email address (for SSO matching)
+   */
+  async getResourceByEmail(email: string): Promise<AutotaskResource | null> {
+    try {
+      const resources = await this.queryAll<AutotaskResource>('Resources', {
+        op: 'eq',
+        field: 'email',
+        value: email,
+      });
+      return resources.length > 0 ? resources[0] : null;
+    } catch {
+      return null;
+    }
   }
 }
 
@@ -544,4 +724,27 @@ export function generateSlug(text: string): string {
 export function generateUniqueSlug(text: string, suffix?: string): string {
   const base = generateSlug(text);
   return suffix ? `${base}-${suffix}` : base;
+}
+
+/**
+ * Generate an Autotask web UI URL for a project.
+ * Autotask web UI uses: https://{zone}.autotask.net/Mvc/Projects/ProjectDashboard.mvc?ProjectID={id}
+ * Zone is derived from the API base URL.
+ */
+export function getAutotaskProjectUrl(atProjectId: string): string {
+  const baseUrl = process.env.AUTOTASK_API_BASE_URL || '';
+  // Extract zone from API URL: https://webservices6.autotask.net/ATServicesRest → ww6
+  const match = baseUrl.match(/webservices(\d+)\.autotask\.net/);
+  const zone = match ? `ww${match[1]}` : 'ww6';
+  return `https://${zone}.autotask.net/Mvc/Projects/ProjectDashboard.mvc?ProjectID=${atProjectId}`;
+}
+
+/**
+ * Generate an Autotask web UI URL for a task/ticket.
+ */
+export function getAutotaskTaskUrl(atTaskId: string): string {
+  const baseUrl = process.env.AUTOTASK_API_BASE_URL || '';
+  const match = baseUrl.match(/webservices(\d+)\.autotask\.net/);
+  const zone = match ? `ww${match[1]}` : 'ww6';
+  return `https://${zone}.autotask.net/Mvc/ServiceDesk/TaskEdit.mvc?TaskId=${atTaskId}`;
 }
