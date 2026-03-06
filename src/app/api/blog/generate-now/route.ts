@@ -35,6 +35,15 @@ export async function POST() {
       });
     }
 
+    // Ensure campaignId column exists on blog_posts (may not be migrated)
+    try {
+      await prisma.$executeRawUnsafe(`
+        ALTER TABLE "blog_posts" ADD COLUMN IF NOT EXISTS "campaignId" TEXT
+      `);
+    } catch {
+      // Column may already exist or ALTER not supported — proceed anyway
+    }
+
     // Find a default category for the placeholder
     let category = await prisma.blogCategory.findFirst();
     if (!category) {

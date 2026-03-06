@@ -17,6 +17,15 @@ export default async function BlogManagementPage() {
   let posts: { id: string; slug: string; title: string; excerpt: string | null; status: string; views: number; updatedAt: Date; categoryName: string | null }[] = []
 
   try {
+    // Ensure campaignId column exists on blog_posts (may not be migrated)
+    try {
+      await prisma.$executeRawUnsafe(`
+        ALTER TABLE "blog_posts" ADD COLUMN IF NOT EXISTS "campaignId" TEXT
+      `);
+    } catch {
+      // Column may already exist — proceed anyway
+    }
+
     const [_allPosts, _draftPosts, _pendingPosts, _publishedPosts, _blogCategories] = await Promise.all([
       prisma.blogPost.count(),
       prisma.blogPost.count({ where: { status: 'DRAFT' } }),
@@ -62,7 +71,7 @@ export default async function BlogManagementPage() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'PUBLISHED': return 'bg-green-500/20 text-green-300 border-green-500/30'
-      case 'PENDING_APPROVAL': return 'bg-orange-500/20 text-orange-300 border-orange-500/30'
+      case 'PENDING_APPROVAL': return 'bg-violet-500/20 text-violet-300 border-violet-500/30'
       case 'APPROVED': return 'bg-blue-500/20 text-blue-300 border-blue-500/30'
       case 'DRAFT': return 'bg-slate-500/20 text-slate-300 border-slate-500/30'
       case 'REJECTED': return 'bg-red-500/20 text-red-300 border-red-500/30'
@@ -99,9 +108,9 @@ export default async function BlogManagementPage() {
             <p className="text-3xl font-bold text-white">{publishedPosts}</p>
           </div>
 
-          <div className="bg-gradient-to-br from-orange-600/20 to-orange-500/10 backdrop-blur-sm border border-orange-500/30 rounded-lg p-6">
+          <div className="bg-gradient-to-br from-violet-600/20 to-violet-500/10 backdrop-blur-sm border border-violet-500/30 rounded-lg p-6">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-sm text-orange-300 font-semibold">Pending</p>
+              <p className="text-sm text-violet-300 font-semibold">Pending</p>
               <span className="text-3xl">⏳</span>
             </div>
             <p className="text-3xl font-bold text-white">{pendingPosts}</p>

@@ -199,7 +199,7 @@ export default function GenerateBlogPage() {
                       {postCategory}
                     </span>
                   )}
-                  <span className="px-2 py-1 text-xs rounded-full bg-orange-500/20 text-orange-300 border border-orange-500/30">
+                  <span className="px-2 py-1 text-xs rounded-full bg-violet-500/20 text-violet-300 border border-violet-500/30">
                     PENDING APPROVAL
                   </span>
                 </div>

@@ -33,14 +33,26 @@ export async function POST(request: NextRequest) {
     const { action } = body;
 
     if (action === 'init-defaults') {
-      // Ensure audience_sources table exists (may not be migrated yet)
+      // Ensure the AudienceProviderType enum and tables exist (may not be migrated yet)
+      try {
+        // Create enum type if it doesn't exist
+        await prisma.$executeRawUnsafe(`
+          DO $$ BEGIN
+            CREATE TYPE "AudienceProviderType" AS ENUM ('AUTOTASK', 'HUBSPOT', 'CSV_IMPORT', 'MANUAL');
+          EXCEPTION WHEN duplicate_object THEN null;
+          END $$
+        `);
+      } catch {
+        // Enum may already exist — proceed anyway
+      }
+
       try {
         await prisma.$executeRawUnsafe(`
           CREATE TABLE IF NOT EXISTS "audience_sources" (
             "id" TEXT NOT NULL DEFAULT gen_random_uuid(),
             "name" TEXT NOT NULL,
-            "providerType" TEXT NOT NULL DEFAULT 'AUTOTASK',
-            "config" JSONB NOT NULL DEFAULT '{}',
+            "providerType" "AudienceProviderType" NOT NULL DEFAULT 'AUTOTASK'::"AudienceProviderType",
+            "config" JSONB DEFAULT '{}',
             "isActive" BOOLEAN NOT NULL DEFAULT true,
             "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
             "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -48,10 +60,9 @@ export async function POST(request: NextRequest) {
           )
         `);
       } catch {
-        // Table may already exist or raw SQL not supported — proceed anyway
+        // Table may already exist — proceed anyway
       }
 
-      // Also ensure audiences table exists
       try {
         await prisma.$executeRawUnsafe(`
           CREATE TABLE IF NOT EXISTS "audiences" (
@@ -59,7 +70,7 @@ export async function POST(request: NextRequest) {
             "name" TEXT NOT NULL,
             "description" TEXT,
             "sourceId" TEXT NOT NULL,
-            "providerType" TEXT NOT NULL DEFAULT 'AUTOTASK',
+            "providerType" "AudienceProviderType" NOT NULL DEFAULT 'AUTOTASK'::"AudienceProviderType",
             "filterCriteria" JSONB NOT NULL DEFAULT '{}',
             "recipientCount" INTEGER NOT NULL DEFAULT 0,
             "isActive" BOOLEAN NOT NULL DEFAULT true,
