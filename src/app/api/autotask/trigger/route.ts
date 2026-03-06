@@ -3,7 +3,6 @@ import { prisma } from '@/lib/prisma';
 import {
   AutotaskClient,
   AutotaskCompany,
-  AutotaskContact,
   AutotaskProject,
   AutotaskProjectPhase,
   AutotaskTask,
@@ -22,10 +21,20 @@ export const maxDuration = 60;
 const SYSTEM_EMAIL = 'autotask-sync@triplecitiestech.com';
 
 /**
- * Manual Autotask sync trigger - uses MIGRATION_SECRET as auth via query param.
- * This lets you trigger a sync from a browser URL without needing curl/Postman.
+ * Manual Autotask sync trigger - runs in steps to avoid timeouts.
  *
- * GET /api/autotask/trigger?secret=YOUR_MIGRATION_SECRET
+ * Step 1: GET /api/autotask/trigger?secret=XXX&step=companies
+ *   - Syncs all active companies from Autotask (creates new ones on our site)
+ *
+ * Step 2: GET /api/autotask/trigger?secret=XXX&step=projects
+ *   - Syncs all projects (with phases and tasks), 10 at a time
+ *   - Add &page=2, &page=3 etc. to get more batches
+ *
+ * Step 3 (optional): GET /api/autotask/trigger?secret=XXX&step=contacts
+ *   - Syncs contacts for all AT-linked companies
+ *
+ * No step param: GET /api/autotask/trigger?secret=XXX
+ *   - Shows instructions
  */
 export async function GET(request: NextRequest) {
   const secret = request.nextUrl.searchParams.get('secret');
@@ -38,154 +47,331 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const startTime = Date.now();
-  const errors: string[] = [];
-  const stats = {
-    companiesCreated: 0,
-    companiesUpdated: 0,
-    projectsCreated: 0,
-    projectsUpdated: 0,
-    contactsCreated: 0,
-    contactsUpdated: 0,
-    tasksCreated: 0,
-    tasksUpdated: 0,
-  };
+  if (
+    !process.env.AUTOTASK_API_USERNAME ||
+    !process.env.AUTOTASK_API_SECRET ||
+    !process.env.AUTOTASK_API_INTEGRATION_CODE ||
+    !process.env.AUTOTASK_API_BASE_URL
+  ) {
+    return NextResponse.json(
+      { error: 'Autotask API credentials not configured in Vercel env vars' },
+      { status: 503 }
+    );
+  }
 
-  try {
-    if (
-      !process.env.AUTOTASK_API_USERNAME ||
-      !process.env.AUTOTASK_API_SECRET ||
-      !process.env.AUTOTASK_API_INTEGRATION_CODE ||
-      !process.env.AUTOTASK_API_BASE_URL
-    ) {
-      return NextResponse.json(
-        { error: 'Autotask API credentials not configured in Vercel env vars' },
-        { status: 503 }
-      );
+  const step = request.nextUrl.searchParams.get('step');
+  const baseUrl = request.nextUrl.origin;
+  const secretParam = `secret=${encodeURIComponent(secret)}`;
+
+  if (!step) {
+    return NextResponse.json({
+      message: 'Autotask sync trigger. Run these steps in order by clicking each link:',
+      steps: [
+        {
+          step: 1,
+          description: 'Sync companies that have projects in Autotask',
+          url: `${baseUrl}/api/autotask/trigger?${secretParam}&step=companies`,
+        },
+        {
+          step: 2,
+          description: 'Sync all projects (page 1 of 10 projects at a time)',
+          url: `${baseUrl}/api/autotask/trigger?${secretParam}&step=projects&page=1`,
+        },
+        {
+          step: 3,
+          description: 'Sync contacts for all companies (optional)',
+          url: `${baseUrl}/api/autotask/trigger?${secretParam}&step=contacts`,
+        },
+      ],
+    });
+  }
+
+  const client = new AutotaskClient();
+
+  if (step === 'companies') {
+    return handleCompaniesSync(client);
+  }
+
+  if (step === 'projects') {
+    const page = parseInt(request.nextUrl.searchParams.get('page') || '1', 10);
+    const result = await handleProjectsSync(client, page);
+
+    // Add next page link if there might be more
+    const responseData = await result.json();
+    if (responseData.projectsSynced === 10) {
+      responseData.nextPage = `${baseUrl}/api/autotask/trigger?${secretParam}&step=projects&page=${page + 1}`;
+      responseData.message = `Synced 10 projects. There may be more — click nextPage URL to continue.`;
+    } else {
+      responseData.message = `Done! Synced ${responseData.projectsSynced} projects. No more projects to sync.`;
     }
 
-    const client = new AutotaskClient();
+    return NextResponse.json(responseData);
+  }
 
-    // Check last successful sync
-    const lastSync = await prisma.autotaskSyncLog.findFirst({
-      where: { status: 'success' },
-      orderBy: { startedAt: 'desc' },
-    });
+  if (step === 'contacts') {
+    return handleContactsSync(client);
+  }
 
-    const isIncremental = !!lastSync?.completedAt;
-    const syncSince = lastSync?.completedAt ?? undefined;
+  return NextResponse.json({ error: `Unknown step: ${step}. Use companies, projects, or contacts.` }, { status: 400 });
+}
 
-    // 1. Sync Companies
-    const atCompanies = isIncremental && syncSince
-      ? await client.getCompaniesModifiedSince(syncSince)
-      : await client.getActiveCompanies();
+// ============================================
+// STEP: COMPANIES
+// ============================================
+
+async function handleCompaniesSync(client: AutotaskClient) {
+  const startTime = Date.now();
+  const errors: string[] = [];
+  let created = 0;
+  let updated = 0;
+
+  try {
+    // Only sync companies that have projects in Autotask
+    const allProjects = await client.getAllProjects();
+    const companyIds = Array.from(new Set(allProjects.map((p) => p.companyID)));
+
+    // Fetch each unique company
+    const atCompanies: AutotaskCompany[] = [];
+    for (const companyId of companyIds) {
+      try {
+        const company = await client.getCompany(companyId);
+        atCompanies.push(company);
+      } catch (err) {
+        errors.push(`Could not fetch company ${companyId}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
 
     for (const atCompany of atCompanies) {
       try {
         const result = await syncCompany(atCompany);
-        if (result.created) stats.companiesCreated++;
-        else stats.companiesUpdated++;
-
-        const atContacts = await client.getContactsByCompany(atCompany.id);
-        for (const atContact of atContacts) {
-          try {
-            const contactResult = await syncContact(atContact, result.companyId);
-            if (contactResult.created) stats.contactsCreated++;
-            else stats.contactsUpdated++;
-          } catch (err) {
-            errors.push(`Contact ${atContact.id}: ${err instanceof Error ? err.message : String(err)}`);
-          }
-        }
+        if (result.created) created++;
+        else updated++;
       } catch (err) {
-        errors.push(`Company ${atCompany.id}: ${err instanceof Error ? err.message : String(err)}`);
+        errors.push(`Company ${atCompany.id} (${atCompany.companyName}): ${err instanceof Error ? err.message : String(err)}`);
       }
     }
-
-    // 2. Sync Projects
-    const atProjects = isIncremental && syncSince
-      ? await client.getProjectsModifiedSince(syncSince)
-      : await client.getAllProjects();
-
-    for (const atProject of atProjects) {
-      try {
-        let company = await prisma.company.findFirst({
-          where: { autotaskCompanyId: String(atProject.companyID) },
-        });
-
-        if (!company) {
-          try {
-            const atCompany = await client.getCompany(atProject.companyID);
-            const companyResult = await syncCompany(atCompany);
-            if (companyResult.created) stats.companiesCreated++;
-            else stats.companiesUpdated++;
-            company = await prisma.company.findUnique({ where: { id: companyResult.companyId } });
-          } catch (err) {
-            errors.push(`Project ${atProject.id} - missing company ${atProject.companyID}: ${err instanceof Error ? err.message : String(err)}`);
-            continue;
-          }
-        }
-
-        if (!company) continue;
-
-        const projectResult = await syncProject(atProject, company.id, client);
-        if (projectResult.created) stats.projectsCreated++;
-        else stats.projectsUpdated++;
-        stats.tasksCreated += projectResult.tasksCreated;
-        stats.tasksUpdated += projectResult.tasksUpdated;
-      } catch (err) {
-        errors.push(`Project ${atProject.id}: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-
-    const duration = Date.now() - startTime;
-    const syncStatus = errors.length === 0 ? 'success' : 'partial';
 
     await prisma.autotaskSyncLog.create({
       data: {
-        syncType: isIncremental ? 'incremental' : 'full',
-        status: syncStatus,
-        ...stats,
+        syncType: 'companies',
+        status: errors.length === 0 ? 'success' : 'partial',
+        companiesCreated: created,
+        companiesUpdated: updated,
         errors: errors.length > 0 ? JSON.stringify(errors) : null,
-        durationMs: duration,
+        durationMs: Date.now() - startTime,
         completedAt: new Date(),
       },
     });
 
     return NextResponse.json({
-      success: true,
-      syncType: isIncremental ? 'incremental' : 'full',
-      stats,
+      step: 'companies',
+      totalFromAutotask: atCompanies.length,
+      created,
+      updated,
       errors: errors.length > 0 ? errors : undefined,
-      durationMs: duration,
+      durationMs: Date.now() - startTime,
     });
   } catch (err) {
-    const duration = Date.now() - startTime;
-    const errorMessage = err instanceof Error ? err.message : String(err);
-
-    try {
-      await prisma.autotaskSyncLog.create({
-        data: {
-          syncType: 'unknown',
-          status: 'failed',
-          ...stats,
-          errors: JSON.stringify([errorMessage, ...errors]),
-          durationMs: duration,
-          completedAt: new Date(),
-        },
-      });
-    } catch {
-      // Don't fail if logging fails
-    }
-
     return NextResponse.json(
-      { error: 'Sync failed', message: errorMessage, errors },
+      { step: 'companies', error: err instanceof Error ? err.message : String(err), errors },
       { status: 500 }
     );
   }
 }
 
 // ============================================
-// SYNC HELPERS (same logic as cron endpoint)
+// STEP: PROJECTS (paginated, 10 at a time)
+// ============================================
+
+async function handleProjectsSync(client: AutotaskClient, page: number) {
+  const startTime = Date.now();
+  const errors: string[] = [];
+  let projectsCreated = 0;
+  let projectsUpdated = 0;
+  let tasksCreated = 0;
+  let tasksUpdated = 0;
+
+  try {
+    // Get all projects, then take a page of 10
+    const allProjects = await client.getAllProjects();
+    const pageSize = 10;
+    const startIdx = (page - 1) * pageSize;
+    const pageProjects = allProjects.slice(startIdx, startIdx + pageSize);
+
+    for (const atProject of pageProjects) {
+      try {
+        // Find local company
+        let company = await prisma.company.findFirst({
+          where: { autotaskCompanyId: String(atProject.companyID) },
+        });
+
+        if (!company) {
+          // Try to create the company
+          try {
+            const atCompany = await client.getCompany(atProject.companyID);
+            const companyResult = await syncCompany(atCompany);
+            company = await prisma.company.findUnique({ where: { id: companyResult.companyId } });
+          } catch (err) {
+            errors.push(`Project "${atProject.projectName}" - missing company ${atProject.companyID}: ${err instanceof Error ? err.message : String(err)}`);
+            continue;
+          }
+        }
+
+        if (!company) continue;
+
+        const result = await syncProject(atProject, company.id, client);
+        if (result.created) projectsCreated++;
+        else projectsUpdated++;
+        tasksCreated += result.tasksCreated;
+        tasksUpdated += result.tasksUpdated;
+      } catch (err) {
+        errors.push(`Project "${atProject.projectName}" (${atProject.id}): ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    await prisma.autotaskSyncLog.create({
+      data: {
+        syncType: `projects-page-${page}`,
+        status: errors.length === 0 ? 'success' : 'partial',
+        projectsCreated,
+        projectsUpdated,
+        tasksCreated,
+        tasksUpdated,
+        errors: errors.length > 0 ? JSON.stringify(errors) : null,
+        durationMs: Date.now() - startTime,
+        completedAt: new Date(),
+      },
+    });
+
+    return NextResponse.json({
+      step: 'projects',
+      page,
+      totalProjectsInAutotask: allProjects.length,
+      projectsSynced: pageProjects.length,
+      projectsCreated,
+      projectsUpdated,
+      tasksCreated,
+      tasksUpdated,
+      errors: errors.length > 0 ? errors : undefined,
+      durationMs: Date.now() - startTime,
+    });
+  } catch (err) {
+    return NextResponse.json(
+      { step: 'projects', page, error: err instanceof Error ? err.message : String(err), errors },
+      { status: 500 }
+    );
+  }
+}
+
+// ============================================
+// STEP: CONTACTS
+// ============================================
+
+async function handleContactsSync(client: AutotaskClient) {
+  const startTime = Date.now();
+  const errors: string[] = [];
+  let created = 0;
+  let updated = 0;
+
+  try {
+    // Get all companies that have an autotask ID
+    const companies = await prisma.company.findMany({
+      where: { autotaskCompanyId: { not: null } },
+      select: { id: true, autotaskCompanyId: true, displayName: true },
+    });
+
+    for (const company of companies) {
+      if (!company.autotaskCompanyId) continue;
+      try {
+        const atContacts = await client.getContactsByCompany(parseInt(company.autotaskCompanyId, 10));
+        for (const atContact of atContacts) {
+          try {
+            const name = `${atContact.firstName} ${atContact.lastName}`.trim();
+            const email = atContact.emailAddress || `contact-${atContact.id}@placeholder.local`;
+            const atId = String(atContact.id);
+
+            const existing = await prisma.companyContact.findFirst({
+              where: { autotaskContactId: atId },
+            });
+
+            if (existing) {
+              await prisma.companyContact.update({
+                where: { id: existing.id },
+                data: {
+                  name,
+                  email,
+                  title: atContact.title || existing.title,
+                  phone: atContact.mobilePhone || atContact.phone || existing.phone,
+                  phoneType: atContact.mobilePhone ? 'MOBILE' : atContact.phone ? 'WORK' : existing.phoneType,
+                },
+              });
+              updated++;
+            } else {
+              // Check email collision
+              const emailExists = await prisma.companyContact.findFirst({
+                where: { companyId: company.id, email },
+              });
+
+              if (emailExists) {
+                await prisma.companyContact.update({
+                  where: { id: emailExists.id },
+                  data: { name, autotaskContactId: atId },
+                });
+                updated++;
+              } else {
+                await prisma.companyContact.create({
+                  data: {
+                    companyId: company.id,
+                    name,
+                    email,
+                    title: atContact.title,
+                    phone: atContact.mobilePhone || atContact.phone,
+                    phoneType: atContact.mobilePhone ? 'MOBILE' : atContact.phone ? 'WORK' : undefined,
+                    autotaskContactId: atId,
+                  },
+                });
+                created++;
+              }
+            }
+          } catch (err) {
+            errors.push(`Contact ${atContact.id}: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+      } catch (err) {
+        errors.push(`Contacts for ${company.displayName}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    await prisma.autotaskSyncLog.create({
+      data: {
+        syncType: 'contacts',
+        status: errors.length === 0 ? 'success' : 'partial',
+        contactsCreated: created,
+        contactsUpdated: updated,
+        errors: errors.length > 0 ? JSON.stringify(errors) : null,
+        durationMs: Date.now() - startTime,
+        completedAt: new Date(),
+      },
+    });
+
+    return NextResponse.json({
+      step: 'contacts',
+      created,
+      updated,
+      companiesProcessed: companies.length,
+      errors: errors.length > 0 ? errors : undefined,
+      durationMs: Date.now() - startTime,
+    });
+  } catch (err) {
+    return NextResponse.json(
+      { step: 'contacts', error: err instanceof Error ? err.message : String(err), errors },
+      { status: 500 }
+    );
+  }
+}
+
+// ============================================
+// SYNC HELPERS
 // ============================================
 
 async function syncCompany(
@@ -232,64 +418,6 @@ async function syncCompany(
   return { companyId: newCompany.id, created: true };
 }
 
-async function syncContact(
-  atContact: AutotaskContact,
-  companyId: string
-): Promise<{ created: boolean }> {
-  const atId = String(atContact.id);
-  const name = `${atContact.firstName} ${atContact.lastName}`.trim();
-  const email = atContact.emailAddress || `contact-${atId}@placeholder.local`;
-
-  const existing = await prisma.companyContact.findFirst({
-    where: { autotaskContactId: atId },
-  });
-
-  if (existing) {
-    await prisma.companyContact.update({
-      where: { id: existing.id },
-      data: {
-        name,
-        email,
-        title: atContact.title || existing.title,
-        phone: atContact.mobilePhone || atContact.phone || existing.phone,
-        phoneType: atContact.mobilePhone ? 'MOBILE' : atContact.phone ? 'WORK' : existing.phoneType,
-      },
-    });
-    return { created: false };
-  }
-
-  const emailExists = await prisma.companyContact.findFirst({
-    where: { companyId, email },
-  });
-
-  if (emailExists) {
-    await prisma.companyContact.update({
-      where: { id: emailExists.id },
-      data: {
-        name,
-        title: atContact.title || emailExists.title,
-        phone: atContact.mobilePhone || atContact.phone || emailExists.phone,
-        autotaskContactId: atId,
-      },
-    });
-    return { created: false };
-  }
-
-  await prisma.companyContact.create({
-    data: {
-      companyId,
-      name,
-      email,
-      title: atContact.title,
-      phone: atContact.mobilePhone || atContact.phone,
-      phoneType: atContact.mobilePhone ? 'MOBILE' : atContact.phone ? 'WORK' : undefined,
-      autotaskContactId: atId,
-    },
-  });
-
-  return { created: true };
-}
-
 async function syncProject(
   atProject: AutotaskProject,
   companyId: string,
@@ -311,8 +439,7 @@ async function syncProject(
         status,
         startedAt: atProject.startDateTime ? new Date(atProject.startDateTime) : existing.startedAt,
         completedAt: status === 'COMPLETED' && atProject.endDateTime
-          ? new Date(atProject.endDateTime)
-          : existing.completedAt,
+          ? new Date(atProject.endDateTime) : existing.completedAt,
         lastModifiedBy: SYSTEM_EMAIL,
         autotaskLastSync: new Date(),
       },
