@@ -235,7 +235,7 @@ export default async function ProjectDetailPage({
           <div className="space-y-6">
             {/* Preview as Customer Button */}
             <Link
-              href={`/admin/preview/${project.company.slug}`}
+              href={`/admin/preview/${project.company.slug}?project=${project.id}`}
               target="_blank"
               className="block bg-gradient-to-r from-purple-600/20 to-purple-500/10 backdrop-blur-sm border border-purple-500/30 rounded-lg p-4 hover:border-purple-500/50 transition-all group"
             >
