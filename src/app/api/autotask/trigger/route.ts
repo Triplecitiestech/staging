@@ -68,6 +68,11 @@ export async function GET(request: NextRequest) {
       message: 'Autotask sync trigger. Run these steps in order by clicking each link:',
       steps: [
         {
+          step: 0,
+          description: 'CLEANUP: Remove AT-synced companies that have no projects (from failed previous sync)',
+          url: `${baseUrl}/api/autotask/trigger?${secretParam}&step=cleanup`,
+        },
+        {
           step: 1,
           description: 'Sync companies that have projects in Autotask',
           url: `${baseUrl}/api/autotask/trigger?${secretParam}&step=companies`,
@@ -84,6 +89,10 @@ export async function GET(request: NextRequest) {
         },
       ],
     });
+  }
+
+  if (step === 'cleanup') {
+    return handleCleanup();
   }
 
   const client = new AutotaskClient();
@@ -113,6 +122,55 @@ export async function GET(request: NextRequest) {
   }
 
   return NextResponse.json({ error: `Unknown step: ${step}. Use companies, projects, or contacts.` }, { status: 400 });
+}
+
+// ============================================
+// STEP: CLEANUP — remove AT-synced companies with no projects
+// ============================================
+
+async function handleCleanup() {
+  // Find all companies that were created by AT sync (have autotaskCompanyId)
+  // but have zero projects — these are leftovers from the failed initial sync
+  const atCompanies = await prisma.company.findMany({
+    where: { autotaskCompanyId: { not: null } },
+    select: {
+      id: true,
+      displayName: true,
+      autotaskCompanyId: true,
+      _count: { select: { projects: true } },
+    },
+  });
+
+  const toDelete = atCompanies.filter((c) => c._count.projects === 0);
+
+  // Also delete any contacts associated with these empty companies
+  const deleteIds = toDelete.map((c) => c.id);
+
+  let contactsDeleted = 0;
+  if (deleteIds.length > 0) {
+    const contactResult = await prisma.companyContact.deleteMany({
+      where: { companyId: { in: deleteIds } },
+    });
+    contactsDeleted = contactResult.count;
+
+    // Delete the empty companies
+    await prisma.company.deleteMany({
+      where: { id: { in: deleteIds } },
+    });
+  }
+
+  return NextResponse.json({
+    step: 'cleanup',
+    totalAtCompanies: atCompanies.length,
+    companiesWithProjects: atCompanies.length - toDelete.length,
+    companiesDeleted: toDelete.length,
+    contactsDeleted,
+    deletedCompanies: toDelete.map((c) => ({
+      id: c.id,
+      name: c.displayName,
+      autotaskId: c.autotaskCompanyId,
+    })),
+  });
 }
 
 // ============================================
