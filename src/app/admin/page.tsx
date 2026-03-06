@@ -139,15 +139,15 @@ export default async function AdminPage() {
           </Link>
 
           {/* Total Companies */}
-          <Link href="/admin/companies" className="bg-gradient-to-br from-purple-600/20 to-purple-500/10 hover:from-purple-600/30 hover:to-purple-500/20 backdrop-blur-sm border border-purple-500/30 hover:border-purple-400/50 rounded-lg p-6 transition-all duration-300 hover:scale-105">
+          <Link href="/admin/companies" className="bg-gradient-to-br from-indigo-600/20 to-indigo-500/10 hover:from-indigo-600/30 hover:to-indigo-500/20 backdrop-blur-sm border border-indigo-500/30 hover:border-indigo-400/50 rounded-lg p-6 transition-all duration-300 hover:scale-105">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-sm text-purple-300 font-semibold">Companies</p>
-              <svg className="w-8 h-8 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <p className="text-sm text-indigo-300 font-semibold">Companies</p>
+              <svg className="w-8 h-8 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
               </svg>
             </div>
             <p className="text-4xl font-bold text-white mb-1">{totalCompanies}</p>
-            <p className="text-xs text-purple-200">Active clients</p>
+            <p className="text-xs text-indigo-200">Active clients</p>
           </Link>
         </div>
 
@@ -183,7 +183,7 @@ export default async function AdminPage() {
             </div>
           </Link>
 
-          <Link href="/admin/projects" className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 hover:from-slate-700/80 hover:to-slate-800/80 backdrop-blur-sm border border-white/10 hover:border-purple-500/30 rounded-lg p-6 transition-all duration-300 hover:scale-105">
+          <Link href="/admin/projects" className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 hover:from-slate-700/80 hover:to-slate-800/80 backdrop-blur-sm border border-white/10 hover:border-indigo-500/30 rounded-lg p-6 transition-all duration-300 hover:scale-105">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-slate-400 mb-1">Avg. Phases/Project</p>
@@ -193,8 +193,8 @@ export default async function AdminPage() {
                     : 0}
                 </p>
               </div>
-              <div className="p-3 bg-purple-500/20 rounded-lg">
-                <svg className="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="p-3 bg-indigo-500/20 rounded-lg">
+                <svg className="w-6 h-6 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
                 </svg>
               </div>
@@ -203,18 +203,18 @@ export default async function AdminPage() {
         </div>
 
         {/* Blog Management Section */}
-        <div className="bg-gradient-to-br from-purple-900/30 to-purple-800/20 backdrop-blur-sm border border-purple-500/30 rounded-lg p-6 mb-12">
+        <div className="bg-gradient-to-br from-indigo-900/30 to-indigo-800/20 backdrop-blur-sm border border-indigo-500/30 rounded-lg p-6 mb-12">
           <div className="flex items-center justify-between mb-6">
             <div>
               <h2 className="text-xl font-bold text-white flex items-center gap-2">
                 <span>📝</span>
                 Blog Management
               </h2>
-              <p className="text-sm text-purple-300 mt-1">Automated content generation Mon/Wed/Fri at 8 AM EST</p>
+              <p className="text-sm text-indigo-300 mt-1">Automated content generation Mon/Wed/Fri at 8 AM EST</p>
             </div>
             <Link
               href="/admin/blog"
-              className="text-purple-400 hover:text-purple-300 text-sm font-medium flex items-center gap-1"
+              className="text-indigo-400 hover:text-indigo-300 text-sm font-medium flex items-center gap-1"
             >
               Manage Blog
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -225,9 +225,9 @@ export default async function AdminPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Blog Stats */}
-            <div className="bg-slate-900/50 border border-purple-500/20 rounded-lg p-6">
+            <div className="bg-slate-900/50 border border-indigo-500/20 rounded-lg p-6">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold text-purple-300">Blog Statistics</h3>
+                <h3 className="text-sm font-semibold text-indigo-300">Blog Statistics</h3>
                 <span className="text-2xl">📊</span>
               </div>
               <div className="space-y-3">
@@ -247,9 +247,9 @@ export default async function AdminPage() {
             </div>
 
             {/* Quick Actions */}
-            <div className="bg-slate-900/50 border border-purple-500/20 rounded-lg p-6">
+            <div className="bg-slate-900/50 border border-indigo-500/20 rounded-lg p-6">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold text-purple-300">Quick Actions</h3>
+                <h3 className="text-sm font-semibold text-indigo-300">Quick Actions</h3>
                 <span className="text-2xl">⚡</span>
               </div>
               <div className="space-y-2">
@@ -365,15 +365,15 @@ export default async function AdminPage() {
 
             <Link
               href="/admin/companies/new"
-              className="group relative p-6 bg-gradient-to-br from-purple-600/20 to-purple-500/10 hover:from-purple-600/30 hover:to-purple-500/20 backdrop-blur-sm border border-purple-500/30 hover:border-purple-400/50 rounded-lg transition-all duration-300 hover:scale-105"
+              className="group relative p-6 bg-gradient-to-br from-rose-600/20 to-rose-500/10 hover:from-rose-600/30 hover:to-rose-500/20 backdrop-blur-sm border border-rose-500/30 hover:border-rose-400/50 rounded-lg transition-all duration-300 hover:scale-105"
             >
               <div className="flex items-start justify-between mb-4">
-                <div className="p-3 bg-purple-500/20 rounded-lg">
-                  <svg className="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="p-3 bg-rose-500/20 rounded-lg">
+                  <svg className="w-6 h-6 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                   </svg>
                 </div>
-                <svg className="w-5 h-5 text-purple-400 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-5 h-5 text-rose-400 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                 </svg>
               </div>
@@ -401,15 +401,15 @@ export default async function AdminPage() {
 
             <Link
               href="/admin/projects"
-              className="group relative p-6 bg-gradient-to-br from-orange-600/20 to-orange-500/10 hover:from-orange-600/30 hover:to-orange-500/20 backdrop-blur-sm border border-orange-500/30 hover:border-orange-400/50 rounded-lg transition-all duration-300 hover:scale-105"
+              className="group relative p-6 bg-gradient-to-br from-teal-600/20 to-teal-500/10 hover:from-teal-600/30 hover:to-teal-500/20 backdrop-blur-sm border border-teal-500/30 hover:border-teal-400/50 rounded-lg transition-all duration-300 hover:scale-105"
             >
               <div className="flex items-start justify-between mb-4">
-                <div className="p-3 bg-orange-500/20 rounded-lg">
-                  <svg className="w-6 h-6 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="p-3 bg-teal-500/20 rounded-lg">
+                  <svg className="w-6 h-6 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
                   </svg>
                 </div>
-                <svg className="w-5 h-5 text-orange-400 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-5 h-5 text-teal-400 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                 </svg>
               </div>

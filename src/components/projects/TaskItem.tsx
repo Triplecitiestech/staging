@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import TaskStatusDropdown from './TaskStatusDropdown'
 import AssignmentPicker from './AssignmentPicker'
 import TaskActivity from './TaskActivity'
+import CommentThread from './CommentThread'
 import DueDatePicker from './DueDatePicker'
 
 interface Comment {
@@ -65,7 +66,7 @@ interface TaskItemProps {
 
 const STATUS_BORDER_COLORS: Record<string, string> = {
   NOT_STARTED: 'border-l-pink-500',
-  ASSIGNED: 'border-l-purple-500',
+  ASSIGNED: 'border-l-indigo-500',
   WORK_IN_PROGRESS: 'border-l-sky-500',
   WAITING_ON_CLIENT: 'border-l-orange-500',
   WAITING_ON_VENDOR: 'border-l-rose-500',
@@ -290,6 +291,17 @@ export default function TaskItem({
         {task.autotaskTaskId && (
           <div className="px-4 pb-2">
             <TaskActivity autotaskTaskId={task.autotaskTaskId} taskId={task.id} />
+          </div>
+        )}
+
+        {/* Local comments thread (non-Autotask tasks) */}
+        {!task.autotaskTaskId && (
+          <div className="px-4 pb-2">
+            <CommentThread
+              taskId={task.id}
+              comments={task.comments || []}
+              projectContacts={projectContacts}
+            />
           </div>
         )}
       </div>
