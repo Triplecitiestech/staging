@@ -11,6 +11,7 @@ import PasswordGate from './PasswordGate'
 import OnboardingTimeline from './OnboardingTimeline'
 import ProjectsView from './ProjectsView'
 import CustomerDashboard from './CustomerDashboard'
+import OnboardingJourney, { useOnboardingJourney } from './OnboardingJourney'
 import type { OnboardingData } from '@/types/onboarding'
 
 type PortalView = 'dashboard' | 'projects'
@@ -33,6 +34,9 @@ export default function OnboardingPortal({
   const router = useRouter()
   const [isLoggingOut, setIsLoggingOut] = useState(false)
   const [portalView, setPortalView] = useState<PortalView>('dashboard')
+  const { showOnboarding, completeOnboarding } = useOnboardingJourney(
+    isAuthenticated ? companySlug : undefined
+  )
 
   const handleAuthenticated = () => {
     // Refresh the page to get the authenticated data from the server
@@ -63,6 +67,11 @@ export default function OnboardingPortal({
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-gray-900 via-black to-gray-900">
       <Header />
+
+      {/* Onboarding Journey overlay */}
+      {isAuthenticated && showOnboarding && (
+        <OnboardingJourney companySlug={companySlug} onComplete={completeOnboarding} />
+      )}
 
       <main className="flex-1 pt-20">
         {!isAuthenticated ? (

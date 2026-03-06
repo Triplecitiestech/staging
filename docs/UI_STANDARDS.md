@@ -121,6 +121,22 @@ The following colors must NEVER be used anywhere in the UI:
 
 This rule applies to ALL areas: backgrounds, text, borders, gradients, shadows, and any other styling.
 
+### Customer Action Highlighting
+When a customer action is required (e.g., "Needs Your Action", "Open Ticket"), use:
+- **Red** (`text-red-400`, `bg-red-500/10`, `border-red-500/30`) for urgent attention
+- **Bright orange** (`text-orange-400`, `bg-orange-500/10`) for important notices
+Never use amber, gold, or mustard for alerts or action indicators.
+
+### Purple Minimization
+Minimize purple (`purple-*`) in admin and customer interfaces. Prefer:
+- `indigo-*` for subtle category/accent colors
+- `rose-*` for distinctive action cards
+- `teal-*` for project-related elements
+
+### Status Display Format
+All customer-facing status badges must use the format: `Status: <label>`
+Examples: `Status: In Progress`, `Status: Complete`, `Status: Not Started`
+
 ## Color Palette (Admin)
 
 | Element | Color | Tailwind |

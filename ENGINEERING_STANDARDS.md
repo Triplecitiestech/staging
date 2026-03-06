@@ -246,4 +246,107 @@ When conventions change or new patterns are established:
 
 ---
 
+## 11. Customer Portal Standards
+
+### 11.1 Project View Consistency
+- The CustomerDashboard component is the canonical project view for customers
+- Admin preview (Preview as Customer) and customer portal must render the same component
+- Never maintain two separate implementations of the same view
+
+### 11.2 Status Display
+- Status badges must always show the format: `Status: <label>` (e.g., "Status: In Progress")
+- Never display status without the label prefix
+
+### 11.3 Ticket Timeline
+- When a customer clicks a ticket, they must see a chronological timeline including:
+  - Ticket description
+  - External (customer-visible) communications
+  - Customer notes
+  - Technician notes marked as customer-visible
+  - Time entries with summary notes
+  - Ticket status changes
+- Internal Autotask notes must NEVER appear in the customer portal
+- Each entry must display timestamp, author, and author type
+
+### 11.4 Customer Ticket Replies
+- Customers must be able to reply to open tickets from the portal
+- Replies create notes in Autotask via the API
+- Replies are marked as external/customer-visible
+- The portal must refresh the timeline after a reply is sent
+
+### 11.5 Customer Onboarding Journey
+- First-time portal users see a guided onboarding overlay
+- Steps: Welcome, Navigation, Tickets, Action Items, Completion
+- Users can skip at any time
+- Completion is recorded in localStorage to prevent repetition
+
+---
+
+## 12. Demo Mode Standards
+
+### 12.1 Purpose
+Demo mode allows safe demonstrations without exposing real customer data.
+Used for investor demos, partner demos, and presentations.
+
+### 12.2 Demo Company
+- Built-in demo company: Contoso Industries
+- Demo data includes fake projects, tickets, communications, and progress
+
+### 12.3 Behavior
+- When enabled, admin dashboards display demo data
+- Real customer data is hidden
+- When disabled, normal data returns
+- Demo mode toggle is available in the AdminHeader
+
+### 12.4 Data Safety
+- Demo mode data is generated in-memory from `src/lib/demo-mode.ts`
+- No demo data is written to the database
+- No real customer data is modified when demo mode is toggled
+
+---
+
+## 13. Audience & Marketing Standards
+
+### 13.1 Audience Providers
+The audience system supports multiple providers:
+- Autotask companies (by individual company selection)
+- Autotask Contact Action Groups (pre-defined contact groups)
+- Manual contact lists
+- Future: CSV imports, CRM integrations
+
+### 13.2 Provider Architecture
+Each provider must implement:
+- `resolveRecipients(criteria)` — returns list of recipients
+- `getTargetingOptions()` — returns available targeting options for UI
+
+### 13.3 Navigation
+All marketing pages must include AdminHeader for consistent navigation.
+All marketing pages must use the ambient gradient background.
+
+---
+
+## 14. UI Color Enforcement
+
+### 14.1 Forbidden Colors (PERMANENT)
+The following colors must NEVER appear anywhere in the UI:
+- yellow-* classes
+- amber-* classes
+- gold or gold-like colors
+- brown-* or brownish tones
+- mustard or yellow-brown combinations
+
+### 14.2 Customer Action Highlighting
+When a customer action is required, use:
+- red (bg-red-500/*, text-red-*) for urgent attention
+- bright orange (bg-orange-500/*, text-orange-*) for important notices
+Never use amber/gold for alerts.
+
+### 14.3 Purple Usage
+Minimize purple (purple-*) in admin interfaces. Prefer:
+- indigo-* for subtle accent/category colors
+- rose-* for distinctive action cards
+- teal-* for project-related elements
+
+---
+
 **These standards are non-negotiable. Every development session must adhere to them.**
