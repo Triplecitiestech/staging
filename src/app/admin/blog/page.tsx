@@ -12,24 +12,52 @@ export default async function BlogManagementPage() {
 
   const { prisma } = await import('@/lib/prisma')
 
-  // Fetch blog posts with all statuses
-  const [allPosts, draftPosts, pendingPosts, publishedPosts, blogCategories] = await Promise.all([
-    prisma.blogPost.count(),
-    prisma.blogPost.count({ where: { status: 'DRAFT' } }),
-    prisma.blogPost.count({ where: { status: 'PENDING_APPROVAL' } }),
-    prisma.blogPost.count({ where: { status: 'PUBLISHED' } }),
-    prisma.blogCategory.count()
-  ])
+  // Fetch blog posts with all statuses - wrapped in try/catch for migration safety
+  let allPosts = 0, draftPosts = 0, pendingPosts = 0, publishedPosts = 0, blogCategories = 0
+  let posts: { id: string; slug: string; title: string; excerpt: string | null; status: string; views: number; updatedAt: Date; categoryName: string | null }[] = []
 
-  const posts = await prisma.blogPost.findMany({
-    include: {
-      category: true,
-      author: true
-    },
-    orderBy: {
-      updatedAt: 'desc'
-    }
-  })
+  try {
+    const [_allPosts, _draftPosts, _pendingPosts, _publishedPosts, _blogCategories] = await Promise.all([
+      prisma.blogPost.count(),
+      prisma.blogPost.count({ where: { status: 'DRAFT' } }),
+      prisma.blogPost.count({ where: { status: 'PENDING_APPROVAL' } }),
+      prisma.blogPost.count({ where: { status: 'PUBLISHED' } }),
+      prisma.blogCategory.count()
+    ])
+    allPosts = _allPosts
+    draftPosts = _draftPosts
+    pendingPosts = _pendingPosts
+    publishedPosts = _publishedPosts
+    blogCategories = _blogCategories
+
+    const rawPosts = await prisma.blogPost.findMany({
+      select: {
+        id: true,
+        slug: true,
+        title: true,
+        excerpt: true,
+        status: true,
+        views: true,
+        updatedAt: true,
+        category: { select: { name: true } },
+      },
+      orderBy: {
+        updatedAt: 'desc'
+      }
+    })
+    posts = rawPosts.map(p => ({
+      id: p.id,
+      slug: p.slug,
+      title: p.title,
+      excerpt: p.excerpt,
+      status: p.status,
+      views: p.views,
+      updatedAt: p.updatedAt,
+      categoryName: p.category?.name || null,
+    }))
+  } catch (error) {
+    console.error('[Blog Admin] Failed to fetch blog data:', error)
+  }
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -137,7 +165,7 @@ export default async function BlogManagementPage() {
                       </td>
                       <td className="px-6 py-4">
                         <span className="text-sm text-slate-300">
-                          {post.category?.name || 'Uncategorized'}
+                          {post.categoryName || 'Uncategorized'}
                         </span>
                       </td>
                       <td className="px-6 py-4">
