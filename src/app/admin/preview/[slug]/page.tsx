@@ -20,33 +20,9 @@ type CompanyWithProjects = Prisma.CompanyGetPayload<{
 
 interface PageProps {
   params: Promise<{ slug: string }>
-  searchParams: Promise<{ project?: string }>
 }
 
-// Convert database status to display format
-function convertStatus(status: string): 'Not Started' | 'Scheduled' | 'Waiting on Customer' | 'In Progress' | 'Requires Customer Coordination' | 'Discussed' | 'Complete' {
-  switch (status) {
-    case 'NOT_STARTED': return 'Not Started'
-    case 'SCHEDULED': return 'Scheduled'
-    case 'WAITING_ON_CUSTOMER': return 'Waiting on Customer'
-    case 'IN_PROGRESS': return 'In Progress'
-    case 'REQUIRES_CUSTOMER_COORDINATION': return 'Requires Customer Coordination'
-    case 'DISCUSSED': return 'Discussed'
-    case 'COMPLETE': return 'Complete'
-    case 'COMPLETED': return 'Complete' // Map old COMPLETED to Complete
-    case 'ON_HOLD': return 'Waiting on Customer' // Map ON_HOLD to a valid status
-    default: return 'Not Started'
-  }
-}
-
-// Convert database owner to display format
-function convertOwner(owner: string | null): 'TCT' | 'Customer' | 'Both' {
-  if (owner === 'CUSTOMER') return 'Customer'
-  if (owner === 'BOTH') return 'Both'
-  return 'TCT'
-}
-
-export default async function AdminPreviewPage({ params, searchParams }: PageProps) {
+export default async function AdminPreviewPage({ params }: PageProps) {
   try {
     // Verify admin authentication
     const session = await auth()
@@ -55,7 +31,6 @@ export default async function AdminPreviewPage({ params, searchParams }: PagePro
     }
 
     const { slug } = await params
-    const { project: projectId } = await searchParams
     console.log('[Admin Preview] Loading preview for slug:', slug)
 
     // Fetch company from database
@@ -140,43 +115,8 @@ export default async function AdminPreviewPage({ params, searchParams }: PagePro
 
     console.log('[Admin Preview] Found company:', company.displayName, 'Projects:', company.projects.length)
 
-    // If a specific project ID was requested, show that one; otherwise find active or most recent
-    const activeProject = projectId
-      ? company.projects.find(p => p.id === projectId) || company.projects[0]
-      : company.projects.find(p => p.status === 'ACTIVE') || company.projects[0]
-
-    // Transform data for OnboardingPortal component
-    const onboardingData = activeProject ? {
-      companySlug: slug,
-      companyDisplayName: company.displayName,
-      lastUpdated: activeProject.updatedAt.toISOString(),
-      phases: activeProject.phases.map(phase => ({
-        id: phase.id,
-        title: phase.title,
-        description: phase.description || '',
-        status: convertStatus(phase.status),
-        owner: convertOwner(phase.owner),
-        notes: phase.customerNotes || undefined,
-        adminComments: (phase as unknown as { comments?: Array<{ id: string; content: string; authorName: string; createdAt: Date }> }).comments?.map(comment => ({
-          id: comment.id,
-          content: comment.content,
-          authorName: comment.authorName,
-          createdAt: comment.createdAt.toISOString()
-        })) || [],
-        tasks: phase.tasks?.map(task => ({
-          id: task.id,
-          taskText: task.taskText,
-          completed: task.completed,
-          status: task.status || 'NOT_STARTED',
-          adminComments: (task as unknown as { comments?: Array<{ id: string; content: string; authorName: string; createdAt: Date }> }).comments?.map(comment => ({
-            id: comment.id,
-            content: comment.content,
-            authorName: comment.authorName,
-            createdAt: comment.createdAt.toISOString()
-          })) || []
-        })) || []
-      }))
-    } : null
+    // Pass all projects to the dashboard (not just a single active one)
+    const allProjects = company.projects
 
   return (
     <div className="relative">
@@ -197,9 +137,10 @@ export default async function AdminPreviewPage({ params, searchParams }: PagePro
       <div className="pt-10">
         <OnboardingPortal
           companySlug={slug}
+          companyDisplayName={company.displayName}
           isAuthenticated={true}
-          onboardingData={onboardingData}
-          projects={activeProject ? [activeProject] : null}
+          onboardingData={null}
+          projects={allProjects.length > 0 ? allProjects : null}
         />
       </div>
     </div>

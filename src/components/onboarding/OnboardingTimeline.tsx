@@ -182,9 +182,9 @@ function PhaseCard({ phase, isCurrent, isLast }: { phase: OnboardingPhase; isCur
 
             {/* Notes */}
             {phase.notes && (
-              <div className="mb-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
-                <p className="text-sm font-semibold text-orange-900 mb-1">Notes:</p>
-                <p className="text-sm text-orange-800">{phase.notes}</p>
+              <div className="mb-4 p-3 bg-cyan-50 border border-cyan-200 rounded-lg">
+                <p className="text-sm font-semibold text-cyan-900 mb-1">Notes:</p>
+                <p className="text-sm text-cyan-800">{phase.notes}</p>
               </div>
             )}
 

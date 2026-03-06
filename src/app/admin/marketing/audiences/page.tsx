@@ -72,12 +72,19 @@ export default function AudiencesPage() {
   }, []);
 
   useEffect(() => {
-    // Initialize default sources then load
+    // Initialize default sources, then use the returned sources to avoid race condition
     fetch('/api/marketing/audiences/sources', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'init-defaults' }),
-    }).then(() => loadData());
+    })
+      .then(res => res.json())
+      .then(data => {
+        // Set sources immediately from init response
+        if (data.sources) setSources(data.sources);
+      })
+      .catch(() => {})
+      .finally(() => loadData());
   }, [loadData]);
 
   const handleCreate = async () => {
