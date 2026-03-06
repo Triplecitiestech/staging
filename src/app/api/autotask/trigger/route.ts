@@ -138,12 +138,12 @@ async function handleCleanup() {
       autotask_company_id: string;
       project_count: bigint;
     }>>`
-      SELECT c.id, c.display_name, c.autotask_company_id,
+      SELECT c.id, c."displayName" AS display_name, c."autotaskCompanyId" AS autotask_company_id,
              COUNT(p.id) AS project_count
       FROM companies c
-      LEFT JOIN projects p ON p.company_id = c.id
-      WHERE c.autotask_company_id IS NOT NULL
-      GROUP BY c.id, c.display_name, c.autotask_company_id
+      LEFT JOIN projects p ON p."companyId" = c.id
+      WHERE c."autotaskCompanyId" IS NOT NULL
+      GROUP BY c.id, c."displayName", c."autotaskCompanyId"
     `;
 
     const toDelete = atCompanies.filter((c) => Number(c.project_count) === 0);
@@ -155,7 +155,7 @@ async function handleCleanup() {
       try {
         // Try to delete contacts if the table exists
         try {
-          await prisma.$executeRaw`DELETE FROM company_contacts WHERE company_id = ${company.id}`;
+          await prisma.$executeRaw`DELETE FROM company_contacts WHERE "companyId" = ${company.id}`;
         } catch {
           // Table may not exist — that's fine
         }
