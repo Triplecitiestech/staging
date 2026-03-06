@@ -87,12 +87,12 @@ export default function SetupPage() {
         )}
 
         {status === 'success' && (
-          <div className="mt-6 p-4 bg-amber-900/30 border border-amber-500/50 rounded-lg">
-            <p className="text-sm font-semibold text-amber-300 mb-2">⚠️ Security Reminder:</p>
-            <p className="text-sm text-amber-200">
+          <div className="mt-6 p-4 bg-orange-900/30 border border-orange-500/50 rounded-lg">
+            <p className="text-sm font-semibold text-orange-300 mb-2">Security Reminder:</p>
+            <p className="text-sm text-orange-200">
               After migration succeeds, delete these files for security:
             </p>
-            <ul className="mt-2 text-xs text-amber-200 space-y-1 ml-4">
+            <ul className="mt-2 text-xs text-orange-200 space-y-1 ml-4">
               <li>• /src/app/admin/setup/page.tsx (this page)</li>
               <li>• /src/app/api/setup/migrate/route.ts</li>
               <li>• Remove MIGRATION_SECRET from Vercel environment variables</li>

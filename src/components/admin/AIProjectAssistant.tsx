@@ -246,10 +246,26 @@ export default function AIProjectAssistant({
           }
         }
 
+        // Log AI-generated changes via audit log API
+        try {
+          await fetch('/api/audit-log', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              projectId,
+              actionType: 'AI_GENERATED',
+              entityType: 'phase',
+              notes: `AI assistant created ${structure.phases.length} phase(s) with tasks`,
+              changes: { phases: structure.phases.map(p => p.name) },
+            }),
+          })
+        } catch {
+          // Non-critical — don't block the insert
+        }
+
         setInsertSuccess(true)
         setTimeout(() => {
           setInsertSuccess(false)
-          // Reload the page to show the new phases
           window.location.reload()
         }, 1500)
 

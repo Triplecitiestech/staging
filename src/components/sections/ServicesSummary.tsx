@@ -54,7 +54,7 @@ export default function ServicesSummary() {
       icon: <LayersIcon size={32} className="text-white" />,
       title: 'Co-Managed IT Services',
       description: 'Enterprise-grade tools and capabilities for your existing IT team.',
-      gradient: 'from-yellow-500 to-orange-500',
+      gradient: 'from-orange-500 to-rose-500',
       link: '/services#co-managed-it-services'
     },
     {

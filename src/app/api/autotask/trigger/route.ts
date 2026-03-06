@@ -1065,6 +1065,26 @@ async function handleContactsSync(client: AutotaskClient) {
             errors.push(`Contact ${atContact.id}: ${err instanceof Error ? err.message : String(err)}`);
           }
         }
+
+        // Update company primaryContact/contactEmail with first real contact
+        if (atContacts.length > 0) {
+          const primaryContact = atContacts.find(c => c.emailAddress && !c.emailAddress.includes('@placeholder.local')) || atContacts[0];
+          if (primaryContact) {
+            const contactName = `${primaryContact.firstName} ${primaryContact.lastName}`.trim();
+            const contactEmail = primaryContact.emailAddress || null;
+            try {
+              await prisma.company.update({
+                where: { id: company.id },
+                data: {
+                  primaryContact: contactName,
+                  ...(contactEmail ? { contactEmail } : {}),
+                },
+              });
+            } catch {
+              // Non-critical — don't fail the sync
+            }
+          }
+        }
       } catch (err) {
         errors.push(`Contacts for ${company.displayName}: ${err instanceof Error ? err.message : String(err)}`);
       }

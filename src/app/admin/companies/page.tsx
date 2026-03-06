@@ -21,7 +21,7 @@ export default async function CompaniesPage() {
       primaryContact: true,
       contactEmail: true,
       _count: {
-        select: { projects: true }
+        select: { projects: true, contacts: true }
       }
     },
     orderBy: { displayName: 'asc' }

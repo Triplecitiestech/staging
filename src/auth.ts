@@ -14,28 +14,43 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   ],
   callbacks: {
     async signIn({ user }) {
-      // Only allow sign-in for users in the staff_users table
+      // Allow sign-in for any Azure AD user in the tenant
+      // Auto-provision as VIEWER if not already in staff_users
       if (!user.email) return false
 
       try {
-        const staffUser = await prisma.staffUser.findUnique({
+        let staffUser = await prisma.staffUser.findUnique({
           where: { email: user.email }
         })
 
-        if (!staffUser || !staffUser.isActive) {
-          console.log(`Sign-in denied for ${user.email} - not in staff_users or inactive`)
+        if (staffUser && !staffUser.isActive) {
+          console.log(`Sign-in denied for ${user.email} - account deactivated`)
           return false
         }
 
-        // Update last login timestamp
-        await prisma.staffUser.update({
-          where: { email: user.email },
-          data: { lastLogin: new Date() }
-        })
+        if (!staffUser) {
+          // Auto-provision new team members from Azure AD as VIEWER
+          staffUser = await prisma.staffUser.create({
+            data: {
+              email: user.email,
+              name: user.name || user.email.split('@')[0],
+              role: 'VIEWER',
+              isActive: true,
+              lastLogin: new Date(),
+            }
+          })
+          console.log(`Auto-provisioned new staff user: ${user.email} as VIEWER`)
+        } else {
+          // Update last login timestamp
+          await prisma.staffUser.update({
+            where: { email: user.email },
+            data: { lastLogin: new Date() }
+          })
+        }
 
         return true
       } catch (error) {
-        console.error('Error checking staff user:', error)
+        console.error('Error during sign-in:', error)
         return false
       }
     },

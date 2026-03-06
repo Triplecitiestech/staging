@@ -5,6 +5,7 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import PhaseCard from '@/components/projects/PhaseCard'
 import AIProjectAssistant from '@/components/admin/AIProjectAssistant'
+import ActivityLog from '@/components/admin/ActivityLog'
 import AdminHeader from '@/components/admin/AdminHeader'
 
 export const dynamic = 'force-dynamic'
@@ -302,6 +303,9 @@ export default async function ProjectDetailPage({
             </div>
           )}
         </div>
+
+        {/* Activity Log */}
+        <ActivityLog projectId={project.id} />
       </main>
 
       {/* AI Assistant */}

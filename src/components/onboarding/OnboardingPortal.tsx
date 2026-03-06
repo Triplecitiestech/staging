@@ -17,6 +17,7 @@ type PortalView = 'dashboard' | 'projects'
 
 interface OnboardingPortalProps {
   companySlug: string
+  companyDisplayName?: string | null
   isAuthenticated: boolean
   onboardingData: OnboardingData | null
   projects?: unknown[] | null
@@ -24,6 +25,7 @@ interface OnboardingPortalProps {
 
 export default function OnboardingPortal({
   companySlug,
+  companyDisplayName,
   isAuthenticated,
   onboardingData: initialData,
   projects,
@@ -146,7 +148,7 @@ export default function OnboardingPortal({
             </div>
 
             {portalView === 'dashboard' ? (
-              <CustomerDashboard projects={projects as { id: string; title: string; projectType: string; status: string; phases: { id: string; title: string; description: string | null; status: string; customerNotes: string | null; orderIndex: number; tasks: { id: string; taskText: string; completed: boolean; orderIndex: number; status: string; notes?: string | null }[] }[]; createdAt: Date; updatedAt: Date }[]} />
+              <CustomerDashboard companyName={companyDisplayName || initialData?.companyDisplayName || companySlug} projects={projects as { id: string; title: string; projectType: string; status: string; phases: { id: string; title: string; description: string | null; status: string; customerNotes: string | null; orderIndex: number; tasks: { id: string; taskText: string; completed: boolean; orderIndex: number; status: string; notes?: string | null }[] }[]; createdAt: Date; updatedAt: Date }[]} />
             ) : (
               <ProjectsView projects={projects as { id: string; title: string; projectType: string; status: string; phases: { id: string; title: string; description: string | null; status: string; customerNotes: string | null; orderIndex: number; tasks: { id: string; taskText: string; completed: boolean; orderIndex: number; notes?: string | null }[] }[]; createdAt: Date; updatedAt: Date }[]} />
             )}

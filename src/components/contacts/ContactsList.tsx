@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 
 interface Contact {
   id: string
@@ -31,6 +31,7 @@ interface ContactsListProps {
 }
 
 export default function ContactsList({ contacts, staffUsers }: ContactsListProps) {
+  const router = useRouter()
   const [search, setSearch] = useState('')
   const [tab, setTab] = useState<'clients' | 'staff'>('clients')
 
@@ -112,7 +113,11 @@ export default function ContactsList({ contacts, staffUsers }: ContactsListProps
                 </thead>
                 <tbody>
                   {filteredContacts.map(contact => (
-                    <tr key={contact.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
+                    <tr
+                      key={contact.id}
+                      onClick={() => router.push(`/admin/companies/${contact.companyId}`)}
+                      className="border-b border-white/5 hover:bg-white/5 transition-colors cursor-pointer"
+                    >
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           <div className="w-8 h-8 rounded-full bg-violet-500/20 text-violet-300 flex items-center justify-center text-xs font-bold">
@@ -128,12 +133,9 @@ export default function ContactsList({ contacts, staffUsers }: ContactsListProps
                       </td>
                       <td className="px-4 py-3 text-sm text-slate-300">{contact.email}</td>
                       <td className="px-4 py-3">
-                        <Link
-                          href={`/admin/companies/${contact.companyId}`}
-                          className="text-sm text-cyan-400 hover:text-cyan-300 transition-colors"
-                        >
+                        <span className="text-sm text-cyan-400">
                           {contact.company.displayName}
-                        </Link>
+                        </span>
                       </td>
                       <td className="px-4 py-3 text-sm text-slate-400">{contact.title || '-'}</td>
                       <td className="px-4 py-3">
