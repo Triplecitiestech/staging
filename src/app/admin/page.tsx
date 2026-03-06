@@ -3,6 +3,7 @@ import Image from 'next/image'
 import { auth } from '@/auth'
 import { SignInButton } from '@/components/auth/AuthButtons'
 import AdminHeader from '@/components/admin/AdminHeader'
+import AutotaskSyncPanel from '@/components/admin/AutotaskSyncPanel'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 
@@ -269,6 +270,9 @@ export default async function AdminPage() {
             </div>
           </div>
         </div>
+
+        {/* Autotask Sync Panel */}
+        <AutotaskSyncPanel />
 
         {/* Recent Projects */}
         <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-sm border border-white/10 rounded-lg p-6 mb-12">

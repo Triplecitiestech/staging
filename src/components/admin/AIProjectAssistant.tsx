@@ -203,8 +203,26 @@ export default function AIProjectAssistant({
           throw new Error('Invalid structure: phases array not found')
         }
 
+        // Check for existing phases to prevent duplicates
+        const existingPhasesRes = await fetch(`/api/phases?projectId=${projectId}`)
+        const existingPhases: { title: string }[] = existingPhasesRes.ok ? await existingPhasesRes.json() : []
+        const existingTitles = new Set(existingPhases.map(p => p.title.trim().toLowerCase()))
+
+        const newPhases = structure.phases.filter(
+          p => !existingTitles.has(p.name.trim().toLowerCase())
+        )
+
+        if (newPhases.length === 0) {
+          throw new Error('All proposed phases already exist in this project. No duplicates created.')
+        }
+
+        if (newPhases.length < structure.phases.length) {
+          const skipped = structure.phases.length - newPhases.length
+          console.log(`Skipped ${skipped} duplicate phase(s)`)
+        }
+
         // Create phases sequentially to maintain order
-        for (const phase of structure.phases) {
+        for (const phase of newPhases) {
           const phaseResponse = await fetch('/api/phases', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -255,8 +273,8 @@ export default function AIProjectAssistant({
               projectId,
               actionType: 'AI_GENERATED',
               entityType: 'phase',
-              notes: `AI assistant created ${structure.phases.length} phase(s) with tasks`,
-              changes: { phases: structure.phases.map(p => p.name) },
+              notes: `AI assistant created ${newPhases.length} phase(s) with tasks`,
+              changes: { phases: newPhases.map(p => p.name) },
             }),
           })
         } catch {

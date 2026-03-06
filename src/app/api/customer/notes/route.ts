@@ -93,6 +93,47 @@ export async function POST(request: NextRequest) {
         data: { notes: content }
       })
 
+      // Notify internal members assigned to this task
+      try {
+        const task = await prisma.phaseTask.findUnique({
+          where: { id: taskId },
+          select: { taskText: true, phaseId: true }
+        })
+        const assignments = await prisma.assignment.findMany({
+          where: { taskId },
+          select: { assigneeEmail: true, assigneeName: true }
+        })
+        // Also check phase-level assignments
+        if (task?.phaseId) {
+          const phaseAssignments = await prisma.assignment.findMany({
+            where: { phaseId: task.phaseId },
+            select: { assigneeEmail: true, assigneeName: true }
+          })
+          assignments.push(...phaseAssignments)
+        }
+        // Deduplicate by email
+        const notifiedEmails = new Set<string>()
+        for (const assignment of assignments) {
+          if (!assignment.assigneeEmail || notifiedEmails.has(assignment.assigneeEmail)) continue
+          notifiedEmails.add(assignment.assigneeEmail)
+          await prisma.notification.create({
+            data: {
+              recipientEmail: assignment.assigneeEmail,
+              type: 'COMMENT',
+              entityType: 'task',
+              entityId: taskId,
+              title: 'Customer Note Added',
+              message: `A customer added a note on task "${task?.taskText || 'Unknown'}": ${content.substring(0, 200)}`,
+              linkUrl: `/admin/projects`,
+            }
+          })
+        }
+        console.log(`[Customer Notes API] Notified ${notifiedEmails.size} staff member(s)`)
+      } catch (notifyError) {
+        console.error('[Customer Notes API] Failed to send notifications:', notifyError)
+        // Non-critical - don't fail the note save
+      }
+
       console.log('[Customer Notes API] Task notes updated successfully')
       return NextResponse.json({ success: true, type: 'task' })
     } else {

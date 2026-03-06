@@ -3,8 +3,8 @@ import { auth } from '@/auth'
 import { redirect, notFound } from 'next/navigation'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
-import { getAutotaskProjectUrl } from '@/lib/autotask'
 import PhaseCard from '@/components/projects/PhaseCard'
+import ProjectActions from '@/components/projects/ProjectActions'
 import AIProjectAssistant from '@/components/admin/AIProjectAssistant'
 import ActivityLog from '@/components/admin/ActivityLog'
 import AdminHeader from '@/components/admin/AdminHeader'
@@ -187,7 +187,10 @@ export default async function ProjectDetailPage({
             <span>/</span>
             <Link href={`/admin/companies`} className="hover:text-white transition-colors">{project.company.displayName}</Link>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-white">{project.title}</h1>
+          <div className="flex items-center gap-4">
+            <h1 className="text-2xl sm:text-3xl font-bold text-white">{project.title}</h1>
+            <ProjectActions projectId={project.id} autotaskProjectId={project.autotaskProjectId} />
+          </div>
           <p className="text-slate-400 mt-1">{project.company.displayName}</p>
         </div>
 
@@ -256,7 +259,7 @@ export default async function ProjectDetailPage({
             {/* Open in Autotask Button */}
             {project.autotaskProjectId && (
               <a
-                href={getAutotaskProjectUrl(project.autotaskProjectId)}
+                href={`/api/autotask/link?type=project&id=${project.autotaskProjectId}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="block bg-gradient-to-r from-emerald-600/20 to-emerald-500/10 backdrop-blur-sm border border-emerald-500/30 rounded-lg p-4 hover:border-emerald-500/50 transition-all group"
@@ -304,7 +307,9 @@ export default async function ProjectDetailPage({
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const convertTaskDates = (task: any): any => ({
                   ...task,
-                  dueDate: task.dueDate ? task.dueDate.toISOString() : null,
+                  dueDate: task.dueDate
+                    ? (typeof task.dueDate === 'string' ? task.dueDate : task.dueDate.toISOString())
+                    : null,
                   subTasks: task.subTasks?.map(convertTaskDates)
                 })
 

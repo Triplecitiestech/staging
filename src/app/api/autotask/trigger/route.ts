@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { auth } from '@/auth';
 import {
   AutotaskClient,
   AutotaskCompany,
@@ -43,10 +44,28 @@ const SYSTEM_EMAIL = 'autotask-sync@triplecitiestech.com';
 export async function GET(request: NextRequest) {
   const secret = request.nextUrl.searchParams.get('secret');
   const expectedSecret = process.env.MIGRATION_SECRET;
+  const isAdminSync = request.headers.get('x-admin-sync') === 'true';
 
-  if (!secret || !expectedSecret || secret !== expectedSecret) {
+  // Allow auth via secret OR via admin session
+  let isAuthorized = false;
+  if (secret && expectedSecret && secret === expectedSecret) {
+    isAuthorized = true;
+  } else if (isAdminSync) {
+    const session = await auth();
+    if (session?.user?.email) {
+      const staffUser = await prisma.staffUser.findUnique({
+        where: { email: session.user.email },
+        select: { role: true, isActive: true },
+      });
+      if (staffUser?.isActive && (staffUser.role === 'ADMIN' || staffUser.role === 'MANAGER')) {
+        isAuthorized = true;
+      }
+    }
+  }
+
+  if (!isAuthorized) {
     return NextResponse.json(
-      { error: 'Unauthorized. Add ?secret=YOUR_MIGRATION_SECRET to the URL.' },
+      { error: 'Unauthorized. Add ?secret=YOUR_MIGRATION_SECRET to the URL or use admin session.' },
       { status: 401 }
     );
   }
@@ -65,7 +84,7 @@ export async function GET(request: NextRequest) {
 
   const step = request.nextUrl.searchParams.get('step');
   const baseUrl = request.nextUrl.origin;
-  const secretParam = `secret=${encodeURIComponent(secret)}`;
+  const secretParam = `secret=${encodeURIComponent(secret || '')}`;
 
   if (!step) {
     return NextResponse.json({

@@ -148,7 +148,7 @@ export default function OnboardingPortal({
             </div>
 
             {portalView === 'dashboard' ? (
-              <CustomerDashboard companyName={companyDisplayName || companySlug} projects={projects as { id: string; title: string; projectType: string; status: string; phases: { id: string; title: string; description: string | null; status: string; customerNotes: string | null; orderIndex: number; tasks: { id: string; taskText: string; completed: boolean; orderIndex: number; status: string; notes?: string | null }[] }[]; createdAt: Date; updatedAt: Date }[]} />
+              <CustomerDashboard companyName={companyDisplayName || companySlug} companySlug={companySlug} projects={projects as { id: string; title: string; projectType: string; status: string; phases: { id: string; title: string; description: string | null; status: string; customerNotes: string | null; orderIndex: number; tasks: { id: string; taskText: string; completed: boolean; orderIndex: number; status: string; notes?: string | null; autotaskTaskId?: string | null; comments?: { id: string; content: string; authorName: string; createdAt: string | Date }[] }[] }[]; createdAt: string | Date; updatedAt: string | Date }[]} />
             ) : (
               <ProjectsView projects={projects as { id: string; title: string; projectType: string; status: string; phases: { id: string; title: string; description: string | null; status: string; customerNotes: string | null; orderIndex: number; tasks: { id: string; taskText: string; completed: boolean; orderIndex: number; notes?: string | null }[] }[]; createdAt: Date; updatedAt: Date }[]} />
             )}

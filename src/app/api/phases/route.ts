@@ -1,6 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 
+export async function GET(req: NextRequest) {
+  const session = await auth()
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const projectId = req.nextUrl.searchParams.get('projectId')
+  if (!projectId) {
+    return NextResponse.json({ error: 'projectId required' }, { status: 400 })
+  }
+
+  try {
+    const { prisma } = await import('@/lib/prisma')
+    const phases = await prisma.phase.findMany({
+      where: { projectId },
+      select: { id: true, title: true, orderIndex: true, status: true },
+      orderBy: { orderIndex: 'asc' },
+    })
+    return NextResponse.json(phases)
+  } catch (error) {
+    console.error('Failed to fetch phases:', error)
+    return NextResponse.json({ error: 'Failed to fetch phases' }, { status: 500 })
+  }
+}
+
 export async function POST(req: NextRequest) {
   const session = await auth()
   if (!session) {
