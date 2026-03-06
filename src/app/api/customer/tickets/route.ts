@@ -21,6 +21,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    // Demo company: return synthetic tickets
+    if (companySlug.toLowerCase().trim() === 'contoso-industries') {
+      const { DEMO_TICKETS } = await import('@/lib/demo-mode')
+      return NextResponse.json({ tickets: DEMO_TICKETS })
+    }
+
     // Look up the company's Autotask ID
     const company = await prisma.company.findUnique({
       where: { slug: companySlug.toLowerCase().trim() },

@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { getAuthenticatedCompany } from '@/lib/onboarding-session'
 import { getOnboardingData, companyExists } from '@/lib/onboarding-data'
 import OnboardingPortal from '@/components/onboarding/OnboardingPortal'
+import { DEMO_COMPANY, DEMO_PROJECTS } from '@/lib/demo-mode'
 import { Metadata } from 'next'
 
 export const dynamic = 'force-dynamic'
@@ -54,7 +55,13 @@ export default async function OnboardingPage({ params }: PageProps) {
   // Fetch projects from database if authenticated
   let projects = null
   let companyDisplayName: string | null = null
-  if (isAuthenticated) {
+  const isDemoCompany = companySlug === 'contoso-industries'
+
+  if (isAuthenticated && isDemoCompany) {
+    // Demo company: use synthetic data only, never touch the database
+    companyDisplayName = DEMO_COMPANY.displayName
+    projects = DEMO_PROJECTS
+  } else if (isAuthenticated) {
     try {
       // First find the company by slug
       const company = await prisma.company.findUnique({

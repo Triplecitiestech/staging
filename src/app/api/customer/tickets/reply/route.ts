@@ -27,6 +27,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    // Demo company: simulate reply without touching Autotask
+    if (companySlug.toLowerCase().trim() === 'contoso-industries') {
+      return NextResponse.json({ success: true, noteId: 'demo-reply-' + Date.now() })
+    }
+
     // Look up company
     const company = await prisma.company.findUnique({
       where: { slug: companySlug.toLowerCase().trim() },

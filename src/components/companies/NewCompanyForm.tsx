@@ -1,13 +1,20 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { CheckCircle, AlertTriangle, X } from 'lucide-react'
+import { CheckCircle, AlertTriangle, X, Search } from 'lucide-react'
 
 interface FormStatus {
   type: 'idle' | 'success' | 'error' | 'timeout'
   message?: string
   requestId?: string
+}
+
+interface AutotaskCompanyResult {
+  id: number
+  name: string
+  phone: string | null
+  location: string | null
 }
 
 export default function NewCompanyForm() {
@@ -21,6 +28,73 @@ export default function NewCompanyForm() {
     contactEmail: '',
     contactTitle: '',
   })
+
+  // Autotask search
+  const [atSearch, setAtSearch] = useState('')
+  const [atResults, setAtResults] = useState<AutotaskCompanyResult[]>([])
+  const [atSearching, setAtSearching] = useState(false)
+  const [selectedAtCompany, setSelectedAtCompany] = useState<AutotaskCompanyResult | null>(null)
+  const [importing, setImporting] = useState(false)
+  const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Debounced Autotask search
+  useEffect(() => {
+    if (atSearch.length < 2) {
+      setAtResults([])
+      return
+    }
+    if (searchTimeout.current) clearTimeout(searchTimeout.current)
+    searchTimeout.current = setTimeout(async () => {
+      setAtSearching(true)
+      try {
+        const res = await fetch(`/api/autotask/companies/search?q=${encodeURIComponent(atSearch)}`)
+        const data = await res.json()
+        setAtResults(data.companies || [])
+      } catch {
+        setAtResults([])
+      } finally {
+        setAtSearching(false)
+      }
+    }, 400)
+    return () => { if (searchTimeout.current) clearTimeout(searchTimeout.current) }
+  }, [atSearch])
+
+  const handleSelectAtCompany = (company: AutotaskCompanyResult) => {
+    setSelectedAtCompany(company)
+    setFormData(prev => ({ ...prev, displayName: company.name }))
+    setAtSearch('')
+    setAtResults([])
+  }
+
+  const handleImportFromAutotask = async () => {
+    if (!selectedAtCompany) return
+    setImporting(true)
+    setStatus({ type: 'idle' })
+    try {
+      const res = await fetch('/api/autotask/companies/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ autotaskCompanyId: selectedAtCompany.id }),
+      })
+      const data = await res.json()
+      if (res.ok && data.success) {
+        setStatus({
+          type: 'success',
+          message: `"${data.company.displayName}" imported! ${data.sync.contacts} contacts, ${data.sync.projects} projects synced.`,
+        })
+        setTimeout(() => {
+          router.push(`/admin/companies/${data.company.id}`)
+          router.refresh()
+        }, 1500)
+      } else {
+        setStatus({ type: 'error', message: data.error || 'Import failed' })
+      }
+    } catch (err) {
+      setStatus({ type: 'error', message: err instanceof Error ? err.message : 'Network error' })
+    } finally {
+      setImporting(false)
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -119,6 +193,76 @@ export default function NewCompanyForm() {
           </button>
         </div>
       )}
+
+      {/* Autotask Import Section */}
+      <div className="bg-gradient-to-br from-cyan-900/20 to-slate-900/80 backdrop-blur-sm border border-cyan-500/30 rounded-lg p-6 space-y-4">
+        <div>
+          <h3 className="text-sm font-semibold text-cyan-300 uppercase tracking-wider mb-1">Import from Autotask</h3>
+          <p className="text-xs text-slate-400">Search for an existing Autotask company to import with contacts and projects.</p>
+        </div>
+
+        {selectedAtCompany ? (
+          <div className="flex items-center gap-3 p-3 bg-cyan-500/10 border border-cyan-500/30 rounded-lg">
+            <CheckCircle size={18} className="text-cyan-400 shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-white">{selectedAtCompany.name}</p>
+              {selectedAtCompany.location && <p className="text-xs text-slate-400">{selectedAtCompany.location}</p>}
+            </div>
+            <button
+              type="button"
+              onClick={() => setSelectedAtCompany(null)}
+              className="text-slate-400 hover:text-white"
+            >
+              <X size={16} />
+            </button>
+            <button
+              type="button"
+              onClick={handleImportFromAutotask}
+              disabled={importing}
+              className="px-4 py-1.5 bg-cyan-500 hover:bg-cyan-600 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+            >
+              {importing ? 'Importing...' : 'Import & Sync'}
+            </button>
+          </div>
+        ) : (
+          <div className="relative">
+            <div className="flex items-center gap-2">
+              <Search size={16} className="text-slate-400" />
+              <input
+                type="text"
+                value={atSearch}
+                onChange={(e) => setAtSearch(e.target.value)}
+                placeholder="Search Autotask companies..."
+                className="flex-1 px-3 py-2 bg-slate-900/50 border border-white/20 rounded-lg text-white placeholder-slate-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 text-sm"
+              />
+              {atSearching && (
+                <div className="w-4 h-4 border-2 border-cyan-500/30 border-t-cyan-500 rounded-full animate-spin" />
+              )}
+            </div>
+            {atResults.length > 0 && (
+              <div className="absolute z-10 mt-1 w-full bg-slate-800 border border-white/10 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                {atResults.map((company) => (
+                  <button
+                    key={company.id}
+                    type="button"
+                    onClick={() => handleSelectAtCompany(company)}
+                    className="w-full text-left px-4 py-2.5 hover:bg-cyan-500/10 transition-colors border-b border-white/5 last:border-0"
+                  >
+                    <p className="text-sm text-white">{company.name}</p>
+                    {company.location && <p className="text-xs text-slate-400">{company.location}</p>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="relative flex items-center my-4">
+        <div className="flex-1 border-t border-white/10" />
+        <span className="px-3 text-xs text-slate-500">OR create manually</span>
+        <div className="flex-1 border-t border-white/10" />
+      </div>
 
       <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-sm border border-white/10 rounded-lg p-6 space-y-6">
         <div>

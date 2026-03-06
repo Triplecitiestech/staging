@@ -4,6 +4,7 @@ import FAQSchema from '@/components/seo/FAQSchema'
 import ServiceSchema from '@/components/seo/ServiceSchema'
 import AIMetadata from '@/components/seo/AIMetadata'
 import { SpeedInsights } from '@vercel/speed-insights/next'
+import GlobalErrorReporter from '@/components/GlobalErrorReporter'
 
 export const metadata: Metadata = {
   title: 'Triple Cities Tech | Managed IT Services for Small Business | Central NY',
@@ -232,6 +233,7 @@ export default function RootLayout({
         <div className="min-h-screen w-full prevent-overflow">
           {children}
         </div>
+        <GlobalErrorReporter />
         <SpeedInsights />
         <script
           dangerouslySetInnerHTML={{

@@ -774,6 +774,36 @@ model CampaignAuditLog {
 }
 
 // ============================================
+// ERROR LOGGING
+// ============================================
+
+/// Automatic error logging for all application errors
+model ErrorLog {
+  id         String   @id @default(uuid())
+  level      String   @default("error") // error, warn, fatal
+  source     String   // server, api, client, unhandled
+  message    String
+  stack      String?
+  path       String?  // URL/route where error occurred
+  method     String?  // HTTP method (for API errors)
+  statusCode Int?     // HTTP status code
+  userId     String?  // Staff user email if available
+  metadata   Json?    // Additional context
+  count      Int      @default(1) // For deduplication
+  firstSeen  DateTime @default(now())
+  lastSeen   DateTime @default(now())
+  resolved   Boolean  @default(false)
+  resolvedAt DateTime?
+  resolvedBy String?
+
+  @@map("error_logs")
+  @@index([source, level])
+  @@index([lastSeen])
+  @@index([resolved])
+  @@index([message])
+}
+
+// ============================================
 // SOFT DELETE SUPPORT
 // ============================================
 

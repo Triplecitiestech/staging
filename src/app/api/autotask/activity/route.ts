@@ -12,7 +12,9 @@ export async function GET(request: NextRequest) {
   try {
     const session = await auth()
     if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      // Return empty activity instead of 401 to avoid UI errors
+      // Admin pages are already protected by the layout
+      return NextResponse.json({ activities: [], noteCount: 0, timeEntryCount: 0 })
     }
 
     const taskId = request.nextUrl.searchParams.get('taskId')
