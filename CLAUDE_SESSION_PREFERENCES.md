@@ -264,12 +264,23 @@ After pushing changes, the user expects you to:
 ✓ **Check syntax** - Ensure no TypeScript/ESLint errors
 ✓ **Test locally if possible** - Run `npm run build` to catch errors
 ✓ **Review changes** - Use `git diff` to verify modifications
+✓ **Full QA process** - See `ENGINEERING_STANDARDS.md` for mandatory QA steps
 
 ### After Committing
 
 ✓ **Confirm push** - Verify push succeeded with git status
 ✓ **Check build logs** - Watch Vercel deployment logs if accessible
 ✓ **Test on preview** - Suggest user test on preview deployment URL
+✓ **Provide validation report** - See `QA_STANDARDS.md` for template
+
+### Testing Safety Rules
+
+- **NEVER** send emails to real customer addresses during testing
+- **NEVER** publish real blog posts or communications during testing
+- **ALWAYS** delete test data when testing is complete
+- **NEVER** modify real customer records for testing
+- Use DRAFT status only for test blog posts
+- Autotask contact emails are REAL customer emails — do not send to them
 
 ---
 

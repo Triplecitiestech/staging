@@ -27,11 +27,18 @@ export default function AIProjectAssistant({
 }: AIProjectAssistantProps) {
   const storageKey = `${STORAGE_KEY_PREFIX}${projectId || 'new'}`
 
+  const getInitialMessage = (): string => {
+    if (projectContext?.projectName) {
+      return `Hi! I'm your AI project assistant for **${projectContext.projectName}**${projectContext.companyName ? ` (${projectContext.companyName})` : ''}.\n\nI can help you:\n- **Add phases and tasks** to this project\n- **Plan next steps** based on the project type\n- **Generate task breakdowns** for specific phases\n\nJust tell me what you need, like:\n- "Add a discovery phase with tasks"\n- "Create phases for a network migration"\n- "What tasks should we add for security hardening?"\n\nI'll create the structure and you can add it directly with one click.`
+    }
+    return 'Hi! I\'m your AI project assistant. Tell me about your project and I\'ll generate phases and tasks you can add with one click.\n\nWhat kind of project are you building?'
+  }
+
   const [isOpen, setIsOpen] = useState(false)
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'assistant',
-      content: 'Hi! I\'m your AI project assistant. I can help you create project phases and tasks.\n\n**How to use:**\n1. Tell me about your project (e.g., "Create a website redesign project")\n2. I\'ll generate phases and tasks as JSON\n3. Click the "Insert into Form" or "Create Phases" button\n4. Your phases will be automatically added!\n\nWhat kind of project are you building?'
+      content: getInitialMessage()
     }
   ])
   const [input, setInput] = useState('')
@@ -325,7 +332,7 @@ export default function AIProjectAssistant({
                 localStorage.removeItem(storageKey)
                 setMessages([{
                   role: 'assistant',
-                  content: 'Hi! I\'m your AI project assistant. I can help you create project phases and tasks.\n\n**How to use:**\n1. Tell me about your project (e.g., "Create a website redesign project")\n2. I\'ll generate phases and tasks as JSON\n3. Click the "Insert into Form" or "Create Phases" button\n4. Your phases will be automatically added!\n\nWhat kind of project are you building?'
+                  content: getInitialMessage()
                 }])
               }
             }}

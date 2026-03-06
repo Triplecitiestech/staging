@@ -80,7 +80,16 @@ export default async function AdminPage() {
 
   // User is authenticated - show dashboard
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-gray-900 to-slate-950">
+    <div className="min-h-screen bg-slate-950 relative overflow-hidden">
+      {/* Ambient gradient grid background */}
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,_rgba(6,182,212,0.08)_0%,_transparent_50%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_right,_rgba(139,92,246,0.08)_0%,_transparent_50%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_rgba(14,165,233,0.04)_0%,_transparent_60%)]" />
+        <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)', backgroundSize: '60px 60px' }} />
+      </div>
+
+      <div className="relative z-10">
       <AdminHeader />
 
       {/* Main Content */}
@@ -120,7 +129,7 @@ export default async function AdminPage() {
           {/* Completed Projects */}
           <Link href="/admin/projects" className="bg-gradient-to-br from-blue-600/20 to-blue-500/10 hover:from-blue-600/30 hover:to-blue-500/20 backdrop-blur-sm border border-blue-500/30 hover:border-blue-400/50 rounded-lg p-6 transition-all duration-300 hover:scale-105">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-sm text-blue-300 font-semibold">Completed</p>
+              <p className="text-sm text-blue-300 font-semibold">Completed Tasks</p>
               <svg className="w-8 h-8 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
@@ -410,6 +419,7 @@ export default async function AdminPage() {
           </div>
         </div>
       </main>
+      </div>
     </div>
   )
 }
