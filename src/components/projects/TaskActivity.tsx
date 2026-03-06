@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 
 interface ActivityItem {
   id: string
@@ -21,10 +21,11 @@ interface TaskActivityProps {
 }
 
 export default function TaskActivity({ autotaskTaskId, taskId }: TaskActivityProps) {
-  const [isExpanded, setIsExpanded] = useState(false)
+  const [isExpanded, setIsExpanded] = useState(true)
   const [activities, setActivities] = useState<ActivityItem[]>([])
   const [loading, setLoading] = useState(false)
   const [loaded, setLoaded] = useState(false)
+  const [autoFetched, setAutoFetched] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   // New note form
@@ -63,6 +64,14 @@ export default function TaskActivity({ autotaskTaskId, taskId }: TaskActivityPro
       setLoading(false)
     }
   }, [autotaskTaskId])
+
+  // Auto-fetch activity on mount so comms trail is visible immediately
+  useEffect(() => {
+    if (autotaskTaskId && !autoFetched) {
+      setAutoFetched(true)
+      fetchActivity()
+    }
+  }, [autotaskTaskId, autoFetched, fetchActivity])
 
   const toggleExpanded = () => {
     const nextExpanded = !isExpanded
@@ -379,7 +388,7 @@ export default function TaskActivity({ autotaskTaskId, taskId }: TaskActivityPro
                       {/* Author avatar */}
                       <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold ${
                         activity.type === 'time_entry'
-                          ? 'bg-purple-500/20 text-purple-300'
+                          ? 'bg-indigo-500/20 text-indigo-300'
                           : activity.isInternal
                           ? 'bg-rose-500/20 text-rose-300'
                           : 'bg-cyan-500/20 text-cyan-300'
@@ -392,7 +401,7 @@ export default function TaskActivity({ autotaskTaskId, taskId }: TaskActivityPro
                         {/* Author + icon */}
                         <div className="flex items-center gap-2 mb-0.5">
                           <span className={`text-xs font-semibold ${
-                            activity.type === 'time_entry' ? 'text-purple-300' : 'text-cyan-300'
+                            activity.type === 'time_entry' ? 'text-indigo-300' : 'text-cyan-300'
                           }`}>
                             {activity.type === 'note' && (
                               <svg className="w-3.5 h-3.5 inline mr-1 -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
