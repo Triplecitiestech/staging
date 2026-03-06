@@ -6,6 +6,7 @@ import {
   AutotaskProject,
   AutotaskProjectPhase,
   AutotaskTask,
+  AutotaskProjectNote,
   mapAtProjectStatus,
   mapAtTaskStatus,
   mapAtTaskPriority,
@@ -23,18 +24,21 @@ const SYSTEM_EMAIL = 'autotask-sync@triplecitiestech.com';
 /**
  * Manual Autotask sync trigger - runs in steps to avoid timeouts.
  *
+ * Step 0: GET /api/autotask/trigger?secret=XXX&step=cleanup
+ *   - Remove AT-synced companies that have no projects
+ *
  * Step 1: GET /api/autotask/trigger?secret=XXX&step=companies
- *   - Syncs all active companies from Autotask (creates new ones on our site)
+ *   - Syncs all active companies from Autotask
  *
- * Step 2: GET /api/autotask/trigger?secret=XXX&step=projects
- *   - Syncs all projects (with phases and tasks), 10 at a time
- *   - Add &page=2, &page=3 etc. to get more batches
+ * Step 2: GET /api/autotask/trigger?secret=XXX&step=projects&page=1
+ *   - Syncs projects with full phases, tasks, statuses, descriptions, and notes
+ *   - 5 projects at a time to stay within timeout
  *
- * Step 3 (optional): GET /api/autotask/trigger?secret=XXX&step=contacts
- *   - Syncs contacts for all AT-linked companies
+ * Step 3: GET /api/autotask/trigger?secret=XXX&step=contacts
+ *   - Syncs contacts (auto-creates table if missing)
  *
- * No step param: GET /api/autotask/trigger?secret=XXX
- *   - Shows instructions
+ * Step 4: GET /api/autotask/trigger?secret=XXX&step=diagnose
+ *   - Diagnostic: shows what the Autotask API returns for the first project
  */
 export async function GET(request: NextRequest) {
   const secret = request.nextUrl.searchParams.get('secret');
@@ -65,11 +69,11 @@ export async function GET(request: NextRequest) {
 
   if (!step) {
     return NextResponse.json({
-      message: 'Autotask sync trigger. Run these steps in order by clicking each link:',
+      message: 'Autotask sync trigger. Run these steps in order:',
       steps: [
         {
           step: 0,
-          description: 'CLEANUP: Remove AT-synced companies that have no projects (from failed previous sync)',
+          description: 'CLEANUP: Remove AT-synced companies that have no projects',
           url: `${baseUrl}/api/autotask/trigger?${secretParam}&step=cleanup`,
         },
         {
@@ -79,13 +83,18 @@ export async function GET(request: NextRequest) {
         },
         {
           step: 2,
-          description: 'Sync all projects (page 1 of 10 projects at a time)',
+          description: 'Sync all projects with phases, tasks, notes (5 at a time)',
           url: `${baseUrl}/api/autotask/trigger?${secretParam}&step=projects&page=1`,
         },
         {
           step: 3,
-          description: 'Sync contacts for all companies (optional)',
+          description: 'Sync contacts for all companies (auto-creates table if needed)',
           url: `${baseUrl}/api/autotask/trigger?${secretParam}&step=contacts`,
+        },
+        {
+          step: 4,
+          description: 'DIAGNOSE: Show raw Autotask API response for first project',
+          url: `${baseUrl}/api/autotask/trigger?${secretParam}&step=diagnose`,
         },
       ],
     });
@@ -105,11 +114,10 @@ export async function GET(request: NextRequest) {
     const page = parseInt(request.nextUrl.searchParams.get('page') || '1', 10);
     const result = await handleProjectsSync(client, page);
 
-    // Add next page link if there might be more
     const responseData = await result.json();
-    if (responseData.projectsSynced === 10) {
+    if (responseData.projectsSynced === 5) {
       responseData.nextPage = `${baseUrl}/api/autotask/trigger?${secretParam}&step=projects&page=${page + 1}`;
-      responseData.message = `Synced 10 projects. There may be more — click nextPage URL to continue.`;
+      responseData.message = `Synced 5 projects. There may be more — click nextPage URL to continue.`;
     } else {
       responseData.message = `Done! Synced ${responseData.projectsSynced} projects. No more projects to sync.`;
     }
@@ -121,7 +129,139 @@ export async function GET(request: NextRequest) {
     return handleContactsSync(client);
   }
 
-  return NextResponse.json({ error: `Unknown step: ${step}. Use companies, projects, or contacts.` }, { status: 400 });
+  if (step === 'diagnose') {
+    return handleDiagnose(client);
+  }
+
+  return NextResponse.json({ error: `Unknown step: ${step}. Use cleanup, companies, projects, contacts, or diagnose.` }, { status: 400 });
+}
+
+// ============================================
+// STEP: DIAGNOSE — show raw API responses for debugging
+// ============================================
+
+async function handleDiagnose(client: AutotaskClient) {
+  const diagnostics: Record<string, unknown> = {};
+  const errors: string[] = [];
+
+  try {
+    // Get first project
+    const allProjects = await client.getAllProjects();
+    diagnostics.totalProjects = allProjects.length;
+    diagnostics.sampleProjects = allProjects.slice(0, 3).map((p) => ({
+      id: p.id,
+      name: p.projectName,
+      status: p.status,
+      companyID: p.companyID,
+      description: p.description ? p.description.slice(0, 200) : null,
+      startDateTime: p.startDateTime,
+      endDateTime: p.endDateTime,
+      estimatedHours: p.estimatedHours,
+    }));
+
+    if (allProjects.length > 0) {
+      const testProject = allProjects[0];
+
+      // Try to get phases
+      try {
+        const phases = await client.getProjectPhases(testProject.id);
+        diagnostics.phases = {
+          count: phases.length,
+          items: phases.slice(0, 5).map((p) => ({
+            id: p.id,
+            title: p.title,
+            description: p.description ? p.description.slice(0, 200) : null,
+            startDate: p.startDate,
+            dueDate: p.dueDate,
+            estimatedHours: p.estimatedHours,
+            sortOrder: p.sortOrder,
+          })),
+        };
+      } catch (err) {
+        diagnostics.phases = { error: err instanceof Error ? err.message : String(err) };
+        errors.push(`Phases: ${err instanceof Error ? err.message : String(err)}`);
+      }
+
+      // Try to get tasks
+      try {
+        const tasks = await client.getProjectTasks(testProject.id);
+        diagnostics.tasks = {
+          count: tasks.length,
+          items: tasks.slice(0, 5).map((t) => ({
+            id: t.id,
+            title: t.title,
+            status: t.status,
+            priority: t.priority,
+            phaseID: t.phaseID,
+            description: t.description ? t.description.slice(0, 200) : null,
+            startDateTime: t.startDateTime,
+            endDateTime: t.endDateTime,
+            estimatedHours: t.estimatedHours,
+            completedDateTime: t.completedDateTime,
+          })),
+        };
+      } catch (err) {
+        diagnostics.tasks = { error: err instanceof Error ? err.message : String(err) };
+        errors.push(`Tasks: ${err instanceof Error ? err.message : String(err)}`);
+      }
+
+      // Try to get notes
+      try {
+        const notes = await client.getProjectNotes(testProject.id);
+        diagnostics.notes = {
+          count: notes.length,
+          items: notes.slice(0, 5).map((n) => ({
+            id: n.id,
+            title: n.title,
+            description: n.description ? n.description.slice(0, 200) : null,
+            noteType: n.noteType,
+            publish: n.publish,
+            createDateTime: n.createDateTime,
+          })),
+        };
+      } catch (err) {
+        diagnostics.notes = { error: err instanceof Error ? err.message : String(err) };
+        errors.push(`Notes: ${err instanceof Error ? err.message : String(err)}`);
+      }
+
+      // Try to get task field info for status picklist
+      try {
+        const fieldInfo = await client.getFieldInfo('Tasks');
+        const statusField = fieldInfo.fields?.find((f: { name: string }) => f.name === 'status');
+        diagnostics.taskStatusPicklist = statusField?.picklistValues || 'status field not found';
+      } catch (err) {
+        try {
+          const fieldInfo = await client.getFieldInfo('ProjectTasks');
+          const statusField = fieldInfo.fields?.find((f: { name: string }) => f.name === 'status');
+          diagnostics.taskStatusPicklist = statusField?.picklistValues || 'status field not found';
+        } catch (err2) {
+          diagnostics.taskStatusPicklist = {
+            error: `Tasks: ${err instanceof Error ? err.message : String(err)}, ProjectTasks: ${err2 instanceof Error ? err2.message : String(err2)}`,
+          };
+        }
+      }
+
+      // Try project field info for status picklist
+      try {
+        const fieldInfo = await client.getFieldInfo('Projects');
+        const statusField = fieldInfo.fields?.find((f: { name: string }) => f.name === 'status');
+        diagnostics.projectStatusPicklist = statusField?.picklistValues || 'status field not found';
+      } catch (err) {
+        diagnostics.projectStatusPicklist = { error: err instanceof Error ? err.message : String(err) };
+      }
+    }
+
+    return NextResponse.json({
+      step: 'diagnose',
+      diagnostics,
+      errors: errors.length > 0 ? errors : undefined,
+    });
+  } catch (err) {
+    return NextResponse.json(
+      { step: 'diagnose', error: err instanceof Error ? err.message : String(err) },
+      { status: 500 }
+    );
+  }
 }
 
 // ============================================
@@ -130,8 +270,6 @@ export async function GET(request: NextRequest) {
 
 async function handleCleanup() {
   try {
-    // Use raw SQL since company_contacts table may not exist yet in production
-    // Find AT-synced companies that have zero projects
     const atCompanies = await prisma.$queryRaw<Array<{
       id: string;
       display_name: string;
@@ -256,7 +394,7 @@ async function handleCompaniesSync(client: AutotaskClient) {
 }
 
 // ============================================
-// STEP: PROJECTS (paginated, 10 at a time)
+// STEP: PROJECTS (paginated, 5 at a time — comprehensive sync)
 // ============================================
 
 async function handleProjectsSync(client: AutotaskClient, page: number) {
@@ -264,45 +402,88 @@ async function handleProjectsSync(client: AutotaskClient, page: number) {
   const errors: string[] = [];
   let projectsCreated = 0;
   let projectsUpdated = 0;
+  let phasesCreated = 0;
+  let phasesUpdated = 0;
   let tasksCreated = 0;
   let tasksUpdated = 0;
+  let notesCreated = 0;
+
+  // Per-project detail tracking
+  const projectDetails: Array<{
+    name: string;
+    atId: number;
+    status: string;
+    phases: number;
+    tasks: number;
+    notes: number;
+    errors: string[];
+  }> = [];
 
   try {
-    // Get all projects, then take a page of 10
     const allProjects = await client.getAllProjects();
-    const pageSize = 10;
+    const pageSize = 5; // Smaller page size for comprehensive sync
     const startIdx = (page - 1) * pageSize;
     const pageProjects = allProjects.slice(startIdx, startIdx + pageSize);
 
     for (const atProject of pageProjects) {
+      const projectLog: typeof projectDetails[0] = {
+        name: atProject.projectName,
+        atId: atProject.id,
+        status: mapAtProjectStatus(atProject.status),
+        phases: 0,
+        tasks: 0,
+        notes: 0,
+        errors: [],
+      };
+
       try {
-        // Find local company
+        // Find or create local company
         let company = await prisma.company.findFirst({
           where: { autotaskCompanyId: String(atProject.companyID) },
         });
 
         if (!company) {
-          // Try to create the company
           try {
             const atCompany = await client.getCompany(atProject.companyID);
             const companyResult = await syncCompany(atCompany);
             company = await prisma.company.findUnique({ where: { id: companyResult.companyId } });
           } catch (err) {
-            errors.push(`Project "${atProject.projectName}" - missing company ${atProject.companyID}: ${err instanceof Error ? err.message : String(err)}`);
+            const msg = `Missing company ${atProject.companyID}: ${err instanceof Error ? err.message : String(err)}`;
+            projectLog.errors.push(msg);
+            errors.push(`Project "${atProject.projectName}" - ${msg}`);
+            projectDetails.push(projectLog);
             continue;
           }
         }
 
-        if (!company) continue;
+        if (!company) {
+          projectLog.errors.push('Company not found after sync attempt');
+          projectDetails.push(projectLog);
+          continue;
+        }
 
         const result = await syncProject(atProject, company.id, client);
         if (result.created) projectsCreated++;
         else projectsUpdated++;
+        phasesCreated += result.phasesCreated;
+        phasesUpdated += result.phasesUpdated;
         tasksCreated += result.tasksCreated;
         tasksUpdated += result.tasksUpdated;
+        notesCreated += result.notesCreated;
+        projectLog.phases = result.phasesCreated + result.phasesUpdated;
+        projectLog.tasks = result.tasksCreated + result.tasksUpdated;
+        projectLog.notes = result.notesCreated;
+        if (result.errors.length > 0) {
+          projectLog.errors = result.errors;
+          errors.push(...result.errors.map((e) => `Project "${atProject.projectName}": ${e}`));
+        }
       } catch (err) {
-        errors.push(`Project "${atProject.projectName}" (${atProject.id}): ${err instanceof Error ? err.message : String(err)}`);
+        const msg = err instanceof Error ? err.message : String(err);
+        projectLog.errors.push(msg);
+        errors.push(`Project "${atProject.projectName}" (${atProject.id}): ${msg}`);
       }
+
+      projectDetails.push(projectLog);
     }
 
     await prisma.autotaskSyncLog.create({
@@ -326,8 +507,12 @@ async function handleProjectsSync(client: AutotaskClient, page: number) {
       projectsSynced: pageProjects.length,
       projectsCreated,
       projectsUpdated,
+      phasesCreated,
+      phasesUpdated,
       tasksCreated,
       tasksUpdated,
+      notesCreated,
+      projectDetails,
       errors: errors.length > 0 ? errors : undefined,
       durationMs: Date.now() - startTime,
     });
@@ -340,18 +525,60 @@ async function handleProjectsSync(client: AutotaskClient, page: number) {
 }
 
 // ============================================
-// STEP: CONTACTS
+// STEP: CONTACTS (auto-creates table if missing)
 // ============================================
 
 async function handleContactsSync(client: AutotaskClient) {
-  // Check if company_contacts table exists in production
+  // Auto-create company_contacts table if it doesn't exist
   try {
     await prisma.$queryRaw`SELECT 1 FROM company_contacts LIMIT 1`;
   } catch {
-    return NextResponse.json({
-      step: 'contacts',
-      error: 'The company_contacts table does not exist yet. Run the database migration first via /api/migrate.',
-    }, { status: 400 });
+    // Table doesn't exist — create it
+    try {
+      await prisma.$executeRawUnsafe(`
+        DO $$ BEGIN
+          CREATE TYPE "PhoneType" AS ENUM ('MOBILE', 'WORK');
+        EXCEPTION
+          WHEN duplicate_object THEN null;
+        END $$;
+      `);
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "company_contacts" (
+          "id" TEXT NOT NULL DEFAULT gen_random_uuid(),
+          "companyId" TEXT NOT NULL,
+          "name" TEXT NOT NULL,
+          "email" TEXT NOT NULL,
+          "title" TEXT,
+          "phone" TEXT,
+          "phoneType" "PhoneType",
+          "isPrimary" BOOLEAN NOT NULL DEFAULT false,
+          "isActive" BOOLEAN NOT NULL DEFAULT true,
+          "autotaskContactId" TEXT,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "company_contacts_pkey" PRIMARY KEY ("id")
+        );
+      `);
+      await prisma.$executeRawUnsafe(`
+        CREATE UNIQUE INDEX IF NOT EXISTS "company_contacts_companyId_email_key" ON "company_contacts"("companyId", "email");
+      `);
+      await prisma.$executeRawUnsafe(`
+        CREATE UNIQUE INDEX IF NOT EXISTS "company_contacts_autotaskContactId_key" ON "company_contacts"("autotaskContactId");
+      `);
+      await prisma.$executeRawUnsafe(`
+        DO $$ BEGIN
+          ALTER TABLE "company_contacts" ADD CONSTRAINT "company_contacts_companyId_fkey"
+            FOREIGN KEY ("companyId") REFERENCES "companies"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+        EXCEPTION
+          WHEN duplicate_object THEN null;
+        END $$;
+      `);
+    } catch (createErr) {
+      return NextResponse.json({
+        step: 'contacts',
+        error: `Failed to auto-create company_contacts table: ${createErr instanceof Error ? createErr.message : String(createErr)}`,
+      }, { status: 500 });
+    }
   }
 
   const startTime = Date.now();
@@ -360,7 +587,6 @@ async function handleContactsSync(client: AutotaskClient) {
   let updated = 0;
 
   try {
-    // Get all companies that have an autotask ID
     const companies = await prisma.company.findMany({
       where: { autotaskCompanyId: { not: null } },
       select: { id: true, autotaskCompanyId: true, displayName: true },
@@ -504,18 +730,31 @@ async function syncCompany(
   return { companyId: newCompany.id, created: true };
 }
 
+interface SyncProjectResult {
+  created: boolean;
+  phasesCreated: number;
+  phasesUpdated: number;
+  tasksCreated: number;
+  tasksUpdated: number;
+  notesCreated: number;
+  errors: string[];
+}
+
 async function syncProject(
   atProject: AutotaskProject,
   companyId: string,
   client: AutotaskClient
-): Promise<{ created: boolean; tasksCreated: number; tasksUpdated: number }> {
+): Promise<SyncProjectResult> {
   const atId = String(atProject.id);
+  const projectErrors: string[] = [];
 
   const existing = await prisma.project.findFirst({
     where: { autotaskProjectId: atId },
   });
 
   const status = mapAtProjectStatus(atProject.status) as ProjectStatus;
+
+  let projectId: string;
 
   if (existing) {
     await prisma.project.update({
@@ -526,86 +765,185 @@ async function syncProject(
         startedAt: atProject.startDateTime ? new Date(atProject.startDateTime) : existing.startedAt,
         completedAt: status === 'COMPLETED' && atProject.endDateTime
           ? new Date(atProject.endDateTime) : existing.completedAt,
+        estimatedDuration: atProject.estimatedHours ? `${atProject.estimatedHours} hours` : existing.estimatedDuration,
         lastModifiedBy: SYSTEM_EMAIL,
         autotaskLastSync: new Date(),
       },
     });
+    projectId = existing.id;
+  } else {
+    const company = await prisma.company.findUnique({
+      where: { id: companyId },
+      select: { displayName: true },
+    });
 
-    const taskStats = await syncProjectPhasesAndTasks(existing.id, atProject.id, client);
-    return { created: false, tasksCreated: taskStats.tasksCreated, tasksUpdated: taskStats.tasksUpdated };
+    let slug = generateSlug(`${company?.displayName || 'company'}-${atProject.projectName}`);
+    const slugExists = await prisma.project.findFirst({ where: { slug } });
+    if (slugExists) slug = `${slug}-at${atId}`;
+
+    const newProject = await prisma.project.create({
+      data: {
+        companyId,
+        projectType: 'CUSTOM',
+        title: atProject.projectName,
+        slug,
+        status,
+        startedAt: atProject.startDateTime ? new Date(atProject.startDateTime) : null,
+        completedAt: status === 'COMPLETED' && atProject.endDateTime
+          ? new Date(atProject.endDateTime) : null,
+        estimatedDuration: atProject.estimatedHours ? `${atProject.estimatedHours} hours` : null,
+        createdBy: SYSTEM_EMAIL,
+        lastModifiedBy: SYSTEM_EMAIL,
+        autotaskProjectId: atId,
+        autotaskLastSync: new Date(),
+      },
+    });
+    projectId = newProject.id;
   }
 
-  const company = await prisma.company.findUnique({
-    where: { id: companyId },
-    select: { displayName: true },
-  });
+  // Sync phases and tasks — DO NOT silently eat errors
+  const phaseTaskResult = await syncProjectPhasesAndTasks(projectId, atProject.id, client);
+  projectErrors.push(...phaseTaskResult.errors);
 
-  let slug = generateSlug(`${company?.displayName || 'company'}-${atProject.projectName}`);
-  const slugExists = await prisma.project.findFirst({ where: { slug } });
-  if (slugExists) slug = `${slug}-at${atId}`;
+  // Sync project notes as comments
+  let notesCreated = 0;
+  try {
+    notesCreated = await syncProjectNotes(projectId, atProject.id, client);
+  } catch (err) {
+    projectErrors.push(`Notes: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
-  const newProject = await prisma.project.create({
-    data: {
-      companyId,
-      projectType: 'CUSTOM',
-      title: atProject.projectName,
-      slug,
-      status,
-      startedAt: atProject.startDateTime ? new Date(atProject.startDateTime) : null,
-      completedAt: status === 'COMPLETED' && atProject.endDateTime
-        ? new Date(atProject.endDateTime) : null,
-      estimatedDuration: atProject.estimatedHours ? `${atProject.estimatedHours} hours` : null,
-      createdBy: SYSTEM_EMAIL,
-      lastModifiedBy: SYSTEM_EMAIL,
-      autotaskProjectId: atId,
-      autotaskLastSync: new Date(),
-    },
-  });
+  // If project has a description from Autotask, store it as an internal comment
+  if (atProject.description && !existing) {
+    try {
+      const existingDescComment = await prisma.comment.findFirst({
+        where: {
+          phaseId: null,
+          taskId: null,
+          content: atProject.description,
+          authorEmail: SYSTEM_EMAIL,
+        },
+      });
+      if (!existingDescComment) {
+        // Find the first phase to attach the description to
+        const firstPhase = await prisma.phase.findFirst({
+          where: { projectId },
+          orderBy: { orderIndex: 'asc' },
+          select: { id: true },
+        });
+        if (firstPhase) {
+          await prisma.comment.create({
+            data: {
+              phaseId: firstPhase.id,
+              content: `[Autotask Project Description]\n\n${atProject.description}`,
+              isInternal: true,
+              authorEmail: SYSTEM_EMAIL,
+              authorName: 'Autotask Sync',
+            },
+          });
+          notesCreated++;
+        }
+      }
+    } catch (err) {
+      projectErrors.push(`Project description comment: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
 
-  const taskStats = await syncProjectPhasesAndTasks(newProject.id, atProject.id, client);
-  return { created: true, tasksCreated: taskStats.tasksCreated, tasksUpdated: taskStats.tasksUpdated };
+  return {
+    created: !existing,
+    phasesCreated: phaseTaskResult.phasesCreated,
+    phasesUpdated: phaseTaskResult.phasesUpdated,
+    tasksCreated: phaseTaskResult.tasksCreated,
+    tasksUpdated: phaseTaskResult.tasksUpdated,
+    notesCreated,
+    errors: projectErrors,
+  };
+}
+
+interface PhaseTaskSyncResult {
+  phasesCreated: number;
+  phasesUpdated: number;
+  tasksCreated: number;
+  tasksUpdated: number;
+  errors: string[];
 }
 
 async function syncProjectPhasesAndTasks(
   projectId: string,
   atProjectId: number,
   client: AutotaskClient
-): Promise<{ tasksCreated: number; tasksUpdated: number }> {
+): Promise<PhaseTaskSyncResult> {
+  let phasesCreated = 0;
+  let phasesUpdated = 0;
   let tasksCreated = 0;
   let tasksUpdated = 0;
+  const errors: string[] = [];
 
+  // Fetch phases — report errors instead of silently swallowing
   let atPhases: AutotaskProjectPhase[] = [];
-  try { atPhases = await client.getProjectPhases(atProjectId); } catch { /* no phases */ }
+  try {
+    atPhases = await client.getProjectPhases(atProjectId);
+  } catch (err) {
+    errors.push(`Failed to fetch phases for AT project ${atProjectId}: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
+  // Fetch tasks — report errors instead of silently swallowing
   let atTasks: AutotaskTask[] = [];
-  try { atTasks = await client.getProjectTasks(atProjectId); } catch { /* no tasks */ }
+  try {
+    atTasks = await client.getProjectTasks(atProjectId);
+  } catch (err) {
+    errors.push(`Failed to fetch tasks for AT project ${atProjectId}: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   const phaseIdMap = new Map<number, string>();
 
+  // If no phases but we have tasks, create a default phase
   if (atPhases.length === 0 && atTasks.length > 0) {
     const defaultPhase = await getOrCreateDefaultPhase(projectId);
     for (const atTask of atTasks) {
-      const result = await syncTask(atTask, defaultPhase.id);
+      try {
+        const result = await syncTask(atTask, defaultPhase.id);
+        if (result.created) tasksCreated++;
+        else tasksUpdated++;
+      } catch (err) {
+        errors.push(`Task "${atTask.title}" (${atTask.id}): ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    return { phasesCreated, phasesUpdated, tasksCreated, tasksUpdated, errors };
+  }
+
+  // Sync each phase
+  for (let i = 0; i < atPhases.length; i++) {
+    try {
+      const result = await syncPhase(atPhases[i], projectId, i);
+      phaseIdMap.set(atPhases[i].id, result.phaseId);
+      if (result.created) phasesCreated++;
+      else phasesUpdated++;
+    } catch (err) {
+      errors.push(`Phase "${atPhases[i].title}" (${atPhases[i].id}): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  // If no tasks and no phases, create at least one phase with the project info
+  if (atPhases.length === 0 && atTasks.length === 0) {
+    // No phases or tasks from Autotask — that's OK, just note it
+    return { phasesCreated, phasesUpdated, tasksCreated, tasksUpdated, errors };
+  }
+
+  // Sync each task into the correct phase
+  for (const atTask of atTasks) {
+    try {
+      const localPhaseId = atTask.phaseID ? phaseIdMap.get(atTask.phaseID) : undefined;
+      const phaseId = localPhaseId || (await getOrCreateDefaultPhase(projectId)).id;
+      const result = await syncTask(atTask, phaseId);
       if (result.created) tasksCreated++;
       else tasksUpdated++;
+    } catch (err) {
+      errors.push(`Task "${atTask.title}" (${atTask.id}): ${err instanceof Error ? err.message : String(err)}`);
     }
-    return { tasksCreated, tasksUpdated };
   }
 
-  for (let i = 0; i < atPhases.length; i++) {
-    const localPhaseId = await syncPhase(atPhases[i], projectId, i);
-    phaseIdMap.set(atPhases[i].id, localPhaseId);
-  }
-
-  for (const atTask of atTasks) {
-    const localPhaseId = atTask.phaseID ? phaseIdMap.get(atTask.phaseID) : undefined;
-    const phaseId = localPhaseId || (await getOrCreateDefaultPhase(projectId)).id;
-    const result = await syncTask(atTask, phaseId);
-    if (result.created) tasksCreated++;
-    else tasksUpdated++;
-  }
-
-  return { tasksCreated, tasksUpdated };
+  return { phasesCreated, phasesUpdated, tasksCreated, tasksUpdated, errors };
 }
 
 async function getOrCreateDefaultPhase(projectId: string): Promise<{ id: string }> {
@@ -633,12 +971,27 @@ async function getOrCreateDefaultPhase(projectId: string): Promise<{ id: string 
   });
 }
 
+function mapAtPhaseStatus(atPhase: AutotaskProjectPhase): PhaseStatus {
+  // Determine phase status from its dates and scheduling
+  if (atPhase.dueDate && new Date(atPhase.dueDate) < new Date()) {
+    return 'COMPLETE';
+  }
+  if (atPhase.isScheduled) {
+    return 'SCHEDULED';
+  }
+  if (atPhase.startDate && new Date(atPhase.startDate) <= new Date()) {
+    return 'IN_PROGRESS';
+  }
+  return 'NOT_STARTED';
+}
+
 async function syncPhase(
   atPhase: AutotaskProjectPhase,
   projectId: string,
   orderIndex: number
-): Promise<string> {
+): Promise<{ phaseId: string; created: boolean }> {
   const atId = String(atPhase.id);
+  const status = mapAtPhaseStatus(atPhase);
 
   const existing = await prisma.phase.findFirst({ where: { autotaskPhaseId: atId } });
 
@@ -648,12 +1001,13 @@ async function syncPhase(
       data: {
         title: atPhase.title,
         description: atPhase.description || existing.description,
+        status,
         scheduledDate: atPhase.startDate ? new Date(atPhase.startDate) : existing.scheduledDate,
         estimatedDays: atPhase.estimatedHours ? Math.ceil(atPhase.estimatedHours / 8) : existing.estimatedDays,
         orderIndex: atPhase.sortOrder ?? orderIndex,
       },
     });
-    return existing.id;
+    return { phaseId: existing.id, created: false };
   }
 
   const newPhase = await prisma.phase.create({
@@ -664,12 +1018,12 @@ async function syncPhase(
       orderIndex: atPhase.sortOrder ?? orderIndex,
       scheduledDate: atPhase.startDate ? new Date(atPhase.startDate) : null,
       estimatedDays: atPhase.estimatedHours ? Math.ceil(atPhase.estimatedHours / 8) : null,
-      status: 'NOT_STARTED' as PhaseStatus,
+      status,
       autotaskPhaseId: atId,
     },
   });
 
-  return newPhase.id;
+  return { phaseId: newPhase.id, created: true };
 }
 
 async function syncTask(
@@ -682,6 +1036,7 @@ async function syncTask(
 
   const status = mapAtTaskStatus(atTask.status) as TaskStatus;
   const priority = mapAtTaskPriority(atTask.priority) as Priority;
+  const isComplete = status === 'REVIEWED_AND_DONE' || status === 'NOT_APPLICABLE';
 
   if (existing) {
     await prisma.phaseTask.update({
@@ -691,8 +1046,8 @@ async function syncTask(
         status,
         priority,
         dueDate: atTask.endDateTime ? new Date(atTask.endDateTime) : existing.dueDate,
-        completed: status === 'REVIEWED_AND_DONE',
-        completedAt: status === 'REVIEWED_AND_DONE' && atTask.completedDateTime
+        completed: isComplete,
+        completedAt: isComplete && atTask.completedDateTime
           ? new Date(atTask.completedDateTime) : existing.completedAt,
         notes: atTask.description || existing.notes,
       },
@@ -714,8 +1069,8 @@ async function syncTask(
       status,
       priority,
       dueDate: atTask.endDateTime ? new Date(atTask.endDateTime) : null,
-      completed: status === 'REVIEWED_AND_DONE',
-      completedAt: status === 'REVIEWED_AND_DONE' && atTask.completedDateTime
+      completed: isComplete,
+      completedAt: isComplete && atTask.completedDateTime
         ? new Date(atTask.completedDateTime) : null,
       notes: atTask.description,
       autotaskTaskId: atId,
@@ -723,4 +1078,71 @@ async function syncTask(
   });
 
   return { created: true };
+}
+
+/**
+ * Sync Autotask project notes as Comments on the first phase.
+ */
+async function syncProjectNotes(
+  projectId: string,
+  atProjectId: number,
+  client: AutotaskClient
+): Promise<number> {
+  let atNotes: AutotaskProjectNote[] = [];
+  try {
+    atNotes = await client.getProjectNotes(atProjectId);
+  } catch {
+    // Notes endpoint not available — OK
+    return 0;
+  }
+
+  if (atNotes.length === 0) return 0;
+
+  // Attach notes to the first phase of this project
+  const firstPhase = await prisma.phase.findFirst({
+    where: { projectId },
+    orderBy: { orderIndex: 'asc' },
+    select: { id: true },
+  });
+
+  if (!firstPhase) return 0;
+
+  let created = 0;
+
+  for (const note of atNotes) {
+    // Check if we already imported this note (by matching content + author)
+    const noteContent = note.description || note.title;
+    const notePrefix = `[AT Note: ${note.title}]`;
+
+    const alreadyExists = await prisma.comment.findFirst({
+      where: {
+        phaseId: firstPhase.id,
+        content: { startsWith: notePrefix },
+        authorEmail: SYSTEM_EMAIL,
+      },
+    });
+
+    if (alreadyExists) continue;
+
+    const content = note.description
+      ? `${notePrefix}\n\n${note.description}`
+      : notePrefix;
+
+    // publish: 1=All (external), 2=Internal only
+    const isInternal = note.publish !== 1;
+
+    await prisma.comment.create({
+      data: {
+        phaseId: firstPhase.id,
+        content,
+        isInternal,
+        authorEmail: SYSTEM_EMAIL,
+        authorName: 'Autotask Sync',
+        createdAt: note.createDateTime ? new Date(note.createDateTime) : new Date(),
+      },
+    });
+    created++;
+  }
+
+  return created;
 }

@@ -79,6 +79,18 @@ export interface AutotaskTask {
   completedDateTime?: string;
 }
 
+export interface AutotaskProjectNote {
+  id: number;
+  projectID: number;
+  title: string;
+  description: string;
+  noteType?: number;
+  publish?: number; // 1=All, 2=Internal
+  creatorResourceID?: number;
+  lastActivityDate?: string;
+  createDateTime?: string;
+}
+
 interface AutotaskApiResponse<T> {
   items?: T[];
   pageDetails?: {
@@ -108,19 +120,19 @@ interface AutotaskEntityInfo {
 // Autotask project status picklist mappings (common defaults)
 // These can vary per instance - use getFieldInfo to get actual values
 const AT_PROJECT_STATUS = {
+  INACTIVE: 0,
   NEW: 1,
   ACTIVE: 4,
   COMPLETE: 5,
-  INACTIVE: 0,
 } as const;
 
 // Autotask task status picklist mappings
-const AT_TASK_STATUS = {
-  NEW: 1,
-  IN_PROGRESS: 5,
-  WAITING_CUSTOMER: 7,
-  COMPLETE: 5,
-} as const;
+// Autotask default picklist values for Task status:
+//   1 = New, 4 = In Progress, 5 = Complete, 7 = Waiting Customer
+const AT_TASK_STATUS_NEW = 1;
+const AT_TASK_STATUS_IN_PROGRESS = 4;
+const AT_TASK_STATUS_COMPLETE = 5;
+const AT_TASK_STATUS_WAITING_CUSTOMER = 7;
 
 // Autotask task priority mappings
 const AT_TASK_PRIORITY = {
@@ -317,24 +329,82 @@ export class AutotaskClient {
   }
 
   /**
-   * Get phases for a project
+   * Get phases for a project.
+   * Tries child entity endpoint first, then falls back to direct query.
    */
   async getProjectPhases(projectId: number): Promise<AutotaskProjectPhase[]> {
-    return this.queryAll<AutotaskProjectPhase>(`Projects/${projectId}/Phases`, {
-      op: 'exist',
-      field: 'id',
-    });
+    try {
+      return await this.queryAll<AutotaskProjectPhase>(
+        `Projects/${projectId}/Phases`,
+        { op: 'exist', field: 'id' }
+      );
+    } catch {
+      // Fallback: query Phases directly with projectID filter
+      return this.queryAll<AutotaskProjectPhase>('Phases', {
+        op: 'eq',
+        field: 'projectID',
+        value: projectId,
+      });
+    }
   }
 
   /**
-   * Get tasks for a project
+   * Get tasks for a project.
+   * Tries multiple entity paths since Autotask versions differ.
    */
   async getProjectTasks(projectId: number): Promise<AutotaskTask[]> {
-    return this.queryAll<AutotaskTask>('ProjectTasks', {
+    // Try child entity endpoint first
+    try {
+      const tasks = await this.queryAll<AutotaskTask>(
+        `Projects/${projectId}/Tasks`,
+        { op: 'exist', field: 'id' }
+      );
+      if (tasks.length > 0) return tasks;
+    } catch {
+      // Not available as child endpoint
+    }
+
+    // Try ProjectTasks entity with filter
+    try {
+      const tasks = await this.queryAll<AutotaskTask>('ProjectTasks', {
+        op: 'eq',
+        field: 'projectID',
+        value: projectId,
+      });
+      if (tasks.length > 0) return tasks;
+    } catch {
+      // Not available
+    }
+
+    // Try Tasks entity with filter
+    return this.queryAll<AutotaskTask>('Tasks', {
       op: 'eq',
       field: 'projectID',
       value: projectId,
     });
+  }
+
+  /**
+   * Get notes for a project
+   */
+  async getProjectNotes(projectId: number): Promise<AutotaskProjectNote[]> {
+    try {
+      return await this.queryAll<AutotaskProjectNote>(
+        `Projects/${projectId}/Notes`,
+        { op: 'exist', field: 'id' }
+      );
+    } catch {
+      // Fallback: query ProjectNotes directly
+      try {
+        return await this.queryAll<AutotaskProjectNote>('ProjectNotes', {
+          op: 'eq',
+          field: 'projectID',
+          value: projectId,
+        });
+      } catch {
+        return [];
+      }
+    }
   }
 
   /**
@@ -370,21 +440,15 @@ export function mapAtProjectStatus(atStatus: number): 'ACTIVE' | 'COMPLETED' | '
 }
 
 /**
- * Map Autotask task status number to our TaskStatus enum
+ * Map Autotask task status number to our TaskStatus enum.
+ * Uses individual constants to avoid duplicate-value bugs.
  */
 export function mapAtTaskStatus(atStatus: number): string {
-  switch (atStatus) {
-    case AT_TASK_STATUS.NEW:
-      return 'NOT_STARTED';
-    case AT_TASK_STATUS.IN_PROGRESS:
-      return 'WORK_IN_PROGRESS';
-    case AT_TASK_STATUS.WAITING_CUSTOMER:
-      return 'WAITING_ON_CLIENT';
-    case AT_TASK_STATUS.COMPLETE:
-      return 'REVIEWED_AND_DONE';
-    default:
-      return 'NOT_STARTED';
-  }
+  if (atStatus === AT_TASK_STATUS_COMPLETE) return 'REVIEWED_AND_DONE';
+  if (atStatus === AT_TASK_STATUS_IN_PROGRESS) return 'WORK_IN_PROGRESS';
+  if (atStatus === AT_TASK_STATUS_WAITING_CUSTOMER) return 'WAITING_ON_CLIENT';
+  if (atStatus === AT_TASK_STATUS_NEW) return 'NOT_STARTED';
+  return 'NOT_STARTED';
 }
 
 /**
