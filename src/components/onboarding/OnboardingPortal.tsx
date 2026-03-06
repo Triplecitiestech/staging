@@ -112,6 +112,9 @@ export default function OnboardingPortal({
                 <a href="mailto:support@triplecitiestech.com" className="inline-flex items-center justify-center px-6 py-3 bg-gray-700/50 hover:bg-gray-700 text-cyan-400 font-semibold rounded-lg border-2 border-cyan-500/50 hover:border-cyan-500 transition-all">
                   Email Support
                 </a>
+                <a href="/contact#customer-support" className="inline-flex items-center justify-center px-6 py-3 bg-gray-700/50 hover:bg-gray-700 text-emerald-400 font-semibold rounded-lg border-2 border-emerald-500/50 hover:border-emerald-500 transition-all">
+                  Contact Us
+                </a>
               </div>
             </div>
           </Container>
@@ -146,6 +149,9 @@ export default function OnboardingPortal({
                 </a>
                 <a href="mailto:support@triplecitiestech.com" className="inline-flex items-center justify-center px-6 py-3 bg-gray-700/50 hover:bg-gray-700 text-cyan-400 font-semibold rounded-lg border-2 border-cyan-500/50 hover:border-cyan-500 transition-all">
                   Email Support
+                </a>
+                <a href="/contact#customer-support" className="inline-flex items-center justify-center px-6 py-3 bg-gray-700/50 hover:bg-gray-700 text-emerald-400 font-semibold rounded-lg border-2 border-emerald-500/50 hover:border-emerald-500 transition-all">
+                  Contact Us
                 </a>
               </div>
             </div>

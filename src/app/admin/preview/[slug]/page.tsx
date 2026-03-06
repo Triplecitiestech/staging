@@ -53,6 +53,8 @@ export default async function AdminPreviewPage({ params }: PageProps) {
                       completed: true,
                       orderIndex: true,
                       status: true,
+                      notes: true,
+                      autotaskTaskId: true,
                       comments: {
                         where: {
                           isInternal: false
