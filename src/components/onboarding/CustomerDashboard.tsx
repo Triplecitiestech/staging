@@ -113,8 +113,10 @@ function getProjectStatusLabel(status: string) {
 export default function CustomerDashboard({ projects, companyName, companySlug }: CustomerDashboardProps) {
   // Always start at dashboard view, even with 1 project
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
+  const [projectViewMode, setProjectViewMode] = useState<'vertical' | 'horizontal'>('vertical')
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
   const [collapsedPhases, setCollapsedPhases] = useState<Set<string>>(new Set('__all__'))
+  const [showAllTickets, setShowAllTickets] = useState(false)
   const [noteInputs, setNoteInputs] = useState<Record<string, string>>({})
   const [submittingNote, setSubmittingNote] = useState<string | null>(null)
   const [noteSuccess, setNoteSuccess] = useState<string | null>(null)
@@ -233,7 +235,34 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
 
         {/* Project Header */}
         <div className="mb-6">
-          <h2 className="text-3xl font-bold text-white mb-2">{project.title}</h2>
+          <div className="flex items-center justify-between flex-wrap gap-3 mb-2">
+            <h2 className="text-3xl font-bold text-white">{project.title}</h2>
+            {/* View Toggle */}
+            <div className="flex bg-gray-800/50 border border-white/10 rounded-lg p-1">
+              <button
+                onClick={() => setProjectViewMode('vertical')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  projectViewMode === 'vertical' ? 'bg-cyan-500 text-white' : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+                Vertical
+              </button>
+              <button
+                onClick={() => setProjectViewMode('horizontal')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  projectViewMode === 'horizontal' ? 'bg-cyan-500 text-white' : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7" />
+                </svg>
+                Horizontal
+              </button>
+            </div>
+          </div>
           <div className="flex items-center gap-4 text-sm text-gray-400 mb-4">
             <span>{projectProgress}% complete</span>
             <span>-</span>
@@ -269,8 +298,78 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
           </div>
         </div>
 
-        {/* Phases - collapsed by default */}
-        <div className="space-y-4">
+        {/* Horizontal view */}
+        {projectViewMode === 'horizontal' && (
+          <div className="overflow-x-auto pb-4 mb-4">
+            <div className="flex gap-4" style={{ minWidth: 'max-content' }}>
+              {project.phases.map((phase, phaseIndex) => {
+                const phaseTasks = phase.tasks.length
+                const phaseComplete = phase.tasks.filter(t => DONE_STATUSES.includes(t.status)).length
+                const phaseProgress = phaseTasks > 0 ? Math.round((phaseComplete / phaseTasks) * 100) : 0
+                const phaseBadge = getPhaseStatusBadge(phase.status)
+
+                return (
+                  <div key={phase.id} className="w-80 flex-shrink-0 bg-gray-800/50 border border-white/10 rounded-lg overflow-visible">
+                    <div className="p-4">
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0 ${
+                          phase.status === 'COMPLETE' ? 'bg-green-500' :
+                          phase.status === 'IN_PROGRESS' ? 'bg-cyan-500' :
+                          phase.status === 'WAITING_ON_CUSTOMER' ? 'bg-red-500' :
+                          'bg-gray-600'
+                        }`}>
+                          {phase.status === 'COMPLETE' ? (
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                            </svg>
+                          ) : phaseIndex + 1}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <h3 className="text-sm font-bold text-white truncate">{phase.title}</h3>
+                          <span className={`inline-block px-2 py-0.5 text-xs font-medium rounded-full border mt-1 ${phaseBadge.color}`}>
+                            {phaseBadge.label}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="mb-3">
+                        <div className="flex justify-between text-xs text-gray-500 mb-1">
+                          <span>{phaseComplete}/{phaseTasks}</span>
+                          <span>{phaseProgress}%</span>
+                        </div>
+                        <div className="bg-gray-700 rounded-full h-1.5 overflow-hidden">
+                          <div className={`h-full ${phase.status === 'COMPLETE' ? 'bg-green-500' : 'bg-cyan-500'}`} style={{ width: `${phaseProgress}%` }} />
+                        </div>
+                      </div>
+                      <div className="space-y-1.5 max-h-64 overflow-y-auto">
+                        {phase.tasks.map(task => {
+                          const badge = getStatusBadge(task.status)
+                          return (
+                            <button
+                              key={task.id}
+                              onClick={() => { setProjectViewMode('vertical'); togglePhase(phase.id); toggleTask(task.id) }}
+                              className="w-full flex items-center gap-2 text-left py-1.5 px-2 rounded hover:bg-gray-700/30 transition-colors group"
+                            >
+                              <div className={`w-3.5 h-3.5 rounded-full border flex-shrink-0 ${
+                                DONE_STATUSES.includes(task.status) ? 'bg-green-500 border-green-500' : 'border-gray-600'
+                              }`} />
+                              <span className={`flex-1 text-xs truncate ${
+                                DONE_STATUSES.includes(task.status) ? 'text-gray-500 line-through' : 'text-gray-300 group-hover:text-white'
+                              }`}>{task.taskText}</span>
+                              <span className={`text-xs px-1.5 py-0.5 rounded-full border flex-shrink-0 ${badge.color}`}>{badge.label}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Vertical view - Phases collapsed by default */}
+        {projectViewMode === 'vertical' && <div className="space-y-4">
           {project.phases.map((phase, phaseIndex) => {
             const phaseTasks = phase.tasks.length
             const phaseComplete = phase.tasks.filter(t => DONE_STATUSES.includes(t.status)).length
@@ -453,7 +552,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
               </div>
             )
           })}
-        </div>
+        </div>}
       </div>
     )
   }
@@ -469,69 +568,94 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
         </div>
       )}
 
-      {/* Summary Cards */}
+      {/* Summary Cards - all clickable */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         <button
-          onClick={() => selectedTicketId ? setSelectedTicketId(null) : undefined}
+          onClick={() => { setShowAllTickets(false); document.getElementById('tickets-section')?.scrollIntoView({ behavior: 'smooth' }) }}
           className="bg-gray-800/50 border border-blue-500/30 hover:border-blue-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-blue-500/10 cursor-pointer"
         >
           <div className="text-3xl font-bold text-blue-400">{openTickets.length}</div>
           <div className="text-sm text-gray-400 mt-1">Open Tickets</div>
         </button>
-        <div className="bg-gray-800/50 border border-green-500/30 rounded-lg p-4 text-center">
+        <button
+          onClick={() => { setShowAllTickets(true); document.getElementById('tickets-section')?.scrollIntoView({ behavior: 'smooth' }) }}
+          className="bg-gray-800/50 border border-green-500/30 hover:border-green-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-green-500/10 cursor-pointer"
+        >
           <div className="text-3xl font-bold text-green-400">{closedTickets.length}</div>
           <div className="text-sm text-gray-400 mt-1">Closed Tickets (30d)</div>
-        </div>
-        <div className="bg-gray-800/50 border border-cyan-500/30 rounded-lg p-4 text-center">
+        </button>
+        <button
+          onClick={() => document.getElementById('projects-section')?.scrollIntoView({ behavior: 'smooth' })}
+          className="bg-gray-800/50 border border-cyan-500/30 hover:border-cyan-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-cyan-500/10 cursor-pointer"
+        >
           <div className="text-3xl font-bold text-cyan-400">{activeProjects.length}</div>
           <div className="text-sm text-gray-400 mt-1">Active Projects</div>
-        </div>
-        <div className="bg-gray-800/50 border border-red-500/30 rounded-lg p-4 text-center">
+        </button>
+        <button
+          onClick={() => {
+            const actionProject = projects.find(p => p.phases.some(ph => ph.tasks.some(t => t.status === 'WAITING_ON_CLIENT' || t.status === 'CUSTOMER_NOTE_ADDED')))
+            if (actionProject) setSelectedProject(actionProject)
+          }}
+          className="bg-gray-800/50 border border-red-500/30 hover:border-red-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-red-500/10 cursor-pointer"
+        >
           <div className="text-3xl font-bold text-red-400">{needsAction.length}</div>
           <div className="text-sm text-gray-400 mt-1">Awaiting Your Action</div>
-        </div>
+        </button>
       </div>
 
-      {/* Recent Tickets */}
-      {!ticketsLoading && tickets.length > 0 && (
-        <div className="bg-gray-800/50 border border-white/10 rounded-lg p-6 mb-8">
-          <h2 className="text-xl font-bold text-white mb-4">Recent Tickets</h2>
-          <div className="space-y-2">
-            {tickets.slice(0, 5).map(ticket => (
-              <button
-                key={ticket.id}
-                onClick={() => setSelectedTicketId(ticket.id)}
-                className="w-full flex items-center justify-between bg-gray-700/30 hover:bg-gray-700/50 rounded-lg px-4 py-3 transition-colors text-left group cursor-pointer"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm text-white truncate group-hover:text-cyan-300 transition-colors">{ticket.title}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">#{ticket.ticketNumber} - {new Date(ticket.createDate).toLocaleDateString()}</p>
-                </div>
-                <div className="flex items-center gap-2 ml-3">
-                  <span className={`px-2 py-0.5 text-xs font-medium rounded-full whitespace-nowrap ${
-                    ticket.completedDate
-                      ? 'bg-green-500/20 text-green-300'
-                      : 'bg-blue-500/20 text-blue-300'
-                  }`}>
-                    {ticket.completedDate ? 'Closed' : 'Open'}
-                  </span>
-                  <svg className="w-4 h-4 text-gray-500 group-hover:text-cyan-400 transition-colors flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                </div>
-              </button>
-            ))}
+      {/* Tickets Section */}
+      <div id="tickets-section">
+        {!ticketsLoading && tickets.length > 0 && (
+          <div className="bg-gray-800/50 border border-white/10 rounded-lg p-6 mb-8">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-white">Recent Tickets</h2>
+              {tickets.length > 5 && (
+                <button
+                  onClick={() => setShowAllTickets(!showAllTickets)}
+                  className="text-sm text-cyan-400 hover:text-cyan-300 transition-colors"
+                >
+                  {showAllTickets ? 'Show Less' : `View All (${tickets.length})`}
+                </button>
+              )}
+            </div>
+            <div className="space-y-2 max-h-96 overflow-y-auto">
+              {(showAllTickets ? tickets : tickets.slice(0, 5)).map(ticket => (
+                <button
+                  key={ticket.id}
+                  onClick={() => setSelectedTicketId(ticket.id)}
+                  className="w-full flex items-center justify-between bg-gray-700/30 hover:bg-gray-700/50 rounded-lg px-4 py-3 transition-colors text-left group cursor-pointer"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-white truncate group-hover:text-cyan-300 transition-colors">{ticket.title}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">#{ticket.ticketNumber} - {new Date(ticket.createDate).toLocaleDateString()}</p>
+                  </div>
+                  <div className="flex items-center gap-2 ml-3">
+                    <span className={`px-2 py-0.5 text-xs font-medium rounded-full whitespace-nowrap ${
+                      ticket.completedDate
+                        ? 'bg-green-500/20 text-green-300'
+                        : 'bg-blue-500/20 text-blue-300'
+                    }`}>
+                      {ticket.completedDate ? 'Closed' : 'Open'}
+                    </span>
+                    <svg className="w-4 h-4 text-gray-500 group-hover:text-cyan-400 transition-colors flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </div>
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
-      {ticketsLoading && (
-        <div className="bg-gray-800/50 border border-white/10 rounded-lg p-6 mb-8">
-          <h2 className="text-xl font-bold text-white mb-2">Recent Tickets</h2>
-          <p className="text-sm text-gray-400">Loading tickets...</p>
-        </div>
-      )}
+        )}
+        {ticketsLoading && (
+          <div className="bg-gray-800/50 border border-white/10 rounded-lg p-6 mb-8">
+            <h2 className="text-xl font-bold text-white mb-2">Recent Tickets</h2>
+            <p className="text-sm text-gray-400">Loading tickets...</p>
+          </div>
+        )}
+      </div>
 
       {/* Projects */}
+      <div id="projects-section" />
       <h2 className="text-xl font-bold text-white mb-4">Your Projects</h2>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {projects.map(project => {

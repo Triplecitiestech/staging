@@ -90,12 +90,14 @@ export async function GET(request: NextRequest) {
     const timeline: TimelineEntry[] = []
 
     // Add only customer-visible notes
-    // publish: 1=All/External, 2=Internal Only, 3=Customer-visible
-    // Only show publish=1 (All) and publish=3 (Customer-visible)
-    // Skip system notes (no creatorResourceID AND no creatorContactID)
+    // Autotask publish values:
+    //   1 = All Autotask Users (INTERNAL - visible to AT staff only)
+    //   2 = Internal Only (Resources only)
+    //   3 = Published (Customer Portal visible - this is the ONLY external type)
+    // ONLY show publish=3 — these are the notes explicitly published to customers
     for (const note of notes) {
-      // Only allow explicitly external notes (publish=1 or publish=3)
-      if (note.publish !== 1 && note.publish !== 3) continue
+      // Only allow customer-portal-published notes
+      if (note.publish !== 3) continue
 
       // Skip system-generated notes (no human creator)
       if (!note.creatorResourceID && !note.creatorContactID) continue
