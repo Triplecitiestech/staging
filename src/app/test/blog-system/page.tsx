@@ -147,7 +147,7 @@ export default function BlogSystemTestPage() {
                       <div className="text-sm text-gray-600">Failed</div>
                     </div>
                     <div className="bg-white rounded-lg p-3">
-                      <div className="text-3xl font-bold text-yellow-600">{testResults.summary.skipped}</div>
+                      <div className="text-3xl font-bold text-violet-600">{testResults.summary.skipped}</div>
                       <div className="text-sm text-gray-600">Skipped</div>
                     </div>
                   </div>
@@ -164,7 +164,7 @@ export default function BlogSystemTestPage() {
                           ? 'bg-green-50 border-green-200'
                           : result.status === 'failed'
                           ? 'bg-red-50 border-red-200'
-                          : 'bg-yellow-50 border-yellow-200'
+                          : 'bg-violet-50 border-violet-200'
                       }`}
                     >
                       <div className="flex items-start justify-between">
@@ -204,7 +204,7 @@ export default function BlogSystemTestPage() {
                   ) : (
                     <Link
                       href="/blog/setup"
-                      className="bg-yellow-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-yellow-700 transition-colors inline-block"
+                      className="bg-violet-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-violet-700 transition-colors inline-block"
                     >
                       Go to Setup →
                     </Link>

@@ -146,7 +146,7 @@ export default function CoManagedIT() {
         {/* Circuit board style connections */}
         <div className="absolute inset-0 opacity-10">
           <div className="absolute top-1/4 left-1/4 w-20 h-20 border-2 border-orange-500 rounded-full"></div>
-          <div className="absolute top-1/4 right-1/4 w-20 h-20 border-2 border-yellow-500 rounded-full"></div>
+          <div className="absolute top-1/4 right-1/4 w-20 h-20 border-2 border-orange-500 rounded-full"></div>
           <div className="absolute bottom-1/3 left-1/3 w-20 h-20 border-2 border-orange-400 rounded-full"></div>
           <svg className="absolute inset-0 w-full h-full" xmlns="http://www.w3.org/2000/svg">
             <line x1="25%" y1="25%" x2="75%" y2="25%" stroke="#f97316" strokeWidth="2" strokeDasharray="10,5" />
@@ -174,7 +174,7 @@ export default function CoManagedIT() {
         </div>
       </section>
 
-      <section className="relative bg-gradient-to-br from-gray-900 via-black to-yellow-900 py-20">
+      <section className="relative bg-gradient-to-br from-gray-900 via-black to-orange-900 py-20">
         <div className="max-w-7xl mx-auto px-6">
           <div className="text-center mb-12">
             <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">Co-Managed IT Challenges We Solve</h2>
@@ -183,7 +183,7 @@ export default function CoManagedIT() {
 
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
             {painPoints.map((point, index) => (
-              <div key={index} className="bg-white/10 backdrop-blur-sm border border-yellow-500/30 rounded-xl p-6 hover:bg-white/15 transition-all">
+              <div key={index} className="bg-white/10 backdrop-blur-sm border border-orange-500/30 rounded-xl p-6 hover:bg-white/15 transition-all">
                 <p className="text-white/90 text-lg">{point}</p>
               </div>
             ))}
@@ -201,7 +201,7 @@ export default function CoManagedIT() {
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
             {solutions.map((solution, index) => (
               <div key={index} className="bg-white/10 backdrop-blur-sm border border-orange-500/30 rounded-2xl p-8 hover:border-orange-500 transition-all group">
-                <div className="w-16 h-16 bg-gradient-to-br from-yellow-500 to-orange-500 rounded-xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                <div className="w-16 h-16 bg-gradient-to-br from-orange-400 to-orange-500 rounded-xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
                   <solution.icon size={32} className="text-white" />
                 </div>
                 <h3 className="text-2xl font-bold text-white mb-4">{solution.title}</h3>
@@ -212,7 +212,7 @@ export default function CoManagedIT() {
         </div>
       </section>
 
-      <section className="relative bg-gradient-to-br from-yellow-900 via-black to-gray-900 py-20">
+      <section className="relative bg-gradient-to-br from-orange-900 via-black to-gray-900 py-20">
         <div className="max-w-7xl mx-auto px-6">
           <div className="text-center mb-12">
             <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">What You'll Achieve</h2>
@@ -221,8 +221,8 @@ export default function CoManagedIT() {
 
           <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
             {benefits.map((benefit, index) => (
-              <div key={index} className="flex items-start space-x-4 bg-white/5 backdrop-blur-sm border border-yellow-500/30 rounded-xl p-6">
-                <CheckCircleIcon size={24} className="text-yellow-400 flex-shrink-0 mt-1" />
+              <div key={index} className="flex items-start space-x-4 bg-white/5 backdrop-blur-sm border border-orange-500/30 rounded-xl p-6">
+                <CheckCircleIcon size={24} className="text-orange-400 flex-shrink-0 mt-1" />
                 <p className="text-white text-lg">{benefit}</p>
               </div>
             ))}
@@ -230,7 +230,7 @@ export default function CoManagedIT() {
         </div>
       </section>
 
-      <section className="relative bg-gradient-to-br from-black via-gray-900 to-yellow-900 py-20">
+      <section className="relative bg-gradient-to-br from-black via-gray-900 to-orange-900 py-20">
         <div className="max-w-4xl mx-auto px-6">
           <div className="text-center mb-12">
             <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">Frequently Asked Questions</h2>
@@ -239,8 +239,8 @@ export default function CoManagedIT() {
 
           <div className="space-y-6">
             {faqs.map((faq, index) => (
-              <div key={index} className="bg-white/10 backdrop-blur-sm border border-yellow-500/30 rounded-xl p-8">
-                <h3 className="text-xl font-bold text-yellow-400 mb-4">{faq.question}</h3>
+              <div key={index} className="bg-white/10 backdrop-blur-sm border border-orange-500/30 rounded-xl p-8">
+                <h3 className="text-xl font-bold text-orange-400 mb-4">{faq.question}</h3>
                 <p className="text-white/90 leading-relaxed">{faq.answer}</p>
               </div>
             ))}
@@ -248,7 +248,7 @@ export default function CoManagedIT() {
         </div>
       </section>
 
-      <section className="relative bg-gradient-to-br from-yellow-600 to-orange-700 py-20">
+      <section className="relative bg-gradient-to-br from-orange-600 to-orange-700 py-20">
         <div className="max-w-4xl mx-auto px-6 text-center">
           <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">Ready to Empower Your IT Team?</h2>
           <p className="text-xl text-white/90 mb-10">Let's discuss how co-managed IT can give your team enterprise tools and expertise without the enterprise cost.</p>
@@ -264,7 +264,7 @@ export default function CoManagedIT() {
           </div>
 
           <p className="text-white/80 mt-8">Or schedule a free consultation:</p>
-          <a href="https://calendly.com/kurtis-tct" target="_blank" rel="noopener noreferrer" className="inline-flex items-center text-white hover:text-yellow-200 font-semibold mt-4 text-lg">
+          <a href="https://calendly.com/kurtis-tct" target="_blank" rel="noopener noreferrer" className="inline-flex items-center text-white hover:text-orange-200 font-semibold mt-4 text-lg">
             <CalendarIcon size={20} className="mr-2" />
             Book Your Consultation
           </a>

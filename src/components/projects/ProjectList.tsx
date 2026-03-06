@@ -15,7 +15,7 @@ interface Project {
   phases: Array<{ status: string }>
 }
 
-type SortKey = 'title' | 'company' | 'type' | 'status' | 'progress'
+type SortKey = 'title' | 'company' | 'type' | 'status' | 'progress' | 'created'
 type SortDir = 'asc' | 'desc'
 
 export default function ProjectList({ projects }: { projects: Project[] }) {
@@ -123,6 +123,9 @@ export default function ProjectList({ projects }: { projects: Project[] }) {
         case 'progress':
           cmp = getProgress(a.phases) - getProgress(b.phases)
           break
+        case 'created':
+          cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+          break
       }
       return sortDir === 'asc' ? cmp : -cmp
     })
@@ -188,6 +191,12 @@ export default function ProjectList({ projects }: { projects: Project[] }) {
                   >
                     Progress <SortIcon column="progress" />
                   </th>
+                  <th
+                    onClick={() => handleSort('created')}
+                    className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider cursor-pointer hover:text-white select-none"
+                  >
+                    Created <SortIcon column="created" />
+                  </th>
                   <th className="px-4 py-3 text-right text-xs font-semibold text-slate-400 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
@@ -219,6 +228,9 @@ export default function ProjectList({ projects }: { projects: Project[] }) {
                           </div>
                           <span className="text-xs text-slate-300">{progress}%</span>
                         </div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-400">
+                        {new Date(project.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-4">

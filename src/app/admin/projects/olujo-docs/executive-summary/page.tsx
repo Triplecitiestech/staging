@@ -55,7 +55,7 @@ export default function ExecutiveSummaryPage() {
                 "Do you carry Olujo Tequila?"
               </p>
             </div>
-            <p className="text-yellow-300 font-semibold">
+            <p className="text-rose-300 font-semibold">
               This project is not a sales program.
             </p>
             <p>

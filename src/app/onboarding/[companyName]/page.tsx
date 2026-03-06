@@ -53,13 +53,15 @@ export default async function OnboardingPage({ params }: PageProps) {
 
   // Fetch projects from database if authenticated
   let projects = null
+  let companyDisplayName: string | null = null
   if (isAuthenticated) {
     try {
       // First find the company by slug
       const company = await prisma.company.findUnique({
         where: { slug: companySlug },
-        select: { id: true }
+        select: { id: true, displayName: true }
       })
+      if (company) companyDisplayName = company.displayName
 
       if (company) {
         // Then fetch projects for this company
@@ -134,6 +136,7 @@ export default async function OnboardingPage({ params }: PageProps) {
   return (
     <OnboardingPortal
       companySlug={companySlug}
+      companyDisplayName={companyDisplayName}
       isAuthenticated={isAuthenticated}
       onboardingData={onboardingData}
       projects={projects}
