@@ -144,6 +144,10 @@
 
 ## API Routes
 
+### Autotask Sync
+- `GET /api/autotask/trigger?secret=XXX&step=<step>` - Multi-step sync (cleanup/companies/projects/contacts/merge/resync/diagnose)
+- `GET /api/autotask/status` - Sync history and status (no auth)
+
 ### Blog Management
 - `POST /api/blog/generate` - Generate new blog post with AI
 - `GET /api/blog/generate-now` - Trigger generation manually
@@ -252,6 +256,15 @@
 
 ## Third-Party Integrations
 
+### Autotask PSA
+- **Purpose**: Primary source of truth for companies, projects, phases, tasks, and contacts
+- **API**: REST API v1.0 with API key authentication (username + secret + integration code)
+- **Sync Endpoint**: `GET /api/autotask/trigger?secret=MIGRATION_SECRET&step=<step>`
+- **Steps**: cleanup → companies → projects → contacts → merge → resync → diagnose
+- **Key Files**: `src/lib/autotask.ts` (client), `src/app/api/autotask/trigger/route.ts` (sync)
+- **Env Vars**: `AUTOTASK_API_USERNAME`, `AUTOTASK_API_SECRET`, `AUTOTASK_API_INTEGRATION_CODE`, `AUTOTASK_API_BASE_URL`
+- **Documentation**: See `AUTOTASK_SYNC.md` for full details
+
 ### ChatGenie (Thread)
 - **Purpose**: Live chat widget for customer support
 - **App ID**: `3de45b0b-6349-42fa-a1d7-5a299b4c5ab2`
@@ -314,16 +327,21 @@
 ### Environment Variables
 **Required**:
 - `DATABASE_URL` - PostgreSQL connection string
+- `PRISMA_DATABASE_URL` - Prisma-specific connection string
 - `NEXTAUTH_SECRET` - NextAuth JWT secret
 - `NEXTAUTH_URL` - App base URL
+- `AZURE_AD_CLIENT_ID` / `AZURE_AD_CLIENT_SECRET` / `AZURE_AD_TENANT_ID` - Azure AD OAuth
 - `RESEND_API_KEY` - Email service API key
-- `ADMIN_USERNAME` / `ADMIN_PASSWORD` - Admin login
 - `TURNSTILE_SECRET_KEY` - Cloudflare Turnstile secret
 - `NEXT_PUBLIC_TURNSTILE_SITE_KEY` - Turnstile public key
+- `ANTHROPIC_API_KEY` - For Claude AI features (blog generation, AI chat)
 
-**Optional**:
-- `OPENAI_API_KEY` - For AI blog generation
-- `ANTHROPIC_API_KEY` - For Claude AI features
+**Autotask**:
+- `AUTOTASK_API_USERNAME` - API user email
+- `AUTOTASK_API_SECRET` - API user secret key
+- `AUTOTASK_API_INTEGRATION_CODE` - Integration code
+- `AUTOTASK_API_BASE_URL` - Zone-specific REST API URL
+- `MIGRATION_SECRET` - Secret for triggering sync and migrations
 
 ---
 

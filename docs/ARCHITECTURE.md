@@ -122,20 +122,57 @@ Vercel Cron (MWF 8AM UTC)
 - `src/app/api/cron/generate-blog/route.ts` — cron handler
 - `src/app/api/blog/approval/route.ts` — approval workflow
 
+## Autotask PSA Sync Flow
+
+```
+Autotask REST API v1.0
+  │
+  ▼
+GET /api/autotask/trigger?step=<step>
+  ├─ step=companies  → AutotaskClient.getAllProjects() → getCompany(id)
+  │                    → prisma.company.upsert (by autotaskCompanyId)
+  │
+  ├─ step=projects   → AutotaskClient.getAllProjects() (paginated, 5/page)
+  │   For each:
+  │   ├─ syncProject → prisma.project.upsert (by autotaskProjectId)
+  │   ├─ getProjectPhases → syncPhase → prisma.phase.upsert (by autotaskPhaseId)
+  │   ├─ getProjectTasks  → syncTask  → prisma.phaseTask.upsert (by autotaskTaskId)
+  │   └─ getProjectNotes  → prisma.comment.create
+  │
+  ├─ step=merge      → Find duplicate companies by name
+  │                    → Move projects/contacts to AT-synced winner
+  │                    → Delete non-AT duplicates
+  │
+  └─ step=resync     → Re-fetch phases+tasks for AT projects
+                       → Clean up empty phases
+                       → Update phase statuses from task completion
+```
+
+**Key files:**
+- `src/lib/autotask.ts` — API client, types, status mappers
+- `src/app/api/autotask/trigger/route.ts` — multi-step sync (main file)
+- `src/app/api/autotask/status/route.ts` — sync history
+
+**See `AUTOTASK_SYNC.md` for full documentation.**
+
 ## Data Model (Key Entities)
 
 ```
 StaffUser ─── BlogPost
                 │
 Company ──── Project ──── Phase ──── PhaseTask
-                │           │           │
-                │         Comment     Comment
-                │         Assignment  Assignment
-                │
-              AuditLog
+  │             │           │           │
+  │             │         Comment     Comment
+  │             │         Assignment  Assignment
+  │             │
+  │           AuditLog
+  │
+CompanyContact
+  │
+AutotaskSyncLog
 ```
 
-See `prisma/schema.prisma` for the full 26-model schema.
+Each entity can have Autotask ID fields (`autotaskCompanyId`, `autotaskProjectId`, etc.) linking them to Autotask records. See `prisma/schema.prisma` for the full schema.
 
 ## Structured Logging
 
