@@ -40,7 +40,7 @@ export class ContentCurator {
 
   constructor() {
     this.parser = new Parser({
-      timeout: 3000,
+      timeout: 8000,
       headers: {
         'User-Agent': 'Triple Cities Tech Blog Aggregator/1.0',
         'Accept': 'application/rss+xml, application/xml, text/xml'

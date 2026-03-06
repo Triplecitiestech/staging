@@ -51,15 +51,24 @@ async function handleSync(request: NextRequest) {
   };
 
   try {
-    // Auth check - Vercel Cron sends this header, or use secret for manual triggers
+    // Auth check - Vercel Cron sends Authorization: Bearer <CRON_SECRET>
     const authHeader = request.headers.get('authorization');
-    const cronHeader = request.headers.get('x-vercel-cron');
+    const cronSecret = process.env.CRON_SECRET;
+    const syncSecret = process.env.AUTOTASK_SYNC_SECRET;
 
-    if (!cronHeader) {
-      const secret = process.env.AUTOTASK_SYNC_SECRET;
-      if (!secret || authHeader !== `Bearer ${secret}`) {
+    if (!cronSecret && !syncSecret) {
+      console.warn('[Autotask Sync] No cron secret configured — skipping auth check');
+    } else if (authHeader) {
+      const isValid =
+        (cronSecret && authHeader === `Bearer ${cronSecret}`) ||
+        (syncSecret && authHeader === `Bearer ${syncSecret}`);
+      if (!isValid) {
+        console.error('[Autotask Sync] Invalid authorization');
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       }
+    } else {
+      console.error('[Autotask Sync] Missing Authorization header');
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     // Check if Autotask credentials are configured
