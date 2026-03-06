@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import AdminHeader from '@/components/admin/AdminHeader';
 
 interface AudienceSource {
   id: string;
@@ -39,24 +40,30 @@ export default function AudiencesPage() {
   const [selectedCompanies, setSelectedCompanies] = useState<string[]>([]);
   const [allCustomers, setAllCustomers] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [contactGroups, setContactGroups] = useState<{ id: string; name: string }[]>([]);
+  const [selectedContactGroups, setSelectedContactGroups] = useState<string[]>([]);
+  const [targetingMode, setTargetingMode] = useState<'companies' | 'contact-groups'>('companies');
 
   const loadData = useCallback(async () => {
     try {
-      const [audRes, srcRes, tgtRes] = await Promise.all([
+      const [audRes, srcRes, tgtRes, cgRes] = await Promise.all([
         fetch('/api/marketing/audiences'),
         fetch('/api/marketing/audiences/sources'),
         fetch('/api/marketing/audiences/targeting?provider=AUTOTASK'),
+        fetch('/api/marketing/audiences/contact-groups'),
       ]);
 
-      const [audData, srcData, tgtData] = await Promise.all([
+      const [audData, srcData, tgtData, cgData] = await Promise.all([
         audRes.json(),
         srcRes.json(),
         tgtRes.json(),
+        cgRes.json(),
       ]);
 
       setAudiences(audData.audiences || []);
       setSources(srcData.sources || []);
       setTargetingOptions(tgtData.options || []);
+      setContactGroups(cgData.groups || []);
     } catch (err) {
       console.error('Failed to load audience data:', err);
     } finally {
@@ -84,7 +91,9 @@ export default function AudiencesPage() {
 
     setCreating(true);
     try {
-      const filterCriteria = allCustomers
+      const filterCriteria = targetingMode === 'contact-groups'
+        ? { contactGroupIds: selectedContactGroups }
+        : allCustomers
         ? { allActiveCustomers: true }
         : { companyIds: selectedCompanies };
 
@@ -128,14 +137,33 @@ export default function AudiencesPage() {
 
   if (loading) {
     return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="text-slate-400 text-center py-12">Loading audience data...</div>
+      <div className="min-h-screen bg-slate-950 relative overflow-hidden">
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,_rgba(6,182,212,0.08)_0%,_transparent_50%)]" />
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_right,_rgba(139,92,246,0.08)_0%,_transparent_50%)]" />
+        </div>
+        <div className="relative z-10">
+          <AdminHeader />
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div className="text-slate-400 text-center py-12">Loading audience data...</div>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="min-h-screen bg-slate-950 relative overflow-hidden">
+      {/* Ambient gradient grid background */}
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,_rgba(6,182,212,0.08)_0%,_transparent_50%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_right,_rgba(139,92,246,0.08)_0%,_transparent_50%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_rgba(14,165,233,0.04)_0%,_transparent_60%)]" />
+        <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)', backgroundSize: '60px 60px' }} />
+      </div>
+      <div className="relative z-10">
+      <AdminHeader />
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
         <div>
@@ -184,54 +212,119 @@ export default function AudiencesPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-3">Select Companies</label>
+              <label className="block text-sm font-medium text-slate-300 mb-3">Targeting Method</label>
 
-              <label className="flex items-center gap-3 mb-4 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={allCustomers}
-                  onChange={(e) => {
-                    setAllCustomers(e.target.checked);
-                    if (e.target.checked) setSelectedCompanies([]);
-                  }}
-                  className="w-4 h-4 rounded border-white/20 bg-slate-900/50 text-cyan-500 focus:ring-cyan-500"
-                />
-                <span className="text-white font-medium">All Active Customers</span>
-                <span className="text-slate-400 text-sm">
-                  ({targetingOptions.reduce((sum, o) => sum + (o.contactCount || 0), 0)} contacts)
-                </span>
-              </label>
+              {/* Targeting mode tabs */}
+              <div className="flex gap-1 bg-slate-900/50 rounded-lg p-1 mb-4">
+                <button
+                  onClick={() => { setTargetingMode('companies'); setSelectedContactGroups([]); }}
+                  className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                    targetingMode === 'companies' ? 'bg-cyan-500 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  By Company
+                </button>
+                <button
+                  onClick={() => { setTargetingMode('contact-groups'); setSelectedCompanies([]); setAllCustomers(false); }}
+                  className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                    targetingMode === 'contact-groups' ? 'bg-cyan-500 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  By Contact Group
+                </button>
+              </div>
 
-              {!allCustomers && (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 max-h-64 overflow-y-auto pr-2">
-                  {targetingOptions.map((option) => (
-                    <label
-                      key={option.id}
-                      className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors ${
-                        selectedCompanies.includes(option.id)
-                          ? 'bg-cyan-500/10 border border-cyan-500/30'
-                          : 'bg-slate-900/30 border border-white/5 hover:border-white/10'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedCompanies.includes(option.id)}
-                        onChange={() => toggleCompany(option.id)}
-                        className="w-4 h-4 rounded border-white/20 bg-slate-900/50 text-cyan-500 focus:ring-cyan-500"
-                      />
-                      <div className="min-w-0">
-                        <p className="text-sm text-white truncate">{option.label}</p>
-                        <p className="text-xs text-slate-400">{option.contactCount} contacts</p>
-                      </div>
-                    </label>
-                  ))}
-                </div>
+              {targetingMode === 'companies' && (
+                <>
+                  <label className="flex items-center gap-3 mb-4 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={allCustomers}
+                      onChange={(e) => {
+                        setAllCustomers(e.target.checked);
+                        if (e.target.checked) setSelectedCompanies([]);
+                      }}
+                      className="w-4 h-4 rounded border-white/20 bg-slate-900/50 text-cyan-500 focus:ring-cyan-500"
+                    />
+                    <span className="text-white font-medium">All Active Customers</span>
+                    <span className="text-slate-400 text-sm">
+                      ({targetingOptions.reduce((sum, o) => sum + (o.contactCount || 0), 0)} contacts)
+                    </span>
+                  </label>
+
+                  {!allCustomers && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 max-h-64 overflow-y-auto pr-2">
+                      {targetingOptions.map((option) => (
+                        <label
+                          key={option.id}
+                          className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors ${
+                            selectedCompanies.includes(option.id)
+                              ? 'bg-cyan-500/10 border border-cyan-500/30'
+                              : 'bg-slate-900/30 border border-white/5 hover:border-white/10'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedCompanies.includes(option.id)}
+                            onChange={() => toggleCompany(option.id)}
+                            className="w-4 h-4 rounded border-white/20 bg-slate-900/50 text-cyan-500 focus:ring-cyan-500"
+                          />
+                          <div className="min-w-0">
+                            <p className="text-sm text-white truncate">{option.label}</p>
+                            <p className="text-xs text-slate-400">{option.contactCount} contacts</p>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+
+                  {targetingOptions.length === 0 && (
+                    <p className="text-sm text-slate-400">
+                      No companies with contacts found. Sync contacts from Autotask first.
+                    </p>
+                  )}
+                </>
               )}
 
-              {targetingOptions.length === 0 && (
-                <p className="text-sm text-slate-400">
-                  No companies with contacts found. Sync contacts from Autotask first.
-                </p>
+              {targetingMode === 'contact-groups' && (
+                <>
+                  <p className="text-sm text-slate-400 mb-3">
+                    Select Autotask Contact Action Groups. These target contacts who have not opted out.
+                  </p>
+                  {contactGroups.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-64 overflow-y-auto pr-2">
+                      {contactGroups.map((group) => (
+                        <label
+                          key={group.id}
+                          className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors ${
+                            selectedContactGroups.includes(group.id)
+                              ? 'bg-cyan-500/10 border border-cyan-500/30'
+                              : 'bg-slate-900/30 border border-white/5 hover:border-white/10'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedContactGroups.includes(group.id)}
+                            onChange={() => {
+                              setSelectedContactGroups(prev =>
+                                prev.includes(group.id) ? prev.filter(id => id !== group.id) : [...prev, group.id]
+                              );
+                            }}
+                            className="w-4 h-4 rounded border-white/20 bg-slate-900/50 text-cyan-500 focus:ring-cyan-500"
+                          />
+                          <div className="min-w-0">
+                            <p className="text-sm text-white truncate">{group.name}</p>
+                            <p className="text-xs text-slate-400">Autotask Contact Group</p>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-400">
+                      No Autotask Contact Groups found. These are configured in your Autotask instance.
+                    </p>
+                  )}
+                </>
               )}
             </div>
 
@@ -244,7 +337,7 @@ export default function AudiencesPage() {
               </button>
               <button
                 onClick={handleCreate}
-                disabled={creating || (!allCustomers && selectedCompanies.length === 0) || !newName.trim()}
+                disabled={creating || !newName.trim() || (targetingMode === 'companies' && !allCustomers && selectedCompanies.length === 0) || (targetingMode === 'contact-groups' && selectedContactGroups.length === 0)}
                 className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors text-sm font-medium"
               >
                 {creating ? 'Creating...' : 'Create Audience'}
@@ -293,6 +386,8 @@ export default function AudiencesPage() {
             ))}
           </div>
         )}
+      </div>
+      </div>
       </div>
     </div>
   );

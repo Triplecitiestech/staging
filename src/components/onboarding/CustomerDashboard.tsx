@@ -67,7 +67,7 @@ function getStatusBadge(status: string) {
     case 'CUSTOMER_NOTE_ADDED':
       return { label: 'Waiting on You', color: 'bg-orange-500/20 text-orange-300 border-orange-500/30' }
     case 'WAITING_ON_VENDOR':
-      return { label: 'Waiting on Vendor', color: 'bg-purple-500/20 text-purple-300 border-purple-500/30' }
+      return { label: 'Waiting on Vendor', color: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' }
     case 'NEEDS_REVIEW':
     case 'INFORMATION_RECEIVED':
       return { label: 'Under Review', color: 'bg-blue-500/20 text-blue-300 border-blue-500/30' }
@@ -92,7 +92,7 @@ function getPhaseStatusBadge(status: string) {
     case 'WAITING_ON_CUSTOMER':
       return { label: 'Waiting on You', color: 'bg-orange-500/20 text-orange-300 border-orange-500/30' }
     case 'SCHEDULED':
-      return { label: 'Scheduled', color: 'bg-purple-500/20 text-purple-300 border-purple-500/30' }
+      return { label: 'Scheduled', color: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' }
     case 'NOT_STARTED':
       return { label: 'Not Started', color: 'bg-slate-500/20 text-slate-300 border-slate-500/30' }
     default:
@@ -187,8 +187,8 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
             <div className="text-3xl font-bold text-green-400">{completedTasks.length}</div>
             <div className="text-sm text-gray-400 mt-1">Completed Tasks</div>
           </button>
-          <button onClick={() => {/* scroll to projects */}} className="bg-gray-800/50 border border-purple-500/30 hover:border-purple-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-purple-500/10 cursor-pointer">
-            <div className="text-3xl font-bold text-purple-400">{projects.length}</div>
+          <button onClick={() => {/* scroll to projects */}} className="bg-gray-800/50 border border-indigo-500/30 hover:border-indigo-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-indigo-500/10 cursor-pointer">
+            <div className="text-3xl font-bold text-indigo-400">{projects.length}</div>
             <div className="text-sm text-gray-400 mt-1">Projects</div>
           </button>
           <button onClick={() => setSelectedProject(projects.find(p => p.phases.some(ph => ph.tasks.some(t => t.status === 'WAITING_ON_CLIENT' || t.status === 'CUSTOMER_NOTE_ADDED'))) || projects[0])} className="bg-gray-800/50 border border-orange-500/30 hover:border-orange-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-orange-500/10 cursor-pointer">
@@ -198,7 +198,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
         </div>
 
         {/* Tickets Card */}
-        {renderTicketsCard(ticketsLoading, openTickets, closedTickets, tickets, selectedTicketId, setSelectedTicketId)}
+        {renderTicketsCard(ticketsLoading, openTickets, closedTickets, tickets, selectedTicketId, setSelectedTicketId, companySlug)}
 
         {/* Project Cards */}
         <h2 className="text-xl font-bold text-white mb-4">Your Projects</h2>
@@ -301,8 +301,8 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
           <div className="text-2xl font-bold text-green-400">{doneTasks}</div>
           <div className="text-xs text-gray-400 mt-1">Completed Tasks</div>
         </div>
-        <div className="bg-gray-800/50 border border-purple-500/30 rounded-lg p-3 text-center">
-          <div className="text-2xl font-bold text-purple-400">{project.phases.length}</div>
+        <div className="bg-gray-800/50 border border-indigo-500/30 rounded-lg p-3 text-center">
+          <div className="text-2xl font-bold text-indigo-400">{project.phases.length}</div>
           <div className="text-xs text-gray-400 mt-1">Phases</div>
         </div>
         <div className="bg-gray-800/50 border border-orange-500/30 rounded-lg p-3 text-center">
@@ -314,7 +314,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
       </div>
 
       {/* Tickets Card (single project view) */}
-      {projects.length === 1 && renderTicketsCard(ticketsLoading, openTickets, closedTickets, tickets, selectedTicketId, setSelectedTicketId)}
+      {projects.length === 1 && renderTicketsCard(ticketsLoading, openTickets, closedTickets, tickets, selectedTicketId, setSelectedTicketId, companySlug)}
 
       {/* Phases */}
       <div className="space-y-4">
@@ -347,7 +347,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
                     <div className="flex items-center gap-3 mb-1 flex-wrap">
                       <h3 className="text-lg font-bold text-white">{phase.title}</h3>
                       <span className={`px-2.5 py-0.5 text-xs font-medium rounded-full border ${phaseBadge.color}`}>
-                        {phaseBadge.label}
+                        Status: {phaseBadge.label}
                       </span>
                     </div>
                     {phase.description && (
@@ -405,7 +405,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
                             {task.taskText}
                           </span>
                           <span className={`px-2 py-0.5 text-xs font-medium rounded-full border whitespace-nowrap ${badge.color}`}>
-                            {badge.label}
+                            Status: {badge.label}
                           </span>
                           {hasComments && (
                             <span className="text-xs text-gray-500">{task.comments!.length} note{task.comments!.length !== 1 ? 's' : ''}</span>
@@ -484,13 +484,217 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
   )
 }
 
+function TicketTimeline({ ticket, companySlug, onBack }: {
+  ticket: Ticket
+  companySlug: string
+  onBack: () => void
+}) {
+  const [timeline, setTimeline] = useState<{
+    id: string
+    type: string
+    timestamp: string
+    author: string
+    authorType: string
+    content: string
+    isInternal: boolean
+    hoursWorked?: number
+  }[]>([])
+  const [loadingTimeline, setLoadingTimeline] = useState(true)
+  const [replyText, setReplyText] = useState('')
+  const [submittingReply, setSubmittingReply] = useState(false)
+  const [replySuccess, setReplySuccess] = useState(false)
+
+  useEffect(() => {
+    setLoadingTimeline(true)
+    fetch(`/api/customer/tickets/timeline?companySlug=${encodeURIComponent(companySlug)}&ticketId=${ticket.id}`)
+      .then(res => res.ok ? res.json() : { timeline: [] })
+      .then(data => setTimeline(data.timeline || []))
+      .catch(() => setTimeline([]))
+      .finally(() => setLoadingTimeline(false))
+  }, [companySlug, ticket.id])
+
+  const handleReply = async () => {
+    if (!replyText.trim() || submittingReply) return
+    setSubmittingReply(true)
+    try {
+      const res = await fetch('/api/customer/tickets/reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companySlug,
+          ticketId: ticket.id,
+          message: replyText.trim(),
+        }),
+      })
+      if (res.ok) {
+        setReplyText('')
+        setReplySuccess(true)
+        setTimeout(() => setReplySuccess(false), 3000)
+        // Refresh timeline
+        const refreshRes = await fetch(`/api/customer/tickets/timeline?companySlug=${encodeURIComponent(companySlug)}&ticketId=${ticket.id}`)
+        if (refreshRes.ok) {
+          const data = await refreshRes.json()
+          setTimeline(data.timeline || [])
+        }
+      }
+    } catch {
+      // silent
+    } finally {
+      setSubmittingReply(false)
+    }
+  }
+
+  const getAuthorLabel = (author: string, authorType: string) => {
+    if (authorType === 'customer') return `${author} - Customer`
+    if (authorType === 'technician') return `Triple Cities Tech - ${author}`
+    return author
+  }
+
+  return (
+    <div className="bg-gray-800/50 border border-white/10 rounded-lg p-6 mb-8">
+      <button
+        onClick={onBack}
+        className="flex items-center gap-2 text-cyan-400 hover:text-cyan-300 transition-colors mb-4 text-sm"
+      >
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+        </svg>
+        Back to Tickets
+      </button>
+
+      <div className="mb-6">
+        <div className="flex items-center gap-3 mb-2 flex-wrap">
+          <h3 className="text-xl font-bold text-white">{ticket.title}</h3>
+          <span className={`px-2.5 py-0.5 text-xs font-medium rounded-full whitespace-nowrap ${
+            ticket.completedDate
+              ? 'bg-green-500/20 text-green-300 border border-green-500/30'
+              : 'bg-red-500/20 text-red-300 border border-red-500/30'
+          }`}>
+            {ticket.completedDate ? 'Closed' : 'Open'}
+          </span>
+        </div>
+        <p className="text-sm text-gray-400">Ticket #{ticket.ticketNumber}</p>
+      </div>
+
+      {/* Timeline */}
+      <div className="space-y-0 relative">
+        {/* Vertical line */}
+        <div className="absolute left-4 top-0 bottom-0 w-px bg-gray-700" />
+
+        {/* Created entry */}
+        <div className="relative pl-10 pb-4">
+          <div className="absolute left-2.5 w-3 h-3 bg-cyan-500 rounded-full border-2 border-gray-800" />
+          <div className="bg-cyan-500/10 border border-cyan-500/20 rounded-lg px-4 py-3">
+            <div className="flex items-center justify-between mb-1 flex-wrap gap-1">
+              <span className="text-xs font-semibold text-cyan-400">Ticket Created</span>
+              <span className="text-xs text-gray-500">
+                {new Date(ticket.createDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+              </span>
+            </div>
+            <p className="text-sm text-gray-300">{ticket.title}</p>
+          </div>
+        </div>
+
+        {/* Loading state */}
+        {loadingTimeline && (
+          <div className="relative pl-10 pb-4">
+            <div className="absolute left-2.5 w-3 h-3 bg-gray-600 rounded-full border-2 border-gray-800 animate-pulse" />
+            <p className="text-sm text-gray-500">Loading communications...</p>
+          </div>
+        )}
+
+        {/* Timeline entries */}
+        {timeline.map(entry => (
+          <div key={entry.id} className="relative pl-10 pb-4">
+            <div className={`absolute left-2.5 w-3 h-3 rounded-full border-2 border-gray-800 ${
+              entry.authorType === 'customer' ? 'bg-emerald-500' :
+              entry.type === 'time_entry' ? 'bg-indigo-500' : 'bg-cyan-500'
+            }`} />
+            <div className={`rounded-lg px-4 py-3 ${
+              entry.authorType === 'customer'
+                ? 'bg-emerald-500/10 border border-emerald-500/20'
+                : 'bg-gray-700/30'
+            }`}>
+              <div className="flex items-center justify-between mb-1 flex-wrap gap-1">
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs font-semibold ${
+                    entry.authorType === 'customer' ? 'text-emerald-400' : 'text-cyan-400'
+                  }`}>
+                    {getAuthorLabel(entry.author, entry.authorType)}
+                  </span>
+                  {entry.type === 'time_entry' && entry.hoursWorked && (
+                    <span className="text-xs text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded">
+                      {entry.hoursWorked}h worked
+                    </span>
+                  )}
+                </div>
+                <span className="text-xs text-gray-500">
+                  {entry.timestamp ? new Date(entry.timestamp).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
+                </span>
+              </div>
+              <p className="text-sm text-gray-300 whitespace-pre-wrap">{entry.content}</p>
+            </div>
+          </div>
+        ))}
+
+        {/* Completed entry */}
+        {ticket.completedDate && (
+          <div className="relative pl-10 pb-4">
+            <div className="absolute left-2.5 w-3 h-3 bg-green-500 rounded-full border-2 border-gray-800" />
+            <div className="bg-green-500/10 border border-green-500/20 rounded-lg px-4 py-3">
+              <div className="flex items-center justify-between mb-1 flex-wrap gap-1">
+                <span className="text-xs font-semibold text-green-400">Ticket Resolved</span>
+                <span className="text-xs text-gray-500">
+                  {new Date(ticket.completedDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>
+              <p className="text-sm text-gray-300">This ticket has been completed and closed.</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Reply form (only for open tickets) */}
+      {!ticket.completedDate && (
+        <div className="mt-6 pt-4 border-t border-white/10">
+          <p className="text-sm font-medium text-white mb-2">Reply to this ticket</p>
+          <div className="flex gap-2">
+            <textarea
+              value={replyText}
+              onChange={e => setReplyText(e.target.value)}
+              placeholder="Type your reply..."
+              rows={3}
+              className="flex-1 bg-gray-700/50 text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-cyan-500/50 focus:outline-none placeholder-gray-500 resize-none"
+            />
+          </div>
+          <div className="flex items-center justify-between mt-2">
+            <div>
+              {replySuccess && (
+                <p className="text-xs text-green-400">Reply sent successfully!</p>
+              )}
+            </div>
+            <button
+              onClick={handleReply}
+              disabled={!replyText.trim() || submittingReply}
+              className="px-4 py-2 bg-cyan-500 hover:bg-cyan-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors"
+            >
+              {submittingReply ? 'Sending...' : 'Send Reply'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function renderTicketsCard(
   loading: boolean,
   openTickets: Ticket[],
   closedTickets: Ticket[],
   allTickets: Ticket[],
   selectedTicketId: number | null,
-  setSelectedTicketId: (id: number | null) => void
+  setSelectedTicketId: (id: number | null) => void,
+  companySlug?: string
 ) {
   if (loading) {
     return (
@@ -505,55 +709,14 @@ function renderTicketsCard(
 
   const selectedTicket = selectedTicketId ? allTickets.find(t => t.id === selectedTicketId) : null
 
-  // If a ticket is selected, show the detail view
-  if (selectedTicket) {
+  // If a ticket is selected, show the timeline detail view
+  if (selectedTicket && companySlug) {
     return (
-      <div className="bg-gray-800/50 border border-white/10 rounded-lg p-6 mb-8">
-        <button
-          onClick={() => setSelectedTicketId(null)}
-          className="flex items-center gap-2 text-cyan-400 hover:text-cyan-300 transition-colors mb-4 text-sm"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-          Back to Tickets
-        </button>
-        <div className="mb-4">
-          <div className="flex items-center gap-3 mb-2">
-            <h3 className="text-xl font-bold text-white">{selectedTicket.title}</h3>
-            <span className={`px-2.5 py-0.5 text-xs font-medium rounded-full whitespace-nowrap ${
-              selectedTicket.completedDate
-                ? 'bg-green-500/20 text-green-300 border border-green-500/30'
-                : 'bg-orange-500/20 text-orange-300 border border-orange-500/30'
-            }`}>
-              {selectedTicket.completedDate ? 'Closed' : 'Open'}
-            </span>
-          </div>
-          <p className="text-sm text-gray-400">Ticket #{selectedTicket.ticketNumber}</p>
-        </div>
-
-        {/* Ticket Timeline */}
-        <div className="space-y-3">
-          <div className="bg-gray-700/30 rounded-lg px-4 py-3">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-medium text-cyan-400">Ticket Created</span>
-              <span className="text-xs text-gray-500">{new Date(selectedTicket.createDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</span>
-            </div>
-            <p className="text-sm text-gray-300">{selectedTicket.title}</p>
-          </div>
-          {selectedTicket.completedDate && (
-            <div className="bg-green-500/10 rounded-lg px-4 py-3 border border-green-500/20">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-xs font-medium text-green-400">Ticket Resolved</span>
-                <span className="text-xs text-gray-500">{new Date(selectedTicket.completedDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</span>
-              </div>
-              <p className="text-sm text-gray-300">This ticket has been completed and closed.</p>
-            </div>
-          )}
-        </div>
-
-        <p className="text-xs text-gray-500 mt-4">For detailed ticket notes, contact your account manager or call (607) 341-7500.</p>
-      </div>
+      <TicketTimeline
+        ticket={selectedTicket}
+        companySlug={companySlug}
+        onBack={() => setSelectedTicketId(null)}
+      />
     )
   }
 
@@ -561,8 +724,8 @@ function renderTicketsCard(
     <div className="bg-gray-800/50 border border-white/10 rounded-lg p-6 mb-8">
       <h3 className="text-lg font-bold text-white mb-4">Recent Tickets (Last 30 Days)</h3>
       <div className="grid grid-cols-2 gap-4 mb-4">
-        <div className="bg-orange-500/10 border border-orange-500/30 rounded-lg p-3 text-center">
-          <div className="text-2xl font-bold text-orange-400">{openTickets.length}</div>
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-center">
+          <div className="text-2xl font-bold text-red-400">{openTickets.length}</div>
           <div className="text-xs text-gray-400">Open</div>
         </div>
         <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-3 text-center">
@@ -586,7 +749,7 @@ function renderTicketsCard(
                 <span className={`px-2 py-0.5 text-xs font-medium rounded-full whitespace-nowrap ${
                   ticket.completedDate
                     ? 'bg-green-500/20 text-green-300'
-                    : 'bg-orange-500/20 text-orange-300'
+                    : 'bg-red-500/20 text-red-300'
                 }`}>
                   {ticket.completedDate ? 'Closed' : 'Open'}
                 </span>

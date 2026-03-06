@@ -222,6 +222,26 @@ This is the **primary external data source** for companies, projects, phases, an
 - **Empty phases after sync**: If phases show up empty, the task API likely failed silently. Use `?step=resync` to re-fetch and also check `?step=diagnose` for API errors. The resync step also cleans up genuinely empty phases and updates phase statuses based on task completion.
 - **maxDuration 60**: The Autotask trigger route uses `maxDuration = 60` (60s Vercel function timeout) since sync can be slow. Page size is 5 projects per request to stay within timeout.
 
+## Customer Portal Architecture
+
+The customer portal is at `/onboarding/[companyName]`. Key components:
+- **OnboardingPortal** — Main container, handles auth state, view switching
+- **CustomerDashboard** — Primary dashboard with projects, tickets, stats
+- **OnboardingJourney** — First-time login guided tour (5 steps, skippable)
+- **TicketTimeline** — Chronological ticket comms trail from Autotask
+
+**Ticket Timeline**: When a customer clicks a ticket, they see a full chronological timeline fetched from Autotask via `/api/customer/tickets/timeline`. Only external (customer-visible) notes appear. Customers can reply to open tickets via `/api/customer/tickets/reply`, which creates an Autotask note.
+
+**Status badges**: Always display as `Status: <label>` (e.g., "Status: In Progress").
+
+## Demo Mode
+
+Demo mode (`src/lib/demo-mode.ts`) provides Contoso Industries demo data for safe presentations. Toggle via the AdminHeader button. When enabled, real customer data is hidden and replaced with demo data. Demo data is generated in-memory — no database writes.
+
+## Sales & Marketing System
+
+All marketing pages (`/admin/marketing/*`) must include AdminHeader and the ambient gradient background. The audience system supports Autotask Contact Action Groups as a targeting option in addition to per-company targeting.
+
 ## Additional Documentation
 
 Detailed guides in the repo root — read these when working on specific features:

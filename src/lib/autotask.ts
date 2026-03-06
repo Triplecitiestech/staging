@@ -103,6 +103,19 @@ export interface AutotaskTaskNote {
   createDateTime?: string;
 }
 
+export interface AutotaskTicketNote {
+  id: number;
+  ticketID: number;
+  title: string;
+  description: string;
+  noteType?: number;
+  publish?: number; // 1=All/External, 2=Internal Only, 3=Customer-visible
+  creatorResourceID?: number;
+  creatorContactID?: number;
+  lastActivityDate?: string;
+  createDateTime?: string;
+}
+
 export interface AutotaskTimeEntry {
   id: number;
   taskID: number;
@@ -640,6 +653,92 @@ export class AutotaskClient {
   /**
    * Find a resource by email address (for SSO matching)
    */
+  /**
+   * Get notes for a specific ticket (for customer timeline)
+   */
+  async getTicketNotes(ticketId: number): Promise<AutotaskTicketNote[]> {
+    try {
+      return await this.queryAll<AutotaskTicketNote>(
+        `Tickets/${ticketId}/Notes`,
+        { op: 'exist', field: 'id' }
+      );
+    } catch {
+      try {
+        return await this.queryAll<AutotaskTicketNote>('TicketNotes', {
+          op: 'eq',
+          field: 'ticketID',
+          value: ticketId,
+        });
+      } catch {
+        return [];
+      }
+    }
+  }
+
+  /**
+   * Create a note on a ticket in Autotask (for customer replies)
+   */
+  async createTicketNote(ticketId: number, data: {
+    title: string;
+    description: string;
+    noteType?: number;
+    publish?: number; // 1=All/External, 2=Internal
+  }): Promise<AutotaskTicketNote> {
+    const result = await this.post<{ item: AutotaskTicketNote }>('TicketNotes', {
+      ticketID: ticketId,
+      title: data.title,
+      description: data.description,
+      noteType: data.noteType || 1,
+      publish: data.publish || 1, // Default to external/customer-visible
+    });
+    return result.item;
+  }
+
+  /**
+   * Get time entries for a ticket (for customer timeline)
+   */
+  async getTicketTimeEntries(ticketId: number): Promise<AutotaskTimeEntry[]> {
+    try {
+      return await this.queryAll<AutotaskTimeEntry>('TimeEntries', {
+        op: 'eq',
+        field: 'ticketID',
+        value: ticketId,
+      });
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Get Contact Groups (Action Types) from Autotask
+   */
+  async getContactGroups(): Promise<{ id: number; name: string; isActive: boolean }[]> {
+    try {
+      return await this.queryAll<{ id: number; name: string; isActive: boolean }>('ContactGroups', {
+        op: 'eq',
+        field: 'isActive',
+        value: true,
+      });
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Get contacts in a specific Contact Group
+   */
+  async getContactGroupMembers(groupId: number): Promise<{ id: number; firstName: string; lastName: string; emailAddress: string; companyID: number }[]> {
+    try {
+      return await this.queryAll('ContactGroupContacts', {
+        op: 'eq',
+        field: 'contactGroupID',
+        value: groupId,
+      });
+    } catch {
+      return [];
+    }
+  }
+
   async getResourceByEmail(email: string): Promise<AutotaskResource | null> {
     try {
       const resources = await this.queryAll<AutotaskResource>('Resources', {

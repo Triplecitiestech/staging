@@ -4,6 +4,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { SignOutButton } from '@/components/auth/AuthButtons'
+import DemoModeToggle from './DemoModeToggle'
 import { useState } from 'react'
 
 export default function AdminHeader() {
@@ -113,6 +114,8 @@ export default function AdminHeader() {
 
           {/* Desktop Actions */}
           <div className="hidden md:flex items-center gap-1">
+            <DemoModeToggle />
+            <div className="w-px h-5 bg-white/10" />
             <Link
               href="/"
               className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-400 hover:text-cyan-400 transition-colors rounded-lg hover:bg-white/5"
