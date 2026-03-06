@@ -1,12 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/auth';
 import type { Prisma } from '@prisma/client';
 
 /**
- * GET /api/deleted-records — List soft-deleted records
- * POST /api/deleted-records — Soft-delete an entity (with snapshot)
+ * GET /api/deleted-records — List soft-deleted records (auth required, ADMIN)
+ * POST /api/deleted-records — Soft-delete an entity (auth required, ADMIN/MANAGER)
  */
 export async function GET(request: NextRequest) {
   try {
+    const session = await auth();
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (session.user?.role !== 'ADMIN') {
+      return NextResponse.json({ error: 'Forbidden: requires ADMIN role' }, { status: 403 });
+    }
+
     const { prisma } = await import('@/lib/prisma');
     const entityType = request.nextUrl.searchParams.get('entityType');
 
@@ -33,6 +40,12 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const session = await auth();
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!['ADMIN', 'MANAGER'].includes(session.user?.role as string)) {
+      return NextResponse.json({ error: 'Forbidden: requires ADMIN or MANAGER role' }, { status: 403 });
+    }
+
     const { prisma } = await import('@/lib/prisma');
     const body = await request.json();
     const { entityType, entityId, deletedBy } = body;

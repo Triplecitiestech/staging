@@ -27,9 +27,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Demo company: simulate reply without touching Autotask
+    // Demo company: read-only access
     if (companySlug.toLowerCase().trim() === 'contoso-industries') {
-      return NextResponse.json({ success: true, noteId: 'demo-reply-' + Date.now() })
+      return NextResponse.json(
+        { error: 'Demo portal is read-only. Write operations are disabled.' },
+        { status: 403 }
+      )
     }
 
     // Look up company

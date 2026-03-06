@@ -40,6 +40,10 @@ export async function POST(req: Request) {
     log.warn('Unauthorized request')
     return apiError('Unauthorized', log.requestId, 401)
   }
+  if (!['ADMIN', 'MANAGER'].includes(session.user?.role as string)) {
+    log.warn('Insufficient permissions', { role: session.user?.role })
+    return apiError('Forbidden: requires ADMIN or MANAGER role', log.requestId, 403)
+  }
   log.info('Authenticated', { userId: session.user?.email })
 
   try {
@@ -171,6 +175,10 @@ export async function DELETE(req: Request) {
   if (!session) {
     log.warn('Unauthorized request')
     return apiError('Unauthorized', log.requestId, 401)
+  }
+  if (session.user?.role !== 'ADMIN') {
+    log.warn('Insufficient permissions for delete', { role: session.user?.role })
+    return apiError('Forbidden: requires ADMIN role', log.requestId, 403)
   }
 
   try {

@@ -1,13 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/auth';
 
 /**
- * POST /api/marketing/campaigns/[id]/approve — Approve campaign content
+ * POST /api/marketing/campaigns/[id]/approve — Approve campaign (auth required, ADMIN/MANAGER)
  */
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await auth();
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!['ADMIN', 'MANAGER'].includes(session.user?.role as string)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     const { prisma } = await import('@/lib/prisma');
     const { id } = await params;
     const body = await request.json();

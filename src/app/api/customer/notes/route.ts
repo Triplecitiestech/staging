@@ -32,6 +32,14 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Demo company: read-only access (no write operations)
+    if (authenticatedCompany === 'contoso-industries' && !adminSession) {
+      return NextResponse.json(
+        { error: 'Demo portal is read-only. Write operations are disabled.' },
+        { status: 403 }
+      )
+    }
+
     // Log which auth method was used
     if (adminSession) {
       console.log('[Customer Notes API] Using admin session for authentication')

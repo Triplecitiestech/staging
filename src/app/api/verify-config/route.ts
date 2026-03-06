@@ -1,7 +1,14 @@
 import { NextResponse } from 'next/server'
+import { auth } from '@/auth'
 
-// Diagnostic endpoint to verify environment variables
+// Diagnostic endpoint to verify environment variables (auth required, ADMIN only)
 export async function GET() {
+  const session = await auth()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (session.user?.role !== 'ADMIN') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
   const requiredVars = {
     RESEND_API_KEY: process.env.RESEND_API_KEY,
     NEXT_PUBLIC_CONTACT_EMAIL: process.env.NEXT_PUBLIC_CONTACT_EMAIL,
