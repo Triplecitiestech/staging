@@ -1,14 +1,18 @@
 import { NextResponse } from 'next/server';
+import { auth } from '@/auth';
 
 // Disable static generation for this API route
 export const dynamic = 'force-dynamic';
 
 /**
- * Verify blog system configuration
+ * Verify blog system configuration (auth required)
  * GET /api/blog/setup/verify
  */
 export async function GET() {
   try {
+    const session = await auth();
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
     // Dynamic import to prevent Prisma loading during build
     const { prisma } = await import('@/lib/prisma');
 

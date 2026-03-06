@@ -1,15 +1,21 @@
 import { NextResponse } from 'next/server';
+import { auth } from '@/auth';
 import { DEFAULT_SOURCES } from '@/lib/content-curator';
 
 // Disable static generation for this API route
 export const dynamic = 'force-dynamic';
 
 /**
- * Initialize default content sources
+ * Initialize default content sources (auth required)
  * POST or GET /api/blog/setup/sources
  */
 async function setupSources() {
   try {
+    const session = await auth();
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     // Dynamic import to prevent Prisma loading during build
     const { prisma } = await import('@/lib/prisma');
 

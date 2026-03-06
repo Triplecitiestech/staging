@@ -1,15 +1,18 @@
 import { NextResponse } from 'next/server';
+import { auth } from '@/auth';
 
 // Disable static generation for this API route
 export const dynamic = 'force-dynamic';
 
 /**
- * Fix existing blog database schema issues
- * This endpoint fixes tables created with wrong names
+ * Fix existing blog database schema issues (auth required)
  * GET /api/blog/setup/fix-tables
  */
 export async function GET() {
   try {
+    const session = await auth();
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
     const { prisma } = await import('@/lib/prisma');
 
     console.log('🔧 Fixing blog database schema...');

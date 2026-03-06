@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server'
+import { auth } from '@/auth'
 
 export async function GET() {
   try {
+    const session = await auth()
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
     const { prisma } = await import('@/lib/prisma')
 
     // Create cybersecurity category if it doesn't exist
