@@ -51,6 +51,7 @@ export async function GET(request: NextRequest) {
       id: t.id,
       ticketNumber: t.ticketNumber || String(t.id),
       title: t.title,
+      description: t.description || null,
       status: String(t.status),
       createDate: t.createDate,
       completedDate: t.completedDate || null,

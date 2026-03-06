@@ -69,13 +69,40 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const authorName = adminSession
-      ? (adminSession.user?.name || 'Admin')
-      : (task.phase?.project?.company?.displayName || 'Customer')
+    // Look up the company's primary contact for author attribution
+    const companyId = task.phase?.project?.companyId
+    let primaryContact: { name: string; email: string } | null = null
+    if (companyId) {
+      try {
+        const contact = await prisma.companyContact.findFirst({
+          where: { companyId, isPrimary: true, isActive: true },
+          select: { name: true, email: true },
+        })
+        if (contact) primaryContact = contact
+      } catch {
+        // company_contacts table may not exist yet — fall through
+      }
+      // If no primary, try any active contact
+      if (!primaryContact) {
+        try {
+          const contact = await prisma.companyContact.findFirst({
+            where: { companyId, isActive: true },
+            select: { name: true, email: true },
+          })
+          if (contact) primaryContact = contact
+        } catch {
+          // table may not exist
+        }
+      }
+    }
 
-    const authorEmail = adminSession
-      ? (adminSession.user?.email || 'admin')
-      : 'customer'
+    // When admin is impersonating/previewing: use primary contact as author
+    // When customer is logged in: also use primary contact (they represent the company)
+    const authorName = primaryContact?.name
+      || task.phase?.project?.company?.displayName
+      || 'Customer'
+
+    const authorEmail = primaryContact?.email || 'customer'
 
     // Create the comment in local DB
     const comment = await prisma.comment.create({
@@ -95,14 +122,13 @@ export async function POST(request: NextRequest) {
         if (!isNaN(atTaskId)) {
           const { AutotaskClient } = await import('@/lib/autotask')
           const client = new AutotaskClient()
-          const companyName = task.phase?.project?.company?.displayName || 'Customer'
           await client.createTaskNote(atTaskId, {
-            title: `Comment from ${companyName} Portal`,
+            title: `Comment from ${authorName} via Customer Portal`,
             description: content.trim(),
             noteType: 1,
             publish: 1,
           })
-          console.log(`[Customer Comments API] Comment synced to Autotask task ${atTaskId}`)
+          console.log(`[Customer Comments API] Comment synced to Autotask task ${atTaskId} as ${authorName}`)
         }
       } catch (atError) {
         console.error('[Customer Comments API] Failed to sync to Autotask:', atError)

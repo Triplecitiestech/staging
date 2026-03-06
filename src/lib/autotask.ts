@@ -643,6 +643,7 @@ export class AutotaskClient {
     id: number;
     ticketNumber: string;
     title: string;
+    description?: string;
     status: number;
     createDate: string;
     completedDate?: string;
