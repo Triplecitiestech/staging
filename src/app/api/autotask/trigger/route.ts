@@ -93,6 +93,16 @@ export async function GET(request: NextRequest) {
         },
         {
           step: 4,
+          description: 'MERGE: Deduplicate companies — move projects from non-AT duplicates into AT-synced companies, then delete the old ones',
+          url: `${baseUrl}/api/autotask/trigger?${secretParam}&step=merge`,
+        },
+        {
+          step: 5,
+          description: 'RESYNC: Re-fetch phases and tasks from Autotask for all AT-synced projects (fixes empty phases)',
+          url: `${baseUrl}/api/autotask/trigger?${secretParam}&step=resync&page=1`,
+        },
+        {
+          step: 6,
           description: 'DIAGNOSE: Show raw Autotask API response for first project',
           url: `${baseUrl}/api/autotask/trigger?${secretParam}&step=diagnose`,
         },
@@ -129,11 +139,417 @@ export async function GET(request: NextRequest) {
     return handleContactsSync(client);
   }
 
+  if (step === 'merge') {
+    return handleMerge();
+  }
+
+  if (step === 'resync') {
+    const page = parseInt(request.nextUrl.searchParams.get('page') || '1', 10);
+    const result = await handleResync(client, page);
+    const responseData = await result.json();
+    if (responseData.projectsProcessed === 5) {
+      responseData.nextPage = `${baseUrl}/api/autotask/trigger?${secretParam}&step=resync&page=${page + 1}`;
+      responseData.message = `Re-synced 5 projects. There may be more — click nextPage URL.`;
+    } else {
+      responseData.message = `Done! Re-synced ${responseData.projectsProcessed} projects.`;
+    }
+    return NextResponse.json(responseData);
+  }
+
   if (step === 'diagnose') {
     return handleDiagnose(client);
   }
 
-  return NextResponse.json({ error: `Unknown step: ${step}. Use cleanup, companies, projects, contacts, or diagnose.` }, { status: 400 });
+  return NextResponse.json({ error: `Unknown step: ${step}. Use cleanup, companies, projects, contacts, merge, resync, or diagnose.` }, { status: 400 });
+}
+
+// ============================================
+// STEP: MERGE — deduplicate companies
+// ============================================
+
+async function handleMerge() {
+  try {
+    // Find all companies, grouped by normalized name
+    const allCompanies = await prisma.company.findMany({
+      select: {
+        id: true,
+        slug: true,
+        displayName: true,
+        autotaskCompanyId: true,
+        primaryContact: true,
+        contactTitle: true,
+        contactEmail: true,
+        createdAt: true,
+        _count: { select: { projects: true } },
+      },
+      orderBy: { displayName: 'asc' },
+    });
+
+    // Group by normalized name (lowercase, trimmed)
+    const nameGroups = new Map<string, typeof allCompanies>();
+    for (const company of allCompanies) {
+      const key = company.displayName.toLowerCase().trim();
+      const group = nameGroups.get(key) || [];
+      group.push(company);
+      nameGroups.set(key, group);
+    }
+
+    // Find duplicates (groups with more than 1 company)
+    const duplicateGroups = Array.from(nameGroups.entries())
+      .filter(([, group]) => group.length > 1);
+
+    if (duplicateGroups.length === 0) {
+      return NextResponse.json({
+        step: 'merge',
+        message: 'No duplicate companies found.',
+        totalCompanies: allCompanies.length,
+      });
+    }
+
+    const mergeResults: Array<{
+      name: string;
+      winner: { id: string; slug: string; autotaskId: string | null; projects: number };
+      absorbed: Array<{
+        id: string;
+        slug: string;
+        autotaskId: string | null;
+        projectsMoved: number;
+        contactsMoved: number;
+        deleted: boolean;
+      }>;
+    }> = [];
+    const errors: string[] = [];
+    let totalProjectsMoved = 0;
+    let totalContactsMoved = 0;
+    let totalCompaniesDeleted = 0;
+
+    for (const [name, group] of duplicateGroups) {
+      // Pick the winner: prefer the one WITH an autotaskCompanyId
+      // If multiple have AT IDs, pick the one with more projects
+      const withAt = group.filter((c) => c.autotaskCompanyId);
+      const withoutAt = group.filter((c) => !c.autotaskCompanyId);
+
+      let winner: typeof group[0];
+      if (withAt.length > 0) {
+        // Pick the AT-synced company with the most projects
+        winner = withAt.sort((a, b) => b._count.projects - a._count.projects)[0];
+      } else {
+        // No AT company — pick the one with the most projects
+        winner = group.sort((a, b) => b._count.projects - a._count.projects)[0];
+      }
+
+      const losers = group.filter((c) => c.id !== winner.id);
+
+      const mergeResult: typeof mergeResults[0] = {
+        name,
+        winner: {
+          id: winner.id,
+          slug: winner.slug,
+          autotaskId: winner.autotaskCompanyId,
+          projects: winner._count.projects,
+        },
+        absorbed: [],
+      };
+
+      for (const loser of losers) {
+        let projectsMoved = 0;
+        let contactsMoved = 0;
+
+        try {
+          // Transfer contact info from loser to winner if winner is missing it
+          if (!winner.primaryContact && loser.primaryContact) {
+            await prisma.company.update({
+              where: { id: winner.id },
+              data: {
+                primaryContact: loser.primaryContact,
+                contactTitle: loser.contactTitle,
+                contactEmail: loser.contactEmail,
+              },
+            });
+          }
+
+          // Move all projects from loser to winner
+          const movedProjects = await prisma.project.updateMany({
+            where: { companyId: loser.id },
+            data: { companyId: winner.id },
+          });
+          projectsMoved = movedProjects.count;
+          totalProjectsMoved += projectsMoved;
+
+          // Move contacts from loser to winner (handle email collisions)
+          try {
+            const loserContacts = await prisma.companyContact.findMany({
+              where: { companyId: loser.id },
+            });
+            for (const contact of loserContacts) {
+              // Check if winner already has a contact with this email
+              const existingContact = await prisma.companyContact.findFirst({
+                where: { companyId: winner.id, email: contact.email },
+              });
+              if (existingContact) {
+                // Delete the duplicate contact
+                await prisma.companyContact.delete({ where: { id: contact.id } });
+              } else {
+                // Move contact to winner company
+                await prisma.companyContact.update({
+                  where: { id: contact.id },
+                  data: { companyId: winner.id },
+                });
+                contactsMoved++;
+                totalContactsMoved++;
+              }
+            }
+          } catch {
+            // company_contacts table may not exist
+          }
+
+          // Delete the loser company (now empty — projects/contacts moved)
+          await prisma.company.delete({ where: { id: loser.id } });
+          totalCompaniesDeleted++;
+
+          mergeResult.absorbed.push({
+            id: loser.id,
+            slug: loser.slug,
+            autotaskId: loser.autotaskCompanyId,
+            projectsMoved,
+            contactsMoved,
+            deleted: true,
+          });
+        } catch (err) {
+          errors.push(`Merge "${loser.displayName}" (${loser.id}) into "${winner.displayName}" (${winner.id}): ${err instanceof Error ? err.message : String(err)}`);
+          mergeResult.absorbed.push({
+            id: loser.id,
+            slug: loser.slug,
+            autotaskId: loser.autotaskCompanyId,
+            projectsMoved,
+            contactsMoved,
+            deleted: false,
+          });
+        }
+      }
+
+      mergeResults.push(mergeResult);
+    }
+
+    return NextResponse.json({
+      step: 'merge',
+      duplicateGroupsFound: duplicateGroups.length,
+      totalProjectsMoved,
+      totalContactsMoved,
+      totalCompaniesDeleted,
+      mergeResults,
+      errors: errors.length > 0 ? errors : undefined,
+    });
+  } catch (err) {
+    return NextResponse.json(
+      { step: 'merge', error: err instanceof Error ? err.message : String(err) },
+      { status: 500 }
+    );
+  }
+}
+
+// ============================================
+// STEP: RESYNC — re-fetch phases+tasks for all AT-synced projects
+// ============================================
+
+async function handleResync(client: AutotaskClient, page: number) {
+  const startTime = Date.now();
+  const errors: string[] = [];
+  const pageSize = 5;
+
+  // Get all AT-synced projects from our DB
+  const atProjects = await prisma.project.findMany({
+    where: { autotaskProjectId: { not: null } },
+    select: {
+      id: true,
+      title: true,
+      autotaskProjectId: true,
+      _count: { select: { phases: true } },
+    },
+    orderBy: { createdAt: 'asc' },
+    skip: (page - 1) * pageSize,
+    take: pageSize,
+  });
+
+  const projectDetails: Array<{
+    name: string;
+    atId: string;
+    existingPhases: number;
+    atPhasesFound: number;
+    atTasksFound: number;
+    phasesCreated: number;
+    phasesUpdated: number;
+    tasksCreated: number;
+    tasksUpdated: number;
+    emptyPhasesDeleted: number;
+    errors: string[];
+  }> = [];
+
+  let totalPhasesCreated = 0;
+  let totalPhasesUpdated = 0;
+  let totalTasksCreated = 0;
+  let totalTasksUpdated = 0;
+  let totalEmptyPhasesDeleted = 0;
+
+  for (const project of atProjects) {
+    const atProjectId = parseInt(project.autotaskProjectId!, 10);
+    const pLog = {
+      name: project.title,
+      atId: project.autotaskProjectId!,
+      existingPhases: project._count.phases,
+      atPhasesFound: 0,
+      atTasksFound: 0,
+      phasesCreated: 0,
+      phasesUpdated: 0,
+      tasksCreated: 0,
+      tasksUpdated: 0,
+      emptyPhasesDeleted: 0,
+      errors: [] as string[],
+    };
+
+    try {
+      // Fetch phases from Autotask
+      let atPhases: AutotaskProjectPhase[] = [];
+      try {
+        atPhases = await client.getProjectPhases(atProjectId);
+        pLog.atPhasesFound = atPhases.length;
+      } catch (err) {
+        pLog.errors.push(`Phases API: ${err instanceof Error ? err.message : String(err)}`);
+      }
+
+      // Fetch tasks from Autotask
+      let atTasks: AutotaskTask[] = [];
+      try {
+        atTasks = await client.getProjectTasks(atProjectId);
+        pLog.atTasksFound = atTasks.length;
+      } catch (err) {
+        pLog.errors.push(`Tasks API: ${err instanceof Error ? err.message : String(err)}`);
+      }
+
+      // Build phase map
+      const phaseIdMap = new Map<number, string>();
+
+      // Sync phases
+      for (let i = 0; i < atPhases.length; i++) {
+        try {
+          const result = await syncPhase(atPhases[i], project.id, i);
+          phaseIdMap.set(atPhases[i].id, result.phaseId);
+          if (result.created) pLog.phasesCreated++;
+          else pLog.phasesUpdated++;
+        } catch (err) {
+          pLog.errors.push(`Phase "${atPhases[i].title}": ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+
+      // If no phases but tasks exist, ensure default phase
+      if (atPhases.length === 0 && atTasks.length > 0) {
+        const defaultPhase = await getOrCreateDefaultPhase(project.id);
+        for (const atTask of atTasks) {
+          try {
+            const result = await syncTask(atTask, defaultPhase.id);
+            if (result.created) pLog.tasksCreated++;
+            else pLog.tasksUpdated++;
+          } catch (err) {
+            pLog.errors.push(`Task "${atTask.title}": ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+      } else {
+        // Sync tasks into correct phases
+        for (const atTask of atTasks) {
+          try {
+            const localPhaseId = atTask.phaseID ? phaseIdMap.get(atTask.phaseID) : undefined;
+            const phaseId = localPhaseId || (await getOrCreateDefaultPhase(project.id)).id;
+            const result = await syncTask(atTask, phaseId);
+            if (result.created) pLog.tasksCreated++;
+            else pLog.tasksUpdated++;
+          } catch (err) {
+            pLog.errors.push(`Task "${atTask.title}": ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+      }
+
+      // Clean up empty phases that have no tasks and no AT phase ID
+      // (these are leftover default "Tasks" phases or broken phases)
+      const emptyPhases = await prisma.phase.findMany({
+        where: {
+          projectId: project.id,
+          tasks: { none: {} },
+          comments: { none: {} },
+          autotaskPhaseId: null,
+        },
+        select: { id: true, title: true },
+      });
+
+      for (const emptyPhase of emptyPhases) {
+        try {
+          await prisma.phase.delete({ where: { id: emptyPhase.id } });
+          pLog.emptyPhasesDeleted++;
+        } catch (err) {
+          pLog.errors.push(`Delete empty phase "${emptyPhase.title}": ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+
+      // Also update phase statuses based on their tasks
+      const localPhases = await prisma.phase.findMany({
+        where: { projectId: project.id },
+        include: {
+          tasks: { select: { status: true, completed: true } },
+        },
+      });
+
+      for (const phase of localPhases) {
+        if (phase.tasks.length === 0) continue;
+        const allComplete = phase.tasks.every((t) => t.completed || t.status === 'REVIEWED_AND_DONE' || t.status === 'NOT_APPLICABLE');
+        const anyInProgress = phase.tasks.some((t) => t.status === 'WORK_IN_PROGRESS' || t.status === 'ASSIGNED');
+        const anyWaiting = phase.tasks.some((t) => t.status === 'WAITING_ON_CLIENT' || t.status === 'WAITING_ON_VENDOR');
+
+        let newStatus: PhaseStatus;
+        if (allComplete) {
+          newStatus = 'COMPLETE';
+        } else if (anyWaiting) {
+          newStatus = 'WAITING_ON_CUSTOMER';
+        } else if (anyInProgress) {
+          newStatus = 'IN_PROGRESS';
+        } else {
+          newStatus = 'NOT_STARTED';
+        }
+
+        if (phase.status !== newStatus) {
+          await prisma.phase.update({
+            where: { id: phase.id },
+            data: { status: newStatus },
+          });
+        }
+      }
+
+    } catch (err) {
+      pLog.errors.push(err instanceof Error ? err.message : String(err));
+    }
+
+    totalPhasesCreated += pLog.phasesCreated;
+    totalPhasesUpdated += pLog.phasesUpdated;
+    totalTasksCreated += pLog.tasksCreated;
+    totalTasksUpdated += pLog.tasksUpdated;
+    totalEmptyPhasesDeleted += pLog.emptyPhasesDeleted;
+    if (pLog.errors.length > 0) {
+      errors.push(...pLog.errors.map((e) => `${project.title}: ${e}`));
+    }
+    projectDetails.push(pLog);
+  }
+
+  return NextResponse.json({
+    step: 'resync',
+    page,
+    projectsProcessed: atProjects.length,
+    totalPhasesCreated,
+    totalPhasesUpdated,
+    totalTasksCreated,
+    totalTasksUpdated,
+    totalEmptyPhasesDeleted,
+    projectDetails,
+    errors: errors.length > 0 ? errors : undefined,
+    durationMs: Date.now() - startTime,
+  });
 }
 
 // ============================================
@@ -1111,7 +1527,6 @@ async function syncProjectNotes(
 
   for (const note of atNotes) {
     // Check if we already imported this note (by matching content + author)
-    const noteContent = note.description || note.title;
     const notePrefix = `[AT Note: ${note.title}]`;
 
     const alreadyExists = await prisma.comment.findFirst({

@@ -10,6 +10,9 @@
 | Cron status | Vercel dashboard → Project → Cron Jobs |
 | AI usage | console.anthropic.com → Usage |
 | Email logs | resend.com → Dashboard |
+| Autotask sync status | `GET /api/autotask/status` |
+| Autotask sync trigger | `GET /api/autotask/trigger?secret=XXX` |
+| Autotask sync docs | `/AUTOTASK_SYNC.md` |
 
 ## Incident: AI Chat is Slow or Non-Responsive
 
@@ -132,6 +135,43 @@ Vercel supports instant rollback:
 | Company slug wrong | Verify in admin → Companies list |
 | Password not set | Should be auto-generated; check company record |
 | Rate limited | Wait 15 minutes for IP lockout to expire |
+
+## Incident: Autotask Sync Not Working
+
+### Symptoms
+- Projects showing without phases/tasks (just names)
+- Empty phases in the UI
+- Duplicate companies appearing
+- Contacts step failing
+
+### Diagnosis
+
+1. **Run diagnose step**: `GET /api/autotask/trigger?secret=XXX&step=diagnose`
+   - Check if phases/tasks sections show data or errors
+   - Check picklist values match expected status mappings
+2. **Check sync history**: `GET /api/autotask/status`
+3. **Check env vars**: Verify all 4 Autotask env vars are set in Vercel
+
+### Resolution
+
+| Cause | Fix |
+|-------|-----|
+| Empty phases | Run `?step=resync&page=1` — re-fetches tasks, cleans up empty phases |
+| Duplicate companies | Run `?step=merge` — keeps AT-synced company, moves projects from duplicates |
+| Task statuses wrong | Run `?step=diagnose` to see actual picklist values; update `src/lib/autotask.ts` constants |
+| Contacts table missing | The contacts step auto-creates the table — just run `?step=contacts` |
+| API credentials wrong | Check `AUTOTASK_API_USERNAME`, `AUTOTASK_API_SECRET`, `AUTOTASK_API_INTEGRATION_CODE`, `AUTOTASK_API_BASE_URL` in Vercel |
+| Phases/tasks API failing | Different Autotask instances use different entity paths; check `?step=diagnose` errors |
+
+### Full Re-sync
+```
+1. ?step=cleanup
+2. ?step=companies
+3. ?step=projects&page=1 (follow nextPage links)
+4. ?step=contacts
+5. ?step=merge
+6. ?step=resync&page=1 (follow nextPage links)
+```
 
 ## Where to Find Logs
 

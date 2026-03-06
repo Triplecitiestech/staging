@@ -28,6 +28,7 @@ This document contains preferences, workflows, and best practices for Claude Cod
 
 1. **Read Documentation First**
    - Review `/PROJECT_OVERVIEW.md` for general project context
+   - Review `/AUTOTASK_SYNC.md` if working on Autotask integration or project sync
    - Review `/OLUJO_PROJECT.md` if working on Olujo-specific tasks
    - Review this file (`/CLAUDE_SESSION_PREFERENCES.md`) for workflow preferences
 
@@ -499,6 +500,7 @@ The user dislikes:
 **Remember**: This project is complex and growing. Always read this file at the start of a new session to ensure continuity and quality. The user expects you to be proactive, thorough, and efficient.
 
 For Olujo-specific work, also read `/OLUJO_PROJECT.md` before starting.
+For Autotask integration work, read `/AUTOTASK_SYNC.md` before starting.
 For general project context, refer to `/PROJECT_OVERVIEW.md`.
 
 ---

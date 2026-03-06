@@ -46,6 +46,7 @@ Triple Cities Tech is a professional IT services marketing and project managemen
 - **Auth**: NextAuth.js 5 with Microsoft Azure AD OAuth
 - **Email**: Resend
 - **AI**: Anthropic Claude API (blog generation)
+- **PSA Integration**: Autotask PSA REST API (company/project/task sync)
 - **Bot Protection**: Cloudflare Turnstile
 - **Hosting**: Vercel (auto-deploys from `main`, region `iad1`)
 
@@ -104,9 +105,9 @@ prisma/
 - `prisma generate` runs automatically on `postinstall`
 - Connection pooling via PrismaPg adapter for serverless
 
-**Key models**: StaffUser, Company, Project, Phase, PhaseTask, BlogPost, Comment, Assignment, AuditLog, Notification
+**Key models**: StaffUser, Company, CompanyContact, Project, Phase, PhaseTask, BlogPost, Comment, Assignment, AuditLog, Notification, AutotaskSyncLog
 
-**Key enums**: BlogStatus (DRAFT → PENDING_APPROVAL → APPROVED → PUBLISHED), TaskStatus (12+ statuses), Priority (LOW/MEDIUM/HIGH/URGENT)
+**Key enums**: BlogStatus (DRAFT → PENDING_APPROVAL → APPROVED → PUBLISHED), TaskStatus (12+ statuses), Priority (LOW/MEDIUM/HIGH/URGENT), PhaseStatus (NOT_STARTED → SCHEDULED → IN_PROGRESS → COMPLETE), ProjectStatus (ACTIVE/COMPLETED/ON_HOLD/CANCELLED)
 
 ## Authentication
 
@@ -121,11 +122,15 @@ prisma/
 
 **Project Management**: Company → Project → Phase → PhaseTask hierarchy. Customer visibility controls, internal vs. customer-facing notes/comments, audit logging.
 
+**Autotask PSA Integration**: Syncs companies, projects, phases, tasks, contacts, and notes from Autotask into the local DB. See `AUTOTASK_SYNC.md` for full details.
+
 **Security**: Strict CSP in `next.config.js` (separate dev/prod policies). Middleware blocks suspicious user agents and SQL injection. Honeypot fields and 3-second minimum on contact form. Adding third-party scripts requires CSP header updates.
 
 ## Environment Variables
 
 Required: `DATABASE_URL`, `PRISMA_DATABASE_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `AZURE_AD_CLIENT_ID`, `AZURE_AD_CLIENT_SECRET`, `AZURE_AD_TENANT_ID`, `ANTHROPIC_API_KEY`, `RESEND_API_KEY`, `TURNSTILE_SECRET_KEY`, `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, `NEXT_PUBLIC_BASE_URL`
+
+Autotask: `AUTOTASK_API_USERNAME`, `AUTOTASK_API_SECRET`, `AUTOTASK_API_INTEGRATION_CODE`, `AUTOTASK_API_BASE_URL`, `MIGRATION_SECRET`
 
 See `.env.example` for the full list including optional social media tokens.
 
@@ -169,6 +174,34 @@ When the user corrects a mistake or a session reveals a new convention:
 
 This ensures the same mistake never happens twice across sessions.
 
+## Autotask Integration — Key Knowledge
+
+This is the **primary external data source** for companies, projects, phases, and tasks. The owner considers Autotask data authoritative. See `AUTOTASK_SYNC.md` for full docs.
+
+**Sync endpoint**: `GET /api/autotask/trigger?secret=MIGRATION_SECRET&step=<step>`
+
+**Steps** (run in order):
+1. `cleanup` — delete AT-synced companies with no projects
+2. `companies` — sync companies that have projects in Autotask
+3. `projects&page=1` — sync projects with phases, tasks, descriptions, notes (5/page, paginated)
+4. `contacts` — sync contacts (auto-creates table if missing)
+5. `merge` — deduplicate companies (keeps AT-synced, absorbs non-AT duplicates)
+6. `resync&page=1` — re-fetch phases+tasks for existing AT projects (fixes empty phases)
+7. `diagnose` — show raw API response for debugging
+
+**Critical bugs fixed (do NOT reintroduce)**:
+- **Never silently catch phase/task API errors** — the original code had `try { } catch { /* no phases */ }` which hid all failures and made it look like projects had no data. Always report errors.
+- **Task status values must be distinct** — Autotask uses picklist values: 1=New, 4=In Progress, 5=Complete, 7=Waiting Customer. The old code had both IN_PROGRESS and COMPLETE mapped to `5`, so tasks never showed as complete.
+- **Prisma column names are camelCase** — raw SQL must use quoted camelCase (`"companyId"`, `"displayName"`, `"autotaskCompanyId"`), NOT snake_case. Prisma has no `@map` on these fields.
+- **company_contacts table may not exist** — the contacts sync auto-creates it via raw SQL if missing. Don't bail out with "run migration first".
+
+**Key files**:
+- `src/lib/autotask.ts` — API client, types, status mappers
+- `src/app/api/autotask/trigger/route.ts` — multi-step sync endpoint
+- `src/app/api/autotask/status/route.ts` — sync history viewer
+
+**Data flow**: Autotask → AutotaskClient (REST API) → syncCompany/syncProject/syncPhase/syncTask → Prisma models
+
 ## Gotchas
 
 - **Proactive error checking**: After making changes, actively look for potential errors — check browser console output, test API endpoints with edge cases, verify state sync between components (useState must sync with prop changes via useEffect), and confirm that absolute-positioned dropdowns aren't clipped by parent overflow. Don't wait for the user to find bugs. Log and fix them.
@@ -181,6 +214,11 @@ This ensures the same mistake never happens twice across sessions.
 - **No test suite**: `npm run build` and `npm run lint` are the quality gates — always run both
 - **Production migrations**: Must use API endpoints, not Prisma CLI
 - **Mobile matters**: Every UI change must account for `sm`/`md`/`lg` breakpoints. Never ship desktop-only layouts.
+- **Autotask API has multiple entity paths**: Tasks can be at `Projects/{id}/Tasks`, `ProjectTasks`, or `Tasks`. Phases can be at `Projects/{id}/Phases` or `Phases`. The client tries multiple paths with fallbacks.
+- **Autotask task status values are instance-specific**: Use the `?step=diagnose` endpoint to see actual picklist values for the customer's Autotask instance. Don't hardcode assumptions.
+- **Duplicate companies**: When Autotask syncs companies, it can create duplicates of companies that already existed in the local DB. Use `?step=merge` to deduplicate (keeps AT-synced company, moves projects from non-AT duplicate).
+- **Empty phases after sync**: If phases show up empty, the task API likely failed silently. Use `?step=resync` to re-fetch and also check `?step=diagnose` for API errors. The resync step also cleans up genuinely empty phases and updates phase statuses based on task completion.
+- **maxDuration 60**: The Autotask trigger route uses `maxDuration = 60` (60s Vercel function timeout) since sync can be slow. Page size is 5 projects per request to stay within timeout.
 
 ## Additional Documentation
 
@@ -191,4 +229,5 @@ Detailed guides in the repo root — read these when working on specific feature
 - `OLUJO_PROJECT.md` — Olujo brand awareness CRM project
 - `ONBOARDING_PORTAL.md` — Customer onboarding portal
 - `AZURE_AD_SETUP.md` — Microsoft OAuth configuration
+- `AUTOTASK_SYNC.md` — Autotask PSA integration (sync system, API, troubleshooting)
 - `CONTENT_EDITING_GUIDE.md`, `SPAM_PROTECTION.md`, `DATABASE_SETUP.md`, and others
