@@ -118,9 +118,9 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
   const [collapsedPhases, setCollapsedPhases] = useState<Set<string>>(new Set('__all__'))
   const [showAllTickets, setShowAllTickets] = useState(false)
-  const [noteInputs, setNoteInputs] = useState<Record<string, string>>({})
-  const [submittingNote, setSubmittingNote] = useState<string | null>(null)
-  const [noteSuccess, setNoteSuccess] = useState<string | null>(null)
+  const [commentInputs, setCommentInputs] = useState<Record<string, string>>({})
+  const [submittingComment, setSubmittingComment] = useState<string | null>(null)
+  const [commentSuccess, setCommentSuccess] = useState<string | null>(null)
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [ticketsLoading, setTicketsLoading] = useState(false)
   const [selectedTicketId, setSelectedTicketId] = useState<number | null>(null)
@@ -163,26 +163,26 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
     })
   }
 
-  const handleSubmitNote = async (taskId: string) => {
-    const content = noteInputs[taskId]?.trim()
-    if (!content || submittingNote) return
+  const handleSubmitComment = async (taskId: string) => {
+    const content = commentInputs[taskId]?.trim()
+    if (!content || submittingComment) return
 
-    setSubmittingNote(taskId)
+    setSubmittingComment(taskId)
     try {
-      const res = await fetch('/api/customer/notes', {
+      const res = await fetch('/api/customer/comments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ taskId, content }),
       })
       if (res.ok) {
-        setNoteInputs(prev => ({ ...prev, [taskId]: '' }))
-        setNoteSuccess(taskId)
-        setTimeout(() => setNoteSuccess(null), 3000)
+        setCommentInputs(prev => ({ ...prev, [taskId]: '' }))
+        setCommentSuccess(taskId)
+        setTimeout(() => setCommentSuccess(null), 3000)
       }
     } catch {
       // silently fail
     } finally {
-      setSubmittingNote(null)
+      setSubmittingComment(null)
     }
   }
 
@@ -504,7 +504,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
                                   Status: {badge.label}
                                 </span>
                                 {hasComments && (
-                                  <span className="text-xs text-gray-500">{task.comments!.length} note{task.comments!.length !== 1 ? 's' : ''}</span>
+                                  <span className="text-xs text-gray-500">{task.comments!.length} comment{task.comments!.length !== 1 ? 's' : ''}</span>
                                 )}
                                 <svg className={`w-4 h-4 text-gray-500 transition-transform flex-shrink-0 ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -516,14 +516,14 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
                                 <div className="pb-4 pl-8 space-y-3">
                                   {task.notes && (
                                     <div className="bg-cyan-500/10 border-l-4 border-cyan-500 rounded px-3 py-2">
-                                      <p className="text-xs font-semibold text-cyan-300 uppercase mb-1">Notes</p>
+                                      <p className="text-xs font-semibold text-cyan-300 uppercase mb-1">Description</p>
                                       <p className="text-sm text-gray-300 whitespace-pre-wrap">{task.notes}</p>
                                     </div>
                                   )}
 
                                   {hasComments && (
                                     <div className="space-y-2">
-                                      <p className="text-xs font-semibold text-gray-400 uppercase">Activity</p>
+                                      <p className="text-xs font-semibold text-gray-400 uppercase">Comments</p>
                                       {task.comments!.map(comment => (
                                         <div key={comment.id} className="bg-gray-700/50 rounded-lg px-3 py-2">
                                           <div className="flex items-center justify-between mb-1">
@@ -538,30 +538,28 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
                                     </div>
                                   )}
 
-                                  {!DONE_STATUSES.includes(task.status) && (
-                                    <div className="mt-2">
-                                      <div className="flex gap-2">
-                                        <input
-                                          type="text"
-                                          value={noteInputs[task.id] || ''}
-                                          onChange={e => setNoteInputs(prev => ({ ...prev, [task.id]: e.target.value }))}
-                                          onKeyDown={e => { if (e.key === 'Enter') handleSubmitNote(task.id) }}
-                                          placeholder="Add a note..."
-                                          className="flex-1 bg-gray-700/50 text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-cyan-500/50 focus:outline-none placeholder-gray-500"
-                                        />
-                                        <button
-                                          onClick={() => handleSubmitNote(task.id)}
-                                          disabled={!noteInputs[task.id]?.trim() || submittingNote === task.id}
-                                          className="px-4 py-2 bg-cyan-500 hover:bg-cyan-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors"
-                                        >
-                                          {submittingNote === task.id ? 'Sending...' : 'Send'}
-                                        </button>
-                                      </div>
-                                      {noteSuccess === task.id && (
-                                        <p className="text-xs text-green-400 mt-1">Note sent successfully</p>
-                                      )}
+                                  <div className="mt-2">
+                                    <div className="flex gap-2">
+                                      <input
+                                        type="text"
+                                        value={commentInputs[task.id] || ''}
+                                        onChange={e => setCommentInputs(prev => ({ ...prev, [task.id]: e.target.value }))}
+                                        onKeyDown={e => { if (e.key === 'Enter') handleSubmitComment(task.id) }}
+                                        placeholder="Add a comment..."
+                                        className="flex-1 bg-gray-700/50 text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-cyan-500/50 focus:outline-none placeholder-gray-500"
+                                      />
+                                      <button
+                                        onClick={() => handleSubmitComment(task.id)}
+                                        disabled={!commentInputs[task.id]?.trim() || submittingComment === task.id}
+                                        className="px-4 py-2 bg-cyan-500 hover:bg-cyan-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors"
+                                      >
+                                        {submittingComment === task.id ? 'Sending...' : 'Send'}
+                                      </button>
                                     </div>
-                                  )}
+                                    {commentSuccess === task.id && (
+                                      <p className="text-xs text-green-400 mt-1">Comment sent</p>
+                                    )}
+                                  </div>
                                 </div>
                               )}
                             </div>
