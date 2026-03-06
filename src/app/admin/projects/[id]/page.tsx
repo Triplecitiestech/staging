@@ -178,6 +178,17 @@ export default async function ProjectDetailPage({
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Project Header */}
+        <div className="mb-6">
+          <div className="flex items-center gap-2 text-sm text-slate-400 mb-2">
+            <Link href="/admin/projects" className="hover:text-white transition-colors">Projects</Link>
+            <span>/</span>
+            <Link href={`/admin/companies`} className="hover:text-white transition-colors">{project.company.displayName}</Link>
+          </div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-white">{project.title}</h1>
+          <p className="text-slate-400 mt-1">{project.company.displayName}</p>
+        </div>
+
         {/* Project Overview */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
           {/* Main Info */}
