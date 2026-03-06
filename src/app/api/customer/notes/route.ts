@@ -86,12 +86,51 @@ export async function POST(request: NextRequest) {
       console.log('[Customer Notes API] Phase notes updated successfully')
       return NextResponse.json({ success: true, type: 'phase' })
     } else if (taskId) {
-      // Update task notes
+      // Update task notes locally
       console.log('[Customer Notes API] Updating task notes:', taskId)
       await prisma.phaseTask.update({
         where: { id: taskId },
         data: { notes: content }
       })
+
+      // Sync note to Autotask if task has an autotaskTaskId
+      const taskForSync = await prisma.phaseTask.findUnique({
+        where: { id: taskId },
+        select: {
+          autotaskTaskId: true,
+          taskText: true,
+          phase: {
+            select: {
+              project: {
+                select: {
+                  company: { select: { displayName: true, slug: true } }
+                }
+              }
+            }
+          }
+        }
+      })
+
+      if (taskForSync?.autotaskTaskId) {
+        try {
+          const atTaskId = parseInt(taskForSync.autotaskTaskId, 10)
+          if (!isNaN(atTaskId)) {
+            const { AutotaskClient } = await import('@/lib/autotask')
+            const client = new AutotaskClient()
+            const companyDisplayName = taskForSync.phase?.project?.company?.displayName || 'Customer'
+            await client.createTaskNote(atTaskId, {
+              title: `Customer Note from ${companyDisplayName} Portal`,
+              description: content,
+              noteType: 1,
+              publish: 1, // External/customer-visible
+            })
+            console.log(`[Customer Notes API] Note synced to Autotask task ${atTaskId}`)
+          }
+        } catch (atError) {
+          console.error('[Customer Notes API] Failed to sync note to Autotask:', atError)
+          // Non-critical - local note was saved successfully
+        }
+      }
 
       // Notify internal staff assigned to this task via email and in-app notification
       try {
