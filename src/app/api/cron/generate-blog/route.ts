@@ -53,12 +53,20 @@ async function handleGenerateBlog(request: NextRequest) {
 
     console.log('🤖 Starting AI blog post generation...');
 
+    // Check ANTHROPIC_API_KEY
+    if (!process.env.ANTHROPIC_API_KEY) {
+      console.error('❌ ANTHROPIC_API_KEY not configured');
+      return NextResponse.json({ error: 'ANTHROPIC_API_KEY not configured' }, { status: 503 });
+    }
+
     // Check for pending approval posts
     const pendingPosts = await prisma.blogPost.count({
       where: {
         status: 'PENDING_APPROVAL'
       }
     });
+
+    console.log(`📊 Currently ${pendingPosts} posts pending approval`);
 
     if (pendingPosts >= 3) {
       console.log(`⏸️ Skipping generation: ${pendingPosts} posts already pending approval`);
