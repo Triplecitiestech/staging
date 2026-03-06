@@ -130,51 +130,57 @@ export async function GET(request: NextRequest) {
 
 async function handleCleanup() {
   try {
-    // Find all companies that were created by AT sync (have autotaskCompanyId)
-    // but have zero projects — these are leftovers from the failed initial sync
-    const atCompanies = await prisma.company.findMany({
-      where: { autotaskCompanyId: { not: null } },
-      select: {
-        id: true,
-        displayName: true,
-        autotaskCompanyId: true,
-        _count: { select: { projects: true, contacts: true } },
-      },
-    });
+    // Use raw SQL since company_contacts table may not exist yet in production
+    // Find AT-synced companies that have zero projects
+    const atCompanies = await prisma.$queryRaw<Array<{
+      id: string;
+      display_name: string;
+      autotask_company_id: string;
+      project_count: bigint;
+    }>>`
+      SELECT c.id, c.display_name, c.autotask_company_id,
+             COUNT(p.id) AS project_count
+      FROM companies c
+      LEFT JOIN projects p ON p.company_id = c.id
+      WHERE c.autotask_company_id IS NOT NULL
+      GROUP BY c.id, c.display_name, c.autotask_company_id
+    `;
 
-    const toDelete = atCompanies.filter((c) => c._count.projects === 0);
+    const toDelete = atCompanies.filter((c) => Number(c.project_count) === 0);
+    const toKeep = atCompanies.filter((c) => Number(c.project_count) > 0);
     const errors: string[] = [];
     let companiesDeleted = 0;
-    let contactsDeleted = 0;
 
-    // Delete one at a time so we can catch individual failures
     for (const company of toDelete) {
       try {
-        // Delete contacts first
-        const contactResult = await prisma.companyContact.deleteMany({
-          where: { companyId: company.id },
-        });
-        contactsDeleted += contactResult.count;
+        // Try to delete contacts if the table exists
+        try {
+          await prisma.$executeRaw`DELETE FROM company_contacts WHERE company_id = ${company.id}`;
+        } catch {
+          // Table may not exist — that's fine
+        }
 
-        // Delete the company
-        await prisma.company.delete({ where: { id: company.id } });
+        await prisma.$executeRaw`DELETE FROM companies WHERE id = ${company.id}`;
         companiesDeleted++;
       } catch (err) {
-        errors.push(`Failed to delete "${company.displayName}" (${company.id}): ${err instanceof Error ? err.message : String(err)}`);
+        errors.push(`Failed to delete "${company.display_name}" (${company.id}): ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 
     return NextResponse.json({
       step: 'cleanup',
       totalAtCompanies: atCompanies.length,
-      companiesWithProjects: atCompanies.length - toDelete.length,
+      companiesWithProjects: toKeep.length,
       companiesDeleted,
-      contactsDeleted,
       errors: errors.length > 0 ? errors : undefined,
       deletedCompanies: toDelete.slice(0, 50).map((c) => ({
-        name: c.displayName,
-        autotaskId: c.autotaskCompanyId,
-        hadContacts: c._count.contacts,
+        name: c.display_name,
+        autotaskId: c.autotask_company_id,
+      })),
+      keptCompanies: toKeep.map((c) => ({
+        name: c.display_name,
+        autotaskId: c.autotask_company_id,
+        projects: Number(c.project_count),
       })),
     });
   } catch (err) {
@@ -338,6 +344,16 @@ async function handleProjectsSync(client: AutotaskClient, page: number) {
 // ============================================
 
 async function handleContactsSync(client: AutotaskClient) {
+  // Check if company_contacts table exists in production
+  try {
+    await prisma.$queryRaw`SELECT 1 FROM company_contacts LIMIT 1`;
+  } catch {
+    return NextResponse.json({
+      step: 'contacts',
+      error: 'The company_contacts table does not exist yet. Run the database migration first via /api/migrate.',
+    }, { status: 400 });
+  }
+
   const startTime = Date.now();
   const errors: string[] = [];
   let created = 0;
