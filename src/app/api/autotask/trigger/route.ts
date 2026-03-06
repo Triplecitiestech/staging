@@ -129,48 +129,60 @@ export async function GET(request: NextRequest) {
 // ============================================
 
 async function handleCleanup() {
-  // Find all companies that were created by AT sync (have autotaskCompanyId)
-  // but have zero projects — these are leftovers from the failed initial sync
-  const atCompanies = await prisma.company.findMany({
-    where: { autotaskCompanyId: { not: null } },
-    select: {
-      id: true,
-      displayName: true,
-      autotaskCompanyId: true,
-      _count: { select: { projects: true } },
-    },
-  });
-
-  const toDelete = atCompanies.filter((c) => c._count.projects === 0);
-
-  // Also delete any contacts associated with these empty companies
-  const deleteIds = toDelete.map((c) => c.id);
-
-  let contactsDeleted = 0;
-  if (deleteIds.length > 0) {
-    const contactResult = await prisma.companyContact.deleteMany({
-      where: { companyId: { in: deleteIds } },
+  try {
+    // Find all companies that were created by AT sync (have autotaskCompanyId)
+    // but have zero projects — these are leftovers from the failed initial sync
+    const atCompanies = await prisma.company.findMany({
+      where: { autotaskCompanyId: { not: null } },
+      select: {
+        id: true,
+        displayName: true,
+        autotaskCompanyId: true,
+        _count: { select: { projects: true, contacts: true } },
+      },
     });
-    contactsDeleted = contactResult.count;
 
-    // Delete the empty companies
-    await prisma.company.deleteMany({
-      where: { id: { in: deleteIds } },
+    const toDelete = atCompanies.filter((c) => c._count.projects === 0);
+    const errors: string[] = [];
+    let companiesDeleted = 0;
+    let contactsDeleted = 0;
+
+    // Delete one at a time so we can catch individual failures
+    for (const company of toDelete) {
+      try {
+        // Delete contacts first
+        const contactResult = await prisma.companyContact.deleteMany({
+          where: { companyId: company.id },
+        });
+        contactsDeleted += contactResult.count;
+
+        // Delete the company
+        await prisma.company.delete({ where: { id: company.id } });
+        companiesDeleted++;
+      } catch (err) {
+        errors.push(`Failed to delete "${company.displayName}" (${company.id}): ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    return NextResponse.json({
+      step: 'cleanup',
+      totalAtCompanies: atCompanies.length,
+      companiesWithProjects: atCompanies.length - toDelete.length,
+      companiesDeleted,
+      contactsDeleted,
+      errors: errors.length > 0 ? errors : undefined,
+      deletedCompanies: toDelete.slice(0, 50).map((c) => ({
+        name: c.displayName,
+        autotaskId: c.autotaskCompanyId,
+        hadContacts: c._count.contacts,
+      })),
     });
+  } catch (err) {
+    return NextResponse.json(
+      { step: 'cleanup', error: err instanceof Error ? err.message : String(err) },
+      { status: 500 }
+    );
   }
-
-  return NextResponse.json({
-    step: 'cleanup',
-    totalAtCompanies: atCompanies.length,
-    companiesWithProjects: atCompanies.length - toDelete.length,
-    companiesDeleted: toDelete.length,
-    contactsDeleted,
-    deletedCompanies: toDelete.map((c) => ({
-      id: c.id,
-      name: c.displayName,
-      autotaskId: c.autotaskCompanyId,
-    })),
-  });
 }
 
 // ============================================
