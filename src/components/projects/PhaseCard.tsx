@@ -30,6 +30,7 @@ interface Task {
   orderIndex: number
   status?: string
   parentTaskId?: string | null
+  autotaskTaskId?: string | null
   subTasks?: Task[]
   comments?: Comment[]
   assignments?: Assignment[]

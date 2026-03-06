@@ -11,6 +11,7 @@ interface Project {
   projectType: string
   createdAt: Date
   aiGenerated: boolean
+  autotaskProjectId?: string | null
   company: { displayName: string; slug: string }
   phases: Array<{ status: string }>
 }
@@ -234,6 +235,18 @@ export default function ProjectList({ projects }: { projects: Project[] }) {
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-4">
+                          {project.autotaskProjectId && (
+                            <a
+                              href={`/api/autotask/link?type=project&id=${project.autotaskProjectId}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={e => e.stopPropagation()}
+                              className="text-emerald-400 hover:text-emerald-300 text-sm font-medium"
+                              title="Open in Autotask"
+                            >
+                              AT
+                            </a>
+                          )}
                           <Link
                             href={`/admin/projects/${project.id}`}
                             onClick={e => e.stopPropagation()}

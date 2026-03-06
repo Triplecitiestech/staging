@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import TaskStatusDropdown from './TaskStatusDropdown'
 import AssignmentPicker from './AssignmentPicker'
-import CommentThread from './CommentThread'
+import TaskActivity from './TaskActivity'
 import DueDatePicker from './DueDatePicker'
 
 interface Comment {
@@ -33,6 +33,7 @@ interface Task {
   notes?: string | null
   orderIndex: number
   parentTaskId?: string | null
+  autotaskTaskId?: string | null
   subTasks?: Task[]
   comments?: Comment[]
   assignments?: Assignment[]
@@ -248,15 +249,12 @@ export default function TaskItem({
                     <DueDatePicker taskId={task.id} currentDueDate={task.dueDate || null} />
                   </div>
 
-                  {/* Notes/comments column */}
-                  <div className="flex items-center">
-                    <CommentThread taskId={task.id} comments={task.comments || []} projectContacts={projectContacts} />
-                    {commentCount > 0 && (
-                      <span className="ml-1 text-[10px] text-slate-500">
-                        {commentCount === 1 ? '1 note' : `${commentCount} notes`}
-                      </span>
-                    )}
-                  </div>
+                  {/* Activity link (for non-AT tasks, still show comment count) */}
+                  {!task.autotaskTaskId && commentCount > 0 && (
+                    <span className="text-[10px] text-slate-500">
+                      {commentCount === 1 ? '1 note' : `${commentCount} notes`}
+                    </span>
+                  )}
                 </div>
               </>
             )}
@@ -287,6 +285,13 @@ export default function TaskItem({
             </button>
           </div>
         </div>
+
+        {/* Inline Activity Feed (Autotask notes + time entries) */}
+        {task.autotaskTaskId && (
+          <div className="px-4 pb-2">
+            <TaskActivity autotaskTaskId={task.autotaskTaskId} taskId={task.id} />
+          </div>
+        )}
       </div>
 
       {/* Sub-tasks */}

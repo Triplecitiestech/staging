@@ -3,6 +3,7 @@ import { auth } from '@/auth'
 import { redirect, notFound } from 'next/navigation'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
+import { getAutotaskProjectUrl } from '@/lib/autotask'
 import PhaseCard from '@/components/projects/PhaseCard'
 import AIProjectAssistant from '@/components/admin/AIProjectAssistant'
 import ActivityLog from '@/components/admin/ActivityLog'
@@ -251,6 +252,26 @@ export default async function ProjectDetailPage({
                 </svg>
               </div>
             </Link>
+
+            {/* Open in Autotask Button */}
+            {project.autotaskProjectId && (
+              <a
+                href={getAutotaskProjectUrl(project.autotaskProjectId)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block bg-gradient-to-r from-emerald-600/20 to-emerald-500/10 backdrop-blur-sm border border-emerald-500/30 rounded-lg p-4 hover:border-emerald-500/50 transition-all group"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-emerald-300 mb-1">Autotask</p>
+                    <p className="text-lg font-bold text-white group-hover:text-emerald-300 transition-colors">Open in Autotask</p>
+                  </div>
+                  <svg className="w-6 h-6 text-emerald-400 group-hover:text-emerald-300 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                </div>
+              </a>
+            )}
 
             <div className="bg-gradient-to-br from-cyan-600/20 to-cyan-500/10 backdrop-blur-sm border border-cyan-500/30 rounded-lg p-6">
               <p className="text-sm text-cyan-300 mb-1">Total Phases</p>
