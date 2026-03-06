@@ -13,7 +13,6 @@ export const metadata: Metadata = {
   }
 };
 
-export const revalidate = 60; // Revalidate every 60 seconds (ISR)
 export const dynamic = 'force-dynamic';
 
 interface PostWithRelations {
@@ -60,27 +59,24 @@ export default async function BlogPage() {
       take: 20
     });
 
-    // Fetch categories for sidebar
+    // Fetch categories
     categories = await prisma.blogCategory.findMany({
       include: {
         _count: {
           select: {
-            posts: {
-              where: {
-                status: 'PUBLISHED'
-              }
-            }
+            posts: true
           }
         }
       }
     });
-  } catch {
-    // Database tables don't exist, redirect to setup
+  } catch (error) {
+    console.error('[Blog Page] Error fetching blog data:', error);
+    // Database tables don't exist or query failed
     needsSetup = true;
   }
 
   // If blog system not set up, show setup prompt
-  if (needsSetup || categories.length === 0) {
+  if (needsSetup) {
     return (
       <>
         <Header />

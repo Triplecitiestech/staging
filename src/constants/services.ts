@@ -77,7 +77,7 @@ export const SERVICES: Service[] = [
       'Access to our full technology stack and best practices'
     ],
     description: 'Empower your internal IT team with the same enterprise-grade tools, security platforms, and automated processes we use for our fully managed clients.',
-    gradient: 'from-yellow-500 to-orange-500',
+    gradient: 'from-orange-500 to-rose-500',
     icon: '/icon/bg.webp',
     image: '/iws.webp'
   },

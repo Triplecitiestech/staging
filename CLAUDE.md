@@ -9,11 +9,13 @@
 ### 1. Be autonomous. Do not ask the user to fix things you can fix yourself.
 If you encounter an error — a build failure, a lint warning, a type mismatch, a broken import — diagnose it and fix it. Only escalate to the user when the problem genuinely requires information you cannot obtain (credentials, business decisions, ambiguous product requirements). "I found an error, what should I do?" is never acceptable when the error message tells you what's wrong.
 
-### 2. Every change must be tested before deploying.
+### 2. Every change must be fully tested and validated before deploying.
 - Run `npm run build` after every meaningful change. It must pass.
 - Run `npm run lint` and fix all errors.
 - Review your own `git diff` before committing — look for typos, broken imports, missing responsive classes.
 - Check that UI changes work at mobile (`sm`/`md`) AND desktop (`lg`+) breakpoints by reviewing Tailwind classes. Every layout must use responsive grid/flex patterns.
+- **Full QA is mandatory** — see `ENGINEERING_STANDARDS.md` and `QA_STANDARDS.md` for the complete process.
+- Completion means the feature works end-to-end, not just that it compiles.
 
 ### 3. Every completed task must be committed and pushed.
 - Commit after each logical unit of work.
@@ -91,7 +93,7 @@ prisma/
 
 **Styling**: Tailwind utility classes, mobile-first (`base` → `md:` → `lg:`). Custom colors: primary (blues/cyans), secondary (slates). Standard grids: `grid-cols-1 md:grid-cols-2 lg:grid-cols-3`. **Every layout change must be checked at all breakpoints.**
 
-**Forbidden Colors**: NEVER use yellow, amber, gold, or mustard Tailwind classes (`yellow-*`, `amber-*`) anywhere in the UI. Use violet, rose, orange, or other alternatives instead. This applies to backgrounds, text, borders, and any other styling.
+**Forbidden Colors**: NEVER use yellow, amber, gold, brown, or mustard Tailwind classes (`yellow-*`, `amber-*`, `brown-*`, gold-like colors) anywhere in the UI. Use violet, rose, orange, or other alternatives instead. This applies to backgrounds, text, borders, gradients, and any other styling. See `docs/UI_STANDARDS.md` for approved alternatives.
 
 **Path alias**: `@/*` maps to `./src/*`.
 
@@ -223,6 +225,9 @@ This is the **primary external data source** for companies, projects, phases, an
 ## Additional Documentation
 
 Detailed guides in the repo root — read these when working on specific features:
+- `ENGINEERING_STANDARDS.md` — **Mandatory** engineering standards, QA process, testing safety rules
+- `QA_STANDARDS.md` — **Mandatory** QA checklist, validation report template, severity levels
+- `docs/UI_STANDARDS.md` — UI design standards, forbidden colors, color palette
 - `CLAUDE_SESSION_PREFERENCES.md` — Full session workflow and communication preferences
 - `PROJECT_OVERVIEW.md` — Comprehensive architecture reference
 - `BLOG_SYSTEM_README.md` — AI blog generation system

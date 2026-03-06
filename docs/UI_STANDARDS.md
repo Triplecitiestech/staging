@@ -103,6 +103,24 @@ If the backend returns an error or the request times out, the UI must show the e
 - Show total count: "Showing 1-20 of 47"
 - Previous / Next navigation
 
+## Forbidden Colors — PERMANENT RULE
+
+The following colors must NEVER be used anywhere in the UI:
+
+- **Yellow**: `yellow-*` classes (e.g., `yellow-400`, `yellow-500`, `bg-yellow-100`)
+- **Amber**: `amber-*` classes (e.g., `amber-400`, `amber-500`, `text-amber-300`)
+- **Gold**: `gold` or gold-like colors
+- **Brown**: `brown-*` or any brown/muddy tones
+- **Mustard**: Any mustard or yellow-brown combination
+
+**Approved alternatives for warning/accent colors:**
+- Warnings: `text-orange-400`, `bg-orange-500/10`
+- Highlights: `text-violet-400`, `bg-violet-500/10`
+- Accents: `text-rose-400`, `bg-rose-500/10`
+- Status indicators: `text-cyan-400`, `text-emerald-400`
+
+This rule applies to ALL areas: backgrounds, text, borders, gradients, shadows, and any other styling.
+
 ## Color Palette (Admin)
 
 | Element | Color | Tailwind |
@@ -113,7 +131,7 @@ If the backend returns an error or the request times out, the UI must show the e
 | AI/Creative | Purple gradient | `from-purple-500 to-indigo-600` |
 | Success | Green | `text-green-400`, `bg-green-500/10` |
 | Error | Red | `text-red-400`, `bg-red-500/10` |
-| Warning | Amber | `text-amber-400` |
+| Warning | Orange | `text-orange-400`, `bg-orange-500/10` |
 | Border | White 10-20% | `border-white/10` |
 
 ## Component Conventions

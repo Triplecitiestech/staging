@@ -110,6 +110,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
   const [noteSuccess, setNoteSuccess] = useState<string | null>(null)
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [ticketsLoading, setTicketsLoading] = useState(false)
+  const [selectedTicketId, setSelectedTicketId] = useState<number | null>(null)
 
   // Load tickets when companySlug is available
   useEffect(() => {
@@ -176,28 +177,28 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
           </div>
         )}
 
-        {/* Stats */}
+        {/* Stats Cards - Clickable */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <div className="bg-gray-800/50 border border-cyan-500/30 rounded-lg p-4 text-center">
+          <button onClick={() => setSelectedProject(projects[0])} className="bg-gray-800/50 border border-cyan-500/30 hover:border-cyan-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-cyan-500/10 cursor-pointer">
             <div className="text-3xl font-bold text-white">{openTasks.length}</div>
             <div className="text-sm text-gray-400 mt-1">Open Tasks</div>
-          </div>
-          <div className="bg-gray-800/50 border border-green-500/30 rounded-lg p-4 text-center">
+          </button>
+          <button onClick={() => setSelectedProject(projects[0])} className="bg-gray-800/50 border border-green-500/30 hover:border-green-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-green-500/10 cursor-pointer">
             <div className="text-3xl font-bold text-green-400">{completedTasks.length}</div>
-            <div className="text-sm text-gray-400 mt-1">Completed</div>
-          </div>
-          <div className="bg-gray-800/50 border border-purple-500/30 rounded-lg p-4 text-center">
+            <div className="text-sm text-gray-400 mt-1">Completed Tasks</div>
+          </button>
+          <button onClick={() => {/* scroll to projects */}} className="bg-gray-800/50 border border-purple-500/30 hover:border-purple-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-purple-500/10 cursor-pointer">
             <div className="text-3xl font-bold text-purple-400">{projects.length}</div>
             <div className="text-sm text-gray-400 mt-1">Projects</div>
-          </div>
-          <div className="bg-gray-800/50 border border-orange-500/30 rounded-lg p-4 text-center">
+          </button>
+          <button onClick={() => setSelectedProject(projects.find(p => p.phases.some(ph => ph.tasks.some(t => t.status === 'WAITING_ON_CLIENT' || t.status === 'CUSTOMER_NOTE_ADDED'))) || projects[0])} className="bg-gray-800/50 border border-orange-500/30 hover:border-orange-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-orange-500/10 cursor-pointer">
             <div className="text-3xl font-bold text-orange-400">{needsAction.length}</div>
             <div className="text-sm text-gray-400 mt-1">Needs Your Action</div>
-          </div>
+          </button>
         </div>
 
         {/* Tickets Card */}
-        {renderTicketsCard(ticketsLoading, openTickets, closedTickets, tickets)}
+        {renderTicketsCard(ticketsLoading, openTickets, closedTickets, tickets, selectedTicketId, setSelectedTicketId)}
 
         {/* Project Cards */}
         <h2 className="text-xl font-bold text-white mb-4">Your Projects</h2>
@@ -298,7 +299,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
         </div>
         <div className="bg-gray-800/50 border border-green-500/30 rounded-lg p-3 text-center">
           <div className="text-2xl font-bold text-green-400">{doneTasks}</div>
-          <div className="text-xs text-gray-400 mt-1">Completed</div>
+          <div className="text-xs text-gray-400 mt-1">Completed Tasks</div>
         </div>
         <div className="bg-gray-800/50 border border-purple-500/30 rounded-lg p-3 text-center">
           <div className="text-2xl font-bold text-purple-400">{project.phases.length}</div>
@@ -313,7 +314,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
       </div>
 
       {/* Tickets Card (single project view) */}
-      {projects.length === 1 && renderTicketsCard(ticketsLoading, openTickets, closedTickets, tickets)}
+      {projects.length === 1 && renderTicketsCard(ticketsLoading, openTickets, closedTickets, tickets, selectedTicketId, setSelectedTicketId)}
 
       {/* Phases */}
       <div className="space-y-4">
@@ -487,7 +488,9 @@ function renderTicketsCard(
   loading: boolean,
   openTickets: Ticket[],
   closedTickets: Ticket[],
-  allTickets: Ticket[]
+  allTickets: Ticket[],
+  selectedTicketId: number | null,
+  setSelectedTicketId: (id: number | null) => void
 ) {
   if (loading) {
     return (
@@ -499,6 +502,60 @@ function renderTicketsCard(
   }
 
   if (allTickets.length === 0) return null
+
+  const selectedTicket = selectedTicketId ? allTickets.find(t => t.id === selectedTicketId) : null
+
+  // If a ticket is selected, show the detail view
+  if (selectedTicket) {
+    return (
+      <div className="bg-gray-800/50 border border-white/10 rounded-lg p-6 mb-8">
+        <button
+          onClick={() => setSelectedTicketId(null)}
+          className="flex items-center gap-2 text-cyan-400 hover:text-cyan-300 transition-colors mb-4 text-sm"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+          Back to Tickets
+        </button>
+        <div className="mb-4">
+          <div className="flex items-center gap-3 mb-2">
+            <h3 className="text-xl font-bold text-white">{selectedTicket.title}</h3>
+            <span className={`px-2.5 py-0.5 text-xs font-medium rounded-full whitespace-nowrap ${
+              selectedTicket.completedDate
+                ? 'bg-green-500/20 text-green-300 border border-green-500/30'
+                : 'bg-orange-500/20 text-orange-300 border border-orange-500/30'
+            }`}>
+              {selectedTicket.completedDate ? 'Closed' : 'Open'}
+            </span>
+          </div>
+          <p className="text-sm text-gray-400">Ticket #{selectedTicket.ticketNumber}</p>
+        </div>
+
+        {/* Ticket Timeline */}
+        <div className="space-y-3">
+          <div className="bg-gray-700/30 rounded-lg px-4 py-3">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-medium text-cyan-400">Ticket Created</span>
+              <span className="text-xs text-gray-500">{new Date(selectedTicket.createDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</span>
+            </div>
+            <p className="text-sm text-gray-300">{selectedTicket.title}</p>
+          </div>
+          {selectedTicket.completedDate && (
+            <div className="bg-green-500/10 rounded-lg px-4 py-3 border border-green-500/20">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-medium text-green-400">Ticket Resolved</span>
+                <span className="text-xs text-gray-500">{new Date(selectedTicket.completedDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</span>
+              </div>
+              <p className="text-sm text-gray-300">This ticket has been completed and closed.</p>
+            </div>
+          )}
+        </div>
+
+        <p className="text-xs text-gray-500 mt-4">For detailed ticket notes, contact your account manager or call (607) 341-7500.</p>
+      </div>
+    )
+  }
 
   return (
     <div className="bg-gray-800/50 border border-white/10 rounded-lg p-6 mb-8">
@@ -516,19 +573,28 @@ function renderTicketsCard(
       {allTickets.length > 0 && (
         <div className="space-y-2 max-h-60 overflow-y-auto">
           {allTickets.slice(0, 10).map(ticket => (
-            <div key={ticket.id} className="flex items-center justify-between bg-gray-700/30 rounded px-3 py-2">
+            <button
+              key={ticket.id}
+              onClick={() => setSelectedTicketId(ticket.id)}
+              className="w-full flex items-center justify-between bg-gray-700/30 hover:bg-gray-700/50 rounded px-3 py-2 transition-colors text-left group cursor-pointer"
+            >
               <div className="min-w-0 flex-1">
-                <p className="text-sm text-white truncate">{ticket.title}</p>
+                <p className="text-sm text-white truncate group-hover:text-cyan-300 transition-colors">{ticket.title}</p>
                 <p className="text-xs text-gray-500">#{ticket.ticketNumber} - {new Date(ticket.createDate).toLocaleDateString()}</p>
               </div>
-              <span className={`ml-2 px-2 py-0.5 text-xs font-medium rounded-full whitespace-nowrap ${
-                ticket.completedDate
-                  ? 'bg-green-500/20 text-green-300'
-                  : 'bg-orange-500/20 text-orange-300'
-              }`}>
-                {ticket.completedDate ? 'Closed' : 'Open'}
-              </span>
-            </div>
+              <div className="flex items-center gap-2 ml-2">
+                <span className={`px-2 py-0.5 text-xs font-medium rounded-full whitespace-nowrap ${
+                  ticket.completedDate
+                    ? 'bg-green-500/20 text-green-300'
+                    : 'bg-orange-500/20 text-orange-300'
+                }`}>
+                  {ticket.completedDate ? 'Closed' : 'Open'}
+                </span>
+                <svg className="w-4 h-4 text-gray-500 group-hover:text-cyan-400 transition-colors flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </div>
+            </button>
           ))}
         </div>
       )}

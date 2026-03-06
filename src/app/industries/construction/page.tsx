@@ -136,15 +136,15 @@ export default function ConstructionIT() {
           <div className="absolute inset-0" style={{
             backgroundImage: `repeating-linear-gradient(
               45deg,
-              #facc15 0px,
-              #facc15 40px,
+              #f97316 0px,
+              #f97316 40px,
               transparent 40px,
               transparent 80px
             )`
           }}></div>
         </div>
 
-        {/* Solid yellow accent bars */}
+        {/* Solid accent bars */}
         <div className="absolute top-0 left-0 right-0 h-2 bg-orange-400"></div>
         <div className="absolute bottom-0 left-0 right-0 h-2 bg-orange-400"></div>
 

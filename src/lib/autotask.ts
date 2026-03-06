@@ -754,24 +754,36 @@ export function generateUniqueSlug(text: string, suffix?: string): string {
 }
 
 /**
- * Generate an Autotask web UI URL for a project.
- * Autotask web UI uses: https://{zone}.autotask.net/Mvc/Projects/ProjectDashboard.mvc?ProjectID={id}
- * Zone is derived from the API base URL.
+ * Extract the Autotask web UI zone from the API base URL.
+ * API: https://webservices6.autotask.net/ATServicesRest → zone: ww6
  */
-export function getAutotaskProjectUrl(atProjectId: string): string {
+function getAutotaskZone(): string {
   const baseUrl = process.env.AUTOTASK_API_BASE_URL || '';
-  // Extract zone from API URL: https://webservices6.autotask.net/ATServicesRest → ww6
   const match = baseUrl.match(/webservices(\d+)\.autotask\.net/);
-  const zone = match ? `ww${match[1]}` : 'ww6';
-  return `https://${zone}.autotask.net/Mvc/Projects/ProjectDashboard.mvc?ProjectID=${atProjectId}`;
+  return match ? `ww${match[1]}` : 'ww6';
 }
 
 /**
- * Generate an Autotask web UI URL for a task/ticket.
+ * Generate an Autotask web UI URL for a project.
+ * Uses the modern Datto PSA URL format with entity navigation.
+ */
+export function getAutotaskProjectUrl(atProjectId: string): string {
+  const zone = getAutotaskZone();
+  return `https://${zone}.autotask.net/Mvc/Framework/CommonPage.mvc/PageState/Navigate?PageName=ProjectDetail&Id=${atProjectId}`;
+}
+
+/**
+ * Generate an Autotask web UI URL for a task (project task).
  */
 export function getAutotaskTaskUrl(atTaskId: string): string {
-  const baseUrl = process.env.AUTOTASK_API_BASE_URL || '';
-  const match = baseUrl.match(/webservices(\d+)\.autotask\.net/);
-  const zone = match ? `ww${match[1]}` : 'ww6';
-  return `https://${zone}.autotask.net/Mvc/ServiceDesk/TaskEdit.mvc?TaskId=${atTaskId}`;
+  const zone = getAutotaskZone();
+  return `https://${zone}.autotask.net/Mvc/Framework/CommonPage.mvc/PageState/Navigate?PageName=TaskDetail&Id=${atTaskId}`;
+}
+
+/**
+ * Generate an Autotask web UI URL for a service desk ticket.
+ */
+export function getAutotaskTicketUrl(atTicketId: string): string {
+  const zone = getAutotaskZone();
+  return `https://${zone}.autotask.net/Mvc/Framework/CommonPage.mvc/PageState/Navigate?PageName=TicketDetail&Id=${atTicketId}`;
 }
