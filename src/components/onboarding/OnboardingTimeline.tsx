@@ -33,16 +33,16 @@ const statusColors: Record<PhaseStatus, { bg: string; text: string; border: stri
     icon: 'text-purple-600'
   },
   'Waiting on Customer': {
-    bg: 'bg-orange-500/20',
-    text: 'text-orange-300',
-    border: 'border-orange-500/50',
-    icon: 'text-orange-600'
+    bg: 'bg-red-500/20',
+    text: 'text-red-400',
+    border: 'border-red-500/50',
+    icon: 'text-red-600'
   },
   'Requires Customer Coordination': {
-    bg: 'bg-orange-500/20',
-    text: 'text-orange-300',
-    border: 'border-orange-500/50',
-    icon: 'text-orange-600'
+    bg: 'bg-red-500/20',
+    text: 'text-red-400',
+    border: 'border-red-500/50',
+    icon: 'text-red-600'
   },
   'Discussed': {
     bg: 'bg-indigo-500/20',

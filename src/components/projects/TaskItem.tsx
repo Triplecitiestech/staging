@@ -68,7 +68,7 @@ const STATUS_BORDER_COLORS: Record<string, string> = {
   NOT_STARTED: 'border-l-pink-500',
   ASSIGNED: 'border-l-indigo-500',
   WORK_IN_PROGRESS: 'border-l-sky-500',
-  WAITING_ON_CLIENT: 'border-l-orange-500',
+  WAITING_ON_CLIENT: 'border-l-red-500',
   WAITING_ON_VENDOR: 'border-l-rose-500',
   NEEDS_REVIEW: 'border-l-cyan-500',
   STUCK: 'border-l-red-500',
