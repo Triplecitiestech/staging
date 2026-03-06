@@ -93,11 +93,22 @@ export async function POST(request: NextRequest) {
         data: { notes: content }
       })
 
-      // Notify internal members assigned to this task
+      // Notify internal staff assigned to this task via email and in-app notification
       try {
         const task = await prisma.phaseTask.findUnique({
           where: { id: taskId },
-          select: { taskText: true, phaseId: true }
+          select: {
+            taskText: true,
+            phaseId: true,
+            phase: {
+              select: {
+                title: true,
+                project: {
+                  select: { title: true, slug: true, company: { select: { displayName: true } } }
+                }
+              }
+            }
+          }
         })
         const assignments = await prisma.assignment.findMany({
           where: { taskId },
@@ -116,6 +127,8 @@ export async function POST(request: NextRequest) {
         for (const assignment of assignments) {
           if (!assignment.assigneeEmail || notifiedEmails.has(assignment.assigneeEmail)) continue
           notifiedEmails.add(assignment.assigneeEmail)
+
+          // Create in-app notification
           await prisma.notification.create({
             data: {
               recipientEmail: assignment.assigneeEmail,
@@ -127,8 +140,55 @@ export async function POST(request: NextRequest) {
               linkUrl: `/admin/projects`,
             }
           })
+
+          // Send email notification
+          try {
+            const { Resend } = await import('resend')
+            const resendKey = process.env.RESEND_API_KEY
+            if (resendKey) {
+              const resend = new Resend(resendKey)
+              const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.triplecitiestech.com'
+              const companyName = task?.phase?.project?.company?.displayName || 'A customer'
+              const projectTitle = task?.phase?.project?.title || 'Unknown Project'
+              const taskTitle = task?.taskText || 'Unknown Task'
+              const phaseTitle = task?.phase?.title || 'Unknown Phase'
+
+              await resend.emails.send({
+                from: process.env.EMAIL_FROM || 'Triple Cities Tech <notifications@triplecitiestech.com>',
+                to: [assignment.assigneeEmail],
+                subject: `Customer Note: ${taskTitle.substring(0, 60)}`,
+                html: `
+                  <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto;">
+                    <div style="background: linear-gradient(135deg, #0f172a, #1e3a5f); color: white; padding: 24px; text-align: center; border-radius: 8px 8px 0 0;">
+                      <h2 style="margin: 0; font-size: 18px;">Customer Note Added</h2>
+                    </div>
+                    <div style="padding: 24px; background: white; border: 1px solid #e2e8f0;">
+                      <p style="color: #475569;">Hi ${assignment.assigneeName || 'Team Member'},</p>
+                      <p style="color: #1e293b;"><strong>${companyName}</strong> added a note on a task you're assigned to:</p>
+                      <div style="background: #f8fafc; border-left: 4px solid #0891b2; padding: 16px; margin: 16px 0; border-radius: 4px;">
+                        <p style="margin: 0 0 4px 0; font-size: 13px; color: #64748b;">${projectTitle} / ${phaseTitle}</p>
+                        <p style="margin: 0 0 8px 0; font-weight: 600; color: #0f172a;">${taskTitle}</p>
+                        <p style="margin: 0; color: #334155;">${content.substring(0, 500)}</p>
+                      </div>
+                      <div style="text-align: center; margin-top: 24px;">
+                        <a href="${baseUrl}/admin/projects" style="background: #0891b2; color: white; padding: 10px 24px; border-radius: 6px; text-decoration: none; font-weight: 600;">View in Admin Portal</a>
+                      </div>
+                    </div>
+                    <div style="padding: 16px; text-align: center; font-size: 12px; color: #94a3b8;">
+                      Triple Cities Tech &bull; Managed IT Services
+                    </div>
+                  </div>
+                `,
+                text: `Customer Note Added\n\n${companyName} added a note on task "${taskTitle}" (${projectTitle} / ${phaseTitle}):\n\n${content.substring(0, 500)}\n\nView in admin portal: ${baseUrl}/admin/projects`,
+              })
+              console.log(`[Customer Notes API] Email sent to ${assignment.assigneeEmail}`)
+            }
+          } catch (emailError) {
+            console.error(`[Customer Notes API] Failed to send email to ${assignment.assigneeEmail}:`, emailError)
+            // Non-critical - in-app notification was already created
+          }
         }
-        console.log(`[Customer Notes API] Notified ${notifiedEmails.size} staff member(s)`)
+        console.log(`[Customer Notes API] Notified ${notifiedEmails.size} staff member(s) via app + email`)
       } catch (notifyError) {
         console.error('[Customer Notes API] Failed to send notifications:', notifyError)
         // Non-critical - don't fail the note save

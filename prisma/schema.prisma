@@ -496,6 +496,9 @@ model BlogPost {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
+  // Campaign link (if this post was created via a communication campaign)
+  campaignId      String?
+
   // Relations
   author          StaffUser?    @relation(fields: [authorId], references: [id])
   authorId        String?
@@ -578,4 +581,215 @@ model BlogSettings {
   updatedBy  String?
 
   @@map("blog_settings")
+}
+
+// ============================================
+// SALES & MARKETING SYSTEM
+// ============================================
+
+/// Provider type for audience sources — extensible for future integrations
+enum AudienceProviderType {
+  AUTOTASK
+  HUBSPOT
+  CSV_IMPORT
+  MANUAL
+}
+
+/// Configured audience source (e.g., "Our Autotask Instance", "HubSpot CRM")
+model AudienceSource {
+  id           String               @id @default(uuid())
+  name         String               // "Autotask PSA", "HubSpot CRM"
+  providerType AudienceProviderType
+  config       Json?                // Provider-specific config (API keys, endpoints, etc.)
+  isActive     Boolean              @default(true)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  // Relations
+  audiences Audience[]
+
+  @@map("audience_sources")
+}
+
+/// A named, reusable audience segment with filter criteria
+model Audience {
+  id             String               @id @default(uuid())
+  name           String               // "All Active Customers", "Enterprise Clients"
+  description    String?              @db.Text
+  sourceId       String
+  providerType   AudienceProviderType // Denormalized for quick filtering
+  filterCriteria Json                 // Provider-specific filter (e.g., { companyIds: [...] } or { groupId: "..." })
+  recipientCount Int                  @default(0) // Cached count
+  isActive       Boolean              @default(true)
+  createdBy      String               // Staff email
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  // Relations
+  source    AudienceSource          @relation(fields: [sourceId], references: [id])
+  campaigns CommunicationCampaign[]
+
+  @@map("audiences")
+}
+
+/// Content type categories for communications
+enum CommunicationContentType {
+  CYBERSECURITY_ALERT
+  SERVICE_UPDATE
+  MAINTENANCE_NOTICE
+  VENDOR_NOTICE
+  BEST_PRACTICE
+  COMPANY_ANNOUNCEMENT
+  GENERAL_COMMUNICATION
+}
+
+/// Campaign status workflow
+enum CampaignStatus {
+  DRAFT
+  GENERATING        // AI is generating content
+  CONTENT_READY     // Draft generated, awaiting review
+  APPROVED          // Content approved, ready to publish
+  PUBLISHING        // Publishing blog post
+  PUBLISHED         // Blog post live, ready to send email
+  SENDING           // Sending email notifications
+  SENT              // All emails sent
+  FAILED            // Something went wrong
+  CANCELLED         // Cancelled by user
+}
+
+/// The main campaign entity — a single communication to an audience
+model CommunicationCampaign {
+  id                String                   @id @default(uuid())
+  name              String                   // Campaign name/title
+  contentType       CommunicationContentType
+  topic             String                   @db.Text // User-provided topic/prompt
+  audienceId        String
+  status            CampaignStatus           @default(DRAFT)
+
+  // Content
+  generatedTitle    String?
+  generatedExcerpt  String?                  @db.Text
+  generatedContent  String?                  @db.Text // Markdown content
+  generatedMetaTitle       String?
+  generatedMetaDescription String?           @db.Text
+  generatedKeywords String[]
+
+  // AI metadata
+  aiModel           String?
+  aiPrompt          String?                  @db.Text
+
+  // Email notification fields
+  emailSubject      String?
+  emailPreviewText  String?                  @db.Text
+  emailBodyHtml     String?                  @db.Text
+
+  // Publishing
+  blogPostId        String?                  // Links to BlogPost once published
+  publishedAt       DateTime?
+
+  // Email sending
+  emailSentAt       DateTime?
+  emailTotalCount   Int                      @default(0)
+  emailSuccessCount Int                      @default(0)
+  emailFailureCount Int                      @default(0)
+
+  // Approval workflow
+  approvedAt        DateTime?
+  approvedBy        String?                  // Staff email
+  rejectionReason   String?                  @db.Text
+
+  // Tracking
+  createdBy         String                   // Staff email
+  lastModifiedBy    String                   // Staff email
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+
+  // Relations
+  audience   Audience             @relation(fields: [audienceId], references: [id])
+  recipients CampaignRecipient[]
+  auditLogs  CampaignAuditLog[]
+
+  @@map("communication_campaigns")
+  @@index([status])
+  @@index([createdAt])
+  @@index([contentType])
+}
+
+/// Snapshot of resolved recipients at send time
+model CampaignRecipient {
+  id           String   @id @default(uuid())
+  campaignId   String
+  name         String
+  email        String
+  companyName  String?
+  companyId    String?  // Local company ID if applicable
+
+  // Delivery tracking
+  emailStatus  EmailDeliveryStatus @default(PENDING)
+  sentAt       DateTime?
+  deliveredAt  DateTime?
+  openedAt     DateTime?
+  failureReason String?            @db.Text
+
+  // Source reference (for audit — which external ID this came from)
+  sourceContactId String?          // e.g., Autotask contact ID
+  sourceType      AudienceProviderType?
+
+  createdAt    DateTime @default(now())
+
+  // Relations
+  campaign CommunicationCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@map("campaign_recipients")
+  @@index([campaignId])
+  @@index([email])
+  @@index([emailStatus])
+}
+
+enum EmailDeliveryStatus {
+  PENDING
+  SENT
+  DELIVERED
+  OPENED
+  FAILED
+  BOUNCED
+}
+
+/// Full audit trail for campaign actions
+model CampaignAuditLog {
+  id          String   @id @default(uuid())
+  campaignId  String
+  action      String   // "created", "content_generated", "edited", "approved", "published", "email_sent", etc.
+  staffEmail  String
+  staffName   String?
+  details     Json?    // Additional context
+  createdAt   DateTime @default(now())
+
+  // Relations
+  campaign CommunicationCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@map("campaign_audit_logs")
+  @@index([campaignId])
+  @@index([createdAt])
+}
+
+// ============================================
+// SOFT DELETE SUPPORT
+// ============================================
+
+/// Archive/soft-delete record for reversible deletions
+model DeletedRecord {
+  id          String   @id @default(uuid())
+  entityType  String   // "phase", "project", "comment", "phaseTask"
+  entityId    String   // Original record ID
+  entityData  Json     // Full snapshot of the deleted record
+  relatedData Json?    // Related records (e.g., tasks under a deleted phase)
+  deletedBy   String   // Staff email
+  deletedAt   DateTime @default(now())
+  restoredAt  DateTime?
+  restoredBy  String?
+
+  @@map("deleted_records")
+  @@index([entityType, entityId])
+  @@index([deletedAt])
 }
