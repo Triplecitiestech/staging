@@ -1,4 +1,98 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { Pool } from 'pg';
+
+/**
+ * Run migration SQL directly via pg Pool (bypasses PrismaPg adapter
+ * limitations with PL/pgSQL DO blocks and enum types).
+ */
+async function ensureTablesExist() {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) throw new Error('DATABASE_URL not set');
+
+  const pool = new Pool({ connectionString });
+  const client = await pool.connect();
+
+  try {
+    // Step 1: Create enum type if it doesn't exist
+    try {
+      await client.query(`CREATE TYPE "AudienceProviderType" AS ENUM ('AUTOTASK', 'HUBSPOT', 'CSV_IMPORT', 'MANUAL')`);
+    } catch (e: unknown) {
+      // 42710 = duplicate_object (enum already exists) — safe to ignore
+      if ((e as { code?: string }).code !== '42710') {
+        console.warn('[Audience Init] Enum creation warning:', (e as Error).message);
+      }
+    }
+
+    // Step 2: If audience_sources table exists with TEXT providerType, alter to enum
+    try {
+      const colCheck = await client.query(`
+        SELECT data_type FROM information_schema.columns
+        WHERE table_name = 'audience_sources' AND column_name = 'providerType'
+      `);
+      if (colCheck.rows.length > 0 && colCheck.rows[0].data_type === 'text') {
+        await client.query(`ALTER TABLE "audience_sources" ALTER COLUMN "providerType" TYPE "AudienceProviderType" USING "providerType"::"AudienceProviderType"`);
+      }
+    } catch (e) {
+      console.warn('[Audience Init] Column alter warning:', (e as Error).message);
+    }
+
+    // Step 3: Create audience_sources table if it doesn't exist
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS "audience_sources" (
+          "id" TEXT NOT NULL DEFAULT gen_random_uuid(),
+          "name" TEXT NOT NULL,
+          "providerType" "AudienceProviderType" NOT NULL DEFAULT 'AUTOTASK'::"AudienceProviderType",
+          "config" JSONB DEFAULT '{}',
+          "isActive" BOOLEAN NOT NULL DEFAULT true,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "audience_sources_pkey" PRIMARY KEY ("id")
+        )
+      `);
+    } catch (e) {
+      console.warn('[Audience Init] audience_sources table warning:', (e as Error).message);
+    }
+
+    // Step 4: Same for audiences table
+    try {
+      const colCheck = await client.query(`
+        SELECT data_type FROM information_schema.columns
+        WHERE table_name = 'audiences' AND column_name = 'providerType'
+      `);
+      if (colCheck.rows.length > 0 && colCheck.rows[0].data_type === 'text') {
+        await client.query(`ALTER TABLE "audiences" ALTER COLUMN "providerType" TYPE "AudienceProviderType" USING "providerType"::"AudienceProviderType"`);
+      }
+    } catch (e) {
+      console.warn('[Audience Init] audiences column alter warning:', (e as Error).message);
+    }
+
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS "audiences" (
+          "id" TEXT NOT NULL DEFAULT gen_random_uuid(),
+          "name" TEXT NOT NULL,
+          "description" TEXT,
+          "sourceId" TEXT NOT NULL,
+          "providerType" "AudienceProviderType" NOT NULL DEFAULT 'AUTOTASK'::"AudienceProviderType",
+          "filterCriteria" JSONB NOT NULL DEFAULT '{}',
+          "recipientCount" INTEGER NOT NULL DEFAULT 0,
+          "isActive" BOOLEAN NOT NULL DEFAULT true,
+          "createdBy" TEXT NOT NULL,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "audiences_pkey" PRIMARY KEY ("id"),
+          CONSTRAINT "audiences_sourceId_fkey" FOREIGN KEY ("sourceId") REFERENCES "audience_sources"("id") ON DELETE RESTRICT ON UPDATE CASCADE
+        )
+      `);
+    } catch (e) {
+      console.warn('[Audience Init] audiences table warning:', (e as Error).message);
+    }
+  } finally {
+    client.release();
+    await pool.end();
+  }
+}
 
 /**
  * GET /api/marketing/audiences/sources — List audience sources
@@ -28,62 +122,14 @@ export async function GET() {
  */
 export async function POST(request: NextRequest) {
   try {
-    const { prisma } = await import('@/lib/prisma');
     const body = await request.json();
     const { action } = body;
 
     if (action === 'init-defaults') {
-      // Ensure the AudienceProviderType enum and tables exist (may not be migrated yet)
-      try {
-        // Create enum type if it doesn't exist
-        await prisma.$executeRawUnsafe(`
-          DO $$ BEGIN
-            CREATE TYPE "AudienceProviderType" AS ENUM ('AUTOTASK', 'HUBSPOT', 'CSV_IMPORT', 'MANUAL');
-          EXCEPTION WHEN duplicate_object THEN null;
-          END $$
-        `);
-      } catch {
-        // Enum may already exist — proceed anyway
-      }
+      // Run migration via direct pg connection (not Prisma adapter)
+      await ensureTablesExist();
 
-      try {
-        await prisma.$executeRawUnsafe(`
-          CREATE TABLE IF NOT EXISTS "audience_sources" (
-            "id" TEXT NOT NULL DEFAULT gen_random_uuid(),
-            "name" TEXT NOT NULL,
-            "providerType" "AudienceProviderType" NOT NULL DEFAULT 'AUTOTASK'::"AudienceProviderType",
-            "config" JSONB DEFAULT '{}',
-            "isActive" BOOLEAN NOT NULL DEFAULT true,
-            "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            CONSTRAINT "audience_sources_pkey" PRIMARY KEY ("id")
-          )
-        `);
-      } catch {
-        // Table may already exist — proceed anyway
-      }
-
-      try {
-        await prisma.$executeRawUnsafe(`
-          CREATE TABLE IF NOT EXISTS "audiences" (
-            "id" TEXT NOT NULL DEFAULT gen_random_uuid(),
-            "name" TEXT NOT NULL,
-            "description" TEXT,
-            "sourceId" TEXT NOT NULL,
-            "providerType" "AudienceProviderType" NOT NULL DEFAULT 'AUTOTASK'::"AudienceProviderType",
-            "filterCriteria" JSONB NOT NULL DEFAULT '{}',
-            "recipientCount" INTEGER NOT NULL DEFAULT 0,
-            "isActive" BOOLEAN NOT NULL DEFAULT true,
-            "createdBy" TEXT NOT NULL,
-            "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            CONSTRAINT "audiences_pkey" PRIMARY KEY ("id"),
-            CONSTRAINT "audiences_sourceId_fkey" FOREIGN KEY ("sourceId") REFERENCES "audience_sources"("id") ON DELETE RESTRICT ON UPDATE CASCADE
-          )
-        `);
-      } catch {
-        // Table may already exist — proceed anyway
-      }
+      const { prisma } = await import('@/lib/prisma');
 
       // Create default Autotask source if it doesn't exist
       const existing = await prisma.audienceSource.findFirst({
