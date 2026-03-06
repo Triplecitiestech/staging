@@ -20,6 +20,7 @@ type CompanyWithProjects = Prisma.CompanyGetPayload<{
 
 interface PageProps {
   params: Promise<{ slug: string }>
+  searchParams: Promise<{ project?: string }>
 }
 
 // Convert database status to display format
@@ -45,7 +46,7 @@ function convertOwner(owner: string | null): 'TCT' | 'Customer' | 'Both' {
   return 'TCT'
 }
 
-export default async function AdminPreviewPage({ params }: PageProps) {
+export default async function AdminPreviewPage({ params, searchParams }: PageProps) {
   try {
     // Verify admin authentication
     const session = await auth()
@@ -54,6 +55,7 @@ export default async function AdminPreviewPage({ params }: PageProps) {
     }
 
     const { slug } = await params
+    const { project: projectId } = await searchParams
     console.log('[Admin Preview] Loading preview for slug:', slug)
 
     // Fetch company from database
@@ -138,8 +140,10 @@ export default async function AdminPreviewPage({ params }: PageProps) {
 
     console.log('[Admin Preview] Found company:', company.displayName, 'Projects:', company.projects.length)
 
-    // Find the most recent active project, or fall back to most recently updated
-    const activeProject = company.projects.find(p => p.status === 'ACTIVE') || company.projects[0]
+    // If a specific project ID was requested, show that one; otherwise find active or most recent
+    const activeProject = projectId
+      ? company.projects.find(p => p.id === projectId) || company.projects[0]
+      : company.projects.find(p => p.status === 'ACTIVE') || company.projects[0]
 
     // Transform data for OnboardingPortal component
     const onboardingData = activeProject ? {
