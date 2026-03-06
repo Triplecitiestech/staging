@@ -24,6 +24,21 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error('ErrorBoundary caught an error:', error, errorInfo)
+
+    // Report to error logging API
+    fetch('/api/errors', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        source: 'client',
+        message: error.message,
+        stack: error.stack,
+        path: typeof window !== 'undefined' ? window.location.pathname : undefined,
+        metadata: { componentStack: errorInfo.componentStack?.substring(0, 2000) },
+      }),
+    }).catch(() => {
+      // Silently fail
+    })
   }
 
   render() {

@@ -298,6 +298,19 @@ export class AutotaskClient {
   }
 
   /**
+   * Search active companies by name
+   */
+  async searchCompanies(nameQuery: string): Promise<AutotaskCompany[]> {
+    return this.queryAll<AutotaskCompany>('Companies', {
+      op: 'and',
+      items: [
+        { op: 'eq', field: 'isActive', value: true },
+        { op: 'contains', field: 'companyName', value: nameQuery },
+      ],
+    });
+  }
+
+  /**
    * Get companies modified since a given date
    */
   async getCompaniesModifiedSince(since: Date): Promise<AutotaskCompany[]> {

@@ -10,8 +10,17 @@ export function getCompanyPassword(companySlug: string): string | null {
   return process.env[envKey] || null
 }
 
+// Demo company credentials
+const DEMO_SLUG = 'contoso-industries'
+const DEMO_PASSWORD = 'password'
+
 // Validate password for a company
 export async function validateCompanyPassword(companySlug: string, password: string): Promise<boolean> {
+  // Demo company uses hardcoded credentials
+  if (companySlug === DEMO_SLUG) {
+    return password === DEMO_PASSWORD
+  }
+
   // First check static companies with env passwords
   const correctPassword = getCompanyPassword(companySlug)
 
@@ -139,6 +148,11 @@ export async function getOnboardingData(companySlug: string): Promise<Onboarding
 
 // Check if a company exists
 export async function companyExists(companySlug: string): Promise<boolean> {
+  // Demo company always exists
+  if (companySlug === DEMO_SLUG) {
+    return true
+  }
+
   // First check the static map
   if (onboardingDatabase.has(companySlug)) {
     return true

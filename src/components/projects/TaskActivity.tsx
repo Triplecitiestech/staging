@@ -21,7 +21,7 @@ interface TaskActivityProps {
 }
 
 export default function TaskActivity({ autotaskTaskId, taskId }: TaskActivityProps) {
-  const [isExpanded, setIsExpanded] = useState(true)
+  const [isExpanded, setIsExpanded] = useState(false)
   const [activities, setActivities] = useState<ActivityItem[]>([])
   const [loading, setLoading] = useState(false)
   const [loaded, setLoaded] = useState(false)
@@ -65,13 +65,13 @@ export default function TaskActivity({ autotaskTaskId, taskId }: TaskActivityPro
     }
   }, [autotaskTaskId])
 
-  // Auto-fetch activity on mount so comms trail is visible immediately
+  // Fetch activity when expanded for the first time
   useEffect(() => {
-    if (autotaskTaskId && !autoFetched) {
+    if (isExpanded && autotaskTaskId && !autoFetched) {
       setAutoFetched(true)
       fetchActivity()
     }
-  }, [autotaskTaskId, autoFetched, fetchActivity])
+  }, [isExpanded, autotaskTaskId, autoFetched, fetchActivity])
 
   const toggleExpanded = () => {
     const nextExpanded = !isExpanded

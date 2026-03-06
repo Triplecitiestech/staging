@@ -35,6 +35,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    // Demo company: return synthetic timeline
+    if (companySlug.toLowerCase().trim() === 'contoso-industries') {
+      const { DEMO_TIMELINE } = await import('@/lib/demo-mode')
+      const demoTimeline = DEMO_TIMELINE[parseInt(ticketId, 10) as keyof typeof DEMO_TIMELINE] || []
+      return NextResponse.json({ timeline: demoTimeline })
+    }
+
     // Verify company has Autotask ID
     const company = await prisma.company.findUnique({
       where: { slug: companySlug.toLowerCase().trim() },
@@ -82,10 +89,16 @@ export async function GET(request: NextRequest) {
 
     const timeline: TimelineEntry[] = []
 
-    // Add external notes only (publish !== 2 means customer-visible)
+    // Add only customer-visible notes
+    // publish: 1=All/External, 2=Internal Only, 3=Customer-visible
+    // Only show publish=1 (All) and publish=3 (Customer-visible)
+    // Skip system notes (no creatorResourceID AND no creatorContactID)
     for (const note of notes) {
-      // Skip internal-only notes (publish=2 is internal)
-      if (note.publish === 2) continue
+      // Only allow explicitly external notes (publish=1 or publish=3)
+      if (note.publish !== 1 && note.publish !== 3) continue
+
+      // Skip system-generated notes (no human creator)
+      if (!note.creatorResourceID && !note.creatorContactID) continue
 
       const isCustomerNote = !!note.creatorContactID && !note.creatorResourceID
       const authorName = note.creatorResourceID

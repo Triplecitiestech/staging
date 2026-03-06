@@ -26,6 +26,7 @@ export interface AudienceFilterCriteria {
   companyIds?: string[]; // Local company IDs to include
   autotaskCompanyIds?: string[]; // Autotask company IDs
   allActiveCustomers?: boolean; // Include all active companies with contacts
+  contactGroupIds?: string[]; // Autotask Contact Group IDs (Action Types)
 
   // Future: HubSpot-specific
   hubspotListId?: string;
@@ -70,10 +71,34 @@ export class AutotaskAudienceProvider implements AudienceProvider {
    */
   async resolveRecipients(criteria: AudienceFilterCriteria): Promise<AudienceRecipient[]> {
     const { prisma } = await import('@/lib/prisma');
-    const { Prisma } = await import('@prisma/client');
-    void Prisma; // ensure import is used
 
-    // Build where clause for contacts query
+    // Contact Group targeting: resolve via Autotask API
+    if (criteria.contactGroupIds && criteria.contactGroupIds.length > 0) {
+      const { AutotaskClient } = await import('@/lib/autotask');
+      const client = new AutotaskClient();
+
+      const allMembers: AudienceRecipient[] = [];
+      const seenEmails = new Set<string>();
+
+      for (const groupId of criteria.contactGroupIds) {
+        const members = await client.getContactGroupMembers(parseInt(groupId, 10));
+        for (const member of members) {
+          const email = member.emailAddress?.toLowerCase();
+          if (email && !seenEmails.has(email)) {
+            seenEmails.add(email);
+            allMembers.push({
+              name: `${member.firstName} ${member.lastName}`.trim(),
+              email,
+              sourceContactId: String(member.id),
+            });
+          }
+        }
+      }
+
+      return allMembers;
+    }
+
+    // Company-based targeting: use local DB
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const where: any = {
       isActive: true,
