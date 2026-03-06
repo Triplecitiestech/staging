@@ -65,14 +65,14 @@ function getStatusBadge(status: string) {
       return { label: 'In Progress', color: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30' }
     case 'WAITING_ON_CLIENT':
     case 'CUSTOMER_NOTE_ADDED':
-      return { label: 'Waiting on You', color: 'bg-orange-500/20 text-orange-300 border-orange-500/30' }
+      return { label: 'Waiting on You', color: 'bg-red-500/20 text-red-400 border-red-500/30' }
     case 'WAITING_ON_VENDOR':
       return { label: 'Waiting on Vendor', color: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' }
     case 'NEEDS_REVIEW':
     case 'INFORMATION_RECEIVED':
       return { label: 'Under Review', color: 'bg-blue-500/20 text-blue-300 border-blue-500/30' }
     case 'STUCK':
-      return { label: 'Needs Attention', color: 'bg-red-500/20 text-red-300 border-red-500/30' }
+      return { label: 'Needs Attention', color: 'bg-rose-500/20 text-rose-300 border-rose-500/30' }
     case 'REVIEWED_AND_DONE':
     case 'ITG_DOCUMENTED':
       return { label: 'Complete', color: 'bg-green-500/20 text-green-300 border-green-500/30' }
@@ -90,7 +90,7 @@ function getPhaseStatusBadge(status: string) {
     case 'IN_PROGRESS':
       return { label: 'In Progress', color: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30' }
     case 'WAITING_ON_CUSTOMER':
-      return { label: 'Waiting on You', color: 'bg-orange-500/20 text-orange-300 border-orange-500/30' }
+      return { label: 'Waiting on You', color: 'bg-red-500/20 text-red-400 border-red-500/30' }
     case 'SCHEDULED':
       return { label: 'Scheduled', color: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' }
     case 'NOT_STARTED':
@@ -191,8 +191,8 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
             <div className="text-3xl font-bold text-indigo-400">{projects.length}</div>
             <div className="text-sm text-gray-400 mt-1">Projects</div>
           </button>
-          <button onClick={() => setSelectedProject(projects.find(p => p.phases.some(ph => ph.tasks.some(t => t.status === 'WAITING_ON_CLIENT' || t.status === 'CUSTOMER_NOTE_ADDED'))) || projects[0])} className="bg-gray-800/50 border border-orange-500/30 hover:border-orange-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-orange-500/10 cursor-pointer">
-            <div className="text-3xl font-bold text-orange-400">{needsAction.length}</div>
+          <button onClick={() => setSelectedProject(projects.find(p => p.phases.some(ph => ph.tasks.some(t => t.status === 'WAITING_ON_CLIENT' || t.status === 'CUSTOMER_NOTE_ADDED'))) || projects[0])} className="bg-gray-800/50 border border-red-500/30 hover:border-red-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-red-500/10 cursor-pointer">
+            <div className="text-3xl font-bold text-red-400">{needsAction.length}</div>
             <div className="text-sm text-gray-400 mt-1">Needs Your Action</div>
           </button>
         </div>
@@ -223,7 +223,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
                   <span>-</span>
                   <span>{totalTasks} tasks</span>
                   {waiting > 0 && (
-                    <span className="text-orange-400 font-medium">{waiting} needs you</span>
+                    <span className="text-red-400 font-medium">{waiting} needs you</span>
                   )}
                 </div>
                 <div className="bg-gray-700 rounded-full h-2 overflow-hidden mb-2">
@@ -305,8 +305,8 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
           <div className="text-2xl font-bold text-indigo-400">{project.phases.length}</div>
           <div className="text-xs text-gray-400 mt-1">Phases</div>
         </div>
-        <div className="bg-gray-800/50 border border-orange-500/30 rounded-lg p-3 text-center">
-          <div className="text-2xl font-bold text-orange-400">
+        <div className="bg-gray-800/50 border border-red-500/30 rounded-lg p-3 text-center">
+          <div className="text-2xl font-bold text-red-400">
             {project.phases.reduce((sum, ph) => sum + ph.tasks.filter(t => t.status === 'WAITING_ON_CLIENT' || t.status === 'CUSTOMER_NOTE_ADDED').length, 0)}
           </div>
           <div className="text-xs text-gray-400 mt-1">Needs Your Action</div>
@@ -332,7 +332,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
                   <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0 ${
                     phase.status === 'COMPLETE' ? 'bg-green-500' :
                     phase.status === 'IN_PROGRESS' ? 'bg-cyan-500' :
-                    phase.status === 'WAITING_ON_CUSTOMER' ? 'bg-orange-500' :
+                    phase.status === 'WAITING_ON_CUSTOMER' ? 'bg-red-500' :
                     'bg-gray-600'
                   }`}>
                     {phase.status === 'COMPLETE' ? (

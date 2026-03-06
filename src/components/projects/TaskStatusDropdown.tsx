@@ -12,7 +12,7 @@ const statuses = [
   { value: 'NOT_STARTED', label: 'Not Started', dotColor: 'bg-pink-400', textColor: 'text-pink-300' },
   { value: 'ASSIGNED', label: 'Assigned', dotColor: 'bg-purple-400', textColor: 'text-purple-300' },
   { value: 'WORK_IN_PROGRESS', label: 'Work in Progress', dotColor: 'bg-sky-400', textColor: 'text-sky-300' },
-  { value: 'WAITING_ON_CLIENT', label: 'Waiting on Client', dotColor: 'bg-orange-400', textColor: 'text-orange-300' },
+  { value: 'WAITING_ON_CLIENT', label: 'Waiting on Client', dotColor: 'bg-red-400', textColor: 'text-red-400' },
   { value: 'WAITING_ON_VENDOR', label: 'Waiting on Vendor', dotColor: 'bg-rose-400', textColor: 'text-rose-300' },
   { value: 'NEEDS_REVIEW', label: 'Needs Review', dotColor: 'bg-cyan-400', textColor: 'text-cyan-300' },
   { value: 'STUCK', label: 'Stuck', dotColor: 'bg-red-400', textColor: 'text-red-300' },
