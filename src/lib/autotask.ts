@@ -611,6 +611,33 @@ export class AutotaskClient {
   }
 
   /**
+   * Get tickets for a company from the last N days
+   */
+  async getCompanyTickets(companyId: number, days: number = 30): Promise<{
+    id: number;
+    ticketNumber: string;
+    title: string;
+    status: number;
+    createDate: string;
+    completedDate?: string;
+    priority: number;
+  }[]> {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+    try {
+      return await this.queryAll('Tickets', {
+        op: 'and',
+        items: [
+          { op: 'eq', field: 'companyID', value: companyId },
+          { op: 'gte', field: 'createDate', value: since.toISOString() },
+        ],
+      });
+    } catch {
+      return [];
+    }
+  }
+
+  /**
    * Find a resource by email address (for SSO matching)
    */
   async getResourceByEmail(email: string): Promise<AutotaskResource | null> {

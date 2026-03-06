@@ -69,11 +69,12 @@ export default async function OnboardingPage({ params }: PageProps) {
           where: { companyId: company.id },
           include: {
             phases: {
+              where: { isVisibleToCustomer: true },
               include: {
                 tasks: {
                   where: {
                     isVisibleToCustomer: true,
-                    parentTaskId: null // Only show top-level tasks
+                    parentTaskId: null
                   },
                   select: {
                     id: true,
@@ -81,7 +82,14 @@ export default async function OnboardingPage({ params }: PageProps) {
                     completed: true,
                     orderIndex: true,
                     notes: true,
-                    status: true
+                    status: true,
+                    autotaskTaskId: true,
+                    comments: {
+                      where: { isInternal: false },
+                      select: { id: true, content: true, authorName: true, createdAt: true },
+                      orderBy: { createdAt: 'desc' },
+                      take: 10,
+                    },
                   },
                   orderBy: { orderIndex: 'asc' }
                 }
