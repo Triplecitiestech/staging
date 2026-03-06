@@ -346,13 +346,13 @@ export default function CompanyDetail({ company, contacts: initialContacts, proj
           <div className="bg-slate-800/50 border border-white/10 rounded-lg p-6">
             <h3 className="text-sm font-semibold text-white mb-3">Quick Actions</h3>
             <div className="space-y-2">
-              <Link href={`/onboarding/${company.slug}`} target="_blank"
+              <a href={`/api/admin/portal-access?company=${company.slug}`} target="_blank" rel="noopener noreferrer"
                 className="flex items-center gap-2 px-3 py-2 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors w-full">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                 </svg>
                 View Customer Portal
-              </Link>
+              </a>
               <Link href={`/admin/preview/${company.slug}`} target="_blank"
                 className="flex items-center gap-2 px-3 py-2 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors w-full">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

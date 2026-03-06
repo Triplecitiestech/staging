@@ -78,7 +78,7 @@ export default function ProjectsView({ projects }: ProjectsViewProps) {
     switch (status) {
       case 'ACTIVE': return { label: 'Active', color: 'bg-green-500/20 text-green-300 border-green-500/30' }
       case 'COMPLETED': return { label: 'Completed', color: 'bg-blue-500/20 text-blue-300 border-blue-500/30' }
-      case 'ON_HOLD': return { label: 'On Hold', color: 'bg-orange-500/20 text-orange-300 border-orange-500/30' }
+      case 'ON_HOLD': return { label: 'On Hold', color: 'bg-red-500/20 text-red-400 border-red-500/30' }
       default: return { label: status, color: 'bg-slate-500/20 text-slate-300 border-slate-500/30' }
     }
   }

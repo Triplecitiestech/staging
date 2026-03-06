@@ -100,11 +100,21 @@ function getPhaseStatusBadge(status: string) {
   }
 }
 
+function getProjectStatusLabel(status: string) {
+  switch (status) {
+    case 'ACTIVE': return { label: 'Active', color: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30' }
+    case 'COMPLETED': return { label: 'Completed', color: 'bg-green-500/20 text-green-300 border-green-500/30' }
+    case 'ON_HOLD': return { label: 'On Hold', color: 'bg-red-500/20 text-red-400 border-red-500/30' }
+    case 'CANCELLED': return { label: 'Cancelled', color: 'bg-slate-500/20 text-slate-300 border-slate-500/30' }
+    default: return { label: status, color: 'bg-slate-500/20 text-slate-300 border-slate-500/30' }
+  }
+}
+
 export default function CustomerDashboard({ projects, companyName, companySlug }: CustomerDashboardProps) {
-  const [selectedProject, setSelectedProject] = useState<Project | null>(
-    projects.length === 1 ? projects[0] : null
-  )
+  // Always start at dashboard view, even with 1 project
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null)
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
+  const [collapsedPhases, setCollapsedPhases] = useState<Set<string>>(new Set('__all__'))
   const [noteInputs, setNoteInputs] = useState<Record<string, string>>({})
   const [submittingNote, setSubmittingNote] = useState<string | null>(null)
   const [noteSuccess, setNoteSuccess] = useState<string | null>(null)
@@ -123,11 +133,27 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
       .finally(() => setTicketsLoading(false))
   }, [companySlug])
 
+  // When entering project detail, collapse all phases by default
+  useEffect(() => {
+    if (selectedProject) {
+      setCollapsedPhases(new Set(selectedProject.phases.map(p => p.id)))
+    }
+  }, [selectedProject])
+
   const toggleTask = (taskId: string) => {
     setExpandedTasks(prev => {
       const next = new Set(prev)
       if (next.has(taskId)) next.delete(taskId)
       else next.add(taskId)
+      return next
+    })
+  }
+
+  const togglePhase = (phaseId: string) => {
+    setCollapsedPhases(prev => {
+      const next = new Set(prev)
+      if (next.has(phaseId)) next.delete(phaseId)
+      else next.add(phaseId)
       return next
     })
   }
@@ -156,109 +182,45 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
   }
 
   // Compute stats across all projects
-  const allTasks = projects.flatMap(p =>
-    p.phases.flatMap(ph => ph.tasks)
-  )
-  const openTasks = allTasks.filter(t => !DONE_STATUSES.includes(t.status))
-  const completedTasks = allTasks.filter(t => DONE_STATUSES.includes(t.status))
-  const needsAction = openTasks.filter(t => t.status === 'WAITING_ON_CLIENT' || t.status === 'CUSTOMER_NOTE_ADDED')
+  const allTasks = projects.flatMap(p => p.phases.flatMap(ph => ph.tasks))
+  const needsAction = allTasks.filter(t => t.status === 'WAITING_ON_CLIENT' || t.status === 'CUSTOMER_NOTE_ADDED')
+  const activeProjects = projects.filter(p => p.status === 'ACTIVE' || p.status === 'IN_PROGRESS')
 
   const openTickets = tickets.filter(t => !t.completedDate)
   const closedTickets = tickets.filter(t => !!t.completedDate)
 
-  // Project selection view (when multiple projects)
-  if (!selectedProject && projects.length > 1) {
+  // If a ticket is selected for timeline view, show it
+  if (selectedTicketId && !selectedProject) {
+    const selectedTicket = tickets.find(t => t.id === selectedTicketId)
+    if (selectedTicket && companySlug) {
+      return (
+        <div>
+          {/* Company Header */}
+          {companyName && (
+            <div className="mb-8 text-center">
+              <h1 className="text-4xl font-bold text-white mb-1">{companyName} Portal</h1>
+            </div>
+          )}
+          <TicketTimeline
+            ticket={selectedTicket}
+            companySlug={companySlug}
+            onBack={() => setSelectedTicketId(null)}
+          />
+        </div>
+      )
+    }
+  }
+
+  // Project detail view
+  if (selectedProject) {
+    const project = selectedProject
+    const totalTasks = project.phases.reduce((sum, ph) => sum + ph.tasks.length, 0)
+    const doneTasks = project.phases.reduce((sum, ph) => sum + ph.tasks.filter(t => DONE_STATUSES.includes(t.status)).length, 0)
+    const projectProgress = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0
+
     return (
       <div>
-        {companyName && (
-          <div className="mb-8 text-center">
-            <h1 className="text-4xl font-bold text-white mb-1">{companyName}</h1>
-            <p className="text-lg text-cyan-400">Customer Dashboard</p>
-          </div>
-        )}
-
-        {/* Stats Cards - Clickable */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <button onClick={() => setSelectedProject(projects[0])} className="bg-gray-800/50 border border-cyan-500/30 hover:border-cyan-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-cyan-500/10 cursor-pointer">
-            <div className="text-3xl font-bold text-white">{openTasks.length}</div>
-            <div className="text-sm text-gray-400 mt-1">Open Tasks</div>
-          </button>
-          <button onClick={() => setSelectedProject(projects[0])} className="bg-gray-800/50 border border-green-500/30 hover:border-green-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-green-500/10 cursor-pointer">
-            <div className="text-3xl font-bold text-green-400">{completedTasks.length}</div>
-            <div className="text-sm text-gray-400 mt-1">Completed Tasks</div>
-          </button>
-          <button onClick={() => {/* scroll to projects */}} className="bg-gray-800/50 border border-indigo-500/30 hover:border-indigo-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-indigo-500/10 cursor-pointer">
-            <div className="text-3xl font-bold text-indigo-400">{projects.length}</div>
-            <div className="text-sm text-gray-400 mt-1">Projects</div>
-          </button>
-          <button onClick={() => setSelectedProject(projects.find(p => p.phases.some(ph => ph.tasks.some(t => t.status === 'WAITING_ON_CLIENT' || t.status === 'CUSTOMER_NOTE_ADDED'))) || projects[0])} className="bg-gray-800/50 border border-red-500/30 hover:border-red-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-red-500/10 cursor-pointer">
-            <div className="text-3xl font-bold text-red-400">{needsAction.length}</div>
-            <div className="text-sm text-gray-400 mt-1">Needs Your Action</div>
-          </button>
-        </div>
-
-        {/* Tickets Card */}
-        {renderTicketsCard(ticketsLoading, openTickets, closedTickets, tickets, selectedTicketId, setSelectedTicketId, companySlug)}
-
-        {/* Project Cards */}
-        <h2 className="text-xl font-bold text-white mb-4">Your Projects</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {projects.map(project => {
-            const totalTasks = project.phases.reduce((sum, ph) => sum + ph.tasks.length, 0)
-            const doneTasks = project.phases.reduce((sum, ph) => sum + ph.tasks.filter(t => DONE_STATUSES.includes(t.status)).length, 0)
-            const progress = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0
-            const waiting = project.phases.reduce((sum, ph) => sum + ph.tasks.filter(t => t.status === 'WAITING_ON_CLIENT' || t.status === 'CUSTOMER_NOTE_ADDED').length, 0)
-
-            return (
-              <button
-                key={project.id}
-                onClick={() => setSelectedProject(project)}
-                className="bg-gray-800/50 border border-white/10 rounded-lg p-6 text-left hover:border-cyan-500/50 transition-all hover:shadow-lg hover:shadow-cyan-500/10 group"
-              >
-                <h3 className="text-lg font-bold text-white group-hover:text-cyan-400 transition-colors mb-2">
-                  {project.title}
-                </h3>
-                <div className="flex items-center gap-3 text-sm text-gray-400 mb-3">
-                  <span>{project.phases.length} phases</span>
-                  <span>-</span>
-                  <span>{totalTasks} tasks</span>
-                  {waiting > 0 && (
-                    <span className="text-red-400 font-medium">{waiting} needs you</span>
-                  )}
-                </div>
-                <div className="bg-gray-700 rounded-full h-2 overflow-hidden mb-2">
-                  <div
-                    className="h-full bg-gradient-to-r from-cyan-500 to-cyan-600 transition-all"
-                    style={{ width: `${progress}%` }}
-                  />
-                </div>
-                <div className="text-xs text-gray-500">{progress}% complete</div>
-              </button>
-            )
-          })}
-        </div>
-      </div>
-    )
-  }
-
-  // Single project detail view
-  const project = selectedProject || projects[0]
-  if (!project) {
-    return (
-      <div className="text-center py-12">
-        <p className="text-gray-400">No projects found</p>
-      </div>
-    )
-  }
-
-  const totalTasks = project.phases.reduce((sum, ph) => sum + ph.tasks.length, 0)
-  const doneTasks = project.phases.reduce((sum, ph) => sum + ph.tasks.filter(t => DONE_STATUSES.includes(t.status)).length, 0)
-  const projectProgress = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0
-
-  return (
-    <div>
-      {/* Back button for multi-project */}
-      {projects.length > 1 && (
+        {/* Back button */}
         <button
           onClick={() => setSelectedProject(null)}
           className="flex items-center gap-2 text-cyan-400 hover:text-cyan-300 transition-colors mb-6 text-sm"
@@ -266,225 +228,349 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
-          Back to All Projects
+          Back to Dashboard
         </button>
-      )}
 
-      {/* Project Header */}
-      {companyName && !selectedProject && (
-        <div className="mb-4 text-center">
-          <h1 className="text-4xl font-bold text-white mb-1">{companyName}</h1>
-        </div>
-      )}
-      <div className="mb-6">
-        <h2 className="text-3xl font-bold text-white mb-2">{project.title}</h2>
-        <div className="flex items-center gap-4 text-sm text-gray-400 mb-4">
-          <span>{projectProgress}% complete</span>
-          <span>-</span>
-          <span>{doneTasks} of {totalTasks} tasks done</span>
-        </div>
-        <div className="bg-gray-800/50 rounded-full h-3 overflow-hidden">
-          <div
-            className="h-full bg-gradient-to-r from-cyan-500 to-cyan-600 transition-all duration-500"
-            style={{ width: `${projectProgress}%` }}
-          />
-        </div>
-      </div>
-
-      {/* Stats Row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
-        <div className="bg-gray-800/50 border border-cyan-500/30 rounded-lg p-3 text-center">
-          <div className="text-2xl font-bold text-white">{totalTasks - doneTasks}</div>
-          <div className="text-xs text-gray-400 mt-1">Open Tasks</div>
-        </div>
-        <div className="bg-gray-800/50 border border-green-500/30 rounded-lg p-3 text-center">
-          <div className="text-2xl font-bold text-green-400">{doneTasks}</div>
-          <div className="text-xs text-gray-400 mt-1">Completed Tasks</div>
-        </div>
-        <div className="bg-gray-800/50 border border-indigo-500/30 rounded-lg p-3 text-center">
-          <div className="text-2xl font-bold text-indigo-400">{project.phases.length}</div>
-          <div className="text-xs text-gray-400 mt-1">Phases</div>
-        </div>
-        <div className="bg-gray-800/50 border border-red-500/30 rounded-lg p-3 text-center">
-          <div className="text-2xl font-bold text-red-400">
-            {project.phases.reduce((sum, ph) => sum + ph.tasks.filter(t => t.status === 'WAITING_ON_CLIENT' || t.status === 'CUSTOMER_NOTE_ADDED').length, 0)}
+        {/* Project Header */}
+        <div className="mb-6">
+          <h2 className="text-3xl font-bold text-white mb-2">{project.title}</h2>
+          <div className="flex items-center gap-4 text-sm text-gray-400 mb-4">
+            <span>{projectProgress}% complete</span>
+            <span>-</span>
+            <span>{doneTasks} of {totalTasks} tasks done</span>
           </div>
-          <div className="text-xs text-gray-400 mt-1">Needs Your Action</div>
+          <div className="bg-gray-800/50 rounded-full h-3 overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-cyan-500 to-cyan-600 transition-all duration-500"
+              style={{ width: `${projectProgress}%` }}
+            />
+          </div>
         </div>
-      </div>
 
-      {/* Tickets Card (single project view) */}
-      {projects.length === 1 && renderTicketsCard(ticketsLoading, openTickets, closedTickets, tickets, selectedTicketId, setSelectedTicketId, companySlug)}
+        {/* Stats Row */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
+          <div className="bg-gray-800/50 border border-cyan-500/30 rounded-lg p-3 text-center">
+            <div className="text-2xl font-bold text-white">{totalTasks - doneTasks}</div>
+            <div className="text-xs text-gray-400 mt-1">Open Tasks</div>
+          </div>
+          <div className="bg-gray-800/50 border border-green-500/30 rounded-lg p-3 text-center">
+            <div className="text-2xl font-bold text-green-400">{doneTasks}</div>
+            <div className="text-xs text-gray-400 mt-1">Completed Tasks</div>
+          </div>
+          <div className="bg-gray-800/50 border border-indigo-500/30 rounded-lg p-3 text-center">
+            <div className="text-2xl font-bold text-indigo-400">{project.phases.length}</div>
+            <div className="text-xs text-gray-400 mt-1">Phases</div>
+          </div>
+          <div className="bg-gray-800/50 border border-red-500/30 rounded-lg p-3 text-center">
+            <div className="text-2xl font-bold text-red-400">
+              {project.phases.reduce((sum, ph) => sum + ph.tasks.filter(t => t.status === 'WAITING_ON_CLIENT' || t.status === 'CUSTOMER_NOTE_ADDED').length, 0)}
+            </div>
+            <div className="text-xs text-gray-400 mt-1">Needs Your Action</div>
+          </div>
+        </div>
 
-      {/* Phases */}
-      <div className="space-y-4">
-        {project.phases.map((phase, phaseIndex) => {
-          const phaseTasks = phase.tasks.length
-          const phaseComplete = phase.tasks.filter(t => DONE_STATUSES.includes(t.status)).length
-          const phaseProgress = phaseTasks > 0 ? Math.round((phaseComplete / phaseTasks) * 100) : 0
-          const phaseBadge = getPhaseStatusBadge(phase.status)
+        {/* Phases - collapsed by default */}
+        <div className="space-y-4">
+          {project.phases.map((phase, phaseIndex) => {
+            const phaseTasks = phase.tasks.length
+            const phaseComplete = phase.tasks.filter(t => DONE_STATUSES.includes(t.status)).length
+            const phaseProgress = phaseTasks > 0 ? Math.round((phaseComplete / phaseTasks) * 100) : 0
+            const phaseBadge = getPhaseStatusBadge(phase.status)
+            const isCollapsed = collapsedPhases.has(phase.id)
 
-          return (
-            <div key={phase.id} className="bg-gray-800/50 border border-white/10 rounded-lg overflow-hidden">
-              {/* Phase Header */}
-              <div className="p-5">
-                <div className="flex items-start gap-4">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0 ${
-                    phase.status === 'COMPLETE' ? 'bg-green-500' :
-                    phase.status === 'IN_PROGRESS' ? 'bg-cyan-500' :
-                    phase.status === 'WAITING_ON_CUSTOMER' ? 'bg-red-500' :
-                    'bg-gray-600'
-                  }`}>
-                    {phase.status === 'COMPLETE' ? (
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                      </svg>
-                    ) : (
-                      phaseIndex + 1
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-3 mb-1 flex-wrap">
-                      <h3 className="text-lg font-bold text-white">{phase.title}</h3>
-                      <span className={`px-2.5 py-0.5 text-xs font-medium rounded-full border ${phaseBadge.color}`}>
-                        Status: {phaseBadge.label}
-                      </span>
+            return (
+              <div key={phase.id} className="bg-gray-800/50 border border-white/10 rounded-lg overflow-visible">
+                {/* Phase Header - clickable to toggle */}
+                <button
+                  onClick={() => togglePhase(phase.id)}
+                  className="w-full p-5 text-left"
+                >
+                  <div className="flex items-start gap-4">
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0 ${
+                      phase.status === 'COMPLETE' ? 'bg-green-500' :
+                      phase.status === 'IN_PROGRESS' ? 'bg-cyan-500' :
+                      phase.status === 'WAITING_ON_CUSTOMER' ? 'bg-red-500' :
+                      'bg-gray-600'
+                    }`}>
+                      {phase.status === 'COMPLETE' ? (
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                        </svg>
+                      ) : (
+                        phaseIndex + 1
+                      )}
                     </div>
-                    {phase.description && (
-                      <p className="text-sm text-gray-400 mb-2">{phase.description}</p>
-                    )}
-                    {phaseTasks > 0 && (
-                      <div className="mt-2">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs text-gray-500">{phaseComplete}/{phaseTasks} tasks</span>
-                          <span className="text-xs text-gray-500">{phaseProgress}%</span>
-                        </div>
-                        <div className="bg-gray-700 rounded-full h-1.5 overflow-hidden">
-                          <div
-                            className={`h-full transition-all ${
-                              phase.status === 'COMPLETE' ? 'bg-green-500' : 'bg-cyan-500'
-                            }`}
-                            style={{ width: `${phaseProgress}%` }}
-                          />
-                        </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-3 mb-1 flex-wrap">
+                        <h3 className="text-lg font-bold text-white">{phase.title}</h3>
+                        <span className={`px-2.5 py-0.5 text-xs font-medium rounded-full border ${phaseBadge.color}`}>
+                          Status: {phaseBadge.label}
+                        </span>
+                        <svg className={`w-4 h-4 text-gray-500 transition-transform ml-auto flex-shrink-0 ${isCollapsed ? '' : 'rotate-180'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
                       </div>
-                    )}
-
-                    {/* Phase Notes */}
-                    {phase.customerNotes && (
-                      <div className="mt-3 bg-cyan-500/10 border-l-4 border-cyan-500 rounded px-3 py-2">
-                        <p className="text-xs font-semibold text-cyan-300 uppercase mb-1">Notes</p>
-                        <p className="text-sm text-gray-300 whitespace-pre-wrap">{phase.customerNotes}</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Tasks */}
-              {phaseTasks > 0 && (
-                <div className="border-t border-white/5 divide-y divide-white/5">
-                  {phase.tasks.map(task => {
-                    const badge = getStatusBadge(task.status)
-                    const isExpanded = expandedTasks.has(task.id)
-                    const hasComments = task.comments && task.comments.length > 0
-
-                    return (
-                      <div key={task.id} className="px-5">
-                        {/* Task row */}
-                        <button
-                          onClick={() => toggleTask(task.id)}
-                          className="w-full py-3 flex items-center gap-3 text-left group"
-                        >
-                          <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
-                            DONE_STATUSES.includes(task.status)
-                              ? 'bg-green-500 border-green-500'
-                              : 'border-gray-600'
-                          }`}>
-                            {DONE_STATUSES.includes(task.status) && (
-                              <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                              </svg>
-                            )}
+                      {phaseTasks > 0 && (
+                        <div className="mt-2">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs text-gray-500">{phaseComplete}/{phaseTasks} tasks</span>
+                            <span className="text-xs text-gray-500">{phaseProgress}%</span>
                           </div>
-                          <span className={`flex-1 text-sm ${
-                            DONE_STATUSES.includes(task.status) ? 'text-gray-500 line-through' : 'text-white'
-                          }`}>
-                            {task.taskText}
-                          </span>
-                          <span className={`px-2 py-0.5 text-xs font-medium rounded-full border whitespace-nowrap ${badge.color}`}>
-                            Status: {badge.label}
-                          </span>
-                          {hasComments && (
-                            <span className="text-xs text-gray-500">{task.comments!.length} note{task.comments!.length !== 1 ? 's' : ''}</span>
-                          )}
-                          <svg className={`w-4 h-4 text-gray-500 transition-transform flex-shrink-0 ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                          </svg>
-                        </button>
+                          <div className="bg-gray-700 rounded-full h-1.5 overflow-hidden">
+                            <div
+                              className={`h-full transition-all ${
+                                phase.status === 'COMPLETE' ? 'bg-green-500' : 'bg-cyan-500'
+                              }`}
+                              style={{ width: `${phaseProgress}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </button>
 
-                        {/* Expanded task details */}
-                        {isExpanded && (
-                          <div className="pb-4 pl-8 space-y-3">
-                            {/* Task notes */}
-                            {task.notes && (
-                              <div className="bg-cyan-500/10 border-l-4 border-cyan-500 rounded px-3 py-2">
-                                <p className="text-xs font-semibold text-cyan-300 uppercase mb-1">Notes</p>
-                                <p className="text-sm text-gray-300 whitespace-pre-wrap">{task.notes}</p>
-                              </div>
-                            )}
-
-                            {/* External comments/notes */}
-                            {hasComments && (
-                              <div className="space-y-2">
-                                <p className="text-xs font-semibold text-gray-400 uppercase">Activity</p>
-                                {task.comments!.map(comment => (
-                                  <div key={comment.id} className="bg-gray-700/50 rounded-lg px-3 py-2">
-                                    <div className="flex items-center justify-between mb-1">
-                                      <span className="text-xs font-medium text-cyan-400">{comment.authorName}</span>
-                                      <span className="text-xs text-gray-500">
-                                        {new Date(comment.createdAt).toLocaleDateString()}
-                                      </span>
-                                    </div>
-                                    <p className="text-sm text-gray-300">{comment.content}</p>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-
-                            {/* Add note form */}
-                            {!DONE_STATUSES.includes(task.status) && (
-                              <div className="mt-2">
-                                <div className="flex gap-2">
-                                  <input
-                                    type="text"
-                                    value={noteInputs[task.id] || ''}
-                                    onChange={e => setNoteInputs(prev => ({ ...prev, [task.id]: e.target.value }))}
-                                    onKeyDown={e => { if (e.key === 'Enter') handleSubmitNote(task.id) }}
-                                    placeholder="Add a note..."
-                                    className="flex-1 bg-gray-700/50 text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-cyan-500/50 focus:outline-none placeholder-gray-500"
-                                  />
-                                  <button
-                                    onClick={() => handleSubmitNote(task.id)}
-                                    disabled={!noteInputs[task.id]?.trim() || submittingNote === task.id}
-                                    className="px-4 py-2 bg-cyan-500 hover:bg-cyan-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors"
-                                  >
-                                    {submittingNote === task.id ? 'Sending...' : 'Send'}
-                                  </button>
-                                </div>
-                                {noteSuccess === task.id && (
-                                  <p className="text-xs text-green-400 mt-1">Note sent successfully</p>
-                                )}
-                              </div>
-                            )}
+                {/* Phase content - shown when expanded */}
+                {!isCollapsed && (
+                  <div>
+                    {/* Description and notes */}
+                    {(phase.description || phase.customerNotes) && (
+                      <div className="px-5 pb-3 ml-14">
+                        {phase.description && (
+                          <p className="text-sm text-gray-400 mb-2">{phase.description}</p>
+                        )}
+                        {phase.customerNotes && (
+                          <div className="bg-cyan-500/10 border-l-4 border-cyan-500 rounded px-3 py-2">
+                            <p className="text-xs font-semibold text-cyan-300 uppercase mb-1">Notes</p>
+                            <p className="text-sm text-gray-300 whitespace-pre-wrap">{phase.customerNotes}</p>
                           </div>
                         )}
                       </div>
-                    )
-                  })}
+                    )}
+
+                    {/* Tasks */}
+                    {phaseTasks > 0 && (
+                      <div className="border-t border-white/5 divide-y divide-white/5">
+                        {phase.tasks.map(task => {
+                          const badge = getStatusBadge(task.status)
+                          const isExpanded = expandedTasks.has(task.id)
+                          const hasComments = task.comments && task.comments.length > 0
+
+                          return (
+                            <div key={task.id} className="px-5">
+                              {/* Task row */}
+                              <button
+                                onClick={() => toggleTask(task.id)}
+                                className="w-full py-3 flex items-center gap-3 text-left group"
+                              >
+                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
+                                  DONE_STATUSES.includes(task.status)
+                                    ? 'bg-green-500 border-green-500'
+                                    : 'border-gray-600'
+                                }`}>
+                                  {DONE_STATUSES.includes(task.status) && (
+                                    <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                    </svg>
+                                  )}
+                                </div>
+                                <span className={`flex-1 text-sm ${
+                                  DONE_STATUSES.includes(task.status) ? 'text-gray-500 line-through' : 'text-white'
+                                }`}>
+                                  {task.taskText}
+                                </span>
+                                <span className={`px-2 py-0.5 text-xs font-medium rounded-full border whitespace-nowrap ${badge.color}`}>
+                                  Status: {badge.label}
+                                </span>
+                                {hasComments && (
+                                  <span className="text-xs text-gray-500">{task.comments!.length} note{task.comments!.length !== 1 ? 's' : ''}</span>
+                                )}
+                                <svg className={`w-4 h-4 text-gray-500 transition-transform flex-shrink-0 ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                </svg>
+                              </button>
+
+                              {/* Expanded task details */}
+                              {isExpanded && (
+                                <div className="pb-4 pl-8 space-y-3">
+                                  {task.notes && (
+                                    <div className="bg-cyan-500/10 border-l-4 border-cyan-500 rounded px-3 py-2">
+                                      <p className="text-xs font-semibold text-cyan-300 uppercase mb-1">Notes</p>
+                                      <p className="text-sm text-gray-300 whitespace-pre-wrap">{task.notes}</p>
+                                    </div>
+                                  )}
+
+                                  {hasComments && (
+                                    <div className="space-y-2">
+                                      <p className="text-xs font-semibold text-gray-400 uppercase">Activity</p>
+                                      {task.comments!.map(comment => (
+                                        <div key={comment.id} className="bg-gray-700/50 rounded-lg px-3 py-2">
+                                          <div className="flex items-center justify-between mb-1">
+                                            <span className="text-xs font-medium text-cyan-400">{comment.authorName}</span>
+                                            <span className="text-xs text-gray-500">
+                                              {new Date(comment.createdAt).toLocaleDateString()}
+                                            </span>
+                                          </div>
+                                          <p className="text-sm text-gray-300">{comment.content}</p>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+
+                                  {!DONE_STATUSES.includes(task.status) && (
+                                    <div className="mt-2">
+                                      <div className="flex gap-2">
+                                        <input
+                                          type="text"
+                                          value={noteInputs[task.id] || ''}
+                                          onChange={e => setNoteInputs(prev => ({ ...prev, [task.id]: e.target.value }))}
+                                          onKeyDown={e => { if (e.key === 'Enter') handleSubmitNote(task.id) }}
+                                          placeholder="Add a note..."
+                                          className="flex-1 bg-gray-700/50 text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-cyan-500/50 focus:outline-none placeholder-gray-500"
+                                        />
+                                        <button
+                                          onClick={() => handleSubmitNote(task.id)}
+                                          disabled={!noteInputs[task.id]?.trim() || submittingNote === task.id}
+                                          className="px-4 py-2 bg-cyan-500 hover:bg-cyan-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors"
+                                        >
+                                          {submittingNote === task.id ? 'Sending...' : 'Send'}
+                                        </button>
+                                      </div>
+                                      {noteSuccess === task.id && (
+                                        <p className="text-xs text-green-400 mt-1">Note sent successfully</p>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
+
+  // Dashboard view (default)
+  return (
+    <div>
+      {/* Company Header */}
+      {companyName && (
+        <div className="mb-8 text-center">
+          <h1 className="text-4xl font-bold text-white mb-1">{companyName} Portal</h1>
+          <p className="text-lg text-cyan-400">Customer Dashboard</p>
+        </div>
+      )}
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+        <button
+          onClick={() => selectedTicketId ? setSelectedTicketId(null) : undefined}
+          className="bg-gray-800/50 border border-blue-500/30 hover:border-blue-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-blue-500/10 cursor-pointer"
+        >
+          <div className="text-3xl font-bold text-blue-400">{openTickets.length}</div>
+          <div className="text-sm text-gray-400 mt-1">Open Tickets</div>
+        </button>
+        <div className="bg-gray-800/50 border border-green-500/30 rounded-lg p-4 text-center">
+          <div className="text-3xl font-bold text-green-400">{closedTickets.length}</div>
+          <div className="text-sm text-gray-400 mt-1">Closed Tickets (30d)</div>
+        </div>
+        <div className="bg-gray-800/50 border border-cyan-500/30 rounded-lg p-4 text-center">
+          <div className="text-3xl font-bold text-cyan-400">{activeProjects.length}</div>
+          <div className="text-sm text-gray-400 mt-1">Active Projects</div>
+        </div>
+        <div className="bg-gray-800/50 border border-red-500/30 rounded-lg p-4 text-center">
+          <div className="text-3xl font-bold text-red-400">{needsAction.length}</div>
+          <div className="text-sm text-gray-400 mt-1">Awaiting Your Action</div>
+        </div>
+      </div>
+
+      {/* Recent Tickets */}
+      {!ticketsLoading && tickets.length > 0 && (
+        <div className="bg-gray-800/50 border border-white/10 rounded-lg p-6 mb-8">
+          <h2 className="text-xl font-bold text-white mb-4">Recent Tickets</h2>
+          <div className="space-y-2">
+            {tickets.slice(0, 5).map(ticket => (
+              <button
+                key={ticket.id}
+                onClick={() => setSelectedTicketId(ticket.id)}
+                className="w-full flex items-center justify-between bg-gray-700/30 hover:bg-gray-700/50 rounded-lg px-4 py-3 transition-colors text-left group cursor-pointer"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-white truncate group-hover:text-cyan-300 transition-colors">{ticket.title}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">#{ticket.ticketNumber} - {new Date(ticket.createDate).toLocaleDateString()}</p>
                 </div>
-              )}
-            </div>
+                <div className="flex items-center gap-2 ml-3">
+                  <span className={`px-2 py-0.5 text-xs font-medium rounded-full whitespace-nowrap ${
+                    ticket.completedDate
+                      ? 'bg-green-500/20 text-green-300'
+                      : 'bg-blue-500/20 text-blue-300'
+                  }`}>
+                    {ticket.completedDate ? 'Closed' : 'Open'}
+                  </span>
+                  <svg className="w-4 h-4 text-gray-500 group-hover:text-cyan-400 transition-colors flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {ticketsLoading && (
+        <div className="bg-gray-800/50 border border-white/10 rounded-lg p-6 mb-8">
+          <h2 className="text-xl font-bold text-white mb-2">Recent Tickets</h2>
+          <p className="text-sm text-gray-400">Loading tickets...</p>
+        </div>
+      )}
+
+      {/* Projects */}
+      <h2 className="text-xl font-bold text-white mb-4">Your Projects</h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {projects.map(project => {
+          const totalTasks = project.phases.reduce((sum, ph) => sum + ph.tasks.length, 0)
+          const doneTasks = project.phases.reduce((sum, ph) => sum + ph.tasks.filter(t => DONE_STATUSES.includes(t.status)).length, 0)
+          const progress = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0
+          const waiting = project.phases.reduce((sum, ph) => sum + ph.tasks.filter(t => t.status === 'WAITING_ON_CLIENT' || t.status === 'CUSTOMER_NOTE_ADDED').length, 0)
+          const statusBadge = getProjectStatusLabel(project.status)
+
+          return (
+            <button
+              key={project.id}
+              onClick={() => setSelectedProject(project)}
+              className="bg-gray-800/50 border border-white/10 rounded-lg p-6 text-left hover:border-cyan-500/50 transition-all hover:shadow-lg hover:shadow-cyan-500/10 group"
+            >
+              <div className="flex items-center gap-3 mb-2">
+                <h3 className="text-lg font-bold text-white group-hover:text-cyan-400 transition-colors">
+                  {project.title}
+                </h3>
+                <span className={`px-2 py-0.5 text-xs font-medium rounded-full border whitespace-nowrap ${statusBadge.color}`}>
+                  {statusBadge.label}
+                </span>
+              </div>
+              <div className="flex items-center gap-3 text-sm text-gray-400 mb-3">
+                <span>{project.phases.length} phases</span>
+                <span>-</span>
+                <span>{totalTasks} tasks</span>
+                {waiting > 0 && (
+                  <span className="text-red-400 font-medium">{waiting} needs you</span>
+                )}
+              </div>
+              <div className="bg-gray-700 rounded-full h-2 overflow-hidden mb-2">
+                <div
+                  className="h-full bg-gradient-to-r from-cyan-500 to-cyan-600 transition-all"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+              <div className="text-xs text-gray-500">{progress}% complete</div>
+            </button>
           )
         })}
       </div>
@@ -511,12 +597,17 @@ function TicketTimeline({ ticket, companySlug, onBack }: {
   const [replyText, setReplyText] = useState('')
   const [submittingReply, setSubmittingReply] = useState(false)
   const [replySuccess, setReplySuccess] = useState(false)
+  const [showAllEntries, setShowAllEntries] = useState(false)
 
   useEffect(() => {
     setLoadingTimeline(true)
     fetch(`/api/customer/tickets/timeline?companySlug=${encodeURIComponent(companySlug)}&ticketId=${ticket.id}`)
       .then(res => res.ok ? res.json() : { timeline: [] })
-      .then(data => setTimeline(data.timeline || []))
+      .then(data => {
+        // Filter out any internal notes that might have slipped through
+        const filtered = (data.timeline || []).filter((entry: { isInternal: boolean }) => !entry.isInternal)
+        setTimeline(filtered)
+      })
       .catch(() => setTimeline([]))
       .finally(() => setLoadingTimeline(false))
   }, [companySlug, ticket.id])
@@ -542,7 +633,8 @@ function TicketTimeline({ ticket, companySlug, onBack }: {
         const refreshRes = await fetch(`/api/customer/tickets/timeline?companySlug=${encodeURIComponent(companySlug)}&ticketId=${ticket.id}`)
         if (refreshRes.ok) {
           const data = await refreshRes.json()
-          setTimeline(data.timeline || [])
+          const filtered = (data.timeline || []).filter((entry: { isInternal: boolean }) => !entry.isInternal)
+          setTimeline(filtered)
         }
       }
     } catch {
@@ -558,6 +650,12 @@ function TicketTimeline({ ticket, companySlug, onBack }: {
     return author
   }
 
+  // Determine which entries to show: first, last, and optionally middle
+  const hasMiddleEntries = timeline.length > 2
+  const visibleEntries = showAllEntries || !hasMiddleEntries
+    ? timeline
+    : [timeline[0], timeline[timeline.length - 1]].filter(Boolean)
+
   return (
     <div className="bg-gray-800/50 border border-white/10 rounded-lg p-6 mb-8">
       <button
@@ -567,7 +665,7 @@ function TicketTimeline({ ticket, companySlug, onBack }: {
         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
         </svg>
-        Back to Tickets
+        Back to Dashboard
       </button>
 
       <div className="mb-6">
@@ -611,38 +709,33 @@ function TicketTimeline({ ticket, companySlug, onBack }: {
           </div>
         )}
 
-        {/* Timeline entries */}
-        {timeline.map(entry => (
-          <div key={entry.id} className="relative pl-10 pb-4">
-            <div className={`absolute left-2.5 w-3 h-3 rounded-full border-2 border-gray-800 ${
-              entry.authorType === 'customer' ? 'bg-emerald-500' :
-              entry.type === 'time_entry' ? 'bg-indigo-500' : 'bg-cyan-500'
-            }`} />
-            <div className={`rounded-lg px-4 py-3 ${
-              entry.authorType === 'customer'
-                ? 'bg-emerald-500/10 border border-emerald-500/20'
-                : 'bg-gray-700/30'
-            }`}>
-              <div className="flex items-center justify-between mb-1 flex-wrap gap-1">
-                <div className="flex items-center gap-2">
-                  <span className={`text-xs font-semibold ${
-                    entry.authorType === 'customer' ? 'text-emerald-400' : 'text-cyan-400'
-                  }`}>
-                    {getAuthorLabel(entry.author, entry.authorType)}
-                  </span>
-                  {entry.type === 'time_entry' && entry.hoursWorked && (
-                    <span className="text-xs text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded">
-                      {entry.hoursWorked}h worked
-                    </span>
-                  )}
-                </div>
-                <span className="text-xs text-gray-500">
-                  {entry.timestamp ? new Date(entry.timestamp).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
-                </span>
-              </div>
-              <p className="text-sm text-gray-300 whitespace-pre-wrap">{entry.content}</p>
+        {/* Show first entry */}
+        {!loadingTimeline && visibleEntries.length > 0 && !showAllEntries && hasMiddleEntries && (
+          <>
+            {/* First entry */}
+            <TimelineEntry entry={visibleEntries[0]} getAuthorLabel={getAuthorLabel} />
+
+            {/* Expand button */}
+            <div className="relative pl-10 pb-4">
+              <div className="absolute left-2.5 w-3 h-3 bg-gray-600 rounded-full border-2 border-gray-800" />
+              <button
+                onClick={() => setShowAllEntries(true)}
+                className="text-sm text-cyan-400 hover:text-cyan-300 transition-colors"
+              >
+                Show conversation history ({timeline.length - 2} more {timeline.length - 2 === 1 ? 'entry' : 'entries'})
+              </button>
             </div>
-          </div>
+
+            {/* Last entry */}
+            {visibleEntries.length > 1 && (
+              <TimelineEntry entry={visibleEntries[visibleEntries.length - 1]} getAuthorLabel={getAuthorLabel} />
+            )}
+          </>
+        )}
+
+        {/* Show all entries when expanded or when 2 or fewer */}
+        {!loadingTimeline && (showAllEntries || !hasMiddleEntries) && timeline.map(entry => (
+          <TimelineEntry key={entry.id} entry={entry} getAuthorLabel={getAuthorLabel} />
         ))}
 
         {/* Completed entry */}
@@ -695,80 +788,40 @@ function TicketTimeline({ ticket, companySlug, onBack }: {
   )
 }
 
-function renderTicketsCard(
-  loading: boolean,
-  openTickets: Ticket[],
-  closedTickets: Ticket[],
-  allTickets: Ticket[],
-  selectedTicketId: number | null,
-  setSelectedTicketId: (id: number | null) => void,
-  companySlug?: string
-) {
-  if (loading) {
-    return (
-      <div className="bg-gray-800/50 border border-white/10 rounded-lg p-6 mb-8">
-        <h3 className="text-lg font-bold text-white mb-2">Recent Tickets (Last 30 Days)</h3>
-        <p className="text-sm text-gray-400">Loading tickets...</p>
-      </div>
-    )
-  }
-
-  if (allTickets.length === 0) return null
-
-  const selectedTicket = selectedTicketId ? allTickets.find(t => t.id === selectedTicketId) : null
-
-  // If a ticket is selected, show the timeline detail view
-  if (selectedTicket && companySlug) {
-    return (
-      <TicketTimeline
-        ticket={selectedTicket}
-        companySlug={companySlug}
-        onBack={() => setSelectedTicketId(null)}
-      />
-    )
-  }
-
+function TimelineEntry({ entry, getAuthorLabel }: {
+  entry: { id: string; type: string; timestamp: string; author: string; authorType: string; content: string; hoursWorked?: number }
+  getAuthorLabel: (author: string, authorType: string) => string
+}) {
   return (
-    <div className="bg-gray-800/50 border border-white/10 rounded-lg p-6 mb-8">
-      <h3 className="text-lg font-bold text-white mb-4">Recent Tickets (Last 30 Days)</h3>
-      <div className="grid grid-cols-2 gap-4 mb-4">
-        <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 text-center">
-          <div className="text-2xl font-bold text-blue-400">{openTickets.length}</div>
-          <div className="text-xs text-gray-400">Open</div>
+    <div className="relative pl-10 pb-4">
+      <div className={`absolute left-2.5 w-3 h-3 rounded-full border-2 border-gray-800 ${
+        entry.authorType === 'customer' ? 'bg-emerald-500' :
+        entry.type === 'time_entry' ? 'bg-indigo-500' : 'bg-cyan-500'
+      }`} />
+      <div className={`rounded-lg px-4 py-3 ${
+        entry.authorType === 'customer'
+          ? 'bg-emerald-500/10 border border-emerald-500/20'
+          : 'bg-gray-700/30'
+      }`}>
+        <div className="flex items-center justify-between mb-1 flex-wrap gap-1">
+          <div className="flex items-center gap-2">
+            <span className={`text-xs font-semibold ${
+              entry.authorType === 'customer' ? 'text-emerald-400' : 'text-cyan-400'
+            }`}>
+              {getAuthorLabel(entry.author, entry.authorType)}
+            </span>
+            {entry.type === 'time_entry' && entry.hoursWorked && (
+              <span className="text-xs text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded">
+                {entry.hoursWorked}h worked
+              </span>
+            )}
+          </div>
+          <span className="text-xs text-gray-500">
+            {entry.timestamp ? new Date(entry.timestamp).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
+          </span>
         </div>
-        <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-3 text-center">
-          <div className="text-2xl font-bold text-green-400">{closedTickets.length}</div>
-          <div className="text-xs text-gray-400">Closed</div>
-        </div>
+        <p className="text-sm text-gray-300 whitespace-pre-wrap">{entry.content}</p>
       </div>
-      {allTickets.length > 0 && (
-        <div className="space-y-2 max-h-60 overflow-y-auto">
-          {allTickets.slice(0, 10).map(ticket => (
-            <button
-              key={ticket.id}
-              onClick={() => setSelectedTicketId(ticket.id)}
-              className="w-full flex items-center justify-between bg-gray-700/30 hover:bg-gray-700/50 rounded px-3 py-2 transition-colors text-left group cursor-pointer"
-            >
-              <div className="min-w-0 flex-1">
-                <p className="text-sm text-white truncate group-hover:text-cyan-300 transition-colors">{ticket.title}</p>
-                <p className="text-xs text-gray-500">#{ticket.ticketNumber} - {new Date(ticket.createDate).toLocaleDateString()}</p>
-              </div>
-              <div className="flex items-center gap-2 ml-2">
-                <span className={`px-2 py-0.5 text-xs font-medium rounded-full whitespace-nowrap ${
-                  ticket.completedDate
-                    ? 'bg-green-500/20 text-green-300'
-                    : 'bg-blue-500/20 text-blue-300'
-                }`}>
-                  {ticket.completedDate ? 'Closed' : 'Open'}
-                </span>
-                <svg className="w-4 h-4 text-gray-500 group-hover:text-cyan-400 transition-colors flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
     </div>
   )
 }
