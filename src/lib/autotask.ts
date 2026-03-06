@@ -416,6 +416,35 @@ export class AutotaskClient {
     );
     return data;
   }
+
+  /**
+   * PATCH (update) an entity in Autotask
+   */
+  private async patch<T>(entityPath: string, data: object): Promise<T> {
+    const url = `${this.baseUrl}/v1.0/${entityPath}`;
+    const response = await fetch(url, {
+      method: 'PATCH',
+      headers: this.headers,
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Autotask API PATCH ${entityPath} failed (${response.status}): ${errorText}`);
+    }
+
+    return response.json() as Promise<T>;
+  }
+
+  /**
+   * Update a task's status in Autotask (write-back)
+   */
+  async updateTaskStatus(atTaskId: string, atStatus: number): Promise<void> {
+    await this.patch(`ProjectTasks`, {
+      id: parseInt(atTaskId, 10),
+      status: atStatus,
+    });
+  }
 }
 
 // ============================================
@@ -449,6 +478,33 @@ export function mapAtTaskStatus(atStatus: number): string {
   if (atStatus === AT_TASK_STATUS_WAITING_CUSTOMER) return 'WAITING_ON_CLIENT';
   if (atStatus === AT_TASK_STATUS_NEW) return 'NOT_STARTED';
   return 'NOT_STARTED';
+}
+
+/**
+ * Reverse map: our TaskStatus → Autotask task status number.
+ * Returns null if no mapping exists (status is local-only).
+ */
+export function mapLocalStatusToAt(localStatus: string): number | null {
+  switch (localStatus) {
+    case 'NOT_STARTED':
+      return AT_TASK_STATUS_NEW;
+    case 'WORK_IN_PROGRESS':
+    case 'ASSIGNED':
+    case 'NEEDS_REVIEW':
+    case 'INFORMATION_RECEIVED':
+      return AT_TASK_STATUS_IN_PROGRESS;
+    case 'REVIEWED_AND_DONE':
+    case 'NOT_APPLICABLE':
+    case 'ITG_DOCUMENTED':
+      return AT_TASK_STATUS_COMPLETE;
+    case 'WAITING_ON_CLIENT':
+    case 'WAITING_ON_VENDOR':
+    case 'CUSTOMER_NOTE_ADDED':
+    case 'STUCK':
+      return AT_TASK_STATUS_WAITING_CUSTOMER;
+    default:
+      return null;
+  }
 }
 
 /**

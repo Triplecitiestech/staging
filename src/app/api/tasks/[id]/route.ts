@@ -111,6 +111,7 @@ export async function PATCH(
           dueDate: true,
           priority: true,
           responsibleParty: true,
+          autotaskTaskId: true,
           createdAt: true,
           updatedAt: true
         }
@@ -124,6 +125,22 @@ export async function PATCH(
         await syncPhaseStatus(prisma as any, task.phaseId)
       } catch (syncErr) {
         console.warn('Failed to sync phase status:', syncErr)
+      }
+    }
+
+    // Write-back to Autotask if this task is AT-synced and status changed
+    if (data.status !== undefined && task.autotaskTaskId) {
+      try {
+        const { AutotaskClient, mapLocalStatusToAt } = await import('@/lib/autotask')
+        const atStatus = mapLocalStatusToAt(data.status)
+        if (atStatus !== null) {
+          const client = new AutotaskClient()
+          await client.updateTaskStatus(task.autotaskTaskId, atStatus)
+          console.log(`[Autotask Write-back] Updated task ${task.autotaskTaskId} status to ${atStatus}`)
+        }
+      } catch (atErr) {
+        // Log but don't fail the local update
+        console.error('[Autotask Write-back] Failed to sync task status:', atErr instanceof Error ? atErr.message : atErr)
       }
     }
 
