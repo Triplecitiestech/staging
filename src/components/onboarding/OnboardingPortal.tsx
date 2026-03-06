@@ -10,7 +10,10 @@ import { Button } from '@/components/ui/Button'
 import PasswordGate from './PasswordGate'
 import OnboardingTimeline from './OnboardingTimeline'
 import ProjectsView from './ProjectsView'
+import CustomerDashboard from './CustomerDashboard'
 import type { OnboardingData } from '@/types/onboarding'
+
+type PortalView = 'dashboard' | 'projects'
 
 interface OnboardingPortalProps {
   companySlug: string
@@ -27,6 +30,7 @@ export default function OnboardingPortal({
 }: OnboardingPortalProps) {
   const router = useRouter()
   const [isLoggingOut, setIsLoggingOut] = useState(false)
+  const [portalView, setPortalView] = useState<PortalView>('dashboard')
 
   const handleAuthenticated = () => {
     // Refresh the page to get the authenticated data from the server
@@ -105,9 +109,47 @@ export default function OnboardingPortal({
             </div>
           </Container>
         ) : projects && (projects as unknown[]).length > 0 ? (
-          // Authenticated with projects but no onboarding-specific data
+          // Authenticated with projects - show dashboard/projects toggle
           <Container className="py-12 mt-4">
-            <ProjectsView projects={projects as { id: string; title: string; projectType: string; status: string; phases: { id: string; title: string; description: string | null; status: string; customerNotes: string | null; orderIndex: number; tasks: { id: string; taskText: string; completed: boolean; orderIndex: number; notes?: string | null }[] }[]; createdAt: Date; updatedAt: Date }[]} />
+            {/* Portal Navigation */}
+            <div className="flex items-center justify-between mb-8">
+              <div className="flex gap-1 bg-gray-800/50 rounded-lg p-1">
+                <button
+                  onClick={() => setPortalView('dashboard')}
+                  className={`px-5 py-2.5 rounded-md text-sm font-medium transition-colors ${
+                    portalView === 'dashboard'
+                      ? 'bg-cyan-500 text-white'
+                      : 'text-gray-400 hover:text-white'
+                  }`}
+                >
+                  Dashboard
+                </button>
+                <button
+                  onClick={() => setPortalView('projects')}
+                  className={`px-5 py-2.5 rounded-md text-sm font-medium transition-colors ${
+                    portalView === 'projects'
+                      ? 'bg-cyan-500 text-white'
+                      : 'text-gray-400 hover:text-white'
+                  }`}
+                >
+                  Projects
+                </button>
+              </div>
+              <div className="flex gap-2">
+                <Button onClick={() => router.refresh()} leftIcon={<RefreshCw size={16} />} className="bg-gray-700/50 hover:bg-gray-700 text-gray-300">
+                  Refresh
+                </Button>
+                <Button onClick={handleLogout} variant="outline" leftIcon={<LogOut size={16} />} className="border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white">
+                  Log Out
+                </Button>
+              </div>
+            </div>
+
+            {portalView === 'dashboard' ? (
+              <CustomerDashboard projects={projects as { id: string; title: string; projectType: string; status: string; phases: { id: string; title: string; description: string | null; status: string; customerNotes: string | null; orderIndex: number; tasks: { id: string; taskText: string; completed: boolean; orderIndex: number; status: string; notes?: string | null }[] }[]; createdAt: Date; updatedAt: Date }[]} />
+            ) : (
+              <ProjectsView projects={projects as { id: string; title: string; projectType: string; status: string; phases: { id: string; title: string; description: string | null; status: string; customerNotes: string | null; orderIndex: number; tasks: { id: string; taskText: string; completed: boolean; orderIndex: number; notes?: string | null }[] }[]; createdAt: Date; updatedAt: Date }[]} />
+            )}
 
             {/* Contact section */}
             <div className="mt-12 p-6 bg-gray-800/50 backdrop-blur-sm border border-cyan-500/30 rounded-lg shadow-lg shadow-cyan-500/10 text-center">
