@@ -110,8 +110,9 @@ function getProjectStatusLabel(status: string) {
   }
 }
 
+type DashboardView = 'dashboard' | 'open-tickets' | 'action-items'
+
 export default function CustomerDashboard({ projects, companyName, companySlug }: CustomerDashboardProps) {
-  // Always start at dashboard view, even with 1 project
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
   const [projectViewMode, setProjectViewMode] = useState<'vertical' | 'horizontal'>('vertical')
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
@@ -123,6 +124,8 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [ticketsLoading, setTicketsLoading] = useState(false)
   const [selectedTicketId, setSelectedTicketId] = useState<number | null>(null)
+  const [ticketSearch, setTicketSearch] = useState('')
+  const [dashboardView, setDashboardView] = useState<DashboardView>('dashboard')
 
   // Load tickets when companySlug is available
   useEffect(() => {
@@ -191,6 +194,22 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
   const openTickets = tickets.filter(t => !t.completedDate)
   const closedTickets = tickets.filter(t => !!t.completedDate)
 
+  // Filter tickets by search - prioritize title match, then content
+  const filterTickets = (ticketList: Ticket[]) => {
+    if (!ticketSearch.trim()) return ticketList
+    const query = ticketSearch.toLowerCase()
+    const titleMatches: Ticket[] = []
+    const otherMatches: Ticket[] = []
+    for (const t of ticketList) {
+      if (t.title.toLowerCase().includes(query)) {
+        titleMatches.push(t)
+      } else if (t.ticketNumber.toLowerCase().includes(query) || t.status.toLowerCase().includes(query)) {
+        otherMatches.push(t)
+      }
+    }
+    return [...titleMatches, ...otherMatches]
+  }
+
   // If a ticket is selected for timeline view, show it
   if (selectedTicketId && !selectedProject) {
     const selectedTicket = tickets.find(t => t.id === selectedTicketId)
@@ -233,8 +252,11 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
           Back to Dashboard
         </button>
 
-        {/* Project Header */}
+        {/* Project Header with company name */}
         <div className="mb-6">
+          {companyName && (
+            <p className="text-sm text-cyan-400 mb-1">{companyName}</p>
+          )}
           <div className="flex items-center justify-between flex-wrap gap-3 mb-2">
             <h2 className="text-3xl font-bold text-white">{project.title}</h2>
             {/* View Toggle */}
@@ -557,6 +579,163 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
     )
   }
 
+  // "Open Tickets" sub-view
+  if (dashboardView === 'open-tickets') {
+    const filtered = filterTickets(openTickets)
+    return (
+      <div>
+        {companyName && (
+          <div className="mb-8 text-center">
+            <h1 className="text-4xl font-bold text-white mb-1">{companyName} Portal</h1>
+          </div>
+        )}
+        <button
+          onClick={() => { setDashboardView('dashboard'); setTicketSearch('') }}
+          className="flex items-center gap-2 text-cyan-400 hover:text-cyan-300 transition-colors mb-6 text-sm"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+          Back to Dashboard
+        </button>
+        <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+          <h2 className="text-2xl font-bold text-white">Open Tickets ({openTickets.length})</h2>
+          <div className="relative w-full md:w-72">
+            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input
+              type="text"
+              value={ticketSearch}
+              onChange={e => setTicketSearch(e.target.value)}
+              placeholder="Search tickets..."
+              className="w-full bg-gray-800/50 text-white text-sm rounded-lg pl-10 pr-3 py-2 border border-white/10 focus:border-cyan-500/50 focus:outline-none placeholder-gray-500"
+            />
+          </div>
+        </div>
+        <div className="bg-gray-800/50 border border-white/10 rounded-lg p-4">
+          {filtered.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-4">{ticketSearch ? 'No tickets match your search.' : 'No open tickets.'}</p>
+          ) : (
+            <div className="space-y-2 max-h-[600px] overflow-y-auto">
+              {filtered.map(ticket => (
+                <button
+                  key={ticket.id}
+                  onClick={() => { setSelectedTicketId(ticket.id); setDashboardView('dashboard') }}
+                  className="w-full flex items-center justify-between bg-gray-700/30 hover:bg-gray-700/50 rounded-lg px-4 py-3 transition-colors text-left group cursor-pointer"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-white truncate group-hover:text-cyan-300 transition-colors">{ticket.title}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">#{ticket.ticketNumber} - {new Date(ticket.createDate).toLocaleDateString()}</p>
+                  </div>
+                  <div className="flex items-center gap-2 ml-3">
+                    <span className="px-2 py-0.5 text-xs font-medium rounded-full whitespace-nowrap bg-blue-500/20 text-blue-300">Open</span>
+                    <svg className="w-4 h-4 text-gray-500 group-hover:text-cyan-400 transition-colors flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // "Awaiting Your Action" sub-view
+  if (dashboardView === 'action-items') {
+    const actionProjects = projects.filter(p => p.phases.some(ph => ph.tasks.some(t => t.status === 'WAITING_ON_CLIENT' || t.status === 'CUSTOMER_NOTE_ADDED')))
+    const actionTickets = openTickets.filter(t => {
+      const s = t.status.toLowerCase()
+      return s.includes('customer') || s.includes('waiting')
+    })
+    return (
+      <div>
+        {companyName && (
+          <div className="mb-8 text-center">
+            <h1 className="text-4xl font-bold text-white mb-1">{companyName} Portal</h1>
+          </div>
+        )}
+        <button
+          onClick={() => setDashboardView('dashboard')}
+          className="flex items-center gap-2 text-cyan-400 hover:text-cyan-300 transition-colors mb-6 text-sm"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+          Back to Dashboard
+        </button>
+        <h2 className="text-2xl font-bold text-white mb-4">Items Awaiting Your Action ({needsAction.length + actionTickets.length})</h2>
+
+        {/* Tasks needing action grouped by project */}
+        {actionProjects.length > 0 && (
+          <div className="mb-6">
+            <h3 className="text-lg font-semibold text-white mb-3">Project Tasks</h3>
+            <div className="space-y-3">
+              {actionProjects.map(project => {
+                const waitingTasks = project.phases.flatMap(ph => ph.tasks.filter(t => t.status === 'WAITING_ON_CLIENT' || t.status === 'CUSTOMER_NOTE_ADDED'))
+                return (
+                  <div key={project.id} className="bg-gray-800/50 border border-red-500/20 rounded-lg p-4">
+                    <button
+                      onClick={() => setSelectedProject(project)}
+                      className="text-sm font-bold text-cyan-400 hover:text-cyan-300 transition-colors mb-2 block"
+                    >
+                      {project.title}
+                    </button>
+                    <div className="space-y-1.5">
+                      {waitingTasks.map(task => (
+                        <div key={task.id} className="flex items-center gap-2 text-sm">
+                          <div className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" />
+                          <span className="text-gray-300">{task.taskText}</span>
+                          <span className="px-2 py-0.5 text-xs font-medium rounded-full border bg-red-500/20 text-red-400 border-red-500/30 whitespace-nowrap ml-auto">Waiting on You</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Tickets needing action */}
+        {actionTickets.length > 0 && (
+          <div>
+            <h3 className="text-lg font-semibold text-white mb-3">Tickets Needing Response</h3>
+            <div className="bg-gray-800/50 border border-white/10 rounded-lg p-4 space-y-2">
+              {actionTickets.map(ticket => (
+                <button
+                  key={ticket.id}
+                  onClick={() => { setSelectedTicketId(ticket.id); setDashboardView('dashboard') }}
+                  className="w-full flex items-center justify-between bg-gray-700/30 hover:bg-gray-700/50 rounded-lg px-4 py-3 transition-colors text-left group"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-white truncate group-hover:text-cyan-300">{ticket.title}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">#{ticket.ticketNumber}</p>
+                  </div>
+                  <svg className="w-4 h-4 text-gray-500 group-hover:text-cyan-400 flex-shrink-0 ml-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {needsAction.length === 0 && actionTickets.length === 0 && (
+          <div className="bg-gray-800/50 border border-green-500/20 rounded-lg p-8 text-center">
+            <svg className="w-12 h-12 text-green-400 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+            <p className="text-lg font-medium text-white">All caught up!</p>
+            <p className="text-sm text-gray-400 mt-1">No items currently require your action.</p>
+          </div>
+        )}
+      </div>
+    )
+  }
+
   // Dashboard view (default)
   return (
     <div>
@@ -571,7 +750,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
       {/* Summary Cards - all clickable */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         <button
-          onClick={() => { setShowAllTickets(false); document.getElementById('tickets-section')?.scrollIntoView({ behavior: 'smooth' }) }}
+          onClick={() => setDashboardView('open-tickets')}
           className="bg-gray-800/50 border border-blue-500/30 hover:border-blue-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-blue-500/10 cursor-pointer"
         >
           <div className="text-3xl font-bold text-blue-400">{openTickets.length}</div>
@@ -592,10 +771,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
           <div className="text-sm text-gray-400 mt-1">Active Projects</div>
         </button>
         <button
-          onClick={() => {
-            const actionProject = projects.find(p => p.phases.some(ph => ph.tasks.some(t => t.status === 'WAITING_ON_CLIENT' || t.status === 'CUSTOMER_NOTE_ADDED')))
-            if (actionProject) setSelectedProject(actionProject)
-          }}
+          onClick={() => setDashboardView('action-items')}
           className="bg-gray-800/50 border border-red-500/30 hover:border-red-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-red-500/10 cursor-pointer"
         >
           <div className="text-3xl font-bold text-red-400">{needsAction.length}</div>
@@ -607,19 +783,34 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
       <div id="tickets-section">
         {!ticketsLoading && tickets.length > 0 && (
           <div className="bg-gray-800/50 border border-white/10 rounded-lg p-6 mb-8">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
               <h2 className="text-xl font-bold text-white">Recent Tickets</h2>
-              {tickets.length > 5 && (
-                <button
-                  onClick={() => setShowAllTickets(!showAllTickets)}
-                  className="text-sm text-cyan-400 hover:text-cyan-300 transition-colors"
-                >
-                  {showAllTickets ? 'Show Less' : `View All (${tickets.length})`}
-                </button>
-              )}
+              <div className="flex items-center gap-3">
+                {/* Ticket search */}
+                <div className="relative w-48 md:w-64">
+                  <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                  <input
+                    type="text"
+                    value={ticketSearch}
+                    onChange={e => setTicketSearch(e.target.value)}
+                    placeholder="Search tickets..."
+                    className="w-full bg-gray-700/50 text-white text-sm rounded-lg pl-10 pr-3 py-1.5 border border-white/10 focus:border-cyan-500/50 focus:outline-none placeholder-gray-500"
+                  />
+                </div>
+                {tickets.length > 5 && (
+                  <button
+                    onClick={() => setShowAllTickets(!showAllTickets)}
+                    className="text-sm text-cyan-400 hover:text-cyan-300 transition-colors whitespace-nowrap"
+                  >
+                    {showAllTickets ? 'Show Less' : `View All (${tickets.length})`}
+                  </button>
+                )}
+              </div>
             </div>
             <div className="space-y-2 max-h-96 overflow-y-auto">
-              {(showAllTickets ? tickets : tickets.slice(0, 5)).map(ticket => (
+              {filterTickets(showAllTickets ? tickets : tickets.slice(0, 5)).map(ticket => (
                 <button
                   key={ticket.id}
                   onClick={() => setSelectedTicketId(ticket.id)}
@@ -643,6 +834,9 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
                   </div>
                 </button>
               ))}
+              {filterTickets(showAllTickets ? tickets : tickets.slice(0, 5)).length === 0 && ticketSearch && (
+                <p className="text-sm text-gray-400 text-center py-4">No tickets match your search.</p>
+              )}
             </div>
           </div>
         )}
@@ -654,49 +848,151 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
         )}
       </div>
 
-      {/* Projects */}
-      <div id="projects-section" />
-      <h2 className="text-xl font-bold text-white mb-4">Your Projects</h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {projects.map(project => {
-          const totalTasks = project.phases.reduce((sum, ph) => sum + ph.tasks.length, 0)
-          const doneTasks = project.phases.reduce((sum, ph) => sum + ph.tasks.filter(t => DONE_STATUSES.includes(t.status)).length, 0)
-          const progress = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0
-          const waiting = project.phases.reduce((sum, ph) => sum + ph.tasks.filter(t => t.status === 'WAITING_ON_CLIENT' || t.status === 'CUSTOMER_NOTE_ADDED').length, 0)
-          const statusBadge = getProjectStatusLabel(project.status)
+      {/* Projects - hidden if no projects, single project gets full width */}
+      {projects.length > 0 && (
+        <>
+          <div id="projects-section" />
+          <h2 className="text-xl font-bold text-white mb-4">Your Projects</h2>
+          <div className={`grid gap-4 mb-8 ${projects.length === 1 ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2'}`}>
+            {projects.map(project => {
+              const totalTasks = project.phases.reduce((sum, ph) => sum + ph.tasks.length, 0)
+              const doneTasks = project.phases.reduce((sum, ph) => sum + ph.tasks.filter(t => DONE_STATUSES.includes(t.status)).length, 0)
+              const progress = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0
+              const waiting = project.phases.reduce((sum, ph) => sum + ph.tasks.filter(t => t.status === 'WAITING_ON_CLIENT' || t.status === 'CUSTOMER_NOTE_ADDED').length, 0)
+              const statusBadge = getProjectStatusLabel(project.status)
 
-          return (
-            <button
-              key={project.id}
-              onClick={() => setSelectedProject(project)}
-              className="bg-gray-800/50 border border-white/10 rounded-lg p-6 text-left hover:border-cyan-500/50 transition-all hover:shadow-lg hover:shadow-cyan-500/10 group"
-            >
-              <div className="flex items-center gap-3 mb-2">
-                <h3 className="text-lg font-bold text-white group-hover:text-cyan-400 transition-colors">
-                  {project.title}
-                </h3>
-                <span className={`px-2 py-0.5 text-xs font-medium rounded-full border whitespace-nowrap ${statusBadge.color}`}>
-                  {statusBadge.label}
-                </span>
-              </div>
-              <div className="flex items-center gap-3 text-sm text-gray-400 mb-3">
-                <span>{project.phases.length} phases</span>
-                <span>-</span>
-                <span>{totalTasks} tasks</span>
-                {waiting > 0 && (
-                  <span className="text-red-400 font-medium">{waiting} needs you</span>
-                )}
-              </div>
-              <div className="bg-gray-700 rounded-full h-2 overflow-hidden mb-2">
-                <div
-                  className="h-full bg-gradient-to-r from-cyan-500 to-cyan-600 transition-all"
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
-              <div className="text-xs text-gray-500">{progress}% complete</div>
-            </button>
-          )
-        })}
+              return (
+                <button
+                  key={project.id}
+                  onClick={() => setSelectedProject(project)}
+                  className="bg-gray-800/50 border border-white/10 rounded-lg p-6 text-left hover:border-cyan-500/50 transition-all hover:shadow-lg hover:shadow-cyan-500/10 group"
+                >
+                  <div className="flex items-center gap-3 mb-2">
+                    <h3 className="text-lg font-bold text-white group-hover:text-cyan-400 transition-colors">
+                      {project.title}
+                    </h3>
+                    <span className={`px-2 py-0.5 text-xs font-medium rounded-full border whitespace-nowrap ${statusBadge.color}`}>
+                      {statusBadge.label}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 text-sm text-gray-400 mb-3">
+                    <span>{project.phases.length} phases</span>
+                    <span>-</span>
+                    <span>{totalTasks} tasks</span>
+                    {waiting > 0 && (
+                      <span className="text-red-400 font-medium">{waiting} needs you</span>
+                    )}
+                  </div>
+                  <div className="bg-gray-700 rounded-full h-2 overflow-hidden mb-2">
+                    <div
+                      className="h-full bg-gradient-to-r from-cyan-500 to-cyan-600 transition-all"
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
+                  <div className="text-xs text-gray-500">{progress}% complete</div>
+                </button>
+              )
+            })}
+          </div>
+        </>
+      )}
+
+      {/* Help & Contact Card */}
+      <div className="bg-gray-800/50 border border-white/10 rounded-lg p-6 mt-8">
+        <h2 className="text-lg font-bold text-white mb-4">Need Help or Have Questions?</h2>
+        <p className="text-sm text-gray-400 mb-4">Reach out to us through any of these channels:</p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <a
+            href="tel:(607) 341-7500"
+            className="flex items-center gap-3 bg-gray-700/30 hover:bg-gray-700/50 rounded-lg px-4 py-3 transition-colors group"
+          >
+            <div className="w-10 h-10 bg-cyan-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
+              <svg className="w-5 h-5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-white group-hover:text-cyan-300 transition-colors">Phone Support</p>
+              <p className="text-xs text-gray-400">(607) 341-7500</p>
+            </div>
+          </a>
+          <a
+            href="mailto:support@triplecitiestech.com"
+            className="flex items-center gap-3 bg-gray-700/30 hover:bg-gray-700/50 rounded-lg px-4 py-3 transition-colors group"
+          >
+            <div className="w-10 h-10 bg-emerald-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
+              <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-white group-hover:text-emerald-300 transition-colors">Email Support</p>
+              <p className="text-xs text-gray-400">support@triplecitiestech.com</p>
+            </div>
+          </a>
+          <a
+            href="/livechat"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-3 bg-gray-700/30 hover:bg-gray-700/50 rounded-lg px-4 py-3 transition-colors group"
+          >
+            <div className="w-10 h-10 bg-purple-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
+              <svg className="w-5 h-5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-white group-hover:text-purple-300 transition-colors">Live Chat</p>
+              <p className="text-xs text-gray-400">Chat with us in real-time</p>
+            </div>
+          </a>
+          <a
+            href="https://triplecitiestech.itclientportal.com/ClientPortal/Login.aspx"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-3 bg-gray-700/30 hover:bg-gray-700/50 rounded-lg px-4 py-3 transition-colors group"
+          >
+            <div className="w-10 h-10 bg-indigo-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
+              <svg className="w-5 h-5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-white group-hover:text-indigo-300 transition-colors">Support Portal</p>
+              <p className="text-xs text-gray-400">Create tickets, access docs & training</p>
+            </div>
+          </a>
+          <a
+            href="https://triplecitiestech.connectboosterportal.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-3 bg-gray-700/30 hover:bg-gray-700/50 rounded-lg px-4 py-3 transition-colors group"
+          >
+            <div className="w-10 h-10 bg-rose-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
+              <svg className="w-5 h-5 text-rose-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-white group-hover:text-rose-300 transition-colors">Payment Portal</p>
+              <p className="text-xs text-gray-400">View invoices & make payments</p>
+            </div>
+          </a>
+          <a
+            href="/contact#customer-support"
+            className="flex items-center gap-3 bg-gray-700/30 hover:bg-gray-700/50 rounded-lg px-4 py-3 transition-colors group"
+          >
+            <div className="w-10 h-10 bg-teal-500/20 rounded-lg flex items-center justify-center flex-shrink-0">
+              <svg className="w-5 h-5 text-teal-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-white group-hover:text-teal-300 transition-colors">All Support Options</p>
+              <p className="text-xs text-gray-400">View all contact & support options</p>
+            </div>
+          </a>
+        </div>
       </div>
     </div>
   )
