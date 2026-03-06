@@ -51,6 +51,9 @@ export async function PATCH(
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+    if (!['ADMIN', 'MANAGER'].includes(session.user?.role as string)) {
+      return NextResponse.json({ error: 'Forbidden: requires ADMIN or MANAGER role' }, { status: 403 })
+    }
 
     const { id } = await params
     const body = await request.json()
@@ -90,6 +93,9 @@ export async function DELETE(
     const session = await auth()
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    if (!['ADMIN', 'MANAGER'].includes(session.user?.role as string)) {
+      return NextResponse.json({ error: 'Forbidden: requires ADMIN or MANAGER role' }, { status: 403 })
     }
 
     const { id } = await params

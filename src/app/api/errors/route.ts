@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/auth';
 import { logError } from '@/lib/error-logger';
 
 export const dynamic = 'force-dynamic';
@@ -33,6 +34,12 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
+    const session = await auth();
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!['ADMIN', 'MANAGER'].includes(session.user?.role as string)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     const { prisma } = await import('@/lib/prisma');
 
     const resolved = request.nextUrl.searchParams.get('resolved') === 'true';

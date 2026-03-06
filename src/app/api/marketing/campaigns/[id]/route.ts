@@ -1,14 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/auth';
 
 /**
- * GET /api/marketing/campaigns/[id] — Get campaign details
- * PATCH /api/marketing/campaigns/[id] — Update campaign content/settings
+ * GET /api/marketing/campaigns/[id] — Get campaign details (auth required)
+ * PATCH /api/marketing/campaigns/[id] — Update campaign (auth required, ADMIN/MANAGER)
  */
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await auth();
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!['ADMIN', 'MANAGER'].includes(session.user?.role as string)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     const { prisma } = await import('@/lib/prisma');
     const { id } = await params;
 
@@ -51,6 +58,12 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await auth();
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!['ADMIN', 'MANAGER'].includes(session.user?.role as string)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     const { prisma } = await import('@/lib/prisma');
     const { id } = await params;
     const body = await request.json();

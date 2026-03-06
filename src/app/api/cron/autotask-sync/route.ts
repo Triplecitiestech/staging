@@ -57,7 +57,8 @@ async function handleSync(request: NextRequest) {
     const syncSecret = process.env.AUTOTASK_SYNC_SECRET;
 
     if (!cronSecret && !syncSecret) {
-      console.warn('[Autotask Sync] No cron secret configured — skipping auth check');
+      console.error('[Autotask Sync] No cron secret configured — CRON_SECRET or AUTOTASK_SYNC_SECRET must be set');
+      return NextResponse.json({ error: 'Unauthorized: cron secret not configured' }, { status: 401 });
     } else if (authHeader) {
       const isValid =
         (cronSecret && authHeader === `Bearer ${cronSecret}`) ||

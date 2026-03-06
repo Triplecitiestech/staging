@@ -37,7 +37,8 @@ async function handleGenerateBlog(request: NextRequest) {
     const blogCronSecret = process.env.BLOG_CRON_SECRET;
 
     if (!cronSecret && !blogCronSecret) {
-      console.warn('⚠️ No cron secret configured — skipping auth check');
+      console.error('❌ No cron secret configured — CRON_SECRET or BLOG_CRON_SECRET must be set');
+      return NextResponse.json({ error: 'Unauthorized: cron secret not configured' }, { status: 401 });
     } else if (authHeader) {
       const isValid =
         (cronSecret && authHeader === `Bearer ${cronSecret}`) ||

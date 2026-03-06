@@ -1,17 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/auth';
 import { sendCampaignEmail, sendTestCampaignEmail } from '@/lib/marketing/email-service';
 
 export const maxDuration = 60;
 
 /**
- * POST /api/marketing/campaigns/[id]/send — Send email notifications to recipients
- * Supports: { action: "send" } for full send, { action: "test", testEmail: "..." } for test
+ * POST /api/marketing/campaigns/[id]/send — Send campaign emails (auth required, ADMIN/MANAGER)
  */
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await auth();
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!['ADMIN', 'MANAGER'].includes(session.user?.role as string)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     const { prisma } = await import('@/lib/prisma');
     const { id } = await params;
     const body = await request.json();
