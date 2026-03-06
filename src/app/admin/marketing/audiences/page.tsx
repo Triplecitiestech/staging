@@ -90,14 +90,27 @@ export default function AudiencesPage() {
   const handleCreate = async () => {
     if (!newName.trim()) return;
 
-    const autotaskSource = sources.find((s) => s.providerType === 'AUTOTASK');
-    if (!autotaskSource) {
-      alert('No Autotask source configured');
-      return;
-    }
-
     setCreating(true);
     try {
+      // Always ensure source exists and fetch it fresh to avoid stale state
+      const initRes = await fetch('/api/marketing/audiences/sources', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'init-defaults' }),
+      });
+      const initData = await initRes.json();
+      const freshSources = initData.sources || [];
+      const autotaskSource = freshSources.find((s: AudienceSource) => s.providerType === 'AUTOTASK');
+
+      if (!autotaskSource) {
+        alert('Failed to initialize Autotask source. Please check database configuration.');
+        setCreating(false);
+        return;
+      }
+
+      // Update local state with fresh sources
+      setSources(freshSources);
+
       const filterCriteria = targetingMode === 'contact-groups'
         ? { contactGroupIds: selectedContactGroups }
         : allCustomers
@@ -122,6 +135,7 @@ export default function AudiencesPage() {
         setNewDescription('');
         setSelectedCompanies([]);
         setAllCustomers(false);
+        setSelectedContactGroups([]);
         await loadData();
       } else {
         const data = await res.json();
