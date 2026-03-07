@@ -86,6 +86,15 @@ export async function generateStaticParams() {
 
 export default async function BlogPostPage({ params }: BlogPostPageProps) {
   const { prisma } = await import('@/lib/prisma');
+
+  // Ensure columns exist that may not be migrated yet
+  try {
+    await prisma.$executeRawUnsafe(`ALTER TABLE "staff_users" ADD COLUMN IF NOT EXISTS "autotaskResourceId" TEXT`)
+    await prisma.$executeRawUnsafe(`ALTER TABLE "blog_posts" ADD COLUMN IF NOT EXISTS "campaignId" TEXT`)
+  } catch {
+    // Columns may already exist — proceed anyway
+  }
+
   const { slug } = await params;
   const post = await prisma.blogPost.findUnique({
     where: {
