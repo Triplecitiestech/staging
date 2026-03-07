@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
-import { AutotaskClient, mapAtTaskStatus, mapAtTaskPriority } from '@/lib/autotask'
+import { AutotaskClient, mapAtTaskStatus, mapAtTaskPriority, mapAtProjectStatus, mapLocalStatusToAt, mapLocalProjectStatusToAt } from '@/lib/autotask'
 import type { TaskStatus, Priority } from '@prisma/client'
 
 export const dynamic = 'force-dynamic'
@@ -9,7 +9,7 @@ export const maxDuration = 60
 
 /**
  * POST /api/autotask/sync-project
- * Force sync a single project's phases, tasks, and notes from Autotask.
+ * 2-way sync: push local status changes TO Autotask, then pull updates FROM Autotask.
  * Returns a detailed log of what was synced.
  */
 export async function POST(request: NextRequest) {
@@ -28,7 +28,78 @@ export async function POST(request: NextRequest) {
     const log: string[] = []
     const atProjectId = parseInt(autotaskProjectId, 10)
 
-    log.push(`Starting sync for Autotask project ${atProjectId}...`)
+    log.push(`Starting 2-way sync for Autotask project ${atProjectId}...`)
+    log.push('')
+
+    // ========================================
+    // PHASE 1: PUSH local changes TO Autotask
+    // ========================================
+    log.push('=== Phase 1: Push local changes to Autotask ===')
+
+    // Push project status
+    const localProject = await prisma.project.findUnique({
+      where: { id: projectId },
+      select: { status: true }
+    })
+
+    if (localProject) {
+      const atProjectStatus = mapLocalProjectStatusToAt(localProject.status)
+      if (atProjectStatus !== null) {
+        try {
+          await client.updateProjectStatus(autotaskProjectId, atProjectStatus)
+          log.push(`Pushed project status: ${localProject.status} -> AT status ${atProjectStatus}`)
+        } catch (error) {
+          log.push(`WARNING: Could not push project status: ${error instanceof Error ? error.message : 'Unknown'}`)
+        }
+      }
+    }
+
+    // Push task statuses for all AT-synced tasks
+    const localTasks = await prisma.phaseTask.findMany({
+      where: {
+        phase: { projectId },
+        autotaskTaskId: { not: null }
+      },
+      select: { id: true, taskText: true, autotaskTaskId: true, status: true }
+    })
+
+    let tasksPushed = 0
+    for (const task of localTasks) {
+      if (!task.autotaskTaskId) continue
+      const atStatus = mapLocalStatusToAt(task.status)
+      if (atStatus !== null) {
+        try {
+          await client.updateTaskStatus(task.autotaskTaskId, atStatus)
+          tasksPushed++
+        } catch (error) {
+          log.push(`  WARNING: Could not push task "${task.taskText}": ${error instanceof Error ? error.message : 'Unknown'}`)
+        }
+      }
+    }
+    log.push(`Pushed ${tasksPushed} task status(es) to Autotask`)
+    log.push('')
+
+    // ========================================
+    // PHASE 2: PULL updates FROM Autotask
+    // ========================================
+    log.push('=== Phase 2: Pull updates from Autotask ===')
+
+    // Pull project status from Autotask
+    try {
+      const atProject = await client.getProject(atProjectId)
+      if (atProject) {
+        const mappedProjectStatus = mapAtProjectStatus(atProject.status)
+        if (mappedProjectStatus !== localProject?.status) {
+          await prisma.project.update({
+            where: { id: projectId },
+            data: { status: mappedProjectStatus }
+          })
+          log.push(`Updated project status from Autotask: ${localProject?.status} -> ${mappedProjectStatus}`)
+        }
+      }
+    } catch (error) {
+      log.push(`WARNING: Could not pull project status: ${error instanceof Error ? error.message : 'Unknown'}`)
+    }
 
     // Fetch phases from Autotask
     let atPhases: { id: number; title: string; description?: string; sortOrder?: number; scheduled?: boolean }[] = []
@@ -149,7 +220,7 @@ export async function POST(request: NextRequest) {
           where: { id: phase.id },
           data: { status: newStatus },
         })
-        log.push(`  Phase "${phase.title}" status: ${phase.status} → ${newStatus}`)
+        log.push(`  Phase "${phase.title}" status: ${phase.status} -> ${newStatus}`)
       }
     }
 
@@ -161,7 +232,8 @@ export async function POST(request: NextRequest) {
 
     log.push('')
     log.push(`Summary: ${phasesCreated} phases created, ${phasesUpdated} updated, ${tasksCreated} tasks created, ${tasksUpdated} updated`)
-    log.push(`Sync completed at ${new Date().toISOString()}`)
+    log.push(`${tasksPushed} task statuses pushed to Autotask`)
+    log.push(`2-way sync completed at ${new Date().toISOString()}`)
 
     return NextResponse.json({ success: true, log: log.join('\n') })
   } catch (error) {

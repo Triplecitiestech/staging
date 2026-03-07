@@ -345,6 +345,14 @@ export class AutotaskClient {
   }
 
   /**
+   * Get a single project by Autotask ID
+   */
+  async getProject(id: number): Promise<AutotaskProject> {
+    const data = await this.get<{ item: AutotaskProject }>(`/v1.0/Projects/${id}`);
+    return data.item;
+  }
+
+  /**
    * Get all active projects
    */
   async getActiveProjects(): Promise<AutotaskProject[]> {
@@ -523,6 +531,16 @@ export class AutotaskClient {
   async updateTaskStatus(atTaskId: string, atStatus: number): Promise<void> {
     await this.patch(`ProjectTasks`, {
       id: parseInt(atTaskId, 10),
+      status: atStatus,
+    });
+  }
+
+  /**
+   * Update a project's status in Autotask (write-back)
+   */
+  async updateProjectStatus(atProjectId: string, atStatus: number): Promise<void> {
+    await this.patch(`Projects`, {
+      id: parseInt(atProjectId, 10),
       status: atStatus,
     });
   }
@@ -857,6 +875,24 @@ export function mapLocalStatusToAt(localStatus: string): number | null {
 }
 
 /**
+ * Reverse map: our ProjectStatus → Autotask project status number.
+ * Returns null if no mapping exists.
+ */
+export function mapLocalProjectStatusToAt(localStatus: string): number | null {
+  switch (localStatus) {
+    case 'ACTIVE':
+      return AT_PROJECT_STATUS.ACTIVE;
+    case 'COMPLETED':
+      return AT_PROJECT_STATUS.COMPLETE;
+    case 'ON_HOLD':
+    case 'CANCELLED':
+      return AT_PROJECT_STATUS.INACTIVE;
+    default:
+      return null;
+  }
+}
+
+/**
  * Map Autotask task priority to our Priority enum
  */
 export function mapAtTaskPriority(atPriority: number): 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT' {
@@ -907,25 +943,27 @@ function getAutotaskZone(): string {
 
 /**
  * Generate an Autotask web UI URL for a project.
- * Uses the modern Datto PSA URL format with entity navigation.
+ * Uses the Datto PSA deep-link format: /Mvc/Projects/ProjectDetail.mvc?ProjectId={id}
  */
 export function getAutotaskProjectUrl(atProjectId: string): string {
   const zone = getAutotaskZone();
-  return `https://${zone}.autotask.net/Mvc/Framework/CommonPage.mvc/PageState/Navigate?PageName=ProjectDetail&Id=${atProjectId}`;
+  return `https://${zone}.autotask.net/Mvc/Projects/ProjectDetail.mvc?ProjectId=${atProjectId}`;
 }
 
 /**
  * Generate an Autotask web UI URL for a task (project task).
+ * Uses the Datto PSA deep-link format: /Mvc/Projects/TaskDetail.mvc?TaskId={id}
  */
 export function getAutotaskTaskUrl(atTaskId: string): string {
   const zone = getAutotaskZone();
-  return `https://${zone}.autotask.net/Mvc/Framework/CommonPage.mvc/PageState/Navigate?PageName=TaskDetail&Id=${atTaskId}`;
+  return `https://${zone}.autotask.net/Mvc/Projects/TaskDetail.mvc?TaskId=${atTaskId}`;
 }
 
 /**
  * Generate an Autotask web UI URL for a service desk ticket.
+ * Uses the Datto PSA deep-link format: /Mvc/ServiceDesk/TicketDetail.mvc?TicketId={id}
  */
 export function getAutotaskTicketUrl(atTicketId: string): string {
   const zone = getAutotaskZone();
-  return `https://${zone}.autotask.net/Mvc/Framework/CommonPage.mvc/PageState/Navigate?PageName=TicketDetail&Id=${atTicketId}`;
+  return `https://${zone}.autotask.net/Mvc/ServiceDesk/TicketDetail.mvc?TicketId=${atTicketId}`;
 }

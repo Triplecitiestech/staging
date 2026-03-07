@@ -40,6 +40,56 @@ export async function PATCH(
       data: updateData
     })
 
+    // When phase status changes to COMPLETE, write-back all AT-synced child tasks as complete
+    // When phase status changes to IN_PROGRESS, write-back non-complete tasks as in-progress
+    if (data.status !== undefined) {
+      try {
+        const { AutotaskClient, mapLocalStatusToAt } = await import('@/lib/autotask')
+        const atTasks = await prisma.phaseTask.findMany({
+          where: { phaseId: id, autotaskTaskId: { not: null } },
+          select: { id: true, autotaskTaskId: true, status: true }
+        })
+
+        if (atTasks.length > 0) {
+          const client = new AutotaskClient()
+          const DONE_STATUSES = ['REVIEWED_AND_DONE', 'NOT_APPLICABLE', 'ITG_DOCUMENTED']
+
+          for (const task of atTasks) {
+            if (!task.autotaskTaskId) continue
+
+            let targetAtStatus: number | null = null
+
+            if (data.status === 'COMPLETE' && !DONE_STATUSES.includes(task.status)) {
+              // Phase marked complete — mark all incomplete tasks as complete in AT
+              targetAtStatus = 5 // AT_TASK_STATUS_COMPLETE
+              await prisma.phaseTask.update({
+                where: { id: task.id },
+                data: { status: 'REVIEWED_AND_DONE', completed: true, completedAt: new Date() }
+              })
+            } else if (data.status === 'IN_PROGRESS' && task.status === 'NOT_STARTED') {
+              // Phase moved to in-progress — update NOT_STARTED tasks
+              targetAtStatus = mapLocalStatusToAt('WORK_IN_PROGRESS')
+              await prisma.phaseTask.update({
+                where: { id: task.id },
+                data: { status: 'WORK_IN_PROGRESS' }
+              })
+            }
+
+            if (targetAtStatus !== null) {
+              try {
+                await client.updateTaskStatus(task.autotaskTaskId, targetAtStatus)
+                console.log(`[Autotask Write-back] Updated task ${task.autotaskTaskId} status to ${targetAtStatus} (phase status change)`)
+              } catch (taskErr) {
+                console.error(`[Autotask Write-back] Failed to update task ${task.autotaskTaskId}:`, taskErr instanceof Error ? taskErr.message : taskErr)
+              }
+            }
+          }
+        }
+      } catch (atErr) {
+        console.error('[Autotask Write-back] Phase task sync failed:', atErr instanceof Error ? atErr.message : atErr)
+      }
+    }
+
     return NextResponse.json(phase)
   } catch (error) {
     console.error('Phase update error:', error)
