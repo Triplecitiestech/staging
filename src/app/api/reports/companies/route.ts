@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { getCompanyServiceDeskMetrics } from '@/lib/reporting/services';
+import { parseFiltersFromParams } from '@/lib/reporting/filters';
+import { getEnhancedCompanyReport } from '@/lib/reporting/enhanced-services';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,16 +12,8 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const from = request.nextUrl.searchParams.get('from');
-    const to = request.nextUrl.searchParams.get('to');
-    const companyId = request.nextUrl.searchParams.get('companyId');
-
-    const range = from && to
-      ? { from: new Date(from), to: new Date(to) }
-      : undefined;
-
-    const result = await getCompanyServiceDeskMetrics(range, companyId || undefined);
-
+    const filters = parseFiltersFromParams(request.nextUrl.searchParams);
+    const result = await getEnhancedCompanyReport(filters);
     return NextResponse.json(result);
   } catch (err) {
     return NextResponse.json(

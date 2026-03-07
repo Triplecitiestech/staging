@@ -17,7 +17,7 @@ export { computeCustomerHealth } from './health-score';
 // Target/benchmark management
 export { resolveTarget, getTargets, upsertTarget, seedDefaultTargets } from './targets';
 
-// Query services
+// Base query services
 export {
   getTechnicianMetrics,
   getCompanyServiceDeskMetrics,
@@ -25,6 +25,45 @@ export {
   getDashboardSummary,
   getBenchmarkComparisons,
 } from './services';
+
+// Enhanced services (Phase 3)
+export {
+  getEnhancedTechnicianReport,
+  getEnhancedCompanyReport,
+  getEnhancedDashboardReport,
+  getEnhancedHealthReport,
+} from './enhanced-services';
+
+// Filters
+export {
+  resolvePreset,
+  parseFiltersFromParams,
+  getComparisonRange,
+  generateTrendBuckets,
+  dateToBucketKey,
+} from './filters';
+export type { DatePreset, ReportFilters } from './filters';
+
+// Scheduling & delivery (Phase 5)
+export {
+  getSchedules,
+  createSchedule,
+  updateSchedule,
+  deleteSchedule,
+  processScheduledReports,
+  getDeliveryHistory,
+} from './scheduler';
+
+// Email templates
+export { buildReportEmail } from './email-templates';
+
+// Advanced analytics (Phase 6)
+export {
+  detectAnomalies,
+  generateInsights,
+  predictTrends,
+} from './analytics';
+export type { AnomalyAlert, OperationalInsight, PredictiveTrend } from './analytics';
 
 // Job status tracking
 export { createJobTracker, getLastSuccessfulRun } from './job-status';
