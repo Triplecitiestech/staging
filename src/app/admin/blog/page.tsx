@@ -17,13 +17,12 @@ export default async function BlogManagementPage() {
   let posts: { id: string; slug: string; title: string; excerpt: string | null; status: string; views: number; updatedAt: Date; categoryName: string | null }[] = []
 
   try {
-    // Ensure campaignId column exists on blog_posts (may not be migrated)
+    // Ensure columns exist that may not be migrated yet
     try {
-      await prisma.$executeRawUnsafe(`
-        ALTER TABLE "blog_posts" ADD COLUMN IF NOT EXISTS "campaignId" TEXT
-      `);
+      await prisma.$executeRawUnsafe(`ALTER TABLE "blog_posts" ADD COLUMN IF NOT EXISTS "campaignId" TEXT`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE "staff_users" ADD COLUMN IF NOT EXISTS "autotaskResourceId" TEXT`);
     } catch {
-      // Column may already exist — proceed anyway
+      // Columns may already exist — proceed anyway
     }
 
     const [_allPosts, _draftPosts, _pendingPosts, _publishedPosts, _blogCategories] = await Promise.all([
