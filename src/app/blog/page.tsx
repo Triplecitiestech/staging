@@ -44,6 +44,14 @@ export default async function BlogPage() {
   let needsSetup = false;
 
   try {
+    // Ensure columns exist that may not be migrated yet
+    try {
+      await prisma.$executeRawUnsafe(`ALTER TABLE "staff_users" ADD COLUMN IF NOT EXISTS "autotaskResourceId" TEXT`)
+      await prisma.$executeRawUnsafe(`ALTER TABLE "blog_posts" ADD COLUMN IF NOT EXISTS "campaignId" TEXT`)
+    } catch {
+      // Columns may already exist — proceed anyway
+    }
+
     // Fetch published blog posts
     posts = await prisma.blogPost.findMany({
       where: {
@@ -71,8 +79,13 @@ export default async function BlogPage() {
     });
   } catch (error) {
     console.error('[Blog Page] Error fetching blog data:', error);
-    // Database tables don't exist or query failed
-    needsSetup = true;
+    // Only show setup if the blog_posts table itself doesn't exist
+    const errMsg = String(error);
+    if (errMsg.includes('blog_posts') && (errMsg.includes('does not exist') || errMsg.includes('doesn\'t exist'))) {
+      needsSetup = true;
+    }
+    // For other errors (missing columns on related tables, connection issues, etc.)
+    // just show empty state — don't redirect to setup
   }
 
   // If blog system not set up, show setup prompt
