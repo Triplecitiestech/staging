@@ -232,6 +232,9 @@ This is the **primary external data source** for companies, projects, phases, an
 - **maxDuration 60**: The Autotask trigger route uses `maxDuration = 60` (60s Vercel function timeout) since sync can be slow. Page size is 5 projects per request to stay within timeout.
 - **Autotask write-back: PATCH vs POST**: Task status PATCH returns 404 on all 3 entity paths (`Projects/{id}/Tasks`, `ProjectTasks`, `Tasks`) for this Autotask instance. However, notes (POST `TaskNotes`) and time entries (POST `TimeEntries`) work fine. The task PATCH API (`/api/tasks/[id]`) returns `autotaskSyncFailed: true` when the write-back fails so the UI can warn the admin.
 - **E2e test failures generate debug summaries**: When Playwright tests fail, the custom reporter writes structured JSON + markdown summaries to `test-results/failures/`. Run `npm run debug:failures` to review. See `docs/DEBUGGING_WORKFLOW.md` for the full Claude debugging process. A fix is never confirmed until the previously failing test passes.
+- **forEach return does NOT stop execution**: `array.forEach(cb)` ignores return values inside the callback. If you need early return (e.g., to send an HTTP error response), use a `for` loop or `Array.from().some()`. The middleware had this bug for query param filtering — it was completely non-functional until fixed.
+- **Never log auth details**: Do not use `console.log` for password validation results, session tokens, signing keys, company slugs in auth context, or env variable names related to credentials. These appear in Vercel function logs which are accessible to anyone with Vercel dashboard access.
+- **Admin test failure dashboard**: Available at `/admin/debug/failures`. Requires the `test_failures` table (run migration via `POST /api/test-failures/migrate` with Bearer MIGRATION_SECRET).
 
 ## Customer Portal Architecture
 

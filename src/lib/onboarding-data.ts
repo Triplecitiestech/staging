@@ -1,6 +1,7 @@
 // Server-only onboarding data - NEVER expose to client
 // This file should only be imported in API routes and server components
 
+import crypto from 'crypto'
 import { OnboardingData, PhaseStatus, PhaseOwner } from '@/types/onboarding'
 
 // Get password from environment variable
@@ -25,17 +26,7 @@ export async function validateCompanyPassword(companySlug: string, password: str
   const correctPassword = getCompanyPassword(companySlug)
 
   if (correctPassword) {
-    console.log('[Password Validation]', {
-      companySlug,
-      hasPassword: !!correctPassword,
-      envKey: `ONBOARDING_PASSWORD_${companySlug.toUpperCase().replace(/-/g, '_')}`,
-      passwordProvided: password.length > 0
-    })
-
-    // Constant-time comparison to prevent timing attacks
-    const isValid = timingSafeEqual(password, correctPassword)
-    console.log('[Password Validation] Result:', isValid)
-    return isValid
+    return timingSafeEqual(password, correctPassword)
   }
 
   // Check database for dynamically created companies
@@ -49,32 +40,28 @@ export async function validateCompanyPassword(companySlug: string, password: str
     })
 
     if (!company) {
-      console.log('[Password Validation] No password configured for company:', companySlug)
       return false
     }
 
-    // Use bcrypt to compare the password
-    const isValid = await bcrypt.compare(password, company.passwordHash)
-    console.log('[Password Validation] Database company result:', isValid)
-    return isValid
+    return await bcrypt.compare(password, company.passwordHash)
   } catch (error) {
     console.error('[Password Validation] Error:', error)
     return false
   }
 }
 
-// Timing-safe string comparison
+// Timing-safe string comparison using Node's built-in crypto
 function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) {
+  const bufA = Buffer.from(a)
+  const bufB = Buffer.from(b)
+  if (bufA.length !== bufB.length) {
+    // Pad shorter buffer to prevent length oracle, then compare (will always fail)
+    const padded = Buffer.alloc(bufA.length)
+    bufB.copy(padded)
+    crypto.timingSafeEqual(bufA, padded)
     return false
   }
-
-  let result = 0
-  for (let i = 0; i < a.length; i++) {
-    result |= a.charCodeAt(i) ^ b.charCodeAt(i)
-  }
-
-  return result === 0
+  return crypto.timingSafeEqual(bufA, bufB)
 }
 
 // Get onboarding data for a company
