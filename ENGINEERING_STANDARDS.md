@@ -182,13 +182,35 @@ Before any commit:
 
 1. `npm run build` — must pass
 2. `npm run lint` — must pass with zero errors
-3. `git diff` review — check for:
+3. `npm run test:e2e` — run Playwright e2e tests when UI or API routes are modified
+4. `git diff` review — check for:
    - Broken imports
    - Missing responsive classes
    - TypeScript errors
    - Forbidden colors (see UI_STANDARDS.md)
    - Security vulnerabilities
-4. Self-review of all changed files
+5. Self-review of all changed files
+
+### 6.1 E2E Testing with Playwright
+
+Automated browser tests live in `tests/e2e/`. Run them before declaring UI or API changes complete:
+
+```bash
+npm run test:e2e          # Run all e2e tests
+npm run test:e2e:ui       # Run with Playwright UI (interactive)
+```
+
+**When to run e2e tests:**
+- After modifying any page component or route
+- After modifying API route handlers (auth, validation, responses)
+- After changing navigation, layout, or responsive behavior
+- Before declaring any UI feature complete
+
+**Test categories:**
+- `dashboard-navigation.spec.ts` — Public page rendering, navigation links
+- `project-navigation.spec.ts` — Admin auth enforcement, API health checks
+- `portal-preview.spec.ts` — Customer portal, responsive layout, data leakage prevention
+- `ticket-view.spec.ts` — Ticket/task API security, sensitive data protection
 
 ---
 
