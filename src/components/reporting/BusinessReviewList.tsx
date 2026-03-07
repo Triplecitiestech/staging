@@ -26,6 +26,9 @@ export default function BusinessReviewList() {
   const [companies, setCompanies] = useState<CompanyOption[]>([])
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
+  const [companiesError, setCompaniesError] = useState<string | null>(null)
+  const [reviewsError, setReviewsError] = useState<string | null>(null)
+  const [generateError, setGenerateError] = useState<string | null>(null)
 
   // Generation form state
   const [selectedCompany, setSelectedCompany] = useState('')
@@ -35,28 +38,47 @@ export default function BusinessReviewList() {
 
   const fetchReviews = useCallback(async () => {
     setLoading(true)
+    setReviewsError(null)
     try {
       const res = await fetch('/api/reports/business-review')
-      if (res.ok) {
-        const data = await res.json()
-        setReviews(data.reviews)
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}))
+        throw new Error(errData.error || `Failed to load reviews (HTTP ${res.status})`)
       }
-    } catch { /* ignore */ }
+      const data = await res.json()
+      setReviews(data.reviews || [])
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error'
+      console.error('[BusinessReviewList] Failed to load reviews:', msg)
+      setReviewsError(msg)
+    }
     setLoading(false)
   }, [])
 
   const fetchCompanies = useCallback(async () => {
+    setCompaniesError(null)
     try {
-      const res = await fetch('/api/reports/companies?preset=last_90_days')
-      if (res.ok) {
-        const data = await res.json()
-        const companyList = (data.summary || []).map((c: { companyId: string; displayName: string }) => ({
-          id: c.companyId,
-          displayName: c.displayName,
-        }))
-        setCompanies(companyList)
+      // Use the selectors endpoint which reads from the base Company table,
+      // not from materialized reporting tables
+      const res = await fetch('/api/reports/selectors')
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}))
+        throw new Error(errData.error || `Failed to load companies (HTTP ${res.status})`)
       }
-    } catch { /* ignore */ }
+      const data = await res.json()
+      const companyList = (data.companies || []).map((c: { id: string; displayName: string }) => ({
+        id: c.id,
+        displayName: c.displayName,
+      }))
+      setCompanies(companyList)
+      if (companyList.length === 0) {
+        setCompaniesError('No companies found. Ensure Autotask company sync has been run.')
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error'
+      console.error('[BusinessReviewList] Failed to load companies:', msg)
+      setCompaniesError(`Unable to load companies from Autotask data source: ${msg}`)
+    }
   }, [])
 
   useEffect(() => {
@@ -67,6 +89,7 @@ export default function BusinessReviewList() {
   const generateReview = async () => {
     if (!selectedCompany) return
     setGenerating(true)
+    setGenerateError(null)
 
     const now = new Date()
     let periodStart: Date
@@ -98,13 +121,14 @@ export default function BusinessReviewList() {
 
       if (res.ok) {
         setShowForm(false)
+        setGenerateError(null)
         await fetchReviews()
       } else {
-        const err = await res.json()
-        alert(`Error: ${err.error}`)
+        const err = await res.json().catch(() => ({ error: 'Unknown error' }))
+        setGenerateError(err.error || `Generation failed (HTTP ${res.status})`)
       }
-    } catch {
-      alert('Failed to generate review')
+    } catch (err) {
+      setGenerateError(err instanceof Error ? err.message : 'Failed to generate review')
     }
 
     setGenerating(false)
@@ -127,6 +151,27 @@ export default function BusinessReviewList() {
       {showForm && (
         <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700/50">
           <h3 className="text-sm font-medium text-white mb-4">Generate Business Review</h3>
+
+          {/* Company load error */}
+          {companiesError && (
+            <div className="bg-rose-500/10 border border-rose-500/30 rounded-lg p-3 mb-4">
+              <p className="text-sm text-rose-400">{companiesError}</p>
+              <button
+                onClick={fetchCompanies}
+                className="text-xs text-cyan-400 mt-1 hover:underline"
+              >
+                Retry loading companies
+              </button>
+            </div>
+          )}
+
+          {/* Generate error */}
+          {generateError && (
+            <div className="bg-rose-500/10 border border-rose-500/30 rounded-lg p-3 mb-4">
+              <p className="text-sm text-rose-400">{generateError}</p>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
               <label className="block text-xs text-slate-400 mb-1">Company</label>
@@ -134,8 +179,15 @@ export default function BusinessReviewList() {
                 value={selectedCompany}
                 onChange={(e) => setSelectedCompany(e.target.value)}
                 className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white"
+                disabled={companies.length === 0}
               >
-                <option value="">Select company...</option>
+                <option value="">
+                  {companies.length === 0
+                    ? companiesError
+                      ? 'Unable to load companies'
+                      : 'Loading companies...'
+                    : 'Select company...'}
+                </option>
                 {companies.map((c) => (
                   <option key={c.id} value={c.id}>{c.displayName}</option>
                 ))}
@@ -183,8 +235,18 @@ export default function BusinessReviewList() {
         </div>
       )}
 
+      {/* Reviews error */}
+      {reviewsError && !loading && (
+        <div className="bg-rose-500/10 border border-rose-500/30 rounded-lg p-4">
+          <p className="text-sm text-rose-400">{reviewsError}</p>
+          <button onClick={fetchReviews} className="text-xs text-cyan-400 mt-2 hover:underline">
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Reviews list */}
-      {!loading && (
+      {!loading && !reviewsError && (
         <div className="bg-slate-800/50 rounded-xl border border-slate-700/50 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">

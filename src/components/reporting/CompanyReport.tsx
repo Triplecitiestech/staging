@@ -44,9 +44,11 @@ export default function CompanyReport() {
   const searchParams = useSearchParams()
   const [data, setData] = useState<CompanyReportData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
+    setError(null)
     try {
       const params = new URLSearchParams(searchParams.toString())
       if (!params.has('preset')) params.set('preset', 'last_30_days')
@@ -54,8 +56,16 @@ export default function CompanyReport() {
       if (!params.has('compare')) params.set('compare', 'true')
       if (!params.has('breakdown')) params.set('breakdown', 'true')
       const res = await fetch(`/api/reports/companies?${params.toString()}`)
-      if (res.ok) setData(await res.json())
-    } catch { /* ignore */ }
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}))
+        throw new Error(errData.error || `Failed to load company data (HTTP ${res.status})`)
+      }
+      setData(await res.json())
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error'
+      console.error('[CompanyReport] Failed to load:', msg)
+      setError(msg)
+    }
     setLoading(false)
   }, [searchParams])
 
@@ -63,13 +73,29 @@ export default function CompanyReport() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400" />
+      <div className="space-y-6">
+        <ReportFilterBar basePath="/admin/reporting/companies" showCompanySelector />
+        <div className="flex items-center justify-center py-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400" />
+        </div>
       </div>
     )
   }
 
-  if (!data) return <p className="text-slate-500">Failed to load data</p>
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <ReportFilterBar basePath="/admin/reporting/companies" showCompanySelector />
+        <div className="bg-rose-500/10 border border-rose-500/30 rounded-lg p-4">
+          <h3 className="text-sm font-medium text-rose-400 mb-1">Company report data failed to load</h3>
+          <p className="text-sm text-rose-300/80">{error}</p>
+          <button onClick={fetchData} className="text-sm text-cyan-400 mt-2 hover:underline">Retry</button>
+        </div>
+      </div>
+    )
+  }
+
+  if (!data) return <p className="text-slate-500">No data available</p>
 
   const totalCreated = data.summary.reduce((s, c) => s + c.ticketsCreated, 0)
   const totalClosed = data.summary.reduce((s, c) => s + c.ticketsClosed, 0)
@@ -77,7 +103,7 @@ export default function CompanyReport() {
 
   return (
     <div className="space-y-6">
-      <ReportFilterBar basePath="/admin/reporting/companies" />
+      <ReportFilterBar basePath="/admin/reporting/companies" showCompanySelector />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
