@@ -105,18 +105,18 @@ export async function getOnboardingData(companySlug: string): Promise<Onboarding
     if (company && company.projects.length > 0) {
       const project = company.projects[0]
 
-      // Map database phase statuses to OnboardingData format
+      // Map database phase statuses to Autotask-matching display labels
       const mapPhaseStatus = (status: string): PhaseStatus => {
         switch (status) {
-          case 'NOT_STARTED': return 'Not Started'
-          case 'SCHEDULED': return 'Scheduled'
-          case 'WAITING_ON_CUSTOMER': return 'Waiting on Customer'
-          case 'IN_PROGRESS': return 'In Progress'
-          case 'REQUIRES_CUSTOMER_COORDINATION': return 'Requires Customer Coordination'
-          case 'DISCUSSED': return 'Discussed'
-          case 'COMPLETE': return 'Complete'
-          case 'COMPLETED': return 'Complete' // Map old COMPLETED to Complete
-          default: return 'Not Started'
+          case 'NOT_STARTED': return 'New'
+          case 'IN_PROGRESS':
+          case 'SCHEDULED':
+          case 'DISCUSSED': return 'In Progress'
+          case 'COMPLETE':
+          case 'COMPLETED': return 'Complete'
+          case 'WAITING_ON_CUSTOMER':
+          case 'REQUIRES_CUSTOMER_COORDINATION': return 'Waiting Customer'
+          default: return 'New'
         }
       }
 

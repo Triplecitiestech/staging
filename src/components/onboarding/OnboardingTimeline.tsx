@@ -12,13 +12,13 @@ interface OnboardingTimelineProps {
   companySlug?: string
 }
 
-// Status color mappings - vibrant bubble colors with original icon colors
-const statusColors: Record<PhaseStatus, { bg: string; text: string; border: string; icon: string }> = {
-  'Complete': {
-    bg: 'bg-emerald-500/20',
-    text: 'text-emerald-300',
-    border: 'border-emerald-500/50',
-    icon: 'text-emerald-600'
+// Status color mappings matched to Autotask: New, In Progress, Complete, Waiting Customer
+const statusColors: Record<string, { bg: string; text: string; border: string; icon: string }> = {
+  'New': {
+    bg: 'bg-gray-50',
+    text: 'text-gray-600',
+    border: 'border-gray-300',
+    icon: 'text-gray-400'
   },
   'In Progress': {
     bg: 'bg-blue-500/20',
@@ -26,11 +26,30 @@ const statusColors: Record<PhaseStatus, { bg: string; text: string; border: stri
     border: 'border-blue-500/50',
     icon: 'text-blue-600'
   },
+  'Complete': {
+    bg: 'bg-emerald-500/20',
+    text: 'text-emerald-300',
+    border: 'border-emerald-500/50',
+    icon: 'text-emerald-600'
+  },
+  'Waiting Customer': {
+    bg: 'bg-red-500/20',
+    text: 'text-red-400',
+    border: 'border-red-500/50',
+    icon: 'text-red-600'
+  },
+  // Legacy statuses (backward compat)
+  'Not Started': {
+    bg: 'bg-gray-50',
+    text: 'text-gray-600',
+    border: 'border-gray-300',
+    icon: 'text-gray-400'
+  },
   'Scheduled': {
-    bg: 'bg-purple-500/20',
-    text: 'text-purple-300',
-    border: 'border-purple-500/50',
-    icon: 'text-purple-600'
+    bg: 'bg-blue-500/20',
+    text: 'text-blue-300',
+    border: 'border-blue-500/50',
+    icon: 'text-blue-600'
   },
   'Waiting on Customer': {
     bg: 'bg-red-500/20',
@@ -45,32 +64,28 @@ const statusColors: Record<PhaseStatus, { bg: string; text: string; border: stri
     icon: 'text-red-600'
   },
   'Discussed': {
-    bg: 'bg-indigo-500/20',
-    text: 'text-indigo-300',
-    border: 'border-indigo-500/50',
-    icon: 'text-indigo-600'
-  },
-  'Not Started': {
-    bg: 'bg-gray-50',
-    text: 'text-gray-600',
-    border: 'border-gray-300',
-    icon: 'text-gray-400'
+    bg: 'bg-blue-500/20',
+    text: 'text-blue-300',
+    border: 'border-blue-500/50',
+    icon: 'text-blue-600'
   },
 }
 
-// Status icon mappings
+// Status icon mappings matched to Autotask statuses
 const getStatusIcon = (status: PhaseStatus) => {
   switch (status) {
     case 'Complete':
       return CheckCircle
     case 'In Progress':
+    case 'Scheduled':
     case 'Discussed':
       return Clock
-    case 'Scheduled':
-      return Calendar
+    case 'Waiting Customer':
     case 'Waiting on Customer':
     case 'Requires Customer Coordination':
       return AlertCircle
+    case 'New':
+    case 'Not Started':
     default:
       return Clock
   }

@@ -3,6 +3,7 @@ import { auth } from '@/auth'
 import { TaskStatus, Priority, PhaseOwner } from '@prisma/client'
 
 // Compute phase status from its tasks' statuses
+// Mapped to Autotask: New (NOT_STARTED), In Progress (IN_PROGRESS), Complete (COMPLETE), Waiting Customer (WAITING_ON_CUSTOMER)
 async function syncPhaseStatus(prisma: { phaseTask: { findMany: (args: { where: { phaseId: string; parentTaskId: null }; select: { status: true } }) => Promise<{ status: TaskStatus }[]> }; phase: { update: (args: { where: { id: string }; data: { status: string } }) => Promise<unknown> } }, phaseId: string) {
   const tasks = await prisma.phaseTask.findMany({
     where: { phaseId, parentTaskId: null },
@@ -13,15 +14,14 @@ async function syncPhaseStatus(prisma: { phaseTask: { findMany: (args: { where: 
 
   const statuses = tasks.map(t => t.status)
   const doneStatuses: TaskStatus[] = ['REVIEWED_AND_DONE', 'NOT_APPLICABLE', 'ITG_DOCUMENTED']
-  const activeStatuses: TaskStatus[] = ['WORK_IN_PROGRESS', 'ASSIGNED', 'WAITING_ON_CLIENT', 'WAITING_ON_VENDOR', 'NEEDS_REVIEW', 'INFORMATION_RECEIVED', 'CUSTOMER_NOTE_ADDED']
+  const waitingStatuses: TaskStatus[] = ['WAITING_ON_CLIENT', 'WAITING_ON_VENDOR', 'CUSTOMER_NOTE_ADDED', 'STUCK']
+  const activeStatuses: TaskStatus[] = ['WORK_IN_PROGRESS', 'ASSIGNED', 'NEEDS_REVIEW', 'INFORMATION_RECEIVED']
 
   let phaseStatus: string
 
   if (statuses.every(s => doneStatuses.includes(s))) {
     phaseStatus = 'COMPLETE'
-  } else if (statuses.some(s => s === 'STUCK')) {
-    phaseStatus = 'REQUIRES_CUSTOMER_COORDINATION'
-  } else if (statuses.some(s => s === 'WAITING_ON_CLIENT' || s === 'CUSTOMER_NOTE_ADDED')) {
+  } else if (statuses.some(s => waitingStatuses.includes(s))) {
     phaseStatus = 'WAITING_ON_CUSTOMER'
   } else if (statuses.some(s => activeStatuses.includes(s))) {
     phaseStatus = 'IN_PROGRESS'

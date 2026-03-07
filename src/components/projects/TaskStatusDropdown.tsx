@@ -8,19 +8,13 @@ interface TaskStatusDropdownProps {
   currentStatus: string
 }
 
+// Task statuses mapped 1:1 to Autotask picklist values
+// AT 1=New, AT 4=In Progress, AT 5=Complete, AT 7=Waiting Customer
 const statuses = [
-  { value: 'NOT_STARTED', label: 'Not Started', dotColor: 'bg-pink-400', textColor: 'text-pink-300' },
-  { value: 'ASSIGNED', label: 'Assigned', dotColor: 'bg-purple-400', textColor: 'text-purple-300' },
-  { value: 'WORK_IN_PROGRESS', label: 'Work in Progress', dotColor: 'bg-sky-400', textColor: 'text-sky-300' },
-  { value: 'WAITING_ON_CLIENT', label: 'Waiting on Client', dotColor: 'bg-red-400', textColor: 'text-red-400' },
-  { value: 'WAITING_ON_VENDOR', label: 'Waiting on Vendor', dotColor: 'bg-rose-400', textColor: 'text-rose-300' },
-  { value: 'NEEDS_REVIEW', label: 'Needs Review', dotColor: 'bg-cyan-400', textColor: 'text-cyan-300' },
-  { value: 'STUCK', label: 'Stuck', dotColor: 'bg-red-400', textColor: 'text-red-300' },
-  { value: 'INFORMATION_RECEIVED', label: 'Info Received', dotColor: 'bg-teal-400', textColor: 'text-teal-300' },
-  { value: 'REVIEWED_AND_DONE', label: 'Done', dotColor: 'bg-green-400', textColor: 'text-green-300' },
-  { value: 'ITG_DOCUMENTED', label: 'ITG Documented', dotColor: 'bg-indigo-400', textColor: 'text-indigo-300' },
-  { value: 'NOT_APPLICABLE', label: 'N/A', dotColor: 'bg-slate-400', textColor: 'text-slate-400' },
-  { value: 'CUSTOMER_NOTE_ADDED', label: 'Customer Note', dotColor: 'bg-violet-400', textColor: 'text-violet-300' },
+  { value: 'NOT_STARTED', label: 'New', dotColor: 'bg-slate-400', textColor: 'text-slate-300' },
+  { value: 'WORK_IN_PROGRESS', label: 'In Progress', dotColor: 'bg-sky-400', textColor: 'text-sky-300' },
+  { value: 'REVIEWED_AND_DONE', label: 'Complete', dotColor: 'bg-green-400', textColor: 'text-green-300' },
+  { value: 'WAITING_ON_CLIENT', label: 'Waiting Customer', dotColor: 'bg-red-400', textColor: 'text-red-400' },
 ]
 
 export default function TaskStatusDropdown({ taskId, currentStatus }: TaskStatusDropdownProps) {

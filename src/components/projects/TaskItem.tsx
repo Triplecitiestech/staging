@@ -64,19 +64,21 @@ interface TaskItemProps {
   projectContacts?: ContactOption[]
 }
 
+// Border colors mapped to Autotask statuses: New, In Progress, Complete, Waiting Customer
 const STATUS_BORDER_COLORS: Record<string, string> = {
-  NOT_STARTED: 'border-l-pink-500',
-  ASSIGNED: 'border-l-indigo-500',
+  NOT_STARTED: 'border-l-slate-500',
   WORK_IN_PROGRESS: 'border-l-sky-500',
-  WAITING_ON_CLIENT: 'border-l-red-500',
-  WAITING_ON_VENDOR: 'border-l-rose-500',
-  NEEDS_REVIEW: 'border-l-cyan-500',
-  STUCK: 'border-l-red-500',
-  INFORMATION_RECEIVED: 'border-l-teal-500',
   REVIEWED_AND_DONE: 'border-l-green-500',
-  ITG_DOCUMENTED: 'border-l-indigo-500',
-  NOT_APPLICABLE: 'border-l-slate-500',
-  CUSTOMER_NOTE_ADDED: 'border-l-violet-500',
+  WAITING_ON_CLIENT: 'border-l-red-500',
+  // Legacy statuses fallback (existing data may still have these)
+  ASSIGNED: 'border-l-sky-500',
+  WAITING_ON_VENDOR: 'border-l-red-500',
+  NEEDS_REVIEW: 'border-l-sky-500',
+  STUCK: 'border-l-red-500',
+  INFORMATION_RECEIVED: 'border-l-sky-500',
+  ITG_DOCUMENTED: 'border-l-green-500',
+  NOT_APPLICABLE: 'border-l-green-500',
+  CUSTOMER_NOTE_ADDED: 'border-l-red-500',
 }
 
 export default function TaskItem({

@@ -335,18 +335,10 @@ export default function PhaseCard({ phase, index, companyName, projectContacts =
                           className="px-2 py-1 text-xs bg-slate-800 border border-white/20 rounded text-slate-300"
                         >
                           <option value="">Set Status...</option>
-                          <option value="ASSIGNED">Assigned</option>
-                          <option value="INFORMATION_RECEIVED">Information Received</option>
-                          <option value="ITG_DOCUMENTED">ITG Documented</option>
-                          <option value="NEEDS_REVIEW">Needs Review</option>
-                          <option value="NOT_APPLICABLE">Not Applicable</option>
-                          <option value="NOT_STARTED">Not Started</option>
-                          <option value="REVIEWED_AND_DONE">Reviewed and Done</option>
-                          <option value="STUCK">Stuck</option>
-                          <option value="WAITING_ON_CLIENT">Waiting on Client</option>
-                          <option value="WAITING_ON_VENDOR">Waiting on Vendor</option>
-                          <option value="WORK_IN_PROGRESS">Work in Progress</option>
-                          <option value="CUSTOMER_NOTE_ADDED">Customer Note Added</option>
+                          <option value="NOT_STARTED">New</option>
+                          <option value="WORK_IN_PROGRESS">In Progress</option>
+                          <option value="REVIEWED_AND_DONE">Complete</option>
+                          <option value="WAITING_ON_CLIENT">Waiting Customer</option>
                         </select>
                         <button
                           onClick={applyBulkStatus}
