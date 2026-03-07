@@ -63,6 +63,9 @@ npm run start        # Start production server
 npm run lint         # ESLint (MUST PASS, fix all errors)
 npm run seed         # Seed database (tsx prisma/seed.ts)
 npm run test:e2e     # Playwright e2e tests (run when UI/API changes)
+npm run test:e2e:ui  # Playwright with interactive UI
+# Browserbase remote testing (against deployed preview):
+# BROWSERBASE_API_KEY=xxx BROWSERBASE_PROJECT_ID=xxx PLAYWRIGHT_BASE_URL=https://preview.vercel.app npm run test:e2e
 ```
 
 ## Directory Structure

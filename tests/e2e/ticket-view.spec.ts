@@ -35,15 +35,34 @@ test.describe('Ticket & Task API Security', () => {
   })
 })
 
-test.describe('Sensitive Data Protection', () => {
+test.describe('Sensitive Endpoints', () => {
   test('autotask sync trigger requires secret', async ({ request }) => {
     const response = await request.get('/api/autotask/trigger')
-    // Should reject without proper secret
+    expect([401, 403]).toContain(response.status())
+  })
+
+  test('autotask sync trigger rejects wrong secret', async ({ request }) => {
+    const response = await request.get('/api/autotask/trigger?secret=wrong-secret')
     expect([401, 403]).toContain(response.status())
   })
 
   test('migration endpoint requires authorization', async ({ request }) => {
     const response = await request.post('/api/setup/migrate')
     expect([401, 403]).toContain(response.status())
+  })
+
+  test('blog approval endpoint requires valid token', async ({ request }) => {
+    const response = await request.get('/api/blog/approval?token=invalid&action=approve')
+    expect(response.status()).not.toBe(200)
+  })
+})
+
+test.describe('API Response Format', () => {
+  test('unauthenticated API returns JSON error', async ({ request }) => {
+    const response = await request.get('/api/companies')
+    const contentType = response.headers()['content-type'] || ''
+    expect(contentType).toContain('application/json')
+    const body = await response.json()
+    expect(body).toHaveProperty('error')
   })
 })
