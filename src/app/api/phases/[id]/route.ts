@@ -54,6 +54,13 @@ export async function PATCH(
           const client = new AutotaskClient()
           const DONE_STATUSES = ['REVIEWED_AND_DONE', 'NOT_APPLICABLE', 'ITG_DOCUMENTED']
 
+          // Look up the project's autotaskProjectId for the child entity path
+          const phaseWithProject = await prisma.phase.findUnique({
+            where: { id },
+            select: { project: { select: { autotaskProjectId: true } } }
+          })
+          const atProjectId = phaseWithProject?.project?.autotaskProjectId || undefined
+
           for (const task of atTasks) {
             if (!task.autotaskTaskId) continue
 
@@ -77,7 +84,7 @@ export async function PATCH(
 
             if (targetAtStatus !== null) {
               try {
-                await client.updateTaskStatus(task.autotaskTaskId, targetAtStatus)
+                await client.updateTaskStatus(task.autotaskTaskId, targetAtStatus, atProjectId)
                 console.log(`[Autotask Write-back] Updated task ${task.autotaskTaskId} status to ${targetAtStatus} (phase status change)`)
               } catch (taskErr) {
                 console.error(`[Autotask Write-back] Failed to update task ${task.autotaskTaskId}:`, taskErr instanceof Error ? taskErr.message : taskErr)

@@ -134,8 +134,17 @@ export async function PATCH(
         const { AutotaskClient, mapLocalStatusToAt } = await import('@/lib/autotask')
         const atStatus = mapLocalStatusToAt(data.status)
         if (atStatus !== null) {
+          // Look up the project's autotaskProjectId for the child entity path
+          let atProjectId: string | undefined
+          if (task.phaseId) {
+            const phase = await prisma.phase.findUnique({
+              where: { id: task.phaseId },
+              select: { project: { select: { autotaskProjectId: true } } }
+            })
+            atProjectId = phase?.project?.autotaskProjectId || undefined
+          }
           const client = new AutotaskClient()
-          await client.updateTaskStatus(task.autotaskTaskId, atStatus)
+          await client.updateTaskStatus(task.autotaskTaskId, atStatus, atProjectId)
           console.log(`[Autotask Write-back] Updated task ${task.autotaskTaskId} status to ${atStatus}`)
         }
       } catch (atErr) {

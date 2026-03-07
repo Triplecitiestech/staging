@@ -526,24 +526,37 @@ export class AutotaskClient {
   }
 
   /**
-   * Update a task's status in Autotask (write-back)
-   * Tries multiple entity paths since instances vary.
+   * Update a task's status in Autotask (write-back).
+   *
+   * The Autotask REST API v1.0 exposes project tasks as child entities under Projects.
+   * When atProjectId is provided, uses the child entity path: Projects/{projectId}/Tasks
+   * Falls back to top-level ProjectTasks and Tasks if the child path fails.
    */
-  async updateTaskStatus(atTaskId: string, atStatus: number): Promise<void> {
+  async updateTaskStatus(atTaskId: string, atStatus: number, atProjectId?: string): Promise<void> {
     const taskId = parseInt(atTaskId, 10);
     const payload = { id: taskId, status: atStatus };
 
-    // Try ProjectTasks first (most common)
+    // If we have the project ID, use the child entity path (most reliable)
+    if (atProjectId) {
+      try {
+        await this.patch(`Projects/${atProjectId}/Tasks`, payload);
+        return;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : '';
+        if (!msg.includes('404') && !msg.includes('405')) throw err;
+      }
+    }
+
+    // Fallback: try top-level ProjectTasks
     try {
       await this.patch(`ProjectTasks`, payload);
       return;
     } catch (err) {
       const msg = err instanceof Error ? err.message : '';
-      // Only try fallback on 404/405 — other errors should propagate
       if (!msg.includes('404') && !msg.includes('405')) throw err;
     }
 
-    // Fallback: try Tasks entity
+    // Last resort: try Tasks entity
     await this.patch(`Tasks`, payload);
   }
 
