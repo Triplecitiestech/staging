@@ -15,10 +15,10 @@ import { test, expect } from '@playwright/test'
 import { isBrowserbaseEnabled, getBrowserbaseContext } from './browserbase.setup'
 
 // Skip all tests in this file when Browserbase is not configured
-const bbTest = isBrowserbaseEnabled() ? test : test.skip
+test.describe('Browserbase Smoke Tests @browserbase', () => {
+  test.skip(!isBrowserbaseEnabled(), 'Browserbase credentials not configured')
 
-bbTest.describe('Browserbase Smoke Tests @browserbase', () => {
-  bbTest('homepage loads in remote browser', async () => {
+  test('homepage loads in remote browser', async () => {
     const { context, cleanup } = await getBrowserbaseContext()
     try {
       const page = context.pages()[0] || await context.newPage()
@@ -35,7 +35,7 @@ bbTest.describe('Browserbase Smoke Tests @browserbase', () => {
     }
   })
 
-  bbTest('services page renders correctly', async () => {
+  test('services page renders correctly', async () => {
     const { context, cleanup } = await getBrowserbaseContext()
     try {
       const page = context.pages()[0] || await context.newPage()
@@ -52,7 +52,7 @@ bbTest.describe('Browserbase Smoke Tests @browserbase', () => {
     }
   })
 
-  bbTest('navigation flow works end-to-end', async () => {
+  test('navigation flow works end-to-end', async () => {
     const { context, cleanup } = await getBrowserbaseContext()
     try {
       const page = context.pages()[0] || await context.newPage()
@@ -76,7 +76,7 @@ bbTest.describe('Browserbase Smoke Tests @browserbase', () => {
     }
   })
 
-  bbTest('admin page requires auth in remote browser', async () => {
+  test('admin page requires auth in remote browser', async () => {
     const { context, cleanup } = await getBrowserbaseContext()
     try {
       const page = context.pages()[0] || await context.newPage()
@@ -92,7 +92,7 @@ bbTest.describe('Browserbase Smoke Tests @browserbase', () => {
     }
   })
 
-  bbTest('customer portal handles unknown company', async () => {
+  test('customer portal handles unknown company', async () => {
     const { context, cleanup } = await getBrowserbaseContext()
     try {
       const page = context.pages()[0] || await context.newPage()
