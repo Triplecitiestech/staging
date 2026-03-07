@@ -111,6 +111,23 @@ export async function POST(request: NextRequest) {
       log.push(`ERROR fetching phases: ${error instanceof Error ? error.message : 'Unknown'}`)
     }
 
+    // Fetch ALL tasks for the project once, then group by phaseID
+    let allAtTasks: Awaited<ReturnType<typeof client.getProjectTasks>> = []
+    try {
+      allAtTasks = await client.getProjectTasks(atProjectId)
+      log.push(`Fetched ${allAtTasks.length} total task(s) for project`)
+    } catch (error) {
+      log.push(`ERROR fetching tasks: ${error instanceof Error ? error.message : 'Unknown'}`)
+    }
+
+    // Group tasks by phaseID
+    const tasksByPhase = new Map<number, typeof allAtTasks>()
+    for (const task of allAtTasks) {
+      const phaseId = task.phaseID || 0
+      if (!tasksByPhase.has(phaseId)) tasksByPhase.set(phaseId, [])
+      tasksByPhase.get(phaseId)!.push(task)
+    }
+
     // Sync each phase
     let phasesCreated = 0, phasesUpdated = 0, tasksCreated = 0, tasksUpdated = 0
 
@@ -148,51 +165,47 @@ export async function POST(request: NextRequest) {
         log.push(`  Created phase: ${atPhase.title}`)
       }
 
-      // Fetch tasks for this phase
-      try {
-        const atTasks = await client.getProjectTasks(atPhase.id)
-        log.push(`  Fetched ${atTasks.length} task(s) for phase "${atPhase.title}"`)
+      // Get tasks for this phase from the pre-fetched data
+      const phaseTasks = tasksByPhase.get(atPhase.id) || []
+      log.push(`  ${phaseTasks.length} task(s) for phase "${atPhase.title}"`)
 
-        for (const atTask of atTasks) {
-          const atTaskId = String(atTask.id)
-          const status = mapAtTaskStatus(atTask.status) as TaskStatus
-          const priority = mapAtTaskPriority(atTask.priority || 2) as Priority
-          const DONE_STATUSES = ['REVIEWED_AND_DONE', 'NOT_APPLICABLE', 'ITG_DOCUMENTED']
+      for (const atTask of phaseTasks) {
+        const atTaskId = String(atTask.id)
+        const status = mapAtTaskStatus(atTask.status) as TaskStatus
+        const priority = mapAtTaskPriority(atTask.priority || 2) as Priority
+        const DONE_STATUSES = ['REVIEWED_AND_DONE', 'NOT_APPLICABLE', 'ITG_DOCUMENTED']
 
-          const existingTask = await prisma.phaseTask.findFirst({
-            where: { autotaskTaskId: atTaskId },
+        const existingTask = await prisma.phaseTask.findFirst({
+          where: { autotaskTaskId: atTaskId },
+        })
+
+        if (existingTask) {
+          await prisma.phaseTask.update({
+            where: { id: existingTask.id },
+            data: {
+              taskText: atTask.title || existingTask.taskText,
+              status,
+              priority,
+              completed: DONE_STATUSES.includes(status),
+              notes: atTask.description || existingTask.notes,
+            },
           })
-
-          if (existingTask) {
-            await prisma.phaseTask.update({
-              where: { id: existingTask.id },
-              data: {
-                taskText: atTask.title || existingTask.taskText,
-                status,
-                priority,
-                completed: DONE_STATUSES.includes(status),
-                notes: atTask.description || existingTask.notes,
-              },
-            })
-            tasksUpdated++
-          } else {
-            await prisma.phaseTask.create({
-              data: {
-                phaseId: localPhase.id,
-                autotaskTaskId: atTaskId,
-                taskText: atTask.title || `Task ${atTask.id}`,
-                status,
-                priority,
-                completed: DONE_STATUSES.includes(status),
-                orderIndex: 0,
-                notes: atTask.description || '',
-              },
-            })
-            tasksCreated++
-          }
+          tasksUpdated++
+        } else {
+          await prisma.phaseTask.create({
+            data: {
+              phaseId: localPhase.id,
+              autotaskTaskId: atTaskId,
+              taskText: atTask.title || `Task ${atTask.id}`,
+              status,
+              priority,
+              completed: DONE_STATUSES.includes(status),
+              orderIndex: 0,
+              notes: atTask.description || '',
+            },
+          })
+          tasksCreated++
         }
-      } catch (error) {
-        log.push(`  ERROR fetching tasks for phase "${atPhase.title}": ${error instanceof Error ? error.message : 'Unknown'}`)
       }
     }
 
