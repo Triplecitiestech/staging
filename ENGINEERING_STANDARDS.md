@@ -349,4 +349,79 @@ Minimize purple (purple-*) in admin interfaces. Prefer:
 
 ---
 
+## 15. Root Cause Fixing
+
+Bug fixes must target the root cause, not apply surface-level patches.
+
+**Incorrect approach**: Changing colors in 5 different components to fix an inconsistency.
+**Correct approach**: Fixing the shared design token or config that controls the color.
+
+When fixing a bug:
+1. Identify the root cause — trace through the call stack, not just the symptom
+2. Fix the source, not the symptom
+3. Verify the fix doesn't mask a deeper issue
+4. Check if the same root cause could affect other areas
+
+---
+
+## 16. Single Source of Truth
+
+Shared logic must exist in only one place. Never duplicate:
+- Status-to-color mapping (use shared config or utility)
+- Portal permission logic (one function, imported everywhere)
+- Ticket/task filtering rules (centralized query builder)
+- Authentication/authorization checks (use `auth()` from `@/auth`)
+- Status label formatting (one utility, e.g., `formatStatus()`)
+
+When you find duplicated logic, consolidate it into a shared utility in `src/lib/` or `src/utils/` and import from there.
+
+---
+
+## 17. Separation of Responsibilities
+
+Maintain clear architectural boundaries:
+
+| Layer | Location | Responsibility |
+|-------|----------|----------------|
+| UI Components | `src/components/` | Rendering, user interaction, local state |
+| Page Logic | `src/app/` | Route handling, data fetching, layout |
+| Business Logic | `src/lib/` | Core rules, calculations, API clients |
+| Data Access | `src/lib/prisma.ts` + Prisma models | Database queries via Prisma |
+| API Routes | `src/app/api/` | Request validation, auth, response formatting |
+| Types | `src/types/` | TypeScript interfaces and type definitions |
+
+Do not mix responsibilities in the same file:
+- Components should not contain raw SQL or direct Prisma calls
+- API routes should not contain rendering logic
+- Business logic should not depend on React or Next.js
+
+---
+
+## 18. Centralized UI Configuration
+
+UI rules that apply across multiple components must be centralized:
+
+- **Status colors**: Define status-to-color mappings in a shared config, not inline in each component
+- **Badge styles**: Use consistent badge patterns from a shared utility
+- **Alert/warning colors**: Follow `docs/UI_STANDARDS.md` color palette
+- **Portal permission states**: Centralize visibility rules (what customers can/cannot see)
+
+When adding a new status, color, or UI pattern, check if a shared config already exists before adding inline values.
+
+---
+
+## 19. Sensitive Data Filtering
+
+Customer-facing portals must intentionally filter internal data. The following must **never** appear in customer views:
+
+- Internal notes (marked `isInternal: true` or `publish: 2`)
+- Automation/sync logs (AutotaskSyncLog entries)
+- System-generated entries (e.g., cron job outputs)
+- Staff-only comments
+- Internal task assignments or notes not marked customer-visible
+
+**Filtering must occur in backend queries** (API routes), not solely in frontend rendering. Use Prisma `where` clauses to exclude internal records at the data layer, so internal data never reaches the client.
+
+---
+
 **These standards are non-negotiable. Every development session must adhere to them.**
