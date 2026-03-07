@@ -221,6 +221,7 @@ This is the **primary external data source** for companies, projects, phases, an
 - **Duplicate companies**: When Autotask syncs companies, it can create duplicates of companies that already existed in the local DB. Use `?step=merge` to deduplicate (keeps AT-synced company, moves projects from non-AT duplicate).
 - **Empty phases after sync**: If phases show up empty, the task API likely failed silently. Use `?step=resync` to re-fetch and also check `?step=diagnose` for API errors. The resync step also cleans up genuinely empty phases and updates phase statuses based on task completion.
 - **maxDuration 60**: The Autotask trigger route uses `maxDuration = 60` (60s Vercel function timeout) since sync can be slow. Page size is 5 projects per request to stay within timeout.
+- **Autotask write-back: PATCH vs POST**: Task status PATCH returns 404 on all 3 entity paths (`Projects/{id}/Tasks`, `ProjectTasks`, `Tasks`) for this Autotask instance. However, notes (POST `TaskNotes`) and time entries (POST `TimeEntries`) work fine. The task PATCH API (`/api/tasks/[id]`) returns `autotaskSyncFailed: true` when the write-back fails so the UI can warn the admin.
 
 ## Customer Portal Architecture
 
