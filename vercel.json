@@ -1,5 +1,5 @@
 {
-  "buildCommand": "next build",
+  "buildCommand": "prisma migrate deploy && next build",
   "devCommand": "next dev",
   "installCommand": "npm install",
   "framework": "nextjs",
@@ -57,6 +57,9 @@
       "maxDuration": 60
     },
     "src/app/api/reports/business-review/*/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/reports/migrate/route.ts": {
       "maxDuration": 60
     }
   },
