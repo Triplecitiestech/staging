@@ -51,15 +51,20 @@ export async function POST(request: NextRequest) {
     // Run entire pipeline sequentially
     if (jobName === 'run_all') {
       const results: Array<{ job: string; success: boolean; error?: string }> = [];
+      let migrationNeeded = false;
       for (const name of PIPELINE_ORDER) {
         try {
           await JOB_MAP[name]();
           results.push({ job: name, success: true });
         } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+          if (errorMsg.includes('does not exist. Run the reporting migration')) {
+            migrationNeeded = true;
+          }
           results.push({
             job: name,
             success: false,
-            error: err instanceof Error ? err.message : 'Unknown error',
+            error: errorMsg,
           });
         }
       }
@@ -68,6 +73,9 @@ export async function POST(request: NextRequest) {
         success: failed.length === 0,
         results,
         summary: `${results.length - failed.length}/${results.length} jobs succeeded`,
+        ...(migrationNeeded && {
+          action: 'Run POST /api/reports/migrate?secret=MIGRATION_SECRET to create the reporting tables, then retry.',
+        }),
       });
     }
 

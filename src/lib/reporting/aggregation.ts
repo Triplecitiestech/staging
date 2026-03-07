@@ -6,6 +6,7 @@
 import { prisma } from '@/lib/prisma';
 import { createJobTracker } from './job-status';
 import { JOB_NAMES } from './types';
+import { assertTableExists } from './sync';
 
 // ============================================
 // TECHNICIAN DAILY AGGREGATION
@@ -25,6 +26,10 @@ export async function aggregateTechnicianDaily(targetDate?: Date): Promise<Aggre
   const result: AggregationResult = { rowsComputed: 0, errors: [] };
 
   try {
+    await assertTableExists('resources');
+    await assertTableExists('ticket_lifecycle');
+    await assertTableExists('technician_metrics_daily');
+
     const date = targetDate || yesterday();
     const dayStart = startOfDay(date);
     const dayEnd = endOfDay(date);
@@ -211,6 +216,9 @@ export async function aggregateCompanyDaily(targetDate?: Date): Promise<Aggregat
   const result: AggregationResult = { rowsComputed: 0, errors: [] };
 
   try {
+    await assertTableExists('ticket_lifecycle');
+    await assertTableExists('company_metrics_daily');
+
     const date = targetDate || yesterday();
     const dayStart = startOfDay(date);
     const dayEnd = endOfDay(date);
