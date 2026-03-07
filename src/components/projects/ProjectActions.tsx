@@ -69,9 +69,9 @@ export default function ProjectActions({ projectId, autotaskProjectId }: Project
           onClick={handleSync}
           disabled={syncing}
           className="px-3 py-1.5 text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-md hover:bg-emerald-500/20 disabled:opacity-50 transition-colors"
-          title="Force sync from Autotask"
+          title="2-way sync: push local changes to Autotask, then pull updates"
         >
-          {syncing ? 'Syncing...' : 'Sync from Autotask'}
+          {syncing ? 'Syncing...' : 'Sync with Autotask'}
         </button>
       )}
 
