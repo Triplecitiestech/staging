@@ -52,6 +52,12 @@
     },
     "src/app/api/reports/jobs/deliver/route.ts": {
       "maxDuration": 60
+    },
+    "src/app/api/reports/business-review/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/reports/business-review/*/route.ts": {
+      "maxDuration": 60
     }
   },
   "crons": [

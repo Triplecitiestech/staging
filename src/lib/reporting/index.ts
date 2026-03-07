@@ -68,5 +68,16 @@ export type { AnomalyAlert, OperationalInsight, PredictiveTrend } from './analyt
 // Job status tracking
 export { createJobTracker, getLastSuccessfulRun } from './job-status';
 
+// Business Review / QBR (Phase 7)
+export {
+  generateBusinessReview,
+  listBusinessReviews,
+  getBusinessReview,
+  updateReviewStatus,
+  deleteBusinessReview,
+  getReviewPrintableHTML,
+  sendBusinessReviewEmail,
+} from './business-review';
+
 // Types
 export * from './types';

@@ -220,6 +220,7 @@ export default function ReportingDashboard() {
               { href: '/admin/reporting/companies', label: 'Service Desk by Company', desc: 'Per-company ticket analysis' },
               { href: '/admin/reporting/health', label: 'Customer Health', desc: 'Health scores & trends' },
               { href: '/admin/reporting/analytics', label: 'Advanced Analytics', desc: 'Anomalies & predictions' },
+              { href: '/admin/reporting/business-review', label: 'Business Reviews', desc: 'Monthly & quarterly QBRs' },
               { href: '/admin/reporting/status', label: 'Pipeline Status', desc: 'Data pipeline & jobs' },
             ].map((link) => (
               <Link
