@@ -53,12 +53,21 @@
 A task is **not complete** until:
 - The feature works end-to-end (not just compiles)
 - `npm run build` and `npm run lint` pass
+- `npm run test:e2e` passes (when UI or API routes were modified)
 - UI verified at mobile, tablet, and desktop breakpoints
 - `git diff` reviewed for regressions
 - Validation report provided (what changed, what was tested, what was confirmed)
 - Changes committed and pushed
 
 **Build + lint passing alone is never sufficient to declare completion.**
+
+### Browserbase Remote Testing
+When testing against a deployed preview, use Browserbase for real browser verification:
+```bash
+BROWSERBASE_API_KEY=xxx BROWSERBASE_PROJECT_ID=xxx \
+PLAYWRIGHT_BASE_URL=https://preview.vercel.app \
+npm run test:e2e -- --grep @browserbase
+```
 
 ---
 
