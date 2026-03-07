@@ -16,6 +16,7 @@ import { prisma } from '@/lib/prisma';
 import { createJobTracker, getLastSuccessfulRun } from './job-status';
 import { JOB_NAMES, isResolvedStatus, isWaitingCustomerStatus } from './types';
 import { resolveTarget } from './targets';
+import { assertTableExists } from './sync';
 
 interface LifecycleResult {
   computed: number;
@@ -31,6 +32,9 @@ export async function computeLifecycle(): Promise<LifecycleResult> {
   const result: LifecycleResult = { computed: 0, errors: [] };
 
   try {
+    await assertTableExists('tickets');
+    await assertTableExists('ticket_lifecycle');
+
     const lastRun = await getLastSuccessfulRun(JOB_NAMES.COMPUTE_LIFECYCLE);
 
     // Find tickets needing lifecycle computation

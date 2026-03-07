@@ -18,6 +18,7 @@ import { prisma } from '@/lib/prisma';
 import { createJobTracker } from './job-status';
 import { JOB_NAMES } from './types';
 import { resolveTarget } from './targets';
+import { assertTableExists } from './sync';
 
 interface HealthResult {
   computed: number;
@@ -44,6 +45,9 @@ export async function computeCustomerHealth(): Promise<HealthResult> {
   const result: HealthResult = { computed: 0, errors: [] };
 
   try {
+    await assertTableExists('ticket_lifecycle');
+    await assertTableExists('customer_health_scores');
+
     const now = new Date();
     const periodEnd = now;
     const periodStart = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);

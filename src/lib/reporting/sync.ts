@@ -9,6 +9,35 @@ import { createJobTracker, getLastSuccessfulRun } from './job-status';
 import { JOB_NAMES, isResolvedStatus } from './types';
 
 // ============================================
+// TABLE EXISTENCE CHECK
+// ============================================
+
+/**
+ * Check if reporting tables exist in the database.
+ * Throws a clear error if the migration hasn't been applied.
+ */
+export async function assertTableExists(tableName: string): Promise<void> {
+  try {
+    const result = await prisma.$queryRawUnsafe<Array<{ exists: boolean }>>(
+      `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1) AS exists`,
+      tableName,
+    );
+    if (!result[0]?.exists) {
+      throw new Error(
+        `Table "${tableName}" does not exist. Run the reporting migration (20260307100000_add_reporting_tables) first. ` +
+        `Deploy the branch or POST to /api/reports/migrate to apply.`,
+      );
+    }
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('does not exist. Run the reporting migration')) {
+      throw err;
+    }
+    // If we can't even query information_schema, surface that too
+    throw new Error(`Cannot verify table "${tableName}": ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+// ============================================
 // TICKET SYNC
 // ============================================
 
@@ -23,17 +52,23 @@ interface TicketSyncResult {
  * Sync tickets from Autotask to local database.
  * Fetches tickets modified since last successful sync.
  * If no previous sync, fetches last `defaultDays` days.
+ * Processes companies in batches to stay within Vercel's 60s timeout.
  */
-export async function syncTickets(defaultDays: number = 90): Promise<TicketSyncResult> {
+export async function syncTickets(defaultDays: number = 90, batchSize: number = 5): Promise<TicketSyncResult> {
   const finish = createJobTracker(JOB_NAMES.SYNC_TICKETS);
   const result: TicketSyncResult = { created: 0, updated: 0, statusChanges: 0, errors: [] };
 
   try {
+    // Verify table exists before doing any work
+    await assertTableExists('tickets');
+    await assertTableExists('ticket_status_history');
+
     const client = new AutotaskClient();
     const lastSync = await getLastSuccessfulRun(JOB_NAMES.SYNC_TICKETS);
 
-    // Determine how far back to look
-    const sinceDate = lastSync || new Date(Date.now() - defaultDays * 24 * 60 * 60 * 1000);
+    // For first-ever sync, use 30 days to avoid timeout; subsequent syncs use full window
+    const effectiveDays = lastSync ? defaultDays : Math.min(defaultDays, 30);
+    const sinceDate = lastSync || new Date(Date.now() - effectiveDays * 24 * 60 * 60 * 1000);
 
     // Resolve picklist labels (cached for the batch)
     const picklistCache = await resolvePicklists(client);
@@ -51,91 +86,15 @@ export async function syncTickets(defaultDays: number = 90): Promise<TicketSyncR
       }
     }
 
-    // Fetch tickets from Autotask for each company
-    for (const company of companies) {
-      if (!company.autotaskCompanyId) continue;
-      const atCompanyId = parseInt(company.autotaskCompanyId, 10);
+    // Process companies in batches to stay within timeout
+    const companyBatches: typeof companies[] = [];
+    for (let i = 0; i < companies.length; i += batchSize) {
+      companyBatches.push(companies.slice(i, i + batchSize));
+    }
 
-      try {
-        const daysSinceSync = Math.ceil((Date.now() - sinceDate.getTime()) / (1000 * 60 * 60 * 24));
-        const tickets = await client.getCompanyTickets(atCompanyId, daysSinceSync);
-
-        for (const atTicket of tickets) {
-          try {
-            // We already know the company since we're querying per-company
-            const localCompanyId = company.id;
-            if (!localCompanyId) continue;
-
-            const existing = await prisma.ticket.findUnique({
-              where: { autotaskTicketId: String(atTicket.id) },
-              select: { id: true, status: true },
-            });
-
-            const ticketData = {
-              autotaskTicketId: String(atTicket.id),
-              ticketNumber: atTicket.ticketNumber || `T${atTicket.id}`,
-              companyId: localCompanyId,
-              title: atTicket.title || 'Untitled',
-              description: atTicket.description || null,
-              status: atTicket.status,
-              statusLabel: picklistCache.ticketStatus[atTicket.status] || null,
-              priority: atTicket.priority,
-              priorityLabel: picklistCache.ticketPriority[atTicket.priority] || null,
-              queueId: (atTicket as Record<string, unknown>).queueID as number | null ?? null,
-              queueLabel: picklistCache.ticketQueue[(atTicket as Record<string, unknown>).queueID as number] || null,
-              source: (atTicket as Record<string, unknown>).source as number | null ?? null,
-              sourceLabel: picklistCache.ticketSource[(atTicket as Record<string, unknown>).source as number] || null,
-              issueType: (atTicket as Record<string, unknown>).issueType as number | null ?? null,
-              subIssueType: (atTicket as Record<string, unknown>).subIssueType as number | null ?? null,
-              assignedResourceId: (atTicket as Record<string, unknown>).assignedResourceID as number | null ?? null,
-              creatorResourceId: (atTicket as Record<string, unknown>).creatorResourceID as number | null ?? null,
-              contactId: (atTicket as Record<string, unknown>).contactID as number | null ?? null,
-              contractId: (atTicket as Record<string, unknown>).contractID as number | null ?? null,
-              slaId: (atTicket as Record<string, unknown>).serviceLevelAgreementID as number | null ?? null,
-              dueDateTime: (atTicket as Record<string, unknown>).dueDateTime
-                ? new Date((atTicket as Record<string, unknown>).dueDateTime as string)
-                : null,
-              estimatedHours: (atTicket as Record<string, unknown>).estimatedHours as number | null ?? null,
-              createDate: new Date(atTicket.createDate),
-              completedDate: atTicket.completedDate ? new Date(atTicket.completedDate) : null,
-              lastActivityDate: (atTicket as Record<string, unknown>).lastActivityDate
-                ? new Date((atTicket as Record<string, unknown>).lastActivityDate as string)
-                : null,
-              autotaskLastSync: new Date(),
-            };
-
-            if (existing) {
-              // Track status changes
-              if (existing.status !== atTicket.status) {
-                await prisma.ticketStatusHistory.create({
-                  data: {
-                    autotaskTicketId: String(atTicket.id),
-                    previousStatus: existing.status,
-                    newStatus: atTicket.status,
-                    previousStatusLabel: picklistCache.ticketStatus[existing.status] || null,
-                    newStatusLabel: picklistCache.ticketStatus[atTicket.status] || `Status ${atTicket.status}`,
-                    changedAt: new Date(),
-                  },
-                });
-                result.statusChanges++;
-              }
-
-              await prisma.ticket.update({
-                where: { autotaskTicketId: String(atTicket.id) },
-                data: ticketData,
-              });
-              result.updated++;
-            } else {
-              await prisma.ticket.create({ data: ticketData });
-              result.created++;
-            }
-          } catch (err) {
-            result.errors.push(`Ticket ${atTicket.id}: ${err instanceof Error ? err.message : String(err)}`);
-          }
-        }
-      } catch (err) {
-        result.errors.push(`Company ${company.autotaskCompanyId}: ${err instanceof Error ? err.message : String(err)}`);
-      }
+    for (const batch of companyBatches) {
+      // Process batch concurrently
+      await Promise.all(batch.map(company => processCompanyTickets(company, sinceDate, picklistCache, result)));
     }
 
     await finish({
@@ -149,6 +108,97 @@ export async function syncTickets(defaultDays: number = 90): Promise<TicketSyncR
     const error = err instanceof Error ? err.message : String(err);
     await finish({ status: 'failed', error });
     throw err;
+  }
+}
+
+/** Process tickets for a single company (extracted for batching) */
+async function processCompanyTickets(
+  company: { id: string; autotaskCompanyId: string | null },
+  sinceDate: Date,
+  picklistCache: PicklistCache,
+  result: TicketSyncResult,
+): Promise<void> {
+  const client = new AutotaskClient();
+  if (!company.autotaskCompanyId) return;
+  const atCompanyId = parseInt(company.autotaskCompanyId, 10);
+
+  try {
+    const daysSinceSync = Math.ceil((Date.now() - sinceDate.getTime()) / (1000 * 60 * 60 * 24));
+    const tickets = await client.getCompanyTickets(atCompanyId, daysSinceSync);
+
+    for (const atTicket of tickets) {
+      try {
+        const localCompanyId = company.id;
+        if (!localCompanyId) return;
+
+        const existing = await prisma.ticket.findUnique({
+          where: { autotaskTicketId: String(atTicket.id) },
+          select: { id: true, status: true },
+        });
+
+        const ticketData = {
+          autotaskTicketId: String(atTicket.id),
+          ticketNumber: atTicket.ticketNumber || `T${atTicket.id}`,
+          companyId: localCompanyId,
+          title: atTicket.title || 'Untitled',
+          description: atTicket.description || null,
+          status: atTicket.status,
+          statusLabel: picklistCache.ticketStatus[atTicket.status] || null,
+          priority: atTicket.priority,
+          priorityLabel: picklistCache.ticketPriority[atTicket.priority] || null,
+          queueId: (atTicket as Record<string, unknown>).queueID as number | null ?? null,
+          queueLabel: picklistCache.ticketQueue[(atTicket as Record<string, unknown>).queueID as number] || null,
+          source: (atTicket as Record<string, unknown>).source as number | null ?? null,
+          sourceLabel: picklistCache.ticketSource[(atTicket as Record<string, unknown>).source as number] || null,
+          issueType: (atTicket as Record<string, unknown>).issueType as number | null ?? null,
+          subIssueType: (atTicket as Record<string, unknown>).subIssueType as number | null ?? null,
+          assignedResourceId: (atTicket as Record<string, unknown>).assignedResourceID as number | null ?? null,
+          creatorResourceId: (atTicket as Record<string, unknown>).creatorResourceID as number | null ?? null,
+          contactId: (atTicket as Record<string, unknown>).contactID as number | null ?? null,
+          contractId: (atTicket as Record<string, unknown>).contractID as number | null ?? null,
+          slaId: (atTicket as Record<string, unknown>).serviceLevelAgreementID as number | null ?? null,
+          dueDateTime: (atTicket as Record<string, unknown>).dueDateTime
+            ? new Date((atTicket as Record<string, unknown>).dueDateTime as string)
+            : null,
+          estimatedHours: (atTicket as Record<string, unknown>).estimatedHours as number | null ?? null,
+          createDate: new Date(atTicket.createDate),
+          completedDate: atTicket.completedDate ? new Date(atTicket.completedDate) : null,
+          lastActivityDate: (atTicket as Record<string, unknown>).lastActivityDate
+            ? new Date((atTicket as Record<string, unknown>).lastActivityDate as string)
+            : null,
+          autotaskLastSync: new Date(),
+        };
+
+        if (existing) {
+          if (existing.status !== atTicket.status) {
+            await prisma.ticketStatusHistory.create({
+              data: {
+                autotaskTicketId: String(atTicket.id),
+                previousStatus: existing.status,
+                newStatus: atTicket.status,
+                previousStatusLabel: picklistCache.ticketStatus[existing.status] || null,
+                newStatusLabel: picklistCache.ticketStatus[atTicket.status] || `Status ${atTicket.status}`,
+                changedAt: new Date(),
+              },
+            });
+            result.statusChanges++;
+          }
+
+          await prisma.ticket.update({
+            where: { autotaskTicketId: String(atTicket.id) },
+            data: ticketData,
+          });
+          result.updated++;
+        } else {
+          await prisma.ticket.create({ data: ticketData });
+          result.created++;
+        }
+      } catch (err) {
+        result.errors.push(`Ticket ${atTicket.id}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  } catch (err) {
+    result.errors.push(`Company ${company.autotaskCompanyId}: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -171,6 +221,9 @@ export async function syncTimeEntries(): Promise<TimeEntrySyncResult> {
   const result: TimeEntrySyncResult = { created: 0, updated: 0, errors: [] };
 
   try {
+    await assertTableExists('tickets');
+    await assertTableExists('ticket_time_entries');
+
     const client = new AutotaskClient();
     const lastSync = await getLastSuccessfulRun(JOB_NAMES.SYNC_TIME_ENTRIES);
 
@@ -261,6 +314,9 @@ export async function syncTicketNotes(): Promise<NoteSyncResult> {
   const result: NoteSyncResult = { created: 0, updated: 0, errors: [] };
 
   try {
+    await assertTableExists('tickets');
+    await assertTableExists('ticket_notes');
+
     const client = new AutotaskClient();
     const lastSync = await getLastSuccessfulRun(JOB_NAMES.SYNC_TICKET_NOTES);
 
@@ -348,6 +404,8 @@ export async function syncResources(): Promise<ResourceSyncResult> {
   const result: ResourceSyncResult = { created: 0, updated: 0, errors: [] };
 
   try {
+    await assertTableExists('resources');
+
     const client = new AutotaskClient();
     const resources = await client.getActiveResources();
 
