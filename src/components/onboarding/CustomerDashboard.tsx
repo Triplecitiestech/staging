@@ -59,54 +59,52 @@ interface CustomerDashboardProps {
 
 const DONE_STATUSES = ['REVIEWED_AND_DONE', 'NOT_APPLICABLE', 'ITG_DOCUMENTED']
 
+// Task status labels mapped 1:1 to Autotask picklist values
 function getStatusBadge(status: string) {
   switch (status) {
     case 'WORK_IN_PROGRESS':
     case 'ASSIGNED':
-      return { label: 'In Progress', color: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30' }
-    case 'WAITING_ON_CLIENT':
-    case 'CUSTOMER_NOTE_ADDED':
-      return { label: 'Waiting on You', color: 'bg-red-500/20 text-red-400 border-red-500/30' }
-    case 'WAITING_ON_VENDOR':
-      return { label: 'Waiting on Vendor', color: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' }
     case 'NEEDS_REVIEW':
     case 'INFORMATION_RECEIVED':
-      return { label: 'Under Review', color: 'bg-blue-500/20 text-blue-300 border-blue-500/30' }
+      return { label: 'In Progress', color: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30' }
+    case 'WAITING_ON_CLIENT':
+    case 'WAITING_ON_VENDOR':
+    case 'CUSTOMER_NOTE_ADDED':
     case 'STUCK':
-      return { label: 'Needs Attention', color: 'bg-rose-500/20 text-rose-300 border-rose-500/30' }
+      return { label: 'Waiting Customer', color: 'bg-red-500/20 text-red-400 border-red-500/30' }
     case 'REVIEWED_AND_DONE':
     case 'ITG_DOCUMENTED':
-      return { label: 'Complete', color: 'bg-green-500/20 text-green-300 border-green-500/30' }
     case 'NOT_APPLICABLE':
-      return { label: 'N/A', color: 'bg-slate-500/20 text-slate-300 border-slate-500/30' }
+      return { label: 'Complete', color: 'bg-green-500/20 text-green-300 border-green-500/30' }
     default:
       return { label: 'New', color: 'bg-slate-500/20 text-slate-300 border-slate-500/30' }
   }
 }
 
+// Phase status labels mapped to Autotask-equivalent statuses
 function getPhaseStatusBadge(status: string) {
   switch (status) {
     case 'COMPLETE':
       return { label: 'Complete', color: 'bg-green-500/20 text-green-300 border-green-500/30' }
     case 'IN_PROGRESS':
+    case 'SCHEDULED':
       return { label: 'In Progress', color: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30' }
     case 'WAITING_ON_CUSTOMER':
-      return { label: 'Waiting on You', color: 'bg-red-500/20 text-red-400 border-red-500/30' }
-    case 'SCHEDULED':
-      return { label: 'Scheduled', color: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' }
+    case 'REQUIRES_CUSTOMER_COORDINATION':
+      return { label: 'Waiting Customer', color: 'bg-red-500/20 text-red-400 border-red-500/30' }
     case 'NOT_STARTED':
-      return { label: 'Not Started', color: 'bg-slate-500/20 text-slate-300 border-slate-500/30' }
     default:
-      return { label: status.replace(/_/g, ' '), color: 'bg-slate-500/20 text-slate-300 border-slate-500/30' }
+      return { label: 'New', color: 'bg-slate-500/20 text-slate-300 border-slate-500/30' }
   }
 }
 
+// Project status labels mapped 1:1 to Autotask: Inactive(0), New(1), Active(4), Complete(5)
 function getProjectStatusLabel(status: string) {
   switch (status) {
     case 'ACTIVE': return { label: 'Active', color: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30' }
-    case 'COMPLETED': return { label: 'Completed', color: 'bg-green-500/20 text-green-300 border-green-500/30' }
-    case 'ON_HOLD': return { label: 'On Hold', color: 'bg-red-500/20 text-red-400 border-red-500/30' }
-    case 'CANCELLED': return { label: 'Cancelled', color: 'bg-slate-500/20 text-slate-300 border-slate-500/30' }
+    case 'COMPLETED': return { label: 'Complete', color: 'bg-green-500/20 text-green-300 border-green-500/30' }
+    case 'ON_HOLD':
+    case 'CANCELLED': return { label: 'Inactive', color: 'bg-slate-500/20 text-slate-300 border-slate-500/30' }
     default: return { label: status, color: 'bg-slate-500/20 text-slate-300 border-slate-500/30' }
   }
 }

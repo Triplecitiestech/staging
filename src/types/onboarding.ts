@@ -1,13 +1,17 @@
 // Onboarding portal types
 
+// Phase statuses mapped to Autotask task statuses: New, In Progress, Complete, Waiting Customer
 export type PhaseStatus =
+  | 'New'
+  | 'In Progress'
+  | 'Complete'
+  | 'Waiting Customer'
+  // Legacy statuses (backward compat for existing data)
   | 'Not Started'
   | 'Scheduled'
   | 'Waiting on Customer'
-  | 'In Progress'
   | 'Requires Customer Coordination'
   | 'Discussed'
-  | 'Complete'
 
 export type PhaseOwner = 'TCT' | 'Customer' | 'Both'
 

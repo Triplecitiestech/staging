@@ -62,23 +62,26 @@ export default function ProjectsView({ projects }: ProjectsViewProps) {
   }
 
   const getStatusLabel = (status: string) => {
+    // Map phase statuses to Autotask-matching labels
     switch (status) {
       case 'COMPLETE': return 'Complete'
-      case 'IN_PROGRESS': return 'In Progress'
-      case 'WAITING_ON_CUSTOMER': return 'Waiting on Customer'
-      case 'REQUIRES_CUSTOMER_COORDINATION': return 'Requires Customer Coordination'
-      case 'SCHEDULED': return 'Scheduled'
-      case 'DISCUSSED': return 'Discussed'
-      case 'NOT_STARTED': return 'Not Started'
+      case 'IN_PROGRESS':
+      case 'SCHEDULED':
+      case 'DISCUSSED': return 'In Progress'
+      case 'WAITING_ON_CUSTOMER':
+      case 'REQUIRES_CUSTOMER_COORDINATION': return 'Waiting Customer'
+      case 'NOT_STARTED': return 'New'
       default: return status
     }
   }
 
+  // Project statuses mapped to Autotask: Inactive(0), Active(4), Complete(5)
   const getProjectStatusBadge = (status: string) => {
     switch (status) {
       case 'ACTIVE': return { label: 'Active', color: 'bg-green-500/20 text-green-300 border-green-500/30' }
-      case 'COMPLETED': return { label: 'Completed', color: 'bg-blue-500/20 text-blue-300 border-blue-500/30' }
-      case 'ON_HOLD': return { label: 'On Hold', color: 'bg-red-500/20 text-red-400 border-red-500/30' }
+      case 'COMPLETED': return { label: 'Complete', color: 'bg-blue-500/20 text-blue-300 border-blue-500/30' }
+      case 'ON_HOLD':
+      case 'CANCELLED': return { label: 'Inactive', color: 'bg-slate-500/20 text-slate-300 border-slate-500/30' }
       default: return { label: status, color: 'bg-slate-500/20 text-slate-300 border-slate-500/30' }
     }
   }

@@ -67,14 +67,24 @@ export default async function AdminPage() {
   const onHoldProjects = await prisma.project.count({ where: { status: 'ON_HOLD' } })
   const totalPhases = await prisma.phase.count()
 
+  // Project status colors mapped to Autotask: Inactive(0), Active(4), Complete(5)
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'ACTIVE': return 'bg-green-500/20 text-green-300 border-green-500/30'
       case 'COMPLETED': return 'bg-blue-500/20 text-blue-300 border-blue-500/30'
-      case 'ON_HOLD': return 'bg-orange-500/20 text-orange-300 border-orange-500/30'
-      case 'CANCELLED': return 'bg-red-500/20 text-red-300 border-red-500/30'
-      case 'NOT_STARTED': return 'bg-slate-500/20 text-slate-300 border-slate-500/30'
+      case 'ON_HOLD':
+      case 'CANCELLED': return 'bg-slate-500/20 text-slate-300 border-slate-500/30'
       default: return 'bg-slate-500/20 text-slate-300 border-slate-500/30'
+    }
+  }
+
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case 'ACTIVE': return 'Active'
+      case 'COMPLETED': return 'Complete'
+      case 'ON_HOLD':
+      case 'CANCELLED': return 'Inactive'
+      default: return status.replace(/_/g, ' ')
     }
   }
 
@@ -332,7 +342,7 @@ export default async function AdminPage() {
                       </div>
                     </div>
                     <span className={`px-3 py-1 text-xs font-semibold rounded-full border ${getStatusColor(project.status)}`}>
-                      {project.status.replace('_', ' ')}
+                      {getStatusLabel(project.status)}
                     </span>
                   </div>
                 </Link>

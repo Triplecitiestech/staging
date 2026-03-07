@@ -41,13 +41,25 @@ export default function ProjectList({ projects }: { projects: Project[] }) {
     }
   }
 
+  // Project status colors mapped to Autotask: Inactive(0), Active(4), Complete(5)
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'ACTIVE': return 'bg-green-500/20 text-green-300 border border-green-500/30'
       case 'COMPLETED': return 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
-      case 'ON_HOLD': return 'bg-orange-500/20 text-orange-300 border border-orange-500/30'
-      case 'CANCELLED': return 'bg-red-500/20 text-red-300 border border-red-500/30'
+      case 'ON_HOLD':
+      case 'CANCELLED': return 'bg-slate-500/20 text-slate-300 border border-slate-500/30'
       default: return 'bg-slate-500/20 text-slate-300 border border-slate-500/30'
+    }
+  }
+
+  // Display labels matching Autotask project statuses
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case 'ACTIVE': return 'Active'
+      case 'COMPLETED': return 'Complete'
+      case 'ON_HOLD':
+      case 'CANCELLED': return 'Inactive'
+      default: return status.replace(/_/g, ' ')
     }
   }
 
@@ -219,7 +231,7 @@ export default function ProjectList({ projects }: { projects: Project[] }) {
                       <td className="px-4 py-3 text-sm text-slate-300">{getProjectTypeLabel(project.projectType)}</td>
                       <td className="px-4 py-3">
                         <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(project.status)}`}>
-                          {project.status.replace('_', ' ')}
+                          {getStatusLabel(project.status)}
                         </span>
                       </td>
                       <td className="px-4 py-3">

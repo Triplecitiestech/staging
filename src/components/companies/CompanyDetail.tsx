@@ -140,12 +140,24 @@ export default function CompanyDetail({ company, contacts: initialContacts, proj
     }
   }
 
+  // Project status colors mapped to Autotask: Inactive(0), Active(4), Complete(5)
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'ACTIVE': return 'bg-green-500/20 text-green-300 border-green-500/30'
-      case 'COMPLETE': return 'bg-blue-500/20 text-blue-300 border-blue-500/30'
-      case 'ON_HOLD': return 'bg-orange-500/20 text-orange-300 border-orange-500/30'
+      case 'COMPLETED': return 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+      case 'ON_HOLD':
+      case 'CANCELLED': return 'bg-slate-500/20 text-slate-300 border-slate-500/30'
       default: return 'bg-slate-500/20 text-slate-300 border-slate-500/30'
+    }
+  }
+
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case 'ACTIVE': return 'Active'
+      case 'COMPLETED': return 'Complete'
+      case 'ON_HOLD':
+      case 'CANCELLED': return 'Inactive'
+      default: return status.replace(/_/g, ' ')
     }
   }
 
@@ -434,7 +446,7 @@ export default function CompanyDetail({ company, contacts: initialContacts, proj
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-sm font-medium text-white truncate">{project.title}</span>
                       <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full border ${getStatusColor(project.status)}`}>
-                        {project.status.replace('_', ' ')}
+                        {getStatusLabel(project.status)}
                       </span>
                     </div>
                     <p className="text-xs text-slate-400 mt-1">{new Date(project.createdAt).toLocaleDateString()}</p>
