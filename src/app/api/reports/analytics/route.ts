@@ -38,8 +38,24 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('[reports/analytics] Failed:', message);
+
+    if (message.includes('does not exist') || message.includes('P2021') || message.includes('P2010')) {
+      return NextResponse.json({
+        anomalies: [],
+        insights: [],
+        predictions: [],
+        meta: {
+          generatedAt: new Date().toISOString(),
+          period: { from: '', to: '' },
+        },
+        _warning: 'Reporting tables not yet created. Run database migration and data pipeline.',
+      });
+    }
+
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Failed to generate analytics' },
+      { error: `Failed to generate analytics: ${message}` },
       { status: 500 },
     );
   }

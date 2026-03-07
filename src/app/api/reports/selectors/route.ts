@@ -5,12 +5,28 @@ import { prisma } from '@/lib/prisma';
 export const dynamic = 'force-dynamic';
 
 /**
+ * Helper to safely query a Prisma model — returns empty array if the
+ * underlying table doesn't exist (migration not yet run).
+ */
+async function safeQuery<T>(fn: () => Promise<T[]>): Promise<{ data: T[]; error: string | null }> {
+  try {
+    const data = await fn();
+    return { data, error: null };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Unknown error';
+    if (msg.includes('does not exist') || msg.includes('P2021') || msg.includes('P2010')) {
+      return { data: [], error: 'Table not yet created. Run database migration.' };
+    }
+    return { data: [], error: msg };
+  }
+}
+
+/**
  * GET /api/reports/selectors
  *
  * Returns all companies and technicians/resources for use in reporting
- * filter dropdowns and selectors. Reads from the base Company and Resource
- * tables — NOT from materialized reporting tables — so it always returns
- * data even if the reporting pipeline hasn't run yet.
+ * filter dropdowns and selectors. Each query is independent — if the
+ * resources table doesn't exist yet, companies still load and vice versa.
  */
 export async function GET() {
   const session = await auth();
@@ -18,47 +34,45 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  try {
-    const [companies, resources] = await Promise.all([
+  // Query companies and resources independently
+  const [companiesResult, resourcesResult] = await Promise.all([
+    safeQuery(() =>
       prisma.company.findMany({
-        select: {
-          id: true,
-          displayName: true,
-          autotaskCompanyId: true,
-        },
+        select: { id: true, displayName: true, autotaskCompanyId: true },
         orderBy: { displayName: 'asc' },
-      }),
+      })
+    ),
+    safeQuery(() =>
       prisma.resource.findMany({
         where: { isActive: true },
-        select: {
-          id: true,
-          autotaskResourceId: true,
-          firstName: true,
-          lastName: true,
-          email: true,
-        },
+        select: { id: true, autotaskResourceId: true, firstName: true, lastName: true, email: true },
         orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
-      }),
-    ]);
+      })
+    ),
+  ]);
 
-    return NextResponse.json({
-      companies: companies.map((c) => ({
-        id: c.id,
-        displayName: c.displayName,
-        hasAutotask: !!c.autotaskCompanyId,
-      })),
-      technicians: resources.map((r) => ({
-        id: r.id,
-        autotaskResourceId: r.autotaskResourceId,
-        name: `${r.firstName} ${r.lastName}`.trim(),
-        email: r.email,
-      })),
-    });
-  } catch (err) {
-    console.error('[reports/selectors] Failed to load selectors:', err);
-    return NextResponse.json(
-      { error: 'Failed to load company and technician data', detail: err instanceof Error ? err.message : 'Unknown error' },
-      { status: 500 },
-    );
+  if (companiesResult.error) {
+    console.error('[reports/selectors] Companies query failed:', companiesResult.error);
   }
+  if (resourcesResult.error) {
+    console.warn('[reports/selectors] Resources query failed:', resourcesResult.error);
+  }
+
+  return NextResponse.json({
+    companies: companiesResult.data.map((c) => ({
+      id: c.id,
+      displayName: c.displayName,
+      hasAutotask: !!c.autotaskCompanyId,
+    })),
+    technicians: resourcesResult.data.map((r) => ({
+      id: r.id,
+      autotaskResourceId: r.autotaskResourceId,
+      name: `${r.firstName} ${r.lastName}`.trim(),
+      email: r.email,
+    })),
+    _errors: {
+      companies: companiesResult.error,
+      technicians: resourcesResult.error,
+    },
+  });
 }
