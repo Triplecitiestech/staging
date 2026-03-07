@@ -527,12 +527,24 @@ export class AutotaskClient {
 
   /**
    * Update a task's status in Autotask (write-back)
+   * Tries multiple entity paths since instances vary.
    */
   async updateTaskStatus(atTaskId: string, atStatus: number): Promise<void> {
-    await this.patch(`ProjectTasks`, {
-      id: parseInt(atTaskId, 10),
-      status: atStatus,
-    });
+    const taskId = parseInt(atTaskId, 10);
+    const payload = { id: taskId, status: atStatus };
+
+    // Try ProjectTasks first (most common)
+    try {
+      await this.patch(`ProjectTasks`, payload);
+      return;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '';
+      // Only try fallback on 404/405 — other errors should propagate
+      if (!msg.includes('404') && !msg.includes('405')) throw err;
+    }
+
+    // Fallback: try Tasks entity
+    await this.patch(`Tasks`, payload);
   }
 
   /**
