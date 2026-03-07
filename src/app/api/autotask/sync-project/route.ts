@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
       const atStatus = mapLocalStatusToAt(task.status)
       if (atStatus !== null) {
         try {
-          await client.updateTaskStatus(task.autotaskTaskId, atStatus)
+          await client.updateTaskStatus(task.autotaskTaskId, atStatus, autotaskProjectId)
           tasksPushed++
         } catch (error) {
           log.push(`  WARNING: Could not push task "${task.taskText}": ${error instanceof Error ? error.message : 'Unknown'}`)
