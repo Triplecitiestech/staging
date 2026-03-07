@@ -81,39 +81,39 @@
       "schedule": "*/5 * * * *"
     },
     {
-      "path": "/api/reports/jobs/sync-tickets?secret=CRON_SECRET",
+      "path": "/api/reports/jobs/sync-tickets",
       "schedule": "0 */2 * * *"
     },
     {
-      "path": "/api/reports/jobs/sync-time-entries?secret=CRON_SECRET",
+      "path": "/api/reports/jobs/sync-time-entries",
       "schedule": "10 */2 * * *"
     },
     {
-      "path": "/api/reports/jobs/sync-ticket-notes?secret=CRON_SECRET",
+      "path": "/api/reports/jobs/sync-ticket-notes",
       "schedule": "20 */2 * * *"
     },
     {
-      "path": "/api/reports/jobs/sync-resources?secret=CRON_SECRET",
+      "path": "/api/reports/jobs/sync-resources",
       "schedule": "0 0 * * *"
     },
     {
-      "path": "/api/reports/jobs/compute-lifecycle?secret=CRON_SECRET",
+      "path": "/api/reports/jobs/compute-lifecycle",
       "schedule": "30 */2 * * *"
     },
     {
-      "path": "/api/reports/jobs/aggregate-technician?secret=CRON_SECRET",
+      "path": "/api/reports/jobs/aggregate-technician",
       "schedule": "0 1 * * *"
     },
     {
-      "path": "/api/reports/jobs/aggregate-company?secret=CRON_SECRET",
+      "path": "/api/reports/jobs/aggregate-company",
       "schedule": "15 1 * * *"
     },
     {
-      "path": "/api/reports/jobs/compute-health?secret=CRON_SECRET",
+      "path": "/api/reports/jobs/compute-health",
       "schedule": "0 2 * * 0"
     },
     {
-      "path": "/api/reports/jobs/deliver?secret=CRON_SECRET",
+      "path": "/api/reports/jobs/deliver",
       "schedule": "0 8 * * *"
     }
   ]
