@@ -11,7 +11,12 @@ export const maxDuration = 60;
  */
 export async function GET(request: NextRequest) {
   const secret = request.nextUrl.searchParams.get('secret');
-  if (secret !== process.env.CRON_SECRET) {
+  const authHeader = request.headers.get('authorization');
+  const isAuthorized =
+    secret === process.env.MIGRATION_SECRET ||
+    secret === process.env.CRON_SECRET ||
+    authHeader === `Bearer ${process.env.CRON_SECRET}`;
+  if (!isAuthorized) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
