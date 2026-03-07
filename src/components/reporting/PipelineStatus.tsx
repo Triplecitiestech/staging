@@ -88,10 +88,7 @@ export default function PipelineStatus() {
 
   useEffect(() => { fetchData() }, [fetchData])
 
-  const triggerJob = async (jobName: string) => {
-    setRunning(jobName)
-    setLastRunResults(null)
-    setLastRunSummary(null)
+  const runSingleJob = async (jobName: string): Promise<RunResult> => {
     try {
       const res = await fetch('/api/reports/jobs/run', {
         method: 'POST',
@@ -99,23 +96,48 @@ export default function PipelineStatus() {
         body: JSON.stringify({ job: jobName }),
       })
       const body = await res.json().catch(() => ({}))
-
       if (!res.ok) {
-        setLastRunSummary(`Job failed: ${body.error || `HTTP ${res.status}`}`)
-      } else if (body.results) {
-        // run_all response — show per-job results
-        setLastRunResults(body.results)
-        setLastRunSummary(body.summary || 'Pipeline completed')
-      } else if (body.success) {
-        setLastRunSummary(`${JOB_LABELS[jobName] || jobName}: completed successfully`)
-      } else {
-        setLastRunSummary(`${JOB_LABELS[jobName] || jobName}: completed`)
+        return { job: jobName, success: false, error: body.error || `HTTP ${res.status}` }
       }
-
-      await fetchData()
+      return { job: jobName, success: true }
     } catch {
-      setLastRunSummary('Failed to trigger job — network error or timeout')
+      return { job: jobName, success: false, error: 'Network error or timeout' }
     }
+  }
+
+  const triggerJob = async (jobName: string) => {
+    setRunning(jobName)
+    setLastRunResults(null)
+    setLastRunSummary(null)
+
+    if (jobName === 'run_all') {
+      // Run each job individually from the client to avoid 60s serverless timeout
+      const results: RunResult[] = []
+      for (const name of ALL_JOBS) {
+        setRunning(name)
+        const result = await runSingleJob(name)
+        results.push(result)
+        // Update results progressively so user sees each job complete
+        setLastRunResults([...results])
+        const ok = results.filter((r) => r.success).length
+        setLastRunSummary(`${ok}/${results.length} of ${ALL_JOBS.length} jobs completed`)
+      }
+      const ok = results.filter((r) => r.success).length
+      setLastRunSummary(`Pipeline finished: ${ok}/${ALL_JOBS.length} jobs succeeded`)
+      await fetchData()
+      setRunning(null)
+      return
+    }
+
+    // Single job
+    const result = await runSingleJob(jobName)
+    if (result.success) {
+      setLastRunSummary(`${JOB_LABELS[jobName] || jobName}: completed successfully`)
+    } else {
+      setLastRunSummary(`${JOB_LABELS[jobName] || jobName} failed: ${result.error}`)
+      setLastRunResults([result])
+    }
+    await fetchData()
     setRunning(null)
   }
 
@@ -237,7 +259,7 @@ export default function PipelineStatus() {
             disabled={running !== null}
             className="px-3 py-1.5 text-xs bg-cyan-500 text-white rounded-md hover:bg-cyan-600 disabled:opacity-50 transition-colors"
           >
-            {running === 'run_all' ? 'Running all...' : 'Run All'}
+            {running ? `Running${running !== 'run_all' ? `: ${JOB_LABELS[running] || running}` : '...'}` : 'Run All'}
           </button>
         </div>
         <div className="overflow-x-auto">
