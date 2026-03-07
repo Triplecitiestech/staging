@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
-import { AutotaskClient, mapAtTaskStatus, mapAtTaskPriority, mapAtProjectStatus, mapLocalStatusToAt, mapLocalProjectStatusToAt } from '@/lib/autotask'
+import { AutotaskClient, mapAtTaskStatus, mapAtTaskPriority, mapAtProjectStatus, mapLocalProjectStatusToAt } from '@/lib/autotask'
 import type { TaskStatus, Priority } from '@prisma/client'
 
 export const dynamic = 'force-dynamic'
@@ -54,40 +54,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Push task statuses for all AT-synced tasks
-    // First test with one task — if the PATCH endpoint isn't available, skip the rest
-    const localTasks = await prisma.phaseTask.findMany({
-      where: {
-        phase: { projectId },
-        autotaskTaskId: { not: null }
-      },
-      select: { id: true, taskText: true, autotaskTaskId: true, status: true }
-    })
-
-    let tasksPushed = 0
-    let taskPushAvailable = true
-
-    for (const task of localTasks) {
-      if (!task.autotaskTaskId) continue
-      if (!taskPushAvailable) break // Skip remaining if first attempt failed
-
-      const atStatus = mapLocalStatusToAt(task.status)
-      if (atStatus !== null) {
-        try {
-          await client.updateTaskStatus(task.autotaskTaskId, atStatus, autotaskProjectId)
-          tasksPushed++
-        } catch (error) {
-          const msg = error instanceof Error ? error.message : 'Unknown'
-          log.push(`  WARNING: Could not push task "${task.taskText}": ${msg}`)
-          if (tasksPushed === 0) {
-            // First task failed — PATCH endpoint likely unavailable, skip remaining
-            taskPushAvailable = false
-            log.push(`  Skipping remaining task pushes (endpoint not available)`)
-          }
-        }
-      }
-    }
-    log.push(`Pushed ${tasksPushed}/${localTasks.length} task status(es) to Autotask`)
+    // Task status push is disabled — Autotask instance does not expose a writable
+    // endpoint for ProjectTasks (all PATCH paths return 404). Project status push
+    // above still works. Task statuses are pulled from Autotask as source of truth.
+    log.push(`Task status push: skipped (Autotask endpoint not available)`)
     log.push('')
 
     // ========================================
@@ -256,8 +226,7 @@ export async function POST(request: NextRequest) {
 
     log.push('')
     log.push(`Summary: ${phasesCreated} phases created, ${phasesUpdated} updated, ${tasksCreated} tasks created, ${tasksUpdated} updated`)
-    log.push(`${tasksPushed} task statuses pushed to Autotask`)
-    log.push(`2-way sync completed at ${new Date().toISOString()}`)
+    log.push(`Sync completed at ${new Date().toISOString()}`)
 
     return NextResponse.json({ success: true, log: log.join('\n') })
   } catch (error) {
