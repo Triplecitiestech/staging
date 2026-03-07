@@ -28,7 +28,26 @@ interface DataCoverage {
 interface StatusData {
   jobs: JobStatus[]
   dataCoverage: DataCoverage
+  _warning?: string
 }
+
+interface RunResult {
+  job: string
+  success: boolean
+  error?: string
+}
+
+// All pipeline jobs in execution order
+const ALL_JOBS = [
+  'sync_tickets',
+  'sync_time_entries',
+  'sync_ticket_notes',
+  'sync_resources',
+  'compute_lifecycle',
+  'aggregate_technician',
+  'aggregate_company',
+  'compute_health',
+]
 
 const JOB_LABELS: Record<string, string> = {
   sync_tickets: 'Sync Tickets',
@@ -46,6 +65,8 @@ export default function PipelineStatus() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [running, setRunning] = useState<string | null>(null)
+  const [lastRunResults, setLastRunResults] = useState<RunResult[] | null>(null)
+  const [lastRunSummary, setLastRunSummary] = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -69,19 +90,31 @@ export default function PipelineStatus() {
 
   const triggerJob = async (jobName: string) => {
     setRunning(jobName)
+    setLastRunResults(null)
+    setLastRunSummary(null)
     try {
       const res = await fetch('/api/reports/jobs/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ job: jobName }),
       })
+      const body = await res.json().catch(() => ({}))
+
       if (!res.ok) {
-        const err = await res.json()
-        alert(`Job failed: ${err.error || 'Unknown error'}`)
+        setLastRunSummary(`Job failed: ${body.error || `HTTP ${res.status}`}`)
+      } else if (body.results) {
+        // run_all response — show per-job results
+        setLastRunResults(body.results)
+        setLastRunSummary(body.summary || 'Pipeline completed')
+      } else if (body.success) {
+        setLastRunSummary(`${JOB_LABELS[jobName] || jobName}: completed successfully`)
+      } else {
+        setLastRunSummary(`${JOB_LABELS[jobName] || jobName}: completed`)
       }
+
       await fetchData()
     } catch {
-      alert('Failed to trigger job')
+      setLastRunSummary('Failed to trigger job — network error or timeout')
     }
     setRunning(null)
   }
@@ -106,8 +139,68 @@ export default function PipelineStatus() {
 
   if (!data) return <p className="text-slate-500">No status data available</p>
 
+  // Always show all 8 jobs — merge DB results with expected job list
+  const jobMap = new Map(data.jobs.map((j) => [j.jobName, j]))
+  const mergedJobs: JobStatus[] = ALL_JOBS.map((name) =>
+    jobMap.get(name) || {
+      jobName: name,
+      lastRunAt: null,
+      lastRunStatus: null,
+      lastRunDurationMs: null,
+      lastRunError: null,
+      lastRunMeta: null,
+    }
+  )
+
   return (
     <div className="space-y-6">
+      {/* Warning banner (e.g. tables empty) */}
+      {data._warning && (
+        <div className="bg-violet-500/10 border border-violet-500/30 rounded-lg p-4">
+          <p className="text-sm text-violet-300">{data._warning}</p>
+        </div>
+      )}
+
+      {/* Run results banner */}
+      {lastRunSummary && (
+        <div className={`rounded-lg p-4 border ${
+          lastRunResults?.some((r) => !r.success)
+            ? 'bg-rose-500/10 border-rose-500/30'
+            : 'bg-emerald-500/10 border-emerald-500/30'
+        }`}>
+          <div className="flex items-center justify-between">
+            <p className={`text-sm font-medium ${
+              lastRunResults?.some((r) => !r.success) ? 'text-rose-300' : 'text-emerald-300'
+            }`}>
+              {lastRunSummary}
+            </p>
+            <button
+              onClick={() => { setLastRunResults(null); setLastRunSummary(null) }}
+              className="text-xs text-slate-400 hover:text-white ml-4"
+            >
+              Dismiss
+            </button>
+          </div>
+          {lastRunResults && (
+            <div className="mt-3 space-y-1">
+              {lastRunResults.map((r) => (
+                <div key={r.job} className="flex items-start gap-2 text-xs">
+                  <span className={`shrink-0 ${r.success ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {r.success ? 'OK' : 'FAIL'}
+                  </span>
+                  <span className="text-slate-300">{JOB_LABELS[r.job] || r.job}</span>
+                  {r.error && (
+                    <span className="text-rose-400/80 break-all">
+                      — {r.error}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Data Coverage */}
       <div className="bg-slate-800/50 rounded-xl p-5 border border-slate-700/50">
         <h3 className="text-sm font-medium text-slate-300 mb-4">Data Coverage</h3>
@@ -144,7 +237,7 @@ export default function PipelineStatus() {
             disabled={running !== null}
             className="px-3 py-1.5 text-xs bg-cyan-500 text-white rounded-md hover:bg-cyan-600 disabled:opacity-50 transition-colors"
           >
-            {running ? 'Running...' : 'Run All'}
+            {running === 'run_all' ? 'Running all...' : 'Run All'}
           </button>
         </div>
         <div className="overflow-x-auto">
@@ -159,10 +252,15 @@ export default function PipelineStatus() {
               </tr>
             </thead>
             <tbody>
-              {data.jobs.map((job) => (
+              {mergedJobs.map((job) => (
                 <tr key={job.jobName} className="border-b border-slate-700/30 hover:bg-slate-700/20">
-                  <td className="px-4 py-3 text-sm text-white">
-                    {JOB_LABELS[job.jobName] || job.jobName}
+                  <td className="px-4 py-3">
+                    <div className="text-sm text-white">{JOB_LABELS[job.jobName] || job.jobName}</div>
+                    {job.lastRunError && (
+                      <div className="text-xs text-rose-400/70 mt-0.5 truncate max-w-xs" title={job.lastRunError}>
+                        {job.lastRunError}
+                      </div>
+                    )}
                   </td>
                   <td className="text-center px-4 py-3">
                     <StatusBadge status={job.lastRunStatus} />
@@ -184,13 +282,6 @@ export default function PipelineStatus() {
                   </td>
                 </tr>
               ))}
-              {data.jobs.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="text-center py-8 text-slate-500">
-                    No jobs have run yet. Click &quot;Run All&quot; to start the pipeline.
-                  </td>
-                </tr>
-              )}
             </tbody>
           </table>
         </div>
