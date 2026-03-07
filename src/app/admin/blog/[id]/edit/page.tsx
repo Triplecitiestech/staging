@@ -19,6 +19,13 @@ export default async function BlogPostEditPage({ params }: BlogPostEditPageProps
     const { id } = await params
     const { prisma } = await import('@/lib/prisma')
 
+    // Ensure autotaskResourceId column exists on staff_users (may not be migrated yet)
+    try {
+      await prisma.$executeRawUnsafe(`ALTER TABLE "staff_users" ADD COLUMN IF NOT EXISTS "autotaskResourceId" TEXT`)
+    } catch {
+      // Column may already exist or ALTER not supported — proceed anyway
+    }
+
     const post = await prisma.blogPost.findUnique({
       where: { id },
       include: {

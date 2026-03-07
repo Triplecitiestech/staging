@@ -3,6 +3,17 @@ import { auth } from '@/auth'
 
 export const dynamic = 'force-dynamic'
 
+// Ensure missing columns exist before any Prisma queries (including auth session callback)
+async function ensureSchema() {
+  try {
+    const { prisma } = await import('@/lib/prisma')
+    await prisma.$executeRawUnsafe(`ALTER TABLE "staff_users" ADD COLUMN IF NOT EXISTS "autotaskResourceId" TEXT`)
+    await prisma.$executeRawUnsafe(`ALTER TABLE "blog_posts" ADD COLUMN IF NOT EXISTS "campaignId" TEXT`)
+  } catch {
+    // Columns may already exist — proceed anyway
+  }
+}
+
 /**
  * GET /api/blog/posts/[id]
  * Get a single blog post
@@ -12,6 +23,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await ensureSchema()
     const { id } = await params
     const { prisma } = await import('@/lib/prisma')
 
@@ -47,6 +59,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await ensureSchema()
     const session = await auth()
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -90,6 +103,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await ensureSchema()
     const session = await auth()
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
