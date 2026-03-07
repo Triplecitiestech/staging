@@ -54,10 +54,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Task status push is disabled — Autotask instance does not expose a writable
-    // endpoint for ProjectTasks (all PATCH paths return 404). Project status push
-    // above still works. Task statuses are pulled from Autotask as source of truth.
-    log.push(`Task status push: skipped (Autotask endpoint not available)`)
+    // Task status PATCH returns 404 on all entity paths for this Autotask instance.
+    // Notes (POST TaskNotes) and time entries (POST TimeEntries) work fine.
+    // Task statuses are pulled from Autotask below as source of truth.
+    log.push(`Note: Task statuses are pulled from Autotask (task PATCH not supported by this instance). Notes & time entries push via POST.`)
     log.push('')
 
     // ========================================

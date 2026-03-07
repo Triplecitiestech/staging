@@ -129,6 +129,8 @@ export async function PATCH(
     }
 
     // Write-back to Autotask if this task is AT-synced and status changed
+    let autotaskSyncFailed = false
+    let autotaskSyncError = ''
     if (data.status !== undefined && task.autotaskTaskId) {
       try {
         const { AutotaskClient, mapLocalStatusToAt } = await import('@/lib/autotask')
@@ -148,12 +150,15 @@ export async function PATCH(
           console.log(`[Autotask Write-back] Updated task ${task.autotaskTaskId} status to ${atStatus}`)
         }
       } catch (atErr) {
-        // Log but don't fail the local update
-        console.error('[Autotask Write-back] Failed to sync task status:', atErr instanceof Error ? atErr.message : atErr)
+        // Log but don't fail the local update — flag it for the UI
+        const errMsg = atErr instanceof Error ? atErr.message : String(atErr)
+        console.error('[Autotask Write-back] Failed to sync task status:', errMsg)
+        autotaskSyncFailed = true
+        autotaskSyncError = errMsg
       }
     }
 
-    return NextResponse.json(task)
+    return NextResponse.json({ ...task, autotaskSyncFailed, autotaskSyncError })
   } catch (error) {
     console.error('Task update error:', error)
     return NextResponse.json({ error: 'Failed to update task' }, { status: 500 })

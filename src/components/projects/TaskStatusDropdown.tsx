@@ -21,6 +21,7 @@ export default function TaskStatusDropdown({ taskId, currentStatus }: TaskStatus
   const router = useRouter()
   const [isOpen, setIsOpen] = useState(false)
   const [updating, setUpdating] = useState(false)
+  const [syncWarning, setSyncWarning] = useState('')
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   const currentStatusObj = statuses.find(s => s.value === currentStatus) || statuses[0]
@@ -55,6 +56,13 @@ export default function TaskStatusDropdown({ taskId, currentStatus }: TaskStatus
         const errorData = await res.json().catch(() => ({}))
         console.error('Status update failed:', res.status, errorData)
         throw new Error(errorData.error || 'Failed to update')
+      }
+      const result = await res.json()
+      if (result.autotaskSyncFailed) {
+        setSyncWarning('Status updated locally but could not sync to Autotask')
+        setTimeout(() => setSyncWarning(''), 8000)
+      } else {
+        setSyncWarning('')
       }
       setIsOpen(false)
       router.refresh()
@@ -103,6 +111,11 @@ export default function TaskStatusDropdown({ taskId, currentStatus }: TaskStatus
               )}
             </button>
           ))}
+        </div>
+      )}
+      {syncWarning && (
+        <div className="absolute left-0 mt-1 w-56 px-2 py-1.5 bg-orange-900/80 border border-orange-500/30 rounded text-xs text-orange-200 z-50">
+          {syncWarning}
         </div>
       )}
     </div>
