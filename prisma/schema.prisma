@@ -823,3 +823,39 @@ model DeletedRecord {
   @@index([entityType, entityId])
   @@index([deletedAt])
 }
+
+// ============================================
+// TEST FAILURE TRACKING
+// ============================================
+
+/// Captures e2e test failures with artifacts for AI-assisted debugging
+model TestFailure {
+  id                  String   @id @default(uuid())
+  testName            String
+  testFile            String
+  url                 String?              // Page URL at time of failure
+  environment         String   @default("local") // local, preview, production
+  errorMessage        String   @db.Text
+  errorStack          String?  @db.Text
+  consoleErrors       Json?               // Array of console error strings
+  networkErrors       Json?               // Array of failed network requests
+  screenshotPath      String?
+  tracePath           String?
+  commitSha           String?
+  branchName          String?
+  summary             String?  @db.Text    // AI-generated debugging summary
+  rootCauseHypothesis String?  @db.Text    // AI-generated root cause
+  suggestedFix        String?  @db.Text    // AI-generated fix suggestion
+  impactedFiles       Json?               // Array of likely impacted file paths
+  confidence          String?             // high, medium, low
+  status              String   @default("open") // open, investigating, fixed, wont_fix
+  resolvedAt          DateTime?
+  resolvedBy          String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@map("test_failures")
+  @@index([status])
+  @@index([createdAt])
+  @@index([testFile])
+}

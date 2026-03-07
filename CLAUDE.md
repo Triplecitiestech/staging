@@ -64,6 +64,7 @@ npm run lint         # ESLint (MUST PASS, fix all errors)
 npm run seed         # Seed database (tsx prisma/seed.ts)
 npm run test:e2e     # Playwright e2e tests (run when UI/API changes)
 npm run test:e2e:ui  # Playwright with interactive UI
+npm run debug:failures  # Review e2e test failure summaries
 # Browserbase remote testing (against deployed preview):
 # BROWSERBASE_API_KEY=xxx BROWSERBASE_PROJECT_ID=xxx PLAYWRIGHT_BASE_URL=https://preview.vercel.app npm run test:e2e
 ```
@@ -230,6 +231,7 @@ This is the **primary external data source** for companies, projects, phases, an
 - **Empty phases after sync**: If phases show up empty, the task API likely failed silently. Use `?step=resync` to re-fetch and also check `?step=diagnose` for API errors. The resync step also cleans up genuinely empty phases and updates phase statuses based on task completion.
 - **maxDuration 60**: The Autotask trigger route uses `maxDuration = 60` (60s Vercel function timeout) since sync can be slow. Page size is 5 projects per request to stay within timeout.
 - **Autotask write-back: PATCH vs POST**: Task status PATCH returns 404 on all 3 entity paths (`Projects/{id}/Tasks`, `ProjectTasks`, `Tasks`) for this Autotask instance. However, notes (POST `TaskNotes`) and time entries (POST `TimeEntries`) work fine. The task PATCH API (`/api/tasks/[id]`) returns `autotaskSyncFailed: true` when the write-back fails so the UI can warn the admin.
+- **E2e test failures generate debug summaries**: When Playwright tests fail, the custom reporter writes structured JSON + markdown summaries to `test-results/failures/`. Run `npm run debug:failures` to review. See `docs/DEBUGGING_WORKFLOW.md` for the full Claude debugging process. A fix is never confirmed until the previously failing test passes.
 
 ## Customer Portal Architecture
 
@@ -265,6 +267,7 @@ Detailed guides in the repo root — read these when working on specific feature
 - `docs/ARCHITECTURE.md` — System architecture, data flows, key entity diagrams
 - `docs/SELF_HEALING_AND_RELIABILITY.md` — API response envelopes, structured logging, timeouts, retry logic, idempotency
 - `docs/RUNBOOK.md` — Incident response procedures, diagnostics, rollback steps
+- `docs/DEBUGGING_WORKFLOW.md` — AI self-healing debugging workflow, failure capture, Claude debugging process
 
 **Feature-specific:**
 - `CLAUDE_SESSION_PREFERENCES.md` — Full session workflow and communication preferences
