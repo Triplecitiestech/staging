@@ -115,6 +115,7 @@ model Company {
   // Relations
   projects Project[]
   contacts CompanyContact[]
+  tickets  Ticket[]
 
   @@map("companies")
 }
@@ -858,4 +859,335 @@ model TestFailure {
   @@index([status])
   @@index([createdAt])
   @@index([testFile])
+}
+
+// ============================================
+// REPORTING & ANALYTICS
+// ============================================
+
+/// Local cache of Autotask service desk tickets for reporting
+model Ticket {
+  id                 String    @id @default(uuid())
+  autotaskTicketId   String    @unique
+  ticketNumber       String
+  companyId          String
+  title              String
+  description        String?   @db.Text
+  status             Int                    // Autotask status picklist value
+  statusLabel        String?                // Resolved label
+  priority           Int                    // Autotask priority picklist value
+  priorityLabel      String?                // Resolved label
+  queueId            Int?                   // Autotask queue picklist value
+  queueLabel         String?
+  source             Int?                   // Autotask source picklist value
+  sourceLabel        String?
+  issueType          Int?
+  subIssueType       Int?
+  assignedResourceId Int?                   // Primary technician
+  creatorResourceId  Int?
+  contactId          Int?
+  contractId         Int?
+  slaId              Int?
+  dueDateTime        DateTime?
+  estimatedHours     Float?
+  createDate         DateTime
+  completedDate      DateTime?
+  lastActivityDate   DateTime?
+  autotaskLastSync   DateTime
+
+  // Relations
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@map("tickets")
+  @@index([companyId])
+  @@index([assignedResourceId])
+  @@index([status])
+  @@index([createDate])
+  @@index([completedDate])
+  @@index([queueId])
+  @@index([lastActivityDate])
+}
+
+/// Ticket notes for first-response-time and communication tracking
+model TicketNote {
+  id                 String    @id @default(uuid())
+  autotaskNoteId     String    @unique
+  autotaskTicketId   String
+  title              String?
+  description        String?   @db.Text
+  noteType           Int?
+  publish            Int?                   // 1=All, 2=Internal, 3=Customer Portal
+  creatorResourceId  Int?                   // Technician
+  creatorContactId   Int?                   // Customer
+  createDateTime     DateTime
+
+  @@map("ticket_notes")
+  @@index([autotaskTicketId])
+  @@index([creatorResourceId])
+  @@index([createDateTime])
+}
+
+/// Time entries on tickets for utilization and consumption tracking
+model TicketTimeEntry {
+  id                   String    @id @default(uuid())
+  autotaskTimeEntryId  String    @unique
+  autotaskTicketId     String
+  resourceId           Int
+  dateWorked           DateTime
+  startDateTime        DateTime?
+  endDateTime          DateTime?
+  hoursWorked          Float
+  summaryNotes         String?   @db.Text
+  isNonBillable        Boolean   @default(false)
+  createDateTime       DateTime?
+
+  @@map("ticket_time_entries")
+  @@index([autotaskTicketId])
+  @@index([resourceId])
+  @@index([dateWorked])
+}
+
+/// Autotask technicians / users for reporting attribution
+model Resource {
+  id                   String    @id @default(uuid())
+  autotaskResourceId   Int       @unique
+  firstName            String
+  lastName             String
+  email                String
+  isActive             Boolean   @default(true)
+  departmentId         Int?
+  autotaskLastSync     DateTime
+
+  @@map("resources")
+  @@index([email])
+}
+
+/// Status transition tracking for tickets (detected by sync diffing)
+model TicketStatusHistory {
+  id                   String    @id @default(uuid())
+  autotaskTicketId     String
+  previousStatus       Int?
+  newStatus            Int
+  previousStatusLabel  String?
+  newStatusLabel       String
+  changedAt            DateTime
+  detectedAt           DateTime  @default(now())
+
+  @@map("ticket_status_history")
+  @@index([autotaskTicketId])
+  @@index([changedAt])
+}
+
+/// Per-ticket computed lifecycle metrics (materialized)
+model TicketLifecycle {
+  id                       String    @id @default(uuid())
+  autotaskTicketId         String    @unique
+  companyId                String
+  assignedResourceId       Int?
+  priority                 Int
+  queueId                  Int?
+  createDate               DateTime
+  completedDate            DateTime?
+  isResolved               Boolean   @default(false)
+
+  // Computed metrics
+  firstResponseMinutes     Float?
+  firstResolutionMinutes   Float?
+  fullResolutionMinutes    Float?
+  activeResolutionMinutes  Float?
+  waitingCustomerMinutes   Float?
+  techNoteCount            Int       @default(0)
+  customerNoteCount        Int       @default(0)
+  reopenCount              Int       @default(0)
+  totalHoursLogged         Float     @default(0)
+  billableHoursLogged      Float     @default(0)
+  isFirstTouchResolution   Boolean   @default(false)
+  slaResponseMet           Boolean?
+  slaResolutionMet         Boolean?
+
+  computedAt               DateTime  @default(now())
+
+  @@map("ticket_lifecycle")
+  @@index([companyId])
+  @@index([assignedResourceId])
+  @@index([createDate])
+  @@index([isResolved])
+  @@index([priority])
+}
+
+/// Daily rollup per technician
+model TechnicianMetricsDaily {
+  id                       String    @id @default(uuid())
+  resourceId               Int
+  date                     DateTime  @db.Date
+
+  ticketsAssigned          Int       @default(0)
+  ticketsCreated           Int       @default(0)
+  ticketsClosed            Int       @default(0)
+  ticketsReopened          Int       @default(0)
+
+  hoursLogged              Float     @default(0)
+  billableHoursLogged      Float     @default(0)
+  nonBillableHoursLogged   Float     @default(0)
+
+  avgFirstResponseMinutes  Float?
+  avgResolutionMinutes     Float?
+  firstTouchResolutions    Int       @default(0)
+  totalResolutions         Int       @default(0)
+
+  openTicketCount          Int       @default(0)
+
+  computedAt               DateTime  @default(now())
+
+  @@unique([resourceId, date])
+  @@map("technician_metrics_daily")
+  @@index([date])
+  @@index([resourceId])
+}
+
+/// Daily rollup per company
+model CompanyMetricsDaily {
+  id                           String    @id @default(uuid())
+  companyId                    String
+  date                         DateTime  @db.Date
+
+  ticketsCreated               Int       @default(0)
+  ticketsClosed                Int       @default(0)
+  ticketsReopened              Int       @default(0)
+
+  ticketsCreatedUrgent         Int       @default(0)
+  ticketsCreatedHigh           Int       @default(0)
+  ticketsCreatedMedium         Int       @default(0)
+  ticketsCreatedLow            Int       @default(0)
+
+  supportHoursConsumed         Float     @default(0)
+  billableHoursConsumed        Float     @default(0)
+
+  avgFirstResponseMinutes      Float?
+  avgResolutionMinutes         Float?
+  firstTouchResolutionRate     Float?
+  reopenRate                   Float?
+  slaResponseCompliance        Float?
+  slaResolutionCompliance      Float?
+
+  backlogCount                 Int       @default(0)
+  backlogUrgent                Int       @default(0)
+  backlogHigh                  Int       @default(0)
+
+  computedAt                   DateTime  @default(now())
+
+  @@unique([companyId, date])
+  @@map("company_metrics_daily")
+  @@index([date])
+  @@index([companyId])
+}
+
+/// Customer health scores (computed periodically)
+model CustomerHealthScore {
+  id                       String    @id @default(uuid())
+  companyId                String
+  computedAt               DateTime  @default(now())
+  periodStart              DateTime
+  periodEnd                DateTime
+
+  overallScore             Float
+  trend                    String              // "improving", "stable", "declining"
+  previousScore            Float?
+
+  // Factor scores (0-100 each)
+  ticketVolumeTrendScore   Float
+  reopenRateScore          Float
+  priorityMixScore         Float
+  supportHoursTrendScore   Float
+  avgResolutionTimeScore   Float
+  agingTicketsScore        Float
+  slaComplianceScore       Float
+
+  // Raw values for transparency
+  ticketCountCurrent       Int
+  ticketCountPrevious      Int
+  reopenRateValue          Float
+  urgentHighPercent        Float
+  supportHoursCurrent      Float
+  supportHoursPrevious     Float
+  avgResolutionMinutes     Float?
+  agingTicketCount         Int
+  slaCompliancePercent     Float?
+
+  @@map("customer_health_scores")
+  @@index([companyId])
+  @@index([computedAt])
+}
+
+/// Configurable SLA targets and benchmarks
+model ReportingTarget {
+  id                 String    @id @default(uuid())
+  metricKey          String              // "first_response_time", "resolution_time", etc.
+  scope              String    @default("global") // "global", "priority", "company"
+  scopeValue         String    @default("") // e.g., "URGENT", company UUID; empty = global
+  targetValue        Float
+  unit               String              // "minutes", "percent", "hours", "count"
+  description        String?
+  isActive           Boolean   @default(true)
+  createdBy          String
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@unique([metricKey, scope, scopeValue])
+  @@map("reporting_targets")
+}
+
+/// Scheduled report definitions
+model ReportSchedule {
+  id                 String    @id @default(uuid())
+  reportType         String              // "technician_weekly", "company_monthly", etc.
+  name               String
+  schedule           String              // "weekly", "monthly", "quarterly"
+  dayOfWeek          Int?                // 0=Sun..6=Sat (for weekly)
+  dayOfMonth         Int?                // 1-28 (for monthly)
+  monthOfQuarter     Int?                // 1-3 (for quarterly)
+  recipients         String[]
+  config             Json?               // Report-specific filters
+  isActive           Boolean   @default(true)
+  nextRunAt          DateTime
+  lastRunAt          DateTime?
+  lastRunStatus      String?             // "success", "failed"
+  createdBy          String
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@map("report_schedules")
+  @@index([nextRunAt])
+  @@index([isActive])
+}
+
+/// Delivery log for sent reports
+model ReportDeliveryLog {
+  id                 String    @id @default(uuid())
+  scheduleId         String
+  reportType         String
+  periodStart        DateTime
+  periodEnd          DateTime
+  recipientCount     Int
+  status             String              // "sent", "failed", "partial"
+  error              String?   @db.Text
+  sentAt             DateTime  @default(now())
+
+  @@map("report_delivery_logs")
+  @@index([scheduleId])
+  @@index([sentAt])
+}
+
+/// Tracks last run time for each reporting job
+model ReportingJobStatus {
+  id                 String    @id @default(uuid())
+  jobName            String    @unique    // "sync_tickets", "compute_lifecycle", etc.
+  lastRunAt          DateTime?
+  lastRunStatus      String?             // "success", "failed"
+  lastRunDurationMs  Int?
+  lastRunError       String?   @db.Text
+  lastRunMeta        Json?               // Job-specific metadata (counts, etc.)
+  updatedAt          DateTime  @updatedAt
+
+  @@map("reporting_job_status")
 }
