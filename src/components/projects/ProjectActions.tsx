@@ -43,11 +43,18 @@ export default function ProjectActions({ projectId, autotaskProjectId }: Project
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ projectId, autotaskProjectId }),
       })
-      const data = await res.json()
+      const text = await res.text()
+      let data
+      try {
+        data = JSON.parse(text)
+      } catch {
+        setSyncLog(`Sync returned non-JSON (HTTP ${res.status}):\n${text.slice(0, 500)}`)
+        return
+      }
       setSyncLog(data.log || JSON.stringify(data, null, 2))
       router.refresh()
-    } catch {
-      setSyncLog('Sync failed — check console for details')
+    } catch (err) {
+      setSyncLog(`Sync failed: ${err instanceof Error ? err.message : 'Network error'}`)
     } finally {
       setSyncing(false)
     }

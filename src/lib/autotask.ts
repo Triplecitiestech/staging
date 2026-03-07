@@ -535,15 +535,16 @@ export class AutotaskClient {
   async updateTaskStatus(atTaskId: string, atStatus: number, atProjectId?: string): Promise<void> {
     const taskId = parseInt(atTaskId, 10);
     const payload = { id: taskId, status: atStatus };
+    let lastError: Error | null = null;
 
-    // If we have the project ID, use the child entity path (most reliable)
+    // If we have the project ID, try child entity path first
     if (atProjectId) {
       try {
         await this.patch(`Projects/${atProjectId}/Tasks`, payload);
         return;
       } catch (err) {
-        const msg = err instanceof Error ? err.message : '';
-        if (!msg.includes('404') && !msg.includes('405')) throw err;
+        lastError = err instanceof Error ? err : new Error(String(err));
+        // Fall through to try other paths
       }
     }
 
@@ -552,12 +553,19 @@ export class AutotaskClient {
       await this.patch(`ProjectTasks`, payload);
       return;
     } catch (err) {
-      const msg = err instanceof Error ? err.message : '';
-      if (!msg.includes('404') && !msg.includes('405')) throw err;
+      lastError = err instanceof Error ? err : new Error(String(err));
     }
 
     // Last resort: try Tasks entity
-    await this.patch(`Tasks`, payload);
+    try {
+      await this.patch(`Tasks`, payload);
+      return;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+    }
+
+    // All paths failed — throw the last error
+    throw lastError || new Error(`Failed to update task ${atTaskId} status`);
   }
 
   /**
