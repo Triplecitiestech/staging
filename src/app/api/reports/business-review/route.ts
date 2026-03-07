@@ -8,6 +8,10 @@ import {
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
+function isMissingTable(message: string): boolean {
+  return message.includes('does not exist') || message.includes('P2021') || message.includes('P2010');
+}
+
 /**
  * GET /api/reports/business-review
  * List business reviews with optional filters.
@@ -29,8 +33,19 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ reviews });
   } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+
+    if (isMissingTable(message)) {
+      console.warn('[business-review] business_reviews table does not exist yet — migration needed');
+      return NextResponse.json({
+        reviews: [],
+        _warning: 'Business reviews table not yet created. Run database migration to enable this feature.',
+      });
+    }
+
+    console.error('[business-review] Failed to list reviews:', message);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Failed to list reviews' },
+      { error: `Failed to list reviews: ${message}` },
       { status: 500 },
     );
   }
@@ -68,8 +83,18 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(result, { status: 201 });
   } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+
+    if (isMissingTable(message)) {
+      return NextResponse.json(
+        { error: 'Business reviews table not yet created. Run database migration first.' },
+        { status: 503 },
+      );
+    }
+
+    console.error('[business-review] Failed to generate review:', message);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Failed to generate review' },
+      { error: `Failed to generate review: ${message}` },
       { status: 500 },
     );
   }

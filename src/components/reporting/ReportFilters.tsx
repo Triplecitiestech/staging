@@ -68,6 +68,15 @@ export default function ReportFilterBar({
       })
       .then((data) => {
         if (cancelled) return
+
+        // Surface per-source errors from the selectors API
+        const errors = data._errors || {}
+        if (showCompanySelector && errors.companies) {
+          setSelectorsError(errors.companies)
+        } else if (showTechnicianSelector && errors.technicians) {
+          setSelectorsError(errors.technicians)
+        }
+
         if (showCompanySelector && data.companies) {
           setCompanies(
             data.companies.map((c: { id: string; displayName: string }) => ({

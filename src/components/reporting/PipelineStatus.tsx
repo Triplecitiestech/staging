@@ -44,14 +44,24 @@ const JOB_LABELS: Record<string, string> = {
 export default function PipelineStatus() {
   const [data, setData] = useState<StatusData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [running, setRunning] = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
+    setError(null)
     try {
       const res = await fetch('/api/reports/status')
-      if (res.ok) setData(await res.json())
-    } catch { /* ignore */ }
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}))
+        throw new Error(errData.error || `Failed to load status (HTTP ${res.status})`)
+      }
+      setData(await res.json())
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error'
+      console.error('[PipelineStatus] Failed to load:', msg)
+      setError(msg)
+    }
     setLoading(false)
   }, [])
 
@@ -81,7 +91,17 @@ export default function PipelineStatus() {
     )
   }
 
-  if (!data) return <p className="text-slate-500">Failed to load status</p>
+  if (error) {
+    return (
+      <div className="bg-rose-500/10 border border-rose-500/30 rounded-lg p-4">
+        <h3 className="text-sm font-medium text-rose-400 mb-1">Pipeline status failed to load</h3>
+        <p className="text-sm text-rose-300/80">{error}</p>
+        <button onClick={fetchData} className="text-sm text-cyan-400 mt-2 hover:underline">Retry</button>
+      </div>
+    )
+  }
+
+  if (!data) return <p className="text-slate-500">No status data available</p>
 
   return (
     <div className="space-y-6">
