@@ -70,8 +70,11 @@ export default function PipelineStatus() {
   const triggerJob = async (jobName: string) => {
     setRunning(jobName)
     try {
-      const endpoint = jobName.replace(/_/g, '-')
-      const res = await fetch(`/api/reports/jobs/${endpoint}?secret=CRON_SECRET`)
+      const res = await fetch('/api/reports/jobs/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ job: jobName }),
+      })
       if (!res.ok) {
         const err = await res.json()
         alert(`Job failed: ${err.error || 'Unknown error'}`)
@@ -137,7 +140,7 @@ export default function PipelineStatus() {
         <div className="px-5 py-4 border-b border-slate-700/50 flex items-center justify-between">
           <h3 className="text-sm font-medium text-slate-300">Pipeline Jobs</h3>
           <button
-            onClick={() => triggerJob('run')}
+            onClick={() => triggerJob('run_all')}
             disabled={running !== null}
             className="px-3 py-1.5 text-xs bg-cyan-500 text-white rounded-md hover:bg-cyan-600 disabled:opacity-50 transition-colors"
           >

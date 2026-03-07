@@ -19,10 +19,23 @@ const JOB_MAP: Record<string, (date?: Date) => Promise<unknown>> = {
   compute_health: () => computeCustomerHealth(),
 };
 
+// Ordered pipeline — sync first, then compute, then aggregate, then health
+const PIPELINE_ORDER = [
+  'sync_tickets',
+  'sync_time_entries',
+  'sync_ticket_notes',
+  'sync_resources',
+  'compute_lifecycle',
+  'aggregate_technician',
+  'aggregate_company',
+  'compute_health',
+];
+
 /**
  * Manual job trigger from admin panel.
  * POST /api/reports/jobs/run
- * Body: { "job": "sync_tickets", "params": { "date": "2026-03-07" } }
+ * Body: { "job": "sync_tickets" } — single job
+ * Body: { "job": "run_all" }      — run entire pipeline in order
  */
 export async function POST(request: NextRequest) {
   const session = await auth();
@@ -35,9 +48,33 @@ export async function POST(request: NextRequest) {
     const jobName = body.job as string;
     const params = body.params as Record<string, string> | undefined;
 
+    // Run entire pipeline sequentially
+    if (jobName === 'run_all') {
+      const results: Array<{ job: string; success: boolean; error?: string }> = [];
+      for (const name of PIPELINE_ORDER) {
+        try {
+          await JOB_MAP[name]();
+          results.push({ job: name, success: true });
+        } catch (err) {
+          results.push({
+            job: name,
+            success: false,
+            error: err instanceof Error ? err.message : 'Unknown error',
+          });
+        }
+      }
+      const failed = results.filter((r) => !r.success);
+      return NextResponse.json({
+        success: failed.length === 0,
+        results,
+        summary: `${results.length - failed.length}/${results.length} jobs succeeded`,
+      });
+    }
+
+    // Single job
     if (!jobName || !JOB_MAP[jobName]) {
       return NextResponse.json(
-        { error: `Unknown job: ${jobName}. Available: ${Object.keys(JOB_MAP).join(', ')}` },
+        { error: `Unknown job: ${jobName}. Available: ${Object.keys(JOB_MAP).join(', ')}, run_all` },
         { status: 400 },
       );
     }
