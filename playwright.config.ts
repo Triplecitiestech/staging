@@ -18,6 +18,7 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
   reporter: [
+    ['./tests/e2e/failure-reporter.ts'],
     ['html', { open: 'never' }],
     ['list'],
   ],

@@ -81,4 +81,5 @@ npm run test:e2e -- --grep @browserbase
 | Azure AD / auth | `AZURE_AD_SETUP.md` |
 | Olujo project | `OLUJO_PROJECT.md` |
 | Incidents / debugging | `docs/RUNBOOK.md` |
+| Test failure debugging | `docs/DEBUGGING_WORKFLOW.md` |
 | API reliability | `docs/SELF_HEALING_AND_RELIABILITY.md` |
