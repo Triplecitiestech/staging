@@ -37,6 +37,7 @@ interface DashboardData {
     dataFreshness: string | null
     ticketCount: number
   }
+  _warning?: string
 }
 
 export default function ReportingDashboard() {
@@ -55,11 +56,14 @@ export default function ReportingDashboard() {
       if (!params.has('breakdown')) params.set('breakdown', 'true')
 
       const res = await fetch(`/api/reports/dashboard?${params.toString()}`)
-      if (!res.ok) throw new Error('Failed to load dashboard data')
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}))
+        throw new Error(errData.error || `Reporting dashboard failed to load (HTTP ${res.status})`)
+      }
       const json = await res.json()
       setData(json)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error')
+      setError(err instanceof Error ? err.message : 'Unknown error loading reporting dashboard')
     } finally {
       setLoading(false)
     }
@@ -68,6 +72,12 @@ export default function ReportingDashboard() {
   useEffect(() => {
     fetchData()
   }, [fetchData])
+
+  const hasData = data && (
+    data.summary.totalTicketsCreated > 0 ||
+    data.summary.totalTicketsClosed > 0 ||
+    data.summary.topCompanies.length > 0
+  )
 
   return (
     <div className="space-y-6">
@@ -84,10 +94,32 @@ export default function ReportingDashboard() {
       {/* Error state */}
       {error && (
         <div className="bg-rose-500/10 border border-rose-500/30 rounded-lg p-4">
-          <p className="text-rose-400">{error}</p>
+          <h3 className="text-sm font-medium text-rose-400 mb-1">Reporting dashboard data failed to load</h3>
+          <p className="text-sm text-rose-300/80">{error}</p>
           <button onClick={fetchData} className="text-sm text-cyan-400 mt-2 hover:underline">
             Retry
           </button>
+        </div>
+      )}
+
+      {/* Pipeline not run warning */}
+      {data && !loading && data._warning && (
+        <div className="bg-violet-500/10 border border-violet-500/30 rounded-lg p-4">
+          <h3 className="text-sm font-medium text-violet-400 mb-1">Reporting data pipeline not yet configured</h3>
+          <p className="text-sm text-violet-300/80">
+            {data._warning}
+          </p>
+          <Link href="/admin/reporting/status" className="text-sm text-cyan-400 mt-2 inline-block hover:underline">
+            View Pipeline Status
+          </Link>
+        </div>
+      )}
+
+      {/* Empty data state (pipeline ran but returned nothing) */}
+      {data && !loading && !error && !hasData && !data._warning && (
+        <div className="bg-slate-800/30 border border-slate-700/50 rounded-lg p-8 text-center">
+          <p className="text-slate-400 text-sm">No reporting data found for the selected period.</p>
+          <p className="text-slate-500 text-xs mt-1">Try changing the date range or verify that the reporting data pipeline has been run.</p>
         </div>
       )}
 
@@ -214,7 +246,7 @@ export default function ReportingDashboard() {
           </div>
 
           {/* Quick links to sub-reports */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {[
               { href: '/admin/reporting/technicians', label: 'Technician Performance', desc: 'Individual tech metrics' },
               { href: '/admin/reporting/companies', label: 'Service Desk by Company', desc: 'Per-company ticket analysis' },
