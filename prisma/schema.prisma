@@ -113,9 +113,10 @@ model Company {
   autotaskLastSync  DateTime? // Last successful sync timestamp
 
   // Relations
-  projects Project[]
-  contacts CompanyContact[]
-  tickets  Ticket[]
+  projects        Project[]
+  contacts        CompanyContact[]
+  tickets         Ticket[]
+  businessReviews BusinessReview[]
 
   @@map("companies")
 }
@@ -1176,6 +1177,34 @@ model ReportDeliveryLog {
   @@map("report_delivery_logs")
   @@index([scheduleId])
   @@index([sentAt])
+}
+
+/// Business review reports (monthly/quarterly, customer-facing and internal)
+model BusinessReview {
+  id                 String    @id @default(uuid())
+  companyId          String
+  company            Company   @relation(fields: [companyId], references: [id])
+  reportType         String              // "monthly", "quarterly"
+  variant            String   @default("customer")  // "customer", "internal"
+  periodStart        DateTime
+  periodEnd          DateTime
+  status             String   @default("draft")     // "draft", "review", "ready", "sent"
+  reportData         Json                // Full structured report payload
+  recommendations    Json?               // Structured recommendations array
+  narrative          Json?               // Generated narrative sections
+  createdBy          String
+  reviewedBy         String?
+  reviewedAt         DateTime?
+  sentAt             DateTime?
+  sentTo             String[]
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@map("business_reviews")
+  @@index([companyId])
+  @@index([status])
+  @@index([periodStart])
+  @@unique([companyId, reportType, variant, periodStart])
 }
 
 /// Tracks last run time for each reporting job
