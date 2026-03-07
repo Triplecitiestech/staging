@@ -2,6 +2,8 @@
 
 > **This is the single source of truth for every Claude Code session.** Read this file first. It tells you how to behave, how to ship, and how to avoid mistakes.
 
+**Before performing development work, read:** `docs/CLAUDE_SESSION_START.md` — it defines the mandatory startup checklist, required reading order, and completion criteria for every session.
+
 ---
 
 ## Core Rules — Read These First
@@ -60,6 +62,7 @@ npm run build        # Prisma migrate deploy + next build (MUST PASS)
 npm run start        # Start production server
 npm run lint         # ESLint (MUST PASS, fix all errors)
 npm run seed         # Seed database (tsx prisma/seed.ts)
+npm run test:e2e     # Playwright e2e tests (run when UI/API changes)
 ```
 
 ## Directory Structure
@@ -83,6 +86,8 @@ src/
 prisma/
   schema.prisma         # 500+ line schema, 30+ models
   migrations/           # Database migrations
+tests/
+  e2e/                  # Playwright end-to-end tests
 ```
 
 ## Code Conventions
@@ -248,6 +253,7 @@ All marketing pages (`/admin/marketing/*`) must include AdminHeader and the ambi
 Detailed guides in the repo root — read these when working on specific features:
 
 **Read at session start (mandatory):**
+- `docs/CLAUDE_SESSION_START.md` — **Session startup checklist** — read this first for the required reading order and completion criteria
 - `ENGINEERING_STANDARDS.md` — **Mandatory** engineering standards, QA process, testing safety rules, root cause fixing, single source of truth, separation of responsibilities, sensitive data filtering
 - `QA_STANDARDS.md` — **Mandatory** QA checklist, validation report template, severity levels
 - `docs/UI_STANDARDS.md` — UI design standards, forbidden colors, color palette, component conventions
