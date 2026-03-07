@@ -246,9 +246,18 @@ All marketing pages (`/admin/marketing/*`) must include AdminHeader and the ambi
 ## Additional Documentation
 
 Detailed guides in the repo root — read these when working on specific features:
-- `ENGINEERING_STANDARDS.md` — **Mandatory** engineering standards, QA process, testing safety rules
+
+**Read at session start (mandatory):**
+- `ENGINEERING_STANDARDS.md` — **Mandatory** engineering standards, QA process, testing safety rules, root cause fixing, single source of truth, separation of responsibilities, sensitive data filtering
 - `QA_STANDARDS.md` — **Mandatory** QA checklist, validation report template, severity levels
-- `docs/UI_STANDARDS.md` — UI design standards, forbidden colors, color palette
+- `docs/UI_STANDARDS.md` — UI design standards, forbidden colors, color palette, component conventions
+
+**Architecture & reliability:**
+- `docs/ARCHITECTURE.md` — System architecture, data flows, key entity diagrams
+- `docs/SELF_HEALING_AND_RELIABILITY.md` — API response envelopes, structured logging, timeouts, retry logic, idempotency
+- `docs/RUNBOOK.md` — Incident response procedures, diagnostics, rollback steps
+
+**Feature-specific:**
 - `CLAUDE_SESSION_PREFERENCES.md` — Full session workflow and communication preferences
 - `PROJECT_OVERVIEW.md` — Comprehensive architecture reference
 - `BLOG_SYSTEM_README.md` — AI blog generation system
