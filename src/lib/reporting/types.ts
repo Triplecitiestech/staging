@@ -120,3 +120,93 @@ export interface DashboardSummary {
     resolutionTimeChange: number | null;
   };
 }
+
+// ============================================
+// ENHANCED RESPONSE TYPES (Phase 3)
+// ============================================
+
+export interface TrendPoint {
+  date: string;
+  label: string;
+  value: number;
+}
+
+export interface PriorityBreakdown {
+  priority: string;
+  count: number;
+  percentage: number;
+  avgResolutionMinutes: number | null;
+}
+
+export interface ComparisonData {
+  current: number;
+  previous: number;
+  changePercent: number | null;
+  direction: 'up' | 'down' | 'flat';
+}
+
+export interface BenchmarkResult {
+  metricKey: string;
+  actual: number;
+  target: number;
+  unit: string;
+  meetingTarget: boolean;
+  percentOfTarget: number;
+}
+
+export interface EnhancedTechnicianReport {
+  summary: TechnicianSummary[];
+  trend?: TrendPoint[];
+  comparison?: {
+    ticketsClosed: ComparisonData;
+    hoursLogged: ComparisonData;
+    avgResolution: ComparisonData;
+  };
+  benchmarks?: BenchmarkResult[];
+  meta: ReportMeta;
+}
+
+export interface EnhancedCompanyReport {
+  summary: CompanySummary[];
+  trend?: TrendPoint[];
+  priorityBreakdown?: PriorityBreakdown[];
+  comparison?: {
+    ticketsCreated: ComparisonData;
+    ticketsClosed: ComparisonData;
+    supportHours: ComparisonData;
+    avgResolution: ComparisonData;
+  };
+  benchmarks?: BenchmarkResult[];
+  meta: ReportMeta;
+}
+
+export interface EnhancedDashboardReport {
+  summary: DashboardSummary;
+  ticketTrend?: TrendPoint[];
+  resolutionTrend?: TrendPoint[];
+  priorityBreakdown?: PriorityBreakdown[];
+  meta: ReportMeta;
+}
+
+export interface EnhancedHealthReport {
+  scores: Array<{
+    companyId: string;
+    displayName: string;
+    overallScore: number;
+    trend: string | null;
+    previousScore: number | null;
+    tier: string;
+    factors: Record<string, number>;
+    rawValues: Record<string, number | null>;
+    computedAt: string;
+    periodStart: string;
+    periodEnd: string;
+  }>;
+  distribution: {
+    healthy: number;
+    needsAttention: number;
+    atRisk: number;
+    critical: number;
+  };
+  meta: ReportMeta;
+}

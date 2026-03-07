@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { getTechnicianMetrics } from '@/lib/reporting/services';
+import { parseFiltersFromParams } from '@/lib/reporting/filters';
+import { getEnhancedTechnicianReport } from '@/lib/reporting/enhanced-services';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,19 +12,8 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const from = request.nextUrl.searchParams.get('from');
-    const to = request.nextUrl.searchParams.get('to');
-    const resourceId = request.nextUrl.searchParams.get('resourceId');
-
-    const range = from && to
-      ? { from: new Date(from), to: new Date(to) }
-      : undefined;
-
-    const result = await getTechnicianMetrics(
-      range,
-      resourceId ? parseInt(resourceId, 10) : undefined,
-    );
-
+    const filters = parseFiltersFromParams(request.nextUrl.searchParams);
+    const result = await getEnhancedTechnicianReport(filters);
     return NextResponse.json(result);
   } catch (err) {
     return NextResponse.json(

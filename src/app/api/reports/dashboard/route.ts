@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { getDashboardSummary } from '@/lib/reporting/services';
+import { parseFiltersFromParams } from '@/lib/reporting/filters';
+import { getEnhancedDashboardReport } from '@/lib/reporting/enhanced-services';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,15 +12,9 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const from = request.nextUrl.searchParams.get('from');
-    const to = request.nextUrl.searchParams.get('to');
-
-    const range = from && to
-      ? { from: new Date(from), to: new Date(to) }
-      : undefined;
-
-    const result = await getDashboardSummary(range);
-    return NextResponse.json({ data: result });
+    const filters = parseFiltersFromParams(request.nextUrl.searchParams);
+    const result = await getEnhancedDashboardReport(filters);
+    return NextResponse.json(result);
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Failed to fetch dashboard summary' },

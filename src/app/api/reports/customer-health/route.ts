@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { getCustomerHealthMetrics } from '@/lib/reporting/services';
+import { parseFiltersFromParams } from '@/lib/reporting/filters';
+import { getEnhancedHealthReport } from '@/lib/reporting/enhanced-services';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,9 +12,9 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const companyId = request.nextUrl.searchParams.get('companyId');
-    const result = await getCustomerHealthMetrics(companyId || undefined);
-    return NextResponse.json({ data: result });
+    const filters = parseFiltersFromParams(request.nextUrl.searchParams);
+    const result = await getEnhancedHealthReport(filters);
+    return NextResponse.json(result);
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Failed to fetch health metrics' },
