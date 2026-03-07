@@ -42,14 +42,16 @@ export function middleware(request: NextRequest) {
     'eval', 'expression', 'iframe', 'object', 'embed', 'form', 'input'
   ]
 
-  url.searchParams.forEach((value, key) => {
+  const paramEntries = Array.from(url.searchParams.entries())
+  for (let i = 0; i < paramEntries.length; i++) {
+    const [key, value] = paramEntries[i]
     const paramValue = value.toLowerCase()
-    if (suspiciousParams.some(param => 
+    if (suspiciousParams.some(param =>
       key.toLowerCase().includes(param) || paramValue.includes(param)
     )) {
       return new NextResponse('Bad Request', { status: 400 })
     }
-  })
+  }
 
   // Block requests to sensitive files (but allow /admin routes for our app)
   const sensitivePaths = [

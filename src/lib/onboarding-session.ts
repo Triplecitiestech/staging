@@ -32,7 +32,6 @@ export function validateSession(token: string): string | null {
     const [payloadB64, signature] = token.split('.')
 
     if (!payloadB64 || !signature) {
-      console.log('[Session Validation] Invalid token format')
       return null
     }
 
@@ -45,7 +44,6 @@ export function validateSession(token: string): string | null {
       .digest('hex')
 
     if (signature !== expectedSignature) {
-      console.log('[Session Validation] Invalid signature')
       return null
     }
 
@@ -53,15 +51,12 @@ export function validateSession(token: string): string | null {
     const data = JSON.parse(payload)
 
     if (Date.now() > data.expires) {
-      console.log('[Session Validation] Token expired')
       return null
     }
 
-    console.log('[Session Validation] Valid session for:', data.companySlug)
     return data.companySlug
 
-  } catch (error) {
-    console.error('[Session Validation] Error:', error)
+  } catch {
     return null
   }
 }
@@ -77,12 +72,6 @@ export function destroySession(token: string): void {
 export async function setSessionCookie(token: string): Promise<void> {
   const cookieStore = await cookies()
 
-  console.log('[Set Cookie] Setting session cookie:', {
-    name: SESSION_COOKIE_NAME,
-    tokenLength: token.length,
-    maxAge: SESSION_LIFETIME / 1000
-  })
-
   cookieStore.set(SESSION_COOKIE_NAME, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
@@ -96,12 +85,6 @@ export async function setSessionCookie(token: string): Promise<void> {
 export async function getSessionCookie(): Promise<string | null> {
   const cookieStore = await cookies()
   const cookie = cookieStore.get(SESSION_COOKIE_NAME)
-
-  console.log('[Get Cookie] Reading session cookie:', {
-    found: !!cookie,
-    tokenLength: cookie?.value?.length || 0
-  })
-
   return cookie?.value || null
 }
 
