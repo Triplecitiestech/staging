@@ -55,6 +55,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Push task statuses for all AT-synced tasks
+    // First test with one task — if the PATCH endpoint isn't available, skip the rest
     const localTasks = await prisma.phaseTask.findMany({
       where: {
         phase: { projectId },
@@ -64,19 +65,29 @@ export async function POST(request: NextRequest) {
     })
 
     let tasksPushed = 0
+    let taskPushAvailable = true
+
     for (const task of localTasks) {
       if (!task.autotaskTaskId) continue
+      if (!taskPushAvailable) break // Skip remaining if first attempt failed
+
       const atStatus = mapLocalStatusToAt(task.status)
       if (atStatus !== null) {
         try {
           await client.updateTaskStatus(task.autotaskTaskId, atStatus, autotaskProjectId)
           tasksPushed++
         } catch (error) {
-          log.push(`  WARNING: Could not push task "${task.taskText}": ${error instanceof Error ? error.message : 'Unknown'}`)
+          const msg = error instanceof Error ? error.message : 'Unknown'
+          log.push(`  WARNING: Could not push task "${task.taskText}": ${msg}`)
+          if (tasksPushed === 0) {
+            // First task failed — PATCH endpoint likely unavailable, skip remaining
+            taskPushAvailable = false
+            log.push(`  Skipping remaining task pushes (endpoint not available)`)
+          }
         }
       }
     }
-    log.push(`Pushed ${tasksPushed} task status(es) to Autotask`)
+    log.push(`Pushed ${tasksPushed}/${localTasks.length} task status(es) to Autotask`)
     log.push('')
 
     // ========================================
