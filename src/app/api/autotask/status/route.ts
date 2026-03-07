@@ -1,15 +1,20 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { auth } from '@/auth';
 
 export const dynamic = 'force-dynamic';
 
 /**
  * Autotask sync status - shows recent sync history.
- * No auth required - only shows sync metadata, no sensitive data.
+ * Admin/Manager only - exposes credential config status and sync metadata.
  *
  * GET /api/autotask/status
  */
 export async function GET() {
+  const session = await auth();
+  if (!session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
   try {
     // Check if credentials are configured
     const credentialsConfigured = !!(
