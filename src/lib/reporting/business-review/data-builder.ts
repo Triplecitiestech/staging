@@ -32,6 +32,8 @@ export async function buildReportData(
   });
   if (!company) throw new Error(`Company not found: ${companyId}`);
 
+  console.log(`[buildReportData] Company: ${company.displayName} (${companyId}), period: ${periodStart.toISOString()} to ${periodEnd.toISOString()}`);
+
   const periodLabel = reportType === 'monthly'
     ? formatMonthLabel(periodStart)
     : formatQuarterLabel(periodStart, periodEnd);
@@ -78,6 +80,18 @@ export async function buildReportData(
       },
     }),
   ]);
+
+  console.log(`[buildReportData] currentTickets: ${currentTickets.length}, prevTickets: ${prevTickets.length}`);
+  if (currentTickets.length > 0) {
+    const statuses = currentTickets.map(t => t.status);
+    const uniqueStatuses = Array.from(new Set(statuses));
+    const withCompleted = currentTickets.filter(t => t.completedDate).length;
+    const resolvedCount = currentTickets.filter(t => resolvedSet.has(t.status)).length;
+    console.log(`[buildReportData] Ticket statuses: ${JSON.stringify(uniqueStatuses)}, withCompletedDate: ${withCompleted}, resolved: ${resolvedCount}`);
+    const earliest = currentTickets.reduce((m, t) => t.createDate < m ? t.createDate : m, currentTickets[0].createDate);
+    const latest = currentTickets.reduce((m, t) => t.createDate > m ? t.createDate : m, currentTickets[0].createDate);
+    console.log(`[buildReportData] Ticket date range: ${earliest.toISOString()} to ${latest.toISOString()}`);
+  }
 
   // Time entries for hours — query by dateWorked in period, not by ticket ID
   // This captures all work done for this company during the period
@@ -134,6 +148,8 @@ export async function buildReportData(
   ).length;
   const hours = timeEntries.reduce((s, e) => s + e.hoursWorked, 0);
   const billable = timeEntries.filter(e => !e.isNonBillable).reduce((s, e) => s + e.hoursWorked, 0);
+
+  console.log(`[buildReportData] RESULTS: created=${created}, closed=${closed}, hours=${round1(hours)}, billable=${round1(billable)}, timeEntries=${timeEntries.length}`);
 
   // Per-priority counts (tickets created in period)
   const createdInPeriod = currentTickets.filter(t => t.createDate >= periodStart && t.createDate <= periodEnd);
