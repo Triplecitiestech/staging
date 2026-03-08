@@ -255,30 +255,153 @@ export async function runAllValidationTests(): Promise<ValidationReport> {
   }
   results.push(healthResult);
 
-  // Test 12: Business Review Data Builder
-  results.push(await runTest('Business Review Data Builder (buildReportData)', async () => {
+  // Test 12: Business Review Deep Diagnostic
+  // Traces every step of business review generation to find exactly where data goes missing
+  results.push(await runTest('Business Review Deep Diagnostic', async () => {
     const { buildReportData } = await import('./business-review/data-builder');
-    // Find a company with tickets in the last 90 days
-    const sampleTicket = await prisma.ticket.findFirst({
-      where: { createDate: { gte: dateRange.from, lte: dateRange.to } },
-      select: { companyId: true },
+    const { RESOLVED_STATUSES } = await import('./types');
+    const resolvedSet = new Set(RESOLVED_STATUSES as unknown as number[]);
+
+    // Feb 2026 period (matching what the UI sends)
+    const monthStart = new Date(Date.UTC(2026, 1, 1)); // Feb 1
+    const monthEnd = new Date(Date.UTC(2026, 2, 0));   // Feb 28
+
+    const checks: CheckResult[] = [];
+
+    // Step 1: List ALL companies that have tickets, with ticket counts
+    const companiesWithTickets = await prisma.ticket.groupBy({
+      by: ['companyId'],
+      _count: { autotaskTicketId: true },
+      orderBy: { _count: { autotaskTicketId: 'desc' } },
     });
-    if (!sampleTicket) {
-      return [check('found a company with tickets', null, 'not null', false)];
+    const companyIds = companiesWithTickets.map(c => c.companyId);
+    const companyNames = await prisma.company.findMany({
+      where: { id: { in: companyIds } },
+      select: { id: true, displayName: true },
+    });
+    const nameMap = new Map(companyNames.map(c => [c.id, c.displayName]));
+
+    const companySummary = companiesWithTickets
+      .slice(0, 10)
+      .map(c => `${nameMap.get(c.companyId) || 'Unknown'}(${c._count.autotaskTicketId})`)
+      .join(', ');
+    checks.push(check('companies with tickets (top 10)', companySummary, 'info', companiesWithTickets.length > 0));
+
+    // Step 2: For each of the top 3 companies, run buildReportData and show results
+    for (const entry of companiesWithTickets.slice(0, 3)) {
+      const cName = nameMap.get(entry.companyId) || 'Unknown';
+      try {
+        // First, raw ticket counts for this company in Feb
+        const rawTickets = await prisma.ticket.findMany({
+          where: { companyId: entry.companyId },
+          select: { status: true, createDate: true, completedDate: true },
+        });
+        const rawCreatedFeb = rawTickets.filter(t => t.createDate >= monthStart && t.createDate <= monthEnd).length;
+        const rawClosedFeb = rawTickets.filter(t =>
+          resolvedSet.has(t.status) && t.completedDate &&
+          t.completedDate >= monthStart && t.completedDate <= monthEnd
+        ).length;
+
+        // Also try the EXACT Prisma query that buildReportData uses
+        const prismaQueryResult = await prisma.ticket.findMany({
+          where: {
+            companyId: entry.companyId,
+            OR: [
+              { createDate: { gte: monthStart, lte: monthEnd } },
+              { completedDate: { gte: monthStart, lte: monthEnd } },
+              { createDate: { lte: monthEnd }, status: { notIn: Array.from(resolvedSet) } },
+            ],
+          },
+          select: { autotaskTicketId: true, status: true, createDate: true, completedDate: true },
+        });
+
+        // Run buildReportData
+        const report = await buildReportData(entry.companyId, 'monthly', monthStart, monthEnd);
+        const a = report.supportActivity;
+
+        checks.push(check(
+          `${cName} raw: total=${rawTickets.length} createdFeb=${rawCreatedFeb} closedFeb=${rawClosedFeb} prismaOR=${prismaQueryResult.length}`,
+          `report: created=${a.ticketsCreated} closed=${a.ticketsClosed} hours=${a.supportHoursConsumed}`,
+          'non-zero if tickets exist',
+          rawCreatedFeb === 0 || a.ticketsCreated > 0, // PASS if no Feb tickets OR report shows them
+        ));
+      } catch (err) {
+        checks.push(check(`${cName} error`, err instanceof Error ? err.message : String(err), 'no error', false));
+      }
     }
-    // Use last month as the review period (most realistic scenario)
-    const now = new Date();
-    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
-    const monthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0));
-    const report = await buildReportData(sampleTicket.companyId, 'monthly', monthStart, monthEnd);
-    const activity = report.supportActivity;
-    const anyActivity = activity.ticketsCreated > 0 || activity.ticketsClosed > 0 || activity.supportHoursConsumed > 0;
-    return [
-      check('report has company name', report.company.name, 'non-empty', !!report.company.name),
-      check('report has period label', report.period.label, 'non-empty', !!report.period.label),
-      check('has some activity (created, closed, or hours)', anyActivity, 'true', anyActivity),
-      check('ticketsCreated + ticketsClosed + hours', `${activity.ticketsCreated}/${activity.ticketsClosed}/${activity.supportHoursConsumed}h`, 'some > 0', anyActivity),
-    ];
+
+    // Step 3: Specifically search for Tri-Bros (various search patterns)
+    const searchPatterns = ['Tri-Bros', 'Tri Bros', 'TriBros', 'Tri'];
+    let triBros: { id: string; displayName: string } | null = null;
+    for (const pattern of searchPatterns) {
+      triBros = await prisma.company.findFirst({
+        where: { displayName: { contains: pattern, mode: 'insensitive' } },
+        select: { id: true, displayName: true },
+      });
+      if (triBros) break;
+    }
+
+    if (triBros) {
+      const tbTickets = await prisma.ticket.findMany({
+        where: { companyId: triBros.id },
+        select: { autotaskTicketId: true, status: true, createDate: true, completedDate: true },
+      });
+      const uniqueStatuses = Array.from(new Set(tbTickets.map(t => t.status))).sort();
+      const statusBreakdown = uniqueStatuses.map(s => `${s}:${tbTickets.filter(t => t.status === s).length}`).join(' ');
+
+      checks.push(check(`Tri-Bros found: "${triBros.displayName}"`, triBros.id, 'UUID', true));
+      checks.push(check(`Tri-Bros total tickets`, tbTickets.length, '> 0', tbTickets.length > 0));
+      checks.push(check(`Tri-Bros status breakdown`, statusBreakdown, 'info', true));
+
+      if (tbTickets.length > 0) {
+        const earliest = tbTickets.reduce((m, t) => t.createDate < m ? t.createDate : m, tbTickets[0].createDate);
+        const latest = tbTickets.reduce((m, t) => t.createDate > m ? t.createDate : m, tbTickets[0].createDate);
+        checks.push(check(`Tri-Bros date range`, `${earliest.toISOString()} to ${latest.toISOString()}`, 'info', true));
+
+        const tbCreated = tbTickets.filter(t => t.createDate >= monthStart && t.createDate <= monthEnd).length;
+        const tbClosed = tbTickets.filter(t =>
+          resolvedSet.has(t.status) && t.completedDate &&
+          t.completedDate >= monthStart && t.completedDate <= monthEnd
+        ).length;
+        const tbOpen = tbTickets.filter(t => t.createDate <= monthEnd && !resolvedSet.has(t.status)).length;
+        checks.push(check(`Tri-Bros Feb: created=${tbCreated} closed=${tbClosed} open=${tbOpen}`, tbCreated + tbClosed + tbOpen, 'info', true));
+
+        // Show first 5 ticket dates for debugging
+        const sampleTickets = tbTickets
+          .sort((a, b) => b.createDate.getTime() - a.createDate.getTime())
+          .slice(0, 5)
+          .map(t => `${t.autotaskTicketId}:status=${t.status},created=${t.createDate.toISOString().split('T')[0]},completed=${t.completedDate?.toISOString().split('T')[0] || 'null'}`);
+        checks.push(check('Tri-Bros sample tickets (newest 5)', sampleTickets.join(' | '), 'info', true));
+
+        // Run buildReportData for Tri-Bros
+        try {
+          const tbReport = await buildReportData(triBros.id, 'monthly', monthStart, monthEnd);
+          const tbA = tbReport.supportActivity;
+          checks.push(check(
+            `Tri-Bros REPORT`,
+            `created=${tbA.ticketsCreated} closed=${tbA.ticketsClosed} hours=${tbA.supportHoursConsumed} reopened=${tbA.ticketsReopened}`,
+            'non-zero',
+            tbA.ticketsCreated > 0 || tbA.ticketsClosed > 0 || tbA.supportHoursConsumed > 0,
+          ));
+        } catch (err) {
+          checks.push(check('Tri-Bros buildReportData', err instanceof Error ? err.message : String(err), 'no error', false));
+        }
+      }
+    } else {
+      // List all company names so user can identify the right one
+      const allCompanies = await prisma.company.findMany({
+        select: { displayName: true },
+        orderBy: { displayName: 'asc' },
+      });
+      checks.push(check(
+        'Tri-Bros NOT FOUND - all companies',
+        allCompanies.map(c => c.displayName).join(', '),
+        'should contain Tri-Bros',
+        false,
+      ));
+    }
+
+    return checks;
   }));
 
   // Test 13: Raw table counts (sanity)
