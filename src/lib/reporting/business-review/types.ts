@@ -62,6 +62,8 @@ export interface SupportActivityData {
   supportHoursConsumed: number;
   billableHoursConsumed: number;
   netTicketChange: number;
+  /** Number of tickets closed this period that were originally created in a previous period */
+  crossPeriodResolutions: number;
 }
 
 export interface ServicePerformanceData {
