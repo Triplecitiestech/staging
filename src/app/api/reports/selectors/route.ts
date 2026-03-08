@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
+import { isApiOrSystemUser } from '@/lib/reporting/api-user-filter';
 
 export const dynamic = 'force-dynamic';
 
@@ -58,17 +59,13 @@ export async function GET() {
     console.warn('[reports/selectors] Resources query failed:', resourcesResult.error);
   }
 
-  // Filter out API/system users from technician list
-  const API_USER_PATTERNS = [
-    /\bapi\b/i, /\badministrator\b/i, /\bdashboard user\b/i, /\bsystem\b/i,
-    /\bintegration\b/i, /\bservice account\b/i, /\bautomation\b/i,
-    /\bdatto\b/i, /\bedr\b/i, /\brmm\b/i, /\bmonitor/i, /\bagent\b/i,
-    /\bbackup\b/i, /\bsync\b/i, /\bwebhook\b/i, /\bcron\b/i,
-  ];
-  const filteredTechnicians = resourcesResult.data.filter((r) => {
-    const fullName = `${r.firstName} ${r.lastName}`.trim();
-    return !API_USER_PATTERNS.some(p => p.test(fullName) || p.test(r.email));
-  });
+  // Filter out API/system users from technician list using shared utility
+  const filteredTechnicians = resourcesResult.data.filter((r) => !isApiOrSystemUser({
+    firstName: r.firstName,
+    lastName: r.lastName,
+    email: r.email,
+    isActive: true,
+  }));
 
   return NextResponse.json({
     companies: companiesResult.data.map((c) => ({
