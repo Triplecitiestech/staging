@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
+import ReportFilterBar from './ReportFilters'
 import ReportAIAssistant from './ReportAIAssistant'
 
 interface AnomalyAlert {
@@ -39,27 +41,38 @@ interface AnalyticsData {
   anomalies: AnomalyAlert[]
   insights: OperationalInsight[]
   predictions: PredictiveTrend[]
+  meta?: {
+    generatedAt: string
+    period: { from: string; to: string }
+  }
 }
 
 export default function AnalyticsDashboard() {
+  const searchParams = useSearchParams()
+  const router = useRouter()
   const [data, setData] = useState<AnalyticsData | null>(null)
   const [loading, setLoading] = useState(true)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch('/api/reports/analytics?preset=last_30_days')
+      const params = new URLSearchParams(searchParams.toString())
+      if (!params.has('preset')) params.set('preset', 'last_30_days')
+      const res = await fetch(`/api/reports/analytics?${params.toString()}`)
       if (res.ok) setData(await res.json())
     } catch { /* ignore */ }
     setLoading(false)
-  }, [])
+  }, [searchParams])
 
   useEffect(() => { fetchData() }, [fetchData])
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400" />
+      <div className="space-y-6">
+        <ReportFilterBar basePath="/admin/reporting/analytics" showTrend={false} showComparison={false} showBreakdown={false} />
+        <div className="flex items-center justify-center py-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400" />
+        </div>
       </div>
     )
   }
@@ -67,10 +80,19 @@ export default function AnalyticsDashboard() {
   if (!data) return <p className="text-slate-500">Failed to load analytics</p>
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
+      {/* Filter bar */}
+      <ReportFilterBar basePath="/admin/reporting/analytics" showTrend={false} showComparison={false} showBreakdown={false} />
+
+      {/* AI Report Assistant - prominent at top */}
+      <ReportAIAssistant context="analytics" data={data} />
+
       {/* Anomaly Alerts */}
       <section>
-        <h2 className="text-lg font-semibold text-white mb-4">Anomaly Alerts</h2>
+        <h2 className="text-lg font-semibold text-white mb-4">
+          Anomaly Alerts
+          <span className="text-sm font-normal text-slate-500 ml-2">({data.anomalies.length})</span>
+        </h2>
         {data.anomalies.length === 0 ? (
           <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-5">
             <p className="text-emerald-400">No anomalies detected — all metrics within normal range.</p>
@@ -78,14 +100,23 @@ export default function AnalyticsDashboard() {
         ) : (
           <div className="space-y-3">
             {data.anomalies.map((alert, i) => (
-              <div
+              <button
                 key={i}
-                className={`rounded-xl p-4 border ${
+                onClick={() => {
+                  if (alert.metric.includes('resolution') || alert.metric.includes('response')) {
+                    router.push('/admin/reporting/companies')
+                  } else if (alert.metric.includes('ticket')) {
+                    router.push('/admin/reporting/companies')
+                  } else {
+                    router.push('/admin/reporting/technicians')
+                  }
+                }}
+                className={`w-full text-left rounded-xl p-4 border transition-colors cursor-pointer ${
                   alert.severity === 'critical'
-                    ? 'bg-rose-500/10 border-rose-500/30'
+                    ? 'bg-rose-500/10 border-rose-500/30 hover:border-rose-400/50'
                     : alert.severity === 'warning'
-                      ? 'bg-orange-500/10 border-orange-500/30'
-                      : 'bg-cyan-500/10 border-cyan-500/30'
+                      ? 'bg-orange-500/10 border-orange-500/30 hover:border-orange-400/50'
+                      : 'bg-cyan-500/10 border-cyan-500/30 hover:border-cyan-400/50'
                 }`}
               >
                 <div className="flex items-start justify-between gap-4">
@@ -99,8 +130,9 @@ export default function AnalyticsDashboard() {
                       Current: {alert.value} | Baseline: {alert.baseline} | Deviation: {alert.deviationPercent}%
                     </p>
                   </div>
+                  <span className="text-xs text-slate-500 shrink-0">{'\u2192'}</span>
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         )}
@@ -108,7 +140,10 @@ export default function AnalyticsDashboard() {
 
       {/* Operational Insights */}
       <section>
-        <h2 className="text-lg font-semibold text-white mb-4">Operational Insights</h2>
+        <h2 className="text-lg font-semibold text-white mb-4">
+          Operational Insights
+          <span className="text-sm font-normal text-slate-500 ml-2">({data.insights.length})</span>
+        </h2>
         {data.insights.length === 0 ? (
           <div className="bg-slate-800/50 rounded-xl p-5 border border-slate-700/50">
             <p className="text-slate-500">No actionable insights at this time.</p>
@@ -116,9 +151,15 @@ export default function AnalyticsDashboard() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {data.insights.map((insight) => (
-              <div
+              <button
                 key={insight.id}
-                className="bg-slate-800/50 rounded-xl p-5 border border-slate-700/50"
+                onClick={() => {
+                  const cat = insight.category.toLowerCase()
+                  if (cat === 'workload') router.push('/admin/reporting/technicians')
+                  else if (cat === 'quality' || cat === 'sla') router.push('/admin/reporting/companies')
+                  else router.push('/admin/reporting/health')
+                }}
+                className="text-left bg-slate-800/50 rounded-xl p-5 border border-slate-700/50 hover:border-cyan-500/30 transition-colors cursor-pointer"
               >
                 <div className="flex items-start gap-3 mb-2">
                   <SeverityBadge severity={insight.severity} />
@@ -133,7 +174,7 @@ export default function AnalyticsDashboard() {
                     {insight.recommendation}
                   </p>
                 )}
-              </div>
+              </button>
             ))}
           </div>
         )}
@@ -141,7 +182,10 @@ export default function AnalyticsDashboard() {
 
       {/* Predictive Trends */}
       <section>
-        <h2 className="text-lg font-semibold text-white mb-4">Predictive Trends (30-Day Forecast)</h2>
+        <h2 className="text-lg font-semibold text-white mb-4">
+          Predictive Trends (30-Day Forecast)
+          <span className="text-sm font-normal text-slate-500 ml-2">({data.predictions.length})</span>
+        </h2>
         {data.predictions.length === 0 ? (
           <div className="bg-slate-800/50 rounded-xl p-5 border border-slate-700/50">
             <p className="text-slate-500">Insufficient data for predictions (need 14+ days of history).</p>
@@ -149,9 +193,14 @@ export default function AnalyticsDashboard() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {data.predictions.map((pred) => (
-              <div
+              <button
                 key={pred.metric}
-                className="bg-slate-800/50 rounded-xl p-5 border border-slate-700/50"
+                onClick={() => {
+                  if (pred.metric.includes('ticket')) router.push('/admin/reporting/companies')
+                  else if (pred.metric.includes('resolution')) router.push('/admin/reporting/companies')
+                  else router.push('/admin/reporting/technicians')
+                }}
+                className="text-left bg-slate-800/50 rounded-xl p-5 border border-slate-700/50 hover:border-cyan-500/30 transition-colors cursor-pointer"
               >
                 <p className="text-sm text-slate-400 mb-2">{pred.label}</p>
                 <div className="flex items-end gap-3">
@@ -159,9 +208,7 @@ export default function AnalyticsDashboard() {
                     <p className="text-xs text-slate-500">Current</p>
                     <p className="text-xl font-bold text-white">{pred.currentValue}</p>
                   </div>
-                  <div className="text-slate-600 text-xl pb-0.5">
-                    {pred.direction === 'up' ? '\u2192' : pred.direction === 'down' ? '\u2192' : '\u2192'}
-                  </div>
+                  <div className="text-slate-600 text-xl pb-0.5">{'\u2192'}</div>
                   <div>
                     <p className="text-xs text-slate-500">Projected</p>
                     <p className={`text-xl font-bold ${
@@ -179,14 +226,23 @@ export default function AnalyticsDashboard() {
                   </span>
                   <ConfidenceBadge confidence={pred.confidence} />
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         )}
       </section>
 
-      {/* AI Report Assistant */}
-      <ReportAIAssistant context="analytics" data={data} />
+      {/* Date range */}
+      {data.meta?.period && (
+        <div className="bg-slate-800/30 rounded-lg px-4 py-3 border border-slate-700/30">
+          <div className="text-xs text-slate-500 flex flex-wrap gap-4">
+            <span>Data range: {data.meta.period.from} to {data.meta.period.to}</span>
+            {data.meta.generatedAt && (
+              <span>Generated: {new Date(data.meta.generatedAt).toLocaleString()}</span>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
