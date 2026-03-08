@@ -2,10 +2,12 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import ReportFilterBar from './ReportFilters'
 import StatCard from './StatCard'
 import TrendChart from './TrendChart'
 import PriorityBreakdownChart from './PriorityBreakdownChart'
+import ReportAIAssistant from './ReportAIAssistant'
 
 interface CompanySummary {
   companyId: string
@@ -49,6 +51,7 @@ interface AutotaskCompanyResult {
 
 export default function CompanyReport() {
   const searchParams = useSearchParams()
+  const router = useRouter()
   const [data, setData] = useState<CompanyReportData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -289,7 +292,11 @@ export default function CompanyReport() {
                 if (!search) return true
                 return company.displayName.toLowerCase().includes(search.toLowerCase())
               }).map((company) => (
-                <tr key={company.companyId} className="border-b border-slate-700/30 hover:bg-slate-700/20">
+                <tr
+                  key={company.companyId}
+                  onClick={() => router.push(`/admin/reporting/companies?company=${company.companyId}`)}
+                  className="border-b border-slate-700/30 hover:bg-slate-700/20 cursor-pointer"
+                >
                   <td className="px-4 py-3">
                     <div className="text-sm text-white truncate max-w-[200px]">{company.displayName}</div>
                   </td>
@@ -328,6 +335,19 @@ export default function CompanyReport() {
               )}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {/* AI Report Assistant */}
+      <ReportAIAssistant context="companies" data={data} />
+
+      {/* Date range */}
+      <div className="bg-slate-800/30 rounded-lg px-4 py-3 border border-slate-700/30">
+        <div className="text-xs text-slate-500 flex flex-wrap gap-4">
+          <span>Data range: {data.meta.period.from} to {data.meta.period.to}</span>
+          {data.meta.dataFreshness && (
+            <span>Last sync: {new Date(data.meta.dataFreshness).toLocaleString()}</span>
+          )}
         </div>
       </div>
     </div>

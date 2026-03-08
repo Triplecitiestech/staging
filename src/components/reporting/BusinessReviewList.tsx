@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
+import ReportAIAssistant from './ReportAIAssistant'
 
 interface ReviewSummary {
   id: string
@@ -26,6 +27,7 @@ export default function BusinessReviewList() {
   const [companies, setCompanies] = useState<CompanyOption[]>([])
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
+  const [deleting, setDeleting] = useState<string | null>(null)
   const [companiesError, setCompaniesError] = useState<string | null>(null)
   const [reviewsError, setReviewsError] = useState<string | null>(null)
   const [generateError, setGenerateError] = useState<string | null>(null)
@@ -132,6 +134,18 @@ export default function BusinessReviewList() {
     }
 
     setGenerating(false)
+  }
+
+  const deleteReview = async (id: string) => {
+    if (!confirm('Delete this business review?')) return
+    setDeleting(id)
+    try {
+      const res = await fetch(`/api/reports/business-review/${id}`, { method: 'DELETE' })
+      if (res.ok) {
+        setReviews(prev => prev.filter(r => r.id !== id))
+      }
+    } catch { /* ignore */ }
+    setDeleting(null)
   }
 
   return (
@@ -299,6 +313,13 @@ export default function BusinessReviewList() {
                         >
                           PDF
                         </a>
+                        <button
+                          onClick={() => deleteReview(review.id)}
+                          disabled={deleting === review.id}
+                          className="text-xs text-rose-400 hover:text-rose-300 disabled:opacity-50"
+                        >
+                          {deleting === review.id ? '...' : 'Delete'}
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -315,6 +336,9 @@ export default function BusinessReviewList() {
           </div>
         </div>
       )}
+
+      {/* AI Report Assistant */}
+      <ReportAIAssistant context="business-review" data={{ reviewCount: reviews.length, reviews: reviews.slice(0, 10) }} />
     </div>
   )
 }

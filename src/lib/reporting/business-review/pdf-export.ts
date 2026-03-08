@@ -39,76 +39,77 @@ export function generatePrintableHTML(
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
-    color: #1e293b;
-    background: #ffffff;
+    color: #e2e8f0;
+    background: #0f172a;
     line-height: 1.6;
     font-size: 11pt;
   }
   .cover {
     background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0e7490 100%);
     color: #ffffff;
-    padding: 80px 60px;
-    min-height: 300px;
+    padding: 60px 60px 80px;
+    min-height: 320px;
     display: flex;
     flex-direction: column;
     justify-content: center;
     border-radius: 0 0 24px 24px;
   }
+  .cover .logo { height: 48px; margin-bottom: 32px; }
+  .cover .brand-title { font-size: 14pt; color: #06b6d4; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 24px; }
   .cover h1 { font-size: 32pt; font-weight: 800; margin-bottom: 8px; }
   .cover h2 { font-size: 18pt; font-weight: 400; color: #06b6d4; margin-bottom: 24px; }
   .cover .meta { font-size: 11pt; color: #94a3b8; }
-  .cover .brand { font-size: 12pt; color: #06b6d4; font-weight: 600; margin-top: 32px; letter-spacing: 1px; }
   .content { padding: 40px 60px; }
-  .section { margin-bottom: 32px; }
+  .section { margin-bottom: 32px; background: #1e293b; border: 1px solid #334155; border-radius: 16px; padding: 24px 28px; }
   .section-title {
     font-size: 16pt;
     font-weight: 700;
-    color: #0e7490;
-    border-bottom: 2px solid #e2e8f0;
+    color: #06b6d4;
+    border-bottom: 2px solid #334155;
     padding-bottom: 8px;
     margin-bottom: 16px;
   }
-  .narrative { font-size: 11pt; color: #334155; line-height: 1.8; margin-bottom: 16px; }
+  .narrative { font-size: 11pt; color: #cbd5e1; line-height: 1.8; margin-bottom: 16px; }
   .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
   .stat-card {
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
+    background: #0f172a;
+    border: 1px solid #334155;
     border-radius: 12px;
     padding: 16px;
     text-align: center;
   }
-  .stat-label { font-size: 9pt; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
-  .stat-value { font-size: 22pt; font-weight: 800; color: #0f172a; margin-top: 4px; }
-  .stat-sub { font-size: 9pt; color: #94a3b8; margin-top: 2px; }
+  .stat-label { font-size: 9pt; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat-value { font-size: 22pt; font-weight: 800; color: #ffffff; margin-top: 4px; }
+  .stat-sub { font-size: 9pt; color: #64748b; margin-top: 2px; }
   .change-up { color: #ef4444; }
-  .change-down { color: #10b981; }
-  .change-flat { color: #64748b; }
+  .change-down { color: #34d399; }
+  .change-flat { color: #94a3b8; }
   table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
   th {
-    background: #f1f5f9;
-    color: #64748b;
+    background: #0f172a;
+    color: #94a3b8;
     font-size: 9pt;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
     padding: 10px 12px;
     text-align: left;
-    border-bottom: 2px solid #e2e8f0;
+    border-bottom: 2px solid #334155;
   }
-  td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-size: 10pt; }
+  td { padding: 10px 12px; border-bottom: 1px solid #1e293b; font-size: 10pt; color: #e2e8f0; }
   .rec-card {
-    background: #f0f9ff;
-    border: 1px solid #bae6fd;
+    background: #0f172a;
+    border: 1px solid #334155;
     border-radius: 12px;
     padding: 16px;
     margin-bottom: 12px;
   }
-  .rec-card.high { border-color: #fecaca; background: #fef2f2; }
-  .rec-card.medium { border-color: #bae6fd; background: #f0f9ff; }
-  .rec-card.low { border-color: #e2e8f0; background: #f8fafc; }
-  .rec-title { font-size: 11pt; font-weight: 700; color: #0f172a; margin-bottom: 4px; }
-  .rec-desc { font-size: 10pt; color: #334155; margin-bottom: 8px; }
-  .rec-evidence { font-size: 9pt; color: #64748b; font-style: italic; }
+  .rec-card.high { border-color: rgba(239,68,68,0.3); background: rgba(239,68,68,0.05); }
+  .rec-card.medium { border-color: rgba(6,182,212,0.3); background: rgba(6,182,212,0.05); }
+  .rec-card.low { border-color: #334155; background: #0f172a; }
+  .rec-title { font-size: 11pt; font-weight: 700; color: #ffffff; margin-bottom: 4px; }
+  .rec-desc { font-size: 10pt; color: #cbd5e1; margin-bottom: 8px; }
+  .rec-evidence { font-size: 9pt; color: #94a3b8; font-style: italic; }
   .rec-badge {
     display: inline-block;
     font-size: 8pt;
@@ -119,9 +120,9 @@ export function generatePrintableHTML(
     border-radius: 4px;
     margin-right: 8px;
   }
-  .badge-high { background: #fecaca; color: #991b1b; }
-  .badge-medium { background: #bae6fd; color: #075985; }
-  .badge-low { background: #e2e8f0; color: #475569; }
+  .badge-high { background: rgba(239,68,68,0.2); color: #fca5a5; }
+  .badge-medium { background: rgba(6,182,212,0.2); color: #67e8f9; }
+  .badge-low { background: #334155; color: #94a3b8; }
   .health-score {
     display: inline-block;
     width: 80px;
@@ -139,15 +140,15 @@ export function generatePrintableHTML(
   .health-critical { background: #ef4444; }
   .priority-bar {
     height: 24px;
-    border-radius: 4px;
+    border-radius: 8px;
     display: flex;
     overflow: hidden;
     margin-bottom: 12px;
   }
   .internal-banner {
-    background: #fef3c7;
-    border: 1px solid #fbbf24;
-    color: #92400e;
+    background: rgba(249,115,22,0.1);
+    border: 1px solid rgba(249,115,22,0.3);
+    color: #fb923c;
     padding: 8px 16px;
     border-radius: 8px;
     font-size: 10pt;
@@ -158,8 +159,8 @@ export function generatePrintableHTML(
   .footer {
     margin-top: 48px;
     padding-top: 16px;
-    border-top: 1px solid #e2e8f0;
-    color: #94a3b8;
+    border-top: 1px solid #334155;
+    color: #64748b;
     font-size: 9pt;
     text-align: center;
   }
@@ -169,10 +170,11 @@ export function generatePrintableHTML(
 
 <!-- COVER -->
 <div class="cover">
+  <img src="/logo/tctlogo.webp" alt="Triple Cities Tech" class="logo" onerror="this.style.display='none'" />
+  <div class="brand-title">TRIPLE CITIES TECH</div>
   <h2>${data.period.type === 'monthly' ? 'Monthly Business Review' : 'Quarterly Business Review'}</h2>
   <h1>${data.company.name}</h1>
   <div class="meta">${data.period.label} &mdash; ${data.period.start} to ${data.period.end}</div>
-  <div class="brand">TRIPLE CITIES TECH</div>
 </div>
 
 <div class="content">
@@ -257,9 +259,9 @@ ${data.topThemes.length > 0 ? `
   <div style="display: flex; align-items: center; gap: 24px; margin-bottom: 16px;">
     <div class="health-score ${healthClass(data.healthSnapshot.tier)}">${Math.round(data.healthSnapshot.overallScore)}</div>
     <div>
-      <div style="font-size: 16pt; font-weight: 700; color: #0f172a;">${data.healthSnapshot.tier}</div>
-      ${data.healthSnapshot.trend ? `<div style="font-size: 10pt; color: #64748b;">Trend: ${data.healthSnapshot.trend}</div>` : ''}
-      ${data.healthSnapshot.previousScore !== null ? `<div style="font-size: 10pt; color: #64748b;">Previous: ${Math.round(data.healthSnapshot.previousScore)}</div>` : ''}
+      <div style="font-size: 16pt; font-weight: 700; color: #ffffff;">${data.healthSnapshot.tier}</div>
+      ${data.healthSnapshot.trend ? `<div style="font-size: 10pt; color: #94a3b8;">Trend: ${data.healthSnapshot.trend}</div>` : ''}
+      ${data.healthSnapshot.previousScore !== null ? `<div style="font-size: 10pt; color: #94a3b8;">Previous: ${Math.round(data.healthSnapshot.previousScore)}</div>` : ''}
     </div>
   </div>` : ''}
   <div class="narrative">${narrative.healthNarrative}</div>
