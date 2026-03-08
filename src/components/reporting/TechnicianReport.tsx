@@ -238,6 +238,7 @@ export default function TechnicianReport() {
         <StatCard
           label="Avg Resolution"
           value={data.comparison?.avgResolution ? formatMinutes(data.comparison.avgResolution.current) : 'N/A'}
+          invertTrend
           trend={data.comparison?.avgResolution ? {
             direction: data.comparison.avgResolution.direction as 'up' | 'down' | 'flat',
             percent: data.comparison.avgResolution.changePercent,
