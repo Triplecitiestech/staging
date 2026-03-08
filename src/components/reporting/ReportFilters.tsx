@@ -144,43 +144,67 @@ export default function ReportFilterBar({
           ))}
         </div>
 
-        {/* Toggle buttons */}
+        {/* Toggle buttons with info tooltips */}
         <div className="flex items-center gap-2">
           {showTrend && (
-            <button
-              onClick={() => updateParams({ trend: trend ? null : 'true' })}
-              className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${
-                trend
-                  ? 'border-cyan-500 text-cyan-400 bg-cyan-500/10'
-                  : 'border-slate-600 text-slate-400 hover:border-slate-500'
-              }`}
-            >
-              Trend
-            </button>
+            <div className="relative group">
+              <button
+                onClick={() => updateParams({ trend: trend ? null : 'true' })}
+                className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${
+                  trend
+                    ? 'border-cyan-500 text-cyan-400 bg-cyan-500/10'
+                    : 'border-slate-600 text-slate-400 hover:border-slate-500'
+                }`}
+              >
+                Trend
+              </button>
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-50 pointer-events-none">
+                <div className="bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-xs text-slate-300 whitespace-nowrap shadow-lg">
+                  Show a timeline chart of how metrics change over the selected period.
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900 border-r border-b border-slate-600 rotate-45 -mt-1" />
+                </div>
+              </div>
+            </div>
           )}
           {showComparison && (
-            <button
-              onClick={() => updateParams({ compare: compare ? null : 'true' })}
-              className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${
-                compare
-                  ? 'border-cyan-500 text-cyan-400 bg-cyan-500/10'
-                  : 'border-slate-600 text-slate-400 hover:border-slate-500'
-              }`}
-            >
-              Compare
-            </button>
+            <div className="relative group">
+              <button
+                onClick={() => updateParams({ compare: compare ? null : 'true' })}
+                className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${
+                  compare
+                    ? 'border-cyan-500 text-cyan-400 bg-cyan-500/10'
+                    : 'border-slate-600 text-slate-400 hover:border-slate-500'
+                }`}
+              >
+                Compare
+              </button>
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-50 pointer-events-none">
+                <div className="bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-xs text-slate-300 whitespace-nowrap shadow-lg">
+                  Compare current period vs the previous equal-length period (e.g. last 30d vs prior 30d).
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900 border-r border-b border-slate-600 rotate-45 -mt-1" />
+                </div>
+              </div>
+            </div>
           )}
           {showBreakdown && (
-            <button
-              onClick={() => updateParams({ breakdown: breakdown ? null : 'true' })}
-              className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${
-                breakdown
-                  ? 'border-cyan-500 text-cyan-400 bg-cyan-500/10'
-                  : 'border-slate-600 text-slate-400 hover:border-slate-500'
-              }`}
-            >
-              Details
-            </button>
+            <div className="relative group">
+              <button
+                onClick={() => updateParams({ breakdown: breakdown ? null : 'true' })}
+                className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${
+                  breakdown
+                    ? 'border-cyan-500 text-cyan-400 bg-cyan-500/10'
+                    : 'border-slate-600 text-slate-400 hover:border-slate-500'
+                }`}
+              >
+                Details
+              </button>
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-50 pointer-events-none">
+                <div className="bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-xs text-slate-300 whitespace-nowrap shadow-lg">
+                  Show priority breakdown, SLA benchmarks, and performance targets.
+                  <div className="absolute top-full left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900 border-r border-b border-slate-600 rotate-45 -mt-1" />
+                </div>
+              </div>
+            </div>
           )}
         </div>
       </div>

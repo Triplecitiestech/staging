@@ -143,9 +143,36 @@ async function aggregateCompanyForDay(date: Date): Promise<AggregationResult> {
       const ticketsCreatedMedium = ticketsCreatedList.filter(t => t.priority === 3).length;
       const ticketsCreatedLow = ticketsCreatedList.filter(t => t.priority === 4).length;
 
-      const ticketsClosed = await prisma.ticketLifecycle.count({
+      // Count tickets closed this day: resolved with completedDate in range,
+      // OR resolved with null completedDate but status history shows resolution this day
+      const ticketsClosedWithDate = await prisma.ticketLifecycle.count({
         where: { companyId: company.id, isResolved: true, completedDate: { gte: dayStart, lte: dayEnd } },
       });
+      const ticketsClosedNullDate = await prisma.ticketLifecycle.count({
+        where: {
+          companyId: company.id,
+          isResolved: true,
+          completedDate: null,
+          // Use the ticket's last status change into resolved as the "closed" date
+          autotaskTicketId: {
+            in: (await prisma.ticketStatusHistory.findMany({
+              where: {
+                changedAt: { gte: dayStart, lte: dayEnd },
+                newStatus: { in: [5, 13, 29] },
+                autotaskTicketId: {
+                  in: (await prisma.ticket.findMany({
+                    where: { companyId: company.id, completedDate: null, status: { in: [5, 13, 29] } },
+                    select: { autotaskTicketId: true },
+                  })).map(t => t.autotaskTicketId),
+                },
+              },
+              select: { autotaskTicketId: true },
+              distinct: ['autotaskTicketId'],
+            })).map(h => h.autotaskTicketId),
+          },
+        },
+      });
+      const ticketsClosed = ticketsClosedWithDate + ticketsClosedNullDate;
 
       const companyTicketIds = (await prisma.ticket.findMany({
         where: { companyId: company.id },
@@ -171,10 +198,33 @@ async function aggregateCompanyForDay(date: Date): Promise<AggregationResult> {
       const supportHoursConsumed = companyTimeEntries.reduce((sum, e) => sum + e.hoursWorked, 0);
       const billableHoursConsumed = companyTimeEntries.filter(e => !e.isNonBillable).reduce((sum, e) => sum + e.hoursWorked, 0);
 
-      const closedLifecycles = await prisma.ticketLifecycle.findMany({
+      // Get lifecycle data for all tickets resolved this day (with or without completedDate)
+      const closedWithDateLc = await prisma.ticketLifecycle.findMany({
         where: { companyId: company.id, isResolved: true, completedDate: { gte: dayStart, lte: dayEnd } },
         select: { firstResponseMinutes: true, fullResolutionMinutes: true, isFirstTouchResolution: true, reopenCount: true, slaResponseMet: true, slaResolutionMet: true },
       });
+      // Also grab lifecycles for null-completedDate tickets resolved this day (from status history)
+      const nullDateResolvedIds = (await prisma.ticketStatusHistory.findMany({
+        where: {
+          changedAt: { gte: dayStart, lte: dayEnd },
+          newStatus: { in: [5, 13, 29] },
+          autotaskTicketId: {
+            in: (await prisma.ticket.findMany({
+              where: { companyId: company.id, completedDate: null, status: { in: [5, 13, 29] } },
+              select: { autotaskTicketId: true },
+            })).map(t => t.autotaskTicketId),
+          },
+        },
+        select: { autotaskTicketId: true },
+        distinct: ['autotaskTicketId'],
+      })).map(h => h.autotaskTicketId);
+      const closedNullDateLc = nullDateResolvedIds.length > 0
+        ? await prisma.ticketLifecycle.findMany({
+            where: { autotaskTicketId: { in: nullDateResolvedIds }, companyId: company.id },
+            select: { firstResponseMinutes: true, fullResolutionMinutes: true, isFirstTouchResolution: true, reopenCount: true, slaResponseMet: true, slaResolutionMet: true },
+          })
+        : [];
+      const closedLifecycles = [...closedWithDateLc, ...closedNullDateLc];
 
       const frtValues = closedLifecycles.map(l => l.firstResponseMinutes).filter((v): v is number => v !== null);
       const resolutionValues = closedLifecycles.map(l => l.fullResolutionMinutes).filter((v): v is number => v !== null);
@@ -259,13 +309,39 @@ async function aggregateTechnicianForDay(date: Date): Promise<AggregationResult>
         },
       });
 
-      const ticketsClosed = await prisma.ticketLifecycle.count({
+      // Count resolved tickets: with completedDate in range OR resolved with null completedDate
+      // but status history shows they transitioned to resolved this day
+      const ticketsClosedWithDate = await prisma.ticketLifecycle.count({
         where: {
           assignedResourceId: resourceId,
           isResolved: true,
           completedDate: { gte: dayStart, lte: dayEnd },
         },
       });
+      const ticketsClosedNullDate = await prisma.ticketLifecycle.count({
+        where: {
+          assignedResourceId: resourceId,
+          isResolved: true,
+          completedDate: null,
+          autotaskTicketId: {
+            in: (await prisma.ticketStatusHistory.findMany({
+              where: {
+                changedAt: { gte: dayStart, lte: dayEnd },
+                newStatus: { in: [5, 13, 29] },
+                autotaskTicketId: {
+                  in: (await prisma.ticket.findMany({
+                    where: { assignedResourceId: resourceId, completedDate: null, status: { in: [5, 13, 29] } },
+                    select: { autotaskTicketId: true },
+                  })).map(t => t.autotaskTicketId),
+                },
+              },
+              select: { autotaskTicketId: true },
+              distinct: ['autotaskTicketId'],
+            })).map(h => h.autotaskTicketId),
+          },
+        },
+      });
+      const ticketsClosed = ticketsClosedWithDate + ticketsClosedNullDate;
 
       const ticketsReopened = await prisma.ticketStatusHistory.count({
         where: {
@@ -290,14 +366,32 @@ async function aggregateTechnicianForDay(date: Date): Promise<AggregationResult>
       const billableHoursLogged = timeEntries.filter(e => !e.isNonBillable).reduce((sum, e) => sum + e.hoursWorked, 0);
       const nonBillableHoursLogged = timeEntries.filter(e => e.isNonBillable).reduce((sum, e) => sum + e.hoursWorked, 0);
 
-      const closedLifecycles = await prisma.ticketLifecycle.findMany({
-        where: {
-          assignedResourceId: resourceId,
-          isResolved: true,
-          completedDate: { gte: dayStart, lte: dayEnd },
-        },
+      // Combine resolved tickets with completedDate + those resolved via status history
+      const closedWithDateTechLc = await prisma.ticketLifecycle.findMany({
+        where: { assignedResourceId: resourceId, isResolved: true, completedDate: { gte: dayStart, lte: dayEnd } },
         select: { firstResponseMinutes: true, fullResolutionMinutes: true, isFirstTouchResolution: true },
       });
+      const nullDateTechIds = (await prisma.ticketStatusHistory.findMany({
+        where: {
+          changedAt: { gte: dayStart, lte: dayEnd },
+          newStatus: { in: [5, 13, 29] },
+          autotaskTicketId: {
+            in: (await prisma.ticket.findMany({
+              where: { assignedResourceId: resourceId, completedDate: null, status: { in: [5, 13, 29] } },
+              select: { autotaskTicketId: true },
+            })).map(t => t.autotaskTicketId),
+          },
+        },
+        select: { autotaskTicketId: true },
+        distinct: ['autotaskTicketId'],
+      })).map(h => h.autotaskTicketId);
+      const closedNullDateTechLc = nullDateTechIds.length > 0
+        ? await prisma.ticketLifecycle.findMany({
+            where: { autotaskTicketId: { in: nullDateTechIds }, assignedResourceId: resourceId },
+            select: { firstResponseMinutes: true, fullResolutionMinutes: true, isFirstTouchResolution: true },
+          })
+        : [];
+      const closedLifecycles = [...closedWithDateTechLc, ...closedNullDateTechLc];
 
       const frtValues = closedLifecycles.map(l => l.firstResponseMinutes).filter((v): v is number => v !== null);
       const resolutionValues = closedLifecycles.map(l => l.fullResolutionMinutes).filter((v): v is number => v !== null);

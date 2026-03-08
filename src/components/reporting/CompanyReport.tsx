@@ -253,6 +253,35 @@ export default function CompanyReport() {
         <StatCard label="Companies" value={data.summary.length} />
       </div>
 
+      {/* SLA Summary Row */}
+      {(() => {
+        const slaValues = data.summary.map(c => c.slaCompliance).filter((v): v is number => v !== null)
+        const avgSla = slaValues.length > 0
+          ? Math.round(slaValues.reduce((a, b) => a + b, 0) / slaValues.length * 10) / 10
+          : null
+        const companiesMeetingSla = data.summary.filter(c => c.slaCompliance !== null && c.slaCompliance >= 90).length
+        const companiesBelowSla = data.summary.filter(c => c.slaCompliance !== null && c.slaCompliance < 90).length
+        return (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <StatCard
+              label="Overall SLA Compliance"
+              value={avgSla !== null ? `${avgSla}%` : 'N/A'}
+              subValue={slaValues.length > 0 ? `Based on ${slaValues.length} companies` : 'No SLA data yet'}
+            />
+            <StatCard
+              label="Meeting SLA (90%+)"
+              value={companiesMeetingSla}
+              subValue={`${data.summary.length > 0 ? Math.round(companiesMeetingSla / data.summary.length * 100) : 0}% of companies`}
+            />
+            <StatCard
+              label="Below SLA Target"
+              value={companiesBelowSla}
+              subValue={companiesBelowSla > 0 ? 'Needs attention' : 'All on target'}
+            />
+          </div>
+        )
+      })()}
+
       {data.trend && data.trend.length > 0 && (
         <TrendChart data={data.trend} title="Ticket Volume by Company" />
       )}
@@ -294,7 +323,10 @@ export default function CompanyReport() {
               }).map((company) => (
                 <tr
                   key={company.companyId}
-                  onClick={() => router.push(`/admin/reporting/companies?company=${company.companyId}`)}
+                  onClick={() => {
+                    const params = new URLSearchParams(searchParams.toString())
+                    router.push(`/admin/reporting/companies/${company.companyId}?${params.toString()}`)
+                  }}
                   className="border-b border-slate-700/30 hover:bg-slate-700/20 cursor-pointer"
                 >
                   <td className="px-4 py-3">

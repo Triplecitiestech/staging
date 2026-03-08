@@ -58,13 +58,20 @@ export async function GET() {
     console.warn('[reports/selectors] Resources query failed:', resourcesResult.error);
   }
 
+  // Filter out API/system users from technician list
+  const API_USER_PATTERNS = [/\bapi\b/i, /\badministrator\b/i, /\bdashboard user\b/i, /\bsystem\b/i];
+  const filteredTechnicians = resourcesResult.data.filter((r) => {
+    const fullName = `${r.firstName} ${r.lastName}`.trim();
+    return !API_USER_PATTERNS.some(p => p.test(fullName) || p.test(r.email));
+  });
+
   return NextResponse.json({
     companies: companiesResult.data.map((c) => ({
       id: c.id,
       displayName: c.displayName,
       hasAutotask: !!c.autotaskCompanyId,
     })),
-    technicians: resourcesResult.data.map((r) => ({
+    technicians: filteredTechnicians.map((r) => ({
       id: r.id,
       autotaskResourceId: r.autotaskResourceId,
       name: `${r.firstName} ${r.lastName}`.trim(),
