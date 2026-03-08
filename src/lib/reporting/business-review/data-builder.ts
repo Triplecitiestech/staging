@@ -41,10 +41,23 @@ export async function buildReportData(
   const prevStart = new Date(periodStart.getTime() - periodMs);
   const prevEnd = new Date(periodStart.getTime());
 
-  // Query raw tickets directly — no dependency on materialized tables
+  // Query tickets that were ACTIVE during the period:
+  // - Created during the period, OR
+  // - Closed/completed during the period (created earlier), OR
+  // - Still open and created before the period end
   const [currentTickets, prevTickets] = await Promise.all([
     prisma.ticket.findMany({
-      where: { companyId, createDate: { gte: periodStart, lte: periodEnd } },
+      where: {
+        companyId,
+        OR: [
+          // Tickets created during the period
+          { createDate: { gte: periodStart, lte: periodEnd } },
+          // Tickets closed during the period (created earlier)
+          { completedDate: { gte: periodStart, lte: periodEnd } },
+          // Open tickets that existed during the period
+          { createDate: { lte: periodEnd }, status: { notIn: Array.from(resolvedSet) } },
+        ],
+      },
       select: {
         autotaskTicketId: true, status: true, priority: true,
         createDate: true, completedDate: true, assignedResourceId: true,
@@ -52,7 +65,13 @@ export async function buildReportData(
       },
     }),
     prisma.ticket.findMany({
-      where: { companyId, createDate: { gte: prevStart, lt: prevEnd } },
+      where: {
+        companyId,
+        OR: [
+          { createDate: { gte: prevStart, lt: prevEnd } },
+          { completedDate: { gte: prevStart, lt: prevEnd } },
+        ],
+      },
       select: {
         autotaskTicketId: true, status: true, priority: true,
         createDate: true, completedDate: true,
@@ -60,25 +79,37 @@ export async function buildReportData(
     }),
   ]);
 
-  // Time entries for hours
-  const ticketIds = currentTickets.map(t => t.autotaskTicketId);
-  const prevTicketIds = prevTickets.map(t => t.autotaskTicketId);
+  // Time entries for hours — query by dateWorked in period, not by ticket ID
+  // This captures all work done for this company during the period
+  const allCompanyTicketIds = await prisma.ticket.findMany({
+    where: { companyId },
+    select: { autotaskTicketId: true },
+  });
+  const allTicketIds = allCompanyTicketIds.map(t => t.autotaskTicketId);
+
   const [timeEntries, prevTimeEntries] = await Promise.all([
-    ticketIds.length > 0
+    allTicketIds.length > 0
       ? prisma.ticketTimeEntry.findMany({
-          where: { autotaskTicketId: { in: ticketIds } },
+          where: {
+            autotaskTicketId: { in: allTicketIds },
+            dateWorked: { gte: periodStart, lte: periodEnd },
+          },
           select: { autotaskTicketId: true, hoursWorked: true, isNonBillable: true },
         })
       : Promise.resolve([]),
-    prevTicketIds.length > 0
+    allTicketIds.length > 0
       ? prisma.ticketTimeEntry.findMany({
-          where: { autotaskTicketId: { in: prevTicketIds } },
+          where: {
+            autotaskTicketId: { in: allTicketIds },
+            dateWorked: { gte: prevStart, lt: prevEnd },
+          },
           select: { hoursWorked: true, isNonBillable: true },
         })
       : Promise.resolve([]),
   ]);
 
-  // Notes for FRT
+  // Notes for FRT — need first note for all active tickets in period
+  const ticketIds = currentTickets.map(t => t.autotaskTicketId);
   const notes = ticketIds.length > 0
     ? await prisma.ticketNote.findMany({
         where: { autotaskTicketId: { in: ticketIds }, creatorResourceId: { not: null } },
@@ -94,22 +125,32 @@ export async function buildReportData(
   }
 
   // Compute metrics from raw data
-  const created = currentTickets.length;
-  const closed = currentTickets.filter(t => resolvedSet.has(t.status)).length;
+  // "Created" = tickets whose createDate falls in the period
+  // "Closed" = tickets completed during the period (regardless of when created)
+  const created = currentTickets.filter(t => t.createDate >= periodStart && t.createDate <= periodEnd).length;
+  const closed = currentTickets.filter(t =>
+    resolvedSet.has(t.status) && t.completedDate &&
+    t.completedDate >= periodStart && t.completedDate <= periodEnd
+  ).length;
   const hours = timeEntries.reduce((s, e) => s + e.hoursWorked, 0);
   const billable = timeEntries.filter(e => !e.isNonBillable).reduce((s, e) => s + e.hoursWorked, 0);
 
-  // Per-priority counts
+  // Per-priority counts (tickets created in period)
+  const createdInPeriod = currentTickets.filter(t => t.createDate >= periodStart && t.createDate <= periodEnd);
   const priorityCounts: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
-  for (const t of currentTickets) {
+  for (const t of createdInPeriod) {
     if (priorityCounts[t.priority] !== undefined) priorityCounts[t.priority]++;
   }
 
-  // Resolution and FRT metrics
+  // Resolution and FRT metrics (for tickets closed in this period)
+  const closedInPeriod = currentTickets.filter(t =>
+    resolvedSet.has(t.status) && t.completedDate &&
+    t.completedDate >= periodStart && t.completedDate <= periodEnd
+  );
   const resolutionMinutes: number[] = [];
   const frtMinutes: number[] = [];
-  for (const t of currentTickets) {
-    if (resolvedSet.has(t.status) && t.completedDate) {
+  for (const t of closedInPeriod) {
+    if (t.completedDate) {
       const mins = (t.completedDate.getTime() - t.createDate.getTime()) / (1000 * 60);
       if (mins > 0) resolutionMinutes.push(mins);
     }
@@ -119,9 +160,19 @@ export async function buildReportData(
       if (frt >= 0) frtMinutes.push(frt);
     }
   }
+  // Also get FRT for tickets created in period (even if not yet closed)
+  for (const t of createdInPeriod) {
+    if (!closedInPeriod.some(c => c.autotaskTicketId === t.autotaskTicketId)) {
+      const firstNote = firstNoteByTicket.get(t.autotaskTicketId);
+      if (firstNote) {
+        const frt = (firstNote.getTime() - t.createDate.getTime()) / (1000 * 60);
+        if (frt >= 0) frtMinutes.push(frt);
+      }
+    }
+  }
 
-  // SLA from dueDateTime
-  const slaTickets = currentTickets.filter(t => resolvedSet.has(t.status) && t.completedDate && t.dueDateTime);
+  // SLA from dueDateTime (tickets closed in period)
+  const slaTickets = closedInPeriod.filter(t => t.dueDateTime);
   const slaMet = slaTickets.filter(t => t.completedDate! <= t.dueDateTime!).length;
   const slaCompliance = slaTickets.length > 0 ? round1((slaMet / slaTickets.length) * 100) : null;
 
@@ -148,11 +199,15 @@ export async function buildReportData(
   });
 
   // Previous period metrics
-  const prevCreated = prevTickets.length;
-  const prevClosed = prevTickets.filter(t => resolvedSet.has(t.status)).length;
+  const prevCreated = prevTickets.filter(t => t.createDate >= prevStart && t.createDate < prevEnd).length;
+  const prevClosed = prevTickets.filter(t =>
+    resolvedSet.has(t.status) && t.completedDate &&
+    t.completedDate >= prevStart && t.completedDate < prevEnd
+  ).length;
   const prevHours = prevTimeEntries.reduce((s, e) => s + e.hoursWorked, 0);
   const prevResMinutes = prevTickets
-    .filter(t => resolvedSet.has(t.status) && t.completedDate)
+    .filter(t => resolvedSet.has(t.status) && t.completedDate &&
+      t.completedDate >= prevStart && t.completedDate < prevEnd)
     .map(t => (t.completedDate!.getTime() - t.createDate.getTime()) / (1000 * 60))
     .filter(m => m > 0);
   const prevMetrics = [{
