@@ -1,10 +1,10 @@
 /**
  * Data builder: collects and structures all metrics for a business review report.
- * Pulls from materialized reporting tables, not raw Autotask data.
+ * Uses real-time queries from raw Ticket tables for accurate data.
  */
 
 import { prisma } from '@/lib/prisma';
-import { PRIORITY_LABELS } from '../types';
+import { PRIORITY_LABELS, RESOLVED_STATUSES } from '../types';
 import {
   ReviewReportData,
   SupportActivityData,
@@ -18,68 +18,148 @@ import {
   ReportType,
 } from './types';
 
+const resolvedSet = new Set(RESOLVED_STATUSES as unknown as number[]);
+
 export async function buildReportData(
   companyId: string,
   reportType: ReportType,
   periodStart: Date,
   periodEnd: Date,
 ): Promise<ReviewReportData> {
-  // Resolve company name
   const company = await prisma.company.findUnique({
     where: { id: companyId },
     select: { id: true, displayName: true },
   });
-
   if (!company) throw new Error(`Company not found: ${companyId}`);
 
-  // Build period label
   const periodLabel = reportType === 'monthly'
     ? formatMonthLabel(periodStart)
     : formatQuarterLabel(periodStart, periodEnd);
 
-  // Fetch daily metrics for the period
-  let dailyMetrics = await prisma.companyMetricsDaily.findMany({
-    where: {
-      companyId,
-      date: { gte: periodStart, lte: periodEnd },
-    },
-    orderBy: { date: 'asc' },
-  });
-
-  // Previous period for comparison
+  // Previous period
   const periodMs = periodEnd.getTime() - periodStart.getTime();
   const prevStart = new Date(periodStart.getTime() - periodMs);
   const prevEnd = new Date(periodStart.getTime());
 
-  let prevMetrics = await prisma.companyMetricsDaily.findMany({
-    where: {
-      companyId,
-      date: { gte: prevStart, lt: prevEnd },
-    },
-  });
+  // Query raw tickets directly — no dependency on materialized tables
+  const [currentTickets, prevTickets] = await Promise.all([
+    prisma.ticket.findMany({
+      where: { companyId, createDate: { gte: periodStart, lte: periodEnd } },
+      select: {
+        autotaskTicketId: true, status: true, priority: true,
+        createDate: true, completedDate: true, assignedResourceId: true,
+        dueDateTime: true,
+      },
+    }),
+    prisma.ticket.findMany({
+      where: { companyId, createDate: { gte: prevStart, lt: prevEnd } },
+      select: {
+        autotaskTicketId: true, status: true, priority: true,
+        createDate: true, completedDate: true,
+      },
+    }),
+  ]);
 
-  // Fetch lifecycle records for detailed analysis
-  let lifecycles = await prisma.ticketLifecycle.findMany({
-    where: {
-      companyId,
-      createDate: { gte: periodStart, lte: periodEnd },
-    },
-  });
+  // Time entries for hours
+  const ticketIds = currentTickets.map(t => t.autotaskTicketId);
+  const prevTicketIds = prevTickets.map(t => t.autotaskTicketId);
+  const [timeEntries, prevTimeEntries] = await Promise.all([
+    ticketIds.length > 0
+      ? prisma.ticketTimeEntry.findMany({
+          where: { autotaskTicketId: { in: ticketIds } },
+          select: { autotaskTicketId: true, hoursWorked: true, isNonBillable: true },
+        })
+      : Promise.resolve([]),
+    prevTicketIds.length > 0
+      ? prisma.ticketTimeEntry.findMany({
+          where: { autotaskTicketId: { in: prevTicketIds } },
+          select: { hoursWorked: true, isNonBillable: true },
+        })
+      : Promise.resolve([]),
+  ]);
 
-  // FALLBACK: If materialized tables are empty, compute from raw ticket data
-  if (dailyMetrics.length === 0) {
-    const rawMetrics = await buildFromRawTickets(companyId, periodStart, periodEnd);
-    if (rawMetrics) {
-      dailyMetrics = rawMetrics.dailyMetrics;
-      lifecycles = rawMetrics.lifecycles;
+  // Notes for FRT
+  const notes = ticketIds.length > 0
+    ? await prisma.ticketNote.findMany({
+        where: { autotaskTicketId: { in: ticketIds }, creatorResourceId: { not: null } },
+        select: { autotaskTicketId: true, createDateTime: true },
+        orderBy: { createDateTime: 'asc' },
+      })
+    : [];
+  const firstNoteByTicket = new Map<string, Date>();
+  for (const n of notes) {
+    if (!firstNoteByTicket.has(n.autotaskTicketId)) {
+      firstNoteByTicket.set(n.autotaskTicketId, n.createDateTime);
     }
   }
-  if (prevMetrics.length === 0) {
-    const rawPrev = await buildFromRawTickets(companyId, prevStart, prevEnd);
-    if (rawPrev) {
-      prevMetrics = rawPrev.dailyMetrics;
+
+  // Compute metrics from raw data
+  const created = currentTickets.length;
+  const closed = currentTickets.filter(t => resolvedSet.has(t.status)).length;
+  const hours = timeEntries.reduce((s, e) => s + e.hoursWorked, 0);
+  const billable = timeEntries.filter(e => !e.isNonBillable).reduce((s, e) => s + e.hoursWorked, 0);
+
+  // Per-priority counts
+  const priorityCounts: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
+  for (const t of currentTickets) {
+    if (priorityCounts[t.priority] !== undefined) priorityCounts[t.priority]++;
+  }
+
+  // Resolution and FRT metrics
+  const resolutionMinutes: number[] = [];
+  const frtMinutes: number[] = [];
+  for (const t of currentTickets) {
+    if (resolvedSet.has(t.status) && t.completedDate) {
+      const mins = (t.completedDate.getTime() - t.createDate.getTime()) / (1000 * 60);
+      if (mins > 0) resolutionMinutes.push(mins);
+    }
+    const firstNote = firstNoteByTicket.get(t.autotaskTicketId);
+    if (firstNote) {
+      const frt = (firstNote.getTime() - t.createDate.getTime()) / (1000 * 60);
+      if (frt >= 0) frtMinutes.push(frt);
     }
   }
+
+  // SLA from dueDateTime
+  const slaTickets = currentTickets.filter(t => resolvedSet.has(t.status) && t.completedDate && t.dueDateTime);
+  const slaMet = slaTickets.filter(t => t.completedDate! <= t.dueDateTime!).length;
+  const slaCompliance = slaTickets.length > 0 ? round1((slaMet / slaTickets.length) * 100) : null;
+
+  // Build synthetic metrics shape for helper functions
+  const dailyMetrics = [{
+    ticketsCreated: created, ticketsClosed: closed, ticketsReopened: 0,
+    supportHoursConsumed: hours, billableHoursConsumed: billable,
+    avgFirstResponseMinutes: avg(frtMinutes), avgResolutionMinutes: avg(resolutionMinutes),
+    firstTouchResolutionRate: null as number | null, reopenRate: null as number | null,
+    slaResponseCompliance: slaCompliance, slaResolutionCompliance: slaCompliance,
+    ticketsCreatedUrgent: priorityCounts[1], ticketsCreatedHigh: priorityCounts[2],
+    ticketsCreatedMedium: priorityCounts[3], ticketsCreatedLow: priorityCounts[4],
+    date: periodStart,
+  }];
+
+  // Lifecycle-shaped records for priority breakdown and performance
+  const lifecycles = currentTickets.map(t => {
+    const resolved = resolvedSet.has(t.status);
+    const resMins = resolved && t.completedDate
+      ? (t.completedDate.getTime() - t.createDate.getTime()) / (1000 * 60) : null;
+    const firstNote = firstNoteByTicket.get(t.autotaskTicketId);
+    const frt = firstNote ? (firstNote.getTime() - t.createDate.getTime()) / (1000 * 60) : null;
+    return { priority: t.priority, fullResolutionMinutes: resMins && resMins > 0 ? resMins : null, firstResponseMinutes: frt && frt >= 0 ? frt : null };
+  });
+
+  // Previous period metrics
+  const prevCreated = prevTickets.length;
+  const prevClosed = prevTickets.filter(t => resolvedSet.has(t.status)).length;
+  const prevHours = prevTimeEntries.reduce((s, e) => s + e.hoursWorked, 0);
+  const prevResMinutes = prevTickets
+    .filter(t => resolvedSet.has(t.status) && t.completedDate)
+    .map(t => (t.completedDate!.getTime() - t.createDate.getTime()) / (1000 * 60))
+    .filter(m => m > 0);
+  const prevMetrics = [{
+    ticketsCreated: prevCreated, ticketsClosed: prevClosed,
+    supportHoursConsumed: prevHours,
+    avgResolutionMinutes: avg(prevResMinutes), reopenRate: null as number | null,
+  }];
 
   const supportActivity = buildSupportActivity(dailyMetrics);
   const servicePerformance = buildServicePerformance(dailyMetrics, lifecycles);
@@ -389,39 +469,24 @@ function buildComparison(
 // ============================================
 
 async function buildBacklog(companyId: string, periodEnd: Date): Promise<BacklogData> {
-  const latestMetrics = await prisma.companyMetricsDaily.findFirst({
-    where: { companyId, date: { lte: periodEnd } },
-    orderBy: { date: 'desc' },
-    select: { backlogCount: true, backlogUrgent: true, backlogHigh: true },
+  // Query open tickets directly from raw Ticket table
+  const openTickets = await prisma.ticket.findMany({
+    where: {
+      companyId,
+      status: { notIn: Array.from(resolvedSet) },
+    },
+    select: { priority: true, createDate: true },
   });
 
-  // Aging tickets from lifecycle
   const sevenDaysAgo = new Date(periodEnd.getTime() - 7 * 24 * 60 * 60 * 1000);
   const thirtyDaysAgo = new Date(periodEnd.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-  const [aging7, aging30] = await Promise.all([
-    prisma.ticketLifecycle.count({
-      where: {
-        companyId,
-        isResolved: false,
-        createDate: { lte: sevenDaysAgo },
-      },
-    }),
-    prisma.ticketLifecycle.count({
-      where: {
-        companyId,
-        isResolved: false,
-        createDate: { lte: thirtyDaysAgo },
-      },
-    }),
-  ]);
-
   return {
-    total: latestMetrics?.backlogCount ?? 0,
-    urgent: latestMetrics?.backlogUrgent ?? 0,
-    high: latestMetrics?.backlogHigh ?? 0,
-    agingOver7Days: aging7,
-    agingOver30Days: aging30,
+    total: openTickets.length,
+    urgent: openTickets.filter(t => t.priority === 1).length,
+    high: openTickets.filter(t => t.priority === 2).length,
+    agingOver7Days: openTickets.filter(t => t.createDate <= sevenDaysAgo).length,
+    agingOver30Days: openTickets.filter(t => t.createDate <= thirtyDaysAgo).length,
   };
 }
 
@@ -468,142 +533,6 @@ function buildNotableEvents(
     const sevOrder = { critical: 0, warning: 1, info: 2 };
     return sevOrder[a.severity] - sevOrder[b.severity];
   }).slice(0, 10);
-}
-
-// ============================================
-// RAW TICKET FALLBACK (when materialized tables are empty)
-// ============================================
-
-/**
- * Build synthetic daily metrics and lifecycle records from raw Ticket table.
- * Used as fallback when companyMetricsDaily hasn't been populated yet.
- */
-async function buildFromRawTickets(
-  companyId: string,
-  periodStart: Date,
-  periodEnd: Date,
-) {
-  try {
-    const tickets = await prisma.ticket.findMany({
-      where: {
-        companyId,
-        createDate: { gte: periodStart, lte: periodEnd },
-      },
-      select: {
-        autotaskTicketId: true,
-        status: true,
-        priority: true,
-        createDate: true,
-        completedDate: true,
-        assignedResourceId: true,
-      },
-    });
-
-    if (tickets.length === 0) return null;
-
-    const { RESOLVED_STATUSES } = await import('../types');
-    const isResolved = (status: number) => (RESOLVED_STATUSES as readonly number[]).includes(status);
-
-    // Get time entries for these tickets
-    const ticketIds = tickets.map(t => t.autotaskTicketId);
-    const timeEntries = await prisma.ticketTimeEntry.findMany({
-      where: { autotaskTicketId: { in: ticketIds } },
-      select: { hoursWorked: true, isNonBillable: true },
-    }).catch(() => [] as Array<{ hoursWorked: number; isNonBillable: boolean }>);
-
-    // Get notes for FRT calculation
-    const notes = await prisma.ticketNote.findMany({
-      where: { autotaskTicketId: { in: ticketIds }, creatorResourceId: { not: null } },
-      select: { autotaskTicketId: true, createDateTime: true },
-      orderBy: { createDateTime: 'asc' },
-    }).catch(() => [] as Array<{ autotaskTicketId: string; createDateTime: Date }>);
-
-    const firstNoteByTicket = new Map<string, Date>();
-    for (const n of notes) {
-      if (!firstNoteByTicket.has(n.autotaskTicketId)) {
-        firstNoteByTicket.set(n.autotaskTicketId, n.createDateTime);
-      }
-    }
-
-    const created = tickets.length;
-    const closed = tickets.filter(t => isResolved(t.status)).length;
-    const hoursTotal = timeEntries.reduce((s, e) => s + e.hoursWorked, 0);
-    const hoursBillable = timeEntries.filter(e => !e.isNonBillable).reduce((s, e) => s + e.hoursWorked, 0);
-
-    // Build synthetic lifecycle records
-    const lifecycles = tickets.map(t => {
-      const resolved = isResolved(t.status);
-      const firstNote = firstNoteByTicket.get(t.autotaskTicketId);
-      const frtMinutes = firstNote
-        ? (firstNote.getTime() - t.createDate.getTime()) / (1000 * 60)
-        : null;
-      const resMinutes = resolved && t.completedDate
-        ? (t.completedDate.getTime() - t.createDate.getTime()) / (1000 * 60)
-        : null;
-      return {
-        autotaskTicketId: t.autotaskTicketId,
-        companyId,
-        assignedResourceId: t.assignedResourceId,
-        priority: t.priority,
-        queueId: null as number | null,
-        createDate: t.createDate,
-        completedDate: t.completedDate,
-        isResolved: resolved,
-        firstResponseMinutes: frtMinutes,
-        firstResolutionMinutes: resMinutes,
-        fullResolutionMinutes: resMinutes,
-        activeResolutionMinutes: resMinutes,
-        waitingCustomerMinutes: null as number | null,
-        techNoteCount: 0,
-        customerNoteCount: 0,
-        reopenCount: 0,
-        totalHoursLogged: 0,
-        billableHoursLogged: 0,
-        isFirstTouchResolution: false,
-        slaResponseMet: null as boolean | null,
-        slaResolutionMet: null as boolean | null,
-        computedAt: new Date(),
-        id: '',
-      };
-    });
-
-    // Build synthetic daily metric row (one row for the whole period as aggregate)
-    const frtValues = lifecycles.map(l => l.firstResponseMinutes).filter(nonNull);
-    const resValues = lifecycles.map(l => l.fullResolutionMinutes).filter(nonNull);
-
-    const syntheticMetrics = [{
-      id: 'synthetic',
-      companyId,
-      date: periodStart,
-      ticketsCreated: created,
-      ticketsClosed: closed,
-      ticketsReopened: 0,
-      ticketsCreatedUrgent: tickets.filter(t => t.priority === 1).length,
-      ticketsCreatedHigh: tickets.filter(t => t.priority === 2).length,
-      ticketsCreatedMedium: tickets.filter(t => t.priority === 3).length,
-      ticketsCreatedLow: tickets.filter(t => t.priority === 4).length,
-      supportHoursConsumed: round1(hoursTotal),
-      billableHoursConsumed: round1(hoursBillable),
-      avgFirstResponseMinutes: frtValues.length > 0
-        ? round1(frtValues.reduce((a, b) => a + b, 0) / frtValues.length)
-        : null,
-      avgResolutionMinutes: resValues.length > 0
-        ? round1(resValues.reduce((a, b) => a + b, 0) / resValues.length)
-        : null,
-      firstTouchResolutionRate: null as number | null,
-      reopenRate: null as number | null,
-      slaResponseCompliance: null as number | null,
-      slaResolutionCompliance: null as number | null,
-      backlogCount: tickets.filter(t => !isResolved(t.status)).length,
-      backlogUrgent: tickets.filter(t => !isResolved(t.status) && t.priority === 1).length,
-      backlogHigh: tickets.filter(t => !isResolved(t.status) && t.priority === 2).length,
-      computedAt: new Date(),
-    }];
-
-    return { dailyMetrics: syntheticMetrics, lifecycles };
-  } catch {
-    return null;
-  }
 }
 
 // ============================================
