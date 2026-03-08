@@ -19,21 +19,24 @@ interface AggregationResult {
 
 /**
  * Compute daily technician metrics for a given date.
- * When no date is provided, backfills all days from the earliest ticket
- * to yesterday that are missing from the aggregation table.
+ * When no date is provided, backfills missing days (max 7 per invocation to stay within timeout).
  */
-export async function aggregateTechnicianDaily(targetDate?: Date): Promise<AggregationResult> {
+export async function aggregateTechnicianDaily(targetDate?: Date): Promise<AggregationResult & { remaining?: number }> {
   const finish = createJobTracker(JOB_NAMES.AGGREGATE_TECHNICIAN);
-  const result: AggregationResult = { rowsComputed: 0, errors: [] };
+  const result: AggregationResult & { remaining?: number } = { rowsComputed: 0, errors: [] };
 
   try {
     await assertTableExists('resources');
     await assertTableExists('ticket_lifecycle');
     await assertTableExists('technician_metrics_daily');
 
-    // If no target date, backfill missing days
+    // If no target date, backfill missing days (batched)
     if (!targetDate) {
-      const dates = await getMissingAggregationDates('technician_metrics_daily');
+      const allDates = await getMissingAggregationDates('technician_metrics_daily');
+      const BATCH_LIMIT = 7;
+      const dates = allDates.slice(0, BATCH_LIMIT);
+      result.remaining = Math.max(0, allDates.length - BATCH_LIMIT);
+
       for (const d of dates) {
         const sub = await aggregateTechnicianForDay(d);
         result.rowsComputed += sub.rowsComputed;
@@ -41,7 +44,7 @@ export async function aggregateTechnicianDaily(targetDate?: Date): Promise<Aggre
       }
       await finish({
         status: result.errors.length > 0 ? 'failed' : 'success',
-        meta: { rowsComputed: result.rowsComputed, daysProcessed: dates.length, errorCount: result.errors.length },
+        meta: { rowsComputed: result.rowsComputed, daysProcessed: dates.length, remaining: result.remaining, errorCount: result.errors.length },
         error: result.errors.length > 0 ? result.errors.slice(0, 10).join('; ') : undefined,
       });
       return result;
@@ -72,18 +75,22 @@ export async function aggregateTechnicianDaily(targetDate?: Date): Promise<Aggre
 
 /**
  * Compute daily company metrics for a given date.
- * When no date is provided, backfills all missing days.
+ * When no date is provided, backfills missing days (max 7 per invocation).
  */
-export async function aggregateCompanyDaily(targetDate?: Date): Promise<AggregationResult> {
+export async function aggregateCompanyDaily(targetDate?: Date): Promise<AggregationResult & { remaining?: number }> {
   const finish = createJobTracker(JOB_NAMES.AGGREGATE_COMPANY);
-  const result: AggregationResult = { rowsComputed: 0, errors: [] };
+  const result: AggregationResult & { remaining?: number } = { rowsComputed: 0, errors: [] };
 
   try {
     await assertTableExists('ticket_lifecycle');
     await assertTableExists('company_metrics_daily');
 
     if (!targetDate) {
-      const dates = await getMissingAggregationDates('company_metrics_daily');
+      const allDates = await getMissingAggregationDates('company_metrics_daily');
+      const BATCH_LIMIT = 7;
+      const dates = allDates.slice(0, BATCH_LIMIT);
+      result.remaining = Math.max(0, allDates.length - BATCH_LIMIT);
+
       for (const d of dates) {
         const sub = await aggregateCompanyForDay(d);
         result.rowsComputed += sub.rowsComputed;
@@ -91,7 +98,7 @@ export async function aggregateCompanyDaily(targetDate?: Date): Promise<Aggregat
       }
       await finish({
         status: result.errors.length > 0 ? 'failed' : 'success',
-        meta: { rowsComputed: result.rowsComputed, daysProcessed: dates.length, errorCount: result.errors.length },
+        meta: { rowsComputed: result.rowsComputed, daysProcessed: dates.length, remaining: result.remaining, errorCount: result.errors.length },
         error: result.errors.length > 0 ? result.errors.slice(0, 10).join('; ') : undefined,
       });
       return result;
