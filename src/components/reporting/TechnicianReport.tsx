@@ -37,6 +37,7 @@ export default function TechnicianReport() {
   const [data, setData] = useState<TechReport | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -131,6 +132,15 @@ export default function TechnicianReport() {
 
       {/* Technician table */}
       <div className="bg-slate-800/50 rounded-xl border border-slate-700/50 overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-700/50">
+          <input
+            type="text"
+            placeholder="Search technicians..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full sm:w-64 px-3 py-1.5 text-sm bg-slate-900/50 border border-slate-600/50 rounded-md text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50"
+          />
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
@@ -146,7 +156,12 @@ export default function TechnicianReport() {
               </tr>
             </thead>
             <tbody>
-              {data.summary.map((tech) => (
+              {data.summary.filter((tech) => {
+                if (!search) return true
+                const q = search.toLowerCase()
+                return `${tech.firstName} ${tech.lastName}`.toLowerCase().includes(q)
+                  || tech.email.toLowerCase().includes(q)
+              }).map((tech) => (
                 <tr key={tech.resourceId} className="border-b border-slate-700/30 hover:bg-slate-700/20">
                   <td className="px-4 py-3">
                     <div className="text-sm text-white">{tech.firstName} {tech.lastName}</div>

@@ -71,17 +71,27 @@ export async function getTechnicianMetrics(
     grouped.set(row.resourceId, existing);
   }
 
-  // Resolve resource names
+  // Resolve resource names and filter out API/system users
   const resourceIds = Array.from(grouped.keys());
   const resources = await prisma.resource.findMany({
     where: { autotaskResourceId: { in: resourceIds } },
   });
   const resourceMap = new Map(resources.map(r => [r.autotaskResourceId, r]));
 
+  // Filter out API users, system accounts, and inactive resources
+  const API_USER_PATTERNS = [/\bapi\b/i, /\badministrator\b/i, /\bdashboard user\b/i];
+  const isApiUser = (r: { firstName: string; lastName: string; email: string; isActive: boolean }) => {
+    if (!r.isActive) return true;
+    const fullName = `${r.firstName} ${r.lastName}`.trim();
+    return API_USER_PATTERNS.some(p => p.test(fullName) || p.test(r.email));
+  };
+
   const summaries: TechnicianSummary[] = [];
 
   for (const [resId, rows] of Array.from(grouped.entries())) {
     const resource = resourceMap.get(resId);
+    // Skip API/system users
+    if (resource && isApiUser(resource)) continue;
     const ticketsClosed = rows.reduce((sum, r) => sum + r.ticketsClosed, 0);
     const ticketsAssigned = rows.length > 0 ? rows[rows.length - 1].openTicketCount : 0;
     const hoursLogged = rows.reduce((sum, r) => sum + r.hoursLogged, 0);
@@ -345,7 +355,7 @@ export async function getDashboardSummary(range?: DateRange): Promise<DashboardS
     ticketCount: count,
   }));
 
-  // Top technicians by hours logged
+  // Top technicians by hours logged (excluding API/system users)
   const techMetrics = await prisma.technicianMetricsDaily.findMany({
     where: { date: { gte: from, lte: to } },
   });
@@ -353,15 +363,29 @@ export async function getDashboardSummary(range?: DateRange): Promise<DashboardS
   for (const row of techMetrics) {
     techHours.set(row.resourceId, (techHours.get(row.resourceId) || 0) + row.hoursLogged);
   }
+
+  // Get all resources to filter API users
+  const allTechResources = await prisma.resource.findMany({
+    where: { autotaskResourceId: { in: Array.from(techHours.keys()) } },
+    select: { autotaskResourceId: true, firstName: true, lastName: true, email: true, isActive: true },
+  });
+  const API_PATTERNS_DASH = [/\bapi\b/i, /\badministrator\b/i, /\bdashboard user\b/i];
+  const apiResourceIds = new Set(
+    allTechResources
+      .filter(r => {
+        if (!r.isActive) return true;
+        const fullName = `${r.firstName} ${r.lastName}`.trim();
+        return API_PATTERNS_DASH.some(p => p.test(fullName) || p.test(r.email));
+      })
+      .map(r => r.autotaskResourceId)
+  );
+
   const topTechIds = Array.from(techHours.entries())
+    .filter(([id]) => !apiResourceIds.has(id))
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5);
 
-  const topTechRecords = await prisma.resource.findMany({
-    where: { autotaskResourceId: { in: topTechIds.map(t => t[0]) } },
-    select: { autotaskResourceId: true, firstName: true, lastName: true },
-  });
-  const topTechMap = new Map(topTechRecords.map(r => [
+  const topTechMap = new Map(allTechResources.map(r => [
     r.autotaskResourceId,
     `${r.firstName} ${r.lastName}`.trim(),
   ]));
