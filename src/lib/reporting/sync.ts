@@ -198,19 +198,19 @@ interface TimeEntrySyncResult {
 
 /**
  * Sync time entries for locally-stored tickets.
- * Processes up to `batchLimit` tickets per invocation to stay within Vercel's 60s timeout.
+ * Uses a time budget (default 45s) to process as many tickets as possible per invocation.
  * Prioritizes tickets with 0 time entries (backfill from previous broken syncs).
  */
-export async function syncTimeEntries(batchLimit: number = 50): Promise<TimeEntrySyncResult & { remaining: number }> {
+export async function syncTimeEntries(timeBudgetMs: number = 45000): Promise<TimeEntrySyncResult & { remaining: number; processed: number }> {
   const finish = createJobTracker(JOB_NAMES.SYNC_TIME_ENTRIES);
-  const result: TimeEntrySyncResult & { remaining: number } = { created: 0, updated: 0, errors: [], remaining: 0 };
+  const result: TimeEntrySyncResult & { remaining: number; processed: number } = { created: 0, updated: 0, errors: [], remaining: 0, processed: 0 };
+  const startTime = Date.now();
 
   try {
     await assertTableExists('tickets');
     await assertTableExists('ticket_time_entries');
 
     const client = new AutotaskClient();
-    const lastSync = await getLastSuccessfulRun(JOB_NAMES.SYNC_TIME_ENTRIES);
 
     // Find tickets with no time entries (backfill first — these were missed by broken syncs)
     const ticketsWithEntries = await prisma.ticketTimeEntry.findMany({
@@ -225,6 +225,7 @@ export async function syncTimeEntries(batchLimit: number = 50): Promise<TimeEntr
     const missingEntryTickets = allTickets.filter(t => !ticketsWithEntriesSet.has(t.autotaskTicketId));
 
     // Also get recently synced tickets
+    const lastSync = await getLastSuccessfulRun(JOB_NAMES.SYNC_TIME_ENTRIES);
     const recentTickets = lastSync
       ? await prisma.ticket.findMany({
           where: { autotaskLastSync: { gte: lastSync } },
@@ -242,12 +243,12 @@ export async function syncTimeEntries(batchLimit: number = 50): Promise<TimeEntr
       }
     }
 
-    // Batch: only process up to batchLimit tickets per invocation
-    const tickets = allCandidates.slice(0, batchLimit);
-    result.remaining = Math.max(0, allCandidates.length - batchLimit);
+    // Process tickets until time budget is exhausted
+    for (const ticket of allCandidates) {
+      if (Date.now() - startTime > timeBudgetMs) break;
 
-    for (const ticket of tickets) {
       const atTicketId = parseInt(ticket.autotaskTicketId, 10);
+      result.processed++;
 
       try {
         const timeEntries = await client.getTicketTimeEntries(atTicketId);
@@ -290,9 +291,11 @@ export async function syncTimeEntries(batchLimit: number = 50): Promise<TimeEntr
       }
     }
 
+    result.remaining = Math.max(0, allCandidates.length - result.processed);
+
     await finish({
       status: result.errors.length > 0 ? 'failed' : 'success',
-      meta: { created: result.created, updated: result.updated, errorCount: result.errors.length, remaining: result.remaining },
+      meta: { created: result.created, updated: result.updated, processed: result.processed, remaining: result.remaining, errorCount: result.errors.length },
       error: result.errors.length > 0 ? result.errors.slice(0, 10).join('; ') : undefined,
     });
 
@@ -317,18 +320,18 @@ interface NoteSyncResult {
 /**
  * Sync ticket notes for locally-stored tickets.
  * Required for first-response-time calculation.
- * Processes up to `batchLimit` tickets per invocation to stay within timeout.
+ * Uses a time budget (default 45s) to process as many tickets as possible.
  */
-export async function syncTicketNotes(batchLimit: number = 50): Promise<NoteSyncResult & { remaining: number }> {
+export async function syncTicketNotes(timeBudgetMs: number = 45000): Promise<NoteSyncResult & { remaining: number; processed: number }> {
   const finish = createJobTracker(JOB_NAMES.SYNC_TICKET_NOTES);
-  const result: NoteSyncResult & { remaining: number } = { created: 0, updated: 0, errors: [], remaining: 0 };
+  const result: NoteSyncResult & { remaining: number; processed: number } = { created: 0, updated: 0, errors: [], remaining: 0, processed: 0 };
+  const startTime = Date.now();
 
   try {
     await assertTableExists('tickets');
     await assertTableExists('ticket_notes');
 
     const client = new AutotaskClient();
-    const lastSync = await getLastSuccessfulRun(JOB_NAMES.SYNC_TICKET_NOTES);
 
     // Find tickets with no notes (backfill first)
     const ticketsWithNotes = await prisma.ticketNote.findMany({
@@ -343,6 +346,7 @@ export async function syncTicketNotes(batchLimit: number = 50): Promise<NoteSync
     const missingNoteTickets = allTickets.filter(t => !ticketsWithNotesSet.has(t.autotaskTicketId));
 
     // Also get recently synced tickets
+    const lastSync = await getLastSuccessfulRun(JOB_NAMES.SYNC_TICKET_NOTES);
     const recentTickets = lastSync
       ? await prisma.ticket.findMany({
           where: { autotaskLastSync: { gte: lastSync } },
@@ -360,12 +364,11 @@ export async function syncTicketNotes(batchLimit: number = 50): Promise<NoteSync
       }
     }
 
-    // Batch: only process up to batchLimit tickets per invocation
-    const tickets = allCandidates.slice(0, batchLimit);
-    result.remaining = Math.max(0, allCandidates.length - batchLimit);
-
-    for (const ticket of tickets) {
+    // Process tickets until time budget is exhausted
+    for (const ticket of allCandidates) {
+      if (Date.now() - startTime > timeBudgetMs) break;
       const atTicketId = parseInt(ticket.autotaskTicketId, 10);
+      result.processed++;
 
       try {
         const notes = await client.getTicketNotes(atTicketId);
@@ -407,9 +410,11 @@ export async function syncTicketNotes(batchLimit: number = 50): Promise<NoteSync
       }
     }
 
+    result.remaining = Math.max(0, allCandidates.length - result.processed);
+
     await finish({
       status: result.errors.length > 0 ? 'failed' : 'success',
-      meta: { created: result.created, updated: result.updated, errorCount: result.errors.length, remaining: result.remaining },
+      meta: { created: result.created, updated: result.updated, processed: result.processed, remaining: result.remaining, errorCount: result.errors.length },
       error: result.errors.length > 0 ? result.errors.slice(0, 10).join('; ') : undefined,
     });
 
