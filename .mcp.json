@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "triple-cities-tech": {
+      "command": "npx",
+      "args": ["tsx", "mcp/server.ts"],
+      "env": {
+        "DATABASE_URL": "${DATABASE_URL}",
+        "MIGRATION_SECRET": "${MIGRATION_SECRET}",
+        "APP_BASE_URL": "${APP_BASE_URL:-https://www.triplecitiestech.com}"
+      }
+    }
+  }
+}
