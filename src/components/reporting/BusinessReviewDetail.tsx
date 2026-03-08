@@ -164,7 +164,7 @@ export default function BusinessReviewDetail({ reviewId }: Props) {
           )}
           <a href={`/api/reports/business-review/${reviewId}/pdf`} target="_blank" rel="noopener noreferrer"
             className="px-3 py-1.5 text-xs bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors">
-            View PDF
+            View &amp; Download PDF
           </a>
           <button onClick={deleteReview}
             className="px-3 py-1.5 text-xs text-rose-400 border border-rose-400/30 rounded-lg hover:bg-rose-400/10 transition-colors">
