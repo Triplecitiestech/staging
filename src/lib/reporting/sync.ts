@@ -66,9 +66,9 @@ export async function syncTickets(defaultDays: number = 90, batchSize: number = 
     const client = new AutotaskClient();
     const lastSync = await getLastSuccessfulRun(JOB_NAMES.SYNC_TICKETS);
 
-    // For first-ever sync, use 30 days to avoid timeout; subsequent syncs use full window
-    const effectiveDays = lastSync ? defaultDays : Math.min(defaultDays, 30);
-    const sinceDate = lastSync || new Date(Date.now() - effectiveDays * 24 * 60 * 60 * 1000);
+    // Use full window for first sync too — batch processing handles timeout.
+    // The 30-day limit was too small for quarterly reports, causing empty data.
+    const sinceDate = lastSync || new Date(Date.now() - defaultDays * 24 * 60 * 60 * 1000);
 
     // Resolve picklist labels (cached for the batch)
     const picklistCache = await resolvePicklists(client);

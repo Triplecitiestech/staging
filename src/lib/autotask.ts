@@ -688,7 +688,8 @@ export class AutotaskClient {
   }
 
   /**
-   * Get tickets for a company from the last N days
+   * Get tickets for a company from the last N days.
+   * Fetches tickets created OR with activity in the window to capture status changes.
    */
   async getCompanyTickets(companyId: number, days: number = 30): Promise<{
     id: number;
@@ -703,15 +704,24 @@ export class AutotaskClient {
     const since = new Date();
     since.setDate(since.getDate() - days);
     try {
+      // Query tickets created OR modified in the window — captures status changes
       return await this.queryAll('Tickets', {
         op: 'and',
         items: [
           { op: 'eq', field: 'companyID', value: companyId },
-          { op: 'gte', field: 'createDate', value: since.toISOString() },
+          {
+            op: 'or',
+            items: [
+              { op: 'gte', field: 'createDate', value: since.toISOString() },
+              { op: 'gte', field: 'lastActivityDate', value: since.toISOString() },
+            ],
+          },
         ],
       });
-    } catch {
-      return [];
+    } catch (err) {
+      // Never silently swallow — surface the error so sync can report it
+      console.error(`[AutotaskClient] getCompanyTickets failed for company ${companyId}:`, err instanceof Error ? err.message : String(err));
+      throw err;
     }
   }
 
