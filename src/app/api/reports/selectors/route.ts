@@ -59,7 +59,12 @@ export async function GET() {
   }
 
   // Filter out API/system users from technician list
-  const API_USER_PATTERNS = [/\bapi\b/i, /\badministrator\b/i, /\bdashboard user\b/i, /\bsystem\b/i];
+  const API_USER_PATTERNS = [
+    /\bapi\b/i, /\badministrator\b/i, /\bdashboard user\b/i, /\bsystem\b/i,
+    /\bintegration\b/i, /\bservice account\b/i, /\bautomation\b/i,
+    /\bdatto\b/i, /\bedr\b/i, /\brmm\b/i, /\bmonitor/i, /\bagent\b/i,
+    /\bbackup\b/i, /\bsync\b/i, /\bwebhook\b/i, /\bcron\b/i,
+  ];
   const filteredTechnicians = resourcesResult.data.filter((r) => {
     const fullName = `${r.firstName} ${r.lastName}`.trim();
     return !API_USER_PATTERNS.some(p => p.test(fullName) || p.test(r.email));

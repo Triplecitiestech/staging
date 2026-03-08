@@ -297,7 +297,7 @@ export default function ReportingDashboard() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <TrendChart data={data.ticketTrend} title="Ticket Volume" color="#06b6d4" />
               {data.resolutionTrend && (
-                <TrendChart data={data.resolutionTrend} title="Avg Resolution Time (min)" color="#8b5cf6" />
+                <TrendChart data={data.resolutionTrend} title="Avg Resolution Time" color="#8b5cf6" aggregate="avg" formatValue={formatMinutes} />
               )}
             </div>
           )}

@@ -18,10 +18,11 @@ export async function GET(request: NextRequest) {
   }
 
   const companyId = request.nextUrl.searchParams.get('companyId');
+  const resourceId = request.nextUrl.searchParams.get('resourceId');
   const priorityFilter = request.nextUrl.searchParams.get('priority');
 
-  if (!companyId) {
-    return NextResponse.json({ error: 'companyId is required' }, { status: 400 });
+  if (!companyId && !resourceId) {
+    return NextResponse.json({ error: 'companyId or resourceId is required' }, { status: 400 });
   }
 
   try {
@@ -30,12 +31,11 @@ export async function GET(request: NextRequest) {
 
     // Build ticket filter
     const where: Record<string, unknown> = {
-      companyId,
       createDate: { gte: from, lte: to },
     };
-    if (priorityFilter) {
-      where.priority = Number(priorityFilter);
-    }
+    if (companyId) where.companyId = companyId;
+    if (resourceId) where.assignedResourceId = Number(resourceId);
+    if (priorityFilter) where.priority = Number(priorityFilter);
 
     const tickets = await prisma.ticket.findMany({
       where,
@@ -78,11 +78,22 @@ export async function GET(request: NextRequest) {
     });
     const resourceMap = new Map(resources.map(r => [r.autotaskResourceId, `${r.firstName} ${r.lastName}`.trim()]));
 
-    // Get company name
-    const company = await prisma.company.findUnique({
-      where: { id: companyId },
-      select: { displayName: true },
-    });
+    // Get display name for header
+    let displayName = 'All Tickets';
+    if (companyId) {
+      const company = await prisma.company.findUnique({
+        where: { id: companyId },
+        select: { displayName: true },
+      });
+      displayName = company?.displayName || 'Unknown Company';
+    }
+    if (resourceId) {
+      const resource = await prisma.resource.findFirst({
+        where: { autotaskResourceId: Number(resourceId) },
+        select: { firstName: true, lastName: true },
+      });
+      displayName = resource ? `${resource.firstName} ${resource.lastName}`.trim() : displayName;
+    }
 
     // SLA summary
     const slaResponseResults = lifecycles.map(l => l.slaResponseMet).filter((v): v is boolean => v !== null);
@@ -98,8 +109,8 @@ export async function GET(request: NextRequest) {
     const openCount = tickets.length - resolvedCount;
 
     return NextResponse.json({
-      companyName: company?.displayName || 'Unknown',
-      companyId,
+      companyName: displayName,
+      companyId: companyId || '',
       totalTickets: tickets.length,
       resolvedCount,
       openCount,

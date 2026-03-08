@@ -11,12 +11,16 @@ interface TrendChartProps {
   title: string
   color?: string
   height?: number
+  /** 'sum' shows total, 'avg' shows average, 'formatted' uses custom formatter */
+  aggregate?: 'sum' | 'avg'
+  /** Format individual bar labels */
+  formatValue?: (v: number) => string
 }
 
 /**
  * Simple SVG bar chart for trend data. No external chart library needed.
  */
-export default function TrendChart({ data, title, color = '#06b6d4', height = 180 }: TrendChartProps) {
+export default function TrendChart({ data, title, color = '#06b6d4', height = 180, aggregate = 'sum', formatValue }: TrendChartProps) {
   if (data.length === 0) {
     return (
       <div className="bg-slate-800/50 rounded-xl p-5 border border-slate-700/50">
@@ -38,14 +42,18 @@ export default function TrendChart({ data, title, color = '#06b6d4', height = 18
   // Show value labels less frequently for dense charts
   const valueInterval = Math.max(1, Math.floor(data.length / 15))
 
-  // Total for the period
-  const total = data.reduce((s, d) => s + d.value, 0)
+  // Aggregate for the period header
+  const nonZeroData = data.filter(d => d.value > 0)
+  const headerValue = aggregate === 'avg' && nonZeroData.length > 0
+    ? Math.round(nonZeroData.reduce((s, d) => s + d.value, 0) / nonZeroData.length)
+    : data.reduce((s, d) => s + d.value, 0)
+  const headerDisplay = formatValue ? formatValue(headerValue) : headerValue
 
   return (
     <div className="bg-slate-800/50 rounded-xl p-5 border border-slate-700/50">
       <div className="flex items-baseline justify-between mb-3">
         <h3 className="text-sm font-medium text-slate-300">{title}</h3>
-        <span className="text-lg font-bold text-white">{total}</span>
+        <span className="text-lg font-bold text-white">{headerDisplay}</span>
       </div>
       <div className="overflow-hidden">
         <svg
@@ -71,7 +79,7 @@ export default function TrendChart({ data, title, color = '#06b6d4', height = 18
                   opacity={0.8}
                   rx={2}
                 >
-                  <title>{point.label}: {point.value}</title>
+                  <title>{point.label}: {formatValue ? formatValue(point.value) : point.value}</title>
                 </rect>
                 {/* Value label above bar */}
                 {point.value > 0 && i % valueInterval === 0 && (
@@ -83,7 +91,7 @@ export default function TrendChart({ data, title, color = '#06b6d4', height = 18
                     fontSize={9}
                     fontWeight={600}
                   >
-                    {point.value}
+                    {formatValue ? formatValue(point.value) : point.value}
                   </text>
                 )}
                 {/* Date label */}
