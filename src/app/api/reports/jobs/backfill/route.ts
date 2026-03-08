@@ -17,9 +17,11 @@ function isAuthorized(request: NextRequest): boolean {
 /**
  * GET /api/reports/jobs/backfill?secret=XXX
  *
- * Auto-chaining backfill: runs as much as possible within 50s,
- * then automatically calls itself to continue if there's more work.
- * One URL, no manual re-running needed.
+ * Fully automatic backfill. Runs one iteration (~50s), then fire-and-forget
+ * calls itself to continue. You open the URL once, and it keeps going
+ * server-side until everything is synced.
+ *
+ * Add &nochain=1 to disable auto-chaining (manual mode).
  */
 export async function GET(request: NextRequest) {
   if (!isAuthorized(request)) {
@@ -28,41 +30,42 @@ export async function GET(request: NextRequest) {
 
   const months = parseInt(request.nextUrl.searchParams.get('months') || '6', 10);
   const startStep = request.nextUrl.searchParams.get('step') || undefined;
+  const noChain = request.nextUrl.searchParams.get('nochain') === '1';
+  const chainCount = parseInt(request.nextUrl.searchParams.get('chain') || '0', 10);
+  const MAX_CHAINS = 30; // Safety: stop after 30 self-calls (~25 min max)
   const allResults: BackfillResult[] = [];
   let iteration = 0;
-  const MAX_ITERATIONS = 30; // Safety limit
 
   let currentStep = startStep;
   const overallStart = Date.now();
 
-  // Auto-chain: keep running until complete or we hit the time/iteration limit
-  // Each iteration gets a 45s budget, and we leave buffer for the response
-  while (iteration < MAX_ITERATIONS) {
+  // Run as many iterations as we can within this request's timeout
+  while (iteration < 5) {
     iteration++;
-    const iterBudget = Math.min(45000, 55000 - (Date.now() - overallStart));
-    if (iterBudget < 5000) break; // Not enough time for another iteration
+    const iterBudget = Math.min(45000, 52000 - (Date.now() - overallStart));
+    if (iterBudget < 5000) break;
 
     try {
       const result = await runBackfill(months, currentStep, iterBudget);
       allResults.push(result);
 
       if (result.complete) {
-        // All done!
         return NextResponse.json({
           success: true,
           complete: true,
+          totalChains: chainCount + 1,
           iterations: iteration,
           totalDurationMs: Date.now() - overallStart,
           results: allResults,
         });
       }
 
-      // More work to do — continue in this request if we have time
       currentStep = result.nextStep || undefined;
     } catch (err) {
       return NextResponse.json({
         success: false,
         error: err instanceof Error ? err.message : 'Backfill failed',
+        totalChains: chainCount + 1,
         iterations: iteration,
         totalDurationMs: Date.now() - overallStart,
         results: allResults,
@@ -71,28 +74,49 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // Ran out of time in this request — tell user to continue
+  // We ran out of time in this request. Fire-and-forget the next one.
   const lastResult = allResults[allResults.length - 1];
   const continueStep = lastResult?.nextStep || currentStep;
 
-  // Build the continuation URL
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || process.env.NEXTAUTH_URL || '';
-  const secret = request.nextUrl.searchParams.get('secret') || '';
-  const continueUrl = continueStep
-    ? `${baseUrl}/api/reports/jobs/backfill?secret=${encodeURIComponent(secret)}&step=${continueStep}&months=${months}`
-    : null;
+  if (!noChain && continueStep && chainCount < MAX_CHAINS) {
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || process.env.NEXTAUTH_URL || '';
+    const secret = request.nextUrl.searchParams.get('secret') || '';
+    const continueUrl = `${baseUrl}/api/reports/jobs/backfill?secret=${encodeURIComponent(secret)}&step=${continueStep}&months=${months}&chain=${chainCount + 1}`;
 
+    // Fire-and-forget: trigger next iteration server-side
+    // Using void to not await — this request returns immediately while the next one starts
+    void fetch(continueUrl, {
+      method: 'GET',
+      headers: { 'User-Agent': 'backfill-autochain' },
+    }).catch(() => {
+      // Silently ignore — if this fails, the user can manually continue
+    });
+
+    return NextResponse.json({
+      success: true,
+      complete: false,
+      autoChaining: true,
+      chainNumber: chainCount + 1,
+      iterations: iteration,
+      totalDurationMs: Date.now() - overallStart,
+      results: allResults,
+      continueFrom: continueStep,
+      message: `Chain ${chainCount + 1}/${MAX_CHAINS}: processed this batch, auto-triggering next batch. It will keep going automatically.`,
+    });
+  }
+
+  // Either nochain=1 or hit MAX_CHAINS
   return NextResponse.json({
     success: true,
     complete: false,
+    totalChains: chainCount + 1,
     iterations: iteration,
     totalDurationMs: Date.now() - overallStart,
     results: allResults,
     continueFrom: continueStep,
-    continueUrl,
-    message: continueUrl
-      ? `More work remaining. Open this URL to continue: ${continueUrl}`
-      : 'More work remaining. Run again to continue.',
+    message: chainCount >= MAX_CHAINS
+      ? `Reached max chain limit (${MAX_CHAINS}). Run again to continue from step: ${continueStep}`
+      : `Auto-chaining disabled. Run again to continue from step: ${continueStep}`,
   });
 }
 
