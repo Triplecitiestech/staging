@@ -316,7 +316,11 @@ export default function TechnicianReport() {
               }).map((tech) => (
                 <tr
                   key={tech.resourceId}
-                  onClick={() => router.push(`/admin/reporting/technicians?resource=${tech.resourceId}`)}
+                  onClick={() => {
+                    const params = new URLSearchParams(searchParams.toString())
+                    params.set('resourceId', String(tech.resourceId))
+                    router.push(`/admin/reporting/companies/tickets?${params.toString()}`)
+                  }}
                   className="border-b border-slate-700/30 hover:bg-slate-700/20 cursor-pointer"
                 >
                   <td className="px-4 py-3">

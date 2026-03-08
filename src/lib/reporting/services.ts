@@ -78,8 +78,13 @@ export async function getTechnicianMetrics(
   });
   const resourceMap = new Map(resources.map(r => [r.autotaskResourceId, r]));
 
-  // Filter out API users, system accounts, and inactive resources
-  const API_USER_PATTERNS = [/\bapi\b/i, /\badministrator\b/i, /\bdashboard user\b/i];
+  // Filter out API users, system accounts, integration accounts, and inactive resources
+  const API_USER_PATTERNS = [
+    /\bapi\b/i, /\badministrator\b/i, /\bdashboard user\b/i, /\bsystem\b/i,
+    /\bintegration\b/i, /\bservice account\b/i, /\bautomation\b/i,
+    /\bdatto\b/i, /\bedr\b/i, /\brmm\b/i, /\bmonitor/i, /\bagent\b/i,
+    /\bbackup\b/i, /\bsync\b/i, /\bwebhook\b/i, /\bcron\b/i,
+  ];
   const isApiUser = (r: { firstName: string; lastName: string; email: string; isActive: boolean }) => {
     if (!r.isActive) return true;
     const fullName = `${r.firstName} ${r.lastName}`.trim();
@@ -369,7 +374,12 @@ export async function getDashboardSummary(range?: DateRange): Promise<DashboardS
     where: { autotaskResourceId: { in: Array.from(techHours.keys()) } },
     select: { autotaskResourceId: true, firstName: true, lastName: true, email: true, isActive: true },
   });
-  const API_PATTERNS_DASH = [/\bapi\b/i, /\badministrator\b/i, /\bdashboard user\b/i];
+  const API_PATTERNS_DASH = [
+    /\bapi\b/i, /\badministrator\b/i, /\bdashboard user\b/i, /\bsystem\b/i,
+    /\bintegration\b/i, /\bservice account\b/i, /\bautomation\b/i,
+    /\bdatto\b/i, /\bedr\b/i, /\brmm\b/i, /\bmonitor/i, /\bagent\b/i,
+    /\bbackup\b/i, /\bsync\b/i, /\bwebhook\b/i, /\bcron\b/i,
+  ];
   const apiResourceIds = new Set(
     allTechResources
       .filter(r => {
