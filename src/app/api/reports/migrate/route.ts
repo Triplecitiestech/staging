@@ -348,16 +348,34 @@ async function runMigration(request: NextRequest) {
 
     const existingNames = existing.map(r => r.tablename);
 
-    if (
-      existingNames.includes('tickets') &&
-      existingNames.includes('resources') &&
-      existingNames.includes('ticket_lifecycle') &&
-      existingNames.includes('reporting_job_status')
-    ) {
+    // Check ALL required tables, not just a subset — the old check only looked
+    // at 4 tables and would skip creating the rest if those 4 existed.
+    const allRequired = [
+      'tickets', 'ticket_notes', 'ticket_time_entries', 'resources',
+      'ticket_status_history', 'ticket_lifecycle',
+      'technician_metrics_daily', 'company_metrics_daily',
+      'customer_health_scores', 'reporting_job_status',
+      'reporting_targets', 'report_schedules', 'report_delivery_logs',
+      'business_reviews',
+    ];
+    const allExisting = await prisma.$queryRaw<Array<{ tablename: string }>>`
+      SELECT tablename FROM pg_tables
+      WHERE schemaname = 'public'
+      AND tablename IN ('tickets', 'ticket_notes', 'ticket_time_entries', 'resources',
+        'ticket_status_history', 'ticket_lifecycle',
+        'technician_metrics_daily', 'company_metrics_daily',
+        'customer_health_scores', 'reporting_job_status',
+        'reporting_targets', 'report_schedules', 'report_delivery_logs',
+        'business_reviews')
+    `;
+    const allExistingNames = allExisting.map(r => r.tablename);
+    const missingTables = allRequired.filter(t => !allExistingNames.includes(t));
+
+    if (missingTables.length === 0) {
       return NextResponse.json({
         success: true,
-        message: 'Reporting tables already exist',
-        tables: existingNames,
+        message: 'All reporting tables already exist',
+        tables: allExistingNames,
       });
     }
 
