@@ -229,6 +229,7 @@ export default function CompanyReport() {
         <StatCard
           label="Tickets Created"
           value={totalCreated}
+          invertTrend
           trend={data.comparison?.ticketsCreated ? {
             direction: data.comparison.ticketsCreated.direction as 'up' | 'down' | 'flat',
             percent: data.comparison.ticketsCreated.changePercent,

@@ -241,6 +241,7 @@ export default function ReportingDashboard() {
               label="Tickets Created"
               value={data.summary.totalTicketsCreated}
               href="/admin/reporting/companies"
+              invertTrend
               trend={
                 data.summary.trendVsPrevious.ticketsCreatedChange !== null
                   ? {
@@ -281,6 +282,7 @@ export default function ReportingDashboard() {
                   : 'N/A'
               }
               href="/admin/reporting/analytics"
+              invertTrend
               trend={
                 data.summary.trendVsPrevious.resolutionTimeChange !== null
                   ? {

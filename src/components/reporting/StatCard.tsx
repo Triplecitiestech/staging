@@ -11,17 +11,24 @@ interface StatCardProps {
     percent: number | null
     previous?: string | number
   }
+  /** When true, "down" is good (green) and "up" is bad (red). Use for metrics like resolution time. */
+  invertTrend?: boolean
   icon?: React.ReactNode
   href?: string
 }
 
-export default function StatCard({ label, value, subValue, trend, icon, href }: StatCardProps) {
-  const trendColor =
-    trend?.direction === 'up'
-      ? 'text-emerald-400'
-      : trend?.direction === 'down'
-        ? 'text-rose-400'
-        : 'text-slate-400'
+export default function StatCard({ label, value, subValue, trend, invertTrend, icon, href }: StatCardProps) {
+  const isPositive = invertTrend
+    ? trend?.direction === 'down'
+    : trend?.direction === 'up'
+  const isNegative = invertTrend
+    ? trend?.direction === 'up'
+    : trend?.direction === 'down'
+  const trendColor = isPositive
+    ? 'text-emerald-400'
+    : isNegative
+      ? 'text-rose-400'
+      : 'text-slate-400'
 
   const trendArrow =
     trend?.direction === 'up' ? '\u2191' : trend?.direction === 'down' ? '\u2193' : '\u2192'

@@ -42,6 +42,15 @@ interface TicketsData {
 type SortField = 'ticketNumber' | 'priority' | 'status' | 'assignedTo' | 'createDate' | 'hoursLogged' | 'resolutionMinutes'
 type SortDir = 'asc' | 'desc'
 
+interface TicketNote {
+  id: string
+  title: string | null
+  description: string | null
+  author: string
+  authorType: 'technician' | 'customer'
+  timestamp: string
+}
+
 export default function TicketsView() {
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -51,6 +60,9 @@ export default function TicketsView() {
   const [statusFilter, setStatusFilter] = useState<'all' | 'open' | 'resolved'>('all')
   const [sortField, setSortField] = useState<SortField>('createDate')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const [expandedTicket, setExpandedTicket] = useState<string | null>(null)
+  const [ticketNotes, setTicketNotes] = useState<Record<string, TicketNote[]>>({})
+  const [notesLoading, setNotesLoading] = useState<string | null>(null)
 
   const companyId = searchParams.get('companyId')
   const resourceId = searchParams.get('resourceId')
@@ -80,6 +92,29 @@ export default function TicketsView() {
   const sortIndicator = (field: SortField) => {
     if (sortField !== field) return ''
     return sortDir === 'asc' ? ' \u2191' : ' \u2193'
+  }
+
+  const toggleTicket = async (ticketId: string) => {
+    if (expandedTicket === ticketId) {
+      setExpandedTicket(null)
+      return
+    }
+    setExpandedTicket(ticketId)
+    if (!ticketNotes[ticketId]) {
+      setNotesLoading(ticketId)
+      try {
+        const res = await fetch(`/api/reports/tickets/notes?ticketId=${ticketId}`)
+        if (res.ok) {
+          const json = await res.json()
+          setTicketNotes(prev => ({ ...prev, [ticketId]: json.notes || [] }))
+        } else {
+          setTicketNotes(prev => ({ ...prev, [ticketId]: [] }))
+        }
+      } catch {
+        setTicketNotes(prev => ({ ...prev, [ticketId]: [] }))
+      }
+      setNotesLoading(null)
+    }
   }
 
   const filteredTickets = (data?.tickets || [])
@@ -196,38 +231,14 @@ export default function TicketsView() {
                 </thead>
                 <tbody>
                   {filteredTickets.map((ticket) => (
-                    <tr key={ticket.ticketId} className="border-b border-slate-700/30 hover:bg-slate-700/20">
-                      <td className="px-4 py-3">
-                        <span className="text-sm text-cyan-400 font-mono">{ticket.ticketNumber}</span>
-                        <div className="text-xs text-slate-400 md:hidden truncate max-w-[200px]">{ticket.title}</div>
-                      </td>
-                      <td className="px-4 py-3 hidden md:table-cell">
-                        <span className="text-sm text-white truncate block max-w-[300px]">{ticket.title}</span>
-                      </td>
-                      <td className="text-center px-4 py-3">
-                        <PriorityBadge priority={ticket.priority} label={ticket.priorityLabel} />
-                      </td>
-                      <td className="text-center px-4 py-3">
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${
-                          ticket.isResolved ? 'bg-emerald-400/20 text-emerald-400' : 'bg-cyan-400/20 text-cyan-400'
-                        }`}>
-                          {ticket.isResolved ? 'Resolved' : 'Open'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-slate-300 hidden lg:table-cell">{ticket.assignedTo}</td>
-                      <td className="text-right px-4 py-3 text-sm text-slate-300 hidden lg:table-cell">
-                        {ticket.resolutionMinutes !== null ? formatMinutes(ticket.resolutionMinutes) : '-'}
-                      </td>
-                      <td className="text-right px-4 py-3 text-sm text-white hidden md:table-cell">
-                        {ticket.hoursLogged > 0 ? `${Math.round(ticket.hoursLogged * 10) / 10}h` : '-'}
-                      </td>
-                      <td className="text-center px-4 py-3 hidden lg:table-cell">
-                        <SlaIndicator responseMet={ticket.slaResponseMet} resolutionMet={ticket.slaResolutionMet} />
-                      </td>
-                      <td className="text-right px-4 py-3 text-xs text-slate-400">
-                        {new Date(ticket.createDate).toLocaleDateString()}
-                      </td>
-                    </tr>
+                    <TicketRowWithExpand
+                      key={ticket.ticketId}
+                      ticket={ticket}
+                      isExpanded={expandedTicket === ticket.ticketId}
+                      onToggle={() => toggleTicket(ticket.ticketId)}
+                      notes={ticketNotes[ticket.ticketId]}
+                      notesLoading={notesLoading === ticket.ticketId}
+                    />
                   ))}
                   {filteredTickets.length === 0 && (
                     <tr>
@@ -246,7 +257,7 @@ export default function TicketsView() {
             <div className="text-xs text-slate-500 flex flex-wrap gap-4">
               <span>Data range: {data.meta.period.from} to {data.meta.period.to}</span>
               {companyId && <span>Company: {data.companyName}</span>}
-              {resourceId && <span>Technician: {data.companyName}</span>}
+              {resourceId && <span>Technician: {data.companyName}</span>}{/* companyName holds tech name when resourceId is set */}
             </div>
           </div>
         </>
@@ -254,6 +265,128 @@ export default function TicketsView() {
         <p className="text-slate-500">Failed to load ticket data</p>
       )}
     </div>
+  )
+}
+
+function TicketRowWithExpand({ ticket, isExpanded, onToggle, notes, notesLoading }: {
+  ticket: TicketRow
+  isExpanded: boolean
+  onToggle: () => void
+  notes?: TicketNote[]
+  notesLoading: boolean
+}) {
+  return (
+    <>
+      <tr
+        onClick={onToggle}
+        className={`border-b border-slate-700/30 hover:bg-slate-700/20 cursor-pointer ${isExpanded ? 'bg-slate-700/20' : ''}`}
+      >
+        <td className="px-4 py-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-500">{isExpanded ? '\u25BC' : '\u25B6'}</span>
+            <div>
+              <span className="text-sm text-cyan-400 font-mono">{ticket.ticketNumber}</span>
+              <div className="text-xs text-slate-400 md:hidden truncate max-w-[200px]">{ticket.title}</div>
+            </div>
+          </div>
+        </td>
+        <td className="px-4 py-3 hidden md:table-cell">
+          <span className="text-sm text-white truncate block max-w-[300px]">{ticket.title}</span>
+        </td>
+        <td className="text-center px-4 py-3">
+          <PriorityBadge priority={ticket.priority} label={ticket.priorityLabel} />
+        </td>
+        <td className="text-center px-4 py-3">
+          <span className={`text-xs px-2 py-0.5 rounded-full ${
+            ticket.isResolved ? 'bg-emerald-400/20 text-emerald-400' : 'bg-cyan-400/20 text-cyan-400'
+          }`}>
+            {ticket.isResolved ? 'Resolved' : 'Open'}
+          </span>
+        </td>
+        <td className="px-4 py-3 text-sm text-slate-300 hidden lg:table-cell">{ticket.assignedTo}</td>
+        <td className="text-right px-4 py-3 text-sm text-slate-300 hidden lg:table-cell">
+          {ticket.resolutionMinutes !== null ? formatMinutes(ticket.resolutionMinutes) : '-'}
+        </td>
+        <td className="text-right px-4 py-3 text-sm text-white hidden md:table-cell">
+          {ticket.hoursLogged > 0 ? `${Math.round(ticket.hoursLogged * 10) / 10}h` : '-'}
+        </td>
+        <td className="text-center px-4 py-3 hidden lg:table-cell">
+          <SlaIndicator responseMet={ticket.slaResponseMet} resolutionMet={ticket.slaResolutionMet} />
+        </td>
+        <td className="text-right px-4 py-3 text-xs text-slate-400">
+          {new Date(ticket.createDate).toLocaleDateString()}
+        </td>
+      </tr>
+      {isExpanded && (
+        <tr>
+          <td colSpan={9} className="bg-slate-900/50 px-6 py-4 border-b border-slate-700/30">
+            <div className="space-y-3">
+              {/* Ticket details */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+                <div>
+                  <span className="text-slate-500">Title:</span>{' '}
+                  <span className="text-white">{ticket.title}</span>
+                </div>
+                <div>
+                  <span className="text-slate-500">Assigned:</span>{' '}
+                  <span className="text-white">{ticket.assignedTo}</span>
+                </div>
+                <div>
+                  <span className="text-slate-500">Created:</span>{' '}
+                  <span className="text-white">{new Date(ticket.createDate).toLocaleString()}</span>
+                </div>
+                {ticket.completedDate && (
+                  <div>
+                    <span className="text-slate-500">Completed:</span>{' '}
+                    <span className="text-white">{new Date(ticket.completedDate).toLocaleString()}</span>
+                  </div>
+                )}
+                {ticket.firstResponseMinutes !== null && (
+                  <div>
+                    <span className="text-slate-500">First Response:</span>{' '}
+                    <span className="text-white">{formatMinutes(ticket.firstResponseMinutes)}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Notes section */}
+              <div>
+                <h4 className="text-xs font-medium text-slate-400 mb-2">Notes (external only)</h4>
+                {notesLoading ? (
+                  <div className="flex items-center gap-2 text-xs text-slate-500">
+                    <span className="animate-spin inline-block h-3 w-3 border border-slate-500 border-t-cyan-400 rounded-full" />
+                    Loading notes...
+                  </div>
+                ) : notes && notes.length > 0 ? (
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {notes.map((note) => (
+                      <div key={note.id} className="bg-slate-800/60 rounded-lg px-3 py-2 border border-slate-700/30">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className={`text-xs font-medium ${
+                            note.authorType === 'technician' ? 'text-cyan-400' : 'text-emerald-400'
+                          }`}>
+                            {note.author}
+                          </span>
+                          <span className="text-xs text-slate-500">
+                            {new Date(note.timestamp).toLocaleString()}
+                          </span>
+                        </div>
+                        {note.title && <p className="text-xs text-slate-300 font-medium">{note.title}</p>}
+                        {note.description && (
+                          <p className="text-xs text-slate-400 whitespace-pre-wrap line-clamp-6">{note.description}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-500">No external notes found</p>
+                )}
+              </div>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
   )
 }
 
