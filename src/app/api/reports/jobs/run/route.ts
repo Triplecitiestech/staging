@@ -8,8 +8,8 @@ import { computeCustomerHealth } from '@/lib/reporting/health-score';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-const JOB_MAP: Record<string, (date?: Date) => Promise<unknown>> = {
-  sync_tickets: () => syncTickets(),
+const JOB_MAP: Record<string, (date?: Date, days?: number) => Promise<unknown>> = {
+  sync_tickets: (_date?: Date, days?: number) => syncTickets(days || 90),
   sync_time_entries: () => syncTimeEntries(),
   sync_ticket_notes: () => syncTicketNotes(),
   sync_resources: () => syncResources(),
@@ -31,41 +31,23 @@ const PIPELINE_ORDER = [
   'compute_health',
 ];
 
-/**
- * Manual job trigger from admin panel.
- * POST /api/reports/jobs/run
- * Body: { "job": "sync_tickets" } — single job
- * Body: { "job": "run_all" }      — run entire pipeline in order
- */
-export async function POST(request: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.email) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
+/** Shared pipeline runner used by both GET and POST */
+async function runPipeline(jobName: string, days?: number, date?: Date) {
   try {
-    const body = await request.json();
-    const jobName = body.job as string;
-    const params = body.params as Record<string, string> | undefined;
-
     // Run entire pipeline sequentially
     if (jobName === 'run_all') {
       const results: Array<{ job: string; success: boolean; error?: string }> = [];
       let migrationNeeded = false;
       for (const name of PIPELINE_ORDER) {
         try {
-          await JOB_MAP[name]();
+          await JOB_MAP[name](undefined, days);
           results.push({ job: name, success: true });
         } catch (err) {
           const errorMsg = err instanceof Error ? err.message : 'Unknown error';
           if (errorMsg.includes('does not exist. Run the reporting migration')) {
             migrationNeeded = true;
           }
-          results.push({
-            job: name,
-            success: false,
-            error: errorMsg,
-          });
+          results.push({ job: name, success: false, error: errorMsg });
         }
       }
       const failed = results.filter((r) => !r.success);
@@ -87,9 +69,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const date = params?.date ? new Date(params.date) : undefined;
-    const result = await JOB_MAP[jobName](date);
-
+    const result = await JOB_MAP[jobName](date, days);
     return NextResponse.json({ success: true, job: jobName, result });
   } catch (err) {
     return NextResponse.json(
@@ -97,4 +77,46 @@ export async function POST(request: NextRequest) {
       { status: 500 },
     );
   }
+}
+
+/**
+ * GET /api/reports/jobs/run?secret=MIGRATION_SECRET&job=run_all&days=180
+ * Secret-based trigger — no session needed, paste in browser URL bar.
+ */
+export async function GET(request: NextRequest) {
+  const secret = request.nextUrl.searchParams.get('secret');
+  const isAuthorized =
+    secret === process.env.MIGRATION_SECRET ||
+    secret === process.env.CRON_SECRET;
+  if (!isAuthorized) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const jobName = request.nextUrl.searchParams.get('job') || 'run_all';
+  const days = request.nextUrl.searchParams.get('days')
+    ? parseInt(request.nextUrl.searchParams.get('days')!, 10)
+    : undefined;
+
+  return runPipeline(jobName, days);
+}
+
+/**
+ * POST /api/reports/jobs/run
+ * Session-based trigger from admin panel (Run All button).
+ * Body: { "job": "sync_tickets", "params": { "days": "180" } }
+ * Body: { "job": "run_all", "params": { "days": "180" } }
+ */
+export async function POST(request: NextRequest) {
+  const session = await auth();
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const body = await request.json();
+  const jobName = body.job as string;
+  const params = body.params as Record<string, string> | undefined;
+  const days = params?.days ? parseInt(params.days, 10) : undefined;
+  const date = params?.date ? new Date(params.date) : undefined;
+
+  return runPipeline(jobName, days, date);
 }
