@@ -24,8 +24,12 @@ export async function GET(request: NextRequest) {
     const notes = await prisma.ticketNote.findMany({
       where: {
         autotaskTicketId: ticketId,
-        // Exclude internal notes (publish=2) and system-generated notes (no creator)
-        publish: { not: 2 },
+        // Include external notes: publish=1 (all AT users), publish=3 (all including portal),
+        // or null (unset). Exclude internal-only (publish=2).
+        OR: [
+          { publish: { not: 2 } },
+          { publish: null },
+        ],
       },
       select: {
         autotaskNoteId: true,

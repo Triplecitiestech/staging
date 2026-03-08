@@ -30,9 +30,17 @@ export async function GET(request: NextRequest) {
       resourceId: resourceId ? Number(resourceId) : undefined,
     });
 
+    // Build Autotask web URL for ticket deep-linking
+    const apiBaseUrl = process.env.AUTOTASK_API_BASE_URL || '';
+    const zoneMatch = apiBaseUrl.match(/webservices(\d+)/);
+    const autotaskWebUrl = zoneMatch
+      ? `https://ww${zoneMatch[1]}.autotask.net/Mvc/ServiceDesk/TicketDetail.mvc`
+      : null;
+
     return NextResponse.json({
       ...result,
       companyId: companyId || '',
+      autotaskWebUrl,
       meta: {
         period: {
           from: filters.dateRange.from.toISOString().split('T')[0],

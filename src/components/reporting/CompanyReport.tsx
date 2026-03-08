@@ -39,6 +39,14 @@ interface CompanyReportData {
     supportHours: { current: number; previous: number; changePercent: number | null; direction: string }
     avgResolution: { current: number; previous: number; changePercent: number | null; direction: string }
   }
+  benchmarks?: Array<{
+    metricKey: string
+    actual: number
+    target: number
+    unit: string
+    meetingTarget: boolean
+    percentOfTarget: number
+  }>
   meta: { period: { from: string; to: string }; dataFreshness: string | null }
 }
 
@@ -289,6 +297,37 @@ export default function CompanyReport() {
 
       {data.priorityBreakdown && data.priorityBreakdown.length > 0 && (
         <PriorityBreakdownChart data={data.priorityBreakdown} />
+      )}
+
+      {/* Benchmarks */}
+      {data.benchmarks && data.benchmarks.length > 0 && (
+        <div className="bg-slate-800/50 rounded-xl p-5 border border-slate-700/50">
+          <h3 className="text-sm font-medium text-slate-300 mb-3">Performance Benchmarks</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {data.benchmarks.map((b) => {
+              const pct = b.percentOfTarget
+              const barColor = b.meetingTarget ? 'bg-emerald-500' : pct >= 75 ? 'bg-cyan-500' : 'bg-rose-500'
+              return (
+                <div key={b.metricKey} className="bg-slate-900/50 rounded-lg p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs text-slate-400">{b.metricKey.replace(/_/g, ' ')}</span>
+                    <span className={`text-xs font-medium ${b.meetingTarget ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {b.meetingTarget ? 'On Target' : 'Below Target'}
+                    </span>
+                  </div>
+                  <div className="flex items-baseline gap-2 mb-2">
+                    <span className="text-lg font-bold text-white">{b.actual}{b.unit}</span>
+                    <span className="text-xs text-slate-500">/ {b.target}{b.unit} target</span>
+                  </div>
+                  <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+                    <div className={`h-full ${barColor} rounded-full transition-all`} style={{ width: `${Math.min(pct, 100)}%` }} />
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1">{pct}% of target</div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
       )}
 
       {/* Company table */}

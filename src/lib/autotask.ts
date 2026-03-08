@@ -118,7 +118,8 @@ export interface AutotaskTicketNote {
 
 export interface AutotaskTimeEntry {
   id: number;
-  taskID: number;
+  taskID?: number;
+  ticketID?: number;
   resourceID: number;
   dateWorked: string;
   startDateTime?: string;
@@ -773,14 +774,24 @@ export class AutotaskClient {
    * Get time entries for a ticket (for customer timeline)
    */
   async getTicketTimeEntries(ticketId: number): Promise<AutotaskTimeEntry[]> {
+    // Try child entity path first (most reliable for ticket time entries)
     try {
-      return await this.queryAll<AutotaskTimeEntry>('TimeEntries', {
-        op: 'eq',
-        field: 'ticketID',
-        value: ticketId,
-      });
+      return await this.queryAll<AutotaskTimeEntry>(
+        `Tickets/${ticketId}/TimeEntries`,
+        { op: 'exist', field: 'id' },
+      );
     } catch {
-      return [];
+      // Fallback: query TimeEntries entity with ticketID filter
+      try {
+        return await this.queryAll<AutotaskTimeEntry>('TimeEntries', {
+          op: 'eq',
+          field: 'ticketID',
+          value: ticketId,
+        });
+      } catch (err) {
+        console.error(`[autotask] Failed to get time entries for ticket ${ticketId}: ${err instanceof Error ? err.message : String(err)}`);
+        return [];
+      }
     }
   }
 
