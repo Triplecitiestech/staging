@@ -31,6 +31,18 @@ export async function generateBusinessReview(params: ReviewGenerationParams) {
   // 1. Build report data from materialized tables
   const data = await buildReportData(companyId, reportType, periodStart, periodEnd);
 
+  // SLA exclusion rule: completely hide SLA from customer-facing reports when below 95%.
+  // All downstream consumers (narrative, recommendations, PDF) handle null SLA gracefully.
+  if (variant === 'customer') {
+    const respSla = data.servicePerformance.slaResponseCompliance;
+    const resSla = data.servicePerformance.slaResolutionCompliance;
+    const bestSla = Math.max(respSla ?? 0, resSla ?? 0);
+    if (bestSla > 0 && bestSla < 95) {
+      data.servicePerformance.slaResponseCompliance = null;
+      data.servicePerformance.slaResolutionCompliance = null;
+    }
+  }
+
   // 2. Generate recommendations
   const recommendations = generateRecommendations(data, variant);
 
@@ -150,6 +162,17 @@ export async function getReviewPrintableHTML(id: string) {
   const recommendations = (review.recommendations || []) as unknown as BusinessReviewPayload['recommendations'];
   const narrative = (review.narrative || {}) as unknown as BusinessReviewPayload['narrative'];
   const variant = review.variant as ReportVariant;
+
+  // SLA exclusion rule for customer variant PDF
+  if (variant === 'customer') {
+    const respSla = data.servicePerformance.slaResponseCompliance;
+    const resSla = data.servicePerformance.slaResolutionCompliance;
+    const bestSla = Math.max(respSla ?? 0, resSla ?? 0);
+    if (bestSla > 0 && bestSla < 95) {
+      data.servicePerformance.slaResponseCompliance = null;
+      data.servicePerformance.slaResolutionCompliance = null;
+    }
+  }
 
   return generatePrintableHTML(data, recommendations, narrative, variant);
 }

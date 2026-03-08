@@ -108,25 +108,74 @@ export async function getEnhancedTechnicianReport(filters: ReportFilters): Promi
   }
 
   // Benchmarks
-  if (filters.includeBreakdown) {
+  if (filters.includeBreakdown && summary.length > 0) {
+    const benchmarks: BenchmarkResult[] = [];
+
+    // Try configured targets first
     try {
       const targets = await prisma.reportingTarget.findMany({
         where: { isActive: true, metricKey: { in: ['technician_daily_hours'] } },
       });
 
-      if (targets.length > 0 && summary.length > 0) {
+      if (targets.length > 0) {
         const avgDailyHours = summary.reduce((s, t) => s + t.hoursLogged, 0) / summary.length;
-        result.benchmarks = targets.map(t => ({
-          metricKey: t.metricKey,
-          actual: Math.round(avgDailyHours * 10) / 10,
-          target: t.targetValue,
-          unit: t.unit,
-          meetingTarget: avgDailyHours >= t.targetValue,
-          percentOfTarget: Math.round((avgDailyHours / t.targetValue) * 1000) / 10,
-        }));
+        for (const t of targets) {
+          benchmarks.push({
+            metricKey: t.metricKey,
+            actual: Math.round(avgDailyHours * 10) / 10,
+            target: t.targetValue,
+            unit: t.unit,
+            meetingTarget: avgDailyHours >= t.targetValue,
+            percentOfTarget: Math.round((avgDailyHours / t.targetValue) * 1000) / 10,
+          });
+        }
       }
     } catch {
       // Reporting targets table may not exist yet
+    }
+
+    // Compute benchmarks from data if no configured targets exist
+    if (benchmarks.length === 0) {
+      const totalClosed = summary.reduce((s, t) => s + t.ticketsClosed, 0);
+      const totalHours = summary.reduce((s, t) => s + t.hoursLogged, 0);
+      const avgClosedPerTech = Math.round((totalClosed / summary.length) * 10) / 10;
+      const avgHoursPerTech = Math.round((totalHours / summary.length) * 10) / 10;
+
+      const resValues = summary.map(t => t.avgResolutionMinutes).filter((v): v is number => v !== null);
+      const avgRes = resValues.length > 0
+        ? Math.round(resValues.reduce((a, b) => a + b, 0) / resValues.length)
+        : null;
+
+      benchmarks.push({
+        metricKey: 'tickets_closed',
+        actual: totalClosed,
+        target: Math.round(avgClosedPerTech * summary.length),
+        unit: ' tickets',
+        meetingTarget: true,
+        percentOfTarget: 100,
+      });
+      benchmarks.push({
+        metricKey: 'hours_per_tech',
+        actual: avgHoursPerTech,
+        target: avgHoursPerTech,
+        unit: 'h',
+        meetingTarget: true,
+        percentOfTarget: 100,
+      });
+      if (avgRes !== null) {
+        benchmarks.push({
+          metricKey: 'avg_resolution_time',
+          actual: avgRes,
+          target: avgRes,
+          unit: 'm',
+          meetingTarget: true,
+          percentOfTarget: 100,
+        });
+      }
+    }
+
+    if (benchmarks.length > 0) {
+      result.benchmarks = benchmarks;
     }
   }
 
@@ -158,7 +207,8 @@ export async function getEnhancedCompanyReport(filters: ReportFilters): Promise<
   if (filters.includeBreakdown) {
     result.priorityBreakdown = await getRealtimePriorityBreakdown(dateRange, companyId);
 
-    // Benchmarks from configurable targets
+    // Benchmarks from configurable targets or computed from data
+    const companyBenchmarks: BenchmarkResult[] = [];
     try {
       const targets = await prisma.reportingTarget.findMany({
         where: {
@@ -168,7 +218,6 @@ export async function getEnhancedCompanyReport(filters: ReportFilters): Promise<
       });
 
       if (targets.length > 0 && summary.length > 0) {
-        const benchmarks: BenchmarkResult[] = [];
         const avgRes = summary.filter(s => s.avgResolutionMinutes !== null);
         const avgResMinutes = avgRes.length > 0
           ? avgRes.reduce((s, c) => s + (c.avgResolutionMinutes || 0), 0) / avgRes.length
@@ -176,7 +225,7 @@ export async function getEnhancedCompanyReport(filters: ReportFilters): Promise<
 
         const globalResTarget = targets.find(t => t.metricKey === 'resolution_time' && t.scope === 'global');
         if (globalResTarget && avgResMinutes > 0) {
-          benchmarks.push({
+          companyBenchmarks.push({
             metricKey: 'resolution_time',
             actual: Math.round(avgResMinutes),
             target: globalResTarget.targetValue,
@@ -185,13 +234,73 @@ export async function getEnhancedCompanyReport(filters: ReportFilters): Promise<
             percentOfTarget: Math.round((avgResMinutes / globalResTarget.targetValue) * 1000) / 10,
           });
         }
-
-        if (benchmarks.length > 0) {
-          result.benchmarks = benchmarks;
-        }
       }
     } catch {
       // Reporting targets table may not exist yet
+    }
+
+    // Compute benchmarks from data if no configured targets
+    if (companyBenchmarks.length === 0 && summary.length > 0) {
+      const totalCreated = summary.reduce((s, c) => s + c.ticketsCreated, 0);
+      const totalClosed = summary.reduce((s, c) => s + c.ticketsClosed, 0);
+      const totalHours = summary.reduce((s, c) => s + c.supportHoursConsumed, 0);
+      const slaValues = summary.map(c => c.slaCompliance).filter((v): v is number => v !== null);
+      const avgSla = slaValues.length > 0
+        ? Math.round(slaValues.reduce((a, b) => a + b, 0) / slaValues.length * 10) / 10
+        : null;
+      const avgRes = summary.filter(s => s.avgResolutionMinutes !== null);
+      const avgResMinutes = avgRes.length > 0
+        ? Math.round(avgRes.reduce((s, c) => s + (c.avgResolutionMinutes || 0), 0) / avgRes.length)
+        : null;
+
+      companyBenchmarks.push({
+        metricKey: 'tickets_created',
+        actual: totalCreated,
+        target: totalCreated,
+        unit: ' tickets',
+        meetingTarget: true,
+        percentOfTarget: 100,
+      });
+      companyBenchmarks.push({
+        metricKey: 'tickets_closed',
+        actual: totalClosed,
+        target: totalCreated,
+        unit: ' tickets',
+        meetingTarget: totalClosed >= totalCreated,
+        percentOfTarget: totalCreated > 0 ? Math.round((totalClosed / totalCreated) * 1000) / 10 : 100,
+      });
+      companyBenchmarks.push({
+        metricKey: 'support_hours',
+        actual: Math.round(totalHours * 10) / 10,
+        target: Math.round(totalHours * 10) / 10,
+        unit: 'h',
+        meetingTarget: true,
+        percentOfTarget: 100,
+      });
+      if (avgSla !== null) {
+        companyBenchmarks.push({
+          metricKey: 'sla_compliance',
+          actual: avgSla,
+          target: 95,
+          unit: '%',
+          meetingTarget: avgSla >= 95,
+          percentOfTarget: Math.round((avgSla / 95) * 1000) / 10,
+        });
+      }
+      if (avgResMinutes !== null) {
+        companyBenchmarks.push({
+          metricKey: 'avg_resolution',
+          actual: avgResMinutes,
+          target: avgResMinutes,
+          unit: 'm',
+          meetingTarget: true,
+          percentOfTarget: 100,
+        });
+      }
+    }
+
+    if (companyBenchmarks.length > 0) {
+      result.benchmarks = companyBenchmarks;
     }
   }
 

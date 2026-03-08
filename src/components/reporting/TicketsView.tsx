@@ -36,6 +36,7 @@ interface TicketsData {
     resolutionSampleSize: number
   }
   tickets: TicketRow[]
+  autotaskWebUrl: string | null
   meta: { period: { from: string; to: string }; generatedAt: string }
 }
 
@@ -238,6 +239,7 @@ export default function TicketsView() {
                       onToggle={() => toggleTicket(ticket.ticketId)}
                       notes={ticketNotes[ticket.ticketId]}
                       notesLoading={notesLoading === ticket.ticketId}
+                      autotaskWebUrl={data?.autotaskWebUrl || null}
                     />
                   ))}
                   {filteredTickets.length === 0 && (
@@ -268,12 +270,13 @@ export default function TicketsView() {
   )
 }
 
-function TicketRowWithExpand({ ticket, isExpanded, onToggle, notes, notesLoading }: {
+function TicketRowWithExpand({ ticket, isExpanded, onToggle, notes, notesLoading, autotaskWebUrl }: {
   ticket: TicketRow
   isExpanded: boolean
   onToggle: () => void
   notes?: TicketNote[]
   notesLoading: boolean
+  autotaskWebUrl: string | null
 }) {
   return (
     <>
@@ -285,7 +288,20 @@ function TicketRowWithExpand({ ticket, isExpanded, onToggle, notes, notesLoading
           <div className="flex items-center gap-2">
             <span className="text-xs text-slate-500">{isExpanded ? '\u25BC' : '\u25B6'}</span>
             <div>
-              <span className="text-sm text-cyan-400 font-mono">{ticket.ticketNumber}</span>
+              {autotaskWebUrl ? (
+                <a
+                  href={`${autotaskWebUrl}?ticketId=${ticket.ticketId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-sm text-cyan-400 font-mono hover:text-cyan-300 hover:underline"
+                  title="Open in Autotask"
+                >
+                  {ticket.ticketNumber}
+                </a>
+              ) : (
+                <span className="text-sm text-cyan-400 font-mono">{ticket.ticketNumber}</span>
+              )}
               <div className="text-xs text-slate-400 md:hidden truncate max-w-[200px]">{ticket.title}</div>
             </div>
           </div>
@@ -331,6 +347,18 @@ function TicketRowWithExpand({ ticket, isExpanded, onToggle, notes, notesLoading
                   <span className="text-slate-500">Assigned:</span>{' '}
                   <span className="text-white">{ticket.assignedTo}</span>
                 </div>
+                {autotaskWebUrl && (
+                  <div>
+                    <a
+                      href={`${autotaskWebUrl}?ticketId=${ticket.ticketId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-cyan-400 hover:text-cyan-300 hover:underline text-xs"
+                    >
+                      Open in Autotask &rarr;
+                    </a>
+                  </div>
+                )}
                 <div>
                   <span className="text-slate-500">Created:</span>{' '}
                   <span className="text-white">{new Date(ticket.createDate).toLocaleString()}</span>
