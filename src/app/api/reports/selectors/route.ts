@@ -35,12 +35,18 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Query companies and resources independently
-  const [companiesResult, resourcesResult] = await Promise.all([
+  // Query companies (with ticket counts) and resources independently
+  const [companiesResult, ticketCountsResult, resourcesResult] = await Promise.all([
     safeQuery(() =>
       prisma.company.findMany({
         select: { id: true, displayName: true, autotaskCompanyId: true },
         orderBy: { displayName: 'asc' },
+      })
+    ),
+    safeQuery(() =>
+      prisma.ticket.groupBy({
+        by: ['companyId'],
+        _count: { id: true },
       })
     ),
     safeQuery(() =>
@@ -51,6 +57,12 @@ export async function GET() {
       })
     ),
   ]);
+
+  // Build ticket count lookup
+  const ticketCounts = new Map<string, number>();
+  for (const tc of ticketCountsResult.data) {
+    ticketCounts.set(tc.companyId, tc._count.id);
+  }
 
   if (companiesResult.error) {
     console.error('[reports/selectors] Companies query failed:', companiesResult.error);
@@ -72,6 +84,7 @@ export async function GET() {
       id: c.id,
       displayName: c.displayName,
       hasAutotask: !!c.autotaskCompanyId,
+      ticketCount: ticketCounts.get(c.id) || 0,
     })),
     technicians: filteredTechnicians.map((r) => ({
       id: r.id,

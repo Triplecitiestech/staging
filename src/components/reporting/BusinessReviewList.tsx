@@ -20,6 +20,7 @@ interface ReviewSummary {
 interface CompanyOption {
   id: string
   displayName: string
+  ticketCount: number
 }
 
 export default function BusinessReviewList() {
@@ -68,10 +69,14 @@ export default function BusinessReviewList() {
         throw new Error(errData.error || `Failed to load companies (HTTP ${res.status})`)
       }
       const data = await res.json()
-      const companyList = (data.companies || []).map((c: { id: string; displayName: string }) => ({
-        id: c.id,
-        displayName: c.displayName,
-      }))
+      const companyList = (data.companies || [])
+        .map((c: { id: string; displayName: string; ticketCount?: number }) => ({
+          id: c.id,
+          displayName: c.displayName,
+          ticketCount: c.ticketCount || 0,
+        }))
+        // Sort companies with ticket data first
+        .sort((a: CompanyOption, b: CompanyOption) => b.ticketCount - a.ticketCount || a.displayName.localeCompare(b.displayName))
       setCompanies(companyList)
       if (companyList.length === 0) {
         setCompaniesError('No companies found. Ensure Autotask company sync has been run.')
@@ -99,13 +104,14 @@ export default function BusinessReviewList() {
 
     if (reportType === 'monthly') {
       periodStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1))
-      periodEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0))
+      // End of last day of the month (23:59:59.999) — not midnight which misses the entire last day
+      periodEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0, 23, 59, 59, 999))
     } else {
       const qStart = Math.floor((now.getUTCMonth() - 3) / 3) * 3
       const year = qStart < 0 ? now.getUTCFullYear() - 1 : now.getUTCFullYear()
       const month = ((qStart % 12) + 12) % 12
       periodStart = new Date(Date.UTC(year, month, 1))
-      periodEnd = new Date(Date.UTC(year, month + 3, 0))
+      periodEnd = new Date(Date.UTC(year, month + 3, 0, 23, 59, 59, 999))
     }
 
     try {
@@ -203,7 +209,9 @@ export default function BusinessReviewList() {
                     : 'Select company...'}
                 </option>
                 {companies.map((c) => (
-                  <option key={c.id} value={c.id}>{c.displayName}</option>
+                  <option key={c.id} value={c.id}>
+                    {c.displayName}{c.ticketCount > 0 ? ` (${c.ticketCount} tickets)` : ' (no ticket data)'}
+                  </option>
                 ))}
               </select>
             </div>
