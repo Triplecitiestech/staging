@@ -198,11 +198,12 @@ interface TimeEntrySyncResult {
 
 /**
  * Sync time entries for locally-stored tickets.
- * Only fetches entries for tickets modified since last sync.
+ * Processes up to `batchLimit` tickets per invocation to stay within Vercel's 60s timeout.
+ * Prioritizes tickets with 0 time entries (backfill from previous broken syncs).
  */
-export async function syncTimeEntries(): Promise<TimeEntrySyncResult> {
+export async function syncTimeEntries(batchLimit: number = 50): Promise<TimeEntrySyncResult & { remaining: number }> {
   const finish = createJobTracker(JOB_NAMES.SYNC_TIME_ENTRIES);
-  const result: TimeEntrySyncResult = { created: 0, updated: 0, errors: [] };
+  const result: TimeEntrySyncResult & { remaining: number } = { created: 0, updated: 0, errors: [], remaining: 0 };
 
   try {
     await assertTableExists('tickets');
@@ -211,17 +212,7 @@ export async function syncTimeEntries(): Promise<TimeEntrySyncResult> {
     const client = new AutotaskClient();
     const lastSync = await getLastSuccessfulRun(JOB_NAMES.SYNC_TIME_ENTRIES);
 
-    // Get tickets that need time entry sync:
-    // 1. Recently synced tickets (new/updated since last run)
-    // 2. Tickets with 0 time entries (may have been missed by previous broken sync)
-    const recentTickets = lastSync
-      ? await prisma.ticket.findMany({
-          where: { autotaskLastSync: { gte: lastSync } },
-          select: { autotaskTicketId: true },
-        })
-      : [];
-
-    // Also find tickets with no time entries at all (catches previous sync failures)
+    // Find tickets with no time entries (backfill first — these were missed by broken syncs)
     const ticketsWithEntries = await prisma.ticketTimeEntry.findMany({
       select: { autotaskTicketId: true },
       distinct: ['autotaskTicketId'],
@@ -233,23 +224,27 @@ export async function syncTimeEntries(): Promise<TimeEntrySyncResult> {
     });
     const missingEntryTickets = allTickets.filter(t => !ticketsWithEntriesSet.has(t.autotaskTicketId));
 
-    // Merge: recent + missing, deduplicated
+    // Also get recently synced tickets
+    const recentTickets = lastSync
+      ? await prisma.ticket.findMany({
+          where: { autotaskLastSync: { gte: lastSync } },
+          select: { autotaskTicketId: true },
+        })
+      : allTickets;
+
+    // Merge: missing first (priority), then recent, deduplicated
     const seenIds = new Set<string>();
-    const tickets: Array<{ autotaskTicketId: string }> = [];
-    for (const t of [...recentTickets, ...missingEntryTickets]) {
+    const allCandidates: Array<{ autotaskTicketId: string }> = [];
+    for (const t of [...missingEntryTickets, ...recentTickets]) {
       if (!seenIds.has(t.autotaskTicketId)) {
         seenIds.add(t.autotaskTicketId);
-        tickets.push(t);
+        allCandidates.push(t);
       }
     }
 
-    // If first run (no lastSync), use all tickets
-    if (!lastSync) {
-      tickets.length = 0;
-      for (const t of allTickets) {
-        tickets.push(t);
-      }
-    }
+    // Batch: only process up to batchLimit tickets per invocation
+    const tickets = allCandidates.slice(0, batchLimit);
+    result.remaining = Math.max(0, allCandidates.length - batchLimit);
 
     for (const ticket of tickets) {
       const atTicketId = parseInt(ticket.autotaskTicketId, 10);
@@ -297,7 +292,7 @@ export async function syncTimeEntries(): Promise<TimeEntrySyncResult> {
 
     await finish({
       status: result.errors.length > 0 ? 'failed' : 'success',
-      meta: { created: result.created, updated: result.updated, errorCount: result.errors.length },
+      meta: { created: result.created, updated: result.updated, errorCount: result.errors.length, remaining: result.remaining },
       error: result.errors.length > 0 ? result.errors.slice(0, 10).join('; ') : undefined,
     });
 
@@ -322,10 +317,11 @@ interface NoteSyncResult {
 /**
  * Sync ticket notes for locally-stored tickets.
  * Required for first-response-time calculation.
+ * Processes up to `batchLimit` tickets per invocation to stay within timeout.
  */
-export async function syncTicketNotes(): Promise<NoteSyncResult> {
+export async function syncTicketNotes(batchLimit: number = 50): Promise<NoteSyncResult & { remaining: number }> {
   const finish = createJobTracker(JOB_NAMES.SYNC_TICKET_NOTES);
-  const result: NoteSyncResult = { created: 0, updated: 0, errors: [] };
+  const result: NoteSyncResult & { remaining: number } = { created: 0, updated: 0, errors: [], remaining: 0 };
 
   try {
     await assertTableExists('tickets');
@@ -334,16 +330,7 @@ export async function syncTicketNotes(): Promise<NoteSyncResult> {
     const client = new AutotaskClient();
     const lastSync = await getLastSuccessfulRun(JOB_NAMES.SYNC_TICKET_NOTES);
 
-    // Get tickets that need note sync:
-    // 1. Recently synced tickets (new/updated since last run)
-    // 2. Tickets with 0 notes (may have been missed by previous sync)
-    const recentTickets = lastSync
-      ? await prisma.ticket.findMany({
-          where: { autotaskLastSync: { gte: lastSync } },
-          select: { autotaskTicketId: true },
-        })
-      : [];
-
+    // Find tickets with no notes (backfill first)
     const ticketsWithNotes = await prisma.ticketNote.findMany({
       select: { autotaskTicketId: true },
       distinct: ['autotaskTicketId'],
@@ -355,23 +342,27 @@ export async function syncTicketNotes(): Promise<NoteSyncResult> {
     });
     const missingNoteTickets = allTickets.filter(t => !ticketsWithNotesSet.has(t.autotaskTicketId));
 
-    // Merge: recent + missing, deduplicated
+    // Also get recently synced tickets
+    const recentTickets = lastSync
+      ? await prisma.ticket.findMany({
+          where: { autotaskLastSync: { gte: lastSync } },
+          select: { autotaskTicketId: true },
+        })
+      : allTickets;
+
+    // Merge: missing first (priority), then recent, deduplicated
     const seenIds = new Set<string>();
-    const tickets: Array<{ autotaskTicketId: string }> = [];
-    for (const t of [...recentTickets, ...missingNoteTickets]) {
+    const allCandidates: Array<{ autotaskTicketId: string }> = [];
+    for (const t of [...missingNoteTickets, ...recentTickets]) {
       if (!seenIds.has(t.autotaskTicketId)) {
         seenIds.add(t.autotaskTicketId);
-        tickets.push(t);
+        allCandidates.push(t);
       }
     }
 
-    // If first run, sync all tickets
-    if (!lastSync) {
-      tickets.length = 0;
-      for (const t of allTickets) {
-        tickets.push(t);
-      }
-    }
+    // Batch: only process up to batchLimit tickets per invocation
+    const tickets = allCandidates.slice(0, batchLimit);
+    result.remaining = Math.max(0, allCandidates.length - batchLimit);
 
     for (const ticket of tickets) {
       const atTicketId = parseInt(ticket.autotaskTicketId, 10);
@@ -418,7 +409,7 @@ export async function syncTicketNotes(): Promise<NoteSyncResult> {
 
     await finish({
       status: result.errors.length > 0 ? 'failed' : 'success',
-      meta: { created: result.created, updated: result.updated, errorCount: result.errors.length },
+      meta: { created: result.created, updated: result.updated, errorCount: result.errors.length, remaining: result.remaining },
       error: result.errors.length > 0 ? result.errors.slice(0, 10).join('; ') : undefined,
     });
 
