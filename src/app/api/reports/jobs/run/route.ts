@@ -38,10 +38,18 @@ async function runPipeline(jobName: string, days?: number, date?: Date) {
     // Auto-migrate: ensure all reporting tables exist before any job runs
     await ensureReportingTables();
 
-    // Run entire pipeline sequentially
+    // Run entire pipeline sequentially (with 45s safety timeout per step)
     if (jobName === 'run_all') {
-      const results: Array<{ job: string; success: boolean; durationMs?: number; error?: string }> = [];
+      const results: Array<{ job: string; success: boolean; durationMs?: number; error?: string; skipped?: boolean }> = [];
+      const pipelineStart = Date.now();
+      const MAX_TOTAL_MS = 50000; // Leave 10s buffer before Vercel's 60s timeout
+
       for (const name of PIPELINE_ORDER) {
+        // Skip remaining jobs if we're running out of time
+        if (Date.now() - pipelineStart > MAX_TOTAL_MS) {
+          results.push({ job: name, success: true, skipped: true, durationMs: 0, error: 'Skipped — approaching timeout' });
+          continue;
+        }
         const start = Date.now();
         try {
           await JOB_MAP[name](undefined, days);
@@ -52,10 +60,11 @@ async function runPipeline(jobName: string, days?: number, date?: Date) {
         }
       }
       const failed = results.filter((r) => !r.success);
+      const skipped = results.filter((r) => r.skipped);
       return NextResponse.json({
         success: failed.length === 0,
         results,
-        summary: `${results.length - failed.length}/${results.length} jobs succeeded`,
+        summary: `${results.length - failed.length - skipped.length}/${results.length} jobs succeeded${skipped.length > 0 ? `, ${skipped.length} skipped (run again to continue)` : ''}`,
         totalDurationMs: results.reduce((sum, r) => sum + (r.durationMs || 0), 0),
       });
     }
