@@ -134,44 +134,60 @@ export async function getEnhancedTechnicianReport(filters: ReportFilters): Promi
       // Reporting targets table may not exist yet
     }
 
-    // Compute benchmarks from data if no configured targets exist
+    // Use MSP industry-standard benchmarks when no configured targets exist
     if (benchmarks.length === 0) {
-      const totalClosed = summary.reduce((s, t) => s + t.ticketsClosed, 0);
       const totalHours = summary.reduce((s, t) => s + t.hoursLogged, 0);
-      const avgClosedPerTech = Math.round((totalClosed / summary.length) * 10) / 10;
       const avgHoursPerTech = Math.round((totalHours / summary.length) * 10) / 10;
+
+      const frtValues = summary.map(t => t.avgFirstResponseMinutes).filter((v): v is number => v !== null);
+      const avgFrt = frtValues.length > 0
+        ? Math.round(frtValues.reduce((a, b) => a + b, 0) / frtValues.length)
+        : null;
 
       const resValues = summary.map(t => t.avgResolutionMinutes).filter((v): v is number => v !== null);
       const avgRes = resValues.length > 0
         ? Math.round(resValues.reduce((a, b) => a + b, 0) / resValues.length)
         : null;
 
-      benchmarks.push({
-        metricKey: 'tickets_closed',
-        actual: totalClosed,
-        target: Math.round(avgClosedPerTech * summary.length),
-        unit: ' tickets',
-        meetingTarget: true,
-        percentOfTarget: 100,
-      });
-      benchmarks.push({
-        metricKey: 'hours_per_tech',
-        actual: avgHoursPerTech,
-        target: avgHoursPerTech,
-        unit: 'h',
-        meetingTarget: true,
-        percentOfTarget: 100,
-      });
+      // First Response Time target: 60 minutes (MSP industry standard)
+      if (avgFrt !== null) {
+        const frtTarget = 60;
+        benchmarks.push({
+          metricKey: 'first_response_time',
+          actual: avgFrt,
+          target: frtTarget,
+          unit: 'm',
+          meetingTarget: avgFrt <= frtTarget,
+          percentOfTarget: Math.round((frtTarget / Math.max(avgFrt, 1)) * 1000) / 10,
+        });
+      }
+
+      // Avg Resolution Time target: 480 minutes / 8 hours (MSP standard)
       if (avgRes !== null) {
+        const resTarget = 480;
         benchmarks.push({
           metricKey: 'avg_resolution_time',
           actual: avgRes,
-          target: avgRes,
+          target: resTarget,
           unit: 'm',
-          meetingTarget: true,
-          percentOfTarget: 100,
+          meetingTarget: avgRes <= resTarget,
+          percentOfTarget: Math.round((resTarget / Math.max(avgRes, 1)) * 1000) / 10,
         });
       }
+
+      // Hours per technician target: 6h/day for the period
+      const periodDays = Math.max(1, Math.round(
+        (filters.dateRange.to.getTime() - filters.dateRange.from.getTime()) / (1000 * 60 * 60 * 24)
+      ));
+      const targetHoursPerTech = Math.round(periodDays * 6 * 10) / 10;
+      benchmarks.push({
+        metricKey: 'hours_per_tech',
+        actual: avgHoursPerTech,
+        target: targetHoursPerTech,
+        unit: 'h',
+        meetingTarget: avgHoursPerTech >= targetHoursPerTech * 0.8,
+        percentOfTarget: Math.round((avgHoursPerTech / Math.max(targetHoursPerTech, 1)) * 1000) / 10,
+      });
     }
 
     if (benchmarks.length > 0) {
@@ -239,11 +255,10 @@ export async function getEnhancedCompanyReport(filters: ReportFilters): Promise<
       // Reporting targets table may not exist yet
     }
 
-    // Compute benchmarks from data if no configured targets
+    // Use MSP industry-standard benchmarks when no configured targets
     if (companyBenchmarks.length === 0 && summary.length > 0) {
       const totalCreated = summary.reduce((s, c) => s + c.ticketsCreated, 0);
       const totalClosed = summary.reduce((s, c) => s + c.ticketsClosed, 0);
-      const totalHours = summary.reduce((s, c) => s + c.supportHoursConsumed, 0);
       const slaValues = summary.map(c => c.slaCompliance).filter((v): v is number => v !== null);
       const avgSla = slaValues.length > 0
         ? Math.round(slaValues.reduce((a, b) => a + b, 0) / slaValues.length * 10) / 10
@@ -253,30 +268,17 @@ export async function getEnhancedCompanyReport(filters: ReportFilters): Promise<
         ? Math.round(avgRes.reduce((s, c) => s + (c.avgResolutionMinutes || 0), 0) / avgRes.length)
         : null;
 
+      // Close rate: closed vs created (target: 100% — close everything that comes in)
       companyBenchmarks.push({
-        metricKey: 'tickets_created',
-        actual: totalCreated,
-        target: totalCreated,
-        unit: ' tickets',
-        meetingTarget: true,
-        percentOfTarget: 100,
-      });
-      companyBenchmarks.push({
-        metricKey: 'tickets_closed',
-        actual: totalClosed,
-        target: totalCreated,
-        unit: ' tickets',
+        metricKey: 'close_rate',
+        actual: totalCreated > 0 ? Math.round((totalClosed / totalCreated) * 1000) / 10 : 100,
+        target: 100,
+        unit: '%',
         meetingTarget: totalClosed >= totalCreated,
         percentOfTarget: totalCreated > 0 ? Math.round((totalClosed / totalCreated) * 1000) / 10 : 100,
       });
-      companyBenchmarks.push({
-        metricKey: 'support_hours',
-        actual: Math.round(totalHours * 10) / 10,
-        target: Math.round(totalHours * 10) / 10,
-        unit: 'h',
-        meetingTarget: true,
-        percentOfTarget: 100,
-      });
+
+      // SLA compliance target: 95%
       if (avgSla !== null) {
         companyBenchmarks.push({
           metricKey: 'sla_compliance',
@@ -287,14 +289,17 @@ export async function getEnhancedCompanyReport(filters: ReportFilters): Promise<
           percentOfTarget: Math.round((avgSla / 95) * 1000) / 10,
         });
       }
+
+      // Avg resolution target: 480 minutes (8 hours / 1 business day)
       if (avgResMinutes !== null) {
+        const resTarget = 480;
         companyBenchmarks.push({
           metricKey: 'avg_resolution',
           actual: avgResMinutes,
-          target: avgResMinutes,
+          target: resTarget,
           unit: 'm',
-          meetingTarget: true,
-          percentOfTarget: 100,
+          meetingTarget: avgResMinutes <= resTarget,
+          percentOfTarget: Math.round((resTarget / Math.max(avgResMinutes, 1)) * 1000) / 10,
         });
       }
     }
