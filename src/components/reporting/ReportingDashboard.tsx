@@ -40,11 +40,37 @@ interface DashboardData {
   _warning?: string
 }
 
+// Pipeline job labels for progress display
+const JOB_LABELS: Record<string, string> = {
+  sync_tickets: 'Sync Tickets',
+  sync_time_entries: 'Sync Time Entries',
+  sync_ticket_notes: 'Sync Ticket Notes',
+  sync_resources: 'Sync Resources',
+  compute_lifecycle: 'Compute Lifecycle',
+  aggregate_technician: 'Aggregate Technician',
+  aggregate_company: 'Aggregate Company',
+  compute_health: 'Compute Health Scores',
+}
+
+const PIPELINE_JOBS = [
+  'sync_tickets',
+  'sync_time_entries',
+  'sync_ticket_notes',
+  'sync_resources',
+  'compute_lifecycle',
+  'aggregate_technician',
+  'aggregate_company',
+  'compute_health',
+]
+
 export default function ReportingDashboard() {
   const searchParams = useSearchParams()
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [syncing, setSyncing] = useState(false)
+  const [syncStatus, setSyncStatus] = useState<string | null>(null)
+  const [syncError, setSyncError] = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -73,6 +99,45 @@ export default function ReportingDashboard() {
     fetchData()
   }, [fetchData])
 
+  const runSync = async () => {
+    setSyncing(true)
+    setSyncStatus('Starting pipeline...')
+    setSyncError(null)
+
+    const results: Array<{ job: string; success: boolean; error?: string }> = []
+
+    for (const jobName of PIPELINE_JOBS) {
+      setSyncStatus(`Running: ${JOB_LABELS[jobName] || jobName}...`)
+      try {
+        const res = await fetch('/api/reports/jobs/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ job: jobName }),
+        })
+        const body = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          results.push({ job: jobName, success: false, error: body.error || `HTTP ${res.status}` })
+        } else {
+          results.push({ job: jobName, success: true })
+        }
+      } catch {
+        results.push({ job: jobName, success: false, error: 'Network error or timeout' })
+      }
+    }
+
+    const ok = results.filter((r) => r.success).length
+    const failed = results.filter((r) => !r.success)
+    if (failed.length > 0) {
+      setSyncError(`${ok}/${PIPELINE_JOBS.length} succeeded. Failed: ${failed.map(f => JOB_LABELS[f.job] || f.job).join(', ')}`)
+    } else {
+      setSyncStatus(`Sync complete: ${ok}/${PIPELINE_JOBS.length} jobs succeeded`)
+    }
+
+    setSyncing(false)
+    // Refresh dashboard data
+    fetchData()
+  }
+
   const hasData = data && (
     data.summary.totalTicketsCreated > 0 ||
     data.summary.totalTicketsClosed > 0 ||
@@ -81,8 +146,50 @@ export default function ReportingDashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Filter bar */}
-      <ReportFilterBar basePath="/admin/reporting" />
+      {/* Filter bar + Sync button */}
+      <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+        <div className="flex-1">
+          <ReportFilterBar basePath="/admin/reporting" />
+        </div>
+        <button
+          onClick={runSync}
+          disabled={syncing}
+          className="px-4 py-2 text-sm bg-cyan-500 text-white rounded-lg hover:bg-cyan-600 disabled:opacity-50 transition-colors whitespace-nowrap flex items-center gap-2 shrink-0"
+        >
+          {syncing ? (
+            <>
+              <span className="animate-spin inline-block h-4 w-4 border-2 border-white/30 border-t-white rounded-full" />
+              Syncing...
+            </>
+          ) : (
+            'Sync with Autotask'
+          )}
+        </button>
+      </div>
+
+      {/* Sync status banner */}
+      {(syncStatus || syncError) && !syncing && (
+        <div className={`rounded-lg p-3 border flex items-center justify-between ${
+          syncError
+            ? 'bg-rose-500/10 border-rose-500/30'
+            : 'bg-emerald-500/10 border-emerald-500/30'
+        }`}>
+          <p className={`text-sm ${syncError ? 'text-rose-300' : 'text-emerald-300'}`}>
+            {syncError || syncStatus}
+          </p>
+          <button
+            onClick={() => { setSyncStatus(null); setSyncError(null) }}
+            className="text-xs text-slate-400 hover:text-white ml-4"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+      {syncing && syncStatus && (
+        <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-lg p-3">
+          <p className="text-sm text-cyan-300">{syncStatus}</p>
+        </div>
+      )}
 
       {/* Loading state */}
       {loading && (
