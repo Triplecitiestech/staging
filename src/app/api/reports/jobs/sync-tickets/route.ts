@@ -16,7 +16,8 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const days = parseInt(request.nextUrl.searchParams.get('days') || '90', 10);
+    // Default 180 days to cover quarterly reports plus buffer
+    const days = parseInt(request.nextUrl.searchParams.get('days') || '180', 10);
     const result = await syncTickets(days);
     return NextResponse.json({ success: true, result });
   } catch (err) {
