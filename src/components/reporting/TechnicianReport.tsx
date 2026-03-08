@@ -38,6 +38,12 @@ export default function TechnicianReport() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [showAtSearch, setShowAtSearch] = useState(false)
+  const [atSearch, setAtSearch] = useState('')
+  const [atResults, setAtResults] = useState<Array<{ autotaskId: number; name: string; email: string; isImported: boolean }>>([])
+  const [atSearching, setAtSearching] = useState(false)
+  const [importing, setImporting] = useState<number | null>(null)
+  const [importMsg, setImportMsg] = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -62,6 +68,42 @@ export default function TechnicianReport() {
   }, [searchParams])
 
   useEffect(() => { fetchData() }, [fetchData])
+
+  const searchAutotask = async () => {
+    setAtSearching(true)
+    try {
+      const res = await fetch(`/api/reports/autotask-search?type=resources&q=${encodeURIComponent(atSearch)}`)
+      const json = await res.json()
+      setAtResults(json.results || [])
+    } catch {
+      setAtResults([])
+    }
+    setAtSearching(false)
+  }
+
+  const importResource = async (autotaskId: number) => {
+    setImporting(autotaskId)
+    setImportMsg(null)
+    try {
+      const res = await fetch('/api/reports/autotask-search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'resource', autotaskId }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        setImportMsg(`Imported "${json.name}" successfully`)
+        setAtResults(prev => prev.map(r =>
+          r.autotaskId === autotaskId ? { ...r, isImported: true } : r
+        ))
+      } else {
+        setImportMsg(`Error: ${json.error}`)
+      }
+    } catch {
+      setImportMsg('Import failed')
+    }
+    setImporting(null)
+  }
 
   if (loading) {
     return (
@@ -94,7 +136,72 @@ export default function TechnicianReport() {
 
   return (
     <div className="space-y-6">
-      <ReportFilterBar basePath="/admin/reporting/technicians" showTechnicianSelector />
+      <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+        <div className="flex-1">
+          <ReportFilterBar basePath="/admin/reporting/technicians" showTechnicianSelector />
+        </div>
+        <button
+          onClick={() => setShowAtSearch(!showAtSearch)}
+          className="px-4 py-2 text-sm bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors whitespace-nowrap shrink-0"
+        >
+          {showAtSearch ? 'Hide Autotask Search' : 'Browse Autotask Users'}
+        </button>
+      </div>
+
+      {/* Autotask resource search panel */}
+      {showAtSearch && (
+        <div className="bg-slate-800/50 rounded-xl p-5 border border-slate-700/50">
+          <h3 className="text-sm font-medium text-slate-300 mb-3">Search Autotask Resources</h3>
+          <div className="flex gap-2 mb-3">
+            <input
+              type="text"
+              placeholder="Search by name or email..."
+              value={atSearch}
+              onChange={(e) => setAtSearch(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && searchAutotask()}
+              className="flex-1 px-3 py-1.5 text-sm bg-slate-900/50 border border-slate-600/50 rounded-md text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50"
+            />
+            <button
+              onClick={searchAutotask}
+              disabled={atSearching || atSearch.length < 1}
+              className="px-4 py-1.5 text-sm bg-cyan-500 text-white rounded-md hover:bg-cyan-600 disabled:opacity-50 transition-colors"
+            >
+              {atSearching ? 'Searching...' : 'Search'}
+            </button>
+          </div>
+          {importMsg && (
+            <div className={`text-sm mb-2 ${importMsg.startsWith('Error') || importMsg === 'Import failed' ? 'text-rose-400' : 'text-emerald-400'}`}>
+              {importMsg}
+            </div>
+          )}
+          {atResults.length > 0 && (
+            <div className="space-y-1 max-h-64 overflow-y-auto">
+              {atResults.map((r) => (
+                <div key={r.autotaskId} className="flex items-center justify-between px-3 py-2 rounded-md hover:bg-slate-700/30">
+                  <div>
+                    <span className="text-sm text-white">{r.name}</span>
+                    <span className="text-xs text-slate-500 ml-2">{r.email}</span>
+                  </div>
+                  {r.isImported ? (
+                    <span className="text-xs text-emerald-400 px-2 py-0.5 bg-emerald-400/10 rounded-full">Imported</span>
+                  ) : (
+                    <button
+                      onClick={() => importResource(r.autotaskId)}
+                      disabled={importing === r.autotaskId}
+                      className="text-xs text-cyan-400 hover:text-cyan-300 disabled:opacity-50"
+                    >
+                      {importing === r.autotaskId ? 'Importing...' : 'Import'}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {atResults.length === 0 && atSearch.length >= 1 && !atSearching && (
+            <p className="text-sm text-slate-500">No results. Try a different search term.</p>
+          )}
+        </div>
+      )}
 
       {/* Summary cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
