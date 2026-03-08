@@ -46,6 +46,7 @@ export default function HealthReport() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -105,6 +106,15 @@ export default function HealthReport() {
 
       {/* Scores table */}
       <div className="bg-slate-800/50 rounded-xl border border-slate-700/50 overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-700/50">
+          <input
+            type="text"
+            placeholder="Search companies..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full sm:w-64 px-3 py-1.5 text-sm bg-slate-900/50 border border-slate-600/50 rounded-md text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50"
+          />
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
@@ -119,7 +129,10 @@ export default function HealthReport() {
               </tr>
             </thead>
             <tbody>
-              {data.scores.map((score) => {
+              {data.scores.filter((score) => {
+                if (!search) return true
+                return score.displayName.toLowerCase().includes(search.toLowerCase())
+              }).map((score) => {
                 const isExpanded = expanded === score.companyId
                 return (
                   <>
