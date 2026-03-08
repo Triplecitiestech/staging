@@ -327,11 +327,12 @@ const MIGRATION_STATEMENTS = [
 /**
  * Apply the reporting tables migration on-demand.
  * POST /api/reports/migrate?secret=MIGRATION_SECRET
+ * GET  /api/reports/migrate?secret=MIGRATION_SECRET&run=true  (convenience for CLI)
  *
  * Fully idempotent — safe to run multiple times. SQL is inlined so it
  * does not depend on filesystem access (works in Vercel serverless).
  */
-export async function POST(request: NextRequest) {
+async function runMigration(request: NextRequest) {
   const secret = request.nextUrl.searchParams.get('secret');
   if (secret !== process.env.MIGRATION_SECRET) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -404,14 +405,26 @@ export async function POST(request: NextRequest) {
   }
 }
 
+/** POST handler */
+export async function POST(request: NextRequest) {
+  return runMigration(request);
+}
+
 /**
  * GET /api/reports/migrate?secret=MIGRATION_SECRET
  * Check which reporting tables exist.
+ * GET /api/reports/migrate?secret=MIGRATION_SECRET&run=true
+ * Run the migration (convenience for CLI when POST is difficult).
  */
 export async function GET(request: NextRequest) {
   const secret = request.nextUrl.searchParams.get('secret');
   if (secret !== process.env.MIGRATION_SECRET) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // If ?run=true, execute the migration via GET for CLI convenience
+  if (request.nextUrl.searchParams.get('run') === 'true') {
+    return runMigration(request);
   }
 
   try {
