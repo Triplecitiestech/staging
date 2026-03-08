@@ -3,10 +3,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import ReportFilterBar from './ReportFilters'
 import StatCard from './StatCard'
 import TrendChart from './TrendChart'
 import PriorityBreakdownChart from './PriorityBreakdownChart'
+import ReportAIAssistant from './ReportAIAssistant'
 
 interface DashboardData {
   summary: {
@@ -65,6 +67,7 @@ const PIPELINE_JOBS = [
 
 export default function ReportingDashboard() {
   const searchParams = useSearchParams()
+  const router = useRouter()
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -145,7 +148,7 @@ export default function ReportingDashboard() {
   )
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 overflow-x-hidden">
       {/* Filter bar + Sync button */}
       <div className="flex flex-col sm:flex-row sm:items-start gap-4">
         <div className="flex-1">
@@ -237,6 +240,7 @@ export default function ReportingDashboard() {
             <StatCard
               label="Tickets Created"
               value={data.summary.totalTicketsCreated}
+              href="/admin/reporting/companies"
               trend={
                 data.summary.trendVsPrevious.ticketsCreatedChange !== null
                   ? {
@@ -249,6 +253,7 @@ export default function ReportingDashboard() {
             <StatCard
               label="Tickets Closed"
               value={data.summary.totalTicketsClosed}
+              href="/admin/reporting/technicians"
               trend={
                 data.summary.trendVsPrevious.ticketsClosedChange !== null
                   ? {
@@ -261,10 +266,12 @@ export default function ReportingDashboard() {
             <StatCard
               label="SLA Compliance"
               value={data.summary.overallSlaCompliance !== null ? `${data.summary.overallSlaCompliance}%` : 'N/A'}
+              href="/admin/reporting/companies"
             />
             <StatCard
               label="Open Backlog"
               value={data.summary.totalBacklog}
+              href="/admin/reporting/companies"
             />
             <StatCard
               label="Avg Resolution"
@@ -273,6 +280,7 @@ export default function ReportingDashboard() {
                   ? formatMinutes(data.summary.avgResolutionMinutes)
                   : 'N/A'
               }
+              href="/admin/reporting/analytics"
               trend={
                 data.summary.trendVsPrevious.resolutionTimeChange !== null
                   ? {
@@ -312,15 +320,19 @@ export default function ReportingDashboard() {
               {data.summary.topCompanies.length === 0 ? (
                 <p className="text-slate-500 text-sm">No data yet</p>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-1">
                   {data.summary.topCompanies.map((c, i) => (
-                    <div key={c.companyId} className="flex items-center justify-between">
+                    <button
+                      key={c.companyId}
+                      onClick={() => router.push(`/admin/reporting/companies?company=${c.companyId}`)}
+                      className="w-full flex items-center justify-between px-2 py-2 rounded-lg hover:bg-slate-700/30 transition-colors text-left"
+                    >
                       <div className="flex items-center gap-3 min-w-0">
                         <span className="text-xs text-slate-500 w-5">{i + 1}.</span>
                         <span className="text-sm text-white truncate">{c.displayName}</span>
                       </div>
                       <span className="text-sm text-cyan-400 flex-shrink-0">{c.ticketCount} tickets</span>
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}
@@ -337,15 +349,19 @@ export default function ReportingDashboard() {
               {data.summary.topTechnicians.length === 0 ? (
                 <p className="text-slate-500 text-sm">No data yet</p>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-1">
                   {data.summary.topTechnicians.map((t, i) => (
-                    <div key={t.resourceId} className="flex items-center justify-between">
+                    <button
+                      key={t.resourceId}
+                      onClick={() => router.push(`/admin/reporting/technicians?resource=${t.resourceId}`)}
+                      className="w-full flex items-center justify-between px-2 py-2 rounded-lg hover:bg-slate-700/30 transition-colors text-left"
+                    >
                       <div className="flex items-center gap-3 min-w-0">
                         <span className="text-xs text-slate-500 w-5">{i + 1}.</span>
                         <span className="text-sm text-white truncate">{t.name}</span>
                       </div>
                       <span className="text-sm text-cyan-400 flex-shrink-0">{t.hoursLogged}h</span>
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}
@@ -375,12 +391,18 @@ export default function ReportingDashboard() {
             ))}
           </div>
 
+          {/* AI Report Assistant */}
+          <ReportAIAssistant context="dashboard" data={data} />
+
           {/* Meta info */}
-          <div className="text-xs text-slate-600 flex flex-wrap gap-4">
-            <span>Period: {data.meta.period.from} to {data.meta.period.to}</span>
-            {data.meta.dataFreshness && (
-              <span>Last sync: {new Date(data.meta.dataFreshness).toLocaleString()}</span>
-            )}
+          <div className="bg-slate-800/30 rounded-lg px-4 py-3 border border-slate-700/30">
+            <div className="text-xs text-slate-500 flex flex-wrap gap-4">
+              <span>Data range: {data.meta.period.from} to {data.meta.period.to}</span>
+              <span>Tickets in period: {data.meta.ticketCount}</span>
+              {data.meta.dataFreshness && (
+                <span>Last sync: {new Date(data.meta.dataFreshness).toLocaleString()}</span>
+              )}
+            </div>
           </div>
         </>
       )}

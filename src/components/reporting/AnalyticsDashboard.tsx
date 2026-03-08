@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import ReportAIAssistant from './ReportAIAssistant'
 
 interface AnomalyAlert {
   type: string
@@ -183,6 +184,9 @@ export default function AnalyticsDashboard() {
           </div>
         )}
       </section>
+
+      {/* AI Report Assistant */}
+      <ReportAIAssistant context="analytics" data={data} />
     </div>
   )
 }

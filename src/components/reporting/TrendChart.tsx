@@ -39,12 +39,12 @@ export default function TrendChart({ data, title, color = '#06b6d4', height = 16
   return (
     <div className="bg-slate-800/50 rounded-xl p-5 border border-slate-700/50">
       <h3 className="text-sm font-medium text-slate-300 mb-3">{title}</h3>
-      <div className="overflow-x-auto">
+      <div className="overflow-hidden">
         <svg
-          width={svgWidth}
+          width="100%"
           height={height}
           viewBox={`0 0 ${svgWidth} ${height}`}
-          className="min-w-full"
+          preserveAspectRatio="xMidYMid meet"
         >
           {/* Bars */}
           {data.map((point, i) => {

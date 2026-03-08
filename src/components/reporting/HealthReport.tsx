@@ -2,8 +2,10 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import ReportFilterBar from './ReportFilters'
 import HealthDistribution from './HealthDistribution'
+import ReportAIAssistant from './ReportAIAssistant'
 
 interface HealthScore {
   companyId: string
@@ -42,6 +44,7 @@ const FACTOR_LABELS: Record<string, string> = {
 
 export default function HealthReport() {
   const searchParams = useSearchParams()
+  const router = useRouter()
   const [data, setData] = useState<HealthReportData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -136,7 +139,11 @@ export default function HealthReport() {
                 const isExpanded = expanded === score.companyId
                 return (
                   <>
-                    <tr key={score.companyId} className="border-b border-slate-700/30 hover:bg-slate-700/20">
+                    <tr
+                      key={score.companyId}
+                      onClick={() => router.push(`/admin/reporting/companies?company=${score.companyId}`)}
+                      className="border-b border-slate-700/30 hover:bg-slate-700/20 cursor-pointer"
+                    >
                       <td className="px-4 py-3">
                         <span className="text-sm text-white">{score.displayName}</span>
                       </td>
@@ -190,6 +197,19 @@ export default function HealthReport() {
               )}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {/* AI Report Assistant */}
+      <ReportAIAssistant context="health" data={data} />
+
+      {/* Date range */}
+      <div className="bg-slate-800/30 rounded-lg px-4 py-3 border border-slate-700/30">
+        <div className="text-xs text-slate-500 flex flex-wrap gap-4">
+          <span>Data range: {data.meta.period.from} to {data.meta.period.to}</span>
+          {data.meta.dataFreshness && (
+            <span>Last sync: {new Date(data.meta.dataFreshness).toLocaleString()}</span>
+          )}
         </div>
       </div>
     </div>
