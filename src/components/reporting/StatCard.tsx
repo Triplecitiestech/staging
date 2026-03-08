@@ -9,6 +9,7 @@ interface StatCardProps {
   trend?: {
     direction: 'up' | 'down' | 'flat'
     percent: number | null
+    previous?: string | number
   }
   icon?: React.ReactNode
   href?: string
@@ -25,15 +26,27 @@ export default function StatCard({ label, value, subValue, trend, icon, href }: 
   const trendArrow =
     trend?.direction === 'up' ? '\u2191' : trend?.direction === 'down' ? '\u2193' : '\u2192'
 
+  const trendLabel = (() => {
+    if (!trend) return null
+    if (trend.percent !== null) {
+      return `${trendArrow} ${Math.abs(trend.percent)}% vs prior period`
+    }
+    // percent is null (e.g. previous was 0) — show raw previous value
+    if (trend.previous !== undefined) {
+      return `${trendArrow} prev: ${trend.previous}`
+    }
+    return `${trendArrow} no prior data`
+  })()
+
   const content = (
     <div className="flex items-start justify-between">
       <div>
         <p className="text-sm text-slate-400">{label}</p>
         <p className="text-2xl font-bold text-white mt-1">{value}</p>
         {subValue && <p className="text-xs text-slate-500 mt-1">{subValue}</p>}
-        {trend && trend.percent !== null && (
+        {trend && trendLabel && (
           <p className={`text-sm mt-1 ${trendColor}`}>
-            {trendArrow} {Math.abs(trend.percent)}% vs prior period
+            {trendLabel}
           </p>
         )}
       </div>
