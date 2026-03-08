@@ -7,34 +7,18 @@ import { prisma } from '@/lib/prisma';
 import { AutotaskClient } from '@/lib/autotask';
 import { createJobTracker, getLastSuccessfulRun } from './job-status';
 import { JOB_NAMES, isResolvedStatus } from './types';
+import { ensureReportingTables } from './ensure-tables';
 
 // ============================================
 // TABLE EXISTENCE CHECK
 // ============================================
 
 /**
- * Check if reporting tables exist in the database.
- * Throws a clear error if the migration hasn't been applied.
+ * Ensures all reporting tables exist by auto-creating any missing ones.
+ * This replaces the old "throw if missing" approach — jobs now self-heal.
  */
-export async function assertTableExists(tableName: string): Promise<void> {
-  try {
-    const result = await prisma.$queryRawUnsafe<Array<{ exists: boolean }>>(
-      `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1) AS exists`,
-      tableName,
-    );
-    if (!result[0]?.exists) {
-      throw new Error(
-        `Table "${tableName}" does not exist. Run the reporting migration (20260307100000_add_reporting_tables) first. ` +
-        `Deploy the branch or POST to /api/reports/migrate to apply.`,
-      );
-    }
-  } catch (err) {
-    if (err instanceof Error && err.message.includes('does not exist. Run the reporting migration')) {
-      throw err;
-    }
-    // If we can't even query information_schema, surface that too
-    throw new Error(`Cannot verify table "${tableName}": ${err instanceof Error ? err.message : String(err)}`);
-  }
+export async function assertTableExists(_tableName: string): Promise<void> {
+  await ensureReportingTables();
 }
 
 // ============================================

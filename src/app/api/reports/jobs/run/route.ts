@@ -4,6 +4,7 @@ import { syncTickets, syncTimeEntries, syncTicketNotes, syncResources } from '@/
 import { computeLifecycle } from '@/lib/reporting/lifecycle';
 import { aggregateTechnicianDaily, aggregateCompanyDaily } from '@/lib/reporting/aggregation';
 import { computeCustomerHealth } from '@/lib/reporting/health-score';
+import { ensureReportingTables } from '@/lib/reporting/ensure-tables';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -34,20 +35,20 @@ const PIPELINE_ORDER = [
 /** Shared pipeline runner used by both GET and POST */
 async function runPipeline(jobName: string, days?: number, date?: Date) {
   try {
+    // Auto-migrate: ensure all reporting tables exist before any job runs
+    await ensureReportingTables();
+
     // Run entire pipeline sequentially
     if (jobName === 'run_all') {
-      const results: Array<{ job: string; success: boolean; error?: string }> = [];
-      let migrationNeeded = false;
+      const results: Array<{ job: string; success: boolean; durationMs?: number; error?: string }> = [];
       for (const name of PIPELINE_ORDER) {
+        const start = Date.now();
         try {
           await JOB_MAP[name](undefined, days);
-          results.push({ job: name, success: true });
+          results.push({ job: name, success: true, durationMs: Date.now() - start });
         } catch (err) {
           const errorMsg = err instanceof Error ? err.message : 'Unknown error';
-          if (errorMsg.includes('does not exist. Run the reporting migration')) {
-            migrationNeeded = true;
-          }
-          results.push({ job: name, success: false, error: errorMsg });
+          results.push({ job: name, success: false, durationMs: Date.now() - start, error: errorMsg });
         }
       }
       const failed = results.filter((r) => !r.success);
@@ -55,9 +56,7 @@ async function runPipeline(jobName: string, days?: number, date?: Date) {
         success: failed.length === 0,
         results,
         summary: `${results.length - failed.length}/${results.length} jobs succeeded`,
-        ...(migrationNeeded && {
-          action: 'Run POST /api/reports/migrate?secret=MIGRATION_SECRET to create the reporting tables, then retry.',
-        }),
+        totalDurationMs: results.reduce((sum, r) => sum + (r.durationMs || 0), 0),
       });
     }
 
