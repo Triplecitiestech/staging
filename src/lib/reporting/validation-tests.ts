@@ -255,7 +255,33 @@ export async function runAllValidationTests(): Promise<ValidationReport> {
   }
   results.push(healthResult);
 
-  // Test 12: Raw table counts (sanity)
+  // Test 12: Business Review Data Builder
+  results.push(await runTest('Business Review Data Builder (buildReportData)', async () => {
+    const { buildReportData } = await import('./business-review/data-builder');
+    // Find a company with tickets in the last 90 days
+    const sampleTicket = await prisma.ticket.findFirst({
+      where: { createDate: { gte: dateRange.from, lte: dateRange.to } },
+      select: { companyId: true },
+    });
+    if (!sampleTicket) {
+      return [check('found a company with tickets', null, 'not null', false)];
+    }
+    // Use last month as the review period (most realistic scenario)
+    const now = new Date();
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+    const monthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0));
+    const report = await buildReportData(sampleTicket.companyId, 'monthly', monthStart, monthEnd);
+    const activity = report.supportActivity;
+    const anyActivity = activity.ticketsCreated > 0 || activity.ticketsClosed > 0 || activity.supportHoursConsumed > 0;
+    return [
+      check('report has company name', report.company.name, 'non-empty', !!report.company.name),
+      check('report has period label', report.period.label, 'non-empty', !!report.period.label),
+      check('has some activity (created, closed, or hours)', anyActivity, 'true', anyActivity),
+      check('ticketsCreated + ticketsClosed + hours', `${activity.ticketsCreated}/${activity.ticketsClosed}/${activity.supportHoursConsumed}h`, 'some > 0', anyActivity),
+    ];
+  }));
+
+  // Test 13: Raw table counts (sanity)
   results.push(await runTest('Raw Table Counts', async () => {
     const [tickets, timeEntries, notesCount, resources] = await Promise.all([
       prisma.ticket.count(),
