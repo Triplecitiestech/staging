@@ -20,8 +20,11 @@ export function SignOutButton() {
   return (
     <button
       onClick={() => signOut({ callbackUrl: '/' })}
-      className="w-full bg-red-600 hover:bg-red-700 text-white font-medium py-3 px-4 rounded-lg transition-colors"
+      className="w-full flex items-center justify-center gap-2 bg-slate-700/50 hover:bg-slate-600/50 text-slate-300 hover:text-white font-medium py-2 px-3 rounded-lg transition-colors text-sm border border-slate-600/50 hover:border-slate-500/50"
     >
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+      </svg>
       Sign Out
     </button>
   )
