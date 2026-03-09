@@ -27,6 +27,12 @@ interface Audience {
   source: { id: string; name: string; providerType: string };
 }
 
+interface AudienceMember {
+  name: string;
+  email: string;
+  companyName?: string;
+}
+
 export default function AudiencesPage() {
   const [audiences, setAudiences] = useState<Audience[]>([]);
   const [sources, setSources] = useState<AudienceSource[]>([]);
@@ -43,6 +49,16 @@ export default function AudiencesPage() {
   const [contactGroups, setContactGroups] = useState<{ id: string; name: string }[]>([]);
   const [selectedContactGroups, setSelectedContactGroups] = useState<string[]>([]);
   const [targetingMode, setTargetingMode] = useState<'companies' | 'contact-groups'>('companies');
+
+  // Drill-down state
+  const [selectedAudience, setSelectedAudience] = useState<Audience | null>(null);
+  const [members, setMembers] = useState<AudienceMember[]>([]);
+  const [membersLoading, setMembersLoading] = useState(false);
+  const [membersError, setMembersError] = useState<string | null>(null);
+
+  // Delete state
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -163,6 +179,59 @@ export default function AudiencesPage() {
       setCreateError(err instanceof Error ? err.message : 'Network error — please try again');
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleViewMembers = async (audience: Audience) => {
+    setSelectedAudience(audience);
+    setMembersLoading(true);
+    setMembersError(null);
+    setMembers([]);
+
+    try {
+      const res = await fetch(`/api/marketing/audiences/${audience.id}`);
+      const data = await res.json();
+
+      if (!res.ok) {
+        setMembersError(data.error || 'Failed to load members');
+        return;
+      }
+
+      setMembers(data.members || []);
+      if (data.resolveError) {
+        setMembersError(data.resolveError);
+      }
+    } catch (err) {
+      setMembersError(err instanceof Error ? err.message : 'Network error');
+    } finally {
+      setMembersLoading(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    setDeletingId(id);
+    try {
+      const res = await fetch(`/api/marketing/audiences/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(data.error || 'Failed to delete audience');
+        return;
+      }
+
+      if (data.softDelete) {
+        alert(data.message);
+      }
+
+      setConfirmDeleteId(null);
+      if (selectedAudience?.id === id) {
+        setSelectedAudience(null);
+      }
+      await loadData();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Network error');
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -404,10 +473,13 @@ export default function AudiencesPage() {
         ) : (
           <div className="divide-y divide-white/5">
             {audiences.map((audience) => (
-              <div key={audience.id} className="px-6 py-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-white font-medium">{audience.name}</h3>
+              <div key={audience.id} className="px-6 py-4 hover:bg-white/[0.02] transition-colors">
+                <div className="flex items-center justify-between gap-4">
+                  <div
+                    className="flex-1 min-w-0 cursor-pointer"
+                    onClick={() => handleViewMembers(audience)}
+                  >
+                    <h3 className="text-white font-medium hover:text-cyan-400 transition-colors">{audience.name}</h3>
                     {audience.description && (
                       <p className="text-sm text-slate-400 mt-0.5">{audience.description}</p>
                     )}
@@ -419,18 +491,115 @@ export default function AudiencesPage() {
                         {audience.recipientCount} recipients
                       </span>
                       <span>Source: {audience.source.name}</span>
-                      <span>{new Date(audience.createdAt).toLocaleDateString()}</span>
+                      <span className="hidden sm:inline">{new Date(audience.createdAt).toLocaleDateString()}</span>
                     </div>
                   </div>
-                  <span className="px-2 py-1 bg-slate-700/50 rounded text-xs text-slate-300">
-                    {audience.providerType}
-                  </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => handleViewMembers(audience)}
+                      className="px-3 py-1.5 text-xs font-medium text-cyan-400 hover:text-white hover:bg-cyan-600/20 border border-cyan-500/30 rounded-lg transition-colors"
+                      title="View members"
+                    >
+                      View
+                    </button>
+                    {confirmDeleteId === audience.id ? (
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleDelete(audience.id)}
+                          disabled={deletingId === audience.id}
+                          className="px-3 py-1.5 text-xs font-medium text-red-400 hover:text-white hover:bg-red-600/30 border border-red-500/30 rounded-lg transition-colors"
+                        >
+                          {deletingId === audience.id ? '...' : 'Confirm'}
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteId(null)}
+                          className="px-2 py-1.5 text-xs text-slate-400 hover:text-white transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmDeleteId(audience.id)}
+                        className="px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-red-400 hover:bg-red-500/10 border border-white/10 rounded-lg transition-colors"
+                        title="Delete audience"
+                      >
+                        Delete
+                      </button>
+                    )}
+                    <span className="px-2 py-1 bg-slate-700/50 rounded text-xs text-slate-300 hidden sm:inline">
+                      {audience.providerType}
+                    </span>
+                  </div>
                 </div>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      {/* Members Drill-Down Panel */}
+      {selectedAudience && (
+        <div className="mt-8 bg-slate-800/50 rounded-xl border border-white/10 overflow-hidden">
+          <div className="px-6 py-4 border-b border-white/10 flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-white">{selectedAudience.name} — Members</h2>
+              <p className="text-sm text-slate-400 mt-0.5">
+                {membersLoading ? 'Resolving members...' : `${members.length} contact${members.length !== 1 ? 's' : ''} found`}
+              </p>
+            </div>
+            <button
+              onClick={() => setSelectedAudience(null)}
+              className="px-3 py-1.5 text-sm text-slate-400 hover:text-white transition-colors"
+            >
+              Close
+            </button>
+          </div>
+
+          {membersError && (
+            <div className="px-6 py-3 bg-red-500/10 border-b border-red-500/20 text-sm text-red-300">
+              {membersError}
+            </div>
+          )}
+
+          {membersLoading ? (
+            <div className="px-6 py-12 text-center text-slate-400">
+              <div className="inline-block w-6 h-6 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin mb-3" />
+              <p>Loading contacts from Autotask...</p>
+            </div>
+          ) : members.length === 0 && !membersError ? (
+            <div className="px-6 py-12 text-center text-slate-400">
+              <p>No contacts resolved for this audience.</p>
+              <p className="text-xs mt-1">This may mean the Autotask contact group is empty or the API query returned no results.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="text-left text-xs text-slate-400 uppercase tracking-wider">
+                    <th className="px-6 py-3 font-medium">Name</th>
+                    <th className="px-6 py-3 font-medium">Email</th>
+                    <th className="px-6 py-3 font-medium hidden md:table-cell">Company</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5">
+                  {members.map((member, idx) => (
+                    <tr key={`${member.email}-${idx}`} className="hover:bg-white/[0.02]">
+                      <td className="px-6 py-3 text-sm text-white">{member.name || '—'}</td>
+                      <td className="px-6 py-3 text-sm text-slate-300">
+                        <a href={`mailto:${member.email}`} className="hover:text-cyan-400 transition-colors">
+                          {member.email}
+                        </a>
+                      </td>
+                      <td className="px-6 py-3 text-sm text-slate-400 hidden md:table-cell">{member.companyName || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
       </div>
       </div>
     </div>
