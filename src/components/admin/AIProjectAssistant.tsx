@@ -8,11 +8,18 @@ interface Message {
   content: string
 }
 
+interface PhaseContext {
+  title: string
+  status: string
+  tasks: { taskText: string; status: string }[]
+}
+
 interface AIProjectAssistantProps {
   projectContext?: {
     projectName?: string
     companyName?: string
     description?: string
+    phases?: PhaseContext[]
   }
   projectId?: string
   onInsertStructure?: (structure: unknown) => void

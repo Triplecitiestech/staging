@@ -15,13 +15,19 @@ interface ChatMessage {
   content: string
 }
 
+interface PhaseContext {
+  title: string
+  status: string
+  tasks: { taskText: string; status: string }[]
+}
+
 interface ChatRequest {
   messages: ChatMessage[]
   projectContext?: {
     projectName?: string
     companyName?: string
     description?: string
-    existingPhases?: unknown[]
+    phases?: PhaseContext[]
   }
 }
 
@@ -63,14 +69,33 @@ export async function POST(req: NextRequest) {
       projectName: projectContext?.projectName,
     })
 
+    // Build phase/task summary for context
+    let phasesSummary = ''
+    if (projectContext?.phases && projectContext.phases.length > 0) {
+      const DONE_STATUSES = ['REVIEWED_AND_DONE', 'NOT_APPLICABLE', 'ITG_DOCUMENTED', 'COMPLETE']
+      const totalTasks = projectContext.phases.reduce((sum, ph) => sum + ph.tasks.length, 0)
+      const doneTasks = projectContext.phases.reduce((sum, ph) => sum + ph.tasks.filter(t => DONE_STATUSES.includes(t.status)).length, 0)
+
+      phasesSummary = `\n\n**Current Project State** (${doneTasks}/${totalTasks} tasks complete):\n`
+      for (const phase of projectContext.phases) {
+        const phDone = phase.tasks.filter(t => DONE_STATUSES.includes(t.status)).length
+        phasesSummary += `\n### Phase: ${phase.title} (Status: ${phase.status}, ${phDone}/${phase.tasks.length} tasks done)\n`
+        for (const task of phase.tasks) {
+          const isDone = DONE_STATUSES.includes(task.status)
+          phasesSummary += `- [${isDone ? 'x' : ' '}] ${task.taskText} (${task.status})\n`
+        }
+      }
+    }
+
     // Build system prompt with project context
     const systemPrompt = `You are an expert IT project management assistant for Triple Cities Tech, an MSP/IT services company. You help structure projects with phases and tasks.
 
 ${projectContext?.projectName ? `**Current Project**: ${projectContext.projectName}` : ''}
 ${projectContext?.companyName ? `**Client**: ${projectContext.companyName}` : ''}
 ${projectContext?.description ? `**Description**: ${projectContext.description}` : ''}
+${phasesSummary}
 
-You are working within the context of this specific project. The user does NOT need to tell you what project they're working on — you already know. Respond naturally and helpfully.
+You are working within the context of this specific project. The user does NOT need to tell you what project they're working on — you already know. You have full visibility into the current phases, tasks, and their statuses. When the user asks "what's left to do" or "what needs to be done", analyze the existing phases and tasks and provide a clear summary of incomplete items, blockers, and suggested next steps.
 
 When the user asks you to create phases or tasks, output the structure as a JSON code block that the system can automatically parse. Use this format:
 
@@ -98,6 +123,7 @@ Important behavioral rules:
 - Be conversational and natural. Don't ask the user to provide JSON — YOU generate it.
 - If the user says "add a discovery phase", generate the phases/tasks JSON immediately.
 - You can answer questions about project planning, best practices, and IT workflows without generating JSON.
+- When asked about project status, analyze the existing phases/tasks data you have and give specific, actionable answers. Never say you don't have access to the project data — you DO.
 - Create realistic phases for IT projects (onboarding, migrations, implementations, security hardening).
 - Include clear, actionable task descriptions.
 - Add helpful notes for the internal team.
