@@ -33,7 +33,7 @@ export async function aggregateTechnicianDaily(targetDate?: Date): Promise<Aggre
     // If no target date, backfill missing days (batched)
     if (!targetDate) {
       const allDates = await getMissingAggregationDates('technician_metrics_daily');
-      const BATCH_LIMIT = 7;
+      const BATCH_LIMIT = 30;
       const dates = allDates.slice(0, BATCH_LIMIT);
       result.remaining = Math.max(0, allDates.length - BATCH_LIMIT);
 
@@ -87,7 +87,7 @@ export async function aggregateCompanyDaily(targetDate?: Date): Promise<Aggregat
 
     if (!targetDate) {
       const allDates = await getMissingAggregationDates('company_metrics_daily');
-      const BATCH_LIMIT = 7;
+      const BATCH_LIMIT = 30;
       const dates = allDates.slice(0, BATCH_LIMIT);
       result.remaining = Math.max(0, allDates.length - BATCH_LIMIT);
 

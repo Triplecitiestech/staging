@@ -38,7 +38,7 @@ interface TicketSyncResult {
  * If no previous sync, fetches last `defaultDays` days.
  * Processes companies in batches to stay within Vercel's 60s timeout.
  */
-export async function syncTickets(defaultDays: number = 90, batchSize: number = 5): Promise<TicketSyncResult> {
+export async function syncTickets(defaultDays: number = 90, batchSize: number = 2): Promise<TicketSyncResult> {
   const finish = createJobTracker(JOB_NAMES.SYNC_TICKETS);
   const result: TicketSyncResult = { created: 0, updated: 0, statusChanges: 0, errors: [] };
 
@@ -76,9 +76,13 @@ export async function syncTickets(defaultDays: number = 90, batchSize: number = 
       companyBatches.push(companies.slice(i, i + batchSize));
     }
 
-    for (const batch of companyBatches) {
-      // Process batch concurrently
-      await Promise.all(batch.map(company => processCompanyTickets(company, sinceDate, picklistCache, result)));
+    for (let i = 0; i < companyBatches.length; i++) {
+      // Process batch concurrently (batch size 2 stays under Autotask 3-thread limit)
+      await Promise.all(companyBatches[i].map(company => processCompanyTickets(company, sinceDate, picklistCache, result)));
+      // Throttle between batches to avoid Autotask 429 rate limiting
+      if (i < companyBatches.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
     }
 
     await finish({
