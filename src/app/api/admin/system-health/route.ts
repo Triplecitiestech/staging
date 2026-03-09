@@ -103,6 +103,10 @@ export async function GET(_req: NextRequest) {
   if (!dbHealthy || servicesDown > 0) overall = 'down';
   else if (servicesDegraded > 0 || servicesUnconfigured > 2 || highErrorRate) overall = 'degraded';
 
+  // Persist a health snapshot for historical graphing (fire-and-forget)
+  const servicesHealthy = services.filter(s => s.status === 'healthy').length;
+  persistSnapshot(dbResult.latencyMs, dbResult.status, overall, servicesHealthy, services.length, errors.last24h);
+
   // Check environment variables
   const envCheck = checkEnvironment();
 
@@ -334,4 +338,22 @@ function checkEnvironment() {
     nodeEnv: process.env.NODE_ENV || 'unknown',
     region: process.env.VERCEL_REGION || process.env.AWS_REGION || 'local',
   };
+}
+
+function persistSnapshot(
+  dbLatencyMs: number,
+  dbStatus: string,
+  overallStatus: string,
+  servicesUp: number,
+  servicesTotal: number,
+  errorCount24h: number,
+) {
+  // Fire-and-forget — never block the health response
+  prisma.$executeRawUnsafe(
+    `INSERT INTO system_health_snapshots (id, "dbLatencyMs", "dbStatus", "overallStatus", "servicesUp", "servicesTotal", "errorCount24h", "createdAt")
+     VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, $6, NOW())`,
+    dbLatencyMs, dbStatus, overallStatus, servicesUp, servicesTotal, errorCount24h
+  ).catch(() => {
+    // Table may not exist yet — silently ignore
+  });
 }

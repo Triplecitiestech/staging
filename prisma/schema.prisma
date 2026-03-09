@@ -492,6 +492,20 @@ model PlatformThreshold {
   @@map("platform_thresholds")
 }
 
+model SystemHealthSnapshot {
+  id            String   @id @default(uuid())
+  dbLatencyMs   Int
+  dbStatus      String   // 'healthy', 'degraded', 'down'
+  overallStatus String   // 'healthy', 'degraded', 'down'
+  servicesUp    Int      @default(0)
+  servicesTotal Int      @default(0)
+  errorCount24h Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  @@map("system_health_snapshots")
+  @@index([createdAt])
+}
+
 // ============================================
 // BLOG SYSTEM
 // ============================================

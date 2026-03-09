@@ -62,6 +62,21 @@ export async function POST(request: NextRequest) {
       )
     `)
 
+    // Create system_health_snapshots table
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS system_health_snapshots (
+        id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        "dbLatencyMs" INTEGER NOT NULL,
+        "dbStatus" TEXT NOT NULL,
+        "overallStatus" TEXT NOT NULL,
+        "servicesUp" INTEGER NOT NULL DEFAULT 0,
+        "servicesTotal" INTEGER NOT NULL DEFAULT 0,
+        "errorCount24h" INTEGER NOT NULL DEFAULT 0,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `)
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_health_snapshots_created ON system_health_snapshots ("createdAt")`)
+
     // Seed default thresholds (upsert)
     let seeded = 0
     for (const t of DEFAULT_THRESHOLDS) {
@@ -77,7 +92,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: 'Platform monitoring tables created and seeded',
-      tablesCreated: ['api_usage_logs', 'platform_thresholds'],
+      tablesCreated: ['api_usage_logs', 'platform_thresholds', 'system_health_snapshots'],
       thresholdsSeeded: seeded,
     })
   } catch (error) {

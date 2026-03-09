@@ -4,6 +4,7 @@ import { SignInButton } from '@/components/auth/AuthButtons'
 import AdminHeader from '@/components/admin/AdminHeader'
 import SystemHealthDashboard from '@/components/admin/SystemHealthDashboard'
 import DashboardStatusCards from '@/components/admin/DashboardStatusCards'
+import DbLatencyGraph from '@/components/admin/DbLatencyGraph'
 
 export default async function AdminPage() {
   const session = await auth()
@@ -59,6 +60,11 @@ export default async function AdminPage() {
         {/* System Health Dashboard (client component with auto-refresh) */}
         <div className="mb-10">
           <SystemHealthDashboard />
+        </div>
+
+        {/* Historical DB Latency Graph */}
+        <div className="mb-10">
+          <DbLatencyGraph />
         </div>
 
         {/* System Status Cards */}
