@@ -790,7 +790,7 @@ async function handleCompaniesSync(client: AutotaskClient) {
     const companyIds = Array.from(new Set(allProjects.map((p) => p.companyID)));
 
     // Resolve classification picklist labels from Autotask
-    let classificationMap = new Map<number, string>();
+    const classificationMap = new Map<number, string>();
     try {
       const entityInfo = await client.getFieldInfo('Companies');
       const classField = entityInfo.fields.find(f => f.name === 'classification');
