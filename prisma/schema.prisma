@@ -126,6 +126,19 @@ enum PhoneType {
   WORK
 }
 
+enum CustomerRole {
+  CLIENT_MANAGER  // Full access: projects, tickets, billing, can manage other contacts
+  CLIENT_USER     // Standard access: view projects, submit/view tickets
+  CLIENT_VIEWER   // Read-only access: view projects and tickets only
+}
+
+enum InviteStatus {
+  NOT_INVITED
+  INVITED       // Email sent, pending acceptance
+  ACCEPTED      // User has logged in at least once
+  DECLINED      // User declined or bounced
+}
+
 model CompanyContact {
   id        String     @id @default(uuid())
   companyId String
@@ -138,6 +151,13 @@ model CompanyContact {
   isActive  Boolean    @default(true)
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
+
+  // Customer portal access
+  customerRole   CustomerRole @default(CLIENT_USER)
+  inviteStatus   InviteStatus @default(NOT_INVITED)
+  invitedAt      DateTime?
+  inviteAcceptedAt DateTime?
+  lastPortalLogin DateTime?
 
   // Autotask integration
   autotaskContactId String? @unique // Autotask Contact ID
