@@ -104,6 +104,7 @@ async function initDefaultsRaw(): Promise<{ id: string; name: string; providerTy
     // 5. Ensure campaign-related enums and tables exist
     //    (the original migration may have failed partway if audience_sources already existed)
     for (const enumDef of [
+      { name: 'ContentVisibility', values: "'PUBLIC', 'CUSTOMER', 'INTERNAL'" },
       { name: 'CommunicationContentType', values: "'CYBERSECURITY_ALERT', 'SERVICE_UPDATE', 'MAINTENANCE_NOTICE', 'VENDOR_NOTICE', 'BEST_PRACTICE', 'COMPANY_ANNOUNCEMENT', 'GENERAL_COMMUNICATION'" },
       { name: 'CampaignStatus', values: "'DRAFT', 'GENERATING', 'CONTENT_READY', 'APPROVED', 'PUBLISHING', 'PUBLISHED', 'SENDING', 'SENT', 'FAILED', 'CANCELLED'" },
       { name: 'EmailDeliveryStatus', values: "'PENDING', 'SENT', 'DELIVERED', 'OPENED', 'FAILED', 'BOUNCED'" },
@@ -125,6 +126,7 @@ async function initDefaultsRaw(): Promise<{ id: string; name: string; providerTy
         "contentType" "CommunicationContentType" NOT NULL,
         "topic" TEXT NOT NULL,
         "audienceId" TEXT NOT NULL,
+        "visibility" "ContentVisibility" NOT NULL DEFAULT 'PUBLIC',
         "status" "CampaignStatus" NOT NULL DEFAULT 'DRAFT',
         "generatedTitle" TEXT,
         "generatedExcerpt" TEXT,
@@ -206,6 +208,7 @@ async function initDefaultsRaw(): Promise<{ id: string; name: string; providerTy
     const campaignEnumFixes: Array<{ table: string; column: string; enumName: string }> = [
       { table: 'communication_campaigns', column: 'contentType', enumName: 'CommunicationContentType' },
       { table: 'communication_campaigns', column: 'status', enumName: 'CampaignStatus' },
+      { table: 'communication_campaigns', column: 'visibility', enumName: 'ContentVisibility' },
       { table: 'campaign_recipients', column: 'emailStatus', enumName: 'EmailDeliveryStatus' },
       { table: 'campaign_recipients', column: 'sourceType', enumName: 'AudienceProviderType' },
     ];
@@ -226,6 +229,14 @@ async function initDefaultsRaw(): Promise<{ id: string; name: string; providerTy
       } catch (e) {
         console.warn(`[Marketing Init] Column fix warning ${fix.table}.${fix.column}:`, (e as Error).message);
       }
+    }
+
+    // Add visibility columns to existing tables (if missing)
+    for (const alter of [
+      `ALTER TABLE "communication_campaigns" ADD COLUMN IF NOT EXISTS "visibility" "ContentVisibility" NOT NULL DEFAULT 'PUBLIC'`,
+      `ALTER TABLE "blog_posts" ADD COLUMN IF NOT EXISTS "visibility" "ContentVisibility" NOT NULL DEFAULT 'PUBLIC'`,
+    ]) {
+      try { await client.query(alter); } catch { /* column already exists or table missing */ }
     }
 
     // 7. Ensure default Autotask source exists (raw SQL to avoid TEXT/enum comparison)

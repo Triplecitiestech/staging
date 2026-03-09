@@ -24,11 +24,39 @@ const CONTENT_TYPES = [
   { value: 'GENERAL_COMMUNICATION', label: 'General Communication', description: 'Other customer communications', icon: '💬' },
 ];
 
+const VISIBILITY_OPTIONS = [
+  {
+    value: 'PUBLIC',
+    label: 'Public',
+    description: 'Published to the public blog. Visible to anyone — no login required.',
+    icon: '🌐',
+    example: 'Security advisories, best practices, general IT tips',
+    color: 'emerald',
+  },
+  {
+    value: 'CUSTOMER',
+    label: 'Customers Only',
+    description: 'Visible only to authenticated customers on their portal. Not on the public blog.',
+    icon: '🏢',
+    example: 'Price changes, policy updates, service-specific notices',
+    color: 'cyan',
+  },
+  {
+    value: 'INTERNAL',
+    label: 'Internal Team Only',
+    description: 'Visible only to staff signed in with their M365 account. Not on any public page.',
+    icon: '🔐',
+    example: 'Team announcements, internal processes, company news',
+    color: 'violet',
+  },
+];
+
 const STEPS = [
   { id: 1, label: 'Audience' },
   { id: 2, label: 'Type' },
-  { id: 3, label: 'Topic' },
-  { id: 4, label: 'Review' },
+  { id: 3, label: 'Visibility' },
+  { id: 4, label: 'Topic' },
+  { id: 5, label: 'Review' },
 ];
 
 export default function NewCampaignPage() {
@@ -41,6 +69,7 @@ export default function NewCampaignPage() {
   // Form state
   const [selectedAudienceId, setSelectedAudienceId] = useState('');
   const [selectedContentType, setSelectedContentType] = useState('');
+  const [selectedVisibility, setSelectedVisibility] = useState('');
   const [campaignName, setCampaignName] = useState('');
   const [topic, setTopic] = useState('');
 
@@ -56,12 +85,14 @@ export default function NewCampaignPage() {
 
   const selectedAudience = audiences.find((a) => a.id === selectedAudienceId);
   const selectedType = CONTENT_TYPES.find((t) => t.value === selectedContentType);
+  const selectedVis = VISIBILITY_OPTIONS.find((v) => v.value === selectedVisibility);
 
   const canProceed = () => {
     switch (step) {
       case 1: return !!selectedAudienceId;
       case 2: return !!selectedContentType;
-      case 3: return !!topic.trim() && !!campaignName.trim();
+      case 3: return !!selectedVisibility;
+      case 4: return !!topic.trim() && !!campaignName.trim();
       default: return true;
     }
   };
@@ -75,6 +106,7 @@ export default function NewCampaignPage() {
         body: JSON.stringify({
           name: campaignName,
           contentType: selectedContentType,
+          visibility: selectedVisibility,
           topic,
           audienceId: selectedAudienceId,
           createdBy: 'admin@triplecitiestech.com',
@@ -114,13 +146,13 @@ export default function NewCampaignPage() {
       </div>
 
       {/* Step Indicator */}
-      <div className="flex items-center gap-2 mb-8">
+      <div className="flex items-center gap-1 sm:gap-2 mb-8 overflow-x-auto">
         {STEPS.map((s, idx) => (
-          <div key={s.id} className="flex items-center">
+          <div key={s.id} className="flex items-center shrink-0">
             <button
               onClick={() => s.id < step && setStep(s.id)}
               disabled={s.id > step}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              className={`flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                 s.id === step
                   ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
                   : s.id < step
@@ -140,7 +172,7 @@ export default function NewCampaignPage() {
               <span className="hidden sm:inline">{s.label}</span>
             </button>
             {idx < STEPS.length - 1 && (
-              <div className={`w-8 h-0.5 mx-1 ${s.id < step ? 'bg-emerald-500/50' : 'bg-slate-700'}`} />
+              <div className={`w-4 sm:w-8 h-0.5 mx-0.5 sm:mx-1 ${s.id < step ? 'bg-emerald-500/50' : 'bg-slate-700'}`} />
             )}
           </div>
         ))}
@@ -232,8 +264,63 @@ export default function NewCampaignPage() {
           </div>
         )}
 
-        {/* Step 3: Enter Topic */}
+        {/* Step 3: Visibility */}
         {step === 3 && (
+          <div>
+            <h2 className="text-xl font-bold text-white mb-2">Set Visibility</h2>
+            <p className="text-slate-400 mb-6">Control who can see this content once published</p>
+
+            <div className="space-y-3">
+              {VISIBILITY_OPTIONS.map((vis) => {
+                const borderColor = vis.color === 'emerald'
+                  ? 'border-emerald-500/50 bg-emerald-500/10'
+                  : vis.color === 'cyan'
+                  ? 'border-cyan-500/50 bg-cyan-500/10'
+                  : 'border-violet-500/50 bg-violet-500/10';
+                const tagColor = vis.color === 'emerald'
+                  ? 'bg-emerald-500/20 text-emerald-300'
+                  : vis.color === 'cyan'
+                  ? 'bg-cyan-500/20 text-cyan-300'
+                  : 'bg-violet-500/20 text-violet-300';
+
+                return (
+                  <button
+                    key={vis.value}
+                    onClick={() => setSelectedVisibility(vis.value)}
+                    className={`w-full text-left p-4 rounded-lg border transition-colors ${
+                      selectedVisibility === vis.value
+                        ? borderColor
+                        : 'border-white/10 bg-slate-900/30 hover:border-white/20'
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <span className="text-2xl">{vis.icon}</span>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-white font-medium">{vis.label}</h3>
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${tagColor}`}>
+                            {vis.value}
+                          </span>
+                        </div>
+                        <p className="text-sm text-slate-400 mt-1">{vis.description}</p>
+                        <p className="text-xs text-slate-500 mt-1.5">Examples: {vis.example}</p>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mt-4 p-3 bg-slate-900/50 border border-white/5 rounded-lg">
+              <p className="text-xs text-slate-400">
+                <strong className="text-slate-300">How it works:</strong> Public content goes to your website blog. Customer-only content is visible in their portal after login. Internal content requires staff authentication via Microsoft 365. Email notifications always go out regardless of visibility.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Step 4: Enter Topic */}
+        {step === 4 && (
           <div>
             <h2 className="text-xl font-bold text-white mb-2">Define Your Communication</h2>
             <p className="text-slate-400 mb-6">Give your communication a name and describe what you want to say</p>
@@ -270,8 +357,8 @@ export default function NewCampaignPage() {
           </div>
         )}
 
-        {/* Step 4: Review */}
-        {step === 4 && (
+        {/* Step 5: Review */}
+        {step === 5 && (
           <div>
             <h2 className="text-xl font-bold text-white mb-2">Review & Create</h2>
             <p className="text-slate-400 mb-6">Confirm the details before creating this campaign</p>
@@ -282,7 +369,7 @@ export default function NewCampaignPage() {
                 <p className="text-white font-medium">{campaignName}</p>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="p-4 bg-slate-900/30 rounded-lg border border-white/5">
                   <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Audience</p>
                   <p className="text-white font-medium">{selectedAudience?.name}</p>
@@ -293,12 +380,46 @@ export default function NewCampaignPage() {
                   <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Content Type</p>
                   <p className="text-white font-medium">{selectedType?.label}</p>
                 </div>
+
+                <div className="p-4 bg-slate-900/30 rounded-lg border border-white/5">
+                  <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Visibility</p>
+                  <p className="text-white font-medium">{selectedVis?.icon} {selectedVis?.label}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {selectedVisibility === 'PUBLIC' && 'Visible on public blog'}
+                    {selectedVisibility === 'CUSTOMER' && 'Customers only (portal)'}
+                    {selectedVisibility === 'INTERNAL' && 'Staff only (M365 login)'}
+                  </p>
+                </div>
               </div>
 
               <div className="p-4 bg-slate-900/30 rounded-lg border border-white/5">
                 <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Topic / Prompt</p>
                 <p className="text-white whitespace-pre-wrap">{topic}</p>
               </div>
+
+              {selectedVisibility === 'INTERNAL' && (
+                <div className="p-4 bg-violet-500/10 border border-violet-500/20 rounded-lg">
+                  <p className="text-violet-300 text-sm">
+                    <strong>Internal only:</strong> This content will only be visible to staff who sign in with their Microsoft 365 account. The email will include instructions to visit the admin portal.
+                  </p>
+                </div>
+              )}
+
+              {selectedVisibility === 'CUSTOMER' && (
+                <div className="p-4 bg-cyan-500/10 border border-cyan-500/20 rounded-lg">
+                  <p className="text-cyan-300 text-sm">
+                    <strong>Customer access:</strong> This content will be visible to customers in their portal after login. It will not appear on the public blog. The email will include a link to their customer portal.
+                  </p>
+                </div>
+              )}
+
+              {selectedVisibility === 'PUBLIC' && (
+                <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
+                  <p className="text-emerald-300 text-sm">
+                    <strong>Public content:</strong> This will be published to the public blog and indexed by search engines. The email will include a direct link to the blog post.
+                  </p>
+                </div>
+              )}
 
               <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
                 <p className="text-blue-300 text-sm">
@@ -320,7 +441,7 @@ export default function NewCampaignPage() {
             Back
           </button>
 
-          {step < 4 ? (
+          {step < 5 ? (
             <button
               onClick={() => setStep(step + 1)}
               disabled={!canProceed()}

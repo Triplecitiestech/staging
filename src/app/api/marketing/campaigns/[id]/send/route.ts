@@ -65,6 +65,7 @@ export async function POST(
         postExcerpt: campaign.generatedExcerpt || '',
         postUrl,
         contentType: campaign.contentType,
+        visibility: (campaign as Record<string, unknown>).visibility as string || 'PUBLIC',
       });
 
       await prisma.campaignAuditLog.create({
@@ -117,6 +118,7 @@ export async function POST(
           postExcerpt: campaign.generatedExcerpt || '',
           postUrl,
           contentType: campaign.contentType,
+          visibility: (campaign as Record<string, unknown>).visibility as string || 'PUBLIC',
         });
 
         if (result.success) {

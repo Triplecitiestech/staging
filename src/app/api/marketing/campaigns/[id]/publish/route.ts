@@ -82,13 +82,14 @@ export async function POST(
         where: { email: staffEmail },
       });
 
-      // Create the blog post
+      // Create the blog post with same visibility as campaign
       const blogPost = await prisma.blogPost.create({
         data: {
           slug,
           title: campaign.generatedTitle,
           excerpt: campaign.generatedExcerpt || '',
           content: campaign.generatedContent,
+          visibility: campaign.visibility,
           metaTitle: campaign.generatedMetaTitle,
           metaDescription: campaign.generatedMetaDescription,
           keywords: campaign.generatedKeywords,
@@ -146,6 +147,7 @@ export async function POST(
             blogPostId: blogPost.id,
             blogPostSlug: slug,
             recipientCount: recipients.length,
+            visibility: campaign.visibility,
           },
         },
       });

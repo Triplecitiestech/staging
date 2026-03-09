@@ -52,10 +52,15 @@ export default async function BlogPage() {
       // Columns may already exist — proceed anyway
     }
 
-    // Fetch published blog posts
+    // Fetch published blog posts (only PUBLIC visibility on the public blog)
+    // Posts without a visibility field (pre-migration) default to PUBLIC
     posts = await prisma.blogPost.findMany({
       where: {
-        status: 'PUBLISHED'
+        status: 'PUBLISHED',
+        OR: [
+          { visibility: 'PUBLIC' },
+          { visibility: null as unknown as undefined },
+        ],
       },
       include: {
         category: true,
