@@ -87,29 +87,40 @@ export default function AudiencesPage() {
       .finally(() => loadData());
   }, [loadData]);
 
+  const [createError, setCreateError] = useState<string | null>(null);
+
   const handleCreate = async () => {
     if (!newName.trim()) return;
 
     setCreating(true);
+    setCreateError(null);
     try {
-      // Always ensure source exists and fetch it fresh to avoid stale state
-      const initRes = await fetch('/api/marketing/audiences/sources', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'init-defaults' }),
-      });
-      const initData = await initRes.json();
-      const freshSources = initData.sources || [];
-      const autotaskSource = freshSources.find((s: AudienceSource) => s.providerType === 'AUTOTASK');
+      // Use existing sources from state; if empty, fetch fresh
+      let autotaskSource = sources.find((s) => s.providerType === 'AUTOTASK');
 
       if (!autotaskSource) {
-        alert('Failed to initialize Autotask source. Please check database configuration.');
+        // One retry to get/create source — don't call ensureTablesExist every time
+        const initRes = await fetch('/api/marketing/audiences/sources', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'init-defaults' }),
+        });
+        const initData = await initRes.json();
+        if (!initRes.ok) {
+          setCreateError(initData.error || 'Failed to initialize source');
+          setCreating(false);
+          return;
+        }
+        const freshSources = initData.sources || [];
+        setSources(freshSources);
+        autotaskSource = freshSources.find((s: AudienceSource) => s.providerType === 'AUTOTASK');
+      }
+
+      if (!autotaskSource) {
+        setCreateError('No Autotask source available. Please refresh and try again.');
         setCreating(false);
         return;
       }
-
-      // Update local state with fresh sources
-      setSources(freshSources);
 
       const filterCriteria = targetingMode === 'contact-groups'
         ? { contactGroupIds: selectedContactGroups }
@@ -129,21 +140,26 @@ export default function AudiencesPage() {
         }),
       });
 
+      const data = await res.json();
+
       if (res.ok) {
+        if (data.warning) {
+          console.warn('Audience created with warning:', data.warning);
+        }
         setShowCreate(false);
         setNewName('');
         setNewDescription('');
         setSelectedCompanies([]);
         setAllCustomers(false);
         setSelectedContactGroups([]);
+        setCreateError(null);
         await loadData();
       } else {
-        const data = await res.json();
-        alert(data.error || 'Failed to create audience');
+        setCreateError(data.error || 'Failed to create audience');
       }
     } catch (err) {
       console.error('Create failed:', err);
-      alert('Failed to create audience');
+      setCreateError(err instanceof Error ? err.message : 'Network error — please try again');
     } finally {
       setCreating(false);
     }
@@ -348,6 +364,12 @@ export default function AudiencesPage() {
                 </>
               )}
             </div>
+
+            {createError && (
+              <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-300">
+                {createError}
+              </div>
+            )}
 
             <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
               <button

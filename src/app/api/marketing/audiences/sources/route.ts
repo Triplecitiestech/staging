@@ -4,12 +4,13 @@ import { Pool } from 'pg';
 /**
  * Run migration SQL directly via pg Pool (bypasses PrismaPg adapter
  * limitations with PL/pgSQL DO blocks and enum types).
+ * Only called as a fallback if tables don't exist yet.
  */
 async function ensureTablesExist() {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) throw new Error('DATABASE_URL not set');
 
-  const pool = new Pool({ connectionString });
+  const pool = new Pool({ connectionString, max: 2 });
   const client = await pool.connect();
 
   try {
@@ -110,8 +111,9 @@ export async function GET() {
     return NextResponse.json({ sources });
   } catch (error) {
     console.error('Failed to fetch audience sources:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json(
-      { error: 'Failed to fetch audience sources' },
+      { error: `Failed to fetch audience sources: ${message}` },
       { status: 500 }
     );
   }
@@ -126,25 +128,60 @@ export async function POST(request: NextRequest) {
     const { action } = body;
 
     if (action === 'init-defaults') {
-      // Run migration via direct pg connection (not Prisma adapter)
-      await ensureTablesExist();
-
       const { prisma } = await import('@/lib/prisma');
 
-      // Create default Autotask source if it doesn't exist
-      const existing = await prisma.audienceSource.findFirst({
-        where: { providerType: 'AUTOTASK' },
-      });
-
-      if (!existing) {
-        await prisma.audienceSource.create({
-          data: {
-            name: 'Autotask PSA',
-            providerType: 'AUTOTASK',
-            config: {},
-            isActive: true,
-          },
+      // Try Prisma first — if migration already ran, tables exist
+      let needsRawInit = false;
+      try {
+        const existing = await prisma.audienceSource.findFirst({
+          where: { providerType: 'AUTOTASK' },
         });
+
+        if (!existing) {
+          await prisma.audienceSource.create({
+            data: {
+              name: 'Autotask PSA',
+              providerType: 'AUTOTASK',
+              config: {},
+              isActive: true,
+            },
+          });
+        }
+      } catch (prismaError) {
+        // Table likely doesn't exist — fall back to raw SQL init
+        console.warn('[Audience Init] Prisma query failed, running raw table init:',
+          prismaError instanceof Error ? prismaError.message : prismaError);
+        needsRawInit = true;
+      }
+
+      // Only run raw SQL table creation if Prisma couldn't find the tables
+      if (needsRawInit) {
+        await ensureTablesExist();
+
+        // Retry creating the default source via Prisma
+        try {
+          const existing = await prisma.audienceSource.findFirst({
+            where: { providerType: 'AUTOTASK' },
+          });
+
+          if (!existing) {
+            await prisma.audienceSource.create({
+              data: {
+                name: 'Autotask PSA',
+                providerType: 'AUTOTASK',
+                config: {},
+                isActive: true,
+              },
+            });
+          }
+        } catch (retryError) {
+          console.error('[Audience Init] Failed even after raw init:', retryError);
+          const message = retryError instanceof Error ? retryError.message : 'Unknown error';
+          return NextResponse.json(
+            { error: `Failed to initialize audience source: ${message}` },
+            { status: 500 }
+          );
+        }
       }
 
       const sources = await prisma.audienceSource.findMany({
@@ -152,14 +189,15 @@ export async function POST(request: NextRequest) {
         orderBy: { name: 'asc' },
       });
 
-      return NextResponse.json({ sources, initialized: !existing });
+      return NextResponse.json({ sources, initialized: true });
     }
 
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
   } catch (error) {
     console.error('Failed to manage audience sources:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json(
-      { error: 'Failed to manage audience sources' },
+      { error: `Failed to manage audience sources: ${message}` },
       { status: 500 }
     );
   }
