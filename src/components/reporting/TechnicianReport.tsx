@@ -155,6 +155,19 @@ export default function TechnicianReport() {
 
   const totalClosed = data.summary.reduce((s, t) => s + t.ticketsClosed, 0)
   const totalHours = data.summary.reduce((s, t) => s + t.hoursLogged, 0)
+  const totalBillable = data.summary.reduce((s, t) => s + t.billableHoursLogged, 0)
+  const totalOpen = data.summary.reduce((s, t) => s + t.openTicketCount, 0)
+
+  // Team-level FTR and FRT averages
+  const techsWithFTR = data.summary.filter(t => t.firstTouchResolutionRate !== null)
+  const teamFTR = techsWithFTR.length > 0
+    ? Math.round(techsWithFTR.reduce((s, t) => s + (t.firstTouchResolutionRate ?? 0), 0) / techsWithFTR.length * 10) / 10
+    : null
+  const techsWithFRT = data.summary.filter(t => t.avgFirstResponseMinutes !== null)
+  const teamFRT = techsWithFRT.length > 0
+    ? Math.round(techsWithFRT.reduce((s, t) => s + (t.avgFirstResponseMinutes ?? 0), 0) / techsWithFRT.length)
+    : null
+  const utilizationRate = totalHours > 0 ? Math.round((totalBillable / totalHours) * 100) : 0
 
   return (
     <div className="space-y-6">
@@ -225,7 +238,7 @@ export default function TechnicianReport() {
         </div>
       )}
 
-      {/* Summary cards */}
+      {/* Summary cards — row 1 */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label="Total Tickets Closed"
@@ -247,7 +260,7 @@ export default function TechnicianReport() {
         />
         <StatCard label="Active Technicians" value={data.summary.length} />
         <StatCard
-          label="Avg Resolution"
+          label="Avg Resolution Time"
           value={data.comparison?.avgResolution ? formatMinutes(data.comparison.avgResolution.current) : 'N/A'}
           invertTrend
           trend={data.comparison?.avgResolution ? {
@@ -256,6 +269,30 @@ export default function TechnicianReport() {
             previous: data.comparison.avgResolution.previous > 0 ? formatMinutes(data.comparison.avgResolution.previous) : '0',
           } : undefined}
         />
+      </div>
+
+      {/* Summary cards — row 2: key performance indicators */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4">
+          <p className="text-xs text-slate-500 mb-1">First Touch Resolution Rate</p>
+          <p className="text-xl font-bold text-white">{teamFTR !== null ? `${teamFTR}%` : 'N/A'}</p>
+          <p className="text-[10px] text-slate-600 mt-1">Tickets resolved with 1 technician interaction</p>
+        </div>
+        <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4">
+          <p className="text-xs text-slate-500 mb-1">Avg First Response Time</p>
+          <p className="text-xl font-bold text-white">{teamFRT !== null ? formatMinutes(teamFRT) : 'N/A'}</p>
+          <p className="text-[10px] text-slate-600 mt-1">Time from ticket creation to first tech response</p>
+        </div>
+        <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4">
+          <p className="text-xs text-slate-500 mb-1">Billable Utilization</p>
+          <p className="text-xl font-bold text-white">{utilizationRate}%</p>
+          <p className="text-[10px] text-slate-600 mt-1">{totalBillable.toFixed(1)}h billable of {totalHours.toFixed(1)}h total</p>
+        </div>
+        <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4">
+          <p className="text-xs text-slate-500 mb-1">Open Backlog</p>
+          <p className="text-xl font-bold text-white">{totalOpen}</p>
+          <p className="text-[10px] text-slate-600 mt-1">Tickets currently assigned and unresolved</p>
+        </div>
       </div>
 
       {/* Trend */}
@@ -313,9 +350,9 @@ export default function TechnicianReport() {
                 <th className="text-right text-xs text-slate-400 font-medium px-4 py-3">Closed</th>
                 <th className="text-right text-xs text-slate-400 font-medium px-4 py-3">Hours</th>
                 <th className="text-right text-xs text-slate-400 font-medium px-4 py-3 hidden md:table-cell">Billable</th>
-                <th className="text-right text-xs text-slate-400 font-medium px-4 py-3 hidden lg:table-cell">Avg FRT</th>
-                <th className="text-right text-xs text-slate-400 font-medium px-4 py-3 hidden lg:table-cell">Avg Resolution</th>
-                <th className="text-right text-xs text-slate-400 font-medium px-4 py-3 hidden md:table-cell">FTR Rate</th>
+                <th className="text-right text-xs text-slate-400 font-medium px-4 py-3 hidden lg:table-cell" title="Average First Response Time — minutes from ticket creation to first technician note">Avg First Response</th>
+                <th className="text-right text-xs text-slate-400 font-medium px-4 py-3 hidden lg:table-cell" title="Average time from ticket creation to completion">Avg Resolution</th>
+                <th className="text-right text-xs text-slate-400 font-medium px-4 py-3 hidden md:table-cell" title="First Touch Resolution — % of tickets resolved with only 1 technician interaction (note or time entry)">FTR Rate</th>
                 <th className="text-right text-xs text-slate-400 font-medium px-4 py-3">Open</th>
               </tr>
             </thead>
