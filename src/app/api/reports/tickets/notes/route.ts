@@ -24,12 +24,12 @@ export async function GET(request: NextRequest) {
     const notes = await prisma.ticketNote.findMany({
       where: {
         autotaskTicketId: ticketId,
-        // Include external notes: publish=1 (all AT users), publish=3 (all including portal),
-        // or null (unset). Exclude internal-only (publish=2).
-        OR: [
-          { publish: { not: 2 } },
-          { publish: null },
-        ],
+        // External only: publish=3 means "Customer Portal visible" in Autotask.
+        // publish=1 is "All Autotask Users" (internal staff only).
+        // publish=2 is "Internal Only".
+        // System notes (Workflow Rules, API integrations) are typically publish=1,
+        // so filtering to publish=3 correctly excludes them.
+        publish: 3,
       },
       select: {
         autotaskNoteId: true,
@@ -68,7 +68,7 @@ export async function GET(request: NextRequest) {
             : 'System',
         authorType: n.creatorResourceId ? 'technician' : n.creatorContactId ? 'customer' : 'system',
         timestamp: n.createDateTime.toISOString(),
-      })).filter(n => n.authorType !== 'system'), // Also filter out system-generated
+      })),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';

@@ -22,6 +22,17 @@ export function createJobTracker(jobName: string) {
     };
 
     try {
+      // Preserve firstRunAt from existing record (if any)
+      const existing = await prisma.reportingJobStatus.findUnique({
+        where: { jobName },
+        select: { lastRunMeta: true },
+      });
+      const existingMeta = existing?.lastRunMeta as Record<string, unknown> | null;
+      const firstRunAt = existingMeta?.firstRunAt || new Date().toISOString();
+      const meta = result.meta
+        ? { ...JSON.parse(JSON.stringify(result.meta)), firstRunAt }
+        : { firstRunAt };
+
       await prisma.reportingJobStatus.upsert({
         where: { jobName },
         create: {
@@ -30,14 +41,14 @@ export function createJobTracker(jobName: string) {
           lastRunStatus: result.status,
           lastRunDurationMs: durationMs,
           lastRunError: result.error || null,
-          lastRunMeta: result.meta ? JSON.parse(JSON.stringify(result.meta)) : null,
+          lastRunMeta: meta,
         },
         update: {
           lastRunAt: new Date(),
           lastRunStatus: result.status,
           lastRunDurationMs: durationMs,
           lastRunError: result.error || null,
-          lastRunMeta: result.meta ? JSON.parse(JSON.stringify(result.meta)) : null,
+          lastRunMeta: meta,
         },
       });
     } catch (err) {
