@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import Link from 'next/link'
 
 interface ServiceStatus {
   name: string
@@ -39,13 +38,6 @@ interface SystemHealth {
     missing: string[]
     nodeEnv: string
     region: string
-  }
-  metrics: {
-    totalProjects: number
-    activeProjects: number
-    totalCompanies: number
-    totalBlogPosts: number
-    totalStaffUsers: number
   }
 }
 
@@ -399,11 +391,10 @@ export default function SystemHealthDashboard() {
         )}
       </div>
 
-      {/* Environment + Metrics */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Environment */}
+      {/* Environment */}
+      <div>
         <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-5">
-          <h3 className="text-sm font-medium text-slate-300 mb-3">Environment</h3>
+          <h3 className="text-sm font-medium text-slate-300 mb-3">Vercel Deployment Environment</h3>
           <div className="space-y-2">
             <div className="flex items-center justify-between text-xs">
               <span className="text-slate-400">Node Environment</span>
@@ -427,29 +418,6 @@ export default function SystemHealthDashboard() {
                 </div>
               </div>
             )}
-          </div>
-        </div>
-
-        {/* Platform Metrics */}
-        <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-5">
-          <h3 className="text-sm font-medium text-slate-300 mb-3">Platform Metrics</h3>
-          <div className="grid grid-cols-2 gap-3">
-            <Link href="/admin/projects" className="bg-slate-900/50 rounded-lg p-3 hover:bg-slate-900/80 transition-colors">
-              <p className="text-lg font-bold text-white">{health.metrics.totalProjects}</p>
-              <p className="text-xs text-slate-500">Projects</p>
-            </Link>
-            <Link href="/admin/projects" className="bg-slate-900/50 rounded-lg p-3 hover:bg-slate-900/80 transition-colors">
-              <p className="text-lg font-bold text-cyan-400">{health.metrics.activeProjects}</p>
-              <p className="text-xs text-slate-500">Active</p>
-            </Link>
-            <Link href="/admin/companies" className="bg-slate-900/50 rounded-lg p-3 hover:bg-slate-900/80 transition-colors">
-              <p className="text-lg font-bold text-white">{health.metrics.totalCompanies}</p>
-              <p className="text-xs text-slate-500">Companies</p>
-            </Link>
-            <Link href="/admin/blog" className="bg-slate-900/50 rounded-lg p-3 hover:bg-slate-900/80 transition-colors">
-              <p className="text-lg font-bold text-white">{health.metrics.totalBlogPosts}</p>
-              <p className="text-xs text-slate-500">Blog Posts</p>
-            </Link>
           </div>
         </div>
       </div>
