@@ -1,6 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { TicketTable, TicketDetail } from '@/components/tickets'
+import type { UnifiedTicketRow, UnifiedTicketNote, TicketListResponse } from '@/types/tickets'
+import { CUSTOMER_VISIBILITY } from '@/types/tickets'
 
 interface Comment {
   id: string
@@ -40,16 +43,8 @@ interface Project {
   updatedAt: string | Date
 }
 
-interface Ticket {
-  id: number
-  ticketNumber: string
-  title: string
-  description?: string | null
-  status: string
-  createDate: string
-  completedDate?: string | null
-  priority: string
-}
+// Ticket type alias — uses the unified type system
+type Ticket = UnifiedTicketRow
 
 interface CustomerDashboardProps {
   projects: Project[]
@@ -122,7 +117,9 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
   const [commentSuccess, setCommentSuccess] = useState<string | null>(null)
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [ticketsLoading, setTicketsLoading] = useState(false)
-  const [selectedTicketId, setSelectedTicketId] = useState<number | null>(null)
+  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null)
+  const [ticketNotes, setTicketNotes] = useState<UnifiedTicketNote[]>([])
+  const [notesLoading, setNotesLoading] = useState(false)
   const [ticketSearch, setTicketSearch] = useState('')
   const [dashboardView, setDashboardView] = useState<DashboardView>('dashboard')
 
@@ -130,11 +127,28 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
   useEffect(() => {
     if (!companySlug) return
     setTicketsLoading(true)
-    fetch(`/api/customer/tickets?companySlug=${encodeURIComponent(companySlug)}`)
+    fetch(`/api/tickets?perspective=customer&companySlug=${encodeURIComponent(companySlug)}`)
       .then(res => res.ok ? res.json() : { tickets: [] })
-      .then(data => setTickets(data.tickets || []))
+      .then((data: TicketListResponse) => setTickets(data.tickets || []))
       .catch(() => setTickets([]))
       .finally(() => setTicketsLoading(false))
+  }, [companySlug])
+
+  const fetchTicketNotes = useCallback(async (ticketId: string) => {
+    if (!companySlug) return
+    setNotesLoading(true)
+    try {
+      const res = await fetch(`/api/tickets/${ticketId}/notes?perspective=customer&companySlug=${encodeURIComponent(companySlug)}`)
+      if (res.ok) {
+        const json = await res.json()
+        setTicketNotes(json.notes || [])
+      } else {
+        setTicketNotes([])
+      }
+    } catch {
+      setTicketNotes([])
+    }
+    setNotesLoading(false)
   }, [companySlug])
 
   // When entering project detail, collapse all phases by default
@@ -190,8 +204,8 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
   const needsAction = allTasks.filter(t => t.status === 'WAITING_ON_CLIENT' || t.status === 'CUSTOMER_NOTE_ADDED')
   const activeProjects = projects.filter(p => p.status === 'ACTIVE' || p.status === 'IN_PROGRESS')
 
-  const openTickets = tickets.filter(t => !t.completedDate)
-  const closedTickets = tickets.filter(t => !!t.completedDate)
+  const openTickets = tickets.filter(t => !t.isResolved)
+  const closedTickets = tickets.filter(t => t.isResolved)
 
   // Filter tickets by search - prioritize title match, then content
   const filterTickets = (ticketList: Ticket[]) => {
@@ -202,33 +216,40 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
     for (const t of ticketList) {
       if (t.title.toLowerCase().includes(query)) {
         titleMatches.push(t)
-      } else if (t.ticketNumber.toLowerCase().includes(query) || t.status.toLowerCase().includes(query)) {
+      } else if (t.ticketNumber.toLowerCase().includes(query) || t.statusLabel.toLowerCase().includes(query)) {
         otherMatches.push(t)
       }
     }
     return [...titleMatches, ...otherMatches]
   }
 
-  // If a ticket is selected for timeline view, show it
-  if (selectedTicketId && !selectedProject) {
-    const selectedTicket = tickets.find(t => t.id === selectedTicketId)
-    if (selectedTicket && companySlug) {
-      return (
-        <div>
-          {/* Company Header */}
-          {companyName && (
-            <div className="mb-8 text-center">
-              <h1 className="text-4xl font-bold text-white mb-1">{companyName} Portal</h1>
-            </div>
-          )}
-          <TicketTimeline
-            ticket={selectedTicket}
-            companySlug={companySlug}
-            onBack={() => setSelectedTicketId(null)}
-          />
-        </div>
-      )
-    }
+  const handleSelectTicket = (ticket: Ticket) => {
+    setSelectedTicket(ticket)
+    fetchTicketNotes(ticket.ticketId)
+  }
+
+  // If a ticket is selected for detail view, show it
+  if (selectedTicket && !selectedProject) {
+    return (
+      <div>
+        {/* Company Header */}
+        {companyName && (
+          <div className="mb-8 text-center">
+            <h1 className="text-4xl font-bold text-white mb-1">{companyName} Portal</h1>
+          </div>
+        )}
+        <TicketDetail
+          ticket={selectedTicket}
+          notes={ticketNotes}
+          perspective="customer"
+          noteVisibility={CUSTOMER_VISIBILITY}
+          onBack={() => setSelectedTicket(null)}
+          loading={notesLoading}
+          companySlug={companySlug}
+          onReplySent={() => fetchTicketNotes(selectedTicket.ticketId)}
+        />
+      </div>
+    )
   }
 
   // Project detail view
@@ -617,8 +638,8 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
             <div className="space-y-2 max-h-[600px] overflow-y-auto">
               {filtered.map(ticket => (
                 <button
-                  key={ticket.id}
-                  onClick={() => { setSelectedTicketId(ticket.id); setDashboardView('dashboard') }}
+                  key={ticket.ticketId}
+                  onClick={() => { handleSelectTicket(ticket); setDashboardView('dashboard') }}
                   className="w-full flex items-center justify-between bg-gray-700/30 hover:bg-gray-700/50 rounded-lg px-4 py-3 transition-colors text-left group cursor-pointer"
                 >
                   <div className="min-w-0 flex-1">
@@ -644,7 +665,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
   if (dashboardView === 'action-items') {
     const actionProjects = projects.filter(p => p.phases.some(ph => ph.tasks.some(t => t.status === 'WAITING_ON_CLIENT' || t.status === 'CUSTOMER_NOTE_ADDED')))
     const actionTickets = openTickets.filter(t => {
-      const s = t.status.toLowerCase()
+      const s = t.statusLabel.toLowerCase()
       return s.includes('customer') || s.includes('waiting')
     })
     return (
@@ -703,8 +724,8 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
             <div className="bg-gray-800/50 border border-white/10 rounded-lg p-4 space-y-2">
               {actionTickets.map(ticket => (
                 <button
-                  key={ticket.id}
-                  onClick={() => { setSelectedTicketId(ticket.id); setDashboardView('dashboard') }}
+                  key={ticket.ticketId}
+                  onClick={() => { handleSelectTicket(ticket); setDashboardView('dashboard') }}
                   className="w-full flex items-center justify-between bg-gray-700/30 hover:bg-gray-700/50 rounded-lg px-4 py-3 transition-colors text-left group"
                 >
                   <div className="min-w-0 flex-1">
@@ -777,72 +798,20 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
       </div>
 
       {/* Tickets Section */}
-      <div id="tickets-section">
-        {!ticketsLoading && tickets.length > 0 && (
-          <div className="bg-gray-800/50 border border-white/10 rounded-lg p-6 mb-8">
-            <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-              <h2 className="text-xl font-bold text-white">Recent Tickets</h2>
-              <div className="flex items-center gap-3">
-                {/* Ticket search */}
-                <div className="relative w-48 md:w-64">
-                  <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
-                  <input
-                    type="text"
-                    value={ticketSearch}
-                    onChange={e => setTicketSearch(e.target.value)}
-                    placeholder="Search tickets..."
-                    className="w-full bg-gray-700/50 text-white text-sm rounded-lg pl-10 pr-3 py-1.5 border border-white/10 focus:border-cyan-500/50 focus:outline-none placeholder-gray-500"
-                  />
-                </div>
-                {tickets.length > 5 && (
-                  <button
-                    onClick={() => setShowAllTickets(!showAllTickets)}
-                    className="text-sm text-cyan-400 hover:text-cyan-300 transition-colors whitespace-nowrap"
-                  >
-                    {showAllTickets ? 'Show Less' : `View All (${tickets.length})`}
-                  </button>
-                )}
-              </div>
-            </div>
-            <div className="space-y-2 max-h-96 overflow-y-auto">
-              {filterTickets(showAllTickets ? tickets : tickets.slice(0, 5)).map(ticket => (
-                <button
-                  key={ticket.id}
-                  onClick={() => setSelectedTicketId(ticket.id)}
-                  className="w-full flex items-center justify-between bg-gray-700/30 hover:bg-gray-700/50 rounded-lg px-4 py-3 transition-colors text-left group cursor-pointer"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm text-white truncate group-hover:text-cyan-300 transition-colors">{ticket.title}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">#{ticket.ticketNumber} - {new Date(ticket.createDate).toLocaleDateString()}</p>
-                  </div>
-                  <div className="flex items-center gap-2 ml-3">
-                    <span className={`px-2 py-0.5 text-xs font-medium rounded-full whitespace-nowrap ${
-                      ticket.completedDate
-                        ? 'bg-green-500/20 text-green-300'
-                        : 'bg-blue-500/20 text-blue-300'
-                    }`}>
-                      {ticket.completedDate ? 'Closed' : 'Open'}
-                    </span>
-                    <svg className="w-4 h-4 text-gray-500 group-hover:text-cyan-400 transition-colors flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                  </div>
-                </button>
-              ))}
-              {filterTickets(showAllTickets ? tickets : tickets.slice(0, 5)).length === 0 && ticketSearch && (
-                <p className="text-sm text-gray-400 text-center py-4">No tickets match your search.</p>
-              )}
-            </div>
-          </div>
-        )}
-        {ticketsLoading && (
-          <div className="bg-gray-800/50 border border-white/10 rounded-lg p-6 mb-8">
-            <h2 className="text-xl font-bold text-white mb-2">Recent Tickets</h2>
-            <p className="text-sm text-gray-400">Loading tickets...</p>
-          </div>
-        )}
+      <div id="tickets-section" className="mb-8">
+        <TicketTable
+          tickets={tickets}
+          perspective="customer"
+          onTicketClick={(ticketId) => {
+            const ticket = tickets.find(t => t.ticketId === ticketId)
+            if (ticket) handleSelectTicket(ticket)
+          }}
+          compact
+          maxRows={showAllTickets ? undefined : 5}
+          showViewAll={tickets.length > 5}
+          onViewAll={() => setShowAllTickets(!showAllTickets)}
+          loading={ticketsLoading}
+        />
       </div>
 
       {/* Projects - hidden if no projects, single project gets full width */}
@@ -898,256 +867,3 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
   )
 }
 
-function TicketTimeline({ ticket, companySlug, onBack }: {
-  ticket: Ticket
-  companySlug: string
-  onBack: () => void
-}) {
-  const [timeline, setTimeline] = useState<{
-    id: string
-    type: string
-    timestamp: string
-    author: string
-    authorType: string
-    content: string
-    isInternal: boolean
-    hoursWorked?: number
-  }[]>([])
-  const [loadingTimeline, setLoadingTimeline] = useState(true)
-  const [replyText, setReplyText] = useState('')
-  const [submittingReply, setSubmittingReply] = useState(false)
-  const [replySuccess, setReplySuccess] = useState(false)
-  const [showAllEntries, setShowAllEntries] = useState(false)
-
-  useEffect(() => {
-    setLoadingTimeline(true)
-    fetch(`/api/customer/tickets/timeline?companySlug=${encodeURIComponent(companySlug)}&ticketId=${ticket.id}`)
-      .then(res => res.ok ? res.json() : { timeline: [] })
-      .then(data => {
-        // Filter out any internal notes that might have slipped through
-        const filtered = (data.timeline || []).filter((entry: { isInternal: boolean }) => !entry.isInternal)
-        setTimeline(filtered)
-      })
-      .catch(() => setTimeline([]))
-      .finally(() => setLoadingTimeline(false))
-  }, [companySlug, ticket.id])
-
-  const handleReply = async () => {
-    if (!replyText.trim() || submittingReply) return
-    setSubmittingReply(true)
-    try {
-      const res = await fetch('/api/customer/tickets/reply', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          companySlug,
-          ticketId: ticket.id,
-          message: replyText.trim(),
-        }),
-      })
-      if (res.ok) {
-        setReplyText('')
-        setReplySuccess(true)
-        setTimeout(() => setReplySuccess(false), 3000)
-        // Refresh timeline
-        const refreshRes = await fetch(`/api/customer/tickets/timeline?companySlug=${encodeURIComponent(companySlug)}&ticketId=${ticket.id}`)
-        if (refreshRes.ok) {
-          const data = await refreshRes.json()
-          const filtered = (data.timeline || []).filter((entry: { isInternal: boolean }) => !entry.isInternal)
-          setTimeline(filtered)
-        }
-      }
-    } catch {
-      // silent
-    } finally {
-      setSubmittingReply(false)
-    }
-  }
-
-  const getAuthorLabel = (author: string, authorType: string) => {
-    if (authorType === 'customer') return `${author} - Customer`
-    if (authorType === 'technician') return `Triple Cities Tech - ${author}`
-    return author
-  }
-
-  // Determine which entries to show: first, last, and optionally middle
-  const hasMiddleEntries = timeline.length > 2
-  const visibleEntries = showAllEntries || !hasMiddleEntries
-    ? timeline
-    : [timeline[0], timeline[timeline.length - 1]].filter(Boolean)
-
-  return (
-    <div className="bg-gray-800/50 border border-white/10 rounded-lg p-6 mb-8">
-      <button
-        onClick={onBack}
-        className="flex items-center gap-2 text-cyan-400 hover:text-cyan-300 transition-colors mb-4 text-sm"
-      >
-        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-        </svg>
-        Back to Dashboard
-      </button>
-
-      <div className="mb-6">
-        <div className="flex items-center gap-3 mb-2 flex-wrap">
-          <h3 className="text-xl font-bold text-white">{ticket.title}</h3>
-          <span className={`px-2.5 py-0.5 text-xs font-medium rounded-full whitespace-nowrap ${
-            ticket.completedDate
-              ? 'bg-green-500/20 text-green-300 border border-green-500/30'
-              : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
-          }`}>
-            {ticket.completedDate ? 'Closed' : 'Open'}
-          </span>
-        </div>
-        <p className="text-sm text-gray-400">Ticket #{ticket.ticketNumber}</p>
-        {ticket.description && (
-          <div className="mt-3 bg-slate-700/50 border border-white/10 rounded-lg px-4 py-3">
-            <p className="text-xs font-semibold text-cyan-400 uppercase mb-1">Description</p>
-            <p className="text-sm text-gray-300 whitespace-pre-wrap">{ticket.description}</p>
-          </div>
-        )}
-      </div>
-
-      {/* Timeline */}
-      <div className="space-y-0 relative">
-        {/* Vertical line */}
-        <div className="absolute left-4 top-0 bottom-0 w-px bg-gray-700" />
-
-        {/* Created entry */}
-        <div className="relative pl-10 pb-4">
-          <div className="absolute left-2.5 w-3 h-3 bg-cyan-500 rounded-full border-2 border-gray-800" />
-          <div className="bg-cyan-500/10 border border-cyan-500/20 rounded-lg px-4 py-3">
-            <div className="flex items-center justify-between mb-1 flex-wrap gap-1">
-              <span className="text-xs font-semibold text-cyan-400">Ticket Created</span>
-              <span className="text-xs text-gray-500">
-                {new Date(ticket.createDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-              </span>
-            </div>
-            <p className="text-sm text-gray-300">{ticket.title}</p>
-          </div>
-        </div>
-
-        {/* Loading state */}
-        {loadingTimeline && (
-          <div className="relative pl-10 pb-4">
-            <div className="absolute left-2.5 w-3 h-3 bg-gray-600 rounded-full border-2 border-gray-800 animate-pulse" />
-            <p className="text-sm text-gray-500">Loading communications...</p>
-          </div>
-        )}
-
-        {/* Show first entry */}
-        {!loadingTimeline && visibleEntries.length > 0 && !showAllEntries && hasMiddleEntries && (
-          <>
-            {/* First entry */}
-            <TimelineEntry entry={visibleEntries[0]} getAuthorLabel={getAuthorLabel} />
-
-            {/* Expand button */}
-            <div className="relative pl-10 pb-4">
-              <div className="absolute left-2.5 w-3 h-3 bg-gray-600 rounded-full border-2 border-gray-800" />
-              <button
-                onClick={() => setShowAllEntries(true)}
-                className="text-sm text-cyan-400 hover:text-cyan-300 transition-colors"
-              >
-                Show conversation history ({timeline.length - 2} more {timeline.length - 2 === 1 ? 'entry' : 'entries'})
-              </button>
-            </div>
-
-            {/* Last entry */}
-            {visibleEntries.length > 1 && (
-              <TimelineEntry entry={visibleEntries[visibleEntries.length - 1]} getAuthorLabel={getAuthorLabel} />
-            )}
-          </>
-        )}
-
-        {/* Show all entries when expanded or when 2 or fewer */}
-        {!loadingTimeline && (showAllEntries || !hasMiddleEntries) && timeline.map(entry => (
-          <TimelineEntry key={entry.id} entry={entry} getAuthorLabel={getAuthorLabel} />
-        ))}
-
-        {/* Completed entry */}
-        {ticket.completedDate && (
-          <div className="relative pl-10 pb-4">
-            <div className="absolute left-2.5 w-3 h-3 bg-green-500 rounded-full border-2 border-gray-800" />
-            <div className="bg-green-500/10 border border-green-500/20 rounded-lg px-4 py-3">
-              <div className="flex items-center justify-between mb-1 flex-wrap gap-1">
-                <span className="text-xs font-semibold text-green-400">Ticket Resolved</span>
-                <span className="text-xs text-gray-500">
-                  {new Date(ticket.completedDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                </span>
-              </div>
-              <p className="text-sm text-gray-300">This ticket has been completed and closed.</p>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Reply form (only for open tickets) */}
-      {!ticket.completedDate && (
-        <div className="mt-6 pt-4 border-t border-white/10">
-          <p className="text-sm font-medium text-white mb-2">Reply to this ticket</p>
-          <div className="flex gap-2">
-            <textarea
-              value={replyText}
-              onChange={e => setReplyText(e.target.value)}
-              placeholder="Type your reply..."
-              rows={3}
-              className="flex-1 bg-gray-700/50 text-white text-sm rounded-lg px-3 py-2 border border-white/10 focus:border-cyan-500/50 focus:outline-none placeholder-gray-500 resize-none"
-            />
-          </div>
-          <div className="flex items-center justify-between mt-2">
-            <div>
-              {replySuccess && (
-                <p className="text-xs text-green-400">Reply sent successfully!</p>
-              )}
-            </div>
-            <button
-              onClick={handleReply}
-              disabled={!replyText.trim() || submittingReply}
-              className="px-4 py-2 bg-cyan-500 hover:bg-cyan-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors"
-            >
-              {submittingReply ? 'Sending...' : 'Send Reply'}
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function TimelineEntry({ entry, getAuthorLabel }: {
-  entry: { id: string; type: string; timestamp: string; author: string; authorType: string; content: string; hoursWorked?: number }
-  getAuthorLabel: (author: string, authorType: string) => string
-}) {
-  return (
-    <div className="relative pl-10 pb-4">
-      <div className={`absolute left-2.5 w-3 h-3 rounded-full border-2 border-gray-800 ${
-        entry.authorType === 'customer' ? 'bg-emerald-500' :
-        entry.type === 'time_entry' ? 'bg-indigo-500' : 'bg-cyan-500'
-      }`} />
-      <div className={`rounded-lg px-4 py-3 ${
-        entry.authorType === 'customer'
-          ? 'bg-emerald-500/10 border border-emerald-500/20'
-          : 'bg-gray-700/30'
-      }`}>
-        <div className="flex items-center justify-between mb-1 flex-wrap gap-1">
-          <div className="flex items-center gap-2">
-            <span className={`text-xs font-semibold ${
-              entry.authorType === 'customer' ? 'text-emerald-400' : 'text-cyan-400'
-            }`}>
-              {getAuthorLabel(entry.author, entry.authorType)}
-            </span>
-            {entry.type === 'time_entry' && entry.hoursWorked && (
-              <span className="text-xs text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded">
-                {entry.hoursWorked}h worked
-              </span>
-            )}
-          </div>
-          <span className="text-xs text-gray-500">
-            {entry.timestamp ? new Date(entry.timestamp).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
-          </span>
-        </div>
-        <p className="text-sm text-gray-300 whitespace-pre-wrap">{entry.content}</p>
-      </div>
-    </div>
-  )
-}
