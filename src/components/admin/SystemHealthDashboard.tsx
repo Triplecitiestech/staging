@@ -71,6 +71,14 @@ const STATUS_BORDER = {
   unconfigured: 'border-slate-500/30',
 } as const
 
+function getJobSystem(jobName: string): string {
+  const lower = jobName.toLowerCase()
+  if (lower.includes('blog') || lower.includes('approval') || lower.includes('publish')) return 'Blog / Anthropic AI'
+  if (lower.includes('autotask')) return 'Autotask PSA'
+  if (lower.includes('sync') || lower.includes('aggregate') || lower.includes('compute') || lower.includes('deliver')) return 'Reporting Pipeline'
+  return 'Platform'
+}
+
 function timeAgo(iso: string | null): string {
   if (!iso) return 'Never'
   const diff = Date.now() - new Date(iso).getTime()
@@ -344,7 +352,7 @@ export default function SystemHealthDashboard() {
       {/* Cron Jobs */}
       <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-5">
         <button onClick={() => toggleSection('cron')} className="w-full flex items-center justify-between mb-3">
-          <h3 className="text-sm font-medium text-slate-300">Background Jobs & Cron</h3>
+          <h3 className="text-sm font-medium text-slate-300">Background Jobs & Cron (Vercel Platform)</h3>
           <svg className={`w-4 h-4 text-slate-500 transition-transform ${expandedSection === 'cron' ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
           </svg>
@@ -355,6 +363,7 @@ export default function SystemHealthDashboard() {
               <thead>
                 <tr className="border-b border-slate-700/50">
                   <th className="text-left text-slate-500 font-medium py-1.5 pr-4">Job</th>
+                  <th className="text-left text-slate-500 font-medium py-1.5 pr-4">System</th>
                   <th className="text-left text-slate-500 font-medium py-1.5 pr-4">Schedule</th>
                   <th className="text-left text-slate-500 font-medium py-1.5 pr-4">Last Run</th>
                   <th className="text-left text-slate-500 font-medium py-1.5 pr-4">Status</th>
@@ -365,6 +374,11 @@ export default function SystemHealthDashboard() {
                 {health.cronJobs.map(job => (
                   <tr key={job.name} className="border-b border-slate-700/20">
                     <td className="py-1.5 pr-4 text-white">{job.name}</td>
+                    <td className="py-1.5 pr-4">
+                      <span className="text-[10px] font-medium uppercase tracking-wider text-slate-500 bg-slate-900/50 px-1.5 py-0.5 rounded border border-slate-700/50 whitespace-nowrap">
+                        {getJobSystem(job.name)}
+                      </span>
+                    </td>
                     <td className="py-1.5 pr-4 text-slate-400">{job.schedule}</td>
                     <td className="py-1.5 pr-4 text-slate-400">{timeAgo(job.lastRun)}</td>
                     <td className="py-1.5 pr-4">
