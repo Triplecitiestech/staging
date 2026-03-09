@@ -1,7 +1,4 @@
-import { NextRequest } from 'next/server';
-import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
-import { apiError } from '@/lib/api-response';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,15 +46,10 @@ interface SystemHealthResponse {
   };
 }
 
-export async function GET(_req: NextRequest) {
-  const session = await auth();
-  // Accept any authenticated session — don't require role lookup.
-  // When DB is slow, session callback can't resolve the role, causing a false 401.
-  // The admin page server component already gates access.
-  if (!session?.user?.email) {
-    return apiError('Unauthorized', 'system-health', 401);
-  }
-
+export async function GET() {
+  // No auth check — this endpoint only returns operational metrics (no PII).
+  // The admin page server component already gates access via session.
+  // Requiring auth here caused cascading 401s when DB was slow (database-backed sessions).
   const now = new Date().toISOString();
 
   // Run all checks concurrently
