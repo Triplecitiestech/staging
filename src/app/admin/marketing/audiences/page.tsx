@@ -48,7 +48,8 @@ export default function AudiencesPage() {
   const [creating, setCreating] = useState(false);
   const [contactGroups, setContactGroups] = useState<{ id: string; name: string }[]>([]);
   const [selectedContactGroups, setSelectedContactGroups] = useState<string[]>([]);
-  const [targetingMode, setTargetingMode] = useState<'companies' | 'contact-groups'>('companies');
+  const [targetingMode, setTargetingMode] = useState<'companies' | 'contact-groups' | 'manual'>('companies');
+  const [manualRecipients, setManualRecipients] = useState<Array<{ name: string; email: string }>>([{ name: '', email: '' }]);
 
   // Drill-down state
   const [selectedAudience, setSelectedAudience] = useState<Audience | null>(null);
@@ -111,11 +112,13 @@ export default function AudiencesPage() {
     setCreating(true);
     setCreateError(null);
     try {
-      // Use existing sources from state; if empty, fetch fresh
-      let autotaskSource = sources.find((s) => s.providerType === 'AUTOTASK');
+      // Determine which source and filter criteria to use
+      const isManual = targetingMode === 'manual';
+      const providerType = isManual ? 'MANUAL' : 'AUTOTASK';
 
-      if (!autotaskSource) {
-        // One retry to get/create source — don't call ensureTablesExist every time
+      let source = sources.find((s) => s.providerType === providerType);
+
+      if (!source) {
         const initRes = await fetch('/api/marketing/audiences/sources', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -129,20 +132,26 @@ export default function AudiencesPage() {
         }
         const freshSources = initData.sources || [];
         setSources(freshSources);
-        autotaskSource = freshSources.find((s: AudienceSource) => s.providerType === 'AUTOTASK');
+        source = freshSources.find((s: AudienceSource) => s.providerType === providerType);
       }
 
-      if (!autotaskSource) {
-        setCreateError('No Autotask source available. Please refresh and try again.');
+      if (!source) {
+        setCreateError(`No ${providerType} source available. Please refresh and try again.`);
         setCreating(false);
         return;
       }
 
-      const filterCriteria = targetingMode === 'contact-groups'
-        ? { contactGroupIds: selectedContactGroups }
-        : allCustomers
-        ? { allActiveCustomers: true }
-        : { companyIds: selectedCompanies };
+      let filterCriteria;
+      if (isManual) {
+        const validRecipients = manualRecipients.filter(r => r.email.trim());
+        filterCriteria = { manualEmails: validRecipients.map(r => ({ name: r.name.trim() || r.email.trim(), email: r.email.trim().toLowerCase() })) };
+      } else if (targetingMode === 'contact-groups') {
+        filterCriteria = { contactGroupIds: selectedContactGroups };
+      } else if (allCustomers) {
+        filterCriteria = { allActiveCustomers: true };
+      } else {
+        filterCriteria = { companyIds: selectedCompanies };
+      }
 
       const res = await fetch('/api/marketing/audiences', {
         method: 'POST',
@@ -150,7 +159,7 @@ export default function AudiencesPage() {
         body: JSON.stringify({
           name: newName,
           description: newDescription || null,
-          sourceId: autotaskSource.id,
+          sourceId: source.id,
           filterCriteria,
           createdBy: 'admin@triplecitiestech.com',
         }),
@@ -165,6 +174,7 @@ export default function AudiencesPage() {
         setSelectedCompanies([]);
         setAllCustomers(false);
         setSelectedContactGroups([]);
+        setManualRecipients([{ name: '', email: '' }]);
         if (data.warning) {
           setCreateError(`Warning: ${data.warning}`);
         } else {
@@ -324,7 +334,7 @@ export default function AudiencesPage() {
               {/* Targeting mode tabs */}
               <div className="flex gap-1 bg-slate-900/50 rounded-lg p-1 mb-4">
                 <button
-                  onClick={() => { setTargetingMode('companies'); setSelectedContactGroups([]); }}
+                  onClick={() => { setTargetingMode('companies'); setSelectedContactGroups([]); setManualRecipients([{ name: '', email: '' }]); }}
                   className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
                     targetingMode === 'companies' ? 'bg-cyan-500 text-white' : 'text-slate-400 hover:text-white'
                   }`}
@@ -332,12 +342,20 @@ export default function AudiencesPage() {
                   By Company
                 </button>
                 <button
-                  onClick={() => { setTargetingMode('contact-groups'); setSelectedCompanies([]); setAllCustomers(false); }}
+                  onClick={() => { setTargetingMode('contact-groups'); setSelectedCompanies([]); setAllCustomers(false); setManualRecipients([{ name: '', email: '' }]); }}
                   className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
                     targetingMode === 'contact-groups' ? 'bg-cyan-500 text-white' : 'text-slate-400 hover:text-white'
                   }`}
                 >
                   By Contact Group
+                </button>
+                <button
+                  onClick={() => { setTargetingMode('manual'); setSelectedCompanies([]); setAllCustomers(false); setSelectedContactGroups([]); }}
+                  className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                    targetingMode === 'manual' ? 'bg-cyan-500 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Manual List
                 </button>
               </div>
 
@@ -433,6 +451,60 @@ export default function AudiencesPage() {
                   )}
                 </>
               )}
+
+              {targetingMode === 'manual' && (
+                <>
+                  <p className="text-sm text-slate-400 mb-3">
+                    Add recipients manually. These contacts are stored locally — no Autotask sync needed.
+                  </p>
+                  <div className="space-y-2 max-h-72 overflow-y-auto pr-2">
+                    {manualRecipients.map((recipient, idx) => (
+                      <div key={idx} className="flex gap-2 items-center">
+                        <input
+                          type="text"
+                          value={recipient.name}
+                          onChange={(e) => {
+                            const updated = [...manualRecipients];
+                            updated[idx] = { ...updated[idx], name: e.target.value };
+                            setManualRecipients(updated);
+                          }}
+                          placeholder="Name"
+                          className="flex-1 px-3 py-2 bg-slate-900/50 border border-white/10 rounded-lg text-white text-sm placeholder-slate-500 focus:border-cyan-500 outline-none"
+                        />
+                        <input
+                          type="email"
+                          value={recipient.email}
+                          onChange={(e) => {
+                            const updated = [...manualRecipients];
+                            updated[idx] = { ...updated[idx], email: e.target.value };
+                            setManualRecipients(updated);
+                          }}
+                          placeholder="email@example.com"
+                          className="flex-1 px-3 py-2 bg-slate-900/50 border border-white/10 rounded-lg text-white text-sm placeholder-slate-500 focus:border-cyan-500 outline-none"
+                        />
+                        {manualRecipients.length > 1 && (
+                          <button
+                            onClick={() => setManualRecipients(prev => prev.filter((_, i) => i !== idx))}
+                            className="px-2 py-2 text-slate-400 hover:text-red-400 transition-colors text-sm"
+                            title="Remove"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => setManualRecipients(prev => [...prev, { name: '', email: '' }])}
+                    className="mt-2 text-sm text-cyan-400 hover:text-cyan-300 transition-colors"
+                  >
+                    + Add another recipient
+                  </button>
+                  <p className="text-xs text-slate-500 mt-2">
+                    {manualRecipients.filter(r => r.email.trim()).length} recipient{manualRecipients.filter(r => r.email.trim()).length !== 1 ? 's' : ''} entered
+                  </p>
+                </>
+              )}
             </div>
 
             {createError && (
@@ -450,7 +522,7 @@ export default function AudiencesPage() {
               </button>
               <button
                 onClick={handleCreate}
-                disabled={creating || !newName.trim() || (targetingMode === 'companies' && !allCustomers && selectedCompanies.length === 0) || (targetingMode === 'contact-groups' && selectedContactGroups.length === 0)}
+                disabled={creating || !newName.trim() || (targetingMode === 'companies' && !allCustomers && selectedCompanies.length === 0) || (targetingMode === 'contact-groups' && selectedContactGroups.length === 0) || (targetingMode === 'manual' && manualRecipients.filter(r => r.email.trim()).length === 0)}
                 className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors text-sm font-medium"
               >
                 {creating ? 'Creating...' : 'Create Audience'}

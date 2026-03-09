@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import slugify from 'slugify';
+import { randomBytes } from 'crypto';
+import type { ContentVisibility } from '@prisma/client';
 
 /**
  * POST /api/marketing/campaigns/[id]/publish — Publish campaign (auth required, ADMIN/MANAGER)
@@ -57,73 +59,96 @@ export async function POST(
     });
 
     try {
-      // Generate unique slug
-      let slug = slugify(campaign.generatedTitle, { lower: true, strict: true }).substring(0, 100);
-      const existingSlug = await prisma.blogPost.findUnique({ where: { slug } });
-      if (existingSlug) {
-        slug = `${slug}-${Date.now().toString(36)}`;
-      }
-
-      // Find or create category
-      const categorySlug = slugify(getCategoryName(campaign.contentType), { lower: true, strict: true });
-      let category = await prisma.blogCategory.findUnique({ where: { slug: categorySlug } });
-      if (!category) {
-        category = await prisma.blogCategory.create({
-          data: {
-            name: getCategoryName(campaign.contentType),
-            slug: categorySlug,
-            description: `Posts related to ${getCategoryName(campaign.contentType).toLowerCase()}`,
-          },
-        });
-      }
+      const deliveryMode = (campaign as Record<string, unknown>).deliveryMode as string || 'BLOG_AND_EMAIL';
+      const campaignVisibility = (campaign as Record<string, unknown>).visibility as string || 'PUBLIC';
 
       // Find staff user for author
       const staffUser = await prisma.staffUser.findUnique({
         where: { email: staffEmail },
       });
 
-      // Create the blog post with same visibility as campaign
-      const blogPost = await prisma.blogPost.create({
-        data: {
-          slug,
-          title: campaign.generatedTitle,
-          excerpt: campaign.generatedExcerpt || '',
-          content: campaign.generatedContent,
-          visibility: campaign.visibility,
-          metaTitle: campaign.generatedMetaTitle,
-          metaDescription: campaign.generatedMetaDescription,
-          keywords: campaign.generatedKeywords,
-          status: 'PUBLISHED',
-          publishedAt: new Date(),
-          authorId: staffUser?.id || null,
-          categoryId: category.id,
-          campaignId: campaign.id,
-          aiModel: campaign.aiModel,
-          aiPrompt: campaign.aiPrompt,
-          sourceUrls: [],
-        },
-      });
+      let blogPostId: string | null = null;
+      let blogPostSlug: string | null = null;
+      let accessToken: string | null = null;
 
-      // Snapshot recipients for this campaign
-      const { getAudienceProvider } = await import('@/lib/marketing/audience-providers');
-      const provider = getAudienceProvider(campaign.audience.providerType);
-      const recipients = await provider.resolveRecipients(
-        campaign.audience.filterCriteria as Record<string, unknown>
-      );
+      // Create blog post unless EMAIL_ONLY
+      if (deliveryMode !== 'EMAIL_ONLY') {
+        // Generate unique slug
+        let slug = slugify(campaign.generatedTitle, { lower: true, strict: true }).substring(0, 100);
+        const existingSlug = await prisma.blogPost.findUnique({ where: { slug } });
+        if (existingSlug) {
+          slug = `${slug}-${Date.now().toString(36)}`;
+        }
 
-      if (recipients.length > 0) {
-        await prisma.campaignRecipient.createMany({
-          data: recipients.map((r) => ({
+        // Find or create category
+        const categorySlug = slugify(getCategoryName(campaign.contentType), { lower: true, strict: true });
+        let category = await prisma.blogCategory.findUnique({ where: { slug: categorySlug } });
+        if (!category) {
+          category = await prisma.blogCategory.create({
+            data: {
+              name: getCategoryName(campaign.contentType),
+              slug: categorySlug,
+              description: `Posts related to ${getCategoryName(campaign.contentType).toLowerCase()}`,
+            },
+          });
+        }
+
+        // Generate magic link token for non-PUBLIC posts
+        accessToken = campaignVisibility !== 'PUBLIC'
+          ? randomBytes(32).toString('hex')
+          : null;
+
+        // Create the blog post with same visibility as campaign
+        const blogPost = await prisma.blogPost.create({
+          data: {
+            slug,
+            title: campaign.generatedTitle,
+            excerpt: campaign.generatedExcerpt || '',
+            content: campaign.generatedContent,
+            visibility: campaignVisibility as ContentVisibility,
+            accessToken,
+            metaTitle: campaign.generatedMetaTitle,
+            metaDescription: campaign.generatedMetaDescription,
+            keywords: campaign.generatedKeywords,
+            status: 'PUBLISHED',
+            publishedAt: new Date(),
+            authorId: staffUser?.id || null,
+            categoryId: category.id,
             campaignId: campaign.id,
-            name: r.name,
-            email: r.email,
-            companyName: r.companyName || null,
-            companyId: r.companyId || null,
-            sourceContactId: r.sourceContactId || null,
-            sourceType: campaign.audience.providerType,
-            emailStatus: 'PENDING',
-          })),
+            aiModel: campaign.aiModel,
+            aiPrompt: campaign.aiPrompt,
+            sourceUrls: [],
+          },
         });
+
+        blogPostId = blogPost.id;
+        blogPostSlug = blogPost.slug;
+      }
+
+      // Snapshot recipients unless BLOG_ONLY
+      let recipientCount = 0;
+      if (deliveryMode !== 'BLOG_ONLY') {
+        const { getAudienceProvider } = await import('@/lib/marketing/audience-providers');
+        const provider = getAudienceProvider(campaign.audience.providerType);
+        const recipients = await provider.resolveRecipients(
+          campaign.audience.filterCriteria as Record<string, unknown>
+        );
+
+        if (recipients.length > 0) {
+          await prisma.campaignRecipient.createMany({
+            data: recipients.map((r) => ({
+              campaignId: campaign.id,
+              name: r.name,
+              email: r.email,
+              companyName: r.companyName || null,
+              companyId: r.companyId || null,
+              sourceContactId: r.sourceContactId || null,
+              sourceType: campaign.audience.providerType,
+              emailStatus: 'PENDING',
+            })),
+          });
+        }
+        recipientCount = recipients.length;
       }
 
       // Update campaign
@@ -131,9 +156,9 @@ export async function POST(
         where: { id },
         data: {
           status: 'PUBLISHED',
-          blogPostId: blogPost.id,
+          blogPostId: blogPostId,
           publishedAt: new Date(),
-          emailTotalCount: recipients.length,
+          emailTotalCount: recipientCount,
           lastModifiedBy: staffEmail,
         },
       });
@@ -144,18 +169,21 @@ export async function POST(
           action: 'published',
           staffEmail,
           details: {
-            blogPostId: blogPost.id,
-            blogPostSlug: slug,
-            recipientCount: recipients.length,
-            visibility: campaign.visibility,
+            deliveryMode,
+            blogPostId,
+            blogPostSlug,
+            accessToken: accessToken ? '***' : null,
+            recipientCount,
+            visibility: campaignVisibility,
           },
         },
       });
 
       return NextResponse.json({
         campaign: updated,
-        blogPost: { id: blogPost.id, slug: blogPost.slug },
-        recipientCount: recipients.length,
+        blogPost: blogPostId ? { id: blogPostId, slug: blogPostSlug } : null,
+        recipientCount,
+        deliveryMode,
       });
     } catch (pubError) {
       // Revert status on failure

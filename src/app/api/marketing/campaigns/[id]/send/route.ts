@@ -39,16 +39,24 @@ export async function POST(
     }
 
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.triplecitiestech.com';
+    const campaignVisibility = (campaign as Record<string, unknown>).visibility as string || 'PUBLIC';
+    const deliveryMode = (campaign as Record<string, unknown>).deliveryMode as string || 'BLOG_AND_EMAIL';
 
-    // Get blog post slug for the link
+    // Get blog post slug and access token for the link
     let postUrl = baseUrl;
+    let accessToken: string | null = null;
     if (campaign.blogPostId) {
       const blogPost = await prisma.blogPost.findUnique({
         where: { id: campaign.blogPostId },
-        select: { slug: true },
+        select: { slug: true, accessToken: true },
       });
       if (blogPost) {
         postUrl = `${baseUrl}/blog/${blogPost.slug}`;
+        accessToken = blogPost.accessToken as string | null;
+        // Append magic link token for non-PUBLIC posts
+        if (accessToken && campaignVisibility !== 'PUBLIC') {
+          postUrl = `${postUrl}?token=${accessToken}`;
+        }
       }
     }
 
@@ -65,7 +73,9 @@ export async function POST(
         postExcerpt: campaign.generatedExcerpt || '',
         postUrl,
         contentType: campaign.contentType,
-        visibility: (campaign as Record<string, unknown>).visibility as string || 'PUBLIC',
+        visibility: campaignVisibility,
+        deliveryMode,
+        fullContent: deliveryMode === 'EMAIL_ONLY' ? (campaign.generatedContent || '') : undefined,
       });
 
       await prisma.campaignAuditLog.create({
@@ -118,7 +128,9 @@ export async function POST(
           postExcerpt: campaign.generatedExcerpt || '',
           postUrl,
           contentType: campaign.contentType,
-          visibility: (campaign as Record<string, unknown>).visibility as string || 'PUBLIC',
+          visibility: campaignVisibility,
+          deliveryMode,
+          fullContent: deliveryMode === 'EMAIL_ONLY' ? (campaign.generatedContent || '') : undefined,
         });
 
         if (result.success) {

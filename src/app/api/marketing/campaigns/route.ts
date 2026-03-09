@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
     const { prisma } = await import('@/lib/prisma');
     const body = await request.json();
 
-    const { name, contentType, visibility, topic, audienceId, createdBy } = body;
+    const { name, contentType, visibility, deliveryMode, topic, audienceId, createdBy } = body;
 
     if (!name || !contentType || !topic || !audienceId || !createdBy) {
       return NextResponse.json(
@@ -68,6 +68,10 @@ export async function POST(request: NextRequest) {
     // Validate visibility (default to PUBLIC for backwards compatibility)
     const validVisibilities = ['PUBLIC', 'CUSTOMER', 'INTERNAL'];
     const campaignVisibility = validVisibilities.includes(visibility) ? visibility : 'PUBLIC';
+
+    // Validate delivery mode (default to BLOG_AND_EMAIL for backwards compatibility)
+    const validDeliveryModes = ['BLOG_AND_EMAIL', 'EMAIL_ONLY', 'BLOG_ONLY'];
+    const campaignDeliveryMode = validDeliveryModes.includes(deliveryMode) ? deliveryMode : 'BLOG_AND_EMAIL';
 
     // Verify audience exists
     const audience = await prisma.audience.findUnique({
@@ -83,6 +87,7 @@ export async function POST(request: NextRequest) {
         name,
         contentType,
         visibility: campaignVisibility,
+        deliveryMode: campaignDeliveryMode,
         topic,
         audienceId,
         status: 'DRAFT',
@@ -102,7 +107,7 @@ export async function POST(request: NextRequest) {
         campaignId: campaign.id,
         action: 'created',
         staffEmail: createdBy,
-        details: { contentType, visibility: campaignVisibility, audienceId },
+        details: { contentType, visibility: campaignVisibility, deliveryMode: campaignDeliveryMode, audienceId },
       },
     });
 

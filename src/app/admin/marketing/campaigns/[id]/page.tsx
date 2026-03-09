@@ -10,6 +10,7 @@ interface Campaign {
   name: string;
   contentType: string;
   visibility: string;
+  deliveryMode: string;
   topic: string;
   status: string;
   generatedTitle: string | null;
@@ -75,6 +76,12 @@ const VISIBILITY_LABELS: Record<string, { label: string; color: string; icon: st
   PUBLIC: { label: 'Public', color: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30', icon: '🌐' },
   CUSTOMER: { label: 'Customers Only', color: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30', icon: '🏢' },
   INTERNAL: { label: 'Internal Team', color: 'bg-violet-500/20 text-violet-300 border-violet-500/30', icon: '🔐' },
+};
+
+const DELIVERY_MODE_LABELS: Record<string, { label: string; icon: string }> = {
+  BLOG_AND_EMAIL: { label: 'Blog + Email', icon: '📝' },
+  EMAIL_ONLY: { label: 'Email Only', icon: '📧' },
+  BLOG_ONLY: { label: 'Blog Only', icon: '🌐' },
 };
 
 const CONTENT_TYPE_LABELS: Record<string, string> = {
@@ -292,6 +299,11 @@ export default function CampaignDetailPage() {
             {campaign.visibility && VISIBILITY_LABELS[campaign.visibility] && (
               <span className={`px-3 py-1 rounded-full text-sm font-medium border ${VISIBILITY_LABELS[campaign.visibility].color}`}>
                 {VISIBILITY_LABELS[campaign.visibility].icon} {VISIBILITY_LABELS[campaign.visibility].label}
+              </span>
+            )}
+            {campaign.deliveryMode && DELIVERY_MODE_LABELS[campaign.deliveryMode] && (
+              <span className="px-3 py-1 rounded-full text-sm font-medium border bg-slate-500/20 text-slate-300 border-slate-500/30">
+                {DELIVERY_MODE_LABELS[campaign.deliveryMode].icon} {DELIVERY_MODE_LABELS[campaign.deliveryMode].label}
               </span>
             )}
           </div>
