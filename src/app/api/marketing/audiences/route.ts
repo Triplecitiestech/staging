@@ -19,8 +19,9 @@ export async function GET() {
     return NextResponse.json({ audiences });
   } catch (error) {
     console.error('Failed to fetch audiences:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json(
-      { error: 'Failed to fetch audiences' },
+      { error: `Failed to fetch audiences: ${message}` },
       { status: 500 }
     );
   }
@@ -46,13 +47,26 @@ export async function POST(request: NextRequest) {
     });
 
     if (!source) {
-      return NextResponse.json({ error: 'Audience source not found' }, { status: 404 });
+      return NextResponse.json(
+        { error: `Audience source not found for id: ${sourceId}. Try refreshing the page.` },
+        { status: 404 }
+      );
     }
 
-    // Resolve recipient count
-    const { getAudienceProvider } = await import('@/lib/marketing/audience-providers');
-    const provider = getAudienceProvider(source.providerType);
-    const recipients = await provider.resolveRecipients(filterCriteria);
+    // Resolve recipient count — don't let resolution failure block audience creation
+    let recipientCount = 0;
+    let resolveWarning: string | undefined;
+    try {
+      const { getAudienceProvider } = await import('@/lib/marketing/audience-providers');
+      const provider = getAudienceProvider(source.providerType);
+      const recipients = await provider.resolveRecipients(filterCriteria);
+      recipientCount = recipients.length;
+    } catch (resolveError) {
+      console.error('Recipient resolution failed (creating audience anyway):', resolveError);
+      resolveWarning = `Audience created but recipient count could not be resolved: ${
+        resolveError instanceof Error ? resolveError.message : 'Unknown error'
+      }`;
+    }
 
     const audience = await prisma.audience.create({
       data: {
@@ -61,7 +75,7 @@ export async function POST(request: NextRequest) {
         sourceId,
         providerType: source.providerType,
         filterCriteria,
-        recipientCount: recipients.length,
+        recipientCount,
         createdBy,
       },
       include: {
@@ -69,11 +83,12 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    return NextResponse.json({ audience }, { status: 201 });
+    return NextResponse.json({ audience, warning: resolveWarning }, { status: 201 });
   } catch (error) {
     console.error('Failed to create audience:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json(
-      { error: 'Failed to create audience' },
+      { error: `Failed to create audience: ${message}` },
       { status: 500 }
     );
   }
