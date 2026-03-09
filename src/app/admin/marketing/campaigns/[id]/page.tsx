@@ -9,6 +9,7 @@ interface Campaign {
   id: string;
   name: string;
   contentType: string;
+  visibility: string;
   topic: string;
   status: string;
   generatedTitle: string | null;
@@ -70,6 +71,12 @@ const STATUS_COLORS: Record<string, string> = {
   CANCELLED: 'bg-slate-500/20 text-slate-400 border-slate-500/30',
 };
 
+const VISIBILITY_LABELS: Record<string, { label: string; color: string; icon: string }> = {
+  PUBLIC: { label: 'Public', color: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30', icon: '🌐' },
+  CUSTOMER: { label: 'Customers Only', color: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30', icon: '🏢' },
+  INTERNAL: { label: 'Internal Team', color: 'bg-violet-500/20 text-violet-300 border-violet-500/30', icon: '🔐' },
+};
+
 const CONTENT_TYPE_LABELS: Record<string, string> = {
   CYBERSECURITY_ALERT: 'Cybersecurity Alert',
   SERVICE_UPDATE: 'Service Update',
@@ -94,6 +101,14 @@ export default function CampaignDetailPage() {
   const [testEmail, setTestEmail] = useState('');
   const [showTestSend, setShowTestSend] = useState(false);
   const [activeTab, setActiveTab] = useState<'content' | 'recipients' | 'history'>('content');
+
+  // AI refinement state
+  const [showRefine, setShowRefine] = useState(false);
+  const [refineInstruction, setRefineInstruction] = useState('');
+  const [refining, setRefining] = useState(false);
+  const [refinedContent, setRefinedContent] = useState<{
+    title: string; excerpt: string; content: string; emailSubject: string; emailPreviewText: string;
+  } | null>(null);
 
   const loadCampaign = useCallback(async () => {
     try {
@@ -178,6 +193,64 @@ export default function CampaignDetailPage() {
     setTestEmail('');
   };
 
+  const handleRefine = async () => {
+    if (!refineInstruction.trim()) return;
+    setRefining(true);
+    setRefinedContent(null);
+    try {
+      const res = await fetch(`/api/marketing/campaigns/${id}/refine`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          instruction: refineInstruction,
+          staffEmail: 'admin@triplecitiestech.com',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Refinement failed');
+        return;
+      }
+      setRefinedContent(data.refined);
+    } catch {
+      alert('Refinement failed — network error');
+    } finally {
+      setRefining(false);
+    }
+  };
+
+  const handleAcceptRefinement = async () => {
+    if (!refinedContent) return;
+    setActionLoading('save');
+    try {
+      const res = await fetch(`/api/marketing/campaigns/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          generatedTitle: refinedContent.title,
+          generatedExcerpt: refinedContent.excerpt,
+          generatedContent: refinedContent.content,
+          emailSubject: refinedContent.emailSubject,
+          emailPreviewText: refinedContent.emailPreviewText,
+          lastModifiedBy: 'admin@triplecitiestech.com',
+        }),
+      });
+      if (res.ok) {
+        setRefinedContent(null);
+        setRefineInstruction('');
+        setShowRefine(false);
+        await loadCampaign();
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Failed to apply refinement');
+      }
+    } catch {
+      alert('Failed to apply refinement');
+    } finally {
+      setActionLoading('');
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-950"><div className="relative z-10"><AdminHeader /><div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8"><div className="text-slate-400 text-center py-12">Loading campaign...</div></div></div></div>
@@ -216,6 +289,11 @@ export default function CampaignDetailPage() {
             <span className={`px-3 py-1 rounded-full text-sm font-medium border ${STATUS_COLORS[campaign.status] || ''}`}>
               {campaign.status.replace(/_/g, ' ')}
             </span>
+            {campaign.visibility && VISIBILITY_LABELS[campaign.visibility] && (
+              <span className={`px-3 py-1 rounded-full text-sm font-medium border ${VISIBILITY_LABELS[campaign.visibility].color}`}>
+                {VISIBILITY_LABELS[campaign.visibility].icon} {VISIBILITY_LABELS[campaign.visibility].label}
+              </span>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-4 text-sm text-slate-400">
             <span>{CONTENT_TYPE_LABELS[campaign.contentType]}</span>
@@ -245,6 +323,12 @@ export default function CampaignDetailPage() {
                 {editMode ? 'Cancel Edit' : 'Edit Content'}
               </button>
               <button
+                onClick={() => { setShowRefine(!showRefine); setRefinedContent(null); }}
+                className="px-4 py-2 bg-violet-600/80 hover:bg-violet-500 text-white rounded-lg transition-colors text-sm font-medium"
+              >
+                {showRefine ? 'Hide AI Refine' : 'Refine with AI'}
+              </button>
+              <button
                 onClick={() => handleAction('generate', 'generate')}
                 disabled={!!actionLoading}
                 className="px-4 py-2 bg-slate-700/50 hover:bg-slate-600/50 text-slate-300 rounded-lg transition-colors text-sm font-medium border border-white/10"
@@ -267,7 +351,10 @@ export default function CampaignDetailPage() {
               disabled={!!actionLoading}
               className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-600 text-white rounded-lg transition-colors text-sm font-medium"
             >
-              {actionLoading === 'publish' ? 'Publishing...' : 'Publish Blog Post'}
+              {actionLoading === 'publish' ? 'Publishing...' :
+                campaign.visibility === 'INTERNAL' ? 'Publish (Internal Only)' :
+                campaign.visibility === 'CUSTOMER' ? 'Publish (Customer Portal)' :
+                'Publish to Blog'}
             </button>
           )}
 
@@ -315,6 +402,78 @@ export default function CampaignDetailPage() {
               Send Test
             </button>
           </div>
+        </div>
+      )}
+
+      {/* AI Refinement Panel */}
+      {showRefine && (
+        <div className="bg-violet-500/5 rounded-xl border border-violet-500/20 p-6 mb-6">
+          <h3 className="text-sm font-semibold text-violet-300 uppercase tracking-wide mb-3">AI Content Refinement</h3>
+          <p className="text-sm text-slate-400 mb-4">
+            Tell the AI what to change. Be specific — e.g. &ldquo;Make the tone more urgent&rdquo;, &ldquo;Shorten the intro paragraph&rdquo;, &ldquo;Add a call-to-action about upgrading their plan&rdquo;.
+          </p>
+          <div className="flex gap-2 mb-4">
+            <textarea
+              value={refineInstruction}
+              onChange={(e) => setRefineInstruction(e.target.value)}
+              rows={2}
+              placeholder="What would you like to change?"
+              className="flex-1 px-3 py-2 bg-slate-900/50 border border-white/10 rounded-lg text-white text-sm placeholder-slate-500 focus:border-violet-500 outline-none resize-none"
+            />
+            <button
+              onClick={handleRefine}
+              disabled={!refineInstruction.trim() || refining}
+              className="px-4 py-2 bg-violet-600 hover:bg-violet-500 disabled:bg-slate-600 text-white rounded-lg text-sm font-medium self-end whitespace-nowrap"
+            >
+              {refining ? 'Refining...' : 'Refine'}
+            </button>
+          </div>
+
+          {/* Show refined result if available */}
+          {refinedContent && (
+            <div className="mt-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-medium text-violet-300">Refined Result</h4>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setRefinedContent(null)}
+                    className="px-3 py-1.5 text-xs text-slate-400 hover:text-white transition-colors"
+                  >
+                    Discard
+                  </button>
+                  <button
+                    onClick={handleAcceptRefinement}
+                    disabled={!!actionLoading}
+                    className="px-3 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-600 text-white rounded-lg font-medium"
+                  >
+                    {actionLoading === 'save' ? 'Applying...' : 'Accept Changes'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="bg-slate-900/50 rounded-lg p-4 space-y-3 border border-white/5">
+                <div>
+                  <span className="text-xs text-slate-500">Title:</span>
+                  <p className="text-white text-sm">{refinedContent.title}</p>
+                </div>
+                <div>
+                  <span className="text-xs text-slate-500">Excerpt:</span>
+                  <p className="text-slate-300 text-sm">{refinedContent.excerpt}</p>
+                </div>
+                <div>
+                  <span className="text-xs text-slate-500">Email Subject:</span>
+                  <p className="text-slate-300 text-sm">{refinedContent.emailSubject}</p>
+                </div>
+                <div>
+                  <span className="text-xs text-slate-500">Content preview:</span>
+                  <pre className="text-slate-300 text-xs mt-1 whitespace-pre-wrap max-h-48 overflow-y-auto bg-slate-950/50 rounded p-3">
+                    {refinedContent.content?.substring(0, 1000)}
+                    {(refinedContent.content?.length || 0) > 1000 ? '\n...(truncated)' : ''}
+                  </pre>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

@@ -3,6 +3,7 @@
  *
  * Sends email notifications to campaign recipients with a link to the published post.
  * Uses Resend for delivery. Tracks per-recipient delivery status.
+ * Supports visibility-aware templates (PUBLIC, CUSTOMER, INTERNAL).
  */
 
 import { Resend } from 'resend';
@@ -21,6 +22,7 @@ export interface CampaignEmailParams {
   postExcerpt: string;
   postUrl: string;
   contentType: string;
+  visibility?: string; // PUBLIC | CUSTOMER | INTERNAL
 }
 
 export interface SendResult {
@@ -78,14 +80,58 @@ export async function sendTestCampaignEmail(
 }
 
 // ============================================
+// VISIBILITY-AWARE HELPERS
+// ============================================
+
+function getCtaDetails(visibility: string | undefined, postUrl: string): { label: string; url: string; instructions: string } {
+  switch (visibility) {
+    case 'INTERNAL':
+      return {
+        label: 'Sign In to Read',
+        url: `${BASE_URL}/admin`,
+        instructions: `<p style="font-size: 14px; color: #64748b; margin-top: 16px; padding: 12px; background: #f8fafc; border-radius: 8px; border-left: 3px solid #7c3aed;">
+          <strong style="color: #475569;">How to access:</strong> Visit <a href="${BASE_URL}/admin" style="color: #7c3aed;">${BASE_URL}/admin</a> and sign in with your Triple Cities Tech Microsoft 365 account. This content is for internal team members only.
+        </p>`,
+      };
+    case 'CUSTOMER':
+      return {
+        label: 'View in Your Portal',
+        url: postUrl,
+        instructions: `<p style="font-size: 14px; color: #64748b; margin-top: 16px; padding: 12px; background: #f8fafc; border-radius: 8px; border-left: 3px solid #0891b2;">
+          <strong style="color: #475569;">How to access:</strong> Log in to your customer portal at <a href="${BASE_URL}" style="color: #0891b2;">${BASE_URL}</a> to view this and other updates specific to your account. If you need login assistance, contact our support team.
+        </p>`,
+      };
+    default: // PUBLIC
+      return {
+        label: 'Read Full Article',
+        url: postUrl,
+        instructions: '',
+      };
+  }
+}
+
+function getVisibilityBadge(visibility: string | undefined): string {
+  switch (visibility) {
+    case 'INTERNAL':
+      return '<span style="display: inline-block; background: #7c3aed; color: white; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-left: 8px;">Internal</span>';
+    case 'CUSTOMER':
+      return '<span style="display: inline-block; background: #0891b2; color: white; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-left: 8px;">Customer Portal</span>';
+    default:
+      return '';
+  }
+}
+
+// ============================================
 // EMAIL TEMPLATES
 // ============================================
 
 function generateNotificationEmailHtml(params: CampaignEmailParams): string {
-  const { recipientName, postTitle, postExcerpt, postUrl, contentType } = params;
+  const { recipientName, postTitle, postExcerpt, contentType, visibility } = params;
 
   const contentTypeLabel = getContentTypeLabel(contentType);
   const accentColor = getContentTypeColor(contentType);
+  const cta = getCtaDetails(visibility, params.postUrl);
+  const visBadge = getVisibilityBadge(visibility);
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -117,14 +163,15 @@ function generateNotificationEmailHtml(params: CampaignEmailParams): string {
     </div>
     <div class="content">
       <div style="text-align: center; margin-bottom: 24px;">
-        <span class="badge">${contentTypeLabel}</span>
+        <span class="badge">${contentTypeLabel}</span>${visBadge}
       </div>
       <p class="greeting">Hi ${recipientName},</p>
       <h2 class="post-title">${postTitle}</h2>
       <p class="post-excerpt">${postExcerpt}</p>
       <div style="text-align: center; margin: 32px 0;">
-        <a href="${postUrl}" class="cta-button">Read Full Article</a>
+        <a href="${cta.url}" class="cta-button">${cta.label}</a>
       </div>
+      ${cta.instructions}
     </div>
     <div class="footer">
       <p>Triple Cities Tech &bull; Managed IT Services</p>
@@ -136,6 +183,15 @@ function generateNotificationEmailHtml(params: CampaignEmailParams): string {
 }
 
 function generateNotificationEmailText(params: CampaignEmailParams): string {
+  const cta = getCtaDetails(params.visibility, params.postUrl);
+
+  let instructions = '';
+  if (params.visibility === 'INTERNAL') {
+    instructions = `\nHow to access: Visit ${BASE_URL}/admin and sign in with your Triple Cities Tech Microsoft 365 account. This content is for internal team members only.\n`;
+  } else if (params.visibility === 'CUSTOMER') {
+    instructions = `\nHow to access: Log in to your customer portal at ${BASE_URL} to view this and other updates. Contact our support team if you need login assistance.\n`;
+  }
+
   return `Hi ${params.recipientName},
 
 ${getContentTypeLabel(params.contentType)}
@@ -144,8 +200,8 @@ ${params.postTitle}
 
 ${params.postExcerpt}
 
-Read the full article: ${params.postUrl}
-
+${cta.label}: ${cta.url}
+${instructions}
 ---
 Triple Cities Tech | Managed IT Services
 ${BASE_URL}`;

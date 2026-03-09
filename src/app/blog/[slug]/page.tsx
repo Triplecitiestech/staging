@@ -111,6 +111,13 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
     notFound();
   }
 
+  // Non-PUBLIC posts should not be viewable on the public blog
+  // They are accessed via customer portal or admin portal instead
+  const postVisibility = (post as Record<string, unknown>).visibility as string | null;
+  if (postVisibility && postVisibility !== 'PUBLIC') {
+    notFound();
+  }
+
   // Increment view count (fire and forget)
   prisma.blogPost.update({
     where: { id: post.id },

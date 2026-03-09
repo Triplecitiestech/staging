@@ -81,17 +81,31 @@ export class AutotaskAudienceProvider implements AudienceProvider {
       const seenEmails = new Set<string>();
 
       for (const groupId of criteria.contactGroupIds) {
-        const members = await client.getContactGroupMembers(parseInt(groupId, 10));
-        for (const member of members) {
-          const email = member.emailAddress?.toLowerCase();
-          if (email && !seenEmails.has(email)) {
-            seenEmails.add(email);
-            allMembers.push({
-              name: `${member.firstName} ${member.lastName}`.trim(),
-              email,
-              sourceContactId: String(member.id),
-            });
+        try {
+          console.log(`[Audience] Resolving contact group ${groupId}...`);
+          const members = await client.getContactGroupMembers(parseInt(groupId, 10));
+          console.log(`[Audience] Contact group ${groupId}: ${members.length} contacts returned from Autotask`);
+
+          let skippedNoEmail = 0;
+          for (const member of members) {
+            const email = (member.emailAddress || '').toLowerCase().trim();
+            if (email && !seenEmails.has(email)) {
+              seenEmails.add(email);
+              allMembers.push({
+                name: `${member.firstName || ''} ${member.lastName || ''}`.trim() || email,
+                email,
+                sourceContactId: String(member.id),
+              });
+            } else if (!email) {
+              skippedNoEmail++;
+            }
           }
+          if (skippedNoEmail > 0) {
+            console.log(`[Audience] Contact group ${groupId}: skipped ${skippedNoEmail} contacts without email`);
+          }
+        } catch (err) {
+          console.error(`[Audience] Failed to resolve contact group ${groupId}:`, err);
+          // Continue with other groups rather than failing entirely
         }
       }
 

@@ -528,6 +528,9 @@ model BlogPost {
   scheduledFor    DateTime?
   publishedAt     DateTime?
 
+  // Visibility — controls who can see this post
+  visibility      ContentVisibility @default(PUBLIC)
+
   // SEO
   metaTitle       String?
   metaDescription String?       @db.Text
@@ -691,6 +694,13 @@ model Audience {
 }
 
 /// Content type categories for communications
+/// Content visibility — controls who can see published content
+enum ContentVisibility {
+  PUBLIC          // Visible on public blog, no auth required
+  CUSTOMER        // Visible only to authenticated customers
+  INTERNAL        // Visible only to authenticated staff (Azure AD)
+}
+
 enum CommunicationContentType {
   CYBERSECURITY_ALERT
   SERVICE_UPDATE
@@ -722,6 +732,7 @@ model CommunicationCampaign {
   contentType       CommunicationContentType
   topic             String                   @db.Text // User-provided topic/prompt
   audienceId        String
+  visibility        ContentVisibility        @default(PUBLIC)
   status            CampaignStatus           @default(DRAFT)
 
   // Content

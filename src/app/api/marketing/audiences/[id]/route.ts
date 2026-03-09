@@ -41,6 +41,19 @@ export async function GET(
       resolveError = err instanceof Error ? err.message : 'Failed to resolve members';
     }
 
+    // Update the stored recipient count if it changed (keep it in sync)
+    if (!resolveError && members.length !== audience.recipientCount) {
+      try {
+        await prisma.audience.update({
+          where: { id },
+          data: { recipientCount: members.length },
+        });
+        audience.recipientCount = members.length;
+      } catch {
+        // Non-critical, don't fail the request
+      }
+    }
+
     return NextResponse.json({
       audience,
       members,
