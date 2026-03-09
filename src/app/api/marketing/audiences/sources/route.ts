@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Pool } from 'pg';
 
 /**
- * Run migration SQL directly via pg Pool (bypasses PrismaPg adapter
- * limitations with PL/pgSQL DO blocks and enum types).
- * Only called as a fallback if tables don't exist yet.
+ * Fix column types and ensure tables/data exist.
+ * Uses raw pg to avoid Prisma TEXT vs enum mismatch.
+ * Returns all active sources via raw SQL.
  */
-async function ensureTablesExist() {
+async function initDefaultsRaw(): Promise<{ id: string; name: string; providerType: string; config: unknown; isActive: boolean; createdAt: Date; updatedAt: Date }[]> {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) throw new Error('DATABASE_URL not set');
 
@@ -14,81 +14,113 @@ async function ensureTablesExist() {
   const client = await pool.connect();
 
   try {
-    // Step 1: Create enum type if it doesn't exist
+    // 1. Ensure enum type exists
     try {
       await client.query(`CREATE TYPE "AudienceProviderType" AS ENUM ('AUTOTASK', 'HUBSPOT', 'CSV_IMPORT', 'MANUAL')`);
     } catch (e: unknown) {
-      // 42710 = duplicate_object (enum already exists) — safe to ignore
       if ((e as { code?: string }).code !== '42710') {
         console.warn('[Audience Init] Enum creation warning:', (e as Error).message);
       }
     }
 
-    // Step 2: If audience_sources table exists with TEXT providerType, alter to enum
-    try {
-      const colCheck = await client.query(`
-        SELECT data_type FROM information_schema.columns
-        WHERE table_name = 'audience_sources' AND column_name = 'providerType'
-      `);
-      if (colCheck.rows.length > 0 && colCheck.rows[0].data_type === 'text') {
-        await client.query(`ALTER TABLE "audience_sources" ALTER COLUMN "providerType" TYPE "AudienceProviderType" USING "providerType"::"AudienceProviderType"`);
+    // 2. Create audience_sources table if missing
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS "audience_sources" (
+        "id" TEXT NOT NULL DEFAULT gen_random_uuid(),
+        "name" TEXT NOT NULL,
+        "providerType" TEXT NOT NULL DEFAULT 'AUTOTASK',
+        "config" JSONB DEFAULT '{}',
+        "isActive" BOOLEAN NOT NULL DEFAULT true,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "audience_sources_pkey" PRIMARY KEY ("id")
+      )
+    `);
+
+    // 3. Create audiences table if missing
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS "audiences" (
+        "id" TEXT NOT NULL DEFAULT gen_random_uuid(),
+        "name" TEXT NOT NULL,
+        "description" TEXT,
+        "sourceId" TEXT NOT NULL,
+        "providerType" TEXT NOT NULL DEFAULT 'AUTOTASK',
+        "filterCriteria" JSONB NOT NULL DEFAULT '{}',
+        "recipientCount" INTEGER NOT NULL DEFAULT 0,
+        "isActive" BOOLEAN NOT NULL DEFAULT true,
+        "createdBy" TEXT NOT NULL,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "audiences_pkey" PRIMARY KEY ("id"),
+        CONSTRAINT "audiences_sourceId_fkey" FOREIGN KEY ("sourceId") REFERENCES "audience_sources"("id") ON DELETE RESTRICT ON UPDATE CASCADE
+      )
+    `);
+
+    // 4. Fix providerType columns: TEXT → enum (if needed)
+    for (const table of ['audience_sources', 'audiences']) {
+      try {
+        const colCheck = await client.query(`
+          SELECT data_type, udt_name FROM information_schema.columns
+          WHERE table_name = $1 AND column_name = 'providerType'
+        `, [table]);
+
+        if (colCheck.rows.length > 0) {
+          const { data_type, udt_name } = colCheck.rows[0];
+          // Only alter if it's still TEXT (not already the enum)
+          if (data_type === 'text' || (data_type === 'USER-DEFINED' && udt_name !== 'AudienceProviderType')) {
+            await client.query(`
+              ALTER TABLE "${table}"
+              ALTER COLUMN "providerType" TYPE "AudienceProviderType"
+              USING "providerType"::"AudienceProviderType"
+            `);
+            console.log(`[Audience Init] Converted ${table}."providerType" from ${data_type} to enum`);
+          }
+        }
+      } catch (e) {
+        console.error(`[Audience Init] Failed to alter ${table}."providerType":`, (e as Error).message);
+        // If ALTER fails, try a more aggressive approach: add new column, copy, drop old, rename
+        try {
+          const hasCol = await client.query(`
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = $1 AND column_name = 'providerType'
+          `, [table]);
+          if (hasCol.rows.length > 0) {
+            await client.query(`
+              ALTER TABLE "${table}" ADD COLUMN IF NOT EXISTS "providerType_new" "AudienceProviderType";
+              UPDATE "${table}" SET "providerType_new" = "providerType"::text::"AudienceProviderType" WHERE "providerType_new" IS NULL;
+              ALTER TABLE "${table}" DROP COLUMN "providerType";
+              ALTER TABLE "${table}" RENAME COLUMN "providerType_new" TO "providerType";
+              ALTER TABLE "${table}" ALTER COLUMN "providerType" SET NOT NULL;
+              ALTER TABLE "${table}" ALTER COLUMN "providerType" SET DEFAULT 'AUTOTASK'::"AudienceProviderType";
+            `);
+            console.log(`[Audience Init] Force-converted ${table}."providerType" via column swap`);
+          }
+        } catch (e2) {
+          console.error(`[Audience Init] Column swap also failed for ${table}:`, (e2 as Error).message);
+        }
       }
-    } catch (e) {
-      console.warn('[Audience Init] Column alter warning:', (e as Error).message);
     }
 
-    // Step 3: Create audience_sources table if it doesn't exist
-    try {
+    // 5. Ensure default Autotask source exists (raw SQL to avoid TEXT/enum comparison)
+    const existing = await client.query(
+      `SELECT "id" FROM "audience_sources" WHERE "providerType"::text = 'AUTOTASK' AND "isActive" = true LIMIT 1`
+    );
+
+    if (existing.rows.length === 0) {
       await client.query(`
-        CREATE TABLE IF NOT EXISTS "audience_sources" (
-          "id" TEXT NOT NULL DEFAULT gen_random_uuid(),
-          "name" TEXT NOT NULL,
-          "providerType" "AudienceProviderType" NOT NULL DEFAULT 'AUTOTASK'::"AudienceProviderType",
-          "config" JSONB DEFAULT '{}',
-          "isActive" BOOLEAN NOT NULL DEFAULT true,
-          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          CONSTRAINT "audience_sources_pkey" PRIMARY KEY ("id")
-        )
+        INSERT INTO "audience_sources" ("id", "name", "providerType", "config", "isActive", "createdAt", "updatedAt")
+        VALUES (gen_random_uuid(), 'Autotask PSA', 'AUTOTASK'::"AudienceProviderType", '{}', true, NOW(), NOW())
       `);
-    } catch (e) {
-      console.warn('[Audience Init] audience_sources table warning:', (e as Error).message);
+      console.log('[Audience Init] Created default Autotask source');
     }
 
-    // Step 4: Same for audiences table
-    try {
-      const colCheck = await client.query(`
-        SELECT data_type FROM information_schema.columns
-        WHERE table_name = 'audiences' AND column_name = 'providerType'
-      `);
-      if (colCheck.rows.length > 0 && colCheck.rows[0].data_type === 'text') {
-        await client.query(`ALTER TABLE "audiences" ALTER COLUMN "providerType" TYPE "AudienceProviderType" USING "providerType"::"AudienceProviderType"`);
-      }
-    } catch (e) {
-      console.warn('[Audience Init] audiences column alter warning:', (e as Error).message);
-    }
+    // 6. Return all active sources
+    const result = await client.query(
+      `SELECT "id", "name", "providerType"::text as "providerType", "config", "isActive", "createdAt", "updatedAt"
+       FROM "audience_sources" WHERE "isActive" = true ORDER BY "name" ASC`
+    );
 
-    try {
-      await client.query(`
-        CREATE TABLE IF NOT EXISTS "audiences" (
-          "id" TEXT NOT NULL DEFAULT gen_random_uuid(),
-          "name" TEXT NOT NULL,
-          "description" TEXT,
-          "sourceId" TEXT NOT NULL,
-          "providerType" "AudienceProviderType" NOT NULL DEFAULT 'AUTOTASK'::"AudienceProviderType",
-          "filterCriteria" JSONB NOT NULL DEFAULT '{}',
-          "recipientCount" INTEGER NOT NULL DEFAULT 0,
-          "isActive" BOOLEAN NOT NULL DEFAULT true,
-          "createdBy" TEXT NOT NULL,
-          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          CONSTRAINT "audiences_pkey" PRIMARY KEY ("id"),
-          CONSTRAINT "audiences_sourceId_fkey" FOREIGN KEY ("sourceId") REFERENCES "audience_sources"("id") ON DELETE RESTRICT ON UPDATE CASCADE
-        )
-      `);
-    } catch (e) {
-      console.warn('[Audience Init] audiences table warning:', (e as Error).message);
-    }
+    return result.rows;
   } finally {
     client.release();
     await pool.end();
@@ -97,7 +129,6 @@ async function ensureTablesExist() {
 
 /**
  * GET /api/marketing/audiences/sources — List audience sources
- * POST /api/marketing/audiences/sources — Initialize default sources
  */
 export async function GET() {
   try {
@@ -120,7 +151,8 @@ export async function GET() {
 }
 
 /**
- * POST — Ensure default Autotask source exists (idempotent setup)
+ * POST — Initialize default sources and fix schema issues.
+ * Uses raw SQL entirely to avoid Prisma TEXT/enum comparison issues.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -128,67 +160,7 @@ export async function POST(request: NextRequest) {
     const { action } = body;
 
     if (action === 'init-defaults') {
-      const { prisma } = await import('@/lib/prisma');
-
-      // Try Prisma first — if migration already ran, tables exist
-      let needsRawInit = false;
-      try {
-        const existing = await prisma.audienceSource.findFirst({
-          where: { providerType: 'AUTOTASK' },
-        });
-
-        if (!existing) {
-          await prisma.audienceSource.create({
-            data: {
-              name: 'Autotask PSA',
-              providerType: 'AUTOTASK',
-              config: {},
-              isActive: true,
-            },
-          });
-        }
-      } catch (prismaError) {
-        // Table likely doesn't exist — fall back to raw SQL init
-        console.warn('[Audience Init] Prisma query failed, running raw table init:',
-          prismaError instanceof Error ? prismaError.message : prismaError);
-        needsRawInit = true;
-      }
-
-      // Only run raw SQL table creation if Prisma couldn't find the tables
-      if (needsRawInit) {
-        await ensureTablesExist();
-
-        // Retry creating the default source via Prisma
-        try {
-          const existing = await prisma.audienceSource.findFirst({
-            where: { providerType: 'AUTOTASK' },
-          });
-
-          if (!existing) {
-            await prisma.audienceSource.create({
-              data: {
-                name: 'Autotask PSA',
-                providerType: 'AUTOTASK',
-                config: {},
-                isActive: true,
-              },
-            });
-          }
-        } catch (retryError) {
-          console.error('[Audience Init] Failed even after raw init:', retryError);
-          const message = retryError instanceof Error ? retryError.message : 'Unknown error';
-          return NextResponse.json(
-            { error: `Failed to initialize audience source: ${message}` },
-            { status: 500 }
-          );
-        }
-      }
-
-      const sources = await prisma.audienceSource.findMany({
-        where: { isActive: true },
-        orderBy: { name: 'asc' },
-      });
-
+      const sources = await initDefaultsRaw();
       return NextResponse.json({ sources, initialized: true });
     }
 
@@ -197,7 +169,7 @@ export async function POST(request: NextRequest) {
     console.error('Failed to manage audience sources:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json(
-      { error: `Failed to manage audience sources: ${message}` },
+      { error: `Failed to initialize audience source: ${message}` },
       { status: 500 }
     );
   }
