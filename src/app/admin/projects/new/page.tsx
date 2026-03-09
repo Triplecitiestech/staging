@@ -32,6 +32,7 @@ export default async function NewProjectPage() {
         updatedAt: true,
         autotaskCompanyId: true,
         autotaskLastSync: true,
+        companyClassification: true,
       },
       orderBy: { displayName: 'asc' }
     })
