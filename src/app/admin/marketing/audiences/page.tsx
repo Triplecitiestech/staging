@@ -143,16 +143,17 @@ export default function AudiencesPage() {
       const data = await res.json();
 
       if (res.ok) {
-        if (data.warning) {
-          console.warn('Audience created with warning:', data.warning);
-        }
         setShowCreate(false);
         setNewName('');
         setNewDescription('');
         setSelectedCompanies([]);
         setAllCustomers(false);
         setSelectedContactGroups([]);
-        setCreateError(null);
+        if (data.warning) {
+          setCreateError(`Warning: ${data.warning}`);
+        } else {
+          setCreateError(null);
+        }
         await loadData();
       } else {
         setCreateError(data.error || 'Failed to create audience');

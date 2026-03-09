@@ -816,42 +816,37 @@ export class AutotaskClient {
    * We must fetch the actual Contact records separately to get names/emails.
    */
   async getContactGroupMembers(groupId: number): Promise<AutotaskContact[]> {
-    try {
-      // Step 1: Get junction records (contactID + contactGroupID)
-      const junctionRecords = await this.queryAll<{ id: number; contactID: number; contactGroupID: number }>(
-        'ContactGroupContacts',
-        { op: 'eq', field: 'contactGroupID', value: groupId }
-      );
+    // Step 1: Get junction records (contactID + contactGroupID)
+    const junctionRecords = await this.queryAll<{ id: number; contactID: number; contactGroupID: number }>(
+      'ContactGroupContacts',
+      { op: 'eq', field: 'contactGroupID', value: groupId }
+    );
 
-      if (junctionRecords.length === 0) return [];
+    if (junctionRecords.length === 0) return [];
 
-      // Step 2: Fetch actual contact details for each contactID
-      const contactIds = junctionRecords.map(r => r.contactID).filter(Boolean);
-      if (contactIds.length === 0) return [];
+    // Step 2: Fetch actual contact details for each contactID
+    const contactIds = junctionRecords.map(r => r.contactID).filter(Boolean);
+    if (contactIds.length === 0) return [];
 
-      const contacts: AutotaskContact[] = [];
-      // Batch in groups of 50 to stay within API limits
-      const batchSize = 50;
-      for (let i = 0; i < contactIds.length; i += batchSize) {
-        const batch = contactIds.slice(i, i + batchSize);
-        if (batch.length === 1) {
-          const result = await this.queryAll<AutotaskContact>('Contacts', {
-            op: 'eq', field: 'id', value: batch[0]
-          });
-          contacts.push(...result);
-        } else {
-          const result = await this.queryAll<AutotaskContact>('Contacts', {
-            op: 'in', field: 'id', value: batch
-          });
-          contacts.push(...result);
-        }
+    const contacts: AutotaskContact[] = [];
+    // Batch in groups of 50 to stay within API limits
+    const batchSize = 50;
+    for (let i = 0; i < contactIds.length; i += batchSize) {
+      const batch = contactIds.slice(i, i + batchSize);
+      if (batch.length === 1) {
+        const result = await this.queryAll<AutotaskContact>('Contacts', {
+          op: 'eq', field: 'id', value: batch[0]
+        });
+        contacts.push(...result);
+      } else {
+        const result = await this.queryAll<AutotaskContact>('Contacts', {
+          op: 'in', field: 'id', value: batch
+        });
+        contacts.push(...result);
       }
-
-      return contacts;
-    } catch (error) {
-      console.error(`[AutotaskClient] Failed to get contact group members for group ${groupId}:`, error);
-      return [];
     }
+
+    return contacts;
   }
 
   async getResourceByEmail(email: string): Promise<AutotaskResource | null> {

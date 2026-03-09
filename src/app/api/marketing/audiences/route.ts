@@ -61,6 +61,11 @@ export async function POST(request: NextRequest) {
       const provider = getAudienceProvider(source.providerType);
       const recipients = await provider.resolveRecipients(filterCriteria);
       recipientCount = recipients.length;
+
+      // Warn if contact groups were selected but resolved to 0 recipients
+      if (recipientCount === 0 && filterCriteria.contactGroupIds?.length > 0) {
+        resolveWarning = `Selected contact group(s) resolved to 0 recipients. The Autotask ContactGroupContacts API may not have members for these groups, or contacts may lack email addresses.`;
+      }
     } catch (resolveError) {
       console.error('Recipient resolution failed (creating audience anyway):', resolveError);
       resolveWarning = `Audience created but recipient count could not be resolved: ${
