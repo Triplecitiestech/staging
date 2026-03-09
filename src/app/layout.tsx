@@ -4,6 +4,7 @@ import FAQSchema from '@/components/seo/FAQSchema'
 import ServiceSchema from '@/components/seo/ServiceSchema'
 import AIMetadata from '@/components/seo/AIMetadata'
 import { SpeedInsights } from '@vercel/speed-insights/next'
+import { Analytics } from '@vercel/analytics/next'
 import GlobalErrorReporter from '@/components/GlobalErrorReporter'
 
 export const metadata: Metadata = {
@@ -235,6 +236,7 @@ export default function RootLayout({
         </div>
         <GlobalErrorReporter />
         <SpeedInsights />
+        <Analytics />
         <script
           dangerouslySetInnerHTML={{
             __html: `
