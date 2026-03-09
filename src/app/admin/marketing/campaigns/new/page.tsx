@@ -51,12 +51,34 @@ const VISIBILITY_OPTIONS = [
   },
 ];
 
+const DELIVERY_MODE_OPTIONS = [
+  {
+    value: 'BLOG_AND_EMAIL',
+    label: 'Blog Post + Email Notification',
+    description: 'Publish the article to the blog and send an email notification linking to it.',
+    icon: '📝',
+  },
+  {
+    value: 'EMAIL_ONLY',
+    label: 'Email Only (Full Content)',
+    description: 'Send the full article content directly via email. No blog post is created.',
+    icon: '📧',
+  },
+  {
+    value: 'BLOG_ONLY',
+    label: 'Blog Post Only (No Email)',
+    description: 'Publish to the blog without sending any email notifications.',
+    icon: '🌐',
+  },
+];
+
 const STEPS = [
   { id: 1, label: 'Audience' },
   { id: 2, label: 'Type' },
   { id: 3, label: 'Visibility' },
-  { id: 4, label: 'Topic' },
-  { id: 5, label: 'Review' },
+  { id: 4, label: 'Delivery' },
+  { id: 5, label: 'Topic' },
+  { id: 6, label: 'Review' },
 ];
 
 export default function NewCampaignPage() {
@@ -70,6 +92,7 @@ export default function NewCampaignPage() {
   const [selectedAudienceId, setSelectedAudienceId] = useState('');
   const [selectedContentType, setSelectedContentType] = useState('');
   const [selectedVisibility, setSelectedVisibility] = useState('');
+  const [selectedDeliveryMode, setSelectedDeliveryMode] = useState('');
   const [campaignName, setCampaignName] = useState('');
   const [topic, setTopic] = useState('');
 
@@ -86,13 +109,15 @@ export default function NewCampaignPage() {
   const selectedAudience = audiences.find((a) => a.id === selectedAudienceId);
   const selectedType = CONTENT_TYPES.find((t) => t.value === selectedContentType);
   const selectedVis = VISIBILITY_OPTIONS.find((v) => v.value === selectedVisibility);
+  const selectedDel = DELIVERY_MODE_OPTIONS.find((d) => d.value === selectedDeliveryMode);
 
   const canProceed = () => {
     switch (step) {
       case 1: return !!selectedAudienceId;
       case 2: return !!selectedContentType;
       case 3: return !!selectedVisibility;
-      case 4: return !!topic.trim() && !!campaignName.trim();
+      case 4: return !!selectedDeliveryMode;
+      case 5: return !!topic.trim() && !!campaignName.trim();
       default: return true;
     }
   };
@@ -107,6 +132,7 @@ export default function NewCampaignPage() {
           name: campaignName,
           contentType: selectedContentType,
           visibility: selectedVisibility,
+          deliveryMode: selectedDeliveryMode,
           topic,
           audienceId: selectedAudienceId,
           createdBy: 'admin@triplecitiestech.com',
@@ -319,8 +345,44 @@ export default function NewCampaignPage() {
           </div>
         )}
 
-        {/* Step 4: Enter Topic */}
+        {/* Step 4: Delivery Mode */}
         {step === 4 && (
+          <div>
+            <h2 className="text-xl font-bold text-white mb-2">Choose Delivery Method</h2>
+            <p className="text-slate-400 mb-6">How should this communication be delivered?</p>
+
+            <div className="space-y-3">
+              {DELIVERY_MODE_OPTIONS.map((mode) => (
+                <button
+                  key={mode.value}
+                  onClick={() => setSelectedDeliveryMode(mode.value)}
+                  className={`w-full text-left p-4 rounded-lg border transition-colors ${
+                    selectedDeliveryMode === mode.value
+                      ? 'border-cyan-500/50 bg-cyan-500/10'
+                      : 'border-white/10 bg-slate-900/30 hover:border-white/20'
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <span className="text-2xl">{mode.icon}</span>
+                    <div>
+                      <h3 className="text-white font-medium">{mode.label}</h3>
+                      <p className="text-sm text-slate-400 mt-0.5">{mode.description}</p>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-4 p-3 bg-slate-900/50 border border-white/5 rounded-lg">
+              <p className="text-xs text-slate-400">
+                <strong className="text-slate-300">Tip:</strong> &quot;Blog + Email&quot; sends a notification email that links to the full article. &quot;Email Only&quot; sends the complete content directly in the email body — no blog post is created.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Step 5: Enter Topic */}
+        {step === 5 && (
           <div>
             <h2 className="text-xl font-bold text-white mb-2">Define Your Communication</h2>
             <p className="text-slate-400 mb-6">Give your communication a name and describe what you want to say</p>
@@ -357,8 +419,8 @@ export default function NewCampaignPage() {
           </div>
         )}
 
-        {/* Step 5: Review */}
-        {step === 5 && (
+        {/* Step 6: Review */}
+        {step === 6 && (
           <div>
             <h2 className="text-xl font-bold text-white mb-2">Review & Create</h2>
             <p className="text-slate-400 mb-6">Confirm the details before creating this campaign</p>
@@ -369,7 +431,7 @@ export default function NewCampaignPage() {
                 <p className="text-white font-medium">{campaignName}</p>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="p-4 bg-slate-900/30 rounded-lg border border-white/5">
                   <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Audience</p>
                   <p className="text-white font-medium">{selectedAudience?.name}</p>
@@ -389,6 +451,11 @@ export default function NewCampaignPage() {
                     {selectedVisibility === 'CUSTOMER' && 'Customers only (portal)'}
                     {selectedVisibility === 'INTERNAL' && 'Staff only (M365 login)'}
                   </p>
+                </div>
+
+                <div className="p-4 bg-slate-900/30 rounded-lg border border-white/5">
+                  <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Delivery</p>
+                  <p className="text-white font-medium">{selectedDel?.icon} {selectedDel?.label?.split('(')[0].trim()}</p>
                 </div>
               </div>
 
@@ -441,7 +508,7 @@ export default function NewCampaignPage() {
             Back
           </button>
 
-          {step < 5 ? (
+          {step < 6 ? (
             <button
               onClick={() => setStep(step + 1)}
               disabled={!canProceed()}

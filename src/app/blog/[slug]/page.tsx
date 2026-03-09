@@ -12,6 +12,7 @@ interface BlogPostPageProps {
   params: Promise<{
     slug: string;
   }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
 export async function generateMetadata({ params }: BlogPostPageProps): Promise<Metadata> {
@@ -84,7 +85,7 @@ export async function generateStaticParams() {
   }
 }
 
-export default async function BlogPostPage({ params }: BlogPostPageProps) {
+export default async function BlogPostPage({ params, searchParams }: BlogPostPageProps) {
   const { prisma } = await import('@/lib/prisma');
 
   // Ensure columns exist that may not be migrated yet
@@ -111,11 +112,15 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
     notFound();
   }
 
-  // Non-PUBLIC posts should not be viewable on the public blog
-  // They are accessed via customer portal or admin portal instead
-  const postVisibility = (post as Record<string, unknown>).visibility as string | null;
+  // Non-PUBLIC posts require a magic link token to view
+  const postVisibility = post.visibility as string | null;
+  const postAccessToken = post.accessToken as string | null;
   if (postVisibility && postVisibility !== 'PUBLIC') {
-    notFound();
+    const resolvedParams = await searchParams;
+    const token = typeof resolvedParams?.token === 'string' ? resolvedParams.token : null;
+    if (!token || !postAccessToken || token !== postAccessToken) {
+      notFound();
+    }
   }
 
   // Increment view count (fire and forget)

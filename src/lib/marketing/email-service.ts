@@ -23,6 +23,8 @@ export interface CampaignEmailParams {
   postUrl: string;
   contentType: string;
   visibility?: string; // PUBLIC | CUSTOMER | INTERNAL
+  deliveryMode?: string; // BLOG_AND_EMAIL | EMAIL_ONLY | BLOG_ONLY
+  fullContent?: string; // Full markdown content for EMAIL_ONLY mode
 }
 
 export interface SendResult {
@@ -126,12 +128,18 @@ function getVisibilityBadge(visibility: string | undefined): string {
 // ============================================
 
 function generateNotificationEmailHtml(params: CampaignEmailParams): string {
-  const { recipientName, postTitle, postExcerpt, contentType, visibility } = params;
+  const { recipientName, postTitle, postExcerpt, contentType, visibility, deliveryMode, fullContent } = params;
 
   const contentTypeLabel = getContentTypeLabel(contentType);
   const accentColor = getContentTypeColor(contentType);
   const cta = getCtaDetails(visibility, params.postUrl);
   const visBadge = getVisibilityBadge(visibility);
+  const isEmailOnly = deliveryMode === 'EMAIL_ONLY';
+
+  // Convert markdown content to basic HTML for EMAIL_ONLY mode
+  const articleHtml = isEmailOnly && fullContent
+    ? markdownToEmailHtml(fullContent)
+    : '';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -150,6 +158,14 @@ function generateNotificationEmailHtml(params: CampaignEmailParams): string {
     .greeting { font-size: 16px; color: #475569; margin-bottom: 20px; }
     .post-title { font-size: 22px; font-weight: 700; color: #0f172a; margin: 0 0 12px 0; line-height: 1.3; }
     .post-excerpt { font-size: 15px; color: #64748b; line-height: 1.7; margin-bottom: 24px; }
+    .article-content { font-size: 15px; color: #334155; line-height: 1.8; }
+    .article-content h2 { font-size: 20px; font-weight: 700; color: #0f172a; margin: 24px 0 12px 0; }
+    .article-content h3 { font-size: 17px; font-weight: 600; color: #0f172a; margin: 20px 0 8px 0; }
+    .article-content p { margin: 0 0 16px 0; }
+    .article-content ul, .article-content ol { margin: 0 0 16px 0; padding-left: 24px; }
+    .article-content li { margin-bottom: 6px; }
+    .article-content blockquote { border-left: 3px solid ${accentColor}; padding-left: 16px; margin: 16px 0; color: #64748b; font-style: italic; }
+    .article-content code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
     .cta-button { display: inline-block; background: ${accentColor}; color: white !important; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 15px; }
     .cta-button:hover { opacity: 0.9; }
     .footer { padding: 24px 32px; background: #f8fafc; border-top: 1px solid #e2e8f0; text-align: center; font-size: 13px; color: #94a3b8; }
@@ -167,11 +183,15 @@ function generateNotificationEmailHtml(params: CampaignEmailParams): string {
       </div>
       <p class="greeting">Hi ${recipientName},</p>
       <h2 class="post-title">${postTitle}</h2>
+      ${isEmailOnly && articleHtml ? `
+      <div class="article-content">
+        ${articleHtml}
+      </div>` : `
       <p class="post-excerpt">${postExcerpt}</p>
       <div style="text-align: center; margin: 32px 0;">
         <a href="${cta.url}" class="cta-button">${cta.label}</a>
       </div>
-      ${cta.instructions}
+      ${cta.instructions}`}
     </div>
     <div class="footer">
       <p>Triple Cities Tech &bull; Managed IT Services</p>
@@ -184,12 +204,27 @@ function generateNotificationEmailHtml(params: CampaignEmailParams): string {
 
 function generateNotificationEmailText(params: CampaignEmailParams): string {
   const cta = getCtaDetails(params.visibility, params.postUrl);
+  const isEmailOnly = params.deliveryMode === 'EMAIL_ONLY';
 
   let instructions = '';
   if (params.visibility === 'INTERNAL') {
     instructions = `\nHow to access: Visit ${BASE_URL}/admin and sign in with your Triple Cities Tech Microsoft 365 account. This content is for internal team members only.\n`;
   } else if (params.visibility === 'CUSTOMER') {
     instructions = `\nHow to access: Log in to your customer portal at ${BASE_URL} to view this and other updates. Contact our support team if you need login assistance.\n`;
+  }
+
+  if (isEmailOnly && params.fullContent) {
+    return `Hi ${params.recipientName},
+
+${getContentTypeLabel(params.contentType)}
+
+${params.postTitle}
+
+${params.fullContent}
+
+---
+Triple Cities Tech | Managed IT Services
+${BASE_URL}`;
   }
 
   return `Hi ${params.recipientName},
@@ -231,4 +266,54 @@ function getContentTypeColor(contentType: string): string {
     GENERAL_COMMUNICATION: '#0891b2',
   };
   return colors[contentType] || '#0891b2';
+}
+
+/**
+ * Simple markdown → HTML converter for email bodies.
+ * Handles headers, paragraphs, bold, italic, links, lists, blockquotes, code.
+ * No external dependencies — emails need inline-safe HTML.
+ */
+function markdownToEmailHtml(markdown: string): string {
+  return markdown
+    .split('\n\n')
+    .map((block) => {
+      block = block.trim();
+      if (!block) return '';
+
+      // Headers
+      if (block.startsWith('### ')) return `<h3>${inlineMarkdown(block.slice(4))}</h3>`;
+      if (block.startsWith('## ')) return `<h2>${inlineMarkdown(block.slice(3))}</h2>`;
+      if (block.startsWith('# ')) return `<h2>${inlineMarkdown(block.slice(2))}</h2>`;
+
+      // Blockquote
+      if (block.startsWith('> ')) {
+        const text = block.split('\n').map((l) => l.replace(/^>\s?/, '')).join(' ');
+        return `<blockquote>${inlineMarkdown(text)}</blockquote>`;
+      }
+
+      // Unordered list
+      if (/^[-*]\s/.test(block)) {
+        const items = block.split('\n').filter((l) => /^[-*]\s/.test(l));
+        return `<ul>${items.map((l) => `<li>${inlineMarkdown(l.replace(/^[-*]\s/, ''))}</li>`).join('')}</ul>`;
+      }
+
+      // Ordered list
+      if (/^\d+\.\s/.test(block)) {
+        const items = block.split('\n').filter((l) => /^\d+\.\s/.test(l));
+        return `<ol>${items.map((l) => `<li>${inlineMarkdown(l.replace(/^\d+\.\s/, ''))}</li>`).join('')}</ol>`;
+      }
+
+      // Paragraph
+      return `<p>${inlineMarkdown(block.replace(/\n/g, ' '))}</p>`;
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
+function inlineMarkdown(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/`(.+?)`/g, '<code>$1</code>')
+    .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" style="color: #0891b2;">$1</a>');
 }

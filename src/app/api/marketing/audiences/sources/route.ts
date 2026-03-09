@@ -105,6 +105,7 @@ async function initDefaultsRaw(): Promise<{ id: string; name: string; providerTy
     //    (the original migration may have failed partway if audience_sources already existed)
     for (const enumDef of [
       { name: 'ContentVisibility', values: "'PUBLIC', 'CUSTOMER', 'INTERNAL'" },
+      { name: 'DeliveryMode', values: "'BLOG_AND_EMAIL', 'EMAIL_ONLY', 'BLOG_ONLY'" },
       { name: 'CommunicationContentType', values: "'CYBERSECURITY_ALERT', 'SERVICE_UPDATE', 'MAINTENANCE_NOTICE', 'VENDOR_NOTICE', 'BEST_PRACTICE', 'COMPANY_ANNOUNCEMENT', 'GENERAL_COMMUNICATION'" },
       { name: 'CampaignStatus', values: "'DRAFT', 'GENERATING', 'CONTENT_READY', 'APPROVED', 'PUBLISHING', 'PUBLISHED', 'SENDING', 'SENT', 'FAILED', 'CANCELLED'" },
       { name: 'EmailDeliveryStatus', values: "'PENDING', 'SENT', 'DELIVERED', 'OPENED', 'FAILED', 'BOUNCED'" },
@@ -209,6 +210,7 @@ async function initDefaultsRaw(): Promise<{ id: string; name: string; providerTy
       { table: 'communication_campaigns', column: 'contentType', enumName: 'CommunicationContentType' },
       { table: 'communication_campaigns', column: 'status', enumName: 'CampaignStatus' },
       { table: 'communication_campaigns', column: 'visibility', enumName: 'ContentVisibility' },
+      { table: 'communication_campaigns', column: 'deliveryMode', enumName: 'DeliveryMode' },
       { table: 'campaign_recipients', column: 'emailStatus', enumName: 'EmailDeliveryStatus' },
       { table: 'campaign_recipients', column: 'sourceType', enumName: 'AudienceProviderType' },
     ];
@@ -231,15 +233,31 @@ async function initDefaultsRaw(): Promise<{ id: string; name: string; providerTy
       }
     }
 
-    // Add visibility columns to existing tables (if missing)
+    // Add new columns to existing tables (if missing)
     for (const alter of [
       `ALTER TABLE "communication_campaigns" ADD COLUMN IF NOT EXISTS "visibility" "ContentVisibility" NOT NULL DEFAULT 'PUBLIC'`,
+      `ALTER TABLE "communication_campaigns" ADD COLUMN IF NOT EXISTS "deliveryMode" "DeliveryMode" NOT NULL DEFAULT 'BLOG_AND_EMAIL'`,
       `ALTER TABLE "blog_posts" ADD COLUMN IF NOT EXISTS "visibility" "ContentVisibility" NOT NULL DEFAULT 'PUBLIC'`,
+      `ALTER TABLE "blog_posts" ADD COLUMN IF NOT EXISTS "accessToken" TEXT`,
     ]) {
       try { await client.query(alter); } catch { /* column already exists or table missing */ }
     }
+    // Unique index on accessToken
+    try { await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS "blog_posts_accessToken_key" ON "blog_posts"("accessToken") WHERE "accessToken" IS NOT NULL`); } catch { /* already exists */ }
 
-    // 7. Ensure default Autotask source exists (raw SQL to avoid TEXT/enum comparison)
+    // 7. Ensure default MANUAL source exists alongside Autotask
+    const existingManual = await client.query(
+      `SELECT "id" FROM "audience_sources" WHERE "providerType"::text = 'MANUAL' AND "isActive" = true LIMIT 1`
+    );
+    if (existingManual.rows.length === 0) {
+      await client.query(`
+        INSERT INTO "audience_sources" ("id", "name", "providerType", "config", "isActive", "createdAt", "updatedAt")
+        VALUES (gen_random_uuid(), 'Manual List', 'MANUAL'::"AudienceProviderType", '{}', true, NOW(), NOW())
+      `);
+      console.log('[Marketing Init] Created default Manual source');
+    }
+
+    // 8. Ensure default Autotask source exists (raw SQL to avoid TEXT/enum comparison)
     const existing = await client.query(
       `SELECT "id" FROM "audience_sources" WHERE "providerType"::text = 'AUTOTASK' AND "isActive" = true LIMIT 1`
     );
@@ -252,7 +270,7 @@ async function initDefaultsRaw(): Promise<{ id: string; name: string; providerTy
       console.log('[Marketing Init] Created default Autotask source');
     }
 
-    // 8. Return all active sources
+    // 9. Return all active sources
     const result = await client.query(
       `SELECT "id", "name", "providerType"::text as "providerType", "config", "isActive", "createdAt", "updatedAt"
        FROM "audience_sources" WHERE "isActive" = true ORDER BY "name" ASC`

@@ -530,6 +530,7 @@ model BlogPost {
 
   // Visibility — controls who can see this post
   visibility      ContentVisibility @default(PUBLIC)
+  accessToken     String?           @unique // Magic link token for restricted posts
 
   // SEO
   metaTitle       String?
@@ -725,6 +726,13 @@ enum CampaignStatus {
   CANCELLED         // Cancelled by user
 }
 
+/// Delivery mode for campaigns
+enum DeliveryMode {
+  BLOG_AND_EMAIL    // Publish blog post + send notification email (default)
+  EMAIL_ONLY        // Send full content via email, no blog post
+  BLOG_ONLY         // Publish blog post, no email notifications
+}
+
 /// The main campaign entity — a single communication to an audience
 model CommunicationCampaign {
   id                String                   @id @default(uuid())
@@ -733,6 +741,7 @@ model CommunicationCampaign {
   topic             String                   @db.Text // User-provided topic/prompt
   audienceId        String
   visibility        ContentVisibility        @default(PUBLIC)
+  deliveryMode      DeliveryMode             @default(BLOG_AND_EMAIL)
   status            CampaignStatus           @default(DRAFT)
 
   // Content
