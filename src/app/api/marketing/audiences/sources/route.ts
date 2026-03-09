@@ -101,7 +101,134 @@ async function initDefaultsRaw(): Promise<{ id: string; name: string; providerTy
       }
     }
 
-    // 5. Ensure default Autotask source exists (raw SQL to avoid TEXT/enum comparison)
+    // 5. Ensure campaign-related enums and tables exist
+    //    (the original migration may have failed partway if audience_sources already existed)
+    for (const enumDef of [
+      { name: 'CommunicationContentType', values: "'CYBERSECURITY_ALERT', 'SERVICE_UPDATE', 'MAINTENANCE_NOTICE', 'VENDOR_NOTICE', 'BEST_PRACTICE', 'COMPANY_ANNOUNCEMENT', 'GENERAL_COMMUNICATION'" },
+      { name: 'CampaignStatus', values: "'DRAFT', 'GENERATING', 'CONTENT_READY', 'APPROVED', 'PUBLISHING', 'PUBLISHED', 'SENDING', 'SENT', 'FAILED', 'CANCELLED'" },
+      { name: 'EmailDeliveryStatus', values: "'PENDING', 'SENT', 'DELIVERED', 'OPENED', 'FAILED', 'BOUNCED'" },
+    ]) {
+      try {
+        await client.query(`CREATE TYPE "${enumDef.name}" AS ENUM (${enumDef.values})`);
+      } catch (e: unknown) {
+        if ((e as { code?: string }).code !== '42710') {
+          console.warn(`[Marketing Init] Enum ${enumDef.name} creation warning:`, (e as Error).message);
+        }
+      }
+    }
+
+    // Campaign tables
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS "communication_campaigns" (
+        "id" TEXT NOT NULL DEFAULT gen_random_uuid(),
+        "name" TEXT NOT NULL,
+        "contentType" "CommunicationContentType" NOT NULL,
+        "topic" TEXT NOT NULL,
+        "audienceId" TEXT NOT NULL,
+        "status" "CampaignStatus" NOT NULL DEFAULT 'DRAFT',
+        "generatedTitle" TEXT,
+        "generatedExcerpt" TEXT,
+        "generatedContent" TEXT,
+        "generatedMetaTitle" TEXT,
+        "generatedMetaDescription" TEXT,
+        "generatedKeywords" TEXT[] DEFAULT ARRAY[]::TEXT[],
+        "aiModel" TEXT,
+        "aiPrompt" TEXT,
+        "emailSubject" TEXT,
+        "emailPreviewText" TEXT,
+        "emailBodyHtml" TEXT,
+        "blogPostId" TEXT,
+        "publishedAt" TIMESTAMP(3),
+        "emailSentAt" TIMESTAMP(3),
+        "emailTotalCount" INTEGER NOT NULL DEFAULT 0,
+        "emailSuccessCount" INTEGER NOT NULL DEFAULT 0,
+        "emailFailureCount" INTEGER NOT NULL DEFAULT 0,
+        "approvedAt" TIMESTAMP(3),
+        "approvedBy" TEXT,
+        "rejectionReason" TEXT,
+        "createdBy" TEXT NOT NULL,
+        "lastModifiedBy" TEXT NOT NULL,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "communication_campaigns_pkey" PRIMARY KEY ("id"),
+        CONSTRAINT "communication_campaigns_audienceId_fkey" FOREIGN KEY ("audienceId") REFERENCES "audiences"("id") ON DELETE RESTRICT ON UPDATE CASCADE
+      )
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS "campaign_recipients" (
+        "id" TEXT NOT NULL DEFAULT gen_random_uuid(),
+        "campaignId" TEXT NOT NULL,
+        "name" TEXT NOT NULL,
+        "email" TEXT NOT NULL,
+        "companyName" TEXT,
+        "companyId" TEXT,
+        "emailStatus" "EmailDeliveryStatus" NOT NULL DEFAULT 'PENDING',
+        "sentAt" TIMESTAMP(3),
+        "deliveredAt" TIMESTAMP(3),
+        "openedAt" TIMESTAMP(3),
+        "failureReason" TEXT,
+        "sourceContactId" TEXT,
+        "sourceType" "AudienceProviderType",
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "campaign_recipients_pkey" PRIMARY KEY ("id"),
+        CONSTRAINT "campaign_recipients_campaignId_fkey" FOREIGN KEY ("campaignId") REFERENCES "communication_campaigns"("id") ON DELETE CASCADE ON UPDATE CASCADE
+      )
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS "campaign_audit_logs" (
+        "id" TEXT NOT NULL DEFAULT gen_random_uuid(),
+        "campaignId" TEXT NOT NULL,
+        "action" TEXT NOT NULL,
+        "staffEmail" TEXT NOT NULL,
+        "staffName" TEXT,
+        "details" JSONB,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "campaign_audit_logs_pkey" PRIMARY KEY ("id"),
+        CONSTRAINT "campaign_audit_logs_campaignId_fkey" FOREIGN KEY ("campaignId") REFERENCES "communication_campaigns"("id") ON DELETE CASCADE ON UPDATE CASCADE
+      )
+    `);
+
+    // Create indexes (IF NOT EXISTS isn't available for indexes, so use try/catch)
+    const indexes = [
+      'CREATE INDEX "communication_campaigns_status_idx" ON "communication_campaigns"("status")',
+      'CREATE INDEX "communication_campaigns_createdAt_idx" ON "communication_campaigns"("createdAt")',
+      'CREATE INDEX "campaign_recipients_campaignId_idx" ON "campaign_recipients"("campaignId")',
+      'CREATE INDEX "campaign_recipients_email_idx" ON "campaign_recipients"("email")',
+      'CREATE INDEX "campaign_audit_logs_campaignId_idx" ON "campaign_audit_logs"("campaignId")',
+    ];
+    for (const idx of indexes) {
+      try { await client.query(idx); } catch { /* index already exists */ }
+    }
+
+    // Fix TEXT columns on campaign tables too
+    const campaignEnumFixes: Array<{ table: string; column: string; enumName: string }> = [
+      { table: 'communication_campaigns', column: 'contentType', enumName: 'CommunicationContentType' },
+      { table: 'communication_campaigns', column: 'status', enumName: 'CampaignStatus' },
+      { table: 'campaign_recipients', column: 'emailStatus', enumName: 'EmailDeliveryStatus' },
+      { table: 'campaign_recipients', column: 'sourceType', enumName: 'AudienceProviderType' },
+    ];
+    for (const fix of campaignEnumFixes) {
+      try {
+        const colCheck = await client.query(`
+          SELECT data_type FROM information_schema.columns
+          WHERE table_name = $1 AND column_name = $2
+        `, [fix.table, fix.column]);
+        if (colCheck.rows.length > 0 && colCheck.rows[0].data_type === 'text') {
+          await client.query(`
+            ALTER TABLE "${fix.table}"
+            ALTER COLUMN "${fix.column}" TYPE "${fix.enumName}"
+            USING "${fix.column}"::"${fix.enumName}"
+          `);
+          console.log(`[Marketing Init] Converted ${fix.table}."${fix.column}" to ${fix.enumName}`);
+        }
+      } catch (e) {
+        console.warn(`[Marketing Init] Column fix warning ${fix.table}.${fix.column}:`, (e as Error).message);
+      }
+    }
+
+    // 7. Ensure default Autotask source exists (raw SQL to avoid TEXT/enum comparison)
     const existing = await client.query(
       `SELECT "id" FROM "audience_sources" WHERE "providerType"::text = 'AUTOTASK' AND "isActive" = true LIMIT 1`
     );
@@ -111,10 +238,10 @@ async function initDefaultsRaw(): Promise<{ id: string; name: string; providerTy
         INSERT INTO "audience_sources" ("id", "name", "providerType", "config", "isActive", "createdAt", "updatedAt")
         VALUES (gen_random_uuid(), 'Autotask PSA', 'AUTOTASK'::"AudienceProviderType", '{}', true, NOW(), NOW())
       `);
-      console.log('[Audience Init] Created default Autotask source');
+      console.log('[Marketing Init] Created default Autotask source');
     }
 
-    // 6. Return all active sources
+    // 8. Return all active sources
     const result = await client.query(
       `SELECT "id", "name", "providerType"::text as "providerType", "config", "isActive", "createdAt", "updatedAt"
        FROM "audience_sources" WHERE "isActive" = true ORDER BY "name" ASC`
