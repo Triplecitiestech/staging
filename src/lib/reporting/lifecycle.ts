@@ -124,6 +124,7 @@ interface LifecycleData {
   billableHoursLogged: number;
   isFirstTouchResolution: boolean;
   slaResponseMet: boolean | null;
+  slaResolutionPlanMet: boolean | null;
   slaResolutionMet: boolean | null;
 }
 
@@ -174,8 +175,9 @@ async function computeTicketLifecycle(ticket: TicketInput): Promise<LifecycleDat
   // M5: First Touch Resolution
   const isFirstTouchResolution = isResolved && techNoteCount <= 1 && reopenCount === 0;
 
-  // M12: SLA compliance
+  // M12: SLA compliance (3 metrics per Autotask SLA agreement)
   const slaResponseMet = await evaluateSlaResponse(ticket, firstResponseMinutes);
+  const slaResolutionPlanMet = await evaluateSlaResolutionPlan(ticket, firstResolutionMinutes);
   const slaResolutionMet = await evaluateSlaResolution(ticket, fullResolutionMinutes);
 
   return {
@@ -198,6 +200,7 @@ async function computeTicketLifecycle(ticket: TicketInput): Promise<LifecycleDat
     billableHoursLogged,
     isFirstTouchResolution,
     slaResponseMet,
+    slaResolutionPlanMet,
     slaResolutionMet,
   };
 }
@@ -317,7 +320,24 @@ async function evaluateSlaResponse(
 }
 
 /**
- * M12b: Evaluate resolution SLA — was resolution time within target?
+ * M12b: Evaluate resolution plan SLA — was the first resolution attempt within the
+ * resolution plan target? This measures time to have a documented path to resolution.
+ * Uses `firstResolutionMinutes` (time to first status change to a resolved state).
+ */
+async function evaluateSlaResolutionPlan(
+  ticket: TicketInput,
+  firstResolutionMinutes: number | null,
+): Promise<boolean | null> {
+  if (firstResolutionMinutes === null) return null;
+
+  const target = await resolveTarget('resolution_plan_time', ticket.priority, ticket.companyId);
+  if (target === null) return null;
+
+  return firstResolutionMinutes <= target;
+}
+
+/**
+ * M12c: Evaluate resolution SLA — was resolution time within target?
  */
 async function evaluateSlaResolution(
   ticket: TicketInput,

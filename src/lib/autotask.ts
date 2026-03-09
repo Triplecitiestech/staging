@@ -19,6 +19,8 @@ export interface AutotaskCompany {
   id: number;
   companyName: string;
   companyType: number;
+  classification?: number;     // Autotask classification picklist ID
+  classificationName?: string; // Resolved label (e.g., "Platinum Managed Service")
   isActive: boolean;
   phone?: string;
   webAddress?: string;

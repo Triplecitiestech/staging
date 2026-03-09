@@ -696,7 +696,7 @@ export async function getRealtimeTicketList(
   totalTickets: number;
   resolvedCount: number;
   openCount: number;
-  sla: { responseCompliance: number | null; resolutionCompliance: number | null; responseSampleSize: number; resolutionSampleSize: number };
+  sla: { responseCompliance: number | null; resolutionPlanCompliance: number | null; resolutionCompliance: number | null; responseSampleSize: number; resolutionPlanSampleSize: number; resolutionSampleSize: number };
   companyName: string;
 }> {
   const { companyId, resourceId } = options;
@@ -775,13 +775,34 @@ export async function getRealtimeTicketList(
     }
   }
 
-  // SLA computation
+  // SLA computation from ticket_lifecycle table (all 3 metrics)
+  const slaTicketIds = tickets.map(t => t.autotaskTicketId);
+  const lifecycleRows = slaTicketIds.length > 0
+    ? await prisma.ticketLifecycle.findMany({
+        where: { autotaskTicketId: { in: slaTicketIds } },
+        select: {
+          slaResponseMet: true,
+          slaResolutionPlanMet: true,
+          slaResolutionMet: true,
+        },
+      })
+    : [];
+
+  let slaRespMet = 0, slaRespTotal = 0;
+  let slaPlanMet = 0, slaPlanTotal = 0;
   let slaResMet = 0, slaResTotal = 0;
-  const resolvedTickets = tickets.filter(t => isResolved(t.status) && t.completedDate);
-  for (const t of resolvedTickets) {
-    if (t.dueDateTime) {
+  for (const lc of lifecycleRows) {
+    if (lc.slaResponseMet !== null) {
+      slaRespTotal++;
+      if (lc.slaResponseMet) slaRespMet++;
+    }
+    if (lc.slaResolutionPlanMet !== null) {
+      slaPlanTotal++;
+      if (lc.slaResolutionPlanMet) slaPlanMet++;
+    }
+    if (lc.slaResolutionMet !== null) {
       slaResTotal++;
-      if (t.completedDate! <= t.dueDateTime) slaResMet++;
+      if (lc.slaResolutionMet) slaResMet++;
     }
   }
 
@@ -823,9 +844,11 @@ export async function getRealtimeTicketList(
     resolvedCount: resolved.length,
     openCount: open.length,
     sla: {
-      responseCompliance: null, // Need SLA target data for response
+      responseCompliance: slaRespTotal > 0 ? round1((slaRespMet / slaRespTotal) * 100) : null,
+      resolutionPlanCompliance: slaPlanTotal > 0 ? round1((slaPlanMet / slaPlanTotal) * 100) : null,
       resolutionCompliance: slaResTotal > 0 ? round1((slaResMet / slaResTotal) * 100) : null,
-      responseSampleSize: 0,
+      responseSampleSize: slaRespTotal,
+      resolutionPlanSampleSize: slaPlanTotal,
       resolutionSampleSize: slaResTotal,
     },
     companyName: headerName,
