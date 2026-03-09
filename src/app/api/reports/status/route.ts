@@ -31,9 +31,14 @@ async function safeQuery<T>(fn: () => Promise<T>): Promise<T | null> {
  * Returns the status of all reporting jobs and data coverage info.
  * Resilient to missing tables — returns zeros for tables that don't exist yet.
  */
-export async function GET(_request: NextRequest) {
+export async function GET(request: NextRequest) {
+  const secret = request.nextUrl.searchParams.get('secret');
   const session = await auth();
-  if (!session?.user?.email) {
+  const isAuthorized =
+    session?.user?.email ||
+    secret === process.env.MIGRATION_SECRET ||
+    secret === process.env.CRON_SECRET;
+  if (!isAuthorized) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
