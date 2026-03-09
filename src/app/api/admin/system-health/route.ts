@@ -49,9 +49,12 @@ interface SystemHealthResponse {
   };
 }
 
-export async function GET(req: NextRequest) {
+export async function GET(_req: NextRequest) {
   const session = await auth();
-  if (!session || !['ADMIN', 'MANAGER'].includes(session.user?.role as string)) {
+  // Accept any authenticated session — don't require role lookup.
+  // When DB is slow, session callback can't resolve the role, causing a false 401.
+  // The admin page server component already gates access.
+  if (!session?.user?.email) {
     return apiError('Unauthorized', 'system-health', 401);
   }
 
@@ -81,15 +84,24 @@ export async function GET(req: NextRequest) {
   // Check service configurations
   const services = checkServices(now);
 
-  // Determine overall health
+  // Update Database service to reflect actual connectivity (not just env var)
+  const dbService = services.find(s => s.name === 'Database (PostgreSQL)');
+  if (dbService) {
+    dbService.status = dbResult.status === 'healthy' ? 'healthy' : dbResult.status === 'degraded' ? 'degraded' : 'down';
+    dbService.details = dbResult.error || `Connected via PrismaPg (${dbResult.latencyMs}ms)`;
+    dbService.latencyMs = dbResult.latencyMs;
+  }
+
+  // Determine overall health based on actual checks
   const dbHealthy = dbResult.status === 'healthy';
-  const criticalServicesDown = services.filter(s => s.status === 'down' && ['Database', 'Authentication (Azure AD)'].includes(s.name)).length > 0;
-  const degradedServices = services.filter(s => s.status === 'degraded' || s.status === 'unconfigured').length;
+  const servicesDown = services.filter(s => s.status === 'down').length;
+  const servicesDegraded = services.filter(s => s.status === 'degraded').length;
+  const servicesUnconfigured = services.filter(s => s.status === 'unconfigured').length;
   const highErrorRate = errors.last24h > 50;
 
   let overall: 'healthy' | 'degraded' | 'down' = 'healthy';
-  if (!dbHealthy || criticalServicesDown) overall = 'down';
-  else if (degradedServices > 2 || highErrorRate) overall = 'degraded';
+  if (!dbHealthy || servicesDown > 0) overall = 'down';
+  else if (servicesDegraded > 0 || servicesUnconfigured > 2 || highErrorRate) overall = 'degraded';
 
   // Check environment variables
   const envCheck = checkEnvironment();

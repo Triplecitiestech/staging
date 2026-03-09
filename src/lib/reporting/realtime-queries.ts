@@ -111,7 +111,7 @@ export async function getRealtimeTechnicianMetrics(
     },
   });
 
-  // Get first tech note per ticket for FRT calculation
+  // Get tech notes per ticket for FRT and FTR calculation
   const closedTicketIds = [
     ...closedInPeriod.map(t => t.autotaskTicketId),
     ...statusHistoryClosures.map(h => h.autotaskTicketId),
@@ -125,10 +125,24 @@ export async function getRealtimeTechnicianMetrics(
     orderBy: { createDateTime: 'asc' },
   }) : [];
   const firstNoteByTicket = new Map<string, Date>();
+  const noteCountByTicket = new Map<string, number>();
   for (const n of notes) {
     if (!firstNoteByTicket.has(n.autotaskTicketId)) {
       firstNoteByTicket.set(n.autotaskTicketId, n.createDateTime);
     }
+    noteCountByTicket.set(n.autotaskTicketId, (noteCountByTicket.get(n.autotaskTicketId) ?? 0) + 1);
+  }
+
+  // Count time entries per closed ticket for FTR calculation
+  const closedTicketTimeEntries = closedTicketIds.length > 0 ? await prisma.ticketTimeEntry.findMany({
+    where: {
+      autotaskTicketId: { in: closedTicketIds },
+    },
+    select: { autotaskTicketId: true },
+  }) : [];
+  const timeEntryCountByTicket = new Map<string, number>();
+  for (const te of closedTicketTimeEntries) {
+    timeEntryCountByTicket.set(te.autotaskTicketId, (timeEntryCountByTicket.get(te.autotaskTicketId) ?? 0) + 1);
   }
 
   // Get ticket create dates for FRT computation
@@ -152,6 +166,16 @@ export async function getRealtimeTechnicianMetrics(
     return techData.get(rid)!;
   };
 
+  // FTR check: First Touch Resolution = ticket complete with at most 1 total
+  // technician interaction (note or time entry). If >1 note or >1 time entry,
+  // the ticket required multiple touches and is NOT an FTR.
+  const isFTR = (ticketId: string): boolean => {
+    const noteCount = noteCountByTicket.get(ticketId) ?? 0;
+    const teCount = timeEntryCountByTicket.get(ticketId) ?? 0;
+    const totalInteractions = noteCount + teCount;
+    return totalInteractions >= 1 && totalInteractions <= 1;
+  };
+
   // Tally closed tickets
   for (const t of closedInPeriod) {
     if (!t.assignedResourceId) continue;
@@ -166,6 +190,7 @@ export async function getRealtimeTechnicianMetrics(
       const frtMins = (firstNote.getTime() - t.createDate.getTime()) / (1000 * 60);
       if (frtMins >= 0) d.frtMinutes.push(frtMins);
     }
+    if (isFTR(t.autotaskTicketId)) d.firstTouchResolutions++;
   }
   for (const h of statusHistoryClosures) {
     if (!h.assignedResourceId) continue;
@@ -176,6 +201,7 @@ export async function getRealtimeTechnicianMetrics(
       const resMins = (h.changedAt.getTime() - createDate.getTime()) / (1000 * 60);
       if (resMins > 0) d.resolutionMinutes.push(resMins);
     }
+    if (isFTR(h.autotaskTicketId)) d.firstTouchResolutions++;
   }
 
   // Tally open tickets

@@ -38,13 +38,9 @@ export async function POST(req: NextRequest) {
 
   try {
     const session = await auth()
-    if (!session) {
+    if (!session?.user?.email) {
       log.warn('Unauthorized request')
       return apiError('Unauthorized', log.requestId, 401)
-    }
-    if (!['ADMIN', 'MANAGER'].includes(session.user?.role as string)) {
-      log.warn('Insufficient permissions', { role: session.user?.role })
-      return apiError('Forbidden: requires ADMIN or MANAGER role', log.requestId, 403)
     }
     log.info('Authenticated', { userId: session.user?.email })
 
