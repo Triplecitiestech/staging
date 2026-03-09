@@ -4,6 +4,7 @@ import { auth } from '@/auth'
 import { SignInButton } from '@/components/auth/AuthButtons'
 import AdminHeader from '@/components/admin/AdminHeader'
 import AutotaskSyncPanel from '@/components/admin/AutotaskSyncPanel'
+import SystemHealthDashboard from '@/components/admin/SystemHealthDashboard'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 
@@ -45,11 +46,8 @@ export default async function AdminPage() {
     )
   }
 
-  // Fetch analytics data
-  const [totalProjects, activeProjects, totalCompanies, totalBlogPosts, publishedBlogPosts] = await Promise.all([
-    prisma.project.count(),
-    prisma.project.count({ where: { status: 'ACTIVE' } }),
-    prisma.company.count(),
+  // Fetch data for sections below the health dashboard
+  const [totalBlogPosts, publishedBlogPosts] = await Promise.all([
     prisma.blogPost.count(),
     prisma.blogPost.count({ where: { status: 'PUBLISHED' } }),
   ])
@@ -63,11 +61,6 @@ export default async function AdminPage() {
     }
   }) as ProjectWithRelations[]
 
-  const completedProjects = await prisma.project.count({ where: { status: 'COMPLETED' } })
-  const onHoldProjects = await prisma.project.count({ where: { status: 'ON_HOLD' } })
-  const totalPhases = await prisma.phase.count()
-
-  // Project status colors mapped to Autotask: Inactive(0), Active(4), Complete(5)
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'ACTIVE': return 'bg-green-500/20 text-green-300 border-green-500/30'
@@ -88,7 +81,6 @@ export default async function AdminPage() {
     }
   }
 
-  // User is authenticated - show dashboard
   return (
     <div className="min-h-screen bg-slate-950 relative overflow-hidden">
       {/* Ambient gradient grid background */}
@@ -102,246 +94,176 @@ export default async function AdminPage() {
       <div className="relative z-10">
       <AdminHeader />
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        {/* Welcome Section */}
-        <div className="mb-8 text-center">
-          <h2 className="text-3xl font-bold text-white mb-2">Welcome back, {session.user?.name?.split(' ')[0]}!</h2>
-          <p className="text-slate-400">Here's what's happening with your projects</p>
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Welcome + System Health */}
+        <div className="mb-6">
+          <h2 className="text-2xl font-bold text-white mb-1">System Health Dashboard</h2>
+          <p className="text-sm text-slate-400">Welcome back, {session.user?.name?.split(' ')[0]}. Real-time status of all platform systems.</p>
         </div>
 
-        {/* Analytics Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-          {/* Total Projects */}
-          <Link href="/admin/projects" className="bg-gradient-to-br from-cyan-600/20 to-cyan-500/10 hover:from-cyan-600/30 hover:to-cyan-500/20 backdrop-blur-sm border border-cyan-500/30 hover:border-cyan-400/50 rounded-lg p-6 transition-all duration-300 hover:scale-105">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-sm text-cyan-300 font-semibold">Total Projects</p>
-              <svg className="w-8 h-8 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-            </div>
-            <p className="text-4xl font-bold text-white mb-1">{totalProjects}</p>
-            <p className="text-xs text-cyan-200">All time</p>
-          </Link>
-
-          {/* Active Projects */}
-          <Link href="/admin/projects" className="bg-gradient-to-br from-green-600/20 to-green-500/10 hover:from-green-600/30 hover:to-green-500/20 backdrop-blur-sm border border-green-500/30 hover:border-green-400/50 rounded-lg p-6 transition-all duration-300 hover:scale-105">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-sm text-green-300 font-semibold">Active Projects</p>
-              <svg className="w-8 h-8 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
-            </div>
-            <p className="text-4xl font-bold text-white mb-1">{activeProjects}</p>
-            <p className="text-xs text-green-200">In progress</p>
-          </Link>
-
-          {/* Completed Projects */}
-          <Link href="/admin/projects" className="bg-gradient-to-br from-blue-600/20 to-blue-500/10 hover:from-blue-600/30 hover:to-blue-500/20 backdrop-blur-sm border border-blue-500/30 hover:border-blue-400/50 rounded-lg p-6 transition-all duration-300 hover:scale-105">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-sm text-blue-300 font-semibold">Completed Tasks</p>
-              <svg className="w-8 h-8 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <p className="text-4xl font-bold text-white mb-1">{completedProjects}</p>
-            <p className="text-xs text-blue-200">Finished</p>
-          </Link>
-
-          {/* Total Companies */}
-          <Link href="/admin/companies" className="bg-gradient-to-br from-indigo-600/20 to-indigo-500/10 hover:from-indigo-600/30 hover:to-indigo-500/20 backdrop-blur-sm border border-indigo-500/30 hover:border-indigo-400/50 rounded-lg p-6 transition-all duration-300 hover:scale-105">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-sm text-indigo-300 font-semibold">Companies</p>
-              <svg className="w-8 h-8 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-              </svg>
-            </div>
-            <p className="text-4xl font-bold text-white mb-1">{totalCompanies}</p>
-            <p className="text-xs text-indigo-200">Active clients</p>
-          </Link>
+        {/* System Health Dashboard (client component with auto-refresh) */}
+        <div className="mb-10">
+          <SystemHealthDashboard />
         </div>
 
-        {/* Quick Stats Row */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
-          <Link href="/admin/projects" className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 hover:from-slate-700/80 hover:to-slate-800/80 backdrop-blur-sm border border-white/10 hover:border-orange-500/30 rounded-lg p-6 transition-all duration-300 hover:scale-105">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-slate-400 mb-1">On Hold</p>
-                <p className="text-2xl font-bold text-white">{onHoldProjects}</p>
-              </div>
-              <div className="p-3 bg-orange-500/20 rounded-lg">
-                <svg className="w-6 h-6 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-            </div>
-          </Link>
-
-          <Link href="/admin/projects" className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 hover:from-slate-700/80 hover:to-slate-800/80 backdrop-blur-sm border border-white/10 hover:border-cyan-500/30 rounded-lg p-6 transition-all duration-300 hover:scale-105">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-slate-400 mb-1">Completion Rate</p>
-                <p className="text-2xl font-bold text-white">
-                  {totalProjects > 0 ? Math.round((completedProjects / totalProjects) * 100) : 0}%
-                </p>
-              </div>
-              <div className="p-3 bg-cyan-500/20 rounded-lg">
-                <svg className="w-6 h-6 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                </svg>
-              </div>
-            </div>
-          </Link>
-
-          <Link href="/admin/projects" className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 hover:from-slate-700/80 hover:to-slate-800/80 backdrop-blur-sm border border-white/10 hover:border-indigo-500/30 rounded-lg p-6 transition-all duration-300 hover:scale-105">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-slate-400 mb-1">Avg. Phases/Project</p>
-                <p className="text-2xl font-bold text-white">
-                  {totalProjects > 0
-                    ? Math.round((totalPhases / totalProjects) * 10) / 10
-                    : 0}
-                </p>
-              </div>
-              <div className="p-3 bg-indigo-500/20 rounded-lg">
-                <svg className="w-6 h-6 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
-                </svg>
-              </div>
-            </div>
-          </Link>
-        </div>
-
-        {/* Blog Management Section */}
-        <div className="bg-gradient-to-br from-indigo-900/30 to-indigo-800/20 backdrop-blur-sm border border-indigo-500/30 rounded-lg p-6 mb-12">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                <span>📝</span>
-                Blog Management
-              </h2>
-              <p className="text-sm text-indigo-300 mt-1">Automated content generation Mon/Wed/Fri at 8 AM EST</p>
-            </div>
+        {/* Quick Actions */}
+        <div className="mb-10">
+          <h2 className="text-lg font-bold text-white mb-4">Quick Actions</h2>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <Link
-              href="/admin/blog"
-              className="text-indigo-400 hover:text-indigo-300 text-sm font-medium flex items-center gap-1"
+              href="/admin/projects/new"
+              className="group p-4 bg-gradient-to-br from-cyan-600/20 to-cyan-500/10 hover:from-cyan-600/30 hover:to-cyan-500/20 border border-cyan-500/30 hover:border-cyan-400/50 rounded-lg transition-all duration-300 hover:scale-105"
             >
-              Manage Blog
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-cyan-500/20 rounded-lg">
+                  <svg className="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">New Project</h3>
+                  <p className="text-xs text-slate-400">Create project</p>
+                </div>
+              </div>
             </Link>
-          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Blog Stats */}
-            <div className="bg-slate-900/50 border border-indigo-500/20 rounded-lg p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold text-indigo-300">Blog Statistics</h3>
-                <span className="text-2xl">📊</span>
-              </div>
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-400 text-sm">Total Posts</span>
-                  <span className="text-white font-bold text-lg">{totalBlogPosts}</span>
+            <Link
+              href="/admin/companies/new"
+              className="group p-4 bg-gradient-to-br from-rose-600/20 to-rose-500/10 hover:from-rose-600/30 hover:to-rose-500/20 border border-rose-500/30 hover:border-rose-400/50 rounded-lg transition-all duration-300 hover:scale-105"
+            >
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-rose-500/20 rounded-lg">
+                  <svg className="w-5 h-5 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  </svg>
                 </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-400 text-sm">Published</span>
-                  <span className="text-green-400 font-bold text-lg">{publishedBlogPosts}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-400 text-sm">Drafts</span>
-                  <span className="text-slate-300 font-bold text-lg">{totalBlogPosts - publishedBlogPosts}</span>
+                <div>
+                  <h3 className="text-sm font-bold text-white">Add Company</h3>
+                  <p className="text-xs text-slate-400">Onboard client</p>
                 </div>
               </div>
-            </div>
+            </Link>
 
-            {/* Quick Actions */}
-            <div className="bg-slate-900/50 border border-indigo-500/20 rounded-lg p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold text-indigo-300">Quick Actions</h3>
-                <span className="text-2xl">⚡</span>
+            <Link
+              href="/admin/companies"
+              className="group p-4 bg-gradient-to-br from-green-600/20 to-green-500/10 hover:from-green-600/30 hover:to-green-500/20 border border-green-500/30 hover:border-green-400/50 rounded-lg transition-all duration-300 hover:scale-105"
+            >
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-green-500/20 rounded-lg">
+                  <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">Companies</h3>
+                  <p className="text-xs text-slate-400">View all clients</p>
+                </div>
               </div>
-              <div className="space-y-2">
-                <Link
-                  href="/admin/blog"
-                  className="flex items-center gap-2 text-sm text-cyan-400 hover:text-cyan-300 transition-colors"
-                >
-                  <span>✏️</span>
-                  Edit Blog Posts
-                </Link>
-                <Link
-                  href="/blog"
-                  target="_blank"
-                  className="flex items-center gap-2 text-sm text-cyan-400 hover:text-cyan-300 transition-colors"
-                >
-                  <span>🌐</span>
-                  View Public Blog
-                </Link>
-                <Link
-                  href="/admin/blog/generate"
-                  className="flex items-center gap-2 text-sm text-cyan-400 hover:text-cyan-300 transition-colors"
-                >
-                  <span>🤖</span>
-                  Generate New Post (AI)
-                </Link>
-              </div>
-            </div>
-          </div>
-        </div>
+            </Link>
 
-        {/* Autotask Sync Panel */}
-        <AutotaskSyncPanel />
-
-        {/* Recent Projects */}
-        <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-sm border border-white/10 rounded-lg p-6 mb-12">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-bold text-white">Recent Projects</h2>
             <Link
               href="/admin/projects"
-              className="text-cyan-400 hover:text-cyan-300 text-sm font-medium flex items-center gap-1"
+              className="group p-4 bg-gradient-to-br from-teal-600/20 to-teal-500/10 hover:from-teal-600/30 hover:to-teal-500/20 border border-teal-500/30 hover:border-teal-400/50 rounded-lg transition-all duration-300 hover:scale-105"
             >
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-teal-500/20 rounded-lg">
+                  <svg className="w-5 h-5 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">Projects</h3>
+                  <p className="text-xs text-slate-400">View & edit all</p>
+                </div>
+              </div>
+            </Link>
+          </div>
+        </div>
+
+        {/* Blog + Autotask Row */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-10">
+          {/* Blog Management */}
+          <div className="bg-gradient-to-br from-indigo-900/30 to-indigo-800/20 border border-indigo-500/30 rounded-lg p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-base font-bold text-white">Blog Management</h2>
+              <Link href="/admin/blog" className="text-indigo-400 hover:text-indigo-300 text-xs font-medium flex items-center gap-1">
+                Manage
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </Link>
+            </div>
+            <div className="space-y-2 mb-4">
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-slate-400">Total Posts</span>
+                <span className="text-white font-bold">{totalBlogPosts}</span>
+              </div>
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-slate-400">Published</span>
+                <span className="text-green-400 font-bold">{publishedBlogPosts}</span>
+              </div>
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-slate-400">Drafts</span>
+                <span className="text-slate-300 font-bold">{totalBlogPosts - publishedBlogPosts}</span>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Link href="/admin/blog" className="text-xs text-cyan-400 hover:text-cyan-300">Edit Posts</Link>
+              <span className="text-slate-600">|</span>
+              <Link href="/blog" target="_blank" className="text-xs text-cyan-400 hover:text-cyan-300">View Blog</Link>
+              <span className="text-slate-600">|</span>
+              <Link href="/admin/blog/generate" className="text-xs text-cyan-400 hover:text-cyan-300">Generate (AI)</Link>
+            </div>
+          </div>
+
+          {/* Autotask Sync */}
+          <AutotaskSyncPanel />
+        </div>
+
+        {/* Recent Projects */}
+        <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 border border-white/10 rounded-lg p-5 mb-10">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-base font-bold text-white">Recent Projects</h2>
+            <Link href="/admin/projects" className="text-cyan-400 hover:text-cyan-300 text-xs font-medium flex items-center gap-1">
               View All
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
               </svg>
             </Link>
           </div>
 
           {recentProjects.length === 0 ? (
-            <div className="text-center py-12">
-              <p className="text-slate-400 mb-4">No projects yet</p>
+            <div className="text-center py-8">
+              <p className="text-slate-400 mb-4 text-sm">No projects yet</p>
               <Link
                 href="/admin/projects/new"
-                className="inline-flex items-center gap-2 px-4 py-2 bg-cyan-500/20 border border-cyan-500/30 rounded-lg text-cyan-300 hover:bg-cyan-500/30 transition-all"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-cyan-500/20 border border-cyan-500/30 rounded-lg text-cyan-300 hover:bg-cyan-500/30 transition-all text-sm"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
                 Create Your First Project
               </Link>
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-2">
               {recentProjects.map((project) => (
                 <Link
                   key={project.id}
                   href={`/admin/projects/${project.id}`}
-                  className="block p-4 bg-slate-900/50 hover:bg-slate-900/80 border border-white/10 hover:border-cyan-500/30 rounded-lg transition-all group"
+                  className="block p-3 bg-slate-900/50 hover:bg-slate-900/80 border border-white/10 hover:border-cyan-500/30 rounded-lg transition-all group"
                 >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <h3 className="text-white font-semibold mb-1 group-hover:text-cyan-300 transition-colors">
+                  <div className="flex items-center justify-between">
+                    <div className="min-w-0 flex-1 mr-3">
+                      <h3 className="text-sm text-white font-semibold group-hover:text-cyan-300 transition-colors truncate">
                         {project.title}
                       </h3>
-                      <p className="text-sm text-slate-400 mb-2">{project.company.displayName}</p>
-                      <div className="flex items-center gap-3 text-xs text-slate-500">
+                      <div className="flex items-center gap-2 text-xs text-slate-500">
+                        <span className="truncate">{project.company.displayName}</span>
+                        <span>·</span>
                         <span>{project.phases.length} phases</span>
-                        <span>•</span>
+                        <span>·</span>
                         <span>Updated {new Date(project.updatedAt).toLocaleDateString()}</span>
                       </div>
                     </div>
-                    <span className={`px-3 py-1 text-xs font-semibold rounded-full border ${getStatusColor(project.status)}`}>
+                    <span className={`px-2.5 py-0.5 text-xs font-semibold rounded-full border whitespace-nowrap ${getStatusColor(project.status)}`}>
                       {getStatusLabel(project.status)}
                     </span>
                   </div>
@@ -349,84 +271,6 @@ export default async function AdminPage() {
               ))}
             </div>
           )}
-        </div>
-
-        {/* Quick Actions */}
-        <div>
-          <h2 className="text-xl font-bold text-white mb-6">Quick Actions</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <Link
-              href="/admin/projects/new"
-              className="group relative p-6 bg-gradient-to-br from-cyan-600/20 to-cyan-500/10 hover:from-cyan-600/30 hover:to-cyan-500/20 backdrop-blur-sm border border-cyan-500/30 hover:border-cyan-400/50 rounded-lg transition-all duration-300 hover:scale-105"
-            >
-              <div className="flex items-start justify-between mb-4">
-                <div className="p-3 bg-cyan-500/20 rounded-lg">
-                  <svg className="w-6 h-6 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                  </svg>
-                </div>
-                <svg className="w-5 h-5 text-cyan-400 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-              </div>
-              <h3 className="text-lg font-bold text-white mb-2">Create New Project</h3>
-              <p className="text-sm text-slate-300">Start a new client project</p>
-            </Link>
-
-            <Link
-              href="/admin/companies/new"
-              className="group relative p-6 bg-gradient-to-br from-rose-600/20 to-rose-500/10 hover:from-rose-600/30 hover:to-rose-500/20 backdrop-blur-sm border border-rose-500/30 hover:border-rose-400/50 rounded-lg transition-all duration-300 hover:scale-105"
-            >
-              <div className="flex items-start justify-between mb-4">
-                <div className="p-3 bg-rose-500/20 rounded-lg">
-                  <svg className="w-6 h-6 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                  </svg>
-                </div>
-                <svg className="w-5 h-5 text-rose-400 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-              </div>
-              <h3 className="text-lg font-bold text-white mb-2">Add New Company</h3>
-              <p className="text-sm text-slate-300">Onboard a new client</p>
-            </Link>
-
-            <Link
-              href="/admin/companies"
-              className="group relative p-6 bg-gradient-to-br from-green-600/20 to-green-500/10 hover:from-green-600/30 hover:to-green-500/20 backdrop-blur-sm border border-green-500/30 hover:border-green-400/50 rounded-lg transition-all duration-300 hover:scale-105"
-            >
-              <div className="flex items-start justify-between mb-4">
-                <div className="p-3 bg-green-500/20 rounded-lg">
-                  <svg className="w-6 h-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                  </svg>
-                </div>
-                <svg className="w-5 h-5 text-green-400 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-              </div>
-              <h3 className="text-lg font-bold text-white mb-2">Manage Companies</h3>
-              <p className="text-sm text-slate-300">View all clients</p>
-            </Link>
-
-            <Link
-              href="/admin/projects"
-              className="group relative p-6 bg-gradient-to-br from-teal-600/20 to-teal-500/10 hover:from-teal-600/30 hover:to-teal-500/20 backdrop-blur-sm border border-teal-500/30 hover:border-teal-400/50 rounded-lg transition-all duration-300 hover:scale-105"
-            >
-              <div className="flex items-start justify-between mb-4">
-                <div className="p-3 bg-teal-500/20 rounded-lg">
-                  <svg className="w-6 h-6 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-                  </svg>
-                </div>
-                <svg className="w-5 h-5 text-teal-400 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-              </div>
-              <h3 className="text-lg font-bold text-white mb-2">Manage Projects</h3>
-              <p className="text-sm text-slate-300">View and edit all projects</p>
-            </Link>
-          </div>
         </div>
       </main>
       </div>
