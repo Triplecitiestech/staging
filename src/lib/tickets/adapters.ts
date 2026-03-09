@@ -16,7 +16,7 @@ import type {
   NotePublishType,
 } from '@/types/tickets';
 import { NOTE_PUBLISH } from '@/types/tickets';
-import { isResolvedStatus, PRIORITY_LABELS, getAutotaskWebUrl } from './utils';
+import { isResolvedStatus, PRIORITY_LABELS, getAutotaskWebUrl, isWaitingCustomerStatus } from './utils';
 
 // ============================================
 // STAFF ADAPTER (Local DB → Unified Types)
@@ -176,8 +176,10 @@ export async function getStaffTicketList(params: StaffTicketListParams): Promise
     companyName: headerName,
     sla: {
       responseCompliance: null,
+      resolutionPlanCompliance: null,
       resolutionCompliance: slaResTotal > 0 ? round1((slaResMet / slaResTotal) * 100) : null,
       responseSampleSize: 0,
+      resolutionPlanSampleSize: 0,
       resolutionSampleSize: slaResTotal,
     },
     autotaskWebUrl,
@@ -363,7 +365,7 @@ export async function getCustomerTicketList(params: CustomerTicketListParams): P
     title: t.title,
     description: t.description || null,
     status: t.status,
-    statusLabel: isResolvedStatus(t.status) ? 'Resolved' : 'Open',
+    statusLabel: isResolvedStatus(t.status) ? 'Resolved' : isWaitingCustomerStatus(t.status) ? 'Waiting on You' : 'Open',
     isResolved: isResolvedStatus(t.status),
     priority: t.priority,
     priorityLabel: PRIORITY_LABELS[t.priority] || `P${t.priority}`,

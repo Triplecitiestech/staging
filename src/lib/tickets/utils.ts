@@ -46,3 +46,10 @@ const RESOLVED_STATUSES = new Set([5, 13, 29]);
 export function isResolvedStatus(status: number): boolean {
   return RESOLVED_STATUSES.has(status);
 }
+
+/** Autotask "waiting on customer" statuses (7=Waiting Customer, 12=Customer Note Added) */
+const WAITING_CUSTOMER_STATUSES = new Set([7, 12]);
+
+export function isWaitingCustomerStatus(status: number): boolean {
+  return WAITING_CUSTOMER_STATUSES.has(status);
+}

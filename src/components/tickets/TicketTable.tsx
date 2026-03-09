@@ -6,6 +6,12 @@ import PriorityBadge from './PriorityBadge';
 import SlaIndicator from './SlaIndicator';
 import { formatMinutes } from '@/lib/tickets/utils';
 
+/** Autotask "waiting on customer" ticket statuses (7=Waiting Customer, 12=Customer Note Added) */
+const WAITING_ON_CUSTOMER_STATUSES = new Set([7, 12]);
+function isWaitingOnCustomer(status: number): boolean {
+  return WAITING_ON_CUSTOMER_STATUSES.has(status);
+}
+
 export default function TicketTable({
   tickets,
   perspective,
@@ -85,6 +91,21 @@ export default function TicketTable({
             return 0;
         }
       });
+    } else {
+      // Customer view: waiting-on-customer first, then open/in-progress, then closed
+      // Within each group, sort by createDate descending (newest first)
+      const WAITING_STATUSES = new Set([7, 12]);
+      const RESOLVED_STATUSES = new Set([5, 13, 29]);
+      const statusGroup = (t: UnifiedTicketRow) => {
+        if (WAITING_STATUSES.has(t.status)) return 0; // Top
+        if (!RESOLVED_STATUSES.has(t.status)) return 1; // Middle (open/in-progress)
+        return 2; // Bottom (closed)
+      };
+      result = result.sort((a, b) => {
+        const groupDiff = statusGroup(a) - statusGroup(b);
+        if (groupDiff !== 0) return groupDiff;
+        return new Date(b.createDate).getTime() - new Date(a.createDate).getTime();
+      });
     }
 
     if (maxRows) result = result.slice(0, maxRows);
@@ -117,9 +138,11 @@ export default function TicketTable({
               <span className={`px-2 py-0.5 text-xs font-medium rounded-full whitespace-nowrap ${
                 ticket.isResolved
                   ? 'bg-green-500/20 text-green-300'
-                  : 'bg-blue-500/20 text-blue-300'
+                  : isWaitingOnCustomer(ticket.status)
+                    ? 'bg-rose-500/20 text-rose-300'
+                    : 'bg-blue-500/20 text-blue-300'
               }`}>
-                {ticket.isResolved ? 'Closed' : 'Open'}
+                {ticket.isResolved ? 'Closed' : isWaitingOnCustomer(ticket.status) ? 'Waiting on You' : 'Open'}
               </span>
               <svg className="w-4 h-4 text-gray-500 group-hover:text-cyan-400 transition-colors flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -267,10 +290,14 @@ function TicketRow({
       <td className="text-center px-4 py-3">
         <span
           className={`text-xs px-2 py-0.5 rounded-full ${
-            ticket.isResolved ? 'bg-emerald-400/20 text-emerald-400' : 'bg-cyan-400/20 text-cyan-400'
+            ticket.isResolved
+              ? 'bg-emerald-400/20 text-emerald-400'
+              : isWaitingOnCustomer(ticket.status)
+                ? 'bg-rose-400/20 text-rose-400'
+                : 'bg-cyan-400/20 text-cyan-400'
           }`}
         >
-          {ticket.isResolved ? 'Resolved' : 'Open'}
+          {ticket.isResolved ? 'Resolved' : isWaitingOnCustomer(ticket.status) ? 'Waiting on You' : 'Open'}
         </span>
       </td>
       {isStaff && (

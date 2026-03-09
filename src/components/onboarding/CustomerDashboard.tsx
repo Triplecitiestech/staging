@@ -54,6 +54,12 @@ interface CustomerDashboardProps {
 
 const DONE_STATUSES = ['REVIEWED_AND_DONE', 'NOT_APPLICABLE', 'ITG_DOCUMENTED']
 
+/** Autotask "waiting on customer" ticket statuses (7=Waiting Customer, 12=Customer Note Added) */
+const WAITING_TICKET_STATUSES = new Set([7, 12])
+function isWaitingOnCustomer(status: number): boolean {
+  return WAITING_TICKET_STATUSES.has(status)
+}
+
 // Task status labels mapped 1:1 to Autotask picklist values
 function getStatusBadge(status: string) {
   switch (status) {
@@ -122,8 +128,9 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
   const [notesLoading, setNotesLoading] = useState(false)
   const [ticketSearch, setTicketSearch] = useState('')
   const [dashboardView, setDashboardView] = useState<DashboardView>('dashboard')
+  const [metrics, setMetrics] = useState<{ hoursWorkedThisMonth: number; ticketsClosedThisMonth: number; avgResolutionHours: number | null } | null>(null)
 
-  // Load tickets when companySlug is available
+  // Load tickets and metrics when companySlug is available
   useEffect(() => {
     if (!companySlug) return
     setTicketsLoading(true)
@@ -132,6 +139,12 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
       .then((data: TicketListResponse) => setTickets(data.tickets || []))
       .catch(() => setTickets([]))
       .finally(() => setTicketsLoading(false))
+
+    // Fetch customer metrics (hours worked, tickets closed this month)
+    fetch(`/api/customer/metrics?companySlug=${encodeURIComponent(companySlug)}`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => { if (data) setMetrics(data) })
+      .catch(() => {})
   }, [companySlug])
 
   const fetchTicketNotes = useCallback(async (ticketId: string) => {
@@ -613,7 +626,14 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
 
   // "Open Tickets" sub-view
   if (dashboardView === 'open-tickets') {
-    const filtered = filterTickets(openTickets)
+    // Sort: waiting-on-customer first, then open, both newest first
+    const sortedOpen = [...openTickets].sort((a, b) => {
+      const aWaiting = isWaitingOnCustomer(a.status) ? 0 : 1
+      const bWaiting = isWaitingOnCustomer(b.status) ? 0 : 1
+      if (aWaiting !== bWaiting) return aWaiting - bWaiting
+      return new Date(b.createDate).getTime() - new Date(a.createDate).getTime()
+    })
+    const filtered = filterTickets(sortedOpen)
     return (
       <div>
         {companyName && (
@@ -661,7 +681,9 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
                     <p className="text-xs text-gray-500 mt-0.5">#{ticket.ticketNumber} - {new Date(ticket.createDate).toLocaleDateString()}</p>
                   </div>
                   <div className="flex items-center gap-2 ml-3">
-                    <span className="px-2 py-0.5 text-xs font-medium rounded-full whitespace-nowrap bg-blue-500/20 text-blue-300">Open</span>
+                    <span className={`px-2 py-0.5 text-xs font-medium rounded-full whitespace-nowrap ${
+                      isWaitingOnCustomer(ticket.status) ? 'bg-rose-500/20 text-rose-300' : 'bg-blue-500/20 text-blue-300'
+                    }`}>{isWaitingOnCustomer(ticket.status) ? 'Waiting on You' : 'Open'}</span>
                     <svg className="w-4 h-4 text-gray-500 group-hover:text-cyan-400 transition-colors flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                     </svg>
@@ -780,7 +802,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
       )}
 
       {/* Summary Cards - all clickable */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
         <button
           onClick={() => setDashboardView('open-tickets')}
           className="bg-gray-800/50 border border-blue-500/30 hover:border-blue-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-blue-500/10 cursor-pointer"
@@ -793,7 +815,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
           className="bg-gray-800/50 border border-green-500/30 hover:border-green-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-green-500/10 cursor-pointer"
         >
           <div className="text-3xl font-bold text-green-400">{closedTickets.length}</div>
-          <div className="text-sm text-gray-400 mt-1">Closed Tickets (30d)</div>
+          <div className="text-sm text-gray-400 mt-1">Closed (90d)</div>
         </button>
         <button
           onClick={() => document.getElementById('projects-section')?.scrollIntoView({ behavior: 'smooth' })}
@@ -807,8 +829,38 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
           className="bg-gray-800/50 border border-red-500/30 hover:border-red-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-red-500/10 cursor-pointer"
         >
           <div className="text-3xl font-bold text-red-400">{needsAction.length}</div>
-          <div className="text-sm text-gray-400 mt-1">Awaiting Your Action</div>
+          <div className="text-sm text-gray-400 mt-1">Awaiting You</div>
         </button>
+        <div className="bg-gray-800/50 border border-violet-500/30 rounded-lg p-4 text-center">
+          <div className="text-3xl font-bold text-violet-400">
+            {metrics ? `${metrics.hoursWorkedThisMonth}h` : '-'}
+          </div>
+          <div className="text-sm text-gray-400 mt-1">Hours This Month</div>
+        </div>
+        <div className="bg-gray-800/50 border border-emerald-500/30 rounded-lg p-4 text-center">
+          <div className="text-3xl font-bold text-emerald-400">
+            {metrics ? metrics.ticketsClosedThisMonth : '-'}
+          </div>
+          <div className="text-sm text-gray-400 mt-1">Closed This Month</div>
+        </div>
+      </div>
+
+      {/* Chat CTA - tell customers to use chat for new tickets */}
+      <div className="bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border border-cyan-500/30 rounded-lg px-5 py-4 mb-8 flex items-center gap-4">
+        <div className="flex-shrink-0">
+          <svg className="w-8 h-8 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+          </svg>
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-white">Need help? Use the chat in the bottom-right corner to create a support ticket.</p>
+          <p className="text-xs text-gray-400 mt-0.5">Our team typically responds within 1 business hour.</p>
+        </div>
+        <div className="hidden sm:block flex-shrink-0">
+          <svg className="w-5 h-5 text-cyan-400 animate-bounce" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+          </svg>
+        </div>
       </div>
 
       {/* Tickets Section */}
