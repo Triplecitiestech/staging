@@ -123,15 +123,16 @@ export async function detectAnomalies(lookbackDays: number = 7): Promise<Anomaly
 
   if (recentSla.length > 0) {
     const avgSla = recentSla.reduce((a, b) => a + b, 0) / recentSla.length;
-    if (avgSla < 70) {
+    // Autotask SLA goal is 95% — warn at <80%, critical at <60%
+    if (avgSla < 80) {
       alerts.push({
         type: 'threshold',
-        severity: avgSla < 50 ? 'critical' : 'warning',
+        severity: avgSla < 60 ? 'critical' : 'warning',
         metric: 'sla_compliance',
-        message: `SLA compliance at ${Math.round(avgSla)}% — below acceptable threshold`,
+        message: `SLA compliance at ${Math.round(avgSla)}% — below 95% goal (Autotask SLA)`,
         value: Math.round(avgSla * 10) / 10,
-        baseline: 90,
-        deviationPercent: Math.round(((avgSla - 90) / 90) * 1000) / 10,
+        baseline: 95,
+        deviationPercent: Math.round(((avgSla - 95) / 95) * 1000) / 10,
         detectedAt: now.toISOString(),
       });
     }

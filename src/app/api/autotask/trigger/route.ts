@@ -775,15 +775,45 @@ async function handleCompaniesSync(client: AutotaskClient) {
   let updated = 0;
 
   try {
+    // Ensure companyClassification column exists
+    try {
+      await prisma.$executeRawUnsafe(`ALTER TABLE "companies" ADD COLUMN IF NOT EXISTS "companyClassification" TEXT`);
+    } catch { /* column may already exist */ }
+
+    // Ensure slaResolutionPlanMet column exists on ticket_lifecycle
+    try {
+      await prisma.$executeRawUnsafe(`ALTER TABLE "ticket_lifecycle" ADD COLUMN IF NOT EXISTS "slaResolutionPlanMet" BOOLEAN`);
+    } catch { /* column may already exist */ }
+
     // Only sync companies that have projects in Autotask
     const allProjects = await client.getAllProjects();
     const companyIds = Array.from(new Set(allProjects.map((p) => p.companyID)));
+
+    // Resolve classification picklist labels from Autotask
+    let classificationMap = new Map<number, string>();
+    try {
+      const entityInfo = await client.getFieldInfo('Companies');
+      const classField = entityInfo.fields.find(f => f.name === 'classification');
+      if (classField?.picklistValues) {
+        for (const pv of classField.picklistValues) {
+          if (pv.isActive) {
+            classificationMap.set(Number(pv.value), pv.label);
+          }
+        }
+      }
+    } catch {
+      // Non-fatal — classification resolution is best-effort
+    }
 
     // Fetch each unique company
     const atCompanies: AutotaskCompany[] = [];
     for (const companyId of companyIds) {
       try {
         const company = await client.getCompany(companyId);
+        // Resolve classification name from picklist
+        if (company.classification && classificationMap.has(company.classification)) {
+          company.classificationName = classificationMap.get(company.classification);
+        }
         atCompanies.push(company);
       } catch (err) {
         errors.push(`Could not fetch company ${companyId}: ${err instanceof Error ? err.message : String(err)}`);
@@ -1150,18 +1180,21 @@ async function syncCompany(
     where: { autotaskCompanyId: atId },
   });
 
+  // Persist classification from Autotask (e.g., "Platinum Managed Service")
+  const classificationName = atCompany.classificationName || null;
+
   if (existing) {
+    const updateData: Record<string, unknown> = { autotaskLastSync: new Date() };
     if (existing.displayName !== atCompany.companyName) {
-      await prisma.company.update({
-        where: { id: existing.id },
-        data: { displayName: atCompany.companyName, autotaskLastSync: new Date() },
-      });
-    } else {
-      await prisma.company.update({
-        where: { id: existing.id },
-        data: { autotaskLastSync: new Date() },
-      });
+      updateData.displayName = atCompany.companyName;
     }
+    if (classificationName) {
+      updateData.companyClassification = classificationName;
+    }
+    await prisma.company.update({
+      where: { id: existing.id },
+      data: updateData,
+    });
     return { companyId: existing.id, created: false };
   }
 
@@ -1179,6 +1212,7 @@ async function syncCompany(
       passwordHash,
       autotaskCompanyId: atId,
       autotaskLastSync: new Date(),
+      companyClassification: classificationName,
     },
   });
 

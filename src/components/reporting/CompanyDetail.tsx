@@ -122,16 +122,20 @@ export default function CompanyDetail({ companyId }: CompanyDetailProps) {
       ) : data ? (
         <>
           {/* Summary stat cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
             <StatCard label="Total Tickets" value={data.totalTickets} />
             <StatCard label="Open" value={data.openCount} />
             <StatCard label="Resolved" value={data.resolvedCount} />
             <StatCard
-              label="SLA Response"
+              label="SLA First Response"
               value={data.sla?.responseCompliance !== null && data.sla?.responseCompliance !== undefined ? `${data.sla.responseCompliance}%` : 'N/A'}
             />
             <StatCard
-              label="SLA Resolution"
+              label="SLA Resolution Plan"
+              value={data.sla?.resolutionPlanCompliance !== null && data.sla?.resolutionPlanCompliance !== undefined ? `${data.sla.resolutionPlanCompliance}%` : 'N/A'}
+            />
+            <StatCard
+              label="SLA Resolved"
               value={data.sla?.resolutionCompliance !== null && data.sla?.resolutionCompliance !== undefined ? `${data.sla.resolutionCompliance}%` : 'N/A'}
             />
           </div>

@@ -97,8 +97,10 @@ export interface TicketListResponse {
   // Staff-only (omitted for customer)
   sla?: {
     responseCompliance: number | null;
+    resolutionPlanCompliance: number | null;
     resolutionCompliance: number | null;
     responseSampleSize: number;
+    resolutionPlanSampleSize: number;
     resolutionSampleSize: number;
   };
   autotaskWebUrl?: string | null;

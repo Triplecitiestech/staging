@@ -125,17 +125,37 @@ export async function upsertTarget(data: {
  */
 export async function seedDefaultTargets(createdBy: string = 'system') {
   const defaults = [
-    // First response time targets by priority (minutes)
-    { metricKey: 'first_response_time', scope: 'priority', scopeValue: 'CRITICAL', targetValue: 15, unit: 'minutes', description: 'First response within 15 minutes for critical tickets' },
-    { metricKey: 'first_response_time', scope: 'priority', scopeValue: 'HIGH', targetValue: 60, unit: 'minutes', description: 'First response within 1 hour for high priority tickets' },
-    { metricKey: 'first_response_time', scope: 'priority', scopeValue: 'MEDIUM', targetValue: 240, unit: 'minutes', description: 'First response within 4 hours for medium priority tickets' },
-    { metricKey: 'first_response_time', scope: 'priority', scopeValue: 'LOW', targetValue: 480, unit: 'minutes', description: 'First response within 8 hours for low priority tickets' },
+    // ============================================================
+    // SLA Targets — Matched to Autotask "TCT – Fully Managed IT Services" SLA
+    // Agreement last updated: 10/23/2025 by Kurtis Florance
+    // Timeframe: Business Hours | Goals: 95% first response, 95% resolution plan, 95% resolved
+    // These targets apply ONLY to Platinum Managed Service companies.
+    // ============================================================
 
-    // Resolution time targets by priority (minutes)
-    { metricKey: 'resolution_time', scope: 'priority', scopeValue: 'CRITICAL', targetValue: 240, unit: 'minutes', description: 'Resolve critical tickets within 4 hours' },
-    { metricKey: 'resolution_time', scope: 'priority', scopeValue: 'HIGH', targetValue: 480, unit: 'minutes', description: 'Resolve high priority tickets within 8 hours' },
-    { metricKey: 'resolution_time', scope: 'priority', scopeValue: 'MEDIUM', targetValue: 2880, unit: 'minutes', description: 'Resolve medium priority tickets within 2 business days' },
-    { metricKey: 'resolution_time', scope: 'priority', scopeValue: 'LOW', targetValue: 7200, unit: 'minutes', description: 'Resolve low priority tickets within 5 business days' },
+    // First Response time targets by priority (business-hour minutes)
+    { metricKey: 'first_response_time', scope: 'priority', scopeValue: 'CRITICAL', targetValue: 30, unit: 'minutes', description: 'First response within 0.5 business hours for critical tickets' },
+    { metricKey: 'first_response_time', scope: 'priority', scopeValue: 'HIGH', targetValue: 60, unit: 'minutes', description: 'First response within 1 business hour for high priority tickets' },
+    { metricKey: 'first_response_time', scope: 'priority', scopeValue: 'MEDIUM', targetValue: 120, unit: 'minutes', description: 'First response within 2 business hours for medium priority tickets' },
+    { metricKey: 'first_response_time', scope: 'priority', scopeValue: 'LOW', targetValue: 480, unit: 'minutes', description: 'First response within 8 business hours for low priority tickets' },
+
+    // Resolution Plan time targets by priority (business-hour minutes)
+    // "Resolution Plan" = time to have a plan/path to resolution documented
+    { metricKey: 'resolution_plan_time', scope: 'priority', scopeValue: 'CRITICAL', targetValue: 120, unit: 'minutes', description: 'Resolution plan within 2 business hours for critical tickets' },
+    { metricKey: 'resolution_plan_time', scope: 'priority', scopeValue: 'HIGH', targetValue: 240, unit: 'minutes', description: 'Resolution plan within 4 business hours for high priority tickets' },
+    { metricKey: 'resolution_plan_time', scope: 'priority', scopeValue: 'MEDIUM', targetValue: 480, unit: 'minutes', description: 'Resolution plan within 8 business hours for medium priority tickets' },
+    { metricKey: 'resolution_plan_time', scope: 'priority', scopeValue: 'LOW', targetValue: 1440, unit: 'minutes', description: 'Resolution plan within 24 business hours for low priority tickets' },
+
+    // Resolved time targets by priority (business-hour minutes)
+    { metricKey: 'resolution_time', scope: 'priority', scopeValue: 'CRITICAL', targetValue: 240, unit: 'minutes', description: 'Resolve critical tickets within 4 business hours' },
+    { metricKey: 'resolution_time', scope: 'priority', scopeValue: 'HIGH', targetValue: 480, unit: 'minutes', description: 'Resolve high priority tickets within 8 business hours' },
+    { metricKey: 'resolution_time', scope: 'priority', scopeValue: 'MEDIUM', targetValue: 1440, unit: 'minutes', description: 'Resolve medium priority tickets within 24 business hours' },
+    // Note: Low priority has no "Resolved" target in Autotask SLA
+    // { metricKey: 'resolution_time', scope: 'priority', scopeValue: 'LOW' — not defined },
+
+    // SLA compliance goal targets (percentage)
+    { metricKey: 'sla_first_response_goal', scope: 'global', scopeValue: '', targetValue: 95, unit: 'percent', description: 'First Response Goal: 95% of tickets should meet first response SLA' },
+    { metricKey: 'sla_resolution_plan_goal', scope: 'global', scopeValue: '', targetValue: 95, unit: 'percent', description: 'Resolution Plan Goal: 95% of tickets should meet resolution plan SLA' },
+    { metricKey: 'sla_resolved_goal', scope: 'global', scopeValue: '', targetValue: 95, unit: 'percent', description: 'Resolved Goal: 95% of tickets should meet resolution SLA' },
 
     // Global targets
     { metricKey: 'reopen_rate', scope: 'global', scopeValue: '', targetValue: 5, unit: 'percent', description: 'Target reopen rate below 5%' },

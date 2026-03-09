@@ -354,17 +354,25 @@ async function getSlaCompliance(companyId: string, start: Date, end: Date): Prom
       isResolved: true,
       completedDate: { gte: start, lte: end },
     },
-    select: { slaResponseMet: true, slaResolutionMet: true },
+    select: {
+      slaResponseMet: true,
+      slaResolutionPlanMet: true,
+      slaResolutionMet: true,
+    },
   });
 
   const responseResults = lifecycles
     .map(l => l.slaResponseMet)
     .filter((v): v is boolean => v !== null);
+  const planResults = lifecycles
+    .map(l => l.slaResolutionPlanMet)
+    .filter((v): v is boolean => v !== null);
   const resolutionResults = lifecycles
     .map(l => l.slaResolutionMet)
     .filter((v): v is boolean => v !== null);
 
-  const allResults = [...responseResults, ...resolutionResults];
+  // Include all three Autotask SLA metrics in compliance calculation
+  const allResults = [...responseResults, ...planResults, ...resolutionResults];
   if (allResults.length === 0) return null;
 
   return (allResults.filter(v => v).length / allResults.length) * 100;

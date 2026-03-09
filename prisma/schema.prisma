@@ -109,8 +109,10 @@ model Company {
   updatedAt      DateTime @updatedAt
 
   // Autotask integration
-  autotaskCompanyId String? @unique // Autotask Company/Account ID
-  autotaskLastSync  DateTime? // Last successful sync timestamp
+  autotaskCompanyId     String?  @unique // Autotask Company/Account ID
+  autotaskLastSync      DateTime? // Last successful sync timestamp
+  companyClassification String?  // Autotask classification (e.g., "Platinum Managed Service")
+  // Only companies with classification "Platinum Managed Service" get SLA reporting
 
   // Relations
   projects        Project[]
@@ -1100,6 +1102,7 @@ model TicketLifecycle {
   billableHoursLogged      Float     @default(0)
   isFirstTouchResolution   Boolean   @default(false)
   slaResponseMet           Boolean?
+  slaResolutionPlanMet     Boolean?
   slaResolutionMet         Boolean?
 
   computedAt               DateTime  @default(now())
