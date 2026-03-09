@@ -45,6 +45,7 @@ interface TechReport {
 export default function TechnicianReport() {
   const searchParams = useSearchParams()
   const router = useRouter()
+  const highlightedResourceId = searchParams.get('resource') ? Number(searchParams.get('resource')) : null
   const [data, setData] = useState<TechReport | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -79,6 +80,16 @@ export default function TechnicianReport() {
   }, [searchParams])
 
   useEffect(() => { fetchData() }, [fetchData])
+
+  // Auto-scroll to highlighted technician
+  useEffect(() => {
+    if (highlightedResourceId && data) {
+      setTimeout(() => {
+        const row = document.getElementById(`tech-row-${highlightedResourceId}`)
+        if (row) row.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }, 300)
+    }
+  }, [highlightedResourceId, data])
 
   const searchAutotask = async () => {
     setAtSearching(true)
@@ -317,12 +328,15 @@ export default function TechnicianReport() {
               }).map((tech) => (
                 <tr
                   key={tech.resourceId}
+                  id={`tech-row-${tech.resourceId}`}
                   onClick={() => {
                     const params = new URLSearchParams(searchParams.toString())
                     params.set('resourceId', String(tech.resourceId))
                     router.push(`/admin/reporting/companies/tickets?${params.toString()}`)
                   }}
-                  className="border-b border-slate-700/30 hover:bg-slate-700/20 cursor-pointer"
+                  className={`border-b border-slate-700/30 hover:bg-slate-700/20 cursor-pointer transition-colors ${
+                    highlightedResourceId === tech.resourceId ? 'bg-cyan-500/10 ring-1 ring-cyan-500/30' : ''
+                  }`}
                 >
                   <td className="px-4 py-3">
                     <div className="text-sm text-white">{tech.firstName} {tech.lastName}</div>

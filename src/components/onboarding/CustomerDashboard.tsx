@@ -354,17 +354,24 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
                   <div key={phase.id} className="w-80 flex-shrink-0 bg-gray-800/50 border border-white/10 rounded-lg overflow-visible">
                     <div className="p-4">
                       <div className="flex items-center gap-3 mb-3">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0 ${
-                          phase.status === 'COMPLETE' ? 'bg-green-500' :
-                          phase.status === 'IN_PROGRESS' ? 'bg-cyan-500' :
-                          phase.status === 'WAITING_ON_CUSTOMER' ? 'bg-red-500' :
-                          'bg-gray-600'
-                        }`}>
-                          {phase.status === 'COMPLETE' ? (
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                            </svg>
-                          ) : phaseIndex + 1}
+                        <div className="relative flex-shrink-0">
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm ${
+                            phase.status === 'COMPLETE' ? 'bg-green-500' :
+                            phase.status === 'IN_PROGRESS' ? 'bg-cyan-500' :
+                            phase.status === 'WAITING_ON_CUSTOMER' ? 'bg-red-500' :
+                            'bg-gray-600'
+                          }`}>
+                            {phase.status === 'COMPLETE' ? (
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                              </svg>
+                            ) : phaseIndex + 1}
+                          </div>
+                          {phase.status === 'COMPLETE' && (
+                            <span className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-gray-700 border border-green-500/50 flex items-center justify-center text-[9px] font-bold text-green-300">
+                              {phaseIndex + 1}
+                            </span>
+                          )}
                         </div>
                         <div className="min-w-0 flex-1">
                           <h3 className="text-sm font-bold text-white truncate">{phase.title}</h3>
@@ -427,27 +434,34 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
                   className="w-full p-5 text-left"
                 >
                   <div className="flex items-start gap-4">
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0 ${
-                      phase.status === 'COMPLETE' ? 'bg-green-500' :
-                      phase.status === 'IN_PROGRESS' ? 'bg-cyan-500' :
-                      phase.status === 'WAITING_ON_CUSTOMER' ? 'bg-red-500' :
-                      'bg-gray-600'
-                    }`}>
-                      {phase.status === 'COMPLETE' ? (
-                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                        </svg>
-                      ) : (
-                        phaseIndex + 1
+                    <div className="relative flex-shrink-0">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold ${
+                        phase.status === 'COMPLETE' ? 'bg-green-500' :
+                        phase.status === 'IN_PROGRESS' ? 'bg-cyan-500' :
+                        phase.status === 'WAITING_ON_CUSTOMER' ? 'bg-red-500' :
+                        'bg-gray-600'
+                      }`}>
+                        {phase.status === 'COMPLETE' ? (
+                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                        ) : (
+                          phaseIndex + 1
+                        )}
+                      </div>
+                      {phase.status === 'COMPLETE' && (
+                        <span className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-gray-700 border border-green-500/50 flex items-center justify-center text-[10px] font-bold text-green-300">
+                          {phaseIndex + 1}
+                        </span>
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-3 mb-1 flex-wrap">
-                        <h3 className="text-lg font-bold text-white">{phase.title}</h3>
-                        <span className={`px-2.5 py-0.5 text-xs font-medium rounded-full border ${phaseBadge.color}`}>
+                      <div className="flex items-center gap-3 mb-1">
+                        <h3 className="text-lg font-bold text-white truncate">{phase.title}</h3>
+                        <span className={`px-2.5 py-0.5 text-xs font-medium rounded-full border whitespace-nowrap ml-auto ${phaseBadge.color}`}>
                           Status: {phaseBadge.label}
                         </span>
-                        <svg className={`w-4 h-4 text-gray-500 transition-transform ml-auto flex-shrink-0 ${isCollapsed ? '' : 'rotate-180'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <svg className={`w-4 h-4 text-gray-500 transition-transform flex-shrink-0 ${isCollapsed ? '' : 'rotate-180'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                         </svg>
                       </div>
