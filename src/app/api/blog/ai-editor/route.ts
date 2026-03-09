@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import Anthropic from '@anthropic-ai/sdk'
 import { createRequestLogger } from '@/lib/server-logger'
+import { trackApiUsage } from '@/lib/api-usage-tracker'
 
 export const dynamic = 'force-dynamic'
 
@@ -142,6 +143,17 @@ Be concise and helpful. Focus on practical improvements.`
     if (jsonMatch) {
       cleanMessage = assistantMessage.replace(jsonMatch[0], '').trim()
     }
+
+    // Track AI usage
+    trackApiUsage({
+      provider: 'anthropic',
+      feature: 'blog-editor',
+      model: 'claude-sonnet-4-5-20250929',
+      inputTokens: response.usage?.input_tokens ?? 0,
+      outputTokens: response.usage?.output_tokens ?? 0,
+      durationMs: aiMs,
+      statusCode: 200,
+    })
 
     log.info('AI editor completed', {
       aiTimeMs: aiMs,

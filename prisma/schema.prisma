@@ -451,6 +451,48 @@ model AutotaskSyncLog {
 }
 
 // ============================================
+// API USAGE & PLATFORM MONITORING
+// ============================================
+
+model ApiUsageLog {
+  id            String   @id @default(uuid())
+  provider      String   // 'anthropic', 'resend', 'autotask', 'vercel'
+  feature       String   // 'blog-generation', 'campaign-gen', 'ai-chat', 'ai-support-review', 'blog-editor'
+  model         String?  // 'claude-sonnet-4-6', etc.
+  inputTokens   Int      @default(0)
+  outputTokens  Int      @default(0)
+  totalTokens   Int      @default(0)
+  costCents     Float    @default(0) // Estimated cost in cents
+  durationMs    Int?
+  statusCode    Int?     // HTTP status code
+  error         String?  @db.Text
+  metadata      Json?    // Additional context (prompt length, etc.)
+  createdAt     DateTime @default(now())
+
+  @@map("api_usage_logs")
+  @@index([provider, createdAt])
+  @@index([feature, createdAt])
+  @@index([createdAt])
+}
+
+model PlatformThreshold {
+  id            String   @id @default(uuid())
+  metricKey     String   @unique // 'anthropic_tokens_monthly', 'db_rows_total', 'resend_emails_monthly', etc.
+  displayName   String
+  currentValue  Float    @default(0)
+  limitValue    Float    // The threshold limit
+  unit          String   // 'tokens', 'rows', 'emails', 'GB', 'requests'
+  provider      String   // 'anthropic', 'vercel-postgres', 'resend', 'autotask'
+  lastCheckedAt DateTime @default(now())
+  lastAlertedAt DateTime?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("platform_thresholds")
+}
+
+// ============================================
 // BLOG SYSTEM
 // ============================================
 

@@ -3,6 +3,7 @@ import { auth } from '@/auth'
 import Anthropic from '@anthropic-ai/sdk'
 import { createRequestLogger } from '@/lib/server-logger'
 import { apiError } from '@/lib/api-response'
+import { trackApiUsage } from '@/lib/api-usage-tracker'
 
 const AI_TIMEOUT_MS = 25_000 // 25s timeout (Vercel max is 30s)
 
@@ -174,6 +175,17 @@ Important behavioral rules:
     // Extract the assistant's response
     const assistantMessage = response.content[0]
     const content = assistantMessage.type === 'text' ? assistantMessage.text : ''
+
+    // Track AI usage
+    trackApiUsage({
+      provider: 'anthropic',
+      feature: 'ai-chat',
+      model: 'claude-haiku-4-5-20251001',
+      inputTokens: response.usage?.input_tokens ?? 0,
+      outputTokens: response.usage?.output_tokens ?? 0,
+      durationMs: aiMs,
+      statusCode: 200,
+    })
 
     log.info('AI chat completed', {
       aiTimeMs: aiMs,

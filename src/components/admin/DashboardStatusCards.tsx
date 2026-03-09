@@ -188,7 +188,7 @@ function AutotaskSyncCard() {
       )}
 
       <div className="mt-3 pt-3 border-t border-slate-700/50">
-        <Link href="/admin" className="text-xs text-cyan-400 hover:text-cyan-300">
+        <Link href="/admin/autotask-logs" className="text-xs text-cyan-400 hover:text-cyan-300">
           View sync logs →
         </Link>
       </div>
@@ -280,9 +280,12 @@ function ReportingPipelineCard() {
         )}
       </div>
 
-      <div className="mt-3 pt-3 border-t border-slate-700/50">
+      <div className="mt-3 pt-3 border-t border-slate-700/50 flex gap-3">
         <Link href="/admin/reporting/status" className="text-xs text-cyan-400 hover:text-cyan-300">
           Pipeline dashboard →
+        </Link>
+        <Link href="/admin/monitoring" className="text-xs text-cyan-400 hover:text-cyan-300">
+          Thresholds →
         </Link>
       </div>
     </div>
@@ -378,7 +381,10 @@ function AIUsageCard() {
         </p>
       </div>
 
-      <div className="mt-3 pt-3 border-t border-slate-700/50">
+      <div className="mt-3 pt-3 border-t border-slate-700/50 flex gap-3">
+        <Link href="/admin/monitoring" className="text-xs text-cyan-400 hover:text-cyan-300">
+          Token usage →
+        </Link>
         <Link href="/admin/blog" className="text-xs text-cyan-400 hover:text-cyan-300">
           Manage blog →
         </Link>

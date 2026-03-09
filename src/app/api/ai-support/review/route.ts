@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { trackApiUsage } from '@/lib/api-usage-tracker';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -95,6 +96,16 @@ Respond in JSON format:
     });
 
     const analysisText = response.content[0].type === 'text' ? response.content[0].text : '';
+
+    // Track AI usage
+    trackApiUsage({
+      provider: 'anthropic',
+      feature: 'ai-support-review',
+      model: 'claude-sonnet-4-20250514',
+      inputTokens: response.usage?.input_tokens ?? 0,
+      outputTokens: response.usage?.output_tokens ?? 0,
+      statusCode: 200,
+    });
 
     // Try to parse AI response as JSON
     let analysis;
