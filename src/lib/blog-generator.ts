@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import slugify from 'slugify';
 import readingTime from 'reading-time';
 import type { RSSArticle, TrendingTopic } from './content-curator';
+import { trackAnthropicCall } from './api-usage-tracker';
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY!,
@@ -62,17 +63,19 @@ export class BlogGenerator {
     // Generate blog post content
     const prompt = await this.createPrompt(sourceMaterial, trendingTopics);
 
-    const response = await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: 2048,
-      temperature: 0.7,
-      messages: [
-        {
-          role: 'user',
-          content: prompt
-        }
-      ]
-    });
+    const response = await trackAnthropicCall('blog-generation', MODEL, () =>
+      anthropic.messages.create({
+        model: MODEL,
+        max_tokens: 2048,
+        temperature: 0.7,
+        messages: [
+          {
+            role: 'user',
+            content: prompt
+          }
+        ]
+      })
+    );
 
     const content = response.content[0].type === 'text' ? response.content[0].text : '';
 
@@ -95,17 +98,19 @@ export class BlogGenerator {
 
     const prompt = this.createRegenerationPrompt(originalDraft, feedback, articles);
 
-    const response = await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: 2048,
-      temperature: 0.7,
-      messages: [
-        {
-          role: 'user',
-          content: prompt
-        }
-      ]
-    });
+    const response = await trackAnthropicCall('blog-regeneration', MODEL, () =>
+      anthropic.messages.create({
+        model: MODEL,
+        max_tokens: 2048,
+        temperature: 0.7,
+        messages: [
+          {
+            role: 'user',
+            content: prompt
+          }
+        ]
+      })
+    );
 
     const content = response.content[0].type === 'text' ? response.content[0].text : '';
     const draft = this.parseAIResponse(content, articles, prompt);

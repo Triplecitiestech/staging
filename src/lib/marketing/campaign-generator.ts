@@ -7,6 +7,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import slugify from 'slugify';
+import { trackAnthropicCall } from '@/lib/api-usage-tracker';
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY!,
@@ -121,12 +122,14 @@ REQUIREMENTS:
 
 Return ONLY the JSON object, no additional text.`;
 
-  const response = await anthropic.messages.create({
-    model: MODEL,
-    max_tokens: 2048,
-    temperature: 0.7,
-    messages: [{ role: 'user', content: prompt }],
-  });
+  const response = await trackAnthropicCall('campaign-generation', MODEL, () =>
+    anthropic.messages.create({
+      model: MODEL,
+      max_tokens: 2048,
+      temperature: 0.7,
+      messages: [{ role: 'user', content: prompt }],
+    })
+  );
 
   const text = response.content[0].type === 'text' ? response.content[0].text : '';
 
