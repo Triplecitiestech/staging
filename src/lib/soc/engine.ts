@@ -318,34 +318,36 @@ async function processIncidentGroup(
     );
   }
 
-  // Generate action plan for ALL incidents — always produce a complete dry-run preview
+  // Generate action plan for correlated groups and non-false-positive incidents
+  // Skip for high-confidence single false positives to stay within timeout
   let actionPlan: IncidentActionPlan | undefined;
-  try {
-    onAiCall();
-    actionPlan = await generateActionPlan(
-      group, finalVerdict, finalConfidence, finalReasoning, deviceVerification, config.screening_model,
-    );
-    // If action plan generated a better note, use it
-    if (actionPlan.proposedActions.internalNote) {
-      finalNote = actionPlan.proposedActions.internalNote;
+  if (finalVerdict !== 'false_positive' || group.tickets.length > 1 || finalConfidence < config.confidence_auto_close) {
+    try {
+      onAiCall();
+      actionPlan = await generateActionPlan(
+        group, finalVerdict, finalConfidence, finalReasoning, deviceVerification, config.screening_model,
+      );
+      // If action plan generated a better note, use it
+      if (actionPlan.proposedActions.internalNote) {
+        finalNote = actionPlan.proposedActions.internalNote;
+      }
+      // Enforce: never allow AI to invent queue changes
+      if (actionPlan.proposedActions.queueChange) {
+        actionPlan.proposedActions.queueChange = null;
+      }
+    } catch (err) {
+      console.error('[SOC] Action plan generation failed:', err);
+      await logActivity({
+        analysisId: null,
+        incidentId: null,
+        autotaskTicketId: primary.autotaskTicketId,
+        action: 'error',
+        detail: `Action plan generation failed: ${err instanceof Error ? err.message : String(err)}`,
+        aiReasoning: null,
+        confidenceScore: null,
+        metadata: { ticketNumber: primary.ticketNumber, phase: 'action_plan' },
+      });
     }
-    // Enforce: never allow AI to invent queue changes
-    if (actionPlan.proposedActions.queueChange) {
-      actionPlan.proposedActions.queueChange = null;
-    }
-  } catch (err) {
-    console.error('[SOC] Action plan generation failed:', err);
-    // Log the failure explicitly so it's visible in the activity feed
-    await logActivity({
-      analysisId: null,
-      incidentId: null,
-      autotaskTicketId: primary.autotaskTicketId,
-      action: 'error',
-      detail: `Action plan generation failed: ${err instanceof Error ? err.message : String(err)}`,
-      aiReasoning: null,
-      confidenceScore: null,
-      metadata: { ticketNumber: primary.ticketNumber, phase: 'action_plan' },
-    });
   }
 
   // Create incident record for every analyzed group (single or correlated)
