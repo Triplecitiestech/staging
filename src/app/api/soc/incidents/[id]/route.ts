@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { getAutotaskWebUrl } from '@/lib/tickets/utils';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 /** GET /api/soc/incidents/[id] — Incident detail with related ticket analyses */
 export async function GET(
