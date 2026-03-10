@@ -29,6 +29,7 @@ export default function SocConfigPanel() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
   const [saved, setSaved] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchConfig = async () => {
@@ -49,19 +50,25 @@ export default function SocConfigPanel() {
 
   const handleSave = async (key: string, value: string) => {
     setSaving(key)
+    setError(null)
     try {
       const res = await fetch('/api/soc/config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ [key]: value }),
+        body: JSON.stringify({ updates: { [key]: value } }),
       })
       if (res.ok) {
         setConfig(prev => ({ ...prev, [key]: value }))
         setSaved(key)
         setTimeout(() => setSaved(null), 2000)
+      } else {
+        const data = await res.json().catch(() => ({}))
+        setError(`Failed to save ${key}: ${data.error || res.status}`)
+        setTimeout(() => setError(null), 5000)
       }
     } catch {
-      // ignore
+      setError(`Network error saving ${key}`)
+      setTimeout(() => setError(null), 5000)
     } finally {
       setSaving(null)
     }
@@ -76,6 +83,12 @@ export default function SocConfigPanel() {
   }
 
   return (
+    <div className="space-y-4">
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm rounded-lg px-4 py-3">
+          {error}
+        </div>
+      )}
     <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg divide-y divide-white/5">
       {CONFIG_SCHEMA.map(schema => {
         const currentValue = config[schema.key] || ''
@@ -125,6 +138,7 @@ export default function SocConfigPanel() {
           </div>
         )
       })}
+    </div>
     </div>
   )
 }

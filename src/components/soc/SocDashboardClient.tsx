@@ -53,6 +53,8 @@ export default function SocDashboardClient() {
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
   const [activeTab, setActiveTab] = useState<'activity' | 'incidents'>('activity')
+  const [runError, setRunError] = useState<string | null>(null)
+  const [runResult, setRunResult] = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
     try {
@@ -76,16 +78,25 @@ export default function SocDashboardClient() {
 
   const handleRunNow = async () => {
     setRunning(true)
+    setRunError(null)
+    setRunResult(null)
     try {
       const res = await fetch('/api/soc/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
       const data = await res.json()
-      if (data.status === 'ok') {
+      if (!res.ok || data.status === 'error') {
+        setRunError(data.message || `Error ${res.status}`)
+      } else {
+        const msg = data.ticketsFound === 0
+          ? 'No tickets to process'
+          : `Processed ${data.ticketsFound} ticket${data.ticketsFound === 1 ? '' : 's'}${data.dryRun ? ' (dry run)' : ''}`
+        setRunResult(msg)
         await fetchData()
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      setRunError(err instanceof Error ? err.message : 'Network error')
     } finally {
       setRunning(false)
+      setTimeout(() => { setRunError(null); setRunResult(null) }, 8000)
     }
   }
 
@@ -170,6 +181,12 @@ export default function SocDashboardClient() {
               {' · '}<span className="text-green-400">{status?.today?.falsePositives || 0}</span> FP
               {' · '}<span className="text-red-400">{status?.today?.escalated || 0}</span> escalated
             </span>
+            {runError && (
+              <span className="text-xs text-red-400 max-w-[200px] truncate" title={runError}>{runError}</span>
+            )}
+            {runResult && (
+              <span className="text-xs text-green-400">{runResult}</span>
+            )}
             <button
               onClick={handleRunNow}
               disabled={running}
