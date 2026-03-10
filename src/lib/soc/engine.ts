@@ -353,8 +353,9 @@ async function processIncidentGroup(
   // Create incident record for every analyzed group (single or correlated)
   const incidentId = await createIncident(group, finalVerdict, finalConfidence, finalReasoning, actionPlan);
 
-  // Create pending actions for human approval (unless dry run)
-  if (!config.dry_run && finalConfidence >= config.confidence_floor) {
+  // Create pending actions for human approval
+  // Always create these — even in dry run mode — so the admin can preview and approve
+  if (finalConfidence >= config.confidence_floor) {
     // 1. Internal note action
     await createPendingAction({
       incidentId: incidentId,
@@ -480,8 +481,9 @@ async function runDeepAnalysis(
       })
     );
 
-    const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
-    const parsed = JSON.parse(text) as DeepAnalysisResult;
+    const rawText = response.content[0]?.type === 'text' ? response.content[0].text : '';
+    const cleanText = rawText.replace(/^```json\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
+    const parsed = JSON.parse(cleanText) as DeepAnalysisResult;
     return {
       ...parsed,
       tokensUsed: (response.usage?.input_tokens || 0) + (response.usage?.output_tokens || 0),
@@ -509,7 +511,7 @@ async function generateActionPlan(
   const response = await trackAnthropicCall('soc_action_plan', model, () =>
     anthropic.messages.create({
       model,
-      max_tokens: 2048,
+      max_tokens: 4096,
       temperature: 0,
       messages: [{ role: 'user', content: prompt }],
     })
