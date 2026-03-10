@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
+import { getAutotaskWebUrl } from '@/lib/tickets/utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,5 +40,6 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     incidents,
     pagination: { page, limit, total: Number(total.count), pages: Math.ceil(Number(total.count) / limit) },
+    autotaskWebUrl: getAutotaskWebUrl(),
   });
 }

@@ -37,10 +37,22 @@ interface HumanGuidance {
   riskLevel: 'none' | 'low' | 'medium' | 'high' | 'critical'
 }
 
+interface TicketNote {
+  id: string
+  ticketId: string
+  title: string | null
+  description: string | null
+  noteType: number | null
+  publish: number | null
+  createDateTime: string | null
+  creatorResourceId: string | null
+}
+
 interface Analysis {
   id: string
   autotaskTicketId: string
   ticketNumber: string | null
+  ticketNumberFromTicket: string | null
   verdict: string | null
   confidenceScore: number | null
   alertSource: string | null
@@ -97,7 +109,9 @@ interface Incident {
 export default function SocIncidentDetail({ incidentId }: { incidentId: string }) {
   const [incident, setIncident] = useState<Incident | null>(null)
   const [analyses, setAnalyses] = useState<Analysis[]>([])
+  const [ticketNotes, setTicketNotes] = useState<TicketNote[]>([])
   const [activityLog, setActivityLog] = useState<ActivityLog[]>([])
+  const [autotaskWebUrl, setAutotaskWebUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [overrideVerdict, setOverrideVerdict] = useState('')
   const [overrideStatus, setOverrideStatus] = useState('')
@@ -111,7 +125,9 @@ export default function SocIncidentDetail({ incidentId }: { incidentId: string }
           const data = await res.json()
           setIncident(data.incident)
           setAnalyses(data.analyses || [])
+          setTicketNotes(data.ticketNotes || [])
           setActivityLog(data.activityLog || [])
+          setAutotaskWebUrl(data.autotaskWebUrl || null)
         }
       } catch {
         // ignore
@@ -137,6 +153,15 @@ export default function SocIncidentDetail({ incidentId }: { incidentId: string }
     } finally {
       setSaving(false)
     }
+  }
+
+  const getAutotaskLink = (ticketId: string) => {
+    if (!autotaskWebUrl) return null
+    return `${autotaskWebUrl}?ticketId=${ticketId}`
+  }
+
+  const getDisplayTicketNumber = (a: Analysis) => {
+    return a.ticketNumberFromTicket || a.ticketNumber || a.autotaskTicketId
   }
 
   if (loading) {
@@ -181,11 +206,18 @@ export default function SocIncidentDetail({ incidentId }: { incidentId: string }
   const pa = incident.proposedActions
   const hg = incident.humanGuidance
 
+  // Group ticket notes by ticketId for display
+  const notesByTicket: Record<string, TicketNote[]> = {}
+  for (const note of ticketNotes) {
+    if (!notesByTicket[note.ticketId]) notesByTicket[note.ticketId] = []
+    notesByTicket[note.ticketId].push(note)
+  }
+
   return (
     <div className="space-y-6">
       {/* Back link */}
       <Link href="/admin/soc/incidents" className="text-sm text-slate-400 hover:text-white transition-colors">
-        ← Back to Incidents
+        &larr; Back to Incidents
       </Link>
 
       {/* ═══ Section 1: Incident Summary ═══ */}
@@ -197,8 +229,10 @@ export default function SocIncidentDetail({ incidentId }: { incidentId: string }
               {incident.companyName && (
                 <span className="text-cyan-400 font-medium">{incident.companyName}</span>
               )}
-              <span>{incident.ticketCount} correlated tickets</span>
-              <span className="capitalize">{incident.correlationReason?.replace(/_/g, ' ') || 'N/A'}</span>
+              <span>{incident.ticketCount} {incident.ticketCount === 1 ? 'ticket' : 'correlated tickets'}</span>
+              {incident.correlationReason && incident.correlationReason !== 'single_alert' && (
+                <span className="capitalize">{incident.correlationReason.replace(/_/g, ' ')}</span>
+              )}
               {incident.deviceHostname && <span>Device: {incident.deviceHostname}</span>}
               <span>{new Date(incident.createdAt).toLocaleString()}</span>
             </div>
@@ -224,203 +258,265 @@ export default function SocIncidentDetail({ incidentId }: { incidentId: string }
         )}
       </div>
 
-      {/* ═══ Section 2: Correlated Tickets ═══ */}
-      <Section title="Correlated Tickets" count={analyses.length}>
+      {/* ═══ Section 2: Tickets ═══ */}
+      <Section title="Tickets" count={analyses.length}>
         {analyses.length === 0 ? (
           <EmptyState>No ticket analyses recorded.</EmptyState>
         ) : (
           <div className="divide-y divide-white/5">
-            {analyses.map(a => (
-              <div key={a.id} className="p-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-medium text-white font-mono">
-                        #{a.ticketNumber || a.autotaskTicketId}
-                      </span>
-                      <VerdictBadge verdict={a.verdict} />
-                      {a.confidenceScore != null && (
-                        <span className="text-xs text-slate-500">{Math.round(a.confidenceScore * 100)}%</span>
-                      )}
-                      {pa?.merge?.survivingTicketId === a.autotaskTicketId && (
-                        <span className="px-1.5 py-0.5 text-[10px] font-medium bg-cyan-500/20 text-cyan-400 rounded">
-                          SURVIVING
-                        </span>
-                      )}
-                      {pa?.merge?.shouldMerge && pa.merge.mergeTicketIds.includes(a.autotaskTicketId) && (
-                        <span className="px-1.5 py-0.5 text-[10px] font-medium bg-slate-500/20 text-slate-400 rounded">
-                          MERGE INTO PARENT
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-sm text-slate-300 mt-1 truncate">
-                      {a.ticketTitle || '(no title)'}
-                    </p>
-                    {/* Rich ticket context */}
-                    <div className="flex items-center gap-3 mt-2 text-xs text-slate-500 flex-wrap">
-                      {a.companyName && <span>Company: <span className="text-slate-400">{a.companyName}</span></span>}
-                      {a.ticketStatusLabel && <span>Status: <span className="text-slate-400">{a.ticketStatusLabel}</span></span>}
-                      {a.ticketPriorityLabel && <span>Priority: <span className="text-slate-400">{a.ticketPriorityLabel}</span></span>}
-                      {a.ticketQueueLabel && <span>Queue: <span className="text-slate-400">{a.ticketQueueLabel}</span></span>}
-                      {a.ticketSourceLabel && <span>Source: <span className="text-slate-400">{a.ticketSourceLabel}</span></span>}
-                      {a.ticketCreateDate && <span>Created: <span className="text-slate-400">{new Date(a.ticketCreateDate).toLocaleString()}</span></span>}
-                    </div>
-                    <div className="flex items-center gap-2 mt-2 text-xs">
-                      {a.deviceVerified && <span className="text-green-400">Device Verified</span>}
-                      {a.technicianVerified && <span className="text-cyan-400">Tech: {a.technicianVerified}</span>}
-                      {a.alertCategory && <span className="text-slate-500 capitalize">{a.alertCategory.replace(/_/g, ' ')}</span>}
+            {analyses.map(a => {
+              const atLink = getAutotaskLink(a.autotaskTicketId)
+              const displayNum = getDisplayTicketNumber(a)
+              const notes = notesByTicket[a.autotaskTicketId] || []
+              return (
+                <div key={a.id} className="p-4">
+                  {/* Ticket header */}
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {atLink ? (
+                          <a href={atLink} target="_blank" rel="noopener noreferrer"
+                            className="text-sm font-medium text-cyan-400 hover:underline font-mono">
+                            #{displayNum}
+                          </a>
+                        ) : (
+                          <span className="text-sm font-medium text-white font-mono">#{displayNum}</span>
+                        )}
+                        <VerdictBadge verdict={a.verdict} />
+                        {a.confidenceScore != null && (
+                          <span className="text-xs text-slate-500">{Math.round(a.confidenceScore * 100)}%</span>
+                        )}
+                        {pa?.merge?.survivingTicketId === a.autotaskTicketId && (
+                          <span className="px-1.5 py-0.5 text-[10px] font-medium bg-cyan-500/20 text-cyan-400 rounded">
+                            SURVIVING
+                          </span>
+                        )}
+                        {pa?.merge?.shouldMerge && pa.merge.mergeTicketIds.includes(a.autotaskTicketId) && (
+                          <span className="px-1.5 py-0.5 text-[10px] font-medium bg-slate-500/20 text-slate-400 rounded">
+                            MERGE INTO PARENT
+                          </span>
+                        )}
+                        {a.recommendedAction && (
+                          <span className="text-xs text-slate-500">Action: {a.recommendedAction}</span>
+                        )}
+                      </div>
+
+                      {/* Ticket title */}
+                      <p className="text-sm text-white mt-1">
+                        {a.ticketTitle || '(no title)'}
+                      </p>
+
+                      {/* Ticket context row */}
+                      <div className="flex items-center gap-3 mt-2 text-xs text-slate-500 flex-wrap">
+                        {a.companyName && <span className="text-cyan-400/80">{a.companyName}</span>}
+                        {a.ticketStatusLabel && <span>Status: <span className="text-slate-400">{a.ticketStatusLabel}</span></span>}
+                        {a.ticketPriorityLabel && <span>Priority: <span className="text-slate-400">{a.ticketPriorityLabel}</span></span>}
+                        {a.ticketQueueLabel && <span>Queue: <span className="text-slate-400">{a.ticketQueueLabel}</span></span>}
+                        {a.ticketSourceLabel && <span>Source: <span className="text-slate-400">{a.ticketSourceLabel}</span></span>}
+                        {a.ticketCreateDate && <span>Created: <span className="text-slate-400">{new Date(a.ticketCreateDate).toLocaleString()}</span></span>}
+                      </div>
+
+                      {/* Device / tech info */}
+                      <div className="flex items-center gap-2 mt-2 text-xs">
+                        {a.deviceVerified && <span className="text-green-400">Device Verified</span>}
+                        {a.technicianVerified && <span className="text-cyan-400">Tech: {a.technicianVerified}</span>}
+                        {a.alertCategory && <span className="text-slate-500 capitalize">{a.alertCategory.replace(/_/g, ' ')}</span>}
+                        {atLink && (
+                          <a href={atLink} target="_blank" rel="noopener noreferrer"
+                            className="text-cyan-400/60 hover:text-cyan-400 hover:underline ml-auto">
+                            Open in Autotask &rarr;
+                          </a>
+                        )}
+                      </div>
                     </div>
                   </div>
+
+                  {/* AI Reasoning */}
+                  {a.aiReasoning && (
+                    <details className="mt-3">
+                      <summary className="text-xs text-slate-400 cursor-pointer hover:text-white">AI Reasoning</summary>
+                      <p className="text-xs text-slate-300 mt-1 whitespace-pre-wrap bg-black/20 p-3 rounded">{a.aiReasoning}</p>
+                    </details>
+                  )}
+
+                  {/* Ticket Description */}
+                  {a.ticketDescription && (
+                    <details className="mt-1">
+                      <summary className="text-xs text-slate-400 cursor-pointer hover:text-white">Ticket Description</summary>
+                      <p className="text-xs text-slate-300 mt-1 whitespace-pre-wrap bg-black/20 p-3 rounded max-h-[200px] overflow-y-auto">{a.ticketDescription}</p>
+                    </details>
+                  )}
+
+                  {/* Ticket Notes */}
+                  {notes.length > 0 && (
+                    <details className="mt-1">
+                      <summary className="text-xs text-slate-400 cursor-pointer hover:text-white">
+                        Ticket Notes ({notes.length})
+                      </summary>
+                      <div className="mt-1 space-y-2 bg-black/20 p-3 rounded max-h-[300px] overflow-y-auto">
+                        {notes.map(note => (
+                          <div key={note.id} className="border-b border-white/5 pb-2 last:border-0 last:pb-0">
+                            {note.title && <p className="text-xs font-medium text-slate-300">{note.title}</p>}
+                            {note.description && (
+                              <p className="text-xs text-slate-400 mt-0.5 whitespace-pre-wrap">{note.description}</p>
+                            )}
+                            {note.createDateTime && (
+                              <p className="text-[10px] text-slate-600 mt-0.5">{new Date(note.createDateTime).toLocaleString()}</p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  )}
                 </div>
-                {a.aiReasoning && (
-                  <details className="mt-2">
-                    <summary className="text-xs text-slate-400 cursor-pointer hover:text-white">AI Reasoning</summary>
-                    <p className="text-xs text-slate-300 mt-1 whitespace-pre-wrap bg-black/20 p-3 rounded">{a.aiReasoning}</p>
-                  </details>
-                )}
-                {a.ticketDescription && (
-                  <details className="mt-1">
-                    <summary className="text-xs text-slate-400 cursor-pointer hover:text-white">Ticket Description</summary>
-                    <p className="text-xs text-slate-300 mt-1 whitespace-pre-wrap bg-black/20 p-3 rounded max-h-[200px] overflow-y-auto">{a.ticketDescription}</p>
-                  </details>
-                )}
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </Section>
 
       {/* ═══ Section 3: Proposed Autotask Actions (Dry Run Preview) ═══ */}
-      {pa && (
-        <Section title="Proposed Autotask Actions" subtitle="Dry Run Preview — these actions will be taken when automation is enabled">
-          <div className="p-4 space-y-4">
-            {/* Merge Recommendation */}
-            {pa.merge && (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <h4 className="text-sm font-medium text-white">Ticket Merge</h4>
-                  {pa.merge.shouldMerge ? (
-                    <span className="px-2 py-0.5 text-xs font-medium bg-cyan-500/20 text-cyan-400 rounded-full">Merge Recommended</span>
-                  ) : (
-                    <span className="px-2 py-0.5 text-xs font-medium bg-slate-500/20 text-slate-400 rounded-full">No Merge</span>
+      <Section title="Proposed Autotask Actions" subtitle="Dry Run Preview — these actions will execute when automation is enabled">
+        <div className="p-4 space-y-4">
+          {!pa ? (
+            <EmptyState>No action plan was generated for this incident. Re-process to generate one.</EmptyState>
+          ) : (
+            <>
+              {/* Merge Recommendation */}
+              {pa.merge && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-sm font-medium text-white">Ticket Merge</h4>
+                    {pa.merge.shouldMerge ? (
+                      <span className="px-2 py-0.5 text-xs font-medium bg-cyan-500/20 text-cyan-400 rounded-full">Merge Recommended</span>
+                    ) : (
+                      <span className="px-2 py-0.5 text-xs font-medium bg-slate-500/20 text-slate-400 rounded-full">No Merge</span>
+                    )}
+                  </div>
+                  {pa.merge.shouldMerge && (
+                    <div className="bg-black/30 rounded-lg p-4 space-y-3 text-sm">
+                      <div>
+                        <span className="text-slate-500">Surviving Ticket:</span>{' '}
+                        <span className="text-cyan-400 font-mono">#{pa.merge.survivingTicketNumber}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Merge Into It:</span>{' '}
+                        {pa.merge.mergeTicketNumbers.map((tn, i) => (
+                          <span key={tn}>
+                            {i > 0 && ', '}
+                            <span className="text-slate-300 font-mono">#{tn}</span>
+                          </span>
+                        ))}
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Proposed Title:</span>{' '}
+                        <span className="text-white">{pa.merge.proposedTitle}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500">Reasoning:</span>{' '}
+                        <span className="text-slate-300">{pa.merge.mergeReasoning}</span>
+                      </div>
+                    </div>
                   )}
                 </div>
-                {pa.merge.shouldMerge && (
-                  <div className="bg-black/30 rounded-lg p-4 space-y-3 text-sm">
-                    <div>
-                      <span className="text-slate-500">Surviving Ticket:</span>{' '}
-                      <span className="text-cyan-400 font-mono">#{pa.merge.survivingTicketNumber}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-500">Merge Into It:</span>{' '}
-                      {pa.merge.mergeTicketNumbers.map((tn, i) => (
-                        <span key={tn}>
-                          {i > 0 && ', '}
-                          <span className="text-slate-300 font-mono">#{tn}</span>
-                        </span>
-                      ))}
-                    </div>
-                    <div>
-                      <span className="text-slate-500">Proposed Title:</span>{' '}
-                      <span className="text-white">{pa.merge.proposedTitle}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-500">Reasoning:</span>{' '}
-                      <span className="text-slate-300">{pa.merge.mergeReasoning}</span>
-                    </div>
+              )}
+
+              {/* Internal Note */}
+              {pa.internalNote && (
+                <div className="space-y-2">
+                  <h4 className="text-sm font-medium text-white">Internal Note (to be added to Autotask)</h4>
+                  <div className="bg-black/30 rounded-lg p-4">
+                    <pre className="text-xs text-slate-300 whitespace-pre-wrap font-mono">{pa.internalNote}</pre>
                   </div>
+                </div>
+              )}
+
+              {/* Status / Priority / Queue Changes */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {pa.statusChange && (
+                  <ChangeCard label="Status Change" from={pa.statusChange.from} to={pa.statusChange.to} />
+                )}
+                {pa.priorityChange && (
+                  <ChangeCard label="Priority Change" from={pa.priorityChange.from} to={pa.priorityChange.to} />
+                )}
+                {pa.queueChange && (
+                  <ChangeCard label="Queue Change" from={pa.queueChange.from} to={pa.queueChange.to} />
                 )}
               </div>
-            )}
-
-            {/* Internal Note */}
-            {pa.internalNote && (
-              <div className="space-y-2">
-                <h4 className="text-sm font-medium text-white">Internal Note</h4>
-                <div className="bg-black/30 rounded-lg p-4">
-                  <pre className="text-xs text-slate-300 whitespace-pre-wrap font-mono">{pa.internalNote}</pre>
-                </div>
-              </div>
-            )}
-
-            {/* Status / Priority / Queue Changes */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {pa.statusChange && (
-                <ChangeCard label="Status Change" from={pa.statusChange.from} to={pa.statusChange.to} />
+              {!pa.statusChange && !pa.priorityChange && !pa.queueChange && !pa.merge?.shouldMerge && !pa.internalNote && !pa.escalation?.recommended && (
+                <p className="text-sm text-slate-500 italic">No specific Autotask changes proposed for this incident.</p>
               )}
-              {pa.priorityChange && (
-                <ChangeCard label="Priority Change" from={pa.priorityChange.from} to={pa.priorityChange.to} />
-              )}
-              {pa.queueChange && (
-                <ChangeCard label="Queue Change" from={pa.queueChange.from} to={pa.queueChange.to} />
-              )}
-            </div>
 
-            {/* Escalation */}
-            {pa.escalation && (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <h4 className="text-sm font-medium text-white">Internal Escalation</h4>
-                  {pa.escalation.recommended ? (
-                    <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${urgencyColors[pa.escalation.urgency] || urgencyColors.routine}`}>
-                      {pa.escalation.urgency.toUpperCase()}
-                    </span>
-                  ) : (
-                    <span className="px-2 py-0.5 text-xs font-medium bg-green-500/20 text-green-400 rounded-full">Not Needed</span>
+              {/* Escalation */}
+              {pa.escalation && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-sm font-medium text-white">Internal Escalation</h4>
+                    {pa.escalation.recommended ? (
+                      <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${urgencyColors[pa.escalation.urgency] || urgencyColors.routine}`}>
+                        {pa.escalation.urgency.toUpperCase()}
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 text-xs font-medium bg-green-500/20 text-green-400 rounded-full">Not Needed</span>
+                    )}
+                  </div>
+                  {pa.escalation.recommended && (
+                    <div className="bg-black/30 rounded-lg p-4 space-y-1 text-sm">
+                      {pa.escalation.targetQueue && (
+                        <div><span className="text-slate-500">Target Queue:</span> <span className="text-slate-300">{pa.escalation.targetQueue}</span></div>
+                      )}
+                      {pa.escalation.targetResource && (
+                        <div><span className="text-slate-500">Assign To:</span> <span className="text-slate-300">{pa.escalation.targetResource}</span></div>
+                      )}
+                      <div><span className="text-slate-500">Reason:</span> <span className="text-slate-300">{pa.escalation.reason}</span></div>
+                    </div>
+                  )}
+                  {!pa.escalation.recommended && pa.escalation.reason && (
+                    <p className="text-xs text-slate-400">{pa.escalation.reason}</p>
                   )}
                 </div>
-                {pa.escalation.recommended && (
-                  <div className="bg-black/30 rounded-lg p-4 space-y-1 text-sm">
-                    {pa.escalation.targetQueue && (
-                      <div><span className="text-slate-500">Target Queue:</span> <span className="text-slate-300">{pa.escalation.targetQueue}</span></div>
-                    )}
-                    {pa.escalation.targetResource && (
-                      <div><span className="text-slate-500">Assign To:</span> <span className="text-slate-300">{pa.escalation.targetResource}</span></div>
-                    )}
-                    <div><span className="text-slate-500">Reason:</span> <span className="text-slate-300">{pa.escalation.reason}</span></div>
-                  </div>
-                )}
-                {!pa.escalation.recommended && pa.escalation.reason && (
-                  <p className="text-xs text-slate-400">{pa.escalation.reason}</p>
-                )}
-              </div>
-            )}
-          </div>
-        </Section>
-      )}
+              )}
+            </>
+          )}
+        </div>
+      </Section>
 
       {/* ═══ Section 4: Recommended Human Actions ═══ */}
-      {hg && (
-        <Section title="Recommended Human Actions">
-          <div className="p-4 space-y-4">
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-slate-400">Risk Level:</span>
-              <span className={`text-sm font-medium ${riskColors[hg.riskLevel] || 'text-slate-400'}`}>
-                {hg.riskLevel.toUpperCase()}
-              </span>
-            </div>
-            <p className="text-sm text-slate-300">{hg.summary}</p>
-            <ol className="space-y-2">
-              {hg.steps.map((step, i) => (
-                <li key={i} className="flex items-start gap-3">
-                  <span className="flex-shrink-0 w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-400 text-xs font-medium flex items-center justify-center mt-0.5">
-                    {i + 1}
-                  </span>
-                  <span className="text-sm text-slate-300">{step}</span>
-                </li>
-              ))}
-            </ol>
-            {hg.draftCustomerMessage && (
-              <div className="space-y-2 mt-4">
-                <h4 className="text-sm font-medium text-white">Draft Customer Message</h4>
-                <div className="bg-black/30 rounded-lg p-4">
-                  <p className="text-sm text-slate-300 whitespace-pre-wrap">{hg.draftCustomerMessage}</p>
-                </div>
+      <Section title="Recommended Human Actions">
+        <div className="p-4 space-y-4">
+          {!hg ? (
+            <EmptyState>No human guidance generated. Re-process to generate recommendations.</EmptyState>
+          ) : (
+            <>
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-slate-400">Risk Level:</span>
+                <span className={`text-sm font-medium ${riskColors[hg.riskLevel] || 'text-slate-400'}`}>
+                  {hg.riskLevel.toUpperCase()}
+                </span>
               </div>
-            )}
-          </div>
-        </Section>
-      )}
+              <p className="text-sm text-slate-300">{hg.summary}</p>
+              <ol className="space-y-2">
+                {hg.steps.map((step, i) => (
+                  <li key={i} className="flex items-start gap-3">
+                    <span className="flex-shrink-0 w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-400 text-xs font-medium flex items-center justify-center mt-0.5">
+                      {i + 1}
+                    </span>
+                    <span className="text-sm text-slate-300">{step}</span>
+                  </li>
+                ))}
+              </ol>
+              {hg.draftCustomerMessage && (
+                <div className="space-y-2 mt-4">
+                  <h4 className="text-sm font-medium text-white">Draft Customer Message</h4>
+                  <div className="bg-black/30 rounded-lg p-4">
+                    <p className="text-sm text-slate-300 whitespace-pre-wrap">{hg.draftCustomerMessage}</p>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </Section>
 
       {/* ═══ Section 5: Supporting Reasoning ═══ */}
       {incident.aiSummary && (
@@ -516,7 +612,7 @@ function Section({ title, subtitle, count, children }: {
   title: string; subtitle?: string; count?: number; children: React.ReactNode
 }) {
   return (
-    <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg overflow-hidden">
+    <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg">
       <div className="px-4 py-3 border-b border-white/10">
         <div className="flex items-center gap-2">
           <h3 className="text-sm font-medium text-white">{title}</h3>
@@ -553,7 +649,7 @@ function ChangeCard({ label, from, to }: { label: string; from: string; to: stri
       <p className="text-xs text-slate-500 mb-1">{label}</p>
       <div className="flex items-center gap-2 text-sm">
         <span className="text-slate-400">{from}</span>
-        <span className="text-slate-600">→</span>
+        <span className="text-slate-600">&rarr;</span>
         <span className="text-white font-medium">{to}</span>
       </div>
     </div>

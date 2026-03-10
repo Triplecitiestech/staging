@@ -23,6 +23,7 @@ interface Incident {
   verdict: string | null
   confidenceScore: number | null
   correlationReason: string | null
+  primaryTicketId: string | null
   status: string
   createdAt: string
   resolvedAt: string | null
@@ -107,7 +108,7 @@ export default function SocIncidentsList() {
       </div>
 
       {/* List */}
-      <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg overflow-hidden">
+      <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg">
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-cyan-500" />
@@ -139,8 +140,8 @@ export default function SocIncidentsList() {
                         {inc.deviceHostname && (
                           <span>Device: {inc.deviceHostname}</span>
                         )}
-                        <span>{inc.ticketCount} tickets</span>
-                        {inc.correlationReason && (
+                        <span>{inc.ticketCount} {inc.ticketCount === 1 ? 'ticket' : 'tickets'}</span>
+                        {inc.correlationReason && inc.correlationReason !== 'single_alert' && (
                           <span className="capitalize">{inc.correlationReason.replace(/_/g, ' ')}</span>
                         )}
                         {inc.alertSource && inc.alertSource !== 'unknown' && (
@@ -154,7 +155,7 @@ export default function SocIncidentsList() {
                       <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                         {merge?.shouldMerge && (
                           <span className="px-1.5 py-0.5 text-[10px] font-medium bg-cyan-500/20 text-cyan-400 rounded">
-                            MERGE → #{merge.survivingTicketNumber}
+                            MERGE &rarr; #{merge.survivingTicketNumber}
                           </span>
                         )}
                         {escalation?.recommended && (

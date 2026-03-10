@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
+import { getAutotaskWebUrl } from '@/lib/tickets/utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -53,7 +54,7 @@ export async function GET() {
              "proposedActions", "humanGuidance"
       FROM soc_incidents
       ORDER BY "createdAt" DESC
-      LIMIT 5
+      LIMIT 10
     `;
 
     return NextResponse.json({
@@ -67,6 +68,7 @@ export async function GET() {
       },
       pending: Number(pending.count),
       recentIncidents,
+      autotaskWebUrl: getAutotaskWebUrl(),
     });
   } catch (err) {
     console.error('[soc/status]', err);

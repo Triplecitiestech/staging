@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
+import { getAutotaskWebUrl } from '@/lib/tickets/utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,6 +40,7 @@ export async function GET(
       t.source as "ticketSource",
       t."sourceLabel" as "ticketSourceLabel",
       t."createDate"::text as "ticketCreateDate",
+      t."ticketNumber" as "ticketNumberFromTicket",
       c."displayName" as "companyName",
       c.slug as "companySlug"
     FROM soc_ticket_analysis sa
@@ -47,6 +49,21 @@ export async function GET(
     WHERE sa."incidentId" = ${id}
     ORDER BY sa."createdAt" ASC
   `;
+
+  // Fetch ticket notes for each ticket in the incident
+  const ticketIds = analyses.map(a => (a as Record<string, unknown>).autotaskTicketId).filter(Boolean) as string[];
+  let ticketNotes: Array<Record<string, unknown>> = [];
+  if (ticketIds.length > 0) {
+    try {
+      ticketNotes = await prisma.$queryRaw<Array<Record<string, unknown>>>`
+        SELECT * FROM ticket_notes
+        WHERE "ticketId" IN (SELECT unnest(${ticketIds}::text[]))
+        ORDER BY "createDateTime" DESC
+      `;
+    } catch {
+      // ticket_notes table may not exist — non-fatal
+    }
+  }
 
   const activityLog = await prisma.$queryRaw<Array<Record<string, unknown>>>`
     SELECT * FROM soc_activity_log WHERE "incidentId" = ${id} ORDER BY "createdAt" ASC
@@ -61,7 +78,9 @@ export async function GET(
   return NextResponse.json({
     incident,
     analyses,
+    ticketNotes,
     activityLog,
+    autotaskWebUrl: getAutotaskWebUrl(),
   });
 }
 
