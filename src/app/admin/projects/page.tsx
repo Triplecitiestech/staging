@@ -3,16 +3,8 @@ import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import ProjectList from '@/components/projects/ProjectList'
 import AdminHeader from '@/components/admin/AdminHeader'
-import { Prisma } from '@prisma/client'
 
 export const dynamic = 'force-dynamic'
-
-type ProjectWithRelations = Prisma.ProjectGetPayload<{
-  include: {
-    company: true
-    phases: true
-  }
-}>
 
 export default async function ProjectsPage() {
   const { prisma } = await import("@/lib/prisma")
@@ -22,16 +14,32 @@ export default async function ProjectsPage() {
     redirect('/admin')
   }
 
-  // Fetch all projects with related data
-  const projects: ProjectWithRelations[] = await prisma.project.findMany({
-    include: {
-      company: true,
+  // Use explicit select to avoid "column does not exist" errors
+  // when schema fields haven't been migrated to production yet
+  const projects = await prisma.project.findMany({
+    select: {
+      id: true,
+      title: true,
+      status: true,
+      projectType: true,
+      createdAt: true,
+      aiGenerated: true,
+      autotaskProjectId: true,
+      company: {
+        select: {
+          displayName: true,
+          slug: true,
+        }
+      },
       phases: {
-        orderBy: { orderIndex: 'asc' }
+        select: {
+          status: true,
+        },
+        orderBy: { orderIndex: 'asc' as const }
       }
     },
     orderBy: { createdAt: 'desc' }
-  }) as ProjectWithRelations[]
+  })
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-gray-900 to-slate-950">
