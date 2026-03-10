@@ -85,7 +85,6 @@ export default function SocDashboardClient() {
   const [activeTab, setActiveTab] = useState<'activity' | 'incidents'>('activity')
   const [runError, setRunError] = useState<string | null>(null)
   const [lastRunResult, setLastRunResult] = useState<RunResultData | null>(null)
-  const [expandedEntryId, setExpandedEntryId] = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
     try {
@@ -376,164 +375,80 @@ export default function SocDashboardClient() {
           ) : (
             activity.map(entry => {
               const meta = entry.metadata || {}
-              const isExpanded = expandedEntryId === entry.id
-              const incidentId = entry.incidentId
-              return (
-                <div key={entry.id} className={`transition-colors ${isExpanded ? 'bg-white/5' : 'hover:bg-white/5'}`}>
-                  <div
-                    className="p-4 cursor-pointer"
-                    onClick={() => setExpandedEntryId(isExpanded ? null : entry.id)}
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex items-start gap-3 min-w-0">
-                        <div className={`mt-0.5 w-2 h-2 rounded-full flex-shrink-0 ${actionIcon(entry.action).replace('text-', 'bg-')}`} />
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-sm font-medium text-white capitalize">{entry.action.replace(/_/g, ' ')}</span>
-                            {entry.confidenceScore != null && verdictBadge(
-                              meta.verdict as string || (entry.confidenceScore > 0.7 ? 'false_positive' : 'suspicious')
-                            )}
-                            {Boolean(meta.mergeRecommended) && (
-                              <span className="px-1.5 py-0.5 text-[10px] font-medium bg-cyan-500/20 text-cyan-400 rounded">
-                                MERGE &rarr; #{String(meta.mergeSurvivingTicket || '')}
-                              </span>
-                            )}
-                            {Boolean(meta.escalationRecommended) && (
-                              <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${
-                                String(meta.escalationUrgency) === 'critical' ? 'bg-red-500/20 text-red-400'
-                                : String(meta.escalationUrgency) === 'urgent' ? 'bg-rose-500/20 text-rose-400'
-                                : 'bg-slate-500/20 text-slate-400'
-                              }`}>ESCALATE</span>
-                            )}
-                            {Number(meta.ticketCount) > 1 && (
-                              <span className="px-1.5 py-0.5 text-[10px] font-medium bg-violet-500/20 text-violet-400 rounded">
-                                {Number(meta.ticketCount)} CORRELATED
-                              </span>
-                            )}
-                          </div>
-                          {/* Rich context line */}
-                          <div className="flex items-center gap-2 mt-1 text-xs text-slate-500 flex-wrap">
-                            {Boolean(meta.companyName) && (
-                              <span className="text-cyan-400/80">{String(meta.companyName)}</span>
-                            )}
-                            {Boolean(meta.deviceHostname) && <span>Device: {String(meta.deviceHostname)}</span>}
-                            {Array.isArray(meta.ticketNumbers) && meta.ticketNumbers.length > 0 && (
-                              <span className="font-mono">
-                                {(meta.ticketNumbers as string[]).map((tn: string, i: number) => (
-                                  <span key={tn}>
-                                    {i > 0 && ', '}
-                                    {status?.autotaskWebUrl && entry.autotaskTicketId ? (
-                                      <a href={`${status.autotaskWebUrl}?ticketId=${entry.autotaskTicketId}`} target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline" onClick={e => e.stopPropagation()}>#{tn}</a>
-                                    ) : (
-                                      <span>#{tn}</span>
-                                    )}
-                                  </span>
-                                ))}
-                              </span>
-                            )}
-                            {!meta.ticketNumbers && entry.autotaskTicketId && (
-                              <span className="font-mono">
-                                {status?.autotaskWebUrl ? (
-                                  <a href={`${status.autotaskWebUrl}?ticketId=${entry.autotaskTicketId}`} target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline" onClick={e => e.stopPropagation()}>Ticket #{entry.autotaskTicketId}</a>
-                                ) : (
-                                  <span>Ticket #{entry.autotaskTicketId}</span>
-                                )}
-                              </span>
-                            )}
-                            {Boolean(meta.riskLevel) && String(meta.riskLevel) !== 'none' && (
-                              <span className={`font-medium ${
-                                String(meta.riskLevel) === 'critical' ? 'text-red-400'
-                                : String(meta.riskLevel) === 'high' ? 'text-rose-400'
-                                : String(meta.riskLevel) === 'medium' ? 'text-cyan-400'
-                                : 'text-green-400'
-                              }`}>{String(meta.riskLevel)} risk</span>
-                            )}
-                          </div>
-                          {entry.detail && (
-                            <p className={`text-sm text-slate-400 mt-1 ${isExpanded ? '' : 'truncate'}`}>{entry.detail}</p>
+              const hasIncident = Boolean(entry.incidentId)
+              const content = (
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <div className={`mt-0.5 w-2 h-2 rounded-full flex-shrink-0 ${actionIcon(entry.action).replace('text-', 'bg-')}`} />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-medium text-white capitalize">{entry.action.replace(/_/g, ' ')}</span>
+                          {entry.confidenceScore != null && verdictBadge(
+                            meta.verdict as string || (entry.confidenceScore > 0.7 ? 'false_positive' : 'suspicious')
+                          )}
+                          {Boolean(meta.mergeRecommended) && (
+                            <span className="px-1.5 py-0.5 text-[10px] font-medium bg-cyan-500/20 text-cyan-400 rounded">
+                              MERGE &rarr; #{String(meta.mergeSurvivingTicket || '')}
+                            </span>
+                          )}
+                          {Boolean(meta.escalationRecommended) && (
+                            <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${
+                              String(meta.escalationUrgency) === 'critical' ? 'bg-red-500/20 text-red-400'
+                              : String(meta.escalationUrgency) === 'urgent' ? 'bg-rose-500/20 text-rose-400'
+                              : 'bg-slate-500/20 text-slate-400'
+                            }`}>ESCALATE</span>
+                          )}
+                          {Number(meta.ticketCount) > 1 && (
+                            <span className="px-1.5 py-0.5 text-[10px] font-medium bg-violet-500/20 text-violet-400 rounded">
+                              {Number(meta.ticketCount)} CORRELATED
+                            </span>
                           )}
                         </div>
+                        {/* Rich context line */}
+                        <div className="flex items-center gap-2 mt-1 text-xs text-slate-500 flex-wrap">
+                          {Boolean(meta.companyName) && (
+                            <span className="text-cyan-400/80">{String(meta.companyName)}</span>
+                          )}
+                          {Boolean(meta.deviceHostname) && <span>Device: {String(meta.deviceHostname)}</span>}
+                          {Array.isArray(meta.ticketNumbers) && meta.ticketNumbers.length > 0 && (
+                            <span className="font-mono">
+                              {(meta.ticketNumbers as string[]).map((tn: string, i: number) => (
+                                <span key={tn}>{i > 0 && ', '}#{tn}</span>
+                              ))}
+                            </span>
+                          )}
+                          {!meta.ticketNumbers && entry.autotaskTicketId && (
+                            <span className="font-mono">Ticket #{entry.autotaskTicketId}</span>
+                          )}
+                          {Boolean(meta.riskLevel) && String(meta.riskLevel) !== 'none' && (
+                            <span className={`font-medium ${
+                              String(meta.riskLevel) === 'critical' ? 'text-red-400'
+                              : String(meta.riskLevel) === 'high' ? 'text-rose-400'
+                              : String(meta.riskLevel) === 'medium' ? 'text-cyan-400'
+                              : 'text-green-400'
+                            }`}>{String(meta.riskLevel)} risk</span>
+                          )}
+                        </div>
+                        {entry.detail && (
+                          <p className="text-sm text-slate-400 mt-1 truncate">{entry.detail}</p>
+                        )}
                       </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        <span className="text-xs text-slate-500">{timeAgo(entry.createdAt)}</span>
-                        <span className={`text-slate-500 text-xs transition-transform ${isExpanded ? 'rotate-180' : ''}`}>&#9660;</span>
-                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className="text-xs text-slate-500">{timeAgo(entry.createdAt)}</span>
+                      {hasIncident && (
+                        <span className="text-slate-600">&rsaquo;</span>
+                      )}
                     </div>
                   </div>
-                  {/* Expanded detail panel */}
-                  {isExpanded && (
-                    <div className="px-4 pb-4 border-t border-white/5 pt-3 space-y-3">
-                      {/* Full detail text */}
-                      {entry.detail && (
-                        <div>
-                          <p className="text-xs font-medium text-slate-400 mb-1">Full Detail</p>
-                          <p className="text-sm text-slate-300 whitespace-pre-wrap bg-black/20 rounded-lg p-3">{entry.detail}</p>
-                        </div>
-                      )}
-                      {/* Metadata grid */}
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                        {Boolean(meta.companyName) && (
-                          <div className="bg-black/20 rounded p-2">
-                            <span className="text-slate-500">Company</span>
-                            <p className="text-cyan-400 font-medium">{String(meta.companyName)}</p>
-                          </div>
-                        )}
-                        {Boolean(meta.alertSource) && (
-                          <div className="bg-black/20 rounded p-2">
-                            <span className="text-slate-500">Source</span>
-                            <p className="text-white">{String(meta.alertSource).replace(/_/g, ' ')}</p>
-                          </div>
-                        )}
-                        {Boolean(meta.category) && (
-                          <div className="bg-black/20 rounded p-2">
-                            <span className="text-slate-500">Category</span>
-                            <p className="text-white capitalize">{String(meta.category).replace(/_/g, ' ')}</p>
-                          </div>
-                        )}
-                        {Boolean(meta.model) && (
-                          <div className="bg-black/20 rounded p-2">
-                            <span className="text-slate-500">AI Model</span>
-                            <p className="text-white font-mono text-[10px]">{String(meta.model)}</p>
-                          </div>
-                        )}
-                        {entry.confidenceScore != null && (
-                          <div className="bg-black/20 rounded p-2">
-                            <span className="text-slate-500">Confidence</span>
-                            <p className="text-white">{Math.round(entry.confidenceScore * 100)}%</p>
-                          </div>
-                        )}
-                        {Boolean(meta.deviceHostname) && (
-                          <div className="bg-black/20 rounded p-2">
-                            <span className="text-slate-500">Device</span>
-                            <p className="text-white font-mono">{String(meta.deviceHostname)}</p>
-                          </div>
-                        )}
-                      </div>
-                      {/* Links */}
-                      <div className="flex items-center gap-3 text-xs">
-                        {incidentId && (
-                          <Link
-                            href={`/admin/soc/incidents/${incidentId}`}
-                            className="text-cyan-400 hover:underline"
-                            onClick={e => e.stopPropagation()}
-                          >
-                            View Incident Detail &rarr;
-                          </Link>
-                        )}
-                        {entry.autotaskTicketId && status?.autotaskWebUrl && (
-                          <a
-                            href={`${status.autotaskWebUrl}?ticketId=${entry.autotaskTicketId}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-cyan-400/60 hover:text-cyan-400 hover:underline"
-                            onClick={e => e.stopPropagation()}
-                          >
-                            Open in Autotask &rarr;
-                          </a>
-                        )}
-                      </div>
-                    </div>
-                  )}
+              )
+              return hasIncident ? (
+                <Link key={entry.id} href={`/admin/soc/incidents/${entry.incidentId}`} className="block p-4 hover:bg-white/5 transition-colors">
+                  {content}
+                </Link>
+              ) : (
+                <div key={entry.id} className="p-4 hover:bg-white/5 transition-colors">
+                  {content}
                 </div>
               )
             })
