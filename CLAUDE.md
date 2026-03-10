@@ -291,3 +291,5 @@ Detailed guides in the repo root — read these when working on specific feature
 **Preview URL pattern**: `https://<branch-name>-triplecitiestech.vercel.app`
 
 **Always provide full URLs** when referencing API endpoints or pages. Never give partial paths — always include the full domain. Example: `https://www.triplecitiestech.com/api/soc/migrate` not just `/api/soc/migrate`.
+
+**User runs Windows (PowerShell)** — Always provide commands in PowerShell syntax, never bash/curl/Mac/Linux. Use `Invoke-RestMethod` or `Invoke-WebRequest` instead of `curl`.
