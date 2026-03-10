@@ -24,7 +24,7 @@ const PIPELINE_STEPS: FlowStep[] = [
     description: 'New Autotask tickets enter the queue',
     details: [
       'Cron runs every 5 minutes',
-      'Fetches unprocessed tickets from last 7 days',
+      'Reads from local tickets table (synced from Autotask every 2 hours)',
       'Skips tickets already analyzed or in closed status',
       'Manual "Run Now" also triggers this step',
     ],
@@ -176,15 +176,15 @@ const PIPELINE_STEPS: FlowStep[] = [
   },
 ]
 
-const colorMap: Record<string, { bg: string; border: string; text: string; glow: string; dot: string }> = {
-  cyan:    { bg: 'bg-cyan-500/10',    border: 'border-cyan-500/30',    text: 'text-cyan-400',    glow: 'shadow-cyan-500/20',    dot: 'bg-cyan-500' },
-  slate:   { bg: 'bg-slate-500/10',   border: 'border-slate-500/30',   text: 'text-slate-400',   glow: 'shadow-slate-500/20',   dot: 'bg-slate-500' },
-  violet:  { bg: 'bg-violet-500/10',  border: 'border-violet-500/30',  text: 'text-violet-400',  glow: 'shadow-violet-500/20',  dot: 'bg-violet-500' },
-  blue:    { bg: 'bg-blue-500/10',    border: 'border-blue-500/30',    text: 'text-blue-400',    glow: 'shadow-blue-500/20',    dot: 'bg-blue-500' },
-  orange:  { bg: 'bg-orange-500/10',  border: 'border-orange-500/30',  text: 'text-orange-400',  glow: 'shadow-orange-500/20',  dot: 'bg-orange-500' },
-  rose:    { bg: 'bg-rose-500/10',    border: 'border-rose-500/30',    text: 'text-rose-400',    glow: 'shadow-rose-500/20',    dot: 'bg-rose-500' },
-  green:   { bg: 'bg-green-500/10',   border: 'border-green-500/30',   text: 'text-green-400',   glow: 'shadow-green-500/20',   dot: 'bg-green-500' },
-  emerald: { bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', text: 'text-emerald-400', glow: 'shadow-emerald-500/20', dot: 'bg-emerald-500' },
+const colorMap: Record<string, { bg: string; border: string; text: string; glow: string; dot: string; line: string }> = {
+  cyan:    { bg: 'bg-cyan-500/10',    border: 'border-cyan-500/30',    text: 'text-cyan-400',    glow: 'shadow-cyan-500/20',    dot: 'bg-cyan-500',    line: 'bg-cyan-500/30' },
+  slate:   { bg: 'bg-slate-500/10',   border: 'border-slate-500/30',   text: 'text-slate-400',   glow: 'shadow-slate-500/20',   dot: 'bg-slate-500',   line: 'bg-slate-500/30' },
+  violet:  { bg: 'bg-violet-500/10',  border: 'border-violet-500/30',  text: 'text-violet-400',  glow: 'shadow-violet-500/20',  dot: 'bg-violet-500',  line: 'bg-violet-500/30' },
+  blue:    { bg: 'bg-blue-500/10',    border: 'border-blue-500/30',    text: 'text-blue-400',    glow: 'shadow-blue-500/20',    dot: 'bg-blue-500',    line: 'bg-blue-500/30' },
+  orange:  { bg: 'bg-orange-500/10',  border: 'border-orange-500/30',  text: 'text-orange-400',  glow: 'shadow-orange-500/20',  dot: 'bg-orange-500',  line: 'bg-orange-500/30' },
+  rose:    { bg: 'bg-rose-500/10',    border: 'border-rose-500/30',    text: 'text-rose-400',    glow: 'shadow-rose-500/20',    dot: 'bg-rose-500',    line: 'bg-rose-500/30' },
+  green:   { bg: 'bg-green-500/10',   border: 'border-green-500/30',   text: 'text-green-400',   glow: 'shadow-green-500/20',   dot: 'bg-green-500',   line: 'bg-green-500/30' },
+  emerald: { bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', text: 'text-emerald-400', glow: 'shadow-emerald-500/20', dot: 'bg-emerald-500', line: 'bg-emerald-500/30' },
 }
 
 export default function SocFlowchart() {
@@ -219,28 +219,30 @@ export default function SocFlowchart() {
       {showFlowchart && (
         <div className="px-4 pb-4">
           {/* Pipeline visualization */}
-          <div className="relative">
+          <div className="relative ml-1">
+            {/* Continuous vertical connector line behind all steps */}
+            <div
+              className="absolute left-[19px] top-[20px] w-px bg-gradient-to-b from-cyan-500/40 via-blue-500/30 to-emerald-500/40"
+              style={{ height: 'calc(100% - 40px)' }}
+            />
+
             {PIPELINE_STEPS.map((step, i) => {
               const colors = colorMap[step.color]
               const isExpanded = expanded === step.id
-              const isLast = i === PIPELINE_STEPS.length - 1
 
               return (
                 <div key={step.id} className="relative">
-                  {/* Connector line */}
-                  {!isLast && (
-                    <div className="absolute left-[19px] top-[40px] w-0.5 bg-gradient-to-b from-white/20 to-white/5" style={{ height: isExpanded ? 'calc(100% - 20px)' : '20px' }} />
-                  )}
-
                   <button
                     onClick={() => setExpanded(isExpanded ? null : step.id)}
                     className={`relative w-full flex items-start gap-3 p-3 rounded-lg transition-all text-left ${
                       isExpanded ? `${colors.bg} ${colors.border} border shadow-lg ${colors.glow}` : 'hover:bg-white/5'
                     }`}
                   >
-                    {/* Step number dot */}
-                    <div className={`flex-shrink-0 w-10 h-10 rounded-lg ${colors.bg} border ${colors.border} flex items-center justify-center ${colors.text}`}>
-                      {step.icon}
+                    {/* Step icon with connector dot */}
+                    <div className="relative flex-shrink-0">
+                      <div className={`w-10 h-10 rounded-lg ${colors.bg} border ${colors.border} flex items-center justify-center ${colors.text} relative z-10 bg-slate-900/80 backdrop-blur-sm`}>
+                        {step.icon}
+                      </div>
                     </div>
 
                     <div className="flex-1 min-w-0">

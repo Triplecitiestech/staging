@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { loadSocConfig, loadActiveRules, runTriagePipeline } from '@/lib/soc/engine';
-import { ingestTicketsFromAutotask } from '@/lib/soc/ingest';
 import type { SecurityTicket } from '@/lib/soc/types';
 
 export const dynamic = 'force-dynamic';
@@ -10,6 +9,7 @@ export const maxDuration = 60;
 /**
  * GET /api/cron/soc-triage
  * Runs every 5 minutes. Detects and triages new security tickets.
+ * Reads from the local `tickets` table (populated by the Autotask ticket sync cron).
  */
 export async function GET(request: NextRequest) {
   // Auth: Vercel cron sends Authorization header
@@ -37,17 +37,8 @@ export async function GET(request: NextRequest) {
     // Load active rules
     const rules = await loadActiveRules();
 
-    // Step 1: Ingest fresh tickets from Autotask
-    try {
-      const ingestion = await ingestTicketsFromAutotask(7);
-      if (ingestion.created > 0) {
-        console.log(`[SOC Cron] Ingested ${ingestion.created} new tickets from Autotask`);
-      }
-    } catch (err) {
-      console.error('[SOC Cron] Ticket ingestion failed, proceeding with local data:', err);
-    }
-
-    // Step 2: Fetch unprocessed security tickets from local DB
+    // Fetch unprocessed security tickets from local DB
+    // The tickets table is populated by the Autotask ticket sync cron (/api/reports/jobs/sync-tickets)
     const tickets = await prisma.$queryRaw<SecurityTicket[]>`
       SELECT
         t."autotaskTicketId",

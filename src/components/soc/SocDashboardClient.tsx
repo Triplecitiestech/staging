@@ -87,9 +87,13 @@ export default function SocDashboardClient() {
         setRunError(data.message || `Error ${res.status}`)
       } else {
         const msg = data.ticketsFound === 0
-          ? 'No tickets to process'
+          ? (data.message || 'No tickets to process')
           : `Processed ${data.ticketsFound} ticket${data.ticketsFound === 1 ? '' : 's'}${data.dryRun ? ' (dry run)' : ''}`
-        setRunResult(msg)
+        if (data.ticketsFound === 0 && data.diagnostics?.totalRecentTickets === 0) {
+          setRunError(msg)
+        } else {
+          setRunResult(msg)
+        }
         await fetchData()
       }
     } catch (err) {
@@ -182,7 +186,7 @@ export default function SocDashboardClient() {
               {' · '}<span className="text-red-400">{status?.today?.escalated || 0}</span> escalated
             </span>
             {runError && (
-              <span className="text-xs text-red-400 max-w-[200px] truncate" title={runError}>{runError}</span>
+              <span className="text-xs text-red-400 max-w-[400px] truncate" title={runError}>{runError}</span>
             )}
             {runResult && (
               <span className="text-xs text-green-400">{runResult}</span>
