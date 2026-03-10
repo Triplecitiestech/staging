@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { loadSocConfig, loadActiveRules, runTriagePipeline } from '@/lib/soc/engine';
+import { ingestTicketsFromAutotask } from '@/lib/soc/ingest';
 import type { SecurityTicket } from '@/lib/soc/types';
 
 export const dynamic = 'force-dynamic';
@@ -29,6 +30,19 @@ export async function POST(request: NextRequest) {
 
     const rules = await loadActiveRules();
 
+    // Step 1: Ingest fresh tickets from Autotask before querying local DB
+    let ingestion = { fetched: 0, created: 0, updated: 0, errors: [] as string[] };
+    if (ticketIds.length === 0) {
+      try {
+        ingestion = await ingestTicketsFromAutotask(7);
+        console.log(`[SOC] Ingested ${ingestion.fetched} tickets from Autotask (${ingestion.created} new, ${ingestion.updated} updated)`);
+      } catch (err) {
+        console.error('[SOC] Ticket ingestion failed, proceeding with local data:', err);
+        ingestion.errors.push(`Ingestion failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    // Step 2: Query local DB for unprocessed tickets
     let tickets: SecurityTicket[];
 
     if (ticketIds.length > 0) {
@@ -83,7 +97,17 @@ export async function POST(request: NextRequest) {
     }
 
     if (tickets.length === 0) {
-      return NextResponse.json({ status: 'ok', message: 'No tickets to process', ticketsFound: 0 });
+      return NextResponse.json({
+        status: 'ok',
+        message: 'No tickets to process',
+        ticketsFound: 0,
+        ingestion: {
+          fetched: ingestion.fetched,
+          created: ingestion.created,
+          updated: ingestion.updated,
+          errors: ingestion.errors.length > 0 ? ingestion.errors : undefined,
+        },
+      });
     }
 
     const result = await runTriagePipeline(tickets, config, rules);
@@ -94,6 +118,11 @@ export async function POST(request: NextRequest) {
       dryRun: config.dry_run,
       ticketsFound: tickets.length,
       ...result.meta,
+      ingestion: {
+        fetched: ingestion.fetched,
+        created: ingestion.created,
+        updated: ingestion.updated,
+      },
       errors: result.errors.length > 0 ? result.errors : undefined,
       durationMs: Date.now() - startTime,
     });

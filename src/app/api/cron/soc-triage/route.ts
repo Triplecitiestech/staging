@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { loadSocConfig, loadActiveRules, runTriagePipeline } from '@/lib/soc/engine';
+import { ingestTicketsFromAutotask } from '@/lib/soc/ingest';
 import type { SecurityTicket } from '@/lib/soc/types';
 
 export const dynamic = 'force-dynamic';
@@ -36,8 +37,17 @@ export async function GET(request: NextRequest) {
     // Load active rules
     const rules = await loadActiveRules();
 
-    // Fetch unprocessed security tickets from local DB
-    // Only tickets not yet in soc_ticket_analysis
+    // Step 1: Ingest fresh tickets from Autotask
+    try {
+      const ingestion = await ingestTicketsFromAutotask(7);
+      if (ingestion.created > 0) {
+        console.log(`[SOC Cron] Ingested ${ingestion.created} new tickets from Autotask`);
+      }
+    } catch (err) {
+      console.error('[SOC Cron] Ticket ingestion failed, proceeding with local data:', err);
+    }
+
+    // Step 2: Fetch unprocessed security tickets from local DB
     const tickets = await prisma.$queryRaw<SecurityTicket[]>`
       SELECT
         t."autotaskTicketId",

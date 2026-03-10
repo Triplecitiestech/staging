@@ -691,6 +691,50 @@ export class AutotaskClient {
   }
 
   /**
+   * Get recent tickets across ALL companies from the last N days.
+   * Used by the SOC agent to ingest fresh tickets for analysis.
+   * Returns all non-completed tickets created in the window.
+   */
+  async getRecentTickets(days: number = 7): Promise<{
+    id: number;
+    ticketNumber: string;
+    companyID: number;
+    title: string;
+    description?: string;
+    status: number;
+    priority: number;
+    queueID?: number;
+    source?: number;
+    createDate: string;
+    completedDate?: string;
+    lastActivityDate?: string;
+    issueType?: number;
+    subIssueType?: number;
+    assignedResourceID?: number;
+    creatorResourceID?: number;
+    contactID?: number;
+    contractID?: number;
+    serviceLevelAgreementID?: number;
+    dueDateTime?: string;
+    estimatedHours?: number;
+  }[]> {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+    try {
+      return await this.queryAll('Tickets', {
+        op: 'and',
+        items: [
+          { op: 'gte', field: 'createDate', value: since.toISOString() },
+          { op: 'noteq', field: 'status', value: 5 }, // Exclude completed
+        ],
+      });
+    } catch (err) {
+      console.error(`[AutotaskClient] getRecentTickets failed:`, err instanceof Error ? err.message : String(err));
+      throw err;
+    }
+  }
+
+  /**
    * Get tickets for a company from the last N days.
    * Fetches tickets created OR with activity in the window to capture status changes.
    */
