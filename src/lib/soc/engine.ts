@@ -9,7 +9,7 @@ import { prisma } from '@/lib/prisma';
 import { trackAnthropicCall } from '@/lib/api-usage-tracker';
 import { correlateTickets } from './correlation';
 import { extractPrimaryIp } from './ip-extractor';
-import { buildScreeningPrompt, buildDeepAnalysisPrompt, formatTicketNote } from './prompts';
+import { buildScreeningPrompt, buildDeepAnalysisPrompt, buildActionPlanPrompt, formatTicketNote } from './prompts';
 import { matchRules, isSecurityTicket, detectAlertSource } from './rules';
 import { verifyTechnicianByIp, verifyTechnicianLive } from './technician-verifier';
 import type {
@@ -22,6 +22,7 @@ import type {
   DeepAnalysisResult,
   DeviceVerification,
   IncidentGroup,
+  IncidentActionPlan,
   Verdict,
   AlertSource,
   AlertCategory,
@@ -163,13 +164,15 @@ export async function runTriagePipeline(
         await recordAnalysis(ticket, result, group, config);
       }
 
-      // Log activity
+      // Log activity with rich metadata
+      const mergeInfo = result.actionPlan?.proposedActions?.merge;
+      const escalationInfo = result.actionPlan?.proposedActions?.escalation;
       await logActivity({
         analysisId: null,
         incidentId: result.incidentId || null,
         autotaskTicketId: result.ticketId,
         action: 'analyzed',
-        detail: `Verdict: ${result.verdict} (${Math.round(result.confidence * 100)}%). Action: ${result.recommendedAction}`,
+        detail: `Verdict: ${result.verdict} (${Math.round(result.confidence * 100)}%). Action: ${result.recommendedAction}${mergeInfo?.shouldMerge ? `. Merge recommended → ${mergeInfo.survivingTicketNumber}` : ''}${escalationInfo?.recommended ? `. Escalation: ${escalationInfo.urgency}` : ''}`,
         aiReasoning: result.reasoning,
         confidenceScore: result.confidence,
         metadata: {
@@ -178,6 +181,15 @@ export async function runTriagePipeline(
           ticketCount: group.tickets.length,
           model: result.aiModel,
           verdict: result.verdict,
+          companyName: group.primaryTicket.companyName || null,
+          companyId: group.primaryTicket.companyId || null,
+          deviceHostname: result.deviceVerification?.device?.hostname || null,
+          mergeRecommended: mergeInfo?.shouldMerge || false,
+          mergeSurvivingTicket: mergeInfo?.survivingTicketNumber || null,
+          escalationRecommended: escalationInfo?.recommended || false,
+          escalationUrgency: escalationInfo?.urgency || null,
+          riskLevel: result.actionPlan?.humanGuidance?.riskLevel || null,
+          ticketNumbers: group.tickets.map(t => t.ticketNumber),
         },
       });
     } catch (err) {
@@ -306,10 +318,28 @@ async function processIncidentGroup(
     );
   }
 
+  // Generate action plan (for both correlated groups and suspicious single tickets)
+  let actionPlan: IncidentActionPlan | undefined;
+  if (finalVerdict !== 'false_positive' || group.tickets.length > 1) {
+    try {
+      onAiCall();
+      actionPlan = await generateActionPlan(
+        group, finalVerdict, finalConfidence, finalReasoning, deviceVerification, config.screening_model,
+      );
+      // If action plan generated a better note, use it
+      if (actionPlan.proposedActions.internalNote) {
+        finalNote = actionPlan.proposedActions.internalNote;
+      }
+    } catch (err) {
+      console.error('[SOC] Action plan generation failed:', err);
+      // Non-fatal — triage result is still valid without action plan
+    }
+  }
+
   // Create incident record for correlated groups
   let incidentId: string | undefined;
   if (group.tickets.length > 1) {
-    incidentId = await createIncident(group, finalVerdict, finalConfidence, finalReasoning);
+    incidentId = await createIncident(group, finalVerdict, finalConfidence, finalReasoning, actionPlan);
   }
 
   // Add Autotask note (unless dry run)
@@ -331,6 +361,7 @@ async function processIncidentGroup(
     aiModel: finalModel,
     tokensUsed: totalTokens,
     incidentId,
+    actionPlan,
   };
 }
 
@@ -416,6 +447,35 @@ async function runDeepAnalysis(
   }
 }
 
+// ── Action Plan Generation ──
+
+async function generateActionPlan(
+  group: IncidentGroup,
+  verdict: string,
+  confidence: number,
+  reasoning: string,
+  deviceVerification: DeviceVerification | null,
+  model: string,
+): Promise<IncidentActionPlan> {
+  const prompt = buildActionPlanPrompt(
+    group.tickets, group.reason, verdict, confidence, reasoning, deviceVerification,
+  );
+
+  const response = await trackAnthropicCall('soc_action_plan', model, () =>
+    anthropic.messages.create({
+      model,
+      max_tokens: 2048,
+      temperature: 0,
+      messages: [{ role: 'user', content: prompt }],
+    })
+  );
+
+  const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
+  if (!text) throw new Error('AI returned empty action plan');
+  const jsonText = text.replace(/^```json\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
+  return JSON.parse(jsonText) as IncidentActionPlan;
+}
+
 // ── Helpers ──
 
 function determineAction(
@@ -442,21 +502,34 @@ async function createIncident(
   verdict: Verdict,
   confidence: number,
   reasoning: string,
+  actionPlan?: IncidentActionPlan,
 ): Promise<string> {
+  const title = actionPlan?.proposedActions?.merge?.proposedTitle
+    || `${group.tickets.length} correlated alerts: ${group.primaryTicket.title.slice(0, 100)}`;
+  const summary = actionPlan?.incidentSummary || reasoning.slice(0, 2000);
+  const companyName = group.primaryTicket.companyName || null;
+
   const result = await prisma.$queryRaw<[{ id: string }]>`
-    INSERT INTO soc_incidents (id, title, "companyId", "alertSource", "ticketCount", verdict, "confidenceScore", "aiSummary", "correlationReason", "primaryTicketId", status)
+    INSERT INTO soc_incidents (
+      id, title, "companyId", "companyName", "alertSource", "ticketCount",
+      verdict, "confidenceScore", "aiSummary", "correlationReason",
+      "primaryTicketId", status, "proposedActions", "humanGuidance"
+    )
     VALUES (
       gen_random_uuid()::text,
-      ${`${group.tickets.length} correlated alerts: ${group.primaryTicket.title.slice(0, 100)}`},
+      ${title},
       ${group.primaryTicket.companyId},
+      ${companyName},
       ${detectAlertSource(group.primaryTicket)},
       ${group.tickets.length},
       ${verdict},
       ${confidence},
-      ${reasoning.slice(0, 2000)},
+      ${summary},
       ${group.reason},
       ${group.primaryTicket.autotaskTicketId},
-      ${'open'}
+      ${'open'},
+      ${actionPlan?.proposedActions ? JSON.stringify(actionPlan.proposedActions) : null}::jsonb,
+      ${actionPlan?.humanGuidance ? JSON.stringify(actionPlan.humanGuidance) : null}::jsonb
     )
     RETURNING id
   `;

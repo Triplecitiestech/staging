@@ -73,6 +73,12 @@ export async function POST(request: Request) {
     `);
     await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_soc_incidents_status ON soc_incidents (status, "createdAt")`);
     await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_soc_incidents_company ON soc_incidents ("companyId")`);
+    // Add columns for action plan (safe if they already exist)
+    try {
+      await prisma.$executeRawUnsafe(`ALTER TABLE soc_incidents ADD COLUMN IF NOT EXISTS "proposedActions" JSONB`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE soc_incidents ADD COLUMN IF NOT EXISTS "humanGuidance" JSONB`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE soc_incidents ADD COLUMN IF NOT EXISTS "companyName" TEXT`);
+    } catch { /* columns may already exist */ }
     created.push('soc_incidents');
 
     // 3. Full audit trail

@@ -24,16 +24,42 @@ export async function GET(
     return NextResponse.json({ error: 'Incident not found' }, { status: 404 });
   }
 
+  // Get analyses with full ticket context (company, status, priority, queue, etc.)
   const analyses = await prisma.$queryRaw<Array<Record<string, unknown>>>`
-    SELECT * FROM soc_ticket_analysis WHERE "incidentId" = ${id} ORDER BY "createdAt" ASC
+    SELECT
+      sa.*,
+      t.title as "ticketTitle",
+      t.description as "ticketDescription",
+      t.status as "ticketStatus",
+      t."statusLabel" as "ticketStatusLabel",
+      t.priority as "ticketPriority",
+      t."priorityLabel" as "ticketPriorityLabel",
+      t."queueId" as "ticketQueueId",
+      t."queueLabel" as "ticketQueueLabel",
+      t.source as "ticketSource",
+      t."sourceLabel" as "ticketSourceLabel",
+      t."createDate"::text as "ticketCreateDate",
+      c."displayName" as "companyName",
+      c.slug as "companySlug"
+    FROM soc_ticket_analysis sa
+    LEFT JOIN tickets t ON t."autotaskTicketId" = sa."autotaskTicketId"
+    LEFT JOIN companies c ON c.id = sa."companyId"
+    WHERE sa."incidentId" = ${id}
+    ORDER BY sa."createdAt" ASC
   `;
 
   const activityLog = await prisma.$queryRaw<Array<Record<string, unknown>>>`
     SELECT * FROM soc_activity_log WHERE "incidentId" = ${id} ORDER BY "createdAt" ASC
   `;
 
+  // Enrich incident with company name from analyses if not already set
+  const incident = incidents[0] as Record<string, unknown>;
+  if (!incident.companyName && analyses.length > 0) {
+    incident.companyName = (analyses[0] as Record<string, unknown>).companyName;
+  }
+
   return NextResponse.json({
-    incident: incidents[0],
+    incident,
     analyses,
     activityLog,
   });

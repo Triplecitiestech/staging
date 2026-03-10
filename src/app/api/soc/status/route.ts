@@ -46,12 +46,11 @@ export async function GET() {
       SELECT COUNT(*) as count FROM soc_ticket_analysis WHERE status = 'pending'
     `;
 
-    // Recent incidents
-    const recentIncidents = await prisma.$queryRaw<Array<{
-      id: string; title: string; ticketCount: number; verdict: string | null;
-      confidenceScore: number | null; status: string; createdAt: Date;
-    }>>`
-      SELECT id, title, "ticketCount", verdict, "confidenceScore", status, "createdAt"
+    // Recent incidents with action plan data
+    const recentIncidents = await prisma.$queryRaw<Array<Record<string, unknown>>>`
+      SELECT id, title, "ticketCount", verdict, "confidenceScore", status, "createdAt",
+             "companyName", "deviceHostname", "alertSource", "correlationReason",
+             "proposedActions", "humanGuidance"
       FROM soc_incidents
       ORDER BY "createdAt" DESC
       LIMIT 5

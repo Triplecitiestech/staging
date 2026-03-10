@@ -44,6 +44,7 @@ export async function POST(request: NextRequest) {
           t."autotaskTicketId",
           t."ticketNumber",
           t."companyId",
+          c."displayName" as "companyName",
           t.title,
           t.description,
           t.status,
@@ -56,6 +57,7 @@ export async function POST(request: NextRequest) {
           t."sourceLabel",
           t."createDate"::text as "createDate"
         FROM tickets t
+        LEFT JOIN companies c ON c.id = t."companyId"
         WHERE t."autotaskTicketId" = ANY(${ticketIds})
       `;
     } else {
@@ -66,6 +68,7 @@ export async function POST(request: NextRequest) {
           t."autotaskTicketId",
           t."ticketNumber",
           t."companyId",
+          c."displayName" as "companyName",
           t.title,
           t.description,
           t.status,
@@ -78,6 +81,7 @@ export async function POST(request: NextRequest) {
           t."sourceLabel",
           t."createDate"::text as "createDate"
         FROM tickets t
+        LEFT JOIN companies c ON c.id = t."companyId"
         WHERE NOT EXISTS (
           SELECT 1 FROM soc_ticket_analysis sa
           WHERE sa."autotaskTicketId" = t."autotaskTicketId"

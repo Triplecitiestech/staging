@@ -207,6 +207,48 @@ export interface TriageResult {
   aiModel: string;
   tokensUsed: number;
   incidentId?: string;
+  actionPlan?: IncidentActionPlan;
+}
+
+// ── Proposed Actions (Dry Run Preview) ──
+
+export interface ProposedMerge {
+  shouldMerge: boolean;
+  survivingTicketId: string;
+  survivingTicketNumber: string;
+  mergeTicketIds: string[];
+  mergeTicketNumbers: string[];
+  proposedTitle: string;
+  mergeReasoning: string;
+}
+
+export interface ProposedAutotaskActions {
+  merge: ProposedMerge | null;
+  internalNote: string;
+  statusChange: { from: string; to: string } | null;
+  priorityChange: { from: string; to: string } | null;
+  queueChange: { from: string; to: string } | null;
+  escalation: {
+    recommended: boolean;
+    targetQueue: string | null;
+    targetResource: string | null;
+    urgency: 'routine' | 'urgent' | 'critical';
+    reason: string;
+  } | null;
+}
+
+export interface HumanGuidance {
+  summary: string;
+  steps: string[];
+  draftCustomerMessage: string | null;
+  riskLevel: 'none' | 'low' | 'medium' | 'high' | 'critical';
+}
+
+export interface IncidentActionPlan {
+  incidentSummary: string;
+  proposedActions: ProposedAutotaskActions;
+  humanGuidance: HumanGuidance;
+  supportingReasoning: string;
 }
 
 // ── Config ──

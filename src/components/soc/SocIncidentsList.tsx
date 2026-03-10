@@ -3,17 +3,31 @@
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 
+interface ProposedActions {
+  merge: { shouldMerge: boolean; survivingTicketNumber: string } | null
+  escalation: { recommended: boolean; urgency: string } | null
+}
+
+interface HumanGuidance {
+  riskLevel: string
+}
+
 interface Incident {
   id: string
   title: string
   companyId: string | null
+  companyName: string | null
+  deviceHostname: string | null
   alertSource: string | null
   ticketCount: number
   verdict: string | null
   confidenceScore: number | null
+  correlationReason: string | null
   status: string
   createdAt: string
   resolvedAt: string | null
+  proposedActions: ProposedActions | null
+  humanGuidance: HumanGuidance | null
 }
 
 export default function SocIncidentsList() {
@@ -65,6 +79,17 @@ export default function SocIncidentsList() {
     return <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${colors[s] || 'bg-slate-500/20 text-slate-400'}`}>{s}</span>
   }
 
+  const riskBadge = (level: string | undefined) => {
+    if (!level || level === 'none') return null
+    const colors: Record<string, string> = {
+      low: 'text-green-400',
+      medium: 'text-cyan-400',
+      high: 'text-rose-400',
+      critical: 'text-red-400',
+    }
+    return <span className={`text-xs font-medium ${colors[level] || 'text-slate-400'}`}>{level} risk</span>
+  }
+
   return (
     <div className="space-y-4">
       {/* Filters */}
@@ -81,7 +106,7 @@ export default function SocIncidentsList() {
         </select>
       </div>
 
-      {/* Table */}
+      {/* List */}
       <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg overflow-hidden">
         {loading ? (
           <div className="flex items-center justify-center py-12">
@@ -90,41 +115,67 @@ export default function SocIncidentsList() {
         ) : incidents.length === 0 ? (
           <div className="p-8 text-center text-slate-400">No incidents found.</div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-white/10">
-                  <th className="text-left px-4 py-3 text-xs font-medium text-slate-400 uppercase">Incident</th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-slate-400 uppercase hidden md:table-cell">Source</th>
-                  <th className="text-center px-4 py-3 text-xs font-medium text-slate-400 uppercase">Tickets</th>
-                  <th className="text-center px-4 py-3 text-xs font-medium text-slate-400 uppercase">Verdict</th>
-                  <th className="text-center px-4 py-3 text-xs font-medium text-slate-400 uppercase hidden sm:table-cell">Confidence</th>
-                  <th className="text-center px-4 py-3 text-xs font-medium text-slate-400 uppercase">Status</th>
-                  <th className="text-right px-4 py-3 text-xs font-medium text-slate-400 uppercase">Created</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/5">
-                {incidents.map(inc => (
-                  <tr key={inc.id} className="hover:bg-white/5 transition-colors">
-                    <td className="px-4 py-3">
-                      <Link href={`/admin/soc/incidents/${inc.id}`} className="text-white hover:text-cyan-400 font-medium truncate block max-w-xs">
-                        {inc.title}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3 text-slate-400 hidden md:table-cell">{inc.alertSource || '-'}</td>
-                    <td className="px-4 py-3 text-center text-white">{inc.ticketCount}</td>
-                    <td className="px-4 py-3 text-center">{verdictBadge(inc.verdict)}</td>
-                    <td className="px-4 py-3 text-center text-slate-400 hidden sm:table-cell">
-                      {inc.confidenceScore != null ? `${Math.round(inc.confidenceScore * 100)}%` : '-'}
-                    </td>
-                    <td className="px-4 py-3 text-center">{statusBadge(inc.status)}</td>
-                    <td className="px-4 py-3 text-right text-slate-500 text-xs">
+          <div className="divide-y divide-white/5">
+            {incidents.map(inc => {
+              const merge = inc.proposedActions?.merge
+              const escalation = inc.proposedActions?.escalation
+              return (
+                <Link
+                  key={inc.id}
+                  href={`/admin/soc/incidents/${inc.id}`}
+                  className="block p-4 hover:bg-white/5 transition-colors"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-medium text-white truncate">{inc.title}</span>
+                        {verdictBadge(inc.verdict)}
+                        {statusBadge(inc.status)}
+                      </div>
+                      <div className="flex items-center gap-3 mt-1.5 text-xs text-slate-500 flex-wrap">
+                        {inc.companyName && (
+                          <span className="text-cyan-400">{inc.companyName}</span>
+                        )}
+                        {inc.deviceHostname && (
+                          <span>Device: {inc.deviceHostname}</span>
+                        )}
+                        <span>{inc.ticketCount} tickets</span>
+                        {inc.correlationReason && (
+                          <span className="capitalize">{inc.correlationReason.replace(/_/g, ' ')}</span>
+                        )}
+                        {inc.alertSource && inc.alertSource !== 'unknown' && (
+                          <span>Source: {inc.alertSource.replace(/_/g, ' ')}</span>
+                        )}
+                        {inc.confidenceScore != null && (
+                          <span>{Math.round(inc.confidenceScore * 100)}% confidence</span>
+                        )}
+                      </div>
+                      {/* Action indicators */}
+                      <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                        {merge?.shouldMerge && (
+                          <span className="px-1.5 py-0.5 text-[10px] font-medium bg-cyan-500/20 text-cyan-400 rounded">
+                            MERGE → #{merge.survivingTicketNumber}
+                          </span>
+                        )}
+                        {escalation?.recommended && (
+                          <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${
+                            escalation.urgency === 'critical' ? 'bg-red-500/20 text-red-400'
+                            : escalation.urgency === 'urgent' ? 'bg-rose-500/20 text-rose-400'
+                            : 'bg-slate-500/20 text-slate-400'
+                          }`}>
+                            ESCALATE {escalation.urgency.toUpperCase()}
+                          </span>
+                        )}
+                        {riskBadge(inc.humanGuidance?.riskLevel)}
+                      </div>
+                    </div>
+                    <span className="text-xs text-slate-500 flex-shrink-0">
                       {new Date(inc.createdAt).toLocaleDateString()}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    </span>
+                  </div>
+                </Link>
+              )
+            })}
           </div>
         )}
       </div>
