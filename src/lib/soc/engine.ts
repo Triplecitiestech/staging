@@ -318,22 +318,34 @@ async function processIncidentGroup(
     );
   }
 
-  // Generate action plan (for both correlated groups and suspicious single tickets)
+  // Generate action plan for ALL incidents — always produce a complete dry-run preview
   let actionPlan: IncidentActionPlan | undefined;
-  if (finalVerdict !== 'false_positive' || group.tickets.length > 1) {
-    try {
-      onAiCall();
-      actionPlan = await generateActionPlan(
-        group, finalVerdict, finalConfidence, finalReasoning, deviceVerification, config.screening_model,
-      );
-      // If action plan generated a better note, use it
-      if (actionPlan.proposedActions.internalNote) {
-        finalNote = actionPlan.proposedActions.internalNote;
-      }
-    } catch (err) {
-      console.error('[SOC] Action plan generation failed:', err);
-      // Non-fatal — triage result is still valid without action plan
+  try {
+    onAiCall();
+    actionPlan = await generateActionPlan(
+      group, finalVerdict, finalConfidence, finalReasoning, deviceVerification, config.screening_model,
+    );
+    // If action plan generated a better note, use it
+    if (actionPlan.proposedActions.internalNote) {
+      finalNote = actionPlan.proposedActions.internalNote;
     }
+    // Enforce: never allow AI to invent queue changes
+    if (actionPlan.proposedActions.queueChange) {
+      actionPlan.proposedActions.queueChange = null;
+    }
+  } catch (err) {
+    console.error('[SOC] Action plan generation failed:', err);
+    // Log the failure explicitly so it's visible in the activity feed
+    await logActivity({
+      analysisId: null,
+      incidentId: null,
+      autotaskTicketId: primary.autotaskTicketId,
+      action: 'error',
+      detail: `Action plan generation failed: ${err instanceof Error ? err.message : String(err)}`,
+      aiReasoning: null,
+      confidenceScore: null,
+      metadata: { ticketNumber: primary.ticketNumber, phase: 'action_plan' },
+    });
   }
 
   // Create incident record for every analyzed group (single or correlated)
@@ -341,6 +353,7 @@ async function processIncidentGroup(
 
   // Create pending actions for human approval (unless dry run)
   if (!config.dry_run && finalConfidence >= config.confidence_floor) {
+    // 1. Internal note action
     await createPendingAction({
       incidentId: incidentId,
       autotaskTicketId: primary.autotaskTicketId,
@@ -354,6 +367,27 @@ async function processIncidentGroup(
       },
       previewSummary: `Add internal note to ticket #${primary.ticketNumber} (${primary.companyName || 'Unknown Company'}): "${finalNote.slice(0, 150)}${finalNote.length > 150 ? '...' : ''}"`,
     });
+
+    // 2. Customer communication action (if the action plan calls for it)
+    if (actionPlan?.customerCommunication?.required && actionPlan.customerCommunication.message) {
+      await createPendingAction({
+        incidentId: incidentId,
+        autotaskTicketId: primary.autotaskTicketId,
+        ticketNumber: primary.ticketNumber,
+        companyName: primary.companyName || null,
+        actionType: 'send_customer_message',
+        actionPayload: {
+          noteTitle: 'SOC Security Alert - Action Required',
+          noteBody: actionPlan.customerCommunication.message,
+          notePublish: 1, // Customer-visible (All Autotask Users)
+          recipient: actionPlan.customerCommunication.recipient,
+          setStatusWaitingCustomer: actionPlan.customerCommunication.setStatusWaitingCustomer,
+          followUpDays: actionPlan.customerCommunication.followUpDays,
+          followUpMessage: actionPlan.customerCommunication.followUpMessage,
+        },
+        previewSummary: `Send customer message on ticket #${primary.ticketNumber} to ${actionPlan.customerCommunication.recipient || 'primary contact'} at ${primary.companyName || 'Unknown Company'} and set status to Waiting Customer`,
+      });
+    }
   }
 
   return {
@@ -524,7 +558,8 @@ async function createIncident(
     INSERT INTO soc_incidents (
       id, title, "companyId", "companyName", "alertSource", "ticketCount",
       verdict, "confidenceScore", "aiSummary", "correlationReason",
-      "primaryTicketId", status, "proposedActions", "humanGuidance"
+      "primaryTicketId", status, "proposedActions", "humanGuidance",
+      "customerCommunication", "nextCycleChecks"
     )
     VALUES (
       gen_random_uuid()::text,
@@ -540,7 +575,9 @@ async function createIncident(
       ${group.primaryTicket.autotaskTicketId},
       ${'open'},
       ${actionPlan?.proposedActions ? JSON.stringify(actionPlan.proposedActions) : null}::jsonb,
-      ${actionPlan?.humanGuidance ? JSON.stringify(actionPlan.humanGuidance) : null}::jsonb
+      ${actionPlan?.humanGuidance ? JSON.stringify(actionPlan.humanGuidance) : null}::jsonb,
+      ${actionPlan?.customerCommunication ? JSON.stringify(actionPlan.customerCommunication) : null}::jsonb,
+      ${actionPlan?.nextCycleChecks ? JSON.stringify(actionPlan.nextCycleChecks) : null}::jsonb
     )
     RETURNING id
   `;

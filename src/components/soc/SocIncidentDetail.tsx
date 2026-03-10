@@ -95,6 +95,10 @@ interface PendingAction {
     targetResource?: string
     urgency?: string
     reason?: string
+    recipient?: string
+    setStatusWaitingCustomer?: boolean
+    followUpDays?: number
+    followUpMessage?: string
   }
   previewSummary: string
   status: string
@@ -130,6 +134,19 @@ interface Incident {
   resolvedAt: string | null
   proposedActions: ProposedActions | null
   humanGuidance: HumanGuidance | null
+  customerCommunication: {
+    required: boolean
+    recipient: string | null
+    method: string
+    message: string | null
+    setStatusWaitingCustomer: boolean
+    followUpDays: number | null
+    followUpMessage: string | null
+    approvalAction: string | null
+    denialAction: string | null
+    escalationTrigger: string | null
+  } | null
+  nextCycleChecks: string[] | null
 }
 
 export default function SocIncidentDetail({ incidentId }: { incidentId: string }) {
@@ -265,6 +282,8 @@ export default function SocIncidentDetail({ incidentId }: { incidentId: string }
 
   const pa = incident.proposedActions
   const hg = incident.humanGuidance
+  const cc = incident.customerCommunication
+  const ncc = incident.nextCycleChecks
 
   // Group ticket notes by ticketId for display
   const notesByTicket: Record<string, TicketNote[]> = {}
@@ -624,6 +643,46 @@ export default function SocIncidentDetail({ incidentId }: { incidentId: string }
                           </div>
                         </>
                       )}
+                      {action.actionType === 'send_customer_message' && (
+                        <>
+                          <div className="flex items-center gap-2 text-xs">
+                            <span className="text-slate-500">Action:</span>
+                            <span className="text-white">Send customer-visible note to ticket #{action.ticketNumber}</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs">
+                            <span className="text-slate-500">Recipient:</span>
+                            <span className="text-violet-400">{action.actionPayload.recipient || 'Primary IT Contact'}</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs">
+                            <span className="text-slate-500">Sent via:</span>
+                            <span className="text-cyan-400 font-mono">{autotaskApiUser || 'Autotask API'}</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs">
+                            <span className="text-slate-500">Visibility:</span>
+                            <span className="text-violet-400">Customer-Visible (All Autotask Users)</span>
+                          </div>
+                          {action.actionPayload.setStatusWaitingCustomer && (
+                            <div className="flex items-center gap-2 text-xs">
+                              <span className="text-slate-500">Status Change:</span>
+                              <span className="text-violet-400">Will set to Waiting Customer</span>
+                            </div>
+                          )}
+                          <div className="mt-2">
+                            <span className="text-xs text-slate-500">Customer Message:</span>
+                            <pre className="text-xs text-slate-300 whitespace-pre-wrap font-mono mt-1 bg-black/40 p-3 rounded max-h-[200px] overflow-y-auto border border-violet-500/20">
+                              {action.actionPayload.noteBody}
+                            </pre>
+                          </div>
+                          {action.actionPayload.followUpMessage && (
+                            <div className="mt-2">
+                              <span className="text-xs text-slate-500">Follow-up ({action.actionPayload.followUpDays || 5} days):</span>
+                              <pre className="text-xs text-slate-400 whitespace-pre-wrap font-mono mt-1 bg-black/20 p-2 rounded">
+                                {action.actionPayload.followUpMessage}
+                              </pre>
+                            </div>
+                          )}
+                        </>
+                      )}
                       {action.actionType === 'status_change' && (
                         <div className="flex items-center gap-2 text-xs">
                           <span className="text-slate-500">Change ticket status:</span>
@@ -720,6 +779,94 @@ export default function SocIncidentDetail({ incidentId }: { incidentId: string }
           )}
         </div>
       </Section>
+
+      {/* ═══ Section 4b: Customer Communication Plan ═══ */}
+      {cc && cc.required && (
+        <Section title="Customer Communication" subtitle="AI-drafted customer outreach — sent via Autotask ticket note">
+          <div className="p-4 space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="bg-black/30 rounded-lg p-3">
+                <p className="text-xs text-slate-500 mb-1">Recipient</p>
+                <p className="text-sm text-white">{cc.recipient || 'Primary IT Contact'}</p>
+              </div>
+              <div className="bg-black/30 rounded-lg p-3">
+                <p className="text-xs text-slate-500 mb-1">Method</p>
+                <p className="text-sm text-white">Autotask Ticket Note (Customer-Visible)</p>
+              </div>
+              {cc.setStatusWaitingCustomer && (
+                <div className="bg-black/30 rounded-lg p-3">
+                  <p className="text-xs text-slate-500 mb-1">Status Change</p>
+                  <p className="text-sm text-violet-400">Set to Waiting Customer</p>
+                </div>
+              )}
+              {cc.followUpDays && (
+                <div className="bg-black/30 rounded-lg p-3">
+                  <p className="text-xs text-slate-500 mb-1">Follow-Up</p>
+                  <p className="text-sm text-white">{cc.followUpDays} business days if no response</p>
+                </div>
+              )}
+            </div>
+
+            {/* Customer message preview */}
+            <div className="space-y-2">
+              <h4 className="text-sm font-medium text-white">Customer Message (Exact Text)</h4>
+              <div className="bg-black/30 rounded-lg p-4 border border-violet-500/20">
+                <pre className="text-sm text-slate-300 whitespace-pre-wrap font-mono">{cc.message}</pre>
+              </div>
+            </div>
+
+            {/* Follow-up message */}
+            {cc.followUpMessage && (
+              <div className="space-y-2">
+                <h4 className="text-xs font-medium text-slate-400">Follow-Up Message (if no response)</h4>
+                <div className="bg-black/20 rounded-lg p-3">
+                  <pre className="text-xs text-slate-400 whitespace-pre-wrap font-mono">{cc.followUpMessage}</pre>
+                </div>
+              </div>
+            )}
+
+            {/* Response handling */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {cc.approvalAction && (
+                <div className="bg-green-500/5 border border-green-500/20 rounded-lg p-3">
+                  <p className="text-xs text-green-400 font-medium mb-1">If Customer Approves</p>
+                  <p className="text-xs text-slate-300">{cc.approvalAction}</p>
+                </div>
+              )}
+              {cc.denialAction && (
+                <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg p-3">
+                  <p className="text-xs text-blue-400 font-medium mb-1">If Customer Denies</p>
+                  <p className="text-xs text-slate-300">{cc.denialAction}</p>
+                </div>
+              )}
+              {cc.escalationTrigger && (
+                <div className="bg-rose-500/5 border border-rose-500/20 rounded-lg p-3">
+                  <p className="text-xs text-rose-400 font-medium mb-1">Escalation Trigger</p>
+                  <p className="text-xs text-slate-300">{cc.escalationTrigger}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </Section>
+      )}
+
+      {/* ═══ Section 4c: Next Cycle Checks ═══ */}
+      {ncc && ncc.length > 0 && (
+        <Section title="Next Cycle Automation" subtitle="What the AI will check on subsequent monitoring cycles">
+          <div className="p-4">
+            <ol className="space-y-2">
+              {ncc.map((check, i) => (
+                <li key={i} className="flex items-start gap-3">
+                  <span className="flex-shrink-0 w-6 h-6 rounded-full bg-violet-500/20 text-violet-400 text-xs font-medium flex items-center justify-center mt-0.5">
+                    {i + 1}
+                  </span>
+                  <span className="text-sm text-slate-300">{check}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </Section>
+      )}
 
       {/* ═══ Section 5: Supporting Reasoning ═══ */}
       {incident.aiSummary && (

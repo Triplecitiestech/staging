@@ -118,10 +118,35 @@ export async function PUT(request: NextRequest) {
   // Execute the approved action
   try {
     if (action.actionType === 'add_note') {
+      // Internal note — publish type 2 (Internal Only)
       await addAutotaskNote(
         String(action.autotaskTicketId),
         String(payload.noteBody || ''),
       );
+    } else if (action.actionType === 'send_customer_message') {
+      // Customer-facing note via Autotask API — publish type 1 (All Autotask Users = visible to customer)
+      const { AutotaskClient } = await import('@/lib/autotask');
+      const client = new AutotaskClient();
+      await client.createTicketNote(parseInt(String(action.autotaskTicketId), 10), {
+        title: String(payload.noteTitle || 'SOC Security Alert - Action Required'),
+        description: String(payload.noteBody || ''),
+        noteType: 1,
+        publish: 1, // All Autotask Users (customer-visible)
+      });
+
+      // Set ticket status to Waiting Customer if requested
+      if (payload.setStatusWaitingCustomer) {
+        // Log the status change intent (actual Autotask ticket PATCH may not work per CLAUDE.md)
+        await prisma.$executeRawUnsafe(`
+          INSERT INTO soc_activity_log (id, "incidentId", "autotaskTicketId", action, detail, metadata)
+          VALUES (gen_random_uuid()::text, $1, $2, 'status_change_requested', $3, $4::jsonb)
+        `,
+          action.incidentId,
+          action.autotaskTicketId,
+          `Requested status change to Waiting Customer for ticket #${String(action.ticketNumber)}`,
+          JSON.stringify({ from: 'current', to: 'Waiting Customer', actionType: 'send_customer_message' }),
+        );
+      }
     }
 
     await prisma.$executeRawUnsafe(`

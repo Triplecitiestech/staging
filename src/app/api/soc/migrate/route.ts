@@ -78,6 +78,8 @@ export async function POST(request: Request) {
       await prisma.$executeRawUnsafe(`ALTER TABLE soc_incidents ADD COLUMN IF NOT EXISTS "proposedActions" JSONB`);
       await prisma.$executeRawUnsafe(`ALTER TABLE soc_incidents ADD COLUMN IF NOT EXISTS "humanGuidance" JSONB`);
       await prisma.$executeRawUnsafe(`ALTER TABLE soc_incidents ADD COLUMN IF NOT EXISTS "companyName" TEXT`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE soc_incidents ADD COLUMN IF NOT EXISTS "customerCommunication" JSONB`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE soc_incidents ADD COLUMN IF NOT EXISTS "nextCycleChecks" JSONB`);
     } catch { /* columns may already exist */ }
     created.push('soc_incidents');
 
@@ -195,6 +197,34 @@ export async function POST(request: Request) {
     await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_soc_pending_status ON soc_pending_actions (status, "createdAt")`);
     await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_soc_pending_incident ON soc_pending_actions ("incidentId")`);
     created.push('soc_pending_actions');
+
+    // 9. Communication lifecycle tracking
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS soc_communications (
+        id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        "incidentId" TEXT NOT NULL,
+        "autotaskTicketId" TEXT NOT NULL,
+        "ticketNumber" TEXT,
+        "companyName" TEXT,
+        direction TEXT NOT NULL DEFAULT 'outbound',
+        "messageType" TEXT NOT NULL DEFAULT 'customer_notification',
+        recipient TEXT,
+        subject TEXT,
+        body TEXT NOT NULL,
+        "autotaskNoteId" TEXT,
+        "sentAt" TIMESTAMP,
+        "replyReceivedAt" TIMESTAMP,
+        "replyBody" TEXT,
+        "replyParsedResult" TEXT,
+        "followUpDueAt" TIMESTAMP,
+        "followUpSentAt" TIMESTAMP,
+        status TEXT NOT NULL DEFAULT 'draft',
+        "createdAt" TIMESTAMP DEFAULT now()
+      )
+    `);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_soc_comms_incident ON soc_communications ("incidentId")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_soc_comms_status ON soc_communications (status, "followUpDueAt")`);
+    created.push('soc_communications');
 
     // Seed default config values
     const defaults = [

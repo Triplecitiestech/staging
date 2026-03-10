@@ -244,16 +244,31 @@ export interface HumanGuidance {
   riskLevel: 'none' | 'low' | 'medium' | 'high' | 'critical';
 }
 
+export interface CustomerCommunication {
+  required: boolean;
+  recipient: string | null;
+  method: string;
+  message: string | null;
+  setStatusWaitingCustomer: boolean;
+  followUpDays: number | null;
+  followUpMessage: string | null;
+  approvalAction: string | null;
+  denialAction: string | null;
+  escalationTrigger: string | null;
+}
+
 export interface IncidentActionPlan {
   incidentSummary: string;
   proposedActions: ProposedAutotaskActions;
   humanGuidance: HumanGuidance;
+  customerCommunication?: CustomerCommunication;
+  nextCycleChecks?: string[];
   supportingReasoning: string;
 }
 
 // ── Pending Actions (Human Approval Queue) ──
 
-export type PendingActionType = 'add_note' | 'status_change' | 'priority_change' | 'queue_change' | 'escalation';
+export type PendingActionType = 'add_note' | 'send_customer_message' | 'status_change' | 'priority_change' | 'queue_change' | 'escalation';
 export type PendingActionStatus = 'pending' | 'approved' | 'rejected' | 'executed' | 'failed';
 
 export interface PendingActionPayload {
