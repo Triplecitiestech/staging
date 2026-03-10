@@ -726,11 +726,26 @@ async function handleCleanup() {
 
     for (const company of toDelete) {
       try {
-        // Try to delete contacts if the table exists
-        try {
-          await prisma.$executeRaw`DELETE FROM company_contacts WHERE "companyId" = ${company.id}`;
-        } catch {
-          // Table may not exist — that's fine
+        // Delete all dependent records before removing the company
+        // Each wrapped in try/catch in case the table doesn't exist yet
+        const dependentTables = [
+          { table: 'company_contacts', col: 'companyId' },
+          { table: 'tickets', col: 'companyId' },
+          { table: 'ticket_lifecycle', col: 'companyId' },
+          { table: 'company_metrics_daily', col: 'companyId' },
+          { table: 'customer_health_scores', col: 'companyId' },
+          { table: 'business_reviews', col: 'companyId' },
+        ];
+
+        for (const dep of dependentTables) {
+          try {
+            await prisma.$executeRawUnsafe(
+              `DELETE FROM ${dep.table} WHERE "${dep.col}" = $1`,
+              company.id
+            );
+          } catch {
+            // Table may not exist — that's fine
+          }
         }
 
         await prisma.$executeRaw`DELETE FROM companies WHERE id = ${company.id}`;
