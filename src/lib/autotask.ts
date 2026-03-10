@@ -762,14 +762,29 @@ export class AutotaskClient {
     noteType?: number;
     publish?: number; // 1=All/External, 2=Internal
   }): Promise<AutotaskTicketNote> {
-    const result = await this.post<{ item: AutotaskTicketNote }>('TicketNotes', {
+    const payload = {
       ticketID: ticketId,
       title: data.title,
       description: data.description,
       noteType: data.noteType || 1,
       publish: data.publish || 1, // Default to external/customer-visible
-    });
-    return result.item;
+    };
+
+    // Try child entity path first (most reliable for this Autotask instance)
+    try {
+      const result = await this.post<{ item: AutotaskTicketNote }>(
+        `Tickets/${ticketId}/Notes`,
+        payload
+      );
+      return result.item;
+    } catch {
+      // Fallback to top-level TicketNotes entity
+      const result = await this.post<{ item: AutotaskTicketNote }>(
+        'TicketNotes',
+        payload
+      );
+      return result.item;
+    }
   }
 
   /**
