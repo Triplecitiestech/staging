@@ -174,6 +174,28 @@ export async function POST(request: Request) {
     await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS idx_soc_job_name ON soc_job_status ("jobName")`);
     created.push('soc_job_status');
 
+    // 8. Pending actions (human approval queue)
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS soc_pending_actions (
+        id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        "incidentId" TEXT NOT NULL,
+        "autotaskTicketId" TEXT NOT NULL,
+        "ticketNumber" TEXT,
+        "companyName" TEXT,
+        "actionType" TEXT NOT NULL,
+        "actionPayload" JSONB NOT NULL,
+        "previewSummary" TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        "decidedBy" TEXT,
+        "decidedAt" TIMESTAMP,
+        "executionResult" JSONB,
+        "createdAt" TIMESTAMP DEFAULT now()
+      )
+    `);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_soc_pending_status ON soc_pending_actions (status, "createdAt")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_soc_pending_incident ON soc_pending_actions ("incidentId")`);
+    created.push('soc_pending_actions');
+
     // Seed default config values
     const defaults = [
       ['agent_enabled', 'true'],

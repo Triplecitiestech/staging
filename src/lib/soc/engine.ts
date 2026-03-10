@@ -339,9 +339,21 @@ async function processIncidentGroup(
   // Create incident record for every analyzed group (single or correlated)
   const incidentId = await createIncident(group, finalVerdict, finalConfidence, finalReasoning, actionPlan);
 
-  // Add Autotask note (unless dry run)
+  // Create pending actions for human approval (unless dry run)
   if (!config.dry_run && finalConfidence >= config.confidence_floor) {
-    await addAutotaskNote(primary.autotaskTicketId, finalNote);
+    await createPendingAction({
+      incidentId: incidentId,
+      autotaskTicketId: primary.autotaskTicketId,
+      ticketNumber: primary.ticketNumber,
+      companyName: primary.companyName || null,
+      actionType: 'add_note',
+      actionPayload: {
+        noteTitle: 'SOC AI Triage Analysis',
+        noteBody: finalNote,
+        notePublish: 2, // Internal Only
+      },
+      previewSummary: `Add internal note to ticket #${primary.ticketNumber} (${primary.companyName || 'Unknown Company'}): "${finalNote.slice(0, 150)}${finalNote.length > 150 ? '...' : ''}"`,
+    });
   }
 
   return {
@@ -535,7 +547,45 @@ async function createIncident(
   return result[0].id;
 }
 
-async function addAutotaskNote(ticketId: string, noteText: string): Promise<void> {
+async function createPendingAction(action: {
+  incidentId: string;
+  autotaskTicketId: string;
+  ticketNumber: string;
+  companyName: string | null;
+  actionType: string;
+  actionPayload: Record<string, unknown>;
+  previewSummary: string;
+}): Promise<void> {
+  try {
+    await prisma.$executeRawUnsafe(`
+      INSERT INTO soc_pending_actions (id, "incidentId", "autotaskTicketId", "ticketNumber", "companyName", "actionType", "actionPayload", "previewSummary", status)
+      VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, $6::jsonb, $7, 'pending')
+    `,
+      action.incidentId,
+      action.autotaskTicketId,
+      action.ticketNumber,
+      action.companyName,
+      action.actionType,
+      JSON.stringify(action.actionPayload),
+      action.previewSummary,
+    );
+
+    await logActivity({
+      analysisId: null,
+      incidentId: action.incidentId,
+      autotaskTicketId: action.autotaskTicketId,
+      action: 'action_queued',
+      detail: `Pending approval: ${action.previewSummary.slice(0, 300)}`,
+      aiReasoning: null,
+      confidenceScore: null,
+      metadata: { actionType: action.actionType, ticketNumber: action.ticketNumber, companyName: action.companyName },
+    });
+  } catch (err) {
+    console.error('[SOC] Failed to create pending action:', err);
+  }
+}
+
+export async function addAutotaskNote(ticketId: string, noteText: string): Promise<void> {
   try {
     const { AutotaskClient } = await import('@/lib/autotask');
     const client = new AutotaskClient();
