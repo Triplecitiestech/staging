@@ -90,7 +90,7 @@ const PIPELINE_STEPS: FlowStep[] = [
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
       </svg>
     ),
-    color: 'orange',
+    color: 'rose',
     description: 'Check against suppression and escalation rules',
     details: [
       'Matches tickets against admin-defined rule patterns',
@@ -181,7 +181,7 @@ const colorMap: Record<string, { bg: string; border: string; text: string; glow:
   slate:   { bg: 'bg-slate-500/10',   border: 'border-slate-500/30',   text: 'text-slate-400',   glow: 'shadow-slate-500/20',   dot: 'bg-slate-500',   line: 'bg-slate-500/30' },
   violet:  { bg: 'bg-violet-500/10',  border: 'border-violet-500/30',  text: 'text-violet-400',  glow: 'shadow-violet-500/20',  dot: 'bg-violet-500',  line: 'bg-violet-500/30' },
   blue:    { bg: 'bg-blue-500/10',    border: 'border-blue-500/30',    text: 'text-blue-400',    glow: 'shadow-blue-500/20',    dot: 'bg-blue-500',    line: 'bg-blue-500/30' },
-  orange:  { bg: 'bg-orange-500/10',  border: 'border-orange-500/30',  text: 'text-orange-400',  glow: 'shadow-orange-500/20',  dot: 'bg-orange-500',  line: 'bg-orange-500/30' },
+  orange:  { bg: 'bg-rose-500/10',  border: 'border-rose-500/30',  text: 'text-rose-400',  glow: 'shadow-rose-500/20',  dot: 'bg-rose-500',  line: 'bg-rose-500/30' },
   rose:    { bg: 'bg-rose-500/10',    border: 'border-rose-500/30',    text: 'text-rose-400',    glow: 'shadow-rose-500/20',    dot: 'bg-rose-500',    line: 'bg-rose-500/30' },
   green:   { bg: 'bg-green-500/10',   border: 'border-green-500/30',   text: 'text-green-400',   glow: 'shadow-green-500/20',   dot: 'bg-green-500',   line: 'bg-green-500/30' },
   emerald: { bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', text: 'text-emerald-400', glow: 'shadow-emerald-500/20', dot: 'bg-emerald-500', line: 'bg-emerald-500/30' },
@@ -289,10 +289,10 @@ export default function SocFlowchart() {
                 </div>
                 <p className="text-[11px] text-slate-400">Confidence &gt;= 90% false positive. Recommends closure with full reasoning.</p>
               </div>
-              <div className="bg-orange-500/5 border border-orange-500/20 rounded-lg p-3">
+              <div className="bg-rose-500/5 border border-rose-500/20 rounded-lg p-3">
                 <div className="flex items-center gap-2 mb-1">
-                  <div className="w-2 h-2 rounded-full bg-orange-500" />
-                  <span className="text-xs font-medium text-orange-400">Flag for Review</span>
+                  <div className="w-2 h-2 rounded-full bg-rose-500" />
+                  <span className="text-xs font-medium text-rose-400">Flag for Review</span>
                 </div>
                 <p className="text-[11px] text-slate-400">Confidence 50-90%. Needs quick human verification before action.</p>
               </div>

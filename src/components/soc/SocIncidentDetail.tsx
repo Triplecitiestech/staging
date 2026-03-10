@@ -101,7 +101,7 @@ export default function SocIncidentDetail({ incidentId }: { incidentId: string }
 
   const verdictColors: Record<string, string> = {
     false_positive: 'text-green-400',
-    suspicious: 'text-orange-400',
+    suspicious: 'text-rose-400',
     escalate: 'text-red-400',
   }
 
@@ -201,7 +201,7 @@ export default function SocIncidentDetail({ incidentId }: { incidentId: string }
                     <span className={`px-2 py-0.5 text-xs font-medium rounded-full border ${
                       a.verdict === 'false_positive' ? 'bg-green-500/20 text-green-400 border-green-500/30'
                       : a.verdict === 'escalate' ? 'bg-red-500/20 text-red-400 border-red-500/30'
-                      : 'bg-orange-500/20 text-orange-400 border-orange-500/30'
+                      : 'bg-rose-500/20 text-rose-400 border-rose-500/30'
                     }`}>
                       {a.verdict?.replace('_', ' ') || 'pending'}
                     </span>

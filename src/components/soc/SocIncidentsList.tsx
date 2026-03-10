@@ -46,7 +46,7 @@ export default function SocIncidentsList() {
   const verdictBadge = (verdict: string | null) => {
     const colors: Record<string, string> = {
       false_positive: 'bg-green-500/20 text-green-400 border-green-500/30',
-      suspicious: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
+      suspicious: 'bg-rose-500/20 text-rose-400 border-rose-500/30',
       escalate: 'bg-red-500/20 text-red-400 border-red-500/30',
     }
     return (
