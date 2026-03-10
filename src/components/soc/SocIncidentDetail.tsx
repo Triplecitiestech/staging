@@ -158,6 +158,7 @@ export default function SocIncidentDetail({ incidentId }: { incidentId: string }
   const [pendingActions, setPendingActions] = useState<PendingAction[]>([])
   const [autotaskApiUser, setAutotaskApiUser] = useState<string>('')
   const [decidingAction, setDecidingAction] = useState<string | null>(null)
+  const [approvingAll, setApprovingAll] = useState(false)
   const [loading, setLoading] = useState(true)
   const [overrideVerdict, setOverrideVerdict] = useState('')
   const [overrideStatus, setOverrideStatus] = useState('')
@@ -212,6 +213,30 @@ export default function SocIncidentDetail({ incidentId }: { incidentId: string }
       // ignore
     } finally {
       setDecidingAction(null)
+    }
+  }
+
+  const handleApproveAll = async () => {
+    const pending = pendingActions.filter(a => a.status === 'pending')
+    if (pending.length === 0) return
+    setApprovingAll(true)
+    try {
+      for (const action of pending) {
+        const res = await fetch('/api/soc/pending-actions', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ actionId: action.id, decision: 'approve' }),
+        })
+        if (res.ok) {
+          setPendingActions(prev => prev.map(a =>
+            a.id === action.id ? { ...a, status: 'executed' } : a
+          ))
+        }
+      }
+    } catch {
+      // ignore
+    } finally {
+      setApprovingAll(false)
     }
   }
 
@@ -564,6 +589,24 @@ export default function SocIncidentDetail({ incidentId }: { incidentId: string }
       {pendingActions.length > 0 && (
         <Section title="Action Approval Queue" count={pendingActions.filter(a => a.status === 'pending').length} subtitle="Review and approve/reject AI-proposed actions before they execute">
           <div className="p-4 space-y-4">
+            {/* Approve All button */}
+            {pendingActions.filter(a => a.status === 'pending').length > 1 && (
+              <button
+                onClick={handleApproveAll}
+                disabled={approvingAll}
+                className="w-full px-4 py-3 text-sm font-medium bg-green-600 hover:bg-green-500 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {approvingAll ? (
+                  <>
+                    <span className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white" />
+                    Approving All Actions...
+                  </>
+                ) : (
+                  <>Approve All ({pendingActions.filter(a => a.status === 'pending').length} actions)</>
+                )}
+              </button>
+            )}
+
             {/* Autotask API identity notice */}
             {autotaskApiUser && (
               <div className="flex items-center gap-2 text-xs text-slate-500 bg-black/20 rounded-lg px-3 py-2">
