@@ -2,6 +2,7 @@ import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import AdminHeader from '@/components/admin/AdminHeader'
 import SocDashboardClient from '@/components/soc/SocDashboardClient'
+import SocFlowchart from '@/components/soc/SocFlowchart'
 
 export default async function SocDashboardPage() {
   const session = await auth()
@@ -16,6 +17,9 @@ export default async function SocDashboardPage() {
           <p className="text-slate-400 mt-1">AI-powered security alert triage and analysis</p>
         </div>
         <SocDashboardClient />
+        <div className="mt-6">
+          <SocFlowchart />
+        </div>
       </main>
     </div>
   )
