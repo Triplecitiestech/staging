@@ -134,6 +134,7 @@ export async function getOnboardingData(companySlug: string): Promise<Onboarding
 }
 
 // Check if a company exists
+// Throws on DB errors so the caller can handle them (instead of silently returning false → 404)
 export async function companyExists(companySlug: string): Promise<boolean> {
   // Demo company always exists
   if (companySlug === DEMO_SLUG) {
@@ -146,18 +147,14 @@ export async function companyExists(companySlug: string): Promise<boolean> {
   }
 
   // Then check the database for dynamically created companies
-  try {
-    const { prisma } = await import('@/lib/prisma')
+  const { prisma } = await import('@/lib/prisma')
 
-    const company = await prisma.company.findUnique({
-      where: { slug: companySlug }
-    })
+  const company = await prisma.company.findUnique({
+    where: { slug: companySlug },
+    select: { id: true }
+  })
 
-    return !!company
-  } catch (error) {
-    console.error('[companyExists] Error checking database:', error)
-    return false
-  }
+  return !!company
 }
 
 // Server-only database of onboarding data

@@ -1,5 +1,5 @@
 import React from 'react'
-import { redirect } from 'next/navigation'
+import { notFound } from 'next/navigation'
 import { getAuthenticatedCompany } from '@/lib/onboarding-session'
 import { getOnboardingData, companyExists } from '@/lib/onboarding-data'
 import OnboardingPortal from '@/components/onboarding/OnboardingPortal'
@@ -27,30 +27,22 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 }
 
 export default async function OnboardingPage({ params }: PageProps) {
-  const { prisma } = await import('@/lib/prisma')
   const { companyName } = await params
   const companySlug = companyName.toLowerCase().trim()
 
-  console.log('[Onboarding Page] Company slug:', companySlug)
-
-  // Check if company exists (for 404 handling)
+  // Check if company exists (throws on DB error instead of silently returning false)
   const exists = await companyExists(companySlug)
-  console.log('[Onboarding Page] Company exists:', exists)
 
   if (!exists) {
-    redirect('/404')
+    notFound()
   }
 
   // Check authentication
   const authenticatedCompany = await getAuthenticatedCompany()
   const isAuthenticated = authenticatedCompany === companySlug
-  console.log('[Onboarding Page] Authenticated company:', authenticatedCompany)
-  console.log('[Onboarding Page] Is authenticated:', isAuthenticated)
 
   // Get onboarding data only if authenticated
   const onboardingData = isAuthenticated ? await getOnboardingData(companySlug) : null
-  console.log('[Onboarding Page] Onboarding data loaded:', onboardingData !== null)
-  console.log('[Onboarding Page] Onboarding data:', onboardingData)
 
   // Fetch projects from database if authenticated
   let projects = null
@@ -62,6 +54,7 @@ export default async function OnboardingPage({ params }: PageProps) {
     companyDisplayName = DEMO_COMPANY.displayName
     projects = DEMO_PROJECTS
   } else if (isAuthenticated) {
+    const { prisma } = await import('@/lib/prisma')
     try {
       // First find the company by slug
       const company = await prisma.company.findUnique({
