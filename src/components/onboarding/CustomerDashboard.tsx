@@ -220,6 +220,14 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
   const openTickets = tickets.filter(t => !t.isResolved)
   const closedTickets = tickets.filter(t => t.isResolved)
 
+  // Compute "closed this month" from live ticket data (not stale DB cache)
+  const closedThisMonth = closedTickets.filter(t => {
+    if (!t.completedDate) return false
+    const completed = new Date(t.completedDate)
+    const now = new Date()
+    return completed.getMonth() === now.getMonth() && completed.getFullYear() === now.getFullYear()
+  })
+
   // Filter tickets by search - prioritize title match, then content
   const filterTickets = (ticketList: Ticket[]) => {
     if (!ticketSearch.trim()) return ticketList
@@ -839,7 +847,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
         </div>
         <div className="bg-gray-800/50 border border-emerald-500/30 rounded-lg p-4 text-center">
           <div className="text-3xl font-bold text-emerald-400">
-            {metrics ? metrics.ticketsClosedThisMonth : '-'}
+            {ticketsLoading ? '-' : closedThisMonth.length}
           </div>
           <div className="text-sm text-gray-400 mt-1">Closed This Month</div>
         </div>
