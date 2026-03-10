@@ -244,11 +244,64 @@ export interface HumanGuidance {
   riskLevel: 'none' | 'low' | 'medium' | 'high' | 'critical';
 }
 
+export interface CustomerCommunication {
+  required: boolean;
+  recipient: string | null;
+  method: string;
+  message: string | null;
+  setStatusWaitingCustomer: boolean;
+  followUpDays: number | null;
+  followUpMessage: string | null;
+  approvalAction: string | null;
+  denialAction: string | null;
+  escalationTrigger: string | null;
+}
+
 export interface IncidentActionPlan {
   incidentSummary: string;
   proposedActions: ProposedAutotaskActions;
   humanGuidance: HumanGuidance;
+  customerCommunication?: CustomerCommunication;
+  nextCycleChecks?: string[];
   supportingReasoning: string;
+}
+
+// ── Pending Actions (Human Approval Queue) ──
+
+export type PendingActionType = 'add_note' | 'send_customer_message' | 'status_change' | 'priority_change' | 'queue_change' | 'escalation';
+export type PendingActionStatus = 'pending' | 'approved' | 'rejected' | 'executed' | 'failed';
+
+export interface PendingActionPayload {
+  /** For add_note: the note title */
+  noteTitle?: string;
+  /** For add_note: the full note body text */
+  noteBody?: string;
+  /** For add_note: the Autotask publish type (2 = Internal Only) */
+  notePublish?: number;
+  /** For status/priority/queue changes */
+  from?: string;
+  to?: string;
+  /** For escalation */
+  targetQueue?: string;
+  targetResource?: string;
+  urgency?: string;
+  reason?: string;
+}
+
+export interface SocPendingAction {
+  id: string;
+  incidentId: string;
+  autotaskTicketId: string;
+  ticketNumber: string | null;
+  companyName: string | null;
+  actionType: PendingActionType;
+  actionPayload: PendingActionPayload;
+  previewSummary: string;
+  status: PendingActionStatus;
+  decidedBy: string | null;
+  decidedAt: Date | null;
+  executionResult: Record<string, unknown> | null;
+  createdAt: Date;
 }
 
 // ── Config ──

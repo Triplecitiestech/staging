@@ -150,6 +150,7 @@ export function buildActionPlanPrompt(
 
   const primaryTicket = tickets[0];
   const isMultiTicket = tickets.length > 1;
+  const currentQueue = primaryTicket.queueLabel || 'Security Monitoring Alert';
 
   const deviceSummary = deviceVerification
     ? deviceVerification.verified
@@ -157,7 +158,7 @@ export function buildActionPlanPrompt(
       : `DEVICE NOT VERIFIED: ${deviceVerification.reason || 'No matching device'}`
     : 'No IP extracted — device lookup skipped';
 
-  return `You are a Tier 1 SOC Analyst for Triple Cities Tech, a managed IT services provider.
+  return `You are a Tier 1 SOC Analyst AI agent for Triple Cities Tech, a managed IT services provider.
 You have already triaged this incident and determined:
   Verdict: ${verdict} (Confidence: ${Math.round(confidence * 100)}%)
   Reasoning: ${aiReasoning}
@@ -170,11 +171,19 @@ ${ticketDetails}
 CORRELATION: ${correlationReason}
 DEVICE VERIFICATION: ${deviceSummary}
 
+CRITICAL RULES:
+1. QUEUE: Do NOT change the queue. Keep it as "${currentQueue}". Set queueChange to null. Never invent or guess queue names.
+2. STATUS: Use only valid Autotask ticket statuses: "New", "In Progress", "Waiting Customer", "Complete", "Resolved". If you need customer input, use "Waiting Customer".
+3. YOU ARE THE AGENT: You are an automated SOC analyst. For routine security hygiene alerts (stale accounts, inactive users, software audits), YOU should take action — draft and send the customer message, set status to Waiting Customer, monitor for reply. Only escalate to a human when there is genuine ambiguity, elevated risk, or missing authorization.
+4. CUSTOMER COMMUNICATION: When customer contact is needed for routine alerts, draft the exact message you would send to the company's primary IT contact. Include specifics (account name, last login date, finding details). The message will be posted as an Autotask ticket note visible to the customer.
+
 ${isMultiTicket ? `MERGE ANALYSIS REQUIRED:
-These ${tickets.length} tickets appear related. Evaluate whether they should be merged in Autotask.
-If merging, select the most descriptive ticket as the surviving ticket.
-Generate a merged title that captures the full scope of the incident.` : `SINGLE TICKET ANALYSIS:
-Generate the action plan for this individual ticket.`}
+These ${tickets.length} tickets appear related. You MUST evaluate whether they should be merged in Autotask.
+If merging (recommended for same-device bursts), select the most descriptive ticket as the surviving ticket.
+Generate a merged title that captures the full scope of the incident.
+Generate a complete internal note for the surviving ticket.` : `SINGLE TICKET ANALYSIS:
+Generate the complete action plan for this individual ticket.
+If this is a routine security hygiene alert, you should handle the workflow yourself.`}
 
 Respond ONLY with valid JSON (no markdown, no backticks):
 {
@@ -190,27 +199,45 @@ Respond ONLY with valid JSON (no markdown, no backticks):
       "mergeReasoning": "Why merge is or is not appropriate"
     }` : 'null'},
     "internalNote": "The exact internal note to add to the ${isMultiTicket ? 'surviving' : ''} Autotask ticket. Include: incident summary, evidence, analysis, verdict, and confidence.",
-    "statusChange": { "from": "${primaryTicket.statusLabel || 'current'}", "to": "recommended new status" } or null,
+    "statusChange": { "from": "${primaryTicket.statusLabel || 'current'}", "to": "recommended new status (use valid Autotask statuses only)" } or null,
     "priorityChange": { "from": "${primaryTicket.priorityLabel || 'current'}", "to": "recommended priority" } or null,
-    "queueChange": { "from": "${primaryTicket.queueLabel || 'current'}", "to": "recommended queue" } or null,
+    "queueChange": null,
     "escalation": {
       "recommended": true or false,
-      "targetQueue": "queue name if escalating" or null,
-      "targetResource": "person or team name" or null,
+      "targetQueue": null,
+      "targetResource": "person or team name if escalating" or null,
       "urgency": "routine" or "urgent" or "critical",
       "reason": "why escalation is or is not needed"
     }
   },
   "humanGuidance": {
-    "summary": "1-2 sentence summary for the human reviewer",
+    "summary": "1-2 sentence summary of what the AI will do vs what needs human attention",
     "steps": [
-      "Step 1: specific action the technician should take",
-      "Step 2: another specific action",
-      "... (provide 4-8 concrete next steps)"
+      "Step 1: specific action (prefix with [AI] if the AI will do it, or [HUMAN] if human needed)",
+      "Step 2: ...",
+      "... (provide 4-8 concrete steps showing the full workflow)"
     ],
-    "draftCustomerMessage": "Draft message to send to the customer if contact is needed, or null if not needed",
+    "draftCustomerMessage": "If customer contact is needed: the exact message to send to the customer's primary IT contact. Be specific about the finding, include account details, and ask for clear approval/denial. Or null if no customer contact needed.",
     "riskLevel": "none" or "low" or "medium" or "high" or "critical"
   },
+  "customerCommunication": {
+    "required": true or false,
+    "recipient": "primary IT contact for the company" or null,
+    "method": "autotask_ticket_note",
+    "message": "The exact customer-facing message to post (or null)",
+    "setStatusWaitingCustomer": true or false,
+    "followUpDays": 5,
+    "followUpMessage": "Follow-up message if no response (or null)",
+    "approvalAction": "What the AI does if customer approves",
+    "denialAction": "What the AI does if customer denies/provides business justification",
+    "escalationTrigger": "What condition triggers escalation to a human"
+  },
+  "nextCycleChecks": [
+    "On next triage cycle, check if customer replied to the message",
+    "If approved, document approval and proceed with the action",
+    "If no response after 5 days, send follow-up",
+    "..."
+  ],
   "supportingReasoning": "Detailed explanation of why this action plan was chosen, including evidence from each ticket"
 }`;
 }

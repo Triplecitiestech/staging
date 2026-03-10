@@ -78,6 +78,36 @@ interface Analysis {
   companySlug: string | null
 }
 
+interface PendingAction {
+  id: string
+  incidentId: string
+  autotaskTicketId: string
+  ticketNumber: string | null
+  companyName: string | null
+  actionType: string
+  actionPayload: {
+    noteTitle?: string
+    noteBody?: string
+    notePublish?: number
+    from?: string
+    to?: string
+    targetQueue?: string
+    targetResource?: string
+    urgency?: string
+    reason?: string
+    recipient?: string
+    setStatusWaitingCustomer?: boolean
+    followUpDays?: number
+    followUpMessage?: string
+  }
+  previewSummary: string
+  status: string
+  decidedBy: string | null
+  decidedAt: string | null
+  executionResult: Record<string, unknown> | null
+  createdAt: string
+}
+
 interface ActivityLog {
   id: string
   action: string
@@ -104,6 +134,19 @@ interface Incident {
   resolvedAt: string | null
   proposedActions: ProposedActions | null
   humanGuidance: HumanGuidance | null
+  customerCommunication: {
+    required: boolean
+    recipient: string | null
+    method: string
+    message: string | null
+    setStatusWaitingCustomer: boolean
+    followUpDays: number | null
+    followUpMessage: string | null
+    approvalAction: string | null
+    denialAction: string | null
+    escalationTrigger: string | null
+  } | null
+  nextCycleChecks: string[] | null
 }
 
 export default function SocIncidentDetail({ incidentId }: { incidentId: string }) {
@@ -112,6 +155,9 @@ export default function SocIncidentDetail({ incidentId }: { incidentId: string }
   const [ticketNotes, setTicketNotes] = useState<TicketNote[]>([])
   const [activityLog, setActivityLog] = useState<ActivityLog[]>([])
   const [autotaskWebUrl, setAutotaskWebUrl] = useState<string | null>(null)
+  const [pendingActions, setPendingActions] = useState<PendingAction[]>([])
+  const [autotaskApiUser, setAutotaskApiUser] = useState<string>('')
+  const [decidingAction, setDecidingAction] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [overrideVerdict, setOverrideVerdict] = useState('')
   const [overrideStatus, setOverrideStatus] = useState('')
@@ -120,14 +166,22 @@ export default function SocIncidentDetail({ incidentId }: { incidentId: string }
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await fetch(`/api/soc/incidents/${incidentId}`)
-        if (res.ok) {
-          const data = await res.json()
+        const [incidentRes, actionsRes] = await Promise.all([
+          fetch(`/api/soc/incidents/${incidentId}`),
+          fetch(`/api/soc/pending-actions?incidentId=${incidentId}&status=all`),
+        ])
+        if (incidentRes.ok) {
+          const data = await incidentRes.json()
           setIncident(data.incident)
           setAnalyses(data.analyses || [])
           setTicketNotes(data.ticketNotes || [])
           setActivityLog(data.activityLog || [])
           setAutotaskWebUrl(data.autotaskWebUrl || null)
+        }
+        if (actionsRes.ok) {
+          const data = await actionsRes.json()
+          setPendingActions(data.actions || [])
+          setAutotaskApiUser(data.autotaskApiUser || '')
         }
       } catch {
         // ignore
@@ -137,6 +191,29 @@ export default function SocIncidentDetail({ incidentId }: { incidentId: string }
     }
     fetchData()
   }, [incidentId])
+
+  const handleActionDecision = async (actionId: string, decision: 'approve' | 'reject') => {
+    setDecidingAction(actionId)
+    try {
+      const res = await fetch('/api/soc/pending-actions', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actionId, decision }),
+      })
+      if (res.ok) {
+        // Update local state
+        setPendingActions(prev => prev.map(a =>
+          a.id === actionId
+            ? { ...a, status: decision === 'approve' ? 'executed' : 'rejected' }
+            : a
+        ))
+      }
+    } catch {
+      // ignore
+    } finally {
+      setDecidingAction(null)
+    }
+  }
 
   const handleOverride = async () => {
     if (!overrideVerdict && !overrideStatus) return
@@ -205,6 +282,8 @@ export default function SocIncidentDetail({ incidentId }: { incidentId: string }
 
   const pa = incident.proposedActions
   const hg = incident.humanGuidance
+  const cc = incident.customerCommunication
+  const ncc = incident.nextCycleChecks
 
   // Group ticket notes by ticketId for display
   const notesByTicket: Record<string, TicketNote[]> = {}
@@ -481,6 +560,189 @@ export default function SocIncidentDetail({ incidentId }: { incidentId: string }
         </div>
       </Section>
 
+      {/* ═══ Section 3b: Pending Actions (Human Approval Queue) ═══ */}
+      {pendingActions.length > 0 && (
+        <Section title="Action Approval Queue" count={pendingActions.filter(a => a.status === 'pending').length} subtitle="Review and approve/reject AI-proposed actions before they execute">
+          <div className="p-4 space-y-4">
+            {/* Autotask API identity notice */}
+            {autotaskApiUser && (
+              <div className="flex items-center gap-2 text-xs text-slate-500 bg-black/20 rounded-lg px-3 py-2">
+                <span>Autotask API User (note sender):</span>
+                <span className="text-cyan-400 font-medium font-mono">{autotaskApiUser}</span>
+                <span className="text-slate-600">|</span>
+                <span>Notes are posted as <span className="text-violet-400">Internal Only</span> (not visible to customers)</span>
+              </div>
+            )}
+
+            {pendingActions.map(action => {
+              const isPending = action.status === 'pending'
+              const isDeciding = decidingAction === action.id
+              const statusColors: Record<string, string> = {
+                pending: 'border-cyan-500/30 bg-cyan-500/5',
+                executed: 'border-green-500/30 bg-green-500/5',
+                rejected: 'border-slate-500/30 bg-slate-500/5',
+                failed: 'border-red-500/30 bg-red-500/5',
+              }
+              const statusBadgeColors: Record<string, string> = {
+                pending: 'bg-cyan-500/20 text-cyan-400',
+                executed: 'bg-green-500/20 text-green-400',
+                rejected: 'bg-slate-500/20 text-slate-400',
+                failed: 'bg-red-500/20 text-red-400',
+              }
+
+              return (
+                <div key={action.id} className={`border rounded-lg p-4 space-y-3 ${statusColors[action.status] || 'border-white/10'}`}>
+                  {/* Action header */}
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-medium text-white capitalize">{action.actionType.replace(/_/g, ' ')}</span>
+                        <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${statusBadgeColors[action.status] || 'bg-slate-500/20 text-slate-400'}`}>
+                          {action.status}
+                        </span>
+                        {action.ticketNumber && (
+                          <span className="text-xs text-slate-500 font-mono">Ticket #{action.ticketNumber}</span>
+                        )}
+                      </div>
+                      {action.companyName && (
+                        <p className="text-xs text-cyan-400 mt-1">{action.companyName}</p>
+                      )}
+                    </div>
+                    <span className="text-xs text-slate-500 flex-shrink-0">
+                      {new Date(action.createdAt).toLocaleString()}
+                    </span>
+                  </div>
+
+                  {/* What will happen */}
+                  <div className="space-y-2">
+                    <h5 className="text-xs font-medium text-slate-400 uppercase tracking-wide">What will happen</h5>
+                    <div className="bg-black/30 rounded-lg p-3 space-y-2">
+                      {action.actionType === 'add_note' && (
+                        <>
+                          <div className="flex items-center gap-2 text-xs">
+                            <span className="text-slate-500">Action:</span>
+                            <span className="text-white">Post internal note to Autotask ticket #{action.ticketNumber}</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs">
+                            <span className="text-slate-500">Sent via:</span>
+                            <span className="text-cyan-400 font-mono">{autotaskApiUser || 'Autotask API'}</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs">
+                            <span className="text-slate-500">Visibility:</span>
+                            <span className="text-violet-400">Internal Only (not visible to customers)</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs">
+                            <span className="text-slate-500">Note Title:</span>
+                            <span className="text-white">{action.actionPayload.noteTitle || 'SOC AI Triage Analysis'}</span>
+                          </div>
+                          <div className="mt-2">
+                            <span className="text-xs text-slate-500">Note Content:</span>
+                            <pre className="text-xs text-slate-300 whitespace-pre-wrap font-mono mt-1 bg-black/40 p-3 rounded max-h-[200px] overflow-y-auto">
+                              {action.actionPayload.noteBody}
+                            </pre>
+                          </div>
+                        </>
+                      )}
+                      {action.actionType === 'send_customer_message' && (
+                        <>
+                          <div className="flex items-center gap-2 text-xs">
+                            <span className="text-slate-500">Action:</span>
+                            <span className="text-white">Send customer-visible note to ticket #{action.ticketNumber}</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs">
+                            <span className="text-slate-500">Recipient:</span>
+                            <span className="text-violet-400">{action.actionPayload.recipient || 'Primary IT Contact'}</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs">
+                            <span className="text-slate-500">Sent via:</span>
+                            <span className="text-cyan-400 font-mono">{autotaskApiUser || 'Autotask API'}</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs">
+                            <span className="text-slate-500">Visibility:</span>
+                            <span className="text-violet-400">Customer-Visible (All Autotask Users)</span>
+                          </div>
+                          {action.actionPayload.setStatusWaitingCustomer && (
+                            <div className="flex items-center gap-2 text-xs">
+                              <span className="text-slate-500">Status Change:</span>
+                              <span className="text-violet-400">Will set to Waiting Customer</span>
+                            </div>
+                          )}
+                          <div className="mt-2">
+                            <span className="text-xs text-slate-500">Customer Message:</span>
+                            <pre className="text-xs text-slate-300 whitespace-pre-wrap font-mono mt-1 bg-black/40 p-3 rounded max-h-[200px] overflow-y-auto border border-violet-500/20">
+                              {action.actionPayload.noteBody}
+                            </pre>
+                          </div>
+                          {action.actionPayload.followUpMessage && (
+                            <div className="mt-2">
+                              <span className="text-xs text-slate-500">Follow-up ({action.actionPayload.followUpDays || 5} days):</span>
+                              <pre className="text-xs text-slate-400 whitespace-pre-wrap font-mono mt-1 bg-black/20 p-2 rounded">
+                                {action.actionPayload.followUpMessage}
+                              </pre>
+                            </div>
+                          )}
+                        </>
+                      )}
+                      {action.actionType === 'status_change' && (
+                        <div className="flex items-center gap-2 text-xs">
+                          <span className="text-slate-500">Change ticket status:</span>
+                          <span className="text-slate-400">{action.actionPayload.from}</span>
+                          <span className="text-slate-600">&rarr;</span>
+                          <span className="text-white">{action.actionPayload.to}</span>
+                        </div>
+                      )}
+                      {action.actionType === 'escalation' && (
+                        <div className="space-y-1 text-xs">
+                          <div><span className="text-slate-500">Escalate to:</span> <span className="text-white">{action.actionPayload.targetQueue || action.actionPayload.targetResource}</span></div>
+                          <div><span className="text-slate-500">Urgency:</span> <span className="text-rose-400">{action.actionPayload.urgency}</span></div>
+                          {action.actionPayload.reason && <div><span className="text-slate-500">Reason:</span> <span className="text-slate-300">{action.actionPayload.reason}</span></div>}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Decided info */}
+                  {action.decidedBy && (
+                    <p className="text-xs text-slate-500">
+                      {action.status === 'executed' ? 'Approved' : action.status === 'rejected' ? 'Rejected' : 'Decided'} by{' '}
+                      <span className="text-slate-400">{action.decidedBy}</span>{' '}
+                      {action.decidedAt && <>on {new Date(action.decidedAt).toLocaleString()}</>}
+                    </p>
+                  )}
+
+                  {/* Approve / Reject buttons */}
+                  {isPending && (
+                    <div className="flex items-center gap-3 pt-2 border-t border-white/5">
+                      <button
+                        onClick={() => handleActionDecision(action.id, 'approve')}
+                        disabled={isDeciding}
+                        className="px-4 py-2 text-sm font-medium bg-green-600 hover:bg-green-500 text-white rounded-lg transition-colors disabled:opacity-50"
+                      >
+                        {isDeciding ? 'Processing...' : 'Approve & Execute'}
+                      </button>
+                      <button
+                        onClick={() => handleActionDecision(action.id, 'reject')}
+                        disabled={isDeciding}
+                        className="px-4 py-2 text-sm font-medium bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors disabled:opacity-50"
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Execution failure details */}
+                  {action.status === 'failed' && action.executionResult && (
+                    <div className="text-xs text-red-400 bg-red-500/10 p-2 rounded">
+                      Error: {String((action.executionResult as Record<string, unknown>).error || 'Unknown error')}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </Section>
+      )}
+
       {/* ═══ Section 4: Recommended Human Actions ═══ */}
       <Section title="Recommended Human Actions">
         <div className="p-4 space-y-4">
@@ -517,6 +779,94 @@ export default function SocIncidentDetail({ incidentId }: { incidentId: string }
           )}
         </div>
       </Section>
+
+      {/* ═══ Section 4b: Customer Communication Plan ═══ */}
+      {cc && cc.required && (
+        <Section title="Customer Communication" subtitle="AI-drafted customer outreach — sent via Autotask ticket note">
+          <div className="p-4 space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="bg-black/30 rounded-lg p-3">
+                <p className="text-xs text-slate-500 mb-1">Recipient</p>
+                <p className="text-sm text-white">{cc.recipient || 'Primary IT Contact'}</p>
+              </div>
+              <div className="bg-black/30 rounded-lg p-3">
+                <p className="text-xs text-slate-500 mb-1">Method</p>
+                <p className="text-sm text-white">Autotask Ticket Note (Customer-Visible)</p>
+              </div>
+              {cc.setStatusWaitingCustomer && (
+                <div className="bg-black/30 rounded-lg p-3">
+                  <p className="text-xs text-slate-500 mb-1">Status Change</p>
+                  <p className="text-sm text-violet-400">Set to Waiting Customer</p>
+                </div>
+              )}
+              {cc.followUpDays && (
+                <div className="bg-black/30 rounded-lg p-3">
+                  <p className="text-xs text-slate-500 mb-1">Follow-Up</p>
+                  <p className="text-sm text-white">{cc.followUpDays} business days if no response</p>
+                </div>
+              )}
+            </div>
+
+            {/* Customer message preview */}
+            <div className="space-y-2">
+              <h4 className="text-sm font-medium text-white">Customer Message (Exact Text)</h4>
+              <div className="bg-black/30 rounded-lg p-4 border border-violet-500/20">
+                <pre className="text-sm text-slate-300 whitespace-pre-wrap font-mono">{cc.message}</pre>
+              </div>
+            </div>
+
+            {/* Follow-up message */}
+            {cc.followUpMessage && (
+              <div className="space-y-2">
+                <h4 className="text-xs font-medium text-slate-400">Follow-Up Message (if no response)</h4>
+                <div className="bg-black/20 rounded-lg p-3">
+                  <pre className="text-xs text-slate-400 whitespace-pre-wrap font-mono">{cc.followUpMessage}</pre>
+                </div>
+              </div>
+            )}
+
+            {/* Response handling */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {cc.approvalAction && (
+                <div className="bg-green-500/5 border border-green-500/20 rounded-lg p-3">
+                  <p className="text-xs text-green-400 font-medium mb-1">If Customer Approves</p>
+                  <p className="text-xs text-slate-300">{cc.approvalAction}</p>
+                </div>
+              )}
+              {cc.denialAction && (
+                <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg p-3">
+                  <p className="text-xs text-blue-400 font-medium mb-1">If Customer Denies</p>
+                  <p className="text-xs text-slate-300">{cc.denialAction}</p>
+                </div>
+              )}
+              {cc.escalationTrigger && (
+                <div className="bg-rose-500/5 border border-rose-500/20 rounded-lg p-3">
+                  <p className="text-xs text-rose-400 font-medium mb-1">Escalation Trigger</p>
+                  <p className="text-xs text-slate-300">{cc.escalationTrigger}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </Section>
+      )}
+
+      {/* ═══ Section 4c: Next Cycle Checks ═══ */}
+      {ncc && ncc.length > 0 && (
+        <Section title="Next Cycle Automation" subtitle="What the AI will check on subsequent monitoring cycles">
+          <div className="p-4">
+            <ol className="space-y-2">
+              {ncc.map((check, i) => (
+                <li key={i} className="flex items-start gap-3">
+                  <span className="flex-shrink-0 w-6 h-6 rounded-full bg-violet-500/20 text-violet-400 text-xs font-medium flex items-center justify-center mt-0.5">
+                    {i + 1}
+                  </span>
+                  <span className="text-sm text-slate-300">{check}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </Section>
+      )}
 
       {/* ═══ Section 5: Supporting Reasoning ═══ */}
       {incident.aiSummary && (

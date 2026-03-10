@@ -35,6 +35,7 @@ export default function SocIncidentsList() {
   const [incidents, setIncidents] = useState<Incident[]>([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState('')
+  const [typeFilter, setTypeFilter] = useState<'all' | 'correlated' | 'single'>('all')
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
 
@@ -91,10 +92,40 @@ export default function SocIncidentsList() {
     return <span className={`text-xs font-medium ${colors[level] || 'text-slate-400'}`}>{level} risk</span>
   }
 
+  // Client-side filter by type
+  const filteredIncidents = incidents.filter(inc => {
+    if (typeFilter === 'correlated') return inc.ticketCount > 1
+    if (typeFilter === 'single') return inc.ticketCount <= 1
+    return true
+  })
+
   return (
     <div className="space-y-4">
-      {/* Filters */}
-      <div className="flex items-center gap-3">
+      {/* Tab bar for incident type */}
+      <div className="flex items-center gap-1 border-b border-white/10 pb-px">
+        {([
+          { key: 'all', label: 'All Incidents' },
+          { key: 'correlated', label: 'Correlated' },
+          { key: 'single', label: 'Single Alerts' },
+        ] as const).map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => { setTypeFilter(tab.key); setPage(1) }}
+            className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+              typeFilter === tab.key
+                ? 'bg-slate-800/50 text-white border-b-2 border-cyan-500'
+                : 'text-slate-400 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            {tab.label}
+            {tab.key === 'correlated' && (
+              <span className="ml-1.5 text-xs text-slate-500">
+                ({incidents.filter(i => i.ticketCount > 1).length})
+              </span>
+            )}
+          </button>
+        ))}
+        <div className="flex-1" />
         <select
           value={statusFilter}
           onChange={e => { setStatusFilter(e.target.value); setPage(1) }}
@@ -113,11 +144,11 @@ export default function SocIncidentsList() {
           <div className="flex items-center justify-center py-12">
             <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-cyan-500" />
           </div>
-        ) : incidents.length === 0 ? (
+        ) : filteredIncidents.length === 0 ? (
           <div className="p-8 text-center text-slate-400">No incidents found.</div>
         ) : (
           <div className="divide-y divide-white/5">
-            {incidents.map(inc => {
+            {filteredIncidents.map(inc => {
               const merge = inc.proposedActions?.merge
               const escalation = inc.proposedActions?.escalation
               return (
