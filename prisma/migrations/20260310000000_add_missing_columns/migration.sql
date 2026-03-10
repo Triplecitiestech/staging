@@ -96,3 +96,41 @@ END $$;
 -- 5. TICKET_LIFECYCLE — missing SLA column
 -- =============================================
 ALTER TABLE "ticket_lifecycle" ADD COLUMN IF NOT EXISTS "slaResolutionPlanMet" BOOLEAN;
+
+-- =============================================
+-- 6. BLOG_STATUS — add missing REJECTED value
+-- =============================================
+DO $$ BEGIN
+  ALTER TYPE "BlogStatus" ADD VALUE IF NOT EXISTS 'REJECTED';
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
+
+-- =============================================
+-- 7. SAFETY NET — core enums that predate migration system
+--    These should already exist from initial DB setup.
+--    Creating with IF NOT EXISTS as a safety net for fresh installs.
+-- =============================================
+DO $$ BEGIN
+  CREATE TYPE "StaffRole" AS ENUM ('ADMIN', 'MANAGER', 'VIEWER');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE "ProjectType" AS ENUM ('ONBOARDING', 'M365_MIGRATION', 'FORTRESS', 'CUSTOM');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE "ProjectStatus" AS ENUM ('ACTIVE', 'COMPLETED', 'ON_HOLD', 'CANCELLED');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE "PhaseStatus" AS ENUM ('NOT_STARTED', 'SCHEDULED', 'WAITING_ON_CUSTOMER', 'IN_PROGRESS', 'REQUIRES_CUSTOMER_COORDINATION', 'DISCUSSED', 'COMPLETE');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE "NotificationType" AS ENUM ('ASSIGNMENT', 'COMMENT', 'STATUS_CHANGE', 'MENTION');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE "AuditAction" AS ENUM ('CREATED', 'UPDATED', 'STATUS_CHANGED', 'DELETED', 'AI_GENERATED', 'TEMPLATE_APPLIED', 'PASSWORD_CHANGED');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
