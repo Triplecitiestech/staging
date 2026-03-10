@@ -110,7 +110,7 @@ function getProjectStatusLabel(status: string) {
   }
 }
 
-type DashboardView = 'dashboard' | 'open-tickets' | 'action-items'
+type DashboardView = 'dashboard' | 'open-tickets' | 'action-items' | 'closed-this-month' | 'hours-this-month'
 
 export default function CustomerDashboard({ projects, companyName, companySlug }: CustomerDashboardProps) {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
@@ -798,6 +798,131 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
     )
   }
 
+  // "Tickets Closed This Month" sub-view
+  if (dashboardView === 'closed-this-month') {
+    const sortedClosed = [...closedThisMonth].sort((a, b) => {
+      const aDate = a.completedDate ? new Date(a.completedDate).getTime() : 0
+      const bDate = b.completedDate ? new Date(b.completedDate).getTime() : 0
+      return bDate - aDate
+    })
+    const filtered = filterTickets(sortedClosed)
+    return (
+      <div>
+        {companyName && (
+          <div className="mb-8 text-center">
+            <h1 className="text-4xl font-bold text-white mb-1">{companyName} Portal</h1>
+          </div>
+        )}
+        <button
+          onClick={() => { setDashboardView('dashboard'); setTicketSearch('') }}
+          className="flex items-center gap-2 text-cyan-400 hover:text-cyan-300 transition-colors mb-6 text-sm"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+          Back to Dashboard
+        </button>
+        <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+          <h2 className="text-2xl font-bold text-white">Tickets Closed This Month ({closedThisMonth.length})</h2>
+          <div className="relative w-full md:w-72">
+            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input
+              type="text"
+              value={ticketSearch}
+              onChange={e => setTicketSearch(e.target.value)}
+              placeholder="Search tickets..."
+              className="w-full bg-gray-800/50 text-white text-sm rounded-lg pl-10 pr-3 py-2 border border-white/10 focus:border-cyan-500/50 focus:outline-none placeholder-gray-500"
+            />
+          </div>
+        </div>
+        <div className="bg-gray-800/50 border border-white/10 rounded-lg p-4">
+          {filtered.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-4">{ticketSearch ? 'No tickets match your search.' : 'No tickets closed this month.'}</p>
+          ) : (
+            <div className="space-y-2 max-h-[600px] overflow-y-auto">
+              {filtered.map(ticket => (
+                <button
+                  key={ticket.ticketId}
+                  onClick={() => { handleSelectTicket(ticket); setDashboardView('dashboard') }}
+                  className="w-full flex items-center justify-between bg-gray-700/30 hover:bg-gray-700/50 rounded-lg px-4 py-3 transition-colors text-left group cursor-pointer"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-white truncate group-hover:text-cyan-300 transition-colors">{ticket.title}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">#{ticket.ticketNumber} - Closed {ticket.completedDate ? new Date(ticket.completedDate).toLocaleDateString() : ''}</p>
+                  </div>
+                  <div className="flex items-center gap-2 ml-3">
+                    <span className="px-2 py-0.5 text-xs font-medium rounded-full whitespace-nowrap bg-green-500/20 text-green-300">Closed</span>
+                    <svg className="w-4 h-4 text-gray-500 group-hover:text-cyan-400 transition-colors flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // "Hours This Month" sub-view
+  if (dashboardView === 'hours-this-month') {
+    // Show hours breakdown from time entries
+    const hoursValue = metrics ? metrics.hoursWorkedThisMonth : 0
+    return (
+      <div>
+        {companyName && (
+          <div className="mb-8 text-center">
+            <h1 className="text-4xl font-bold text-white mb-1">{companyName} Portal</h1>
+          </div>
+        )}
+        <button
+          onClick={() => setDashboardView('dashboard')}
+          className="flex items-center gap-2 text-cyan-400 hover:text-cyan-300 transition-colors mb-6 text-sm"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+          Back to Dashboard
+        </button>
+        <h2 className="text-2xl font-bold text-white mb-4">Hours This Month</h2>
+        <div className="bg-gray-800/50 border border-violet-500/20 rounded-lg p-6">
+          <div className="flex items-center gap-4 mb-6">
+            <div className="w-16 h-16 rounded-full bg-violet-500/20 flex items-center justify-center">
+              <svg className="w-8 h-8 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <div>
+              <div className="text-4xl font-bold text-violet-400">{hoursValue}h</div>
+              <div className="text-sm text-gray-400">Total hours logged this month</div>
+            </div>
+          </div>
+          {metrics?.avgResolutionHours != null && (
+            <div className="border-t border-white/10 pt-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-cyan-500/20 flex items-center justify-center">
+                  <svg className="w-5 h-5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                </div>
+                <div>
+                  <div className="text-xl font-bold text-cyan-400">{metrics.avgResolutionHours}h</div>
+                  <div className="text-sm text-gray-400">Avg. resolution time for tickets closed this month</div>
+                </div>
+              </div>
+            </div>
+          )}
+          {hoursValue === 0 && (
+            <p className="text-sm text-gray-500 mt-2">No time entries have been logged for this month yet.</p>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   // Dashboard view (default)
   return (
     <div>
@@ -809,7 +934,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
         </div>
       )}
 
-      {/* Summary Cards - all clickable */}
+      {/* Summary Cards - all clickable, ticket cards grouped together */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
         <button
           onClick={() => setDashboardView('open-tickets')}
@@ -823,7 +948,23 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
           className="bg-gray-800/50 border border-green-500/30 hover:border-green-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-green-500/10 cursor-pointer"
         >
           <div className="text-3xl font-bold text-green-400">{closedTickets.length}</div>
-          <div className="text-sm text-gray-400 mt-1">Closed (90d)</div>
+          <div className="text-sm text-gray-400 mt-1">Tickets Closed</div>
+        </button>
+        <button
+          onClick={() => setDashboardView('closed-this-month')}
+          className="bg-gray-800/50 border border-emerald-500/30 hover:border-emerald-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-emerald-500/10 cursor-pointer"
+        >
+          <div className="text-3xl font-bold text-emerald-400">
+            {ticketsLoading ? '-' : closedThisMonth.length}
+          </div>
+          <div className="text-sm text-gray-400 mt-1">Tickets Closed This Month</div>
+        </button>
+        <button
+          onClick={() => setDashboardView('action-items')}
+          className="bg-gray-800/50 border border-red-500/30 hover:border-red-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-red-500/10 cursor-pointer"
+        >
+          <div className="text-3xl font-bold text-red-400">{needsAction.length}</div>
+          <div className="text-sm text-gray-400 mt-1">Awaiting You</div>
         </button>
         <button
           onClick={() => document.getElementById('projects-section')?.scrollIntoView({ behavior: 'smooth' })}
@@ -833,24 +974,14 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
           <div className="text-sm text-gray-400 mt-1">Active Projects</div>
         </button>
         <button
-          onClick={() => setDashboardView('action-items')}
-          className="bg-gray-800/50 border border-red-500/30 hover:border-red-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-red-500/10 cursor-pointer"
+          onClick={() => setDashboardView('hours-this-month')}
+          className="bg-gray-800/50 border border-violet-500/30 hover:border-violet-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-violet-500/10 cursor-pointer"
         >
-          <div className="text-3xl font-bold text-red-400">{needsAction.length}</div>
-          <div className="text-sm text-gray-400 mt-1">Awaiting You</div>
-        </button>
-        <div className="bg-gray-800/50 border border-violet-500/30 rounded-lg p-4 text-center">
           <div className="text-3xl font-bold text-violet-400">
             {metrics ? `${metrics.hoursWorkedThisMonth}h` : '-'}
           </div>
           <div className="text-sm text-gray-400 mt-1">Hours This Month</div>
-        </div>
-        <div className="bg-gray-800/50 border border-emerald-500/30 rounded-lg p-4 text-center">
-          <div className="text-3xl font-bold text-emerald-400">
-            {ticketsLoading ? '-' : closedThisMonth.length}
-          </div>
-          <div className="text-sm text-gray-400 mt-1">Closed This Month</div>
-        </div>
+        </button>
       </div>
 
       {/* Chat CTA - tell customers to use chat for new tickets */}
