@@ -41,6 +41,7 @@ interface StatusData {
   today: TodayStats
   pending: number
   recentIncidents: RecentIncident[]
+  autotaskWebUrl: string | null
 }
 
 interface ActivityEntry {
@@ -110,7 +111,14 @@ export default function SocDashboardClient() {
     setLastRunResult(null)
     try {
       const res = await fetch('/api/soc/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reprocess }) })
-      const data = await res.json()
+      const text = await res.text()
+      let data
+      try {
+        data = JSON.parse(text)
+      } catch {
+        setRunError(`Server returned invalid response (${res.status}): ${text.slice(0, 200) || 'empty'}`)
+        return
+      }
       if (!res.ok || data.status === 'error') {
         setRunError(data.message || `Error ${res.status}`)
       } else if (data.ticketsFound === 0) {
@@ -401,11 +409,26 @@ export default function SocDashboardClient() {
                           )}
                           {Array.isArray(meta.ticketNumbers) && meta.ticketNumbers.length > 0 && (
                             <span className="font-mono">
-                              {(meta.ticketNumbers as string[]).map((tn: string) => `#${tn}`).join(', ')}
+                              {(meta.ticketNumbers as string[]).map((tn: string, i: number) => (
+                                <span key={tn}>
+                                  {i > 0 && ', '}
+                                  {status?.autotaskWebUrl && entry.autotaskTicketId ? (
+                                    <a href={`${status.autotaskWebUrl}?ticketId=${entry.autotaskTicketId}`} target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline" onClick={e => e.stopPropagation()}>#{tn}</a>
+                                  ) : (
+                                    <span>#{tn}</span>
+                                  )}
+                                </span>
+                              ))}
                             </span>
                           )}
                           {!meta.ticketNumbers && entry.autotaskTicketId && (
-                            <span className="font-mono">Ticket #{entry.autotaskTicketId}</span>
+                            <span className="font-mono">
+                              {status?.autotaskWebUrl ? (
+                                <a href={`${status.autotaskWebUrl}?ticketId=${entry.autotaskTicketId}`} target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline" onClick={e => e.stopPropagation()}>Ticket #{entry.autotaskTicketId}</a>
+                              ) : (
+                                <span>Ticket #{entry.autotaskTicketId}</span>
+                              )}
+                            </span>
                           )}
                           {Boolean(meta.riskLevel) && String(meta.riskLevel) !== 'none' && (
                             <span className={`font-medium ${
@@ -434,7 +457,7 @@ export default function SocDashboardClient() {
         <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg divide-y divide-white/5">
           {(!status?.recentIncidents || status.recentIncidents.length === 0) ? (
             <div className="p-8 text-center text-slate-400">
-              No incidents yet. Incidents are created when multiple related alerts are correlated.
+              No incidents yet. Run the SOC agent to analyze security tickets.
             </div>
           ) : (
             status.recentIncidents.map(incident => {
@@ -454,11 +477,11 @@ export default function SocDashboardClient() {
                     </div>
                     <div className="flex items-center gap-3 mt-1 text-xs text-slate-500 flex-wrap">
                       {incident.companyName && <span className="text-cyan-400/80">{incident.companyName}</span>}
-                      <span>{incident.ticketCount} tickets</span>
+                      <span>{incident.ticketCount} {incident.ticketCount === 1 ? 'ticket' : 'tickets'}</span>
                       {incident.confidenceScore != null && (
                         <span>{Math.round(incident.confidenceScore * 100)}% confidence</span>
                       )}
-                      {incident.correlationReason && (
+                      {incident.correlationReason && incident.correlationReason !== 'single_alert' && (
                         <span className="capitalize">{incident.correlationReason.replace(/_/g, ' ')}</span>
                       )}
                       <span className="capitalize">{incident.status}</span>

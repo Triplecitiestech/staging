@@ -336,11 +336,8 @@ async function processIncidentGroup(
     }
   }
 
-  // Create incident record for correlated groups
-  let incidentId: string | undefined;
-  if (group.tickets.length > 1) {
-    incidentId = await createIncident(group, finalVerdict, finalConfidence, finalReasoning, actionPlan);
-  }
+  // Create incident record for every analyzed group (single or correlated)
+  const incidentId = await createIncident(group, finalVerdict, finalConfidence, finalReasoning, actionPlan);
 
   // Add Autotask note (unless dry run)
   if (!config.dry_run && finalConfidence >= config.confidence_floor) {
@@ -505,7 +502,9 @@ async function createIncident(
   actionPlan?: IncidentActionPlan,
 ): Promise<string> {
   const title = actionPlan?.proposedActions?.merge?.proposedTitle
-    || `${group.tickets.length} correlated alerts: ${group.primaryTicket.title.slice(0, 100)}`;
+    || (group.tickets.length > 1
+      ? `${group.tickets.length} correlated alerts: ${group.primaryTicket.title.slice(0, 100)}`
+      : group.primaryTicket.title.slice(0, 200));
   const summary = actionPlan?.incidentSummary || reasoning.slice(0, 2000);
   const companyName = group.primaryTicket.companyName || null;
 
