@@ -102,7 +102,7 @@ tests/
 
 **Styling**: Tailwind utility classes, mobile-first (`base` → `md:` → `lg:`). Custom colors: primary (blues/cyans), secondary (slates). Standard grids: `grid-cols-1 md:grid-cols-2 lg:grid-cols-3`. **Every layout change must be checked at all breakpoints.**
 
-**Forbidden Colors**: NEVER use yellow, amber, gold, brown, or mustard Tailwind classes (`yellow-*`, `amber-*`, `brown-*`, gold-like colors) anywhere in the UI. Use violet, rose, orange, or other alternatives instead. This applies to backgrounds, text, borders, gradients, and any other styling. See `docs/UI_STANDARDS.md` for approved alternatives.
+**Forbidden Colors**: NEVER use yellow, amber, gold, brown, or mustard Tailwind classes (`yellow-*`, `amber-*`, `brown-*`, gold-like colors) anywhere in the UI. **Also avoid `orange-*` classes** — on this site's dark backgrounds, Tailwind's `orange-500/400` renders visually as amber/gold. Use `violet`, `rose`, `red`, `cyan`, `blue`, `green`, or `emerald` instead. This applies to backgrounds, text, borders, gradients, and any other styling. See `docs/UI_STANDARDS.md` for approved alternatives.
 
 **Path alias**: `@/*` maps to `./src/*`.
 
