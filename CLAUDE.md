@@ -281,3 +281,13 @@ Detailed guides in the repo root — read these when working on specific feature
 - `AZURE_AD_SETUP.md` — Microsoft OAuth configuration
 - `AUTOTASK_SYNC.md` — Autotask PSA integration (sync system, API, troubleshooting)
 - `CONTENT_EDITING_GUIDE.md`, `SPAM_PROTECTION.md`, `DATABASE_SETUP.md`, and others
+
+## Known Secrets & API Endpoints
+
+**MIGRATION_SECRET**: `Ty3svIEQ5Ehntq4xJzYjAUT5UptrYXOj7tseRTxHYDI=`
+**CRON_SECRET**: `a63d095dce16b3ad9d55cc79a3db7b9f600502272033b8c3284673e23d757cb1`
+
+**Production base URL**: `https://www.triplecitiestech.com`
+**Preview URL pattern**: `https://<branch-name>-triplecitiestech.vercel.app`
+
+**Always provide full URLs** when referencing API endpoints or pages. Never give partial paths — always include the full domain. Example: `https://www.triplecitiestech.com/api/soc/migrate` not just `/api/soc/migrate`.
