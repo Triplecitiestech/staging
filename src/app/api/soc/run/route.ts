@@ -116,6 +116,7 @@ export async function POST(request: NextRequest) {
       dryRun: config.dry_run,
       ticketsFound: tickets.length,
       ...result.meta,
+      ticketDetails: result.ticketDetails,
       errors: result.errors.length > 0 ? result.errors : undefined,
       durationMs: Date.now() - startTime,
     });

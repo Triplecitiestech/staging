@@ -70,6 +70,17 @@ export interface TriageRunResult {
   meta: SocJobMeta;
   results: TriageResult[];
   errors: string[];
+  ticketDetails: TicketDetail[];
+}
+
+export interface TicketDetail {
+  autotaskTicketId: string;
+  ticketNumber: string;
+  title: string;
+  status: 'processed' | 'skipped' | 'error';
+  verdict?: string;
+  confidence?: number;
+  reason?: string;
 }
 
 /**
@@ -92,15 +103,27 @@ export async function runTriagePipeline(
   };
   const results: TriageResult[] = [];
   const errors: string[] = [];
+  const ticketDetails: TicketDetail[] = [];
   let aiCallsThisRun = 0;
 
   // Step 1: Filter to security-related tickets
   const securityTickets = tickets.filter(isSecurityTicket);
-  const skippedCount = tickets.length - securityTickets.length;
-  meta.skipped = skippedCount;
+  const nonSecurityTickets = tickets.filter(t => !isSecurityTicket(t));
+  meta.skipped = nonSecurityTickets.length;
+
+  // Log skipped (non-security) tickets
+  for (const t of nonSecurityTickets) {
+    ticketDetails.push({
+      autotaskTicketId: t.autotaskTicketId,
+      ticketNumber: t.ticketNumber,
+      title: t.title,
+      status: 'skipped',
+      reason: 'Non-security ticket',
+    });
+  }
 
   if (securityTickets.length === 0) {
-    return { meta, results, errors };
+    return { meta, results, errors, ticketDetails };
   }
 
   // Step 2: Correlate into incident groups
@@ -119,41 +142,60 @@ export async function runTriagePipeline(
         meta.aiCallsMade++;
       });
 
-      if (result) {
-        results.push(result);
-        meta.ticketsProcessed += group.tickets.length;
+      results.push(result);
+      meta.ticketsProcessed += group.tickets.length;
 
-        if (result.verdict === 'false_positive') meta.falsePositives++;
-        if (result.verdict === 'escalate') meta.escalated++;
-        if (result.recommendedAction === 'close' && !config.dry_run) meta.notesAdded++;
+      if (result.verdict === 'false_positive') meta.falsePositives++;
+      if (result.verdict === 'escalate') meta.escalated++;
+      if (result.recommendedAction === 'close' && !config.dry_run) meta.notesAdded++;
 
-        // Record analysis for each ticket in the group
-        for (const ticket of group.tickets) {
-          await recordAnalysis(ticket, result, group, config);
-        }
-
-        // Log activity
-        await logActivity({
-          analysisId: null,
-          incidentId: result.incidentId || null,
-          autotaskTicketId: result.ticketId,
-          action: 'analyzed',
-          detail: `Verdict: ${result.verdict} (${Math.round(result.confidence * 100)}%). Action: ${result.recommendedAction}`,
-          aiReasoning: result.reasoning,
-          confidenceScore: result.confidence,
-          metadata: {
-            alertSource: result.alertSource,
-            category: result.alertCategory,
-            ticketCount: group.tickets.length,
-            model: result.aiModel,
-          },
+      // Record per-ticket detail
+      for (const ticket of group.tickets) {
+        ticketDetails.push({
+          autotaskTicketId: ticket.autotaskTicketId,
+          ticketNumber: ticket.ticketNumber,
+          title: ticket.title,
+          status: 'processed',
+          verdict: result.verdict,
+          confidence: result.confidence,
+          reason: result.reasoning.slice(0, 200),
         });
+        await recordAnalysis(ticket, result, group, config);
       }
+
+      // Log activity
+      await logActivity({
+        analysisId: null,
+        incidentId: result.incidentId || null,
+        autotaskTicketId: result.ticketId,
+        action: 'analyzed',
+        detail: `Verdict: ${result.verdict} (${Math.round(result.confidence * 100)}%). Action: ${result.recommendedAction}`,
+        aiReasoning: result.reasoning,
+        confidenceScore: result.confidence,
+        metadata: {
+          alertSource: result.alertSource,
+          category: result.alertCategory,
+          ticketCount: group.tickets.length,
+          model: result.aiModel,
+          verdict: result.verdict,
+        },
+      });
     } catch (err) {
       meta.errors++;
       const msg = err instanceof Error ? err.message : String(err);
       errors.push(`Error processing ticket ${group.primaryTicket.ticketNumber}: ${msg}`);
       console.error(`[SOC] Error processing group:`, err);
+
+      // Record per-ticket error
+      for (const ticket of group.tickets) {
+        ticketDetails.push({
+          autotaskTicketId: ticket.autotaskTicketId,
+          ticketNumber: ticket.ticketNumber,
+          title: ticket.title,
+          status: 'error',
+          reason: msg.slice(0, 200),
+        });
+      }
 
       await logActivity({
         analysisId: null,
@@ -168,7 +210,7 @@ export async function runTriagePipeline(
     }
   }
 
-  return { meta, results, errors };
+  return { meta, results, errors, ticketDetails };
 }
 
 // ── Process Single Incident Group ──
@@ -178,7 +220,7 @@ async function processIncidentGroup(
   config: SocConfig,
   rules: SocRule[],
   onAiCall: () => void,
-): Promise<TriageResult | null> {
+): Promise<TriageResult> {
   const primary = group.primaryTicket;
 
   // Enrich: extract IP and verify device
@@ -205,13 +247,9 @@ async function processIncidentGroup(
     ? group.tickets.filter(t => t.autotaskTicketId !== primary.autotaskTicketId)
     : [];
 
-  // Step 1: Haiku screening
+  // Step 1: Haiku screening — errors thrown to caller for proper error tracking
   onAiCall();
   const screening = await runScreening(primary, recentTickets, rules, deviceVerification, config.screening_model);
-
-  if (!screening) {
-    return null;
-  }
 
   // Determine if deep analysis is needed
   const needsDeep = screening.needsDeepAnalysis ||
@@ -308,7 +346,7 @@ async function runScreening(
   rules: SocRule[],
   deviceVerification: DeviceVerification | null,
   model: string,
-): Promise<ScreeningWithTokens | null> {
+): Promise<ScreeningWithTokens> {
   const prompt = buildScreeningPrompt(ticket, recentTickets, rules, deviceVerification);
 
   try {
@@ -322,14 +360,20 @@ async function runScreening(
     );
 
     const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
-    const parsed = JSON.parse(text) as ScreeningResult;
+    if (!text) {
+      throw new Error(`AI returned empty response for model ${model}`);
+    }
+    // Handle potential markdown-wrapped JSON
+    const jsonText = text.replace(/^```json\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
+    const parsed = JSON.parse(jsonText) as ScreeningResult;
     return {
       ...parsed,
       tokensUsed: (response.usage?.input_tokens || 0) + (response.usage?.output_tokens || 0),
     };
   } catch (err) {
-    console.error('[SOC] Screening AI call failed:', err);
-    return null;
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[SOC] Screening failed for ticket ${ticket.ticketNumber}:`, msg);
+    throw new Error(`AI screening failed: ${msg}`);
   }
 }
 

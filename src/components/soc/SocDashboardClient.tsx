@@ -47,6 +47,16 @@ interface ActivityEntry {
   createdAt: string
 }
 
+interface TicketDetail {
+  autotaskTicketId: string
+  ticketNumber: string
+  title: string
+  status: 'processed' | 'skipped' | 'error'
+  verdict?: string
+  confidence?: number
+  reason?: string
+}
+
 interface RunResultData {
   ticketsFound: number
   ticketsProcessed: number
@@ -56,6 +66,7 @@ interface RunResultData {
   dryRun: boolean
   errors?: string[]
   durationMs?: number
+  ticketDetails?: TicketDetail[]
 }
 
 export default function SocDashboardClient() {
@@ -108,6 +119,7 @@ export default function SocDashboardClient() {
           dryRun: data.dryRun || false,
           errors: data.errors,
           durationMs: data.durationMs,
+          ticketDetails: data.ticketDetails,
         })
         await fetchData()
       }
@@ -244,8 +256,46 @@ export default function SocDashboardClient() {
                   {lastRunResult.errors.map((e, i) => <p key={i} className="text-xs text-rose-400">{e}</p>)}
                 </div>
               )}
+              {/* Per-ticket detail table */}
+              {lastRunResult.ticketDetails && lastRunResult.ticketDetails.length > 0 && (
+                <div className="mt-3 border-t border-cyan-500/20 pt-3">
+                  <p className="text-xs font-medium text-slate-400 mb-2">Ticket Breakdown</p>
+                  <div className="space-y-1.5 max-h-[300px] overflow-y-auto">
+                    {lastRunResult.ticketDetails.map(t => (
+                      <div key={t.autotaskTicketId} className="flex items-center gap-3 text-xs">
+                        <span className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${
+                          t.status === 'processed' ? 'bg-green-500'
+                          : t.status === 'error' ? 'bg-red-500'
+                          : 'bg-slate-500'
+                        }`} />
+                        <span className="text-slate-500 font-mono w-16 flex-shrink-0">{t.ticketNumber}</span>
+                        <span className="text-white truncate flex-1 min-w-0">{t.title}</span>
+                        {t.verdict && (
+                          <span className={`flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                            t.verdict === 'false_positive' ? 'bg-green-500/20 text-green-400'
+                            : t.verdict === 'escalate' ? 'bg-red-500/20 text-red-400'
+                            : t.verdict === 'suspicious' ? 'bg-rose-500/20 text-rose-400'
+                            : 'bg-blue-500/20 text-blue-400'
+                          }`}>
+                            {t.verdict.replace('_', ' ')}
+                          </span>
+                        )}
+                        {t.confidence != null && (
+                          <span className="text-slate-500 flex-shrink-0 w-10 text-right">{Math.round(t.confidence * 100)}%</span>
+                        )}
+                        {t.status === 'skipped' && (
+                          <span className="text-slate-500 flex-shrink-0 italic">skipped</span>
+                        )}
+                        {t.status === 'error' && (
+                          <span className="text-red-400 flex-shrink-0 italic">error</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
-            <button onClick={() => setLastRunResult(null)} className="text-slate-500 hover:text-white text-lg leading-none">&times;</button>
+            <button onClick={() => setLastRunResult(null)} className="text-slate-500 hover:text-white text-lg leading-none flex-shrink-0">&times;</button>
           </div>
         </div>
       )}
