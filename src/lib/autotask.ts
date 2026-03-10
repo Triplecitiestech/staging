@@ -495,18 +495,25 @@ export class AutotaskClient {
    */
   private async patch<T>(entityPath: string, data: object): Promise<T> {
     const url = `${this.baseUrl}/v1.0/${entityPath}`;
-    const response = await fetch(url, {
-      method: 'PATCH',
-      headers: this.headers,
-      body: JSON.stringify(data),
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15_000);
+    try {
+      const response = await fetch(url, {
+        method: 'PATCH',
+        headers: this.headers,
+        body: JSON.stringify(data),
+        signal: controller.signal,
+      });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Autotask API PATCH ${entityPath} failed (${response.status}): ${errorText}`);
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Autotask API PATCH ${entityPath} failed (${response.status}): ${errorText}`);
+      }
+
+      return response.json() as Promise<T>;
+    } finally {
+      clearTimeout(timeoutId);
     }
-
-    return response.json() as Promise<T>;
   }
 
   /**
@@ -514,18 +521,25 @@ export class AutotaskClient {
    */
   private async post<T>(entityPath: string, data: object): Promise<T> {
     const url = `${this.baseUrl}/v1.0/${entityPath}`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: this.headers,
-      body: JSON.stringify(data),
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15_000);
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: this.headers,
+        body: JSON.stringify(data),
+        signal: controller.signal,
+      });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Autotask API POST ${entityPath} failed (${response.status}): ${errorText}`);
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Autotask API POST ${entityPath} failed (${response.status}): ${errorText}`);
+      }
+
+      return response.json() as Promise<T>;
+    } finally {
+      clearTimeout(timeoutId);
     }
-
-    return response.json() as Promise<T>;
   }
 
   /**

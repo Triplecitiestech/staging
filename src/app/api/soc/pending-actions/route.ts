@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { addAutotaskNote } from '@/lib/soc/engine';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 /** GET /api/soc/pending-actions — List pending actions (optionally filtered by incidentId or status) */
 export async function GET(request: NextRequest) {
