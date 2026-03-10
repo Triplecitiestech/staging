@@ -20,7 +20,10 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}));
     const ticketIds: string[] = body.ticketIds || [];
     const reprocess: boolean = body.reprocess || false;
-    const limit = Math.min(body.limit || 50, 100);
+    // Reprocess is heavier (3 AI calls per ticket: screen + deep + action plan)
+    // so use a smaller default limit to stay within 60s function timeout
+    const defaultLimit = reprocess ? 10 : 50;
+    const limit = Math.min(body.limit || defaultLimit, 100);
 
     const config = await loadSocConfig();
 
@@ -65,6 +68,12 @@ export async function POST(request: NextRequest) {
       // Re-process all recent security tickets (clear old analyses first)
       await prisma.$executeRawUnsafe(`
         DELETE FROM soc_ticket_analysis WHERE "processedAt" > now() - interval '7 days'
+      `);
+      // Clear pending actions for incidents being reprocessed
+      await prisma.$executeRawUnsafe(`
+        DELETE FROM soc_pending_actions WHERE "incidentId" IN (
+          SELECT id FROM soc_incidents WHERE "createdAt" > now() - interval '7 days'
+        )
       `);
       await prisma.$executeRawUnsafe(`
         DELETE FROM soc_incidents WHERE "createdAt" > now() - interval '7 days'
