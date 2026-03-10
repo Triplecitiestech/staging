@@ -104,12 +104,12 @@ export default function SocDashboardClient() {
 
   useEffect(() => { fetchData() }, [fetchData])
 
-  const handleRunNow = async () => {
+  const handleRunNow = async (reprocess = false) => {
     setRunning(true)
     setRunError(null)
     setLastRunResult(null)
     try {
-      const res = await fetch('/api/soc/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      const res = await fetch('/api/soc/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reprocess }) })
       const data = await res.json()
       if (!res.ok || data.status === 'error') {
         setRunError(data.message || `Error ${res.status}`)
@@ -218,11 +218,19 @@ export default function SocDashboardClient() {
               {' · '}<span className="text-red-400">{status?.today?.escalated || 0}</span> escalated
             </span>
             <button
-              onClick={handleRunNow}
+              onClick={() => handleRunNow(false)}
               disabled={running}
               className="px-3 py-1.5 text-sm font-medium bg-cyan-500 hover:bg-cyan-600 text-white rounded-lg transition-colors disabled:opacity-50"
             >
               {running ? 'Running...' : 'Run Now'}
+            </button>
+            <button
+              onClick={() => handleRunNow(true)}
+              disabled={running}
+              className="px-3 py-1.5 text-sm font-medium bg-slate-600 hover:bg-slate-500 text-white rounded-lg transition-colors disabled:opacity-50"
+              title="Clear previous analyses and re-run the full pipeline on all recent tickets"
+            >
+              Reprocess
             </button>
           </div>
         </div>

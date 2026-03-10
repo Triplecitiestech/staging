@@ -19,6 +19,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}));
     const ticketIds: string[] = body.ticketIds || [];
+    const reprocess: boolean = body.reprocess || false;
     const limit = Math.min(body.limit || 50, 100);
 
     const config = await loadSocConfig();
@@ -59,6 +60,38 @@ export async function POST(request: NextRequest) {
         FROM tickets t
         LEFT JOIN companies c ON c.id = t."companyId"
         WHERE t."autotaskTicketId" = ANY(${ticketIds})
+      `;
+    } else if (reprocess) {
+      // Re-process all recent security tickets (clear old analyses first)
+      await prisma.$executeRawUnsafe(`
+        DELETE FROM soc_ticket_analysis WHERE "processedAt" > now() - interval '7 days'
+      `);
+      await prisma.$executeRawUnsafe(`
+        DELETE FROM soc_incidents WHERE "createdAt" > now() - interval '7 days'
+      `);
+      tickets = await prisma.$queryRaw<SecurityTicket[]>`
+        SELECT
+          t."autotaskTicketId",
+          t."ticketNumber",
+          t."companyId",
+          c."displayName" as "companyName",
+          t.title,
+          t.description,
+          t.status,
+          t."statusLabel",
+          t.priority,
+          t."priorityLabel",
+          t."queueId",
+          t."queueLabel",
+          t.source,
+          t."sourceLabel",
+          t."createDate"::text as "createDate"
+        FROM tickets t
+        LEFT JOIN companies c ON c.id = t."companyId"
+        WHERE t."createDate" > now() - interval '7 days'
+        AND t.status NOT IN (5, 13, 29)
+        ORDER BY t."createDate" DESC
+        LIMIT ${limit}
       `;
     } else {
       // Process unprocessed tickets from the existing tickets table
