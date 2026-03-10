@@ -47,6 +47,17 @@ interface ActivityEntry {
   createdAt: string
 }
 
+interface RunResultData {
+  ticketsFound: number
+  ticketsProcessed: number
+  falsePositives: number
+  escalated: number
+  skipped: number
+  dryRun: boolean
+  errors?: string[]
+  durationMs?: number
+}
+
 export default function SocDashboardClient() {
   const [status, setStatus] = useState<StatusData | null>(null)
   const [activity, setActivity] = useState<ActivityEntry[]>([])
@@ -54,7 +65,7 @@ export default function SocDashboardClient() {
   const [running, setRunning] = useState(false)
   const [activeTab, setActiveTab] = useState<'activity' | 'incidents'>('activity')
   const [runError, setRunError] = useState<string | null>(null)
-  const [runResult, setRunResult] = useState<string | null>(null)
+  const [lastRunResult, setLastRunResult] = useState<RunResultData | null>(null)
 
   const fetchData = useCallback(async () => {
     try {
@@ -65,7 +76,7 @@ export default function SocDashboardClient() {
       if (statusRes.ok) setStatus(await statusRes.json())
       if (activityRes.ok) {
         const data = await activityRes.json()
-        setActivity(data.activity || [])
+        setActivity(data.entries || [])
       }
     } catch {
       // Silently handle — tables may not exist yet
@@ -79,28 +90,31 @@ export default function SocDashboardClient() {
   const handleRunNow = async () => {
     setRunning(true)
     setRunError(null)
-    setRunResult(null)
+    setLastRunResult(null)
     try {
       const res = await fetch('/api/soc/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
       const data = await res.json()
       if (!res.ok || data.status === 'error') {
         setRunError(data.message || `Error ${res.status}`)
+      } else if (data.ticketsFound === 0) {
+        setRunError(data.message || 'No tickets to process')
       } else {
-        const msg = data.ticketsFound === 0
-          ? (data.message || 'No tickets to process')
-          : `Processed ${data.ticketsFound} ticket${data.ticketsFound === 1 ? '' : 's'}${data.dryRun ? ' (dry run)' : ''}`
-        if (data.ticketsFound === 0 && data.diagnostics?.totalRecentTickets === 0) {
-          setRunError(msg)
-        } else {
-          setRunResult(msg)
-        }
+        setLastRunResult({
+          ticketsFound: data.ticketsFound || 0,
+          ticketsProcessed: data.ticketsProcessed || 0,
+          falsePositives: data.falsePositives || 0,
+          escalated: data.escalated || 0,
+          skipped: data.skipped || 0,
+          dryRun: data.dryRun || false,
+          errors: data.errors,
+          durationMs: data.durationMs,
+        })
         await fetchData()
       }
     } catch (err) {
       setRunError(err instanceof Error ? err.message : 'Network error')
     } finally {
       setRunning(false)
-      setTimeout(() => { setRunError(null); setRunResult(null) }, 8000)
     }
   }
 
@@ -130,7 +144,7 @@ export default function SocDashboardClient() {
   const verdictBadge = (verdict: string | null) => {
     const colors: Record<string, string> = {
       false_positive: 'bg-green-500/20 text-green-400 border-green-500/30',
-      suspicious: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
+      suspicious: 'bg-rose-500/20 text-rose-400 border-rose-500/30',
       escalate: 'bg-red-500/20 text-red-400 border-red-500/30',
       informational: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
     }
@@ -149,7 +163,7 @@ export default function SocDashboardClient() {
       error: 'text-red-400',
       skipped: 'text-slate-500',
       correlated: 'text-violet-400',
-      escalated: 'text-orange-400',
+      escalated: 'text-rose-400',
       override: 'text-rose-400',
     }
     return icons[action] || 'text-slate-400'
@@ -185,12 +199,6 @@ export default function SocDashboardClient() {
               {' · '}<span className="text-green-400">{status?.today?.falsePositives || 0}</span> FP
               {' · '}<span className="text-red-400">{status?.today?.escalated || 0}</span> escalated
             </span>
-            {runError && (
-              <span className="text-xs text-red-400 max-w-[400px] truncate" title={runError}>{runError}</span>
-            )}
-            {runResult && (
-              <span className="text-xs text-green-400">{runResult}</span>
-            )}
             <button
               onClick={handleRunNow}
               disabled={running}
@@ -202,11 +210,51 @@ export default function SocDashboardClient() {
         </div>
       </div>
 
+      {/* Run Result Banner — persistent until dismissed */}
+      {runError && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-red-400">Run Issue</p>
+              <p className="text-sm text-slate-300 mt-1">{runError}</p>
+            </div>
+            <button onClick={() => setRunError(null)} className="text-slate-500 hover:text-white text-lg leading-none">&times;</button>
+          </div>
+        </div>
+      )}
+      {lastRunResult && (
+        <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-lg p-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-cyan-400">
+                Run Complete{lastRunResult.dryRun ? ' (Dry Run)' : ''}
+                {lastRunResult.durationMs ? ` — ${(lastRunResult.durationMs / 1000).toFixed(1)}s` : ''}
+              </p>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-sm">
+                <span className="text-slate-300"><span className="text-white font-medium">{lastRunResult.ticketsFound}</span> tickets found</span>
+                <span className="text-slate-300"><span className="text-white font-medium">{lastRunResult.ticketsProcessed}</span> processed</span>
+                <span className="text-slate-300"><span className="text-green-400 font-medium">{lastRunResult.falsePositives}</span> false positives</span>
+                <span className="text-slate-300"><span className="text-red-400 font-medium">{lastRunResult.escalated}</span> escalated</span>
+                {lastRunResult.skipped > 0 && (
+                  <span className="text-slate-300"><span className="text-slate-400 font-medium">{lastRunResult.skipped}</span> skipped (non-security)</span>
+                )}
+              </div>
+              {lastRunResult.errors && lastRunResult.errors.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  {lastRunResult.errors.map((e, i) => <p key={i} className="text-xs text-rose-400">{e}</p>)}
+                </div>
+              )}
+            </div>
+            <button onClick={() => setLastRunResult(null)} className="text-slate-500 hover:text-white text-lg leading-none">&times;</button>
+          </div>
+        </div>
+      )}
+
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard label="Analyzed Today" value={status?.today?.analyzed || 0} color="cyan" />
         <StatCard label="False Positives" value={status?.today?.falsePositives || 0} color="green" subtitle={status?.today?.analyzed ? `${Math.round((status.today.falsePositives / status.today.analyzed) * 100)}%` : undefined} />
-        <StatCard label="Suspicious" value={status?.today?.suspicious || 0} color="orange" />
+        <StatCard label="Suspicious" value={status?.today?.suspicious || 0} color="rose" />
         <StatCard label="Escalated" value={status?.today?.escalated || 0} color="red" />
       </div>
 
@@ -320,13 +368,13 @@ function StatCard({ label, value, color, subtitle }: { label: string; value: num
   const colorMap: Record<string, string> = {
     cyan: 'from-cyan-500/10 to-cyan-500/5 border-cyan-500/20',
     green: 'from-green-500/10 to-green-500/5 border-green-500/20',
-    orange: 'from-orange-500/10 to-orange-500/5 border-orange-500/20',
+    rose: 'from-rose-500/10 to-rose-500/5 border-rose-500/20',
     red: 'from-red-500/10 to-red-500/5 border-red-500/20',
   }
   const textColor: Record<string, string> = {
     cyan: 'text-cyan-400',
     green: 'text-green-400',
-    orange: 'text-orange-400',
+    rose: 'text-rose-400',
     red: 'text-red-400',
   }
 
