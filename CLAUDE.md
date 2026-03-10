@@ -14,6 +14,7 @@ If you encounter an error — a build failure, a lint warning, a type mismatch, 
 ### 2. Every change must be fully tested and validated before deploying.
 - Run `npm run build` after every meaningful change. It must pass.
 - Run `npm run lint` and fix all errors.
+- **Run `npm run test:e2e` on every deploy/change.** The e2e test suite covers ALL systems (admin pages, public pages, customer portal, blog, marketing, SOC, Autotask sync, API health). Every test must pass before pushing. If a test fails, fix the root cause before proceeding.
 - Review your own `git diff` before committing — look for typos, broken imports, missing responsive classes.
 - Check that UI changes work at mobile (`sm`/`md`) AND desktop (`lg`+) breakpoints by reviewing Tailwind classes. Every layout must use responsive grid/flex patterns.
 - **Full QA is mandatory** — see `ENGINEERING_STANDARDS.md` and `QA_STANDARDS.md` for the complete process.
@@ -234,7 +235,9 @@ This is the **primary external data source** for companies, projects, phases, an
 - **E2e test failures generate debug summaries**: When Playwright tests fail, the custom reporter writes structured JSON + markdown summaries to `test-results/failures/`. Run `npm run debug:failures` to review. See `docs/DEBUGGING_WORKFLOW.md` for the full Claude debugging process. A fix is never confirmed until the previously failing test passes.
 - **forEach return does NOT stop execution**: `array.forEach(cb)` ignores return values inside the callback. If you need early return (e.g., to send an HTTP error response), use a `for` loop or `Array.from().some()`. The middleware had this bug for query param filtering — it was completely non-functional until fixed.
 - **Never log auth details**: Do not use `console.log` for password validation results, session tokens, signing keys, company slugs in auth context, or env variable names related to credentials. These appear in Vercel function logs which are accessible to anyone with Vercel dashboard access.
-- **Admin test failure dashboard**: Available at `/admin/debug/failures`. Requires the `test_failures` table (run migration via `POST /api/test-failures/migrate` with Bearer MIGRATION_SECRET).
+- **Admin test failure dashboard**: Available at `/admin/debug/failures`.
+- **Every Prisma schema field MUST have a migration**: Never add a field to `schema.prisma` without a corresponding migration SQL. Without a migration, any Prisma query without an explicit `select` will crash with "column does not exist". Runtime `ALTER TABLE` hacks in API routes are not sufficient — they only run when that specific endpoint is called, not when other pages query the same model. The migration `20260310000000_add_missing_columns` fixed a batch of these.
+- **Run e2e tests on every change**: `npm run test:e2e` covers all systems. Tests are in `tests/e2e/` and include: admin page health, public page rendering, customer portal, blog system, marketing system, SOC system, Autotask sync, API health, auth enforcement, forbidden colors, responsive viewports, and security checks. Always run before pushing. Requires the `test_failures` table (run migration via `POST /api/test-failures/migrate` with Bearer MIGRATION_SECRET).
 
 ## Customer Portal Architecture
 
