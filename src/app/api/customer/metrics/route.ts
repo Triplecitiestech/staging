@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
       select: { id: true, autotaskCompanyId: true },
     });
 
-    if (!company?.autotaskCompanyId) {
+    if (!company) {
       return NextResponse.json({
         hoursWorkedThisMonth: 0,
         ticketsClosedThisMonth: 0,
@@ -44,9 +44,9 @@ export async function GET(request: NextRequest) {
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
 
-    // Get all company tickets
+    // Get all company tickets — companyId FK references Company.id (UUID), not autotaskCompanyId
     const tickets = await prisma.ticket.findMany({
-      where: { companyId: company.autotaskCompanyId },
+      where: { companyId: company.id },
       select: {
         autotaskTicketId: true,
         status: true,
