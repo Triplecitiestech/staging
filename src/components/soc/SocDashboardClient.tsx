@@ -27,6 +27,12 @@ interface RecentIncident {
   confidenceScore: number | null
   status: string
   createdAt: string
+  companyName: string | null
+  deviceHostname: string | null
+  alertSource: string | null
+  correlationReason: string | null
+  proposedActions: { merge: { shouldMerge: boolean; survivingTicketNumber: string } | null; escalation: { recommended: boolean; urgency: string } | null } | null
+  humanGuidance: { riskLevel: string } | null
 }
 
 interface StatusData {
@@ -350,30 +356,68 @@ export default function SocDashboardClient() {
               No activity yet. Run the SOC agent or wait for the next cron cycle.
             </div>
           ) : (
-            activity.map(entry => (
-              <div key={entry.id} className="p-4 hover:bg-white/5 transition-colors">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex items-start gap-3 min-w-0">
-                    <div className={`mt-0.5 w-2 h-2 rounded-full flex-shrink-0 ${actionIcon(entry.action).replace('text-', 'bg-')}`} />
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-medium text-white capitalize">{entry.action.replace('_', ' ')}</span>
-                        {entry.autotaskTicketId && (
-                          <span className="text-xs text-slate-500">Ticket #{entry.autotaskTicketId}</span>
-                        )}
-                        {entry.confidenceScore != null && verdictBadge(
-                          entry.metadata?.verdict as string || (entry.confidenceScore > 0.7 ? 'false_positive' : 'suspicious')
+            activity.map(entry => {
+              const meta = entry.metadata || {}
+              return (
+                <div key={entry.id} className="p-4 hover:bg-white/5 transition-colors">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <div className={`mt-0.5 w-2 h-2 rounded-full flex-shrink-0 ${actionIcon(entry.action).replace('text-', 'bg-')}`} />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-medium text-white capitalize">{entry.action.replace('_', ' ')}</span>
+                          {entry.confidenceScore != null && verdictBadge(
+                            meta.verdict as string || (entry.confidenceScore > 0.7 ? 'false_positive' : 'suspicious')
+                          )}
+                          {Boolean(meta.mergeRecommended) && (
+                            <span className="px-1.5 py-0.5 text-[10px] font-medium bg-cyan-500/20 text-cyan-400 rounded">
+                              MERGE → #{String(meta.mergeSurvivingTicket || '')}
+                            </span>
+                          )}
+                          {Boolean(meta.escalationRecommended) && (
+                            <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${
+                              String(meta.escalationUrgency) === 'critical' ? 'bg-red-500/20 text-red-400'
+                              : String(meta.escalationUrgency) === 'urgent' ? 'bg-rose-500/20 text-rose-400'
+                              : 'bg-slate-500/20 text-slate-400'
+                            }`}>ESCALATE</span>
+                          )}
+                        </div>
+                        {/* Rich context line */}
+                        <div className="flex items-center gap-2 mt-1 text-xs text-slate-500 flex-wrap">
+                          {Boolean(meta.companyName) && (
+                            <span className="text-cyan-400/80">{String(meta.companyName)}</span>
+                          )}
+                          {Boolean(meta.deviceHostname) && <span>Device: {String(meta.deviceHostname)}</span>}
+                          {Number(meta.ticketCount) > 1 && (
+                            <span>{Number(meta.ticketCount)} tickets</span>
+                          )}
+                          {Array.isArray(meta.ticketNumbers) && meta.ticketNumbers.length > 0 && (
+                            <span className="font-mono">
+                              {(meta.ticketNumbers as string[]).map((tn: string) => `#${tn}`).join(', ')}
+                            </span>
+                          )}
+                          {!meta.ticketNumbers && entry.autotaskTicketId && (
+                            <span className="font-mono">Ticket #{entry.autotaskTicketId}</span>
+                          )}
+                          {Boolean(meta.riskLevel) && String(meta.riskLevel) !== 'none' && (
+                            <span className={`font-medium ${
+                              String(meta.riskLevel) === 'critical' ? 'text-red-400'
+                              : String(meta.riskLevel) === 'high' ? 'text-rose-400'
+                              : String(meta.riskLevel) === 'medium' ? 'text-cyan-400'
+                              : 'text-green-400'
+                            }`}>{String(meta.riskLevel)} risk</span>
+                          )}
+                        </div>
+                        {entry.detail && (
+                          <p className="text-sm text-slate-400 mt-1 truncate">{entry.detail}</p>
                         )}
                       </div>
-                      {entry.detail && (
-                        <p className="text-sm text-slate-400 mt-1 truncate">{entry.detail}</p>
-                      )}
                     </div>
+                    <span className="text-xs text-slate-500 flex-shrink-0">{timeAgo(entry.createdAt)}</span>
                   </div>
-                  <span className="text-xs text-slate-500 flex-shrink-0">{timeAgo(entry.createdAt)}</span>
                 </div>
-              </div>
-            ))
+              )
+            })
           )}
         </div>
       )}
@@ -385,7 +429,10 @@ export default function SocDashboardClient() {
               No incidents yet. Incidents are created when multiple related alerts are correlated.
             </div>
           ) : (
-            status.recentIncidents.map(incident => (
+            status.recentIncidents.map(incident => {
+              const merge = incident.proposedActions?.merge
+              const escalation = incident.proposedActions?.escalation
+              return (
               <Link
                 key={incident.id}
                 href={`/admin/soc/incidents/${incident.id}`}
@@ -397,18 +444,40 @@ export default function SocDashboardClient() {
                       <span className="text-sm font-medium text-white truncate">{incident.title}</span>
                       {verdictBadge(incident.verdict)}
                     </div>
-                    <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
+                    <div className="flex items-center gap-3 mt-1 text-xs text-slate-500 flex-wrap">
+                      {incident.companyName && <span className="text-cyan-400/80">{incident.companyName}</span>}
                       <span>{incident.ticketCount} tickets</span>
                       {incident.confidenceScore != null && (
                         <span>{Math.round(incident.confidenceScore * 100)}% confidence</span>
                       )}
+                      {incident.correlationReason && (
+                        <span className="capitalize">{incident.correlationReason.replace(/_/g, ' ')}</span>
+                      )}
                       <span className="capitalize">{incident.status}</span>
+                    </div>
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      {merge?.shouldMerge && (
+                        <span className="px-1.5 py-0.5 text-[10px] font-medium bg-cyan-500/20 text-cyan-400 rounded">
+                          MERGE → #{merge.survivingTicketNumber}
+                        </span>
+                      )}
+                      {escalation?.recommended && (
+                        <span className="px-1.5 py-0.5 text-[10px] font-medium bg-rose-500/20 text-rose-400 rounded">ESCALATE</span>
+                      )}
+                      {incident.humanGuidance?.riskLevel && incident.humanGuidance.riskLevel !== 'none' && (
+                        <span className={`text-[10px] font-medium ${
+                          incident.humanGuidance.riskLevel === 'critical' ? 'text-red-400'
+                          : incident.humanGuidance.riskLevel === 'high' ? 'text-rose-400'
+                          : 'text-cyan-400'
+                        }`}>{incident.humanGuidance.riskLevel} risk</span>
+                      )}
                     </div>
                   </div>
                   <span className="text-xs text-slate-500 flex-shrink-0">{timeAgo(incident.createdAt)}</span>
                 </div>
               </Link>
-            ))
+              )
+            })
           )}
         </div>
       )}

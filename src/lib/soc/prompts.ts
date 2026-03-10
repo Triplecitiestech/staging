@@ -126,6 +126,96 @@ Respond ONLY with valid JSON (no markdown, no backticks):
 }
 
 /**
+ * Build the incident action plan prompt.
+ * Generates a full operational plan: merge recommendation, proposed Autotask actions,
+ * human guidance, and supporting reasoning.
+ * Used for correlated incident groups and single suspicious tickets.
+ */
+export function buildActionPlanPrompt(
+  tickets: SecurityTicket[],
+  correlationReason: string,
+  verdict: string,
+  confidence: number,
+  aiReasoning: string,
+  deviceVerification: DeviceVerification | null,
+): string {
+  const ticketDetails = tickets.map((t, i) =>
+    `  ${i + 1}. [${t.ticketNumber}] "${t.title}"
+     - Company: ${t.companyName || t.companyId || 'Unknown'}
+     - Status: ${t.statusLabel || t.status} | Priority: ${t.priorityLabel || t.priority}
+     - Queue: ${t.queueLabel || 'Unknown'} | Source: ${t.sourceLabel || 'Unknown'}
+     - Created: ${t.createDate}
+     - Description: ${t.description?.slice(0, 300) || '(no description)'}`
+  ).join('\n');
+
+  const primaryTicket = tickets[0];
+  const isMultiTicket = tickets.length > 1;
+
+  const deviceSummary = deviceVerification
+    ? deviceVerification.verified
+      ? `VERIFIED TECHNICIAN DEVICE:\n  Device: ${deviceVerification.device?.hostname}\n  Technician: ${deviceVerification.technician}\n  IP: ${deviceVerification.device?.extIpAddress}`
+      : `DEVICE NOT VERIFIED: ${deviceVerification.reason || 'No matching device'}`
+    : 'No IP extracted — device lookup skipped';
+
+  return `You are a Tier 1 SOC Analyst for Triple Cities Tech, a managed IT services provider.
+You have already triaged this incident and determined:
+  Verdict: ${verdict} (Confidence: ${Math.round(confidence * 100)}%)
+  Reasoning: ${aiReasoning}
+
+Now generate a COMPLETE operational action plan for this incident.
+
+TICKETS (${tickets.length}):
+${ticketDetails}
+
+CORRELATION: ${correlationReason}
+DEVICE VERIFICATION: ${deviceSummary}
+
+${isMultiTicket ? `MERGE ANALYSIS REQUIRED:
+These ${tickets.length} tickets appear related. Evaluate whether they should be merged in Autotask.
+If merging, select the most descriptive ticket as the surviving ticket.
+Generate a merged title that captures the full scope of the incident.` : `SINGLE TICKET ANALYSIS:
+Generate the action plan for this individual ticket.`}
+
+Respond ONLY with valid JSON (no markdown, no backticks):
+{
+  "incidentSummary": "2-4 sentence operational summary of the entire incident",
+  "proposedActions": {
+    "merge": ${isMultiTicket ? `{
+      "shouldMerge": true or false,
+      "survivingTicketId": "the autotaskTicketId of the ticket to keep",
+      "survivingTicketNumber": "the ticket number to keep",
+      "mergeTicketIds": ["autotaskTicketIds to merge into surviving"],
+      "mergeTicketNumbers": ["ticket numbers to merge"],
+      "proposedTitle": "Combined incident title for the surviving ticket",
+      "mergeReasoning": "Why merge is or is not appropriate"
+    }` : 'null'},
+    "internalNote": "The exact internal note to add to the ${isMultiTicket ? 'surviving' : ''} Autotask ticket. Include: incident summary, evidence, analysis, verdict, and confidence.",
+    "statusChange": { "from": "${primaryTicket.statusLabel || 'current'}", "to": "recommended new status" } or null,
+    "priorityChange": { "from": "${primaryTicket.priorityLabel || 'current'}", "to": "recommended priority" } or null,
+    "queueChange": { "from": "${primaryTicket.queueLabel || 'current'}", "to": "recommended queue" } or null,
+    "escalation": {
+      "recommended": true or false,
+      "targetQueue": "queue name if escalating" or null,
+      "targetResource": "person or team name" or null,
+      "urgency": "routine" or "urgent" or "critical",
+      "reason": "why escalation is or is not needed"
+    }
+  },
+  "humanGuidance": {
+    "summary": "1-2 sentence summary for the human reviewer",
+    "steps": [
+      "Step 1: specific action the technician should take",
+      "Step 2: another specific action",
+      "... (provide 4-8 concrete next steps)"
+    ],
+    "draftCustomerMessage": "Draft message to send to the customer if contact is needed, or null if not needed",
+    "riskLevel": "none" or "low" or "medium" or "high" or "critical"
+  },
+  "supportingReasoning": "Detailed explanation of why this action plan was chosen, including evidence from each ticket"
+}`;
+}
+
+/**
  * Format the internal Autotask ticket note added by the SOC agent.
  */
 export function formatTicketNote(

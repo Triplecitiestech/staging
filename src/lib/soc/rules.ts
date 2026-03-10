@@ -82,11 +82,29 @@ export function detectAlertSource(ticket: SecurityTicket): string {
   return 'unknown';
 }
 
+/** Queue names that are dedicated security alert queues in Autotask */
+const SECURITY_QUEUE_NAMES = [
+  'security monitoring alert',
+  'security monitoring',
+  'security alerts',
+  'managed soc',
+];
+
 /**
- * Check if a ticket appears to be a security alert based on title/queue patterns.
+ * Check if a ticket is a security alert.
+ * Primary: queue-based detection (most reliable — Autotask routes all security alerts
+ *   to the "Security Monitoring Alert" queue).
+ * Fallback: keyword-based detection for tickets that may be in other queues.
  */
 export function isSecurityTicket(ticket: SecurityTicket): boolean {
-  const text = `${ticket.title} ${ticket.description || ''} ${ticket.sourceLabel || ''} ${ticket.queueLabel || ''}`.toLowerCase();
+  // Primary: check if ticket is in a known security queue
+  const queue = (ticket.queueLabel || '').toLowerCase();
+  if (queue && SECURITY_QUEUE_NAMES.some(q => queue.includes(q))) {
+    return true;
+  }
+
+  // Fallback: keyword matching for tickets not in a dedicated security queue
+  const text = `${ticket.title} ${ticket.description || ''} ${ticket.sourceLabel || ''}`.toLowerCase();
 
   const securityKeywords = [
     'security alert', 'security warning', 'suspicious', 'malware', 'phishing',
@@ -97,7 +115,7 @@ export function isSecurityTicket(ticket: SecurityTicket): boolean {
     'credential', 'compromised', 'data exfiltration', 'outbound connection',
     'vpn detected', 'gaming process', 'network inspection', 'bittorrent',
     'tor browser', 'tor exit', 'proxy', 'socks', 'blocked', 'firewall',
-    'denied', 'quarantine', 'sandbox', 'alert', 'detection', 'incident',
+    'denied', 'quarantine', 'sandbox', 'detection',
   ];
 
   return securityKeywords.some(kw => text.includes(kw));
