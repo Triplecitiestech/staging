@@ -61,6 +61,18 @@
     },
     "src/app/api/reports/migrate/route.ts": {
       "maxDuration": 60
+    },
+    "src/app/api/cron/soc-triage/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/cron/datto-device-sync/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/soc/run/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/soc/bootstrap/route.ts": {
+      "maxDuration": 60
     }
   },
   "crons": [
@@ -115,6 +127,14 @@
     {
       "path": "/api/reports/jobs/deliver",
       "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/soc-triage",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/datto-device-sync",
+      "schedule": "*/30 * * * *"
     }
   ]
 }
