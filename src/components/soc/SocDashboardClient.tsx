@@ -287,7 +287,9 @@ export default function SocDashboardClient() {
                           <span className="text-slate-500 flex-shrink-0 italic">skipped</span>
                         )}
                         {t.status === 'error' && (
-                          <span className="text-red-400 flex-shrink-0 italic">error</span>
+                          <span className="text-red-400 flex-shrink-0 italic truncate max-w-[200px]" title={t.reason}>
+                            {t.reason || 'error'}
+                          </span>
                         )}
                       </div>
                     ))}

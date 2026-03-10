@@ -96,6 +96,8 @@ export function isSecurityTicket(ticket: SecurityTicket): boolean {
     'bitlocker', 'ransomware', 'trojan', 'exploit', 'vulnerability',
     'credential', 'compromised', 'data exfiltration', 'outbound connection',
     'vpn detected', 'gaming process', 'network inspection', 'bittorrent',
+    'tor browser', 'tor exit', 'proxy', 'socks', 'blocked', 'firewall',
+    'denied', 'quarantine', 'sandbox', 'alert', 'detection', 'incident',
   ];
 
   return securityKeywords.some(kw => text.includes(kw));
