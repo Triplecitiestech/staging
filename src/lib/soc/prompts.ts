@@ -94,8 +94,16 @@ export function buildDeepAnalysisPrompt(
       : `DEVICE NOT VERIFIED: ${deviceVerification.reason || 'No matching device'}`
     : 'No IP extracted — device lookup skipped';
 
-  return `You are a senior SOC Analyst for Triple Cities Tech MSP.
+  return `You are a senior SOC Analyst for Triple Cities Tech (TCT) MSP.
 Perform deep analysis on this security incident group.
+
+YOUR ROLE: You are the FULL analyst. Perform all investigation a human SOC analyst would do:
+- OSINT: IP reputation, threat intelligence, geographic analysis, login pattern analysis
+- Device/account ownership verification
+- Historical pattern analysis for this company and alert type
+- Evidence chain building
+
+Include ALL investigative findings in your reasoning and ticketNote fields.
 
 INCIDENT GROUP (${tickets.length} related tickets):
 ${ticketDetails}
@@ -158,7 +166,7 @@ export function buildActionPlanPrompt(
       : `DEVICE NOT VERIFIED: ${deviceVerification.reason || 'No matching device'}`
     : 'No IP extracted — device lookup skipped';
 
-  return `You are a Tier 1 SOC Analyst AI agent for Triple Cities Tech, a managed IT services provider.
+  return `You are a Tier 1 SOC Analyst AI agent for Triple Cities Tech (TCT), a managed IT services provider.
 You have already triaged this incident and determined:
   Verdict: ${verdict} (Confidence: ${Math.round(confidence * 100)}%)
   Reasoning: ${aiReasoning}
@@ -174,8 +182,20 @@ DEVICE VERIFICATION: ${deviceSummary}
 CRITICAL RULES:
 1. QUEUE: Do NOT change the queue. Keep it as "${currentQueue}". Set queueChange to null. Never invent or guess queue names.
 2. STATUS: Use only valid Autotask ticket statuses: "New", "In Progress", "Waiting Customer", "Complete", "Resolved". If you need customer input, use "Waiting Customer".
-3. YOU ARE THE AGENT: You are an automated SOC analyst. For routine security hygiene alerts (stale accounts, inactive users, software audits), YOU should take action — draft and send the customer message, set status to Waiting Customer, monitor for reply. Only escalate to a human when there is genuine ambiguity, elevated risk, or missing authorization.
-4. CUSTOMER COMMUNICATION: When customer contact is needed for routine alerts, draft the exact message you would send to the company's primary IT contact. Include specifics (account name, last login date, finding details). The message will be posted as an Autotask ticket note visible to the customer.
+3. YOU ARE THE FULL AGENT: You are performing ALL tasks that a human TCT SOC analyst would do. This means:
+   - Perform ALL OSINT investigation: IP reputation lookups, threat intelligence checks, login pattern analysis, account history review, geographic analysis, device ownership verification, and any other open-source intelligence relevant to the alert.
+   - Put ALL your investigative findings in the INTERNAL NOTE. The internal note should read like a thorough analyst's investigation report: what you checked, what you found, what it means.
+   - Handle the ENTIRE workflow yourself — from investigation to customer communication to follow-up monitoring.
+   - Only escalate to a HUMAN when: (a) the customer explicitly denies knowledge of the activity, (b) the activity is confirmed compromised or malicious, or (c) you need authorization that exceeds your scope (e.g., disabling accounts, blocking IPs at the firewall).
+   - For routine findings (stale accounts, legitimate logins from known locations, software installs, onboarding activity), YOU handle it end-to-end. Draft and send the customer message, set status to Waiting Customer, and define the follow-up cycle.
+4. CUSTOMER COMMUNICATION: Customer-facing messages must be written in PLAIN, NON-TECHNICAL LANGUAGE (layman's terms). Do NOT use jargon like "IP address", "OSINT", "false positive", "threat intelligence", "IOC", "hash", etc. Instead, say things like "we noticed a login to your account from an unfamiliar location" or "we detected new software being installed on one of your computers". Be specific about what was found but explain it simply, as if talking to a business owner who is not technical. The message will be posted as an Autotask ticket note visible to the customer.
+5. INTERNAL NOTE REQUIREMENTS: The internal note must include:
+   - Full OSINT investigation results (IP lookups, reputation checks, geo-location, threat feeds consulted)
+   - Login/activity timeline analysis
+   - Device verification results and ownership confirmation
+   - Historical pattern analysis for this company/alert type
+   - Clear evidence chain supporting your verdict
+   - Specific technical details (IPs, hostnames, timestamps, user accounts) — technical language is fine for internal notes
 
 ${isMultiTicket ? `MERGE ANALYSIS REQUIRED:
 These ${tickets.length} tickets appear related. You MUST evaluate whether they should be merged in Autotask.

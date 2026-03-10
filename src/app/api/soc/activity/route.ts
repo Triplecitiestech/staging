@@ -98,7 +98,7 @@ export async function GET(request: NextRequest) {
   });
 }
 
-/** DELETE /api/soc/activity — Purge duplicate activity entries, keeping only the latest per group */
+/** DELETE /api/soc/activity — Purge duplicate and broken activity entries */
 export async function DELETE(request: NextRequest) {
   const session = await auth();
   if (!session?.user?.email || session.user?.role !== 'ADMIN') {
@@ -106,29 +106,49 @@ export async function DELETE(request: NextRequest) {
   }
 
   const confirm = request.nextUrl.searchParams.get('confirm');
+
+  // Count duplicates
+  const dupResult = await prisma.$queryRaw<Array<{ count: bigint }>>`
+    SELECT COUNT(*) as count FROM soc_activity_log
+    WHERE id NOT IN (
+      SELECT DISTINCT ON (action, "autotaskTicketId", "incidentId",
+        date_trunc('hour', "createdAt") + (EXTRACT(minute FROM "createdAt")::int / 5) * interval '5 min')
+        id
+      FROM soc_activity_log
+      ORDER BY action, "autotaskTicketId", "incidentId",
+        date_trunc('hour', "createdAt") + (EXTRACT(minute FROM "createdAt")::int / 5) * interval '5 min',
+        "createdAt" DESC
+    )
+  `;
+  const duplicateCount = Number(dupResult[0]?.count || 0);
+
+  // Count error entries without an incident (broken/orphaned)
+  const brokenResult = await prisma.$queryRaw<Array<{ count: bigint }>>`
+    SELECT COUNT(*) as count FROM soc_activity_log
+    WHERE action = 'error' AND "incidentId" IS NULL
+  `;
+  const brokenCount = Number(brokenResult[0]?.count || 0);
+
+  // Count entries with no associated incident AND no autotask ticket (fully orphaned)
+  const orphanResult = await prisma.$queryRaw<Array<{ count: bigint }>>`
+    SELECT COUNT(*) as count FROM soc_activity_log
+    WHERE "incidentId" IS NULL AND "autotaskTicketId" IS NULL
+  `;
+  const orphanCount = Number(orphanResult[0]?.count || 0);
+
   if (confirm !== 'true') {
-    // Preview mode: count how many duplicates would be removed
-    const [result] = await prisma.$queryRaw<[{ count: bigint }]>`
-      SELECT COUNT(*) as count FROM soc_activity_log
-      WHERE id NOT IN (
-        SELECT DISTINCT ON (action, "autotaskTicketId", "incidentId",
-          date_trunc('hour', "createdAt") + (EXTRACT(minute FROM "createdAt")::int / 5) * interval '5 min')
-          id
-        FROM soc_activity_log
-        ORDER BY action, "autotaskTicketId", "incidentId",
-          date_trunc('hour', "createdAt") + (EXTRACT(minute FROM "createdAt")::int / 5) * interval '5 min',
-          "createdAt" DESC
-      )
-    `;
     return NextResponse.json({
       preview: true,
-      duplicatesFound: Number(result.count),
-      message: `Found ${Number(result.count)} duplicate entries. Add ?confirm=true to delete them.`,
+      duplicatesFound: duplicateCount,
+      brokenErrorEntries: brokenCount,
+      fullyOrphanedEntries: orphanCount,
+      totalToRemove: duplicateCount + brokenCount + orphanCount,
+      message: `Found ${duplicateCount} duplicates, ${brokenCount} broken error entries, ${orphanCount} fully orphaned entries. Add ?confirm=true to delete them.`,
     });
   }
 
-  // Actually delete duplicates
-  const deleted = await prisma.$executeRawUnsafe(`
+  // Delete duplicates
+  const deletedDups = await prisma.$executeRawUnsafe(`
     DELETE FROM soc_activity_log
     WHERE id NOT IN (
       SELECT DISTINCT ON (action, "autotaskTicketId", "incidentId",
@@ -141,8 +161,23 @@ export async function DELETE(request: NextRequest) {
     )
   `);
 
+  // Delete broken error entries (errors without incidents)
+  const deletedBroken = await prisma.$executeRawUnsafe(`
+    DELETE FROM soc_activity_log
+    WHERE action = 'error' AND "incidentId" IS NULL
+  `);
+
+  // Delete fully orphaned entries
+  const deletedOrphans = await prisma.$executeRawUnsafe(`
+    DELETE FROM soc_activity_log
+    WHERE "incidentId" IS NULL AND "autotaskTicketId" IS NULL
+  `);
+
   return NextResponse.json({
     success: true,
-    duplicatesRemoved: deleted,
+    duplicatesRemoved: deletedDups,
+    brokenErrorsRemoved: deletedBroken,
+    orphansRemoved: deletedOrphans,
+    totalRemoved: deletedDups + deletedBroken + deletedOrphans,
   });
 }
