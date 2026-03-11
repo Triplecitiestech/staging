@@ -107,9 +107,9 @@ export default function TicketDetail({
 
         {/* Description */}
         {ticket.description && (
-          <div className="mt-3 bg-slate-700/50 border border-white/10 rounded-lg px-4 py-3">
+          <div className="mt-3 bg-slate-700/50 border border-white/10 rounded-lg px-4 py-3 overflow-hidden">
             <p className="text-xs font-semibold text-cyan-400 uppercase mb-1">Description</p>
-            <p className="text-sm text-gray-300 whitespace-pre-wrap">{ticket.description}</p>
+            <p className="text-sm text-gray-300 whitespace-pre-wrap break-words overflow-hidden">{ticket.description}</p>
           </div>
         )}
       </div>
