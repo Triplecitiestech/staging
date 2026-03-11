@@ -41,7 +41,7 @@ export default function TimelineEntry({
   return (
     <div className="relative pl-10 pb-4">
       <div className={`absolute left-2.5 w-3 h-3 rounded-full border-2 border-gray-800 ${dotColor}`} />
-      <div className={`rounded-lg px-4 py-3 ${cardBg}`}>
+      <div className={`rounded-lg px-4 py-3 overflow-hidden ${cardBg}`}>
         <div className="flex items-center justify-between mb-1 flex-wrap gap-1">
           <div className="flex items-center gap-2">
             <span className={`text-xs font-semibold ${authorColor}`}>
@@ -78,7 +78,7 @@ export default function TimelineEntry({
           </span>
         </div>
         {entry.title && <p className="text-xs text-slate-300 font-medium">{entry.title}</p>}
-        <p className="text-sm text-gray-300 whitespace-pre-wrap">{entry.content}</p>
+        <p className="text-sm text-gray-300 whitespace-pre-wrap break-words overflow-hidden">{entry.content}</p>
       </div>
     </div>
   );
