@@ -256,7 +256,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
         {/* Company Header */}
         {companyName && (
           <div className="mb-8 text-center">
-            <h1 className="text-4xl font-bold text-white mb-1">{companyName} Portal</h1>
+            <h1 className="text-4xl font-bold text-white mb-1">{companyName}</h1>
           </div>
         )}
         <TicketDetail
@@ -646,7 +646,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
       <div>
         {companyName && (
           <div className="mb-8 text-center">
-            <h1 className="text-4xl font-bold text-white mb-1">{companyName} Portal</h1>
+            <h1 className="text-4xl font-bold text-white mb-1">{companyName}</h1>
           </div>
         )}
         <button
@@ -716,7 +716,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
       <div>
         {companyName && (
           <div className="mb-8 text-center">
-            <h1 className="text-4xl font-bold text-white mb-1">{companyName} Portal</h1>
+            <h1 className="text-4xl font-bold text-white mb-1">{companyName}</h1>
           </div>
         )}
         <button
@@ -810,7 +810,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
       <div>
         {companyName && (
           <div className="mb-8 text-center">
-            <h1 className="text-4xl font-bold text-white mb-1">{companyName} Portal</h1>
+            <h1 className="text-4xl font-bold text-white mb-1">{companyName}</h1>
           </div>
         )}
         <button
@@ -875,7 +875,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
       <div>
         {companyName && (
           <div className="mb-8 text-center">
-            <h1 className="text-4xl font-bold text-white mb-1">{companyName} Portal</h1>
+            <h1 className="text-4xl font-bold text-white mb-1">{companyName}</h1>
           </div>
         )}
         <button
@@ -929,8 +929,8 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
       {/* Company Header */}
       {companyName && (
         <div className="mb-8 text-center">
-          <h1 className="text-4xl font-bold text-white mb-1">{companyName} Portal</h1>
-          <p className="text-lg text-cyan-400">Customer Dashboard</p>
+          <h1 className="text-4xl font-bold text-white mb-1">{companyName}</h1>
+          <p className="text-lg text-cyan-400">Triple Cities Tech Support Portal</p>
         </div>
       )}
 
@@ -993,17 +993,22 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-white">Need help? Use the chat in the bottom-right corner to create a support ticket.</p>
-          <p className="text-xs text-gray-400 mt-0.5">Our team typically responds within 1 business hour.</p>
-        </div>
-        <div className="hidden sm:block flex-shrink-0">
-          <svg className="w-5 h-5 text-cyan-400 animate-bounce" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-          </svg>
         </div>
       </div>
 
       {/* Tickets Section */}
       <div id="tickets-section" className="mb-8">
+        <div className="flex items-center gap-3 mb-3">
+          <h2 className="text-xl font-bold text-white">Tickets</h2>
+          <div className="flex-1" />
+          <input
+            type="text"
+            placeholder="Search tickets..."
+            value={ticketSearch}
+            onChange={(e) => setTicketSearch(e.target.value)}
+            className="w-full sm:w-64 px-3 py-1.5 text-sm bg-gray-800/50 border border-gray-600/50 rounded-md text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500/50"
+          />
+        </div>
         <TicketTable
           tickets={tickets}
           perspective="customer"
@@ -1012,6 +1017,8 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
             if (ticket) handleSelectTicket(ticket)
           }}
           compact
+          search={ticketSearch}
+          onSearchChange={setTicketSearch}
           maxRows={showAllTickets ? undefined : 5}
           showViewAll={tickets.length > 5}
           onViewAll={() => setShowAllTickets(!showAllTickets)}

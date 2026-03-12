@@ -20,9 +20,9 @@ export async function GET(request: NextRequest) {
     const forecastDays = parseInt(request.nextUrl.searchParams.get('forecastDays') || '30', 10);
 
     const [anomalies, insights, predictions] = await Promise.all([
-      detectAnomalies(),
+      detectAnomalies(filters.dateRange),
       generateInsights(filters.dateRange),
-      predictTrends(forecastDays),
+      predictTrends(forecastDays, filters.dateRange),
     ]);
 
     return NextResponse.json({
