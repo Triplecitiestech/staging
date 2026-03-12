@@ -241,6 +241,7 @@ export default function ReportingDashboard() {
               label="Tickets Created"
               value={data.summary.totalTicketsCreated}
               href="/admin/reporting/companies"
+              tooltip="Total new tickets opened during the selected period. A rising count may indicate growing support demand. Source: Autotask tickets filtered by createDate."
               invertTrend
               trend={
                 data.summary.trendVsPrevious.ticketsCreatedChange !== null
@@ -255,6 +256,7 @@ export default function ReportingDashboard() {
               label="Tickets Closed"
               value={data.summary.totalTicketsClosed}
               href="/admin/reporting/technicians"
+              tooltip="Total tickets moved to a resolved status during this period. Compared to the previous equal-length period. Source: Autotask tickets filtered by completedDate."
               trend={
                 data.summary.trendVsPrevious.ticketsClosedChange !== null
                   ? {
@@ -268,11 +270,13 @@ export default function ReportingDashboard() {
               label="SLA Compliance"
               value={data.summary.overallSlaCompliance !== null ? `${data.summary.overallSlaCompliance}%` : 'N/A'}
               href="/admin/reporting/companies"
+              tooltip="Percentage of tickets completed before their due date (dueDateTime). Only includes tickets that have a due date set. Source: Ticket.dueDateTime vs Ticket.completedDate."
             />
             <StatCard
               label="Open Backlog"
               value={data.summary.totalBacklog}
               href="/admin/reporting/companies"
+              tooltip="Total count of all tickets currently in a non-resolved status, regardless of when they were created. Source: Autotask tickets where status is not Complete/Approved."
             />
             <StatCard
               label="Avg Resolution"
@@ -282,6 +286,7 @@ export default function ReportingDashboard() {
                   : 'N/A'
               }
               href="/admin/reporting/analytics"
+              tooltip="Average time from ticket creation to resolution across all closed tickets in this period. Lower is better. Source: completedDate minus createDate on resolved Autotask tickets."
               invertTrend
               trend={
                 data.summary.trendVsPrevious.resolutionTimeChange !== null

@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation'
 import ReportFilterBar from './ReportFilters'
 import StatCard from './StatCard'
 import TrendChart from './TrendChart'
+import ComparisonBarChart from './ComparisonBarChart'
+import type { ComparisonMetric } from './ComparisonBarChart'
 import ReportAIAssistant from './ReportAIAssistant'
 
 interface TechnicianSummary {
@@ -23,14 +25,32 @@ interface TechnicianSummary {
   openTicketCount: number
 }
 
+interface ComparisonData {
+  current: number
+  previous: number
+  changePercent: number | null
+  direction: string
+}
+
+interface TechComparisonDetail {
+  resourceId: number
+  name: string
+  ticketsClosed: ComparisonData
+  hoursLogged: ComparisonData
+  avgResolution: ComparisonData
+  firstTouchResolutionRate: ComparisonData
+  avgFirstResponse: ComparisonData
+}
+
 interface TechReport {
   summary: TechnicianSummary[]
   trend?: Array<{ date: string; label: string; value: number }>
   comparison?: {
-    ticketsClosed: { current: number; previous: number; changePercent: number | null; direction: string }
-    hoursLogged: { current: number; previous: number; changePercent: number | null; direction: string }
-    avgResolution: { current: number; previous: number; changePercent: number | null; direction: string }
+    ticketsClosed: ComparisonData
+    hoursLogged: ComparisonData
+    avgResolution: ComparisonData
   }
+  techComparison?: TechComparisonDetail[]
   benchmarks?: Array<{
     metricKey: string
     actual: number
@@ -243,6 +263,7 @@ export default function TechnicianReport() {
         <StatCard
           label="Total Tickets Closed"
           value={totalClosed}
+          tooltip="Count of tickets moved to a resolved status (Complete, Approved, etc.) within the selected date range. Source: Autotask tickets synced to local DB, filtered by completedDate or status history."
           trend={data.comparison?.ticketsClosed ? {
             direction: data.comparison.ticketsClosed.direction as 'up' | 'down' | 'flat',
             percent: data.comparison.ticketsClosed.changePercent,
@@ -252,16 +273,22 @@ export default function TechnicianReport() {
         <StatCard
           label="Total Hours Logged"
           value={`${Math.round(totalHours * 10) / 10}h`}
+          tooltip="Sum of all time entries logged during the selected period. Includes both billable and non-billable hours. Source: Autotask time entries (TicketTimeEntry table), filtered by dateWorked."
           trend={data.comparison?.hoursLogged ? {
             direction: data.comparison.hoursLogged.direction as 'up' | 'down' | 'flat',
             percent: data.comparison.hoursLogged.changePercent,
             previous: `${data.comparison.hoursLogged.previous}h`,
           } : undefined}
         />
-        <StatCard label="Active Technicians" value={data.summary.length} />
+        <StatCard
+          label="Active Technicians"
+          value={data.summary.length}
+          tooltip="Number of technicians who have at least one ticket assigned or time entry logged during this period. Excludes API/system users."
+        />
         <StatCard
           label="Avg Resolution Time"
           value={data.comparison?.avgResolution ? formatMinutes(data.comparison.avgResolution.current) : 'N/A'}
+          tooltip="Average time from ticket creation to completion, across all resolved tickets in this period. Lower is better. Source: completedDate minus createDate on resolved Autotask tickets."
           invertTrend
           trend={data.comparison?.avgResolution ? {
             direction: data.comparison.avgResolution.direction as 'up' | 'down' | 'flat',
@@ -273,32 +300,68 @@ export default function TechnicianReport() {
 
       {/* Summary cards — row 2: key performance indicators */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4">
-          <p className="text-xs text-slate-500 mb-1">First Touch Resolution Rate</p>
-          <p className="text-xl font-bold text-white">{teamFTR !== null ? `${teamFTR}%` : 'N/A'}</p>
-          <p className="text-[10px] text-slate-600 mt-1">Tickets resolved with 1 technician interaction</p>
-        </div>
-        <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4">
-          <p className="text-xs text-slate-500 mb-1">Avg First Response Time</p>
-          <p className="text-xl font-bold text-white">{teamFRT !== null ? formatMinutes(teamFRT) : 'N/A'}</p>
-          <p className="text-[10px] text-slate-600 mt-1">Time from ticket creation to first tech response</p>
-        </div>
-        <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4">
-          <p className="text-xs text-slate-500 mb-1">Billable Utilization</p>
-          <p className="text-xl font-bold text-white">{utilizationRate}%</p>
-          <p className="text-[10px] text-slate-600 mt-1">{totalBillable.toFixed(1)}h billable of {totalHours.toFixed(1)}h total</p>
-        </div>
-        <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4">
-          <p className="text-xs text-slate-500 mb-1">Open Backlog</p>
-          <p className="text-xl font-bold text-white">{totalOpen}</p>
-          <p className="text-[10px] text-slate-600 mt-1">Tickets currently assigned and unresolved</p>
-        </div>
+        <StatCard
+          label="First Touch Resolution Rate"
+          value={teamFTR !== null ? `${teamFTR}%` : 'N/A'}
+          subValue="Tickets resolved with 1 technician interaction"
+          tooltip="Percentage of closed tickets that were resolved with exactly 1 total technician interaction (notes + time entries combined). A high rate means more issues are solved on first contact. Source: TicketNote and TicketTimeEntry counts per closed ticket."
+        />
+        <StatCard
+          label="Avg First Response Time"
+          value={teamFRT !== null ? formatMinutes(teamFRT) : 'N/A'}
+          subValue="Time from ticket creation to first tech response"
+          tooltip="Average time between ticket creation and the first technician note. Measures how quickly techs start working on new tickets. Source: earliest TicketNote.createDateTime minus Ticket.createDate."
+        />
+        <StatCard
+          label="Billable Utilization"
+          value={`${utilizationRate}%`}
+          subValue={`${totalBillable.toFixed(1)}h billable of ${totalHours.toFixed(1)}h total`}
+          tooltip="Percentage of total logged hours that are billable. Calculated as billableHours / totalHours. Source: TicketTimeEntry.isNonBillable flag from Autotask."
+        />
+        <StatCard
+          label="Open Backlog"
+          value={totalOpen}
+          subValue="Tickets currently assigned and unresolved"
+          tooltip="Count of tickets assigned to technicians that are not yet in a resolved status. Includes tickets created before the selected period. Source: Autotask tickets with non-resolved status."
+        />
       </div>
 
       {/* Trend */}
       {data.trend && data.trend.length > 0 && (
         <TrendChart data={data.trend} title="Tickets Closed Over Time" />
       )}
+
+      {/* Per-technician comparison chart (current vs previous period) */}
+      {data.techComparison && data.techComparison.length > 0 && (() => {
+        // When a specific tech is selected (1 tech), show detailed metrics
+        // When showing all techs, show tickets closed comparison for top techs
+        const isSingleTech = data.techComparison!.length === 1
+        const chartData: ComparisonMetric[] = isSingleTech
+          ? (() => {
+              const tc = data.techComparison![0]
+              return [
+                { label: 'Tickets Closed', current: tc.ticketsClosed.current, previous: tc.ticketsClosed.previous },
+                { label: 'Hours Logged', current: tc.hoursLogged.current, previous: tc.hoursLogged.previous, unit: 'h' },
+                { label: 'Avg Resolution (min)', current: tc.avgResolution.current, previous: tc.avgResolution.previous, unit: 'm', invertColor: true },
+                { label: 'FTR Rate', current: tc.firstTouchResolutionRate.current, previous: tc.firstTouchResolutionRate.previous, unit: '%' },
+                { label: 'Avg First Response (min)', current: tc.avgFirstResponse.current, previous: tc.avgFirstResponse.previous, unit: 'm', invertColor: true },
+              ]
+            })()
+          : data.techComparison!
+              .filter(tc => tc.ticketsClosed.current > 0 || tc.ticketsClosed.previous > 0)
+              .slice(0, 10)
+              .map(tc => ({
+                label: tc.name.split(' ')[0],
+                current: tc.ticketsClosed.current,
+                previous: tc.ticketsClosed.previous,
+              }))
+
+        const chartTitle = isSingleTech
+          ? `${data.techComparison![0].name} — Current vs Previous Period`
+          : 'Tickets Closed — Current vs Previous Period (Top Techs)'
+
+        return <ComparisonBarChart data={chartData} title={chartTitle} />
+      })()}
 
       {/* Benchmarks (shown when Details toggle is active) */}
       {data.benchmarks && data.benchmarks.length > 0 && (
