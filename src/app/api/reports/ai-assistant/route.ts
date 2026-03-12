@@ -130,6 +130,7 @@ async function fetchRelevantData(prompt: string, context: string): Promise<strin
             where: { autotaskTicketId: { in: ticketIds } },
             select: {
               autotaskTicketId: true,
+              title: true,
               creatorResourceId: true,
               creatorContactId: true,
               createDateTime: true,
@@ -139,7 +140,30 @@ async function fetchRelevantData(prompt: string, context: string): Promise<strin
           })
 
           if (notes.length > 0) {
-            // Group notes by ticket and analyze communication patterns
+            // Resolve resource names to identify who created each note
+            const noteResourceIds = notes.map(n => n.creatorResourceId).filter((id): id is number => id !== null)
+            const noteResources = noteResourceIds.length > 0
+              ? await prisma.resource.findMany({
+                  where: { autotaskResourceId: { in: Array.from(new Set(noteResourceIds)) } },
+                  select: { autotaskResourceId: true, firstName: true, lastName: true },
+                })
+              : []
+            const noteResMap = new Map(noteResources.map(r => [r.autotaskResourceId, `${r.firstName} ${r.lastName}`]))
+
+            // Categorize each note:
+            // - Human technician note: creatorResourceId set, creatorContactId null
+            // - Customer note: creatorContactId set
+            // - System/API note: both creatorResourceId AND creatorContactId are null (automated workflows, API integrations)
+            // publish values: 1 = internal (AT staff), 2 = internal (resources only), 3 = customer-visible (external)
+            const humanTechNotes = notes.filter(n => n.creatorResourceId != null && n.creatorContactId == null)
+            const customerNotes = notes.filter(n => n.creatorContactId != null)
+            const systemNotes = notes.filter(n => n.creatorResourceId == null && n.creatorContactId == null)
+
+            // Further break down human tech notes by visibility
+            const techExternalNotes = humanTechNotes.filter(n => n.publish === 3) // customer-visible outreach
+            const techInternalNotes = humanTechNotes.filter(n => n.publish !== 3) // internal notes (publish 1, 2, or null)
+
+            // Group notes by ticket
             const notesByTicket = new Map<string, typeof notes>()
             for (const note of notes) {
               const existing = notesByTicket.get(note.autotaskTicketId) || []
@@ -147,52 +171,74 @@ async function fetchRelevantData(prompt: string, context: string): Promise<strin
               notesByTicket.set(note.autotaskTicketId, existing)
             }
 
-            // Calculate per-ticket: tech outreach count before customer response, customer response delays
+            // Calculate per-ticket communication patterns using ONLY human tech notes (exclude system/API notes)
             const customerResponseDelays: number[] = []
-            const techOutreachBeforeResponse: number[] = []
+            const humanOutreachBeforeResponse: number[] = []
 
-            for (const ticketNotes of Array.from(notesByTicket.values())) {
-              let techOutreachCount = 0
-              let lastTechNoteTime: Date | null = null
+            for (const tktNotes of Array.from(notesByTicket.values())) {
+              let humanOutreachCount = 0
+              let lastHumanTechNoteTime: Date | null = null
 
-              for (const note of ticketNotes) {
-                const isTechNote = note.creatorResourceId != null && note.creatorContactId == null
+              for (const note of tktNotes) {
+                const isHumanTechNote = note.creatorResourceId != null && note.creatorContactId == null
                 const isCustomerNote = note.creatorContactId != null
+                // Notes with both null are system/API — skip for outreach counting
 
-                if (isTechNote) {
-                  techOutreachCount++
-                  lastTechNoteTime = note.createDateTime
+                if (isHumanTechNote) {
+                  humanOutreachCount++
+                  lastHumanTechNoteTime = note.createDateTime
                 } else if (isCustomerNote) {
-                  if (techOutreachCount > 0) {
-                    techOutreachBeforeResponse.push(techOutreachCount)
+                  if (humanOutreachCount > 0) {
+                    humanOutreachBeforeResponse.push(humanOutreachCount)
                   }
-                  if (lastTechNoteTime) {
-                    const delayMs = note.createDateTime.getTime() - lastTechNoteTime.getTime()
+                  if (lastHumanTechNoteTime) {
+                    const delayMs = note.createDateTime.getTime() - lastHumanTechNoteTime.getTime()
                     customerResponseDelays.push(delayMs / (1000 * 60 * 60)) // hours
                   }
-                  techOutreachCount = 0
-                  lastTechNoteTime = null
+                  humanOutreachCount = 0
+                  lastHumanTechNoteTime = null
                 }
               }
-              // If ticket ended with tech notes and no customer response, track that too
-              if (techOutreachCount > 0) {
-                techOutreachBeforeResponse.push(techOutreachCount)
+              if (humanOutreachCount > 0) {
+                humanOutreachBeforeResponse.push(humanOutreachCount)
               }
             }
 
-            const totalTechNotes = notes.filter(n => n.creatorResourceId != null && n.creatorContactId == null).length
-            const totalCustNotes = notes.filter(n => n.creatorContactId != null).length
+            // Per-ticket note breakdown
+            let perTicketBreakdown = ''
+            const ticketNumMap = new Map(companyTickets.map(t => [t.autotaskTicketId, t.ticketNumber || t.autotaskTicketId]))
+            for (const [ticketId, tktNotes] of Array.from(notesByTicket.entries())) {
+              const tktHuman = tktNotes.filter(n => n.creatorResourceId != null && n.creatorContactId == null)
+              const tktCustomer = tktNotes.filter(n => n.creatorContactId != null)
+              const tktSystem = tktNotes.filter(n => n.creatorResourceId == null && n.creatorContactId == null)
+              const tktExternal = tktHuman.filter(n => n.publish === 3)
+              const tktInternal = tktHuman.filter(n => n.publish !== 3)
+
+              // Identify unique human technicians on this ticket
+              const techNames = Array.from(new Set(tktHuman.map(n => noteResMap.get(n.creatorResourceId!) || `Resource #${n.creatorResourceId}`))).join(', ')
+
+              perTicketBreakdown += `\n  Ticket #${ticketNumMap.get(ticketId)}: ${tktNotes.length} total notes\n`
+              perTicketBreakdown += `    Human tech notes: ${tktHuman.length} (${tktExternal.length} customer-visible, ${tktInternal.length} internal)\n`
+              perTicketBreakdown += `    Customer notes: ${tktCustomer.length}\n`
+              perTicketBreakdown += `    System/API automated notes: ${tktSystem.length}\n`
+              if (techNames) perTicketBreakdown += `    Technicians: ${techNames}\n`
+            }
 
             let commSection = `### ${mentionedCompany.displayName} — Communication Pattern Analysis\n` +
-              `Total notes across ${notesByTicket.size} tickets: ${notes.length}\n` +
-              `Tech/internal notes: ${totalTechNotes}\n` +
-              `Customer notes: ${totalCustNotes}\n`
+              `Total notes across ${notesByTicket.size} tickets: ${notes.length}\n\n` +
+              `**Note Breakdown by Author Type:**\n` +
+              `- Human technician notes: ${humanTechNotes.length} (${techExternalNotes.length} customer-visible outreach, ${techInternalNotes.length} internal-only)\n` +
+              `- Customer notes: ${customerNotes.length}\n` +
+              `- System/API automated notes: ${systemNotes.length} (workflow automations, API integrations — NOT human outreach)\n\n` +
+              `**Per-Ticket Breakdown:**${perTicketBreakdown}\n`
 
-            if (techOutreachBeforeResponse.length > 0) {
-              const avgOutreach = techOutreachBeforeResponse.reduce((s, v) => s + v, 0) / techOutreachBeforeResponse.length
-              const maxOutreach = Math.max(...techOutreachBeforeResponse)
-              commSection += `Avg tech outreach attempts before customer response: ${avgOutreach.toFixed(1)}\n`
-              commSection += `Max outreach attempts without response: ${maxOutreach}\n`
+            // Report HUMAN outreach metrics (excluding system/API notes)
+            commSection += `**Human Outreach Metrics (excluding system/API notes):**\n`
+            if (humanOutreachBeforeResponse.length > 0) {
+              const avgOutreach = humanOutreachBeforeResponse.reduce((s, v) => s + v, 0) / humanOutreachBeforeResponse.length
+              const maxOutreach = Math.max(...humanOutreachBeforeResponse)
+              commSection += `Avg HUMAN tech outreach attempts before customer response: ${avgOutreach.toFixed(1)}\n`
+              commSection += `Max human outreach attempts without response: ${maxOutreach}\n`
             }
 
             if (customerResponseDelays.length > 0) {
@@ -203,7 +249,7 @@ async function fetchRelevantData(prompt: string, context: string): Promise<strin
               commSection += `Fastest customer response: ${minDelay.toFixed(1)} hours\n`
               commSection += `Slowest customer response: ${maxDelay.toFixed(1)} hours (${(maxDelay / 24).toFixed(1)} days)\n`
             } else {
-              commSection += `No customer response patterns could be calculated (no customer notes found after tech outreach)\n`
+              commSection += `No customer response patterns could be calculated (no customer notes found after human tech outreach)\n`
             }
 
             sections.push(commSection)
@@ -535,7 +581,14 @@ Instructions:
 - Keep responses under 600 words unless generating a full report or a company-specific analysis.
 - Format time values nicely (e.g., "2.5 hours" not "150 minutes").
 - Be actionable — suggest next steps when relevant.
-- This is a conversation. The user may ask follow-up questions about your previous answers. Reference your prior responses and the data when answering follow-ups.`
+- This is a conversation. The user may ask follow-up questions about your previous answers. Reference your prior responses and the data when answering follow-ups.
+- IMPORTANT: When discussing ticket notes and outreach, always distinguish between note types:
+  - "Human technician notes" = created by a real person (has creatorResourceId, no creatorContactId)
+  - "Customer notes" = created by the customer (has creatorContactId)
+  - "System/API automated notes" = created by workflows or API integrations (both creator fields are null) — NEVER count these as human outreach attempts
+  - Notes with publish=3 are customer-visible (external outreach); publish=1 or 2 are internal-only
+  - Only count customer-visible human tech notes (publish=3) as genuine outreach to the customer
+  - Internal notes (publish=1 or 2) are team communication, not customer outreach`
 
     const anthropicMessages = messages.map(msg => ({
       role: msg.role as 'user' | 'assistant',
