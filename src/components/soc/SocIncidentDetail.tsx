@@ -558,7 +558,7 @@ export default function SocIncidentDetail({ incidentId }: { incidentId: string }
                     <h4 className="text-sm font-medium text-white">Internal Escalation</h4>
                     {pa.escalation.recommended ? (
                       <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${urgencyColors[pa.escalation.urgency] || urgencyColors.routine}`}>
-                        {pa.escalation.urgency.toUpperCase()}
+                        {(pa.escalation.urgency || 'routine').toUpperCase()}
                       </span>
                     ) : (
                       <span className="px-2 py-0.5 text-xs font-medium bg-green-500/20 text-green-400 rounded-full">Not Needed</span>
@@ -796,7 +796,7 @@ export default function SocIncidentDetail({ incidentId }: { incidentId: string }
               <div className="flex items-center gap-3">
                 <span className="text-sm text-slate-400">Risk Level:</span>
                 <span className={`text-sm font-medium ${riskColors[hg.riskLevel] || 'text-slate-400'}`}>
-                  {hg.riskLevel.toUpperCase()}
+                  {(hg.riskLevel || 'none').toUpperCase()}
                 </span>
               </div>
               <p className="text-sm text-slate-300">{hg.summary}</p>
