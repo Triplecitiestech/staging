@@ -470,10 +470,15 @@ async function fetchRelevantData(prompt: string, context: string): Promise<strin
   return sections.length > 0 ? sections.join('\n\n') : 'No detailed data could be fetched from the database.'
 }
 
+interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
 /**
  * POST /api/reports/ai-assistant
  * AI-powered report assistant that answers questions about reporting data.
- * Now queries the database directly for real-time, accurate data.
+ * Supports full conversation history for follow-up questions.
  */
 export async function POST(request: NextRequest) {
   const session = await auth()
@@ -482,9 +487,14 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { prompt, context, data } = await request.json()
+    const body = await request.json()
 
-    if (!prompt || typeof prompt !== 'string') {
+    // Support both legacy single-prompt and new messages array format
+    const messages: ChatMessage[] = body.messages || (body.prompt ? [{ role: 'user' as const, content: body.prompt }] : [])
+    const context: string = body.context || ''
+    const data: unknown = body.data
+
+    if (!messages.length || !messages[messages.length - 1]?.content) {
       return NextResponse.json({ error: 'Prompt is required' }, { status: 400 })
     }
 
@@ -495,8 +505,11 @@ export async function POST(request: NextRequest) {
 
     const client = new Anthropic({ apiKey })
 
+    // Use the latest user message to determine what data to fetch
+    const latestUserMessage = [...messages].reverse().find(m => m.role === 'user')?.content || ''
+
     // Fetch real data from the database based on the prompt and context
-    const realtimeData = await fetchRelevantData(prompt, context)
+    const realtimeData = await fetchRelevantData(latestUserMessage, context)
 
     // Also include the frontend-provided summary data as supplementary context
     const frontendContext = data ? JSON.stringify(data, null, 0).slice(0, 4000) : ''
@@ -521,13 +534,19 @@ Instructions:
 - Do not make up data. Only reference what is provided above.
 - Keep responses under 600 words unless generating a full report or a company-specific analysis.
 - Format time values nicely (e.g., "2.5 hours" not "150 minutes").
-- Be actionable — suggest next steps when relevant.`
+- Be actionable — suggest next steps when relevant.
+- This is a conversation. The user may ask follow-up questions about your previous answers. Reference your prior responses and the data when answering follow-ups.`
+
+    const anthropicMessages = messages.map(msg => ({
+      role: msg.role as 'user' | 'assistant',
+      content: msg.content,
+    }))
 
     const message = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 2048,
       system: systemPrompt,
-      messages: [{ role: 'user', content: prompt }],
+      messages: anthropicMessages,
     })
 
     const textContent = message.content.find(c => c.type === 'text')
