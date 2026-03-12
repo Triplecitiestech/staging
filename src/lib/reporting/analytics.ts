@@ -52,15 +52,17 @@ export interface PredictiveTrend {
  * Detect anomalies in recent metrics using simple statistical methods.
  * Uses a rolling baseline comparison (current vs moving average).
  */
-export async function detectAnomalies(lookbackDays: number = 7): Promise<AnomalyAlert[]> {
+export async function detectAnomalies(range?: DateRange): Promise<AnomalyAlert[]> {
   const alerts: AnomalyAlert[] = [];
   const now = new Date();
-  const recentFrom = new Date(now.getTime() - lookbackDays * 24 * 60 * 60 * 1000);
+  const recentFrom = range?.from ?? new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const recentTo = range?.to ?? now;
+  const lookbackDays = Math.max(1, Math.ceil((recentTo.getTime() - recentFrom.getTime()) / (24 * 60 * 60 * 1000)));
   const baselineFrom = new Date(recentFrom.getTime() - 30 * 24 * 60 * 60 * 1000);
 
   // Ticket volume anomalies
   const recentCompanyMetrics = await prisma.companyMetricsDaily.findMany({
-    where: { date: { gte: recentFrom, lte: now } },
+    where: { date: { gte: recentFrom, lte: recentTo } },
   });
   const baselineCompanyMetrics = await prisma.companyMetricsDaily.findMany({
     where: { date: { gte: baselineFrom, lt: recentFrom } },
@@ -335,13 +337,14 @@ export async function generateInsights(range?: DateRange): Promise<OperationalIn
 /**
  * Project metric trends based on historical patterns using simple linear regression.
  */
-export async function predictTrends(forecastDays: number = 30): Promise<PredictiveTrend[]> {
+export async function predictTrends(forecastDays: number = 30, range?: DateRange): Promise<PredictiveTrend[]> {
   const predictions: PredictiveTrend[] = [];
   const now = new Date();
-  const historyFrom = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+  const to = range?.to ?? now;
+  const from = range?.from ?? new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
 
   const companyMetrics = await prisma.companyMetricsDaily.findMany({
-    where: { date: { gte: historyFrom, lte: now } },
+    where: { date: { gte: from, lte: to } },
     orderBy: { date: 'asc' },
   });
 
