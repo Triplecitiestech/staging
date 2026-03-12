@@ -20,6 +20,218 @@ async function fetchRelevantData(prompt: string, context: string): Promise<strin
 
   const sections: string[] = []
 
+  // ── Company-specific deep dive ──
+  // When a user mentions a specific company, fetch detailed per-company data
+  try {
+    // Find all companies and check if any name appears in the prompt
+    const allCompanies = await prisma.company.findMany({
+      select: { id: true, displayName: true },
+    })
+    const mentionedCompany = allCompanies.find(c =>
+      c.displayName && lowerPrompt.includes(c.displayName.toLowerCase())
+    )
+
+    if (mentionedCompany) {
+      // Tickets for this company in last 30 days
+      const companyTickets = await prisma.ticket.findMany({
+        where: { companyId: mentionedCompany.id, createDate: { gte: monthAgo } },
+        select: {
+          autotaskTicketId: true,
+          ticketNumber: true,
+          title: true,
+          status: true,
+          statusLabel: true,
+          priority: true,
+          priorityLabel: true,
+          queueLabel: true,
+          assignedResourceId: true,
+          createDate: true,
+          completedDate: true,
+          lastActivityDate: true,
+        },
+        orderBy: { createDate: 'desc' },
+        take: 100,
+      })
+
+      // Resolve technician names
+      const resIds = companyTickets.map(t => t.assignedResourceId).filter((id): id is number => id !== null)
+      const resources = resIds.length > 0
+        ? await prisma.resource.findMany({ where: { autotaskResourceId: { in: resIds } }, select: { autotaskResourceId: true, firstName: true, lastName: true } })
+        : []
+      const resMap = new Map(resources.map(r => [r.autotaskResourceId, `${r.firstName} ${r.lastName}`]))
+
+      const openCount = companyTickets.filter(t => ![5, 12, 24].includes(t.status)).length
+      const closedCount = companyTickets.filter(t => [5, 12, 24].includes(t.status)).length
+
+      sections.push(`## Company Deep Dive: ${mentionedCompany.displayName} (last 30 days)\nTotal tickets: ${companyTickets.length} (${openCount} open, ${closedCount} closed)\n\n### All Tickets:\n${companyTickets.map(t =>
+        `- #${t.ticketNumber || t.autotaskTicketId} [${t.priorityLabel || 'P' + t.priority}] "${t.title}" | Status: ${t.statusLabel || t.status} | Queue: ${t.queueLabel || 'N/A'} | Tech: ${(t.assignedResourceId && resMap.get(t.assignedResourceId)) || 'Unassigned'} | Created: ${t.createDate?.toLocaleDateString() || 'N/A'}${t.completedDate ? ' | Closed: ' + t.completedDate.toLocaleDateString() : ''}`
+      ).join('\n')}`)
+
+      // Lifecycle metrics for this company (response times, resolution times, SLA)
+      const lifecycleData = await prisma.ticketLifecycle.findMany({
+        where: { companyId: mentionedCompany.id, createDate: { gte: monthAgo } },
+        select: {
+          autotaskTicketId: true,
+          firstResponseMinutes: true,
+          fullResolutionMinutes: true,
+          waitingCustomerMinutes: true,
+          activeResolutionMinutes: true,
+          techNoteCount: true,
+          customerNoteCount: true,
+          reopenCount: true,
+          totalHoursLogged: true,
+          isFirstTouchResolution: true,
+          slaResponseMet: true,
+          slaResolutionMet: true,
+        },
+      })
+
+      if (lifecycleData.length > 0) {
+        const withResponse = lifecycleData.filter(l => l.firstResponseMinutes != null)
+        const withResolution = lifecycleData.filter(l => l.fullResolutionMinutes != null)
+        const withWaiting = lifecycleData.filter(l => l.waitingCustomerMinutes != null)
+
+        const avgFirstResponse = withResponse.length > 0
+          ? withResponse.reduce((s, l) => s + (l.firstResponseMinutes || 0), 0) / withResponse.length : null
+        const avgResolution = withResolution.length > 0
+          ? withResolution.reduce((s, l) => s + (l.fullResolutionMinutes || 0), 0) / withResolution.length : null
+        const avgWaitingCustomer = withWaiting.length > 0
+          ? withWaiting.reduce((s, l) => s + (l.waitingCustomerMinutes || 0), 0) / withWaiting.length : null
+        const totalTechNotes = lifecycleData.reduce((s, l) => s + l.techNoteCount, 0)
+        const totalCustNotes = lifecycleData.reduce((s, l) => s + l.customerNoteCount, 0)
+        const slaResponseMet = lifecycleData.filter(l => l.slaResponseMet === true).length
+        const slaResponseTotal = lifecycleData.filter(l => l.slaResponseMet != null).length
+        const slaResMet = lifecycleData.filter(l => l.slaResolutionMet === true).length
+        const slaResTotal = lifecycleData.filter(l => l.slaResolutionMet != null).length
+        const firstTouchCount = lifecycleData.filter(l => l.isFirstTouchResolution).length
+        const totalHours = lifecycleData.reduce((s, l) => s + l.totalHoursLogged, 0)
+        const reopens = lifecycleData.reduce((s, l) => s + l.reopenCount, 0)
+
+        sections.push(`### ${mentionedCompany.displayName} — Response & Resolution Metrics\n` +
+          `Tickets with lifecycle data: ${lifecycleData.length}\n` +
+          (avgFirstResponse != null ? `Avg first response time: ${(avgFirstResponse / 60).toFixed(1)} hours (${avgFirstResponse.toFixed(0)} minutes)\n` : '') +
+          (avgResolution != null ? `Avg full resolution time: ${(avgResolution / 60).toFixed(1)} hours\n` : '') +
+          (avgWaitingCustomer != null ? `Avg time waiting on customer: ${(avgWaitingCustomer / 60).toFixed(1)} hours\n` : '') +
+          `Total tech notes (our outreach): ${totalTechNotes}\n` +
+          `Total customer notes (their responses): ${totalCustNotes}\n` +
+          (totalCustNotes > 0 ? `Ratio of our outreach to their responses: ${(totalTechNotes / totalCustNotes).toFixed(1)}:1\n` : 'Customer has sent 0 notes — no responses recorded\n') +
+          `First-touch resolution: ${firstTouchCount}/${lifecycleData.length}\n` +
+          `SLA response compliance: ${slaResponseMet}/${slaResponseTotal}${slaResponseTotal > 0 ? ` (${((slaResponseMet / slaResponseTotal) * 100).toFixed(1)}%)` : ''}\n` +
+          `SLA resolution compliance: ${slaResMet}/${slaResTotal}${slaResTotal > 0 ? ` (${((slaResMet / slaResTotal) * 100).toFixed(1)}%)` : ''}\n` +
+          `Total hours logged: ${totalHours.toFixed(1)}\n` +
+          `Ticket reopens: ${reopens}`)
+      }
+
+      // Per-ticket communication analysis from TicketNote
+      const ticketIds = companyTickets.map(t => t.autotaskTicketId)
+      if (ticketIds.length > 0) {
+        try {
+          const notes = await prisma.ticketNote.findMany({
+            where: { autotaskTicketId: { in: ticketIds } },
+            select: {
+              autotaskTicketId: true,
+              creatorResourceId: true,
+              creatorContactId: true,
+              createDateTime: true,
+              publish: true,
+            },
+            orderBy: { createDateTime: 'asc' },
+          })
+
+          if (notes.length > 0) {
+            // Group notes by ticket and analyze communication patterns
+            const notesByTicket = new Map<string, typeof notes>()
+            for (const note of notes) {
+              const existing = notesByTicket.get(note.autotaskTicketId) || []
+              existing.push(note)
+              notesByTicket.set(note.autotaskTicketId, existing)
+            }
+
+            // Calculate per-ticket: tech outreach count before customer response, customer response delays
+            const customerResponseDelays: number[] = []
+            const techOutreachBeforeResponse: number[] = []
+
+            for (const ticketNotes of Array.from(notesByTicket.values())) {
+              let techOutreachCount = 0
+              let lastTechNoteTime: Date | null = null
+
+              for (const note of ticketNotes) {
+                const isTechNote = note.creatorResourceId != null && note.creatorContactId == null
+                const isCustomerNote = note.creatorContactId != null
+
+                if (isTechNote) {
+                  techOutreachCount++
+                  lastTechNoteTime = note.createDateTime
+                } else if (isCustomerNote) {
+                  if (techOutreachCount > 0) {
+                    techOutreachBeforeResponse.push(techOutreachCount)
+                  }
+                  if (lastTechNoteTime) {
+                    const delayMs = note.createDateTime.getTime() - lastTechNoteTime.getTime()
+                    customerResponseDelays.push(delayMs / (1000 * 60 * 60)) // hours
+                  }
+                  techOutreachCount = 0
+                  lastTechNoteTime = null
+                }
+              }
+              // If ticket ended with tech notes and no customer response, track that too
+              if (techOutreachCount > 0) {
+                techOutreachBeforeResponse.push(techOutreachCount)
+              }
+            }
+
+            const totalTechNotes = notes.filter(n => n.creatorResourceId != null && n.creatorContactId == null).length
+            const totalCustNotes = notes.filter(n => n.creatorContactId != null).length
+
+            let commSection = `### ${mentionedCompany.displayName} — Communication Pattern Analysis\n` +
+              `Total notes across ${notesByTicket.size} tickets: ${notes.length}\n` +
+              `Tech/internal notes: ${totalTechNotes}\n` +
+              `Customer notes: ${totalCustNotes}\n`
+
+            if (techOutreachBeforeResponse.length > 0) {
+              const avgOutreach = techOutreachBeforeResponse.reduce((s, v) => s + v, 0) / techOutreachBeforeResponse.length
+              const maxOutreach = Math.max(...techOutreachBeforeResponse)
+              commSection += `Avg tech outreach attempts before customer response: ${avgOutreach.toFixed(1)}\n`
+              commSection += `Max outreach attempts without response: ${maxOutreach}\n`
+            }
+
+            if (customerResponseDelays.length > 0) {
+              const avgDelay = customerResponseDelays.reduce((s, v) => s + v, 0) / customerResponseDelays.length
+              const maxDelay = Math.max(...customerResponseDelays)
+              const minDelay = Math.min(...customerResponseDelays)
+              commSection += `Avg customer response time: ${avgDelay.toFixed(1)} hours (${(avgDelay / 24).toFixed(1)} days)\n`
+              commSection += `Fastest customer response: ${minDelay.toFixed(1)} hours\n`
+              commSection += `Slowest customer response: ${maxDelay.toFixed(1)} hours (${(maxDelay / 24).toFixed(1)} days)\n`
+            } else {
+              commSection += `No customer response patterns could be calculated (no customer notes found after tech outreach)\n`
+            }
+
+            sections.push(commSection)
+          }
+        } catch { /* ticket_notes table may not exist */ }
+      }
+
+      // Health score for this company
+      try {
+        const healthScore = await prisma.customerHealthScore.findFirst({
+          where: { companyId: mentionedCompany.id },
+          orderBy: { computedAt: 'desc' },
+        })
+        if (healthScore) {
+          sections.push(`### ${mentionedCompany.displayName} — Health Score\n` +
+            `Overall: ${healthScore.overallScore}/100 (${healthScore.trend})\n` +
+            `Ticket Volume Trend: ${healthScore.ticketVolumeTrendScore}/100\n` +
+            `Reopen Rate: ${healthScore.reopenRateScore}/100\n` +
+            `Priority Mix: ${healthScore.priorityMixScore}/100\n` +
+            `Support Hours Trend: ${healthScore.supportHoursTrendScore}/100\n` +
+            `Avg Resolution Time: ${healthScore.avgResolutionTimeScore}/100\n` +
+            `Aging Tickets: ${healthScore.agingTicketsScore}/100\n` +
+            `SLA Compliance: ${healthScore.slaComplianceScore}/100`)
+        }
+      } catch { /* */ }
+    }
+  } catch { /* company lookup failed — non-fatal */ }
+
   // Always include high-level summary
   try {
     const [totalTickets, openTickets, companies, resources] = await Promise.all([
@@ -305,8 +517,9 @@ Instructions:
 - When asked about "today", use the tickets with today's date from the data above.
 - Use bullet points and markdown headers for clarity.
 - If asked to generate a report, format it professionally with headers, sections, and key metrics.
+- When company-specific data is available (Company Deep Dive, Response & Resolution Metrics, Communication Pattern Analysis), use it to provide detailed per-company insights including ticket counts, response times, SLA compliance, customer response delays, and outreach-to-response ratios.
 - Do not make up data. Only reference what is provided above.
-- Keep responses under 600 words unless generating a full report.
+- Keep responses under 600 words unless generating a full report or a company-specific analysis.
 - Format time values nicely (e.g., "2.5 hours" not "150 minutes").
 - Be actionable — suggest next steps when relevant.`
 
