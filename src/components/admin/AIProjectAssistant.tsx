@@ -42,12 +42,23 @@ export default function AIProjectAssistant({
   }
 
   const [isOpen, setIsOpen] = useState(false)
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      role: 'assistant',
-      content: getInitialMessage()
+  // Lazy-initialize messages from localStorage to avoid race conditions
+  const [messages, setMessages] = useState<Message[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem(storageKey)
+        if (stored) {
+          const parsed = JSON.parse(stored)
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return parsed
+          }
+        }
+      } catch {
+        // Fall through to default
+      }
     }
-  ])
+    return [{ role: 'assistant', content: getInitialMessage() }]
+  })
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
@@ -74,21 +85,6 @@ export default function AIProjectAssistant({
       if (timerRef.current) clearInterval(timerRef.current)
     }
   }, [isLoading])
-
-  // Load messages from localStorage on mount
-  useEffect(() => {
-    const stored = localStorage.getItem(storageKey)
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored)
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setMessages(parsed)
-        }
-      } catch (e) {
-        console.error('Failed to parse stored messages:', e)
-      }
-    }
-  }, [storageKey])
 
   // Save messages to localStorage whenever they change
   useEffect(() => {
