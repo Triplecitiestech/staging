@@ -195,7 +195,7 @@ export default function SocIncidentsList() {
                             : escalation.urgency === 'urgent' ? 'bg-rose-500/20 text-rose-400'
                             : 'bg-slate-500/20 text-slate-400'
                           }`}>
-                            ESCALATE {escalation.urgency.toUpperCase()}
+                            ESCALATE {(escalation.urgency || 'routine').toUpperCase()}
                           </span>
                         )}
                         {riskBadge(inc.humanGuidance?.riskLevel)}
