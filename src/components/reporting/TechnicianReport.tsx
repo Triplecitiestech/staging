@@ -366,11 +366,7 @@ export default function TechnicianReport() {
                 <tr
                   key={tech.resourceId}
                   id={`tech-row-${tech.resourceId}`}
-                  onClick={() => {
-                    const params = new URLSearchParams(searchParams.toString())
-                    params.set('resourceId', String(tech.resourceId))
-                    router.push(`/admin/reporting/companies/tickets?${params.toString()}`)
-                  }}
+                  onClick={() => router.push(`/admin/reporting/technicians/${tech.resourceId}`)}
                   className={`border-b border-slate-700/30 hover:bg-slate-700/20 cursor-pointer transition-colors ${
                     highlightedResourceId === tech.resourceId ? 'bg-cyan-500/10 ring-1 ring-cyan-500/30' : ''
                   }`}

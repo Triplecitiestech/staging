@@ -326,7 +326,7 @@ export default function ReportingDashboard() {
                   {data.summary.topCompanies.map((c, i) => (
                     <button
                       key={c.companyId}
-                      onClick={() => router.push(`/admin/reporting/companies?company=${c.companyId}`)}
+                      onClick={() => router.push(`/admin/reporting/companies/${c.companyId}`)}
                       className="w-full flex items-center justify-between px-2 py-2 rounded-lg hover:bg-slate-700/30 transition-colors text-left"
                     >
                       <div className="flex items-center gap-3 min-w-0">
@@ -355,7 +355,7 @@ export default function ReportingDashboard() {
                   {data.summary.topTechnicians.map((t, i) => (
                     <button
                       key={t.resourceId}
-                      onClick={() => router.push(`/admin/reporting/technicians?resource=${t.resourceId}`)}
+                      onClick={() => router.push(`/admin/reporting/technicians/${t.resourceId}`)}
                       className="w-full flex items-center justify-between px-2 py-2 rounded-lg hover:bg-slate-700/30 transition-colors text-left"
                     >
                       <div className="flex items-center gap-3 min-w-0">

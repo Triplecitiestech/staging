@@ -1,5 +1,15 @@
 'use client'
 
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from 'recharts'
+
 interface TrendPoint {
   date: string
   label: string
@@ -11,114 +21,90 @@ interface TrendChartProps {
   title: string
   color?: string
   height?: number
-  /** 'sum' shows total, 'avg' shows average, 'formatted' uses custom formatter */
+  /** 'sum' shows total, 'avg' shows average */
   aggregate?: 'sum' | 'avg'
-  /** Format individual bar labels */
+  /** Format individual values */
   formatValue?: (v: number) => string
 }
 
-/**
- * Simple SVG bar chart for trend data. No external chart library needed.
- */
-export default function TrendChart({ data, title, color = '#06b6d4', height = 180, aggregate = 'sum', formatValue }: TrendChartProps) {
+export default function TrendChart({ data, title, color = '#06b6d4', height = 256, aggregate = 'sum', formatValue }: TrendChartProps) {
   if (data.length === 0) {
     return (
-      <div className="bg-slate-800/50 rounded-xl p-5 border border-slate-700/50">
-        <h3 className="text-sm font-medium text-slate-300 mb-3">{title}</h3>
-        <p className="text-slate-500 text-sm">No trend data available</p>
+      <div className="bg-slate-800/50 rounded-xl p-6 border border-white/10">
+        <h3 className="text-lg font-semibold text-white">{title}</h3>
+        <p className="text-sm text-slate-500 mt-2">No trend data available</p>
       </div>
     )
   }
 
-  const maxValue = Math.max(...data.map((d) => d.value), 1)
-  const barWidth = Math.max(4, Math.min(24, Math.floor(600 / data.length) - 2))
-  const chartWidth = data.length * (barWidth + 2)
-  const padding = { top: 24, bottom: 30, left: 10, right: 10 }
-  const svgWidth = chartWidth + padding.left + padding.right
-  const chartHeight = height - padding.top - padding.bottom
-
-  // Show every Nth label to avoid overlap
-  const labelInterval = Math.max(1, Math.floor(data.length / 10))
-  // Show value labels less frequently for dense charts
-  const valueInterval = Math.max(1, Math.floor(data.length / 15))
-
-  // Aggregate for the period header
   const nonZeroData = data.filter(d => d.value > 0)
   const headerValue = aggregate === 'avg' && nonZeroData.length > 0
     ? Math.round(nonZeroData.reduce((s, d) => s + d.value, 0) / nonZeroData.length)
     : data.reduce((s, d) => s + d.value, 0)
   const headerDisplay = formatValue ? formatValue(headerValue) : headerValue
+  const maxValue = Math.max(...data.map(d => d.value), 1)
+
+  // Generate a unique gradient ID based on color to avoid conflicts
+  const gradientId = `trendGradient-${color.replace('#', '')}`
 
   return (
-    <div className="bg-slate-800/50 rounded-xl p-5 border border-slate-700/50">
-      <div className="flex items-baseline justify-between mb-3">
-        <h3 className="text-sm font-medium text-slate-300">{title}</h3>
-        <span className="text-lg font-bold text-white">{headerDisplay}</span>
+    <div className="bg-slate-800/50 border border-white/10 rounded-xl p-6">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h3 className="text-lg font-semibold text-white">{title}</h3>
+          <p className="text-sm text-slate-400 mt-1">
+            {data.length} data points · {aggregate === 'avg' ? 'Avg' : 'Total'}: {headerDisplay}
+          </p>
+        </div>
       </div>
-      <div className="overflow-hidden">
-        <svg
-          width="100%"
-          height={height}
-          viewBox={`0 0 ${svgWidth} ${height}`}
-          preserveAspectRatio="xMidYMid meet"
-        >
-          {/* Bars */}
-          {data.map((point, i) => {
-            const barHeight = (point.value / maxValue) * chartHeight
-            const x = padding.left + i * (barWidth + 2)
-            const y = padding.top + chartHeight - barHeight
 
-            return (
-              <g key={point.date}>
-                <rect
-                  x={x}
-                  y={y}
-                  width={barWidth}
-                  height={Math.max(barHeight, point.value > 0 ? 2 : 0)}
-                  fill={color}
-                  opacity={0.8}
-                  rx={2}
-                >
-                  <title>{point.label}: {formatValue ? formatValue(point.value) : point.value}</title>
-                </rect>
-                {/* Value label above bar */}
-                {point.value > 0 && i % valueInterval === 0 && (
-                  <text
-                    x={x + barWidth / 2}
-                    y={y - 4}
-                    textAnchor="middle"
-                    className="fill-slate-400"
-                    fontSize={9}
-                    fontWeight={600}
-                  >
-                    {formatValue ? formatValue(point.value) : point.value}
-                  </text>
-                )}
-                {/* Date label */}
-                {i % labelInterval === 0 && (
-                  <text
-                    x={x + barWidth / 2}
-                    y={height - 5}
-                    textAnchor="middle"
-                    className="fill-slate-500"
-                    fontSize={10}
-                  >
-                    {point.label}
-                  </text>
-                )}
-              </g>
-            )
-          })}
-          {/* Baseline */}
-          <line
-            x1={padding.left}
-            y1={padding.top + chartHeight}
-            x2={svgWidth - padding.right}
-            y2={padding.top + chartHeight}
-            stroke="#334155"
-            strokeWidth={1}
-          />
-        </svg>
+      <div style={{ height }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+            <defs>
+              <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={color} stopOpacity={0.3} />
+                <stop offset="95%" stopColor={color} stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+            <XAxis
+              dataKey="label"
+              stroke="#64748b"
+              fontSize={11}
+              tickLine={false}
+              axisLine={false}
+              interval="preserveStartEnd"
+            />
+            <YAxis
+              stroke="#64748b"
+              fontSize={11}
+              tickLine={false}
+              axisLine={false}
+              domain={[0, Math.ceil(maxValue * 1.15)]}
+              tickFormatter={(v) => formatValue ? formatValue(v) : String(v)}
+            />
+            <Tooltip
+              contentStyle={{
+                backgroundColor: '#1e293b',
+                border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: '8px',
+                color: '#e2e8f0',
+                fontSize: '12px',
+              }}
+              formatter={(value) => [formatValue ? formatValue(Number(value)) : Number(value), title]}
+              labelFormatter={(label) => `${label}`}
+            />
+            <Area
+              type="monotone"
+              dataKey="value"
+              stroke={color}
+              strokeWidth={2}
+              fill={`url(#${gradientId})`}
+              activeDot={{ r: 5, fill: color, stroke: '#fff', strokeWidth: 2 }}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
       </div>
     </div>
   )
