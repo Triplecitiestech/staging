@@ -141,7 +141,7 @@ export default function HealthReport() {
                   <>
                     <tr
                       key={score.companyId}
-                      onClick={() => router.push(`/admin/reporting/companies?company=${score.companyId}`)}
+                      onClick={() => router.push(`/admin/reporting/companies/${score.companyId}`)}
                       className="border-b border-slate-700/30 hover:bg-slate-700/20 cursor-pointer"
                     >
                       <td className="px-4 py-3">

@@ -154,6 +154,16 @@ export interface BenchmarkResult {
   percentOfTarget: number;
 }
 
+export interface TechnicianComparisonDetail {
+  resourceId: number;
+  name: string;
+  ticketsClosed: ComparisonData;
+  hoursLogged: ComparisonData;
+  avgResolution: ComparisonData;
+  firstTouchResolutionRate: ComparisonData;
+  avgFirstResponse: ComparisonData;
+}
+
 export interface EnhancedTechnicianReport {
   summary: TechnicianSummary[];
   trend?: TrendPoint[];
@@ -162,6 +172,8 @@ export interface EnhancedTechnicianReport {
     hoursLogged: ComparisonData;
     avgResolution: ComparisonData;
   };
+  /** Per-technician comparison detail for individual tech comparison charts */
+  techComparison?: TechnicianComparisonDetail[];
   benchmarks?: BenchmarkResult[];
   meta: ReportMeta;
 }

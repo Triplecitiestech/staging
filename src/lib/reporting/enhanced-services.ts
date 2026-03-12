@@ -105,6 +105,34 @@ export async function getEnhancedTechnicianReport(filters: ReportFilters): Promi
       hoursLogged: computeComparison(Math.round(currHours * 10) / 10, Math.round(prevHours * 10) / 10),
       avgResolution: computeComparison(Math.round(currAvgRes), Math.round(prevAvgRes)),
     };
+
+    // Per-technician comparison detail (for the comparison chart)
+    // Build a map of previous period metrics by resourceId
+    const prevByResource = new Map(prevSummary.map(t => [t.resourceId, t]));
+    result.techComparison = summary.map(tech => {
+      const prev = prevByResource.get(tech.resourceId);
+      return {
+        resourceId: tech.resourceId,
+        name: `${tech.firstName} ${tech.lastName}`.trim(),
+        ticketsClosed: computeComparison(tech.ticketsClosed, prev?.ticketsClosed ?? 0),
+        hoursLogged: computeComparison(
+          Math.round(tech.hoursLogged * 10) / 10,
+          Math.round((prev?.hoursLogged ?? 0) * 10) / 10,
+        ),
+        avgResolution: computeComparison(
+          Math.round(tech.avgResolutionMinutes ?? 0),
+          Math.round(prev?.avgResolutionMinutes ?? 0),
+        ),
+        firstTouchResolutionRate: computeComparison(
+          tech.firstTouchResolutionRate ?? 0,
+          prev?.firstTouchResolutionRate ?? 0,
+        ),
+        avgFirstResponse: computeComparison(
+          Math.round(tech.avgFirstResponseMinutes ?? 0),
+          Math.round(prev?.avgFirstResponseMinutes ?? 0),
+        ),
+      };
+    });
   }
 
   // Benchmarks
