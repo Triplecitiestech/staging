@@ -17,7 +17,7 @@ model StaffUser {
   id        String    @id @default(uuid())
   email     String    @unique
   name      String
-  role      StaffRole @default(VIEWER)
+  role      StaffRole @default(TECHNICIAN)
   isActive  Boolean   @default(true)
   lastLogin DateTime?
   createdAt DateTime  @default(now())
@@ -33,9 +33,10 @@ model StaffUser {
 }
 
 enum StaffRole {
-  ADMIN // Full control - can manage staff, delete projects
-  MANAGER // Can create/edit projects and templates
-  VIEWER // Read-only access to admin dashboard
+  SUPER_ADMIN    // Full control: manage staff roles, system settings, delete anything, billing
+  ADMIN          // Admin access: manage projects, companies, contacts, blog, SOC, marketing
+  BILLING_ADMIN  // Billing focus: view projects/companies, manage billing, view reports
+  TECHNICIAN     // Field tech: view assigned projects/tickets, add notes, update task status
 }
 
 // ============================================

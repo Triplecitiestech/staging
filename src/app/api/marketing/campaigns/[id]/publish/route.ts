@@ -5,7 +5,7 @@ import { randomBytes } from 'crypto';
 import type { ContentVisibility } from '@prisma/client';
 
 /**
- * POST /api/marketing/campaigns/[id]/publish — Publish campaign (auth required, ADMIN/MANAGER)
+ * POST /api/marketing/campaigns/[id]/publish — Publish campaign (auth required, SUPER_ADMIN/ADMIN)
  */
 export async function POST(
   request: NextRequest,
@@ -14,7 +14,7 @@ export async function POST(
   try {
     const session = await auth();
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    if (!['ADMIN', 'MANAGER'].includes(session.user?.role as string)) {
+    if (!['SUPER_ADMIN', 'ADMIN'].includes(session.user?.role as string)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 

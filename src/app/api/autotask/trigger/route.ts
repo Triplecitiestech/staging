@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
         where: { email: session.user.email },
         select: { role: true, isActive: true },
       });
-      if (staffUser?.isActive && (staffUser.role === 'ADMIN' || staffUser.role === 'MANAGER')) {
+      if (staffUser?.isActive && ['SUPER_ADMIN', 'ADMIN'].includes(staffUser.role)) {
         isAuthorized = true;
       }
     }

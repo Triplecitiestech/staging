@@ -21,7 +21,7 @@ export async function GET() {
 /** POST /api/soc/rules — Create a new rule */
 export async function POST(request: NextRequest) {
   const session = await auth();
-  if (!session?.user?.email || !['ADMIN', 'MANAGER'].includes(session.user?.role as string)) {
+  if (!session?.user?.email || !['SUPER_ADMIN', 'ADMIN'].includes(session.user?.role as string)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
 /** PUT /api/soc/rules — Update an existing rule */
 export async function PUT(request: NextRequest) {
   const session = await auth();
-  if (!session?.user?.email || !['ADMIN', 'MANAGER'].includes(session.user?.role as string)) {
+  if (!session?.user?.email || !['SUPER_ADMIN', 'ADMIN'].includes(session.user?.role as string)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -77,8 +77,8 @@ export async function PUT(request: NextRequest) {
 /** DELETE /api/soc/rules — Delete a rule */
 export async function DELETE(request: NextRequest) {
   const session = await auth();
-  if (!session?.user?.email || !['ADMIN'].includes(session.user?.role as string)) {
-    return NextResponse.json({ error: 'Forbidden: requires ADMIN role' }, { status: 403 });
+  if (!session?.user?.email || !['SUPER_ADMIN'].includes(session.user?.role as string)) {
+    return NextResponse.json({ error: 'Forbidden: requires Super Admin role' }, { status: 403 });
   }
 
   const { id } = await request.json();

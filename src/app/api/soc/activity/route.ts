@@ -106,7 +106,7 @@ export async function DELETE(request: NextRequest) {
 
   if (!isSecretAuth) {
     const session = await auth();
-    if (!session?.user?.email || session.user?.role !== 'ADMIN') {
+    if (!session?.user?.email || !['SUPER_ADMIN', 'ADMIN'].includes(session.user?.role as string)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
   }

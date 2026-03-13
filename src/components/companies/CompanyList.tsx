@@ -178,7 +178,7 @@ export default function CompanyList({ companies }: { companies: Company[] }) {
                       onClick={() => handleInvite(company.id, company.contactEmail, true)}
                       disabled={sending === company.id || !company.contactEmail}
                       className="inline-flex items-center gap-1 px-3 py-1.5 bg-cyan-600 hover:bg-cyan-700 disabled:bg-slate-600 text-white text-xs font-medium rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      title={!company.contactEmail ? 'Add email first' : 'Send portal invite'}
+                      title={!company.contactEmail ? 'Add email first' : 'Send portal credentials to company contact'}
                     >
                       {sending === company.id ? (
                         <>
@@ -188,7 +188,7 @@ export default function CompanyList({ companies }: { companies: Company[] }) {
                       ) : (
                         <>
                           <Mail size={14} />
-                          Send Invite
+                          Send Credentials
                         </>
                       )}
                     </button>

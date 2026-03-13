@@ -91,7 +91,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await auth();
-  if (!session?.user?.email || !['ADMIN', 'MANAGER'].includes(session.user?.role as string)) {
+  if (!session?.user?.email || !['SUPER_ADMIN', 'ADMIN'].includes(session.user?.role as string)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
