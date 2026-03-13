@@ -3,7 +3,7 @@
 import Header from '@/components/layout/Header'
 import Footer from '@/components/layout/Footer'
 import Breadcrumbs from '@/components/seo/Breadcrumbs'
-import { CalendarIcon, PhoneIcon, ClockIcon, CheckCircleIcon } from '@/components/icons/TechIcons'
+import { PhoneIcon, ClockIcon, CheckCircleIcon } from '@/components/icons/TechIcons'
 import { CONTACT_INFO } from '@/constants/data'
 import Script from 'next/script'
 import { useEffect, useState } from 'react'
@@ -27,10 +27,6 @@ export default function SchedulePage() {
       <section className="relative pt-24 pb-12 bg-gradient-to-br from-gray-900 via-black to-gray-900">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-cyan-900/20 via-transparent to-transparent" />
         <div className="relative max-w-4xl mx-auto px-4 text-center">
-          <div className="inline-flex items-center gap-2 bg-cyan-500/10 border border-cyan-500/30 rounded-full px-4 py-2 mb-6">
-            <CalendarIcon size={16} className="text-cyan-400" />
-            <span className="text-cyan-300 text-sm font-medium">Free Consultation</span>
-          </div>
           <h1 className="text-4xl md:text-5xl font-bold text-white mb-4">
             Schedule a Meeting
           </h1>
@@ -71,7 +67,7 @@ export default function SchedulePage() {
           {/* Calendly Embed */}
           <div className="bg-gray-800/30 border border-gray-700/50 rounded-xl overflow-hidden">
             {!widgetReady && (
-              <div className="flex items-center justify-center h-[700px]">
+              <div className="flex items-center justify-center py-32">
                 <div className="text-center">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400 mx-auto mb-4" />
                   <p className="text-gray-400">Loading calendar...</p>
@@ -80,8 +76,8 @@ export default function SchedulePage() {
             )}
             <div
               className="calendly-inline-widget"
-              data-url="https://calendly.com/kurtis-tct?background_color=111827&text_color=e5e7eb&primary_color=06b6d4"
-              style={{ minWidth: '320px', height: '700px' }}
+              data-url="https://calendly.com/kurtis-tct?background_color=111827&text_color=e5e7eb&primary_color=06b6d4&hide_gdpr_banner=1"
+              style={{ minWidth: '320px', minHeight: '1200px' }}
             />
           </div>
         </div>
