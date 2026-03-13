@@ -147,6 +147,7 @@ async function handleSync(request: NextRequest) {
         // Find the local company for this project
         const company = await prisma.company.findFirst({
           where: { autotaskCompanyId: String(atProject.companyID) },
+          select: { id: true },
         });
 
         if (!company) {
@@ -248,6 +249,7 @@ async function syncCompany(
   // Check if company already exists by Autotask ID
   const existing = await prisma.company.findFirst({
     where: { autotaskCompanyId: atId },
+    select: { id: true, displayName: true },
   });
 
   if (existing) {
@@ -275,7 +277,7 @@ async function syncCompany(
   let slug = generateSlug(atCompany.companyName);
 
   // Check for slug collisions
-  const slugExists = await prisma.company.findFirst({ where: { slug } });
+  const slugExists = await prisma.company.findFirst({ where: { slug }, select: { id: true } });
   if (slugExists) {
     slug = `${slug}-${atId}`;
   }
@@ -312,6 +314,7 @@ async function syncContact(
   // Check if contact exists by Autotask ID
   const existing = await prisma.companyContact.findFirst({
     where: { autotaskContactId: atId },
+    select: { id: true, title: true, phone: true, phoneType: true },
   });
 
   if (existing) {
@@ -331,6 +334,7 @@ async function syncContact(
   // Check for email collision within same company
   const emailExists = await prisma.companyContact.findFirst({
     where: { companyId, email },
+    select: { id: true, title: true, phone: true },
   });
 
   if (emailExists) {
@@ -374,6 +378,7 @@ async function syncProject(
   // Check if project exists
   const existing = await prisma.project.findFirst({
     where: { autotaskProjectId: atId },
+    select: { id: true, startedAt: true, completedAt: true },
   });
 
   const status = mapAtProjectStatus(atProject.status) as ProjectStatus;
@@ -552,6 +557,7 @@ async function syncPhase(
 
   const existing = await prisma.phase.findFirst({
     where: { autotaskPhaseId: atId },
+    select: { id: true, description: true, scheduledDate: true, estimatedDays: true },
   });
 
   if (existing) {
@@ -596,6 +602,7 @@ async function syncTask(
 
   const existing = await prisma.phaseTask.findFirst({
     where: { autotaskTaskId: atId },
+    select: { id: true, dueDate: true, completedAt: true, notes: true },
   });
 
   const status = mapAtTaskStatus(atTask.status) as TaskStatus;

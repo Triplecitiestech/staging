@@ -174,6 +174,7 @@ const MIGRATION_STATEMENTS = [
     "billableHoursLogged" DOUBLE PRECISION NOT NULL DEFAULT 0,
     "isFirstTouchResolution" BOOLEAN NOT NULL DEFAULT false,
     "slaResponseMet" BOOLEAN,
+    "slaResolutionPlanMet" BOOLEAN,
     "slaResolutionMet" BOOLEAN,
     "computedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "ticket_lifecycle_pkey" PRIMARY KEY ("id")
@@ -325,6 +326,9 @@ const MIGRATION_STATEMENTS = [
     "updatedAt" TIMESTAMP(3) NOT NULL,
     CONSTRAINT "reporting_job_status_pkey" PRIMARY KEY ("id")
   )`,
+
+  // Patch missing columns on existing tables
+  `ALTER TABLE "ticket_lifecycle" ADD COLUMN IF NOT EXISTS "slaResolutionPlanMet" BOOLEAN`,
 
   // Unique indexes
   `CREATE UNIQUE INDEX IF NOT EXISTS "tickets_autotaskTicketId_key" ON "tickets"("autotaskTicketId")`,

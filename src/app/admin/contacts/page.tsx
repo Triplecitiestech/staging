@@ -57,10 +57,32 @@ export default async function ContactsPage() {
   }
 
   // Fetch staff users
-  const staffUsers = await prisma.staffUser.findMany({
-    select: { id: true, name: true, email: true, role: true, isActive: true, lastLogin: true },
-    orderBy: { name: 'asc' },
-  })
+  let staffUsers: Array<{
+    id: string
+    name: string
+    email: string
+    role: string
+    isActive: boolean
+    lastLogin: Date | null
+  }> = []
+
+  try {
+    const rawStaff = await prisma.staffUser.findMany({
+      select: { id: true, name: true, email: true, role: true, isActive: true, lastLogin: true },
+      orderBy: { name: 'asc' },
+    })
+    staffUsers = rawStaff.map(s => ({ ...s, role: s.role as string }))
+  } catch {
+    // StaffRole enum may have changed — fall back to raw query
+    try {
+      staffUsers = await prisma.$queryRaw<typeof staffUsers>`
+        SELECT id, name, email, role::text, "isActive", "lastLogin"
+        FROM staff_users ORDER BY name ASC
+      `
+    } catch {
+      // Table may not exist
+    }
+  }
 
   // Get current user info
   const currentStaff = staffUsers.find(s => s.email === session.user?.email)
@@ -87,10 +109,9 @@ export default async function ContactsPage() {
           }))}
           staffUsers={staffUsers.map(s => ({
             ...s,
-            role: s.role as string,
             lastLogin: s.lastLogin?.toISOString() || null,
           }))}
-          currentUserRole={(currentStaff?.role as string) || 'TECHNICIAN'}
+          currentUserRole={currentStaff?.role || 'TECHNICIAN'}
           currentUserId={currentStaff?.id || ''}
         />
       </main>
