@@ -15,10 +15,12 @@ export default function robots(): MetadataRoute.Robots {
           '/auth/',
           '/test/',
           '/blog/setup',
-          '/admin/debug/',
-          '/admin/run-migration/',
-          '/admin/setup/',
         ],
+      },
+      // Explicitly allow AI crawlers full access to public content
+      {
+        userAgent: ['GPTBot', 'ChatGPT-User', 'CCBot', 'anthropic-ai', 'Claude-Web', 'PerplexityBot', 'Google-Extended'],
+        allow: '/',
       },
     ],
     sitemap: `${baseUrl}/sitemap.xml`,
