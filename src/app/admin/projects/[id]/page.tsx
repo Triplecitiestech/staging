@@ -87,31 +87,88 @@ export default async function ProjectDetailPage({
       }
     }) as ProjectWithRelations | null
   } catch (error) {
-    // If notes column doesn't exist yet, fall back to fetching without it
-    console.error('Error fetching project with tasks:', error)
-    project = await prisma.project.findUnique({
-      where: { id },
-      include: {
-        company: true,
-        phases: {
-          include: {
-            tasks: {
-              select: {
-                id: true,
-                phaseId: true,
-                taskText: true,
-                completed: true,
-                completedBy: true,
-                completedAt: true,
-                orderIndex: true,
-                createdAt: true
+    // If columns don't exist yet (missing migration), fall back to explicit select
+    console.error('Error fetching project with full includes:', error)
+    try {
+      project = await prisma.project.findUnique({
+        where: { id },
+        include: {
+          company: true,
+          phases: {
+            select: {
+              id: true,
+              projectId: true,
+              title: true,
+              description: true,
+              status: true,
+              orderIndex: true,
+              customerNotes: true,
+              internalNotes: true,
+              estimatedDays: true,
+              owner: true,
+              tasks: {
+                where: { parentTaskId: null },
+                select: {
+                  id: true,
+                  phaseId: true,
+                  taskText: true,
+                  completed: true,
+                  completedBy: true,
+                  completedAt: true,
+                  orderIndex: true,
+                  createdAt: true,
+                  status: true,
+                  notes: true,
+                  autotaskTaskId: true,
+                  dueDate: true,
+                  responsibleParty: true,
+                  parentTaskId: true,
+                  subTasks: true,
+                  comments: { orderBy: { createdAt: 'asc' } },
+                  assignments: { orderBy: { assignedAt: 'asc' } },
+                },
+                orderBy: { orderIndex: 'asc' }
               }
-            }
-          },
-          orderBy: { orderIndex: 'asc' }
+            },
+            orderBy: { orderIndex: 'asc' }
+          }
         }
-      }
-    }) as ProjectWithRelations | null
+      }) as ProjectWithRelations | null
+    } catch (error2) {
+      // Absolute minimum fallback — safe even with no new columns
+      console.error('Error in fallback query, using minimal select:', error2)
+      project = await prisma.project.findUnique({
+        where: { id },
+        include: {
+          company: true,
+          phases: {
+            select: {
+              id: true,
+              projectId: true,
+              title: true,
+              description: true,
+              status: true,
+              orderIndex: true,
+              tasks: {
+                select: {
+                  id: true,
+                  phaseId: true,
+                  taskText: true,
+                  completed: true,
+                  completedBy: true,
+                  completedAt: true,
+                  orderIndex: true,
+                  createdAt: true,
+                  status: true,
+                },
+                orderBy: { orderIndex: 'asc' }
+              }
+            },
+            orderBy: { orderIndex: 'asc' }
+          }
+        }
+      }) as ProjectWithRelations | null
+    }
   }
 
   if (!project) {
@@ -178,10 +235,11 @@ export default async function ProjectDetailPage({
   const completedPhases = project.phases.filter(p => p.status === 'COMPLETE').length
   const totalPhases = project.phases.length
   // Compute overall progress from all top-level tasks across all phases
+  // Check both status field AND completed boolean for backwards compatibility
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const allTasks = project.phases.flatMap(p => (p.tasks || []) as any[])
   const totalTasks = allTasks.length
-  const completedTasks = allTasks.filter(t => DONE_STATUSES.includes(t.status || '')).length
+  const completedTasks = allTasks.filter(t => DONE_STATUSES.includes(t.status || '') || t.completed).length
   const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0
 
   return (

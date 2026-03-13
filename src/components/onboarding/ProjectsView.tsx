@@ -96,7 +96,7 @@ export default function ProjectsView({ projects }: ProjectsViewProps) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {projects.map(project => {
             const totalTasks = project.phases.reduce((sum, ph) => sum + ph.tasks.length, 0)
-            const doneTasks = project.phases.reduce((sum, ph) => sum + ph.tasks.filter(t => t.status ? DONE_STATUSES.includes(t.status) : t.completed).length, 0)
+            const doneTasks = project.phases.reduce((sum, ph) => sum + ph.tasks.filter(t => DONE_STATUSES.includes(t.status || '') || t.completed).length, 0)
             const progress = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0
             const badge = getProjectStatusBadge(project.status)
 

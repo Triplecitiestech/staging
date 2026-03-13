@@ -34,6 +34,10 @@ export default async function ProjectsPage() {
       phases: {
         select: {
           status: true,
+          tasks: {
+            select: { status: true, completed: true },
+            where: { parentTaskId: null }
+          }
         },
         orderBy: { orderIndex: 'asc' as const }
       }

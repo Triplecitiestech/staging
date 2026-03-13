@@ -277,7 +277,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
   if (selectedProject) {
     const project = selectedProject
     const totalTasks = project.phases.reduce((sum, ph) => sum + ph.tasks.length, 0)
-    const doneTasks = project.phases.reduce((sum, ph) => sum + ph.tasks.filter(t => DONE_STATUSES.includes(t.status)).length, 0)
+    const doneTasks = project.phases.reduce((sum, ph) => sum + ph.tasks.filter(t => DONE_STATUSES.includes(t.status) || t.completed).length, 0)
     const projectProgress = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0
 
     return (
@@ -1034,7 +1034,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
           <div className={`grid gap-4 mb-8 ${projects.length === 1 ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2'}`}>
             {projects.map(project => {
               const totalTasks = project.phases.reduce((sum, ph) => sum + ph.tasks.length, 0)
-              const doneTasks = project.phases.reduce((sum, ph) => sum + ph.tasks.filter(t => DONE_STATUSES.includes(t.status)).length, 0)
+              const doneTasks = project.phases.reduce((sum, ph) => sum + ph.tasks.filter(t => DONE_STATUSES.includes(t.status) || t.completed).length, 0)
               const progress = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0
               const waiting = project.phases.reduce((sum, ph) => sum + ph.tasks.filter(t => t.status === 'WAITING_ON_CLIENT' || t.status === 'CUSTOMER_NOTE_ADDED').length, 0)
               const statusBadge = getProjectStatusLabel(project.status)
