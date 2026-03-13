@@ -255,7 +255,7 @@ export default function ConstructionIT() {
           </div>
 
           <p className="text-black/80 mt-8">Or schedule a free CMMC consultation:</p>
-          <a href="https://calendly.com/kurtis-tct" target="_blank" rel="noopener noreferrer" className="inline-flex items-center text-black hover:text-gray-800 font-semibold mt-4 text-lg">
+          <a href="/schedule" className="inline-flex items-center text-black hover:text-gray-800 font-semibold mt-4 text-lg">
             <CalendarIcon size={20} className="mr-2" />
             Book Your Consultation
           </a>

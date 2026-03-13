@@ -252,7 +252,7 @@ export default function HealthcareIT() {
           </div>
 
           <p className="text-white/80 mt-8">Or schedule a free HIPAA compliance assessment:</p>
-          <a href="https://calendly.com/kurtis-tct" target="_blank" rel="noopener noreferrer" className="inline-flex items-center text-white hover:text-emerald-200 font-semibold mt-4 text-lg">
+          <a href="/schedule" className="inline-flex items-center text-white hover:text-emerald-200 font-semibold mt-4 text-lg">
             <CalendarIcon size={20} className="mr-2" />
             Book Your Assessment
           </a>

@@ -40,7 +40,7 @@ export default function FAQSchema() {
         "name": "How do I contact Triple Cities Tech?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "You can call us at (607) 341-7500, email info@triplecitiestech.com, or schedule a consultation at https://calendly.com/kurtis-tct. We respond to all inquiries within one business day."
+          "text": "You can call us at (607) 341-7500, email info@triplecitiestech.com, or schedule a consultation at https://www.triplecitiestech.com/schedule. We respond to all inquiries within one business day."
         }
       },
       {

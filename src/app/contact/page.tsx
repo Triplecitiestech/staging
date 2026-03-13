@@ -379,9 +379,7 @@ export default function Contact() {
                       <h4 className="text-lg font-bold text-white mb-1">Schedule a Sales Meeting</h4>
                       <p className="text-white/90 text-sm mb-2">Book a free consultation to discuss your IT needs</p>
                       <a
-                        href="https://calendly.com/kurtis-tct"
-                        target="_blank"
-                        rel="noopener noreferrer"
+                        href="/schedule"
                         className="inline-flex items-center text-indigo-300 hover:text-indigo-200 transition-colors text-base font-semibold"
                       >
                         Schedule Now
