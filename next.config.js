@@ -69,8 +69,8 @@ const nextConfig = {
               ? [
                   // Development CSP - more permissive for hot reloading
                   "default-src 'self'",
-                  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://vercel.live https://vercel.com https://challenges.cloudflare.com https://messenger.chatgenie.io",
-                  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+                  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://vercel.live https://vercel.com https://challenges.cloudflare.com https://messenger.chatgenie.io https://assets.calendly.com",
+                  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://assets.calendly.com",
                   "font-src 'self' https://fonts.gstatic.com",
                   "img-src 'self' data: blob: https:",
                   "media-src 'self' blob: https://pub-fb343e810bf34aa4b3ec0c7f1889d31c.r2.dev",
@@ -78,14 +78,14 @@ const nextConfig = {
                   "base-uri 'self'",
                   "form-action 'self'",
                   "frame-ancestors 'none'",
-                  "frame-src https://challenges.cloudflare.com https://messenger.chatgenie.io https://www.youtube.com https://youtube.com",
-                  "connect-src 'self' https://vercel.live https://vercel.com https://challenges.cloudflare.com https://messenger.chatgenie.io https://api.chatgenie.io https://*.cloudflare.com ws://localhost:* wss://localhost:*",
+                  "frame-src https://challenges.cloudflare.com https://messenger.chatgenie.io https://www.youtube.com https://youtube.com https://calendly.com",
+                  "connect-src 'self' https://vercel.live https://vercel.com https://challenges.cloudflare.com https://messenger.chatgenie.io https://api.chatgenie.io https://*.cloudflare.com ws://localhost:* wss://localhost:* https://calendly.com",
                 ].join('; ')
               : [
                   // Production CSP - more restrictive
                   "default-src 'self'",
-                  "script-src 'self' 'unsafe-inline' https://vercel.live https://vercel.com https://challenges.cloudflare.com https://messenger.chatgenie.io",
-                  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+                  "script-src 'self' 'unsafe-inline' https://vercel.live https://vercel.com https://challenges.cloudflare.com https://messenger.chatgenie.io https://assets.calendly.com",
+                  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://assets.calendly.com",
                   "font-src 'self' https://fonts.gstatic.com",
                   "img-src 'self' data: blob: https:",
                   "media-src 'self' blob: https://pub-fb343e810bf34aa4b3ec0c7f1889d31c.r2.dev",
@@ -93,8 +93,8 @@ const nextConfig = {
                   "base-uri 'self'",
                   "form-action 'self'",
                   "frame-ancestors 'none'",
-                  "frame-src https://challenges.cloudflare.com https://messenger.chatgenie.io https://www.youtube.com https://youtube.com",
-                  "connect-src 'self' https://vercel.live https://vercel.com https://challenges.cloudflare.com https://messenger.chatgenie.io https://api.chatgenie.io https://*.cloudflare.com",
+                  "frame-src https://challenges.cloudflare.com https://messenger.chatgenie.io https://www.youtube.com https://youtube.com https://calendly.com",
+                  "connect-src 'self' https://vercel.live https://vercel.com https://challenges.cloudflare.com https://messenger.chatgenie.io https://api.chatgenie.io https://*.cloudflare.com https://calendly.com",
                   "upgrade-insecure-requests",
                 ].join('; '),
           },
