@@ -4,6 +4,7 @@ import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
 import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
+import Breadcrumbs from '@/components/seo/Breadcrumbs';
 
 export const revalidate = 60; // ISR revalidation
 export const dynamic = 'force-dynamic';
@@ -36,6 +37,7 @@ export async function generateMetadata({ params }: BlogPostPageProps): Promise<M
       };
     }
 
+    const postUrl = `https://www.triplecitiestech.com/blog/${post.slug}`;
     return {
       title: post.metaTitle || post.title,
       description: post.metaDescription || post.excerpt,
@@ -44,15 +46,25 @@ export async function generateMetadata({ params }: BlogPostPageProps): Promise<M
         title: post.metaTitle || post.title,
         description: post.metaDescription || post.excerpt,
         type: 'article',
+        url: postUrl,
+        siteName: 'Triple Cities Tech',
         publishedTime: post.publishedAt?.toISOString(),
+        modifiedTime: post.updatedAt?.toISOString(),
         authors: [post.author?.name || 'Triple Cities Tech'],
-        tags: post.keywords
+        tags: post.keywords,
+        ...(post.featuredImage && {
+          images: [{ url: post.featuredImage, width: 1200, height: 630, alt: post.title }],
+        }),
       },
       twitter: {
         card: 'summary_large_image',
         title: post.metaTitle || post.title,
-        description: post.metaDescription || post.excerpt
-      }
+        description: post.metaDescription || post.excerpt,
+        ...(post.featuredImage && { images: [post.featuredImage] }),
+      },
+      alternates: {
+        canonical: postUrl,
+      },
     };
   } catch (error) {
     // During build, database might not be available
@@ -155,6 +167,7 @@ export default async function BlogPostPage({ params, searchParams }: BlogPostPag
     <>
       <Header />
       <main className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900 pt-20">
+        <Breadcrumbs />
         {/* Article Header */}
         <article className="max-w-4xl mx-auto px-4 py-12">
           {/* Category Badge */}
@@ -261,28 +274,40 @@ export default async function BlogPostPage({ params, searchParams }: BlogPostPag
             dangerouslySetInnerHTML={{
               __html: JSON.stringify({
                 '@context': 'https://schema.org',
-                '@type': 'Article',
+                '@type': 'BlogPosting',
                 headline: post.title,
                 description: post.excerpt,
+                url: postUrl,
+                ...(post.featuredImage && {
+                  image: {
+                    '@type': 'ImageObject',
+                    url: post.featuredImage,
+                  },
+                }),
                 author: {
                   '@type': 'Organization',
-                  name: 'Triple Cities Tech'
+                  name: post.author?.name || 'Triple Cities Tech',
+                  url: baseUrl,
                 },
                 publisher: {
                   '@type': 'Organization',
                   name: 'Triple Cities Tech',
+                  url: baseUrl,
                   logo: {
                     '@type': 'ImageObject',
-                    url: `${baseUrl}/logo.png`
-                  }
+                    url: `${baseUrl}/logo/tctlogo.webp`,
+                  },
                 },
                 datePublished: post.publishedAt?.toISOString(),
                 dateModified: post.updatedAt.toISOString(),
                 mainEntityOfPage: {
                   '@type': 'WebPage',
-                  '@id': postUrl
+                  '@id': postUrl,
                 },
-                keywords: post.keywords.join(', ')
+                keywords: post.keywords.join(', '),
+                articleSection: post.category?.name || 'Technology',
+                wordCount: post.content.split(/\s+/).length,
+                inLanguage: 'en-US',
               })
             }}
           />
