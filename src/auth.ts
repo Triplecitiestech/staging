@@ -15,7 +15,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   callbacks: {
     async signIn({ user }) {
       // Allow sign-in for any Azure AD user in the tenant
-      // Auto-provision as VIEWER if not already in staff_users
+      // Auto-provision as TECHNICIAN if not already in staff_users
       if (!user.email) return false
 
       try {
@@ -29,17 +29,17 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         }
 
         if (!staffUser) {
-          // Auto-provision new team members from Azure AD as VIEWER
+          // Auto-provision new team members from Azure AD as TECHNICIAN
           staffUser = await prisma.staffUser.create({
             data: {
               email: user.email,
               name: user.name || user.email.split('@')[0],
-              role: 'VIEWER',
+              role: 'TECHNICIAN',
               isActive: true,
               lastLogin: new Date(),
             }
           })
-          console.log(`Auto-provisioned new staff user: ${user.email} as VIEWER`)
+          console.log(`Auto-provisioned new staff user: ${user.email} as TECHNICIAN`)
         } else {
           // Update last login timestamp
           await prisma.staffUser.update({

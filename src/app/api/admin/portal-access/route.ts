@@ -15,8 +15,8 @@ export async function GET(request: NextRequest) {
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-    if (!['ADMIN', 'MANAGER'].includes(session.user?.role as string)) {
-      return NextResponse.json({ error: 'Forbidden: requires ADMIN or MANAGER role' }, { status: 403 })
+    if (!['SUPER_ADMIN', 'ADMIN'].includes(session.user?.role as string)) {
+      return NextResponse.json({ error: 'Forbidden: requires Super Admin or Admin role' }, { status: 403 })
     }
 
     const companySlug = request.nextUrl.searchParams.get('company')

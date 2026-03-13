@@ -3,7 +3,7 @@ import { auth } from '@/auth';
 
 /**
  * GET /api/marketing/campaigns/[id] — Get campaign details (auth required)
- * PATCH /api/marketing/campaigns/[id] — Update campaign (auth required, ADMIN/MANAGER)
+ * PATCH /api/marketing/campaigns/[id] — Update campaign (auth required, SUPER_ADMIN/ADMIN)
  */
 export async function GET(
   _request: NextRequest,
@@ -12,7 +12,7 @@ export async function GET(
   try {
     const session = await auth();
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    if (!['ADMIN', 'MANAGER'].includes(session.user?.role as string)) {
+    if (!['SUPER_ADMIN', 'ADMIN'].includes(session.user?.role as string)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -60,7 +60,7 @@ export async function PATCH(
   try {
     const session = await auth();
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    if (!['ADMIN', 'MANAGER'].includes(session.user?.role as string)) {
+    if (!['SUPER_ADMIN', 'ADMIN'].includes(session.user?.role as string)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 

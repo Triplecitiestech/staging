@@ -5,7 +5,7 @@ import { contactConfig } from '@/config/contact'
 export async function GET() {
   const session = await auth()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (session.user?.role !== 'ADMIN') {
+  if (!['SUPER_ADMIN', 'ADMIN'].includes(session.user?.role as string)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 

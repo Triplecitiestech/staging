@@ -10,7 +10,7 @@ export const maxDuration = 60;
 /** POST /api/soc/run — Manual trigger for SOC triage pipeline */
 export async function POST(request: NextRequest) {
   const session = await auth();
-  if (!session?.user?.email || !['ADMIN', 'MANAGER'].includes(session.user?.role as string)) {
+  if (!session?.user?.email || !['SUPER_ADMIN', 'ADMIN'].includes(session.user?.role as string)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
