@@ -777,16 +777,28 @@ export async function getRealtimeTicketList(
 
   // SLA computation from ticket_lifecycle table (all 3 metrics)
   const slaTicketIds = tickets.map(t => t.autotaskTicketId);
-  const lifecycleRows = slaTicketIds.length > 0
-    ? await prisma.ticketLifecycle.findMany({
+  let lifecycleRows: { slaResponseMet: boolean | null; slaResolutionPlanMet?: boolean | null; slaResolutionMet: boolean | null }[] = [];
+  if (slaTicketIds.length > 0) {
+    try {
+      lifecycleRows = await prisma.ticketLifecycle.findMany({
         where: { autotaskTicketId: { in: slaTicketIds } },
         select: {
           slaResponseMet: true,
           slaResolutionPlanMet: true,
           slaResolutionMet: true,
         },
-      })
-    : [];
+      });
+    } catch {
+      // slaResolutionPlanMet column may not exist yet — fallback without it
+      lifecycleRows = (await prisma.ticketLifecycle.findMany({
+        where: { autotaskTicketId: { in: slaTicketIds } },
+        select: {
+          slaResponseMet: true,
+          slaResolutionMet: true,
+        },
+      })).map(r => ({ ...r, slaResolutionPlanMet: null }));
+    }
+  }
 
   let slaRespMet = 0, slaRespTotal = 0;
   let slaPlanMet = 0, slaPlanTotal = 0;
