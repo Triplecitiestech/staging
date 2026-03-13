@@ -18,7 +18,15 @@ export default async function CompanyDetailPage({
 
   const company = await prisma.company.findUnique({
     where: { id },
-    include: {
+    select: {
+      id: true,
+      slug: true,
+      displayName: true,
+      primaryContact: true,
+      contactTitle: true,
+      contactEmail: true,
+      createdAt: true,
+      updatedAt: true,
       projects: {
         select: { id: true, title: true, status: true, projectType: true, createdAt: true },
         orderBy: { createdAt: 'desc' }
@@ -43,6 +51,16 @@ export default async function CompanyDetailPage({
   try {
     contacts = await prisma.companyContact.findMany({
       where: { companyId: id },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        title: true,
+        phone: true,
+        phoneType: true,
+        isPrimary: true,
+        isActive: true,
+      },
       orderBy: [{ isPrimary: 'desc' }, { name: 'asc' }]
     })
   } catch {

@@ -39,6 +39,18 @@ export async function ensureReportingTables(): Promise<void> {
   const missing = REQUIRED_TABLES.filter(t => !existingNames.includes(t));
 
   if (missing.length === 0) {
+    // Tables exist but may be missing columns from newer migrations.
+    // Always run column patches (ALTER TABLE ... IF NOT EXISTS is idempotent).
+    for (const stmt of COLUMN_PATCHES) {
+      try {
+        await prisma.$executeRawUnsafe(stmt);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!msg.includes('already exists')) {
+          console.error(`[reporting] Column patch failed: ${msg.slice(0, 200)}`);
+        }
+      }
+    }
     tablesVerified = true;
     return;
   }
@@ -70,6 +82,11 @@ export async function ensureReportingTables(): Promise<void> {
 
   tablesVerified = true;
 }
+
+// Column patches for existing tables — always run (idempotent via IF NOT EXISTS)
+const COLUMN_PATCHES = [
+  `ALTER TABLE "ticket_lifecycle" ADD COLUMN IF NOT EXISTS "slaResolutionPlanMet" BOOLEAN`,
+];
 
 // Inlined migration SQL — same as in /api/reports/migrate/route.ts
 const MIGRATION_STATEMENTS = [
