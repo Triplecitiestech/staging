@@ -13,7 +13,7 @@ interface Project {
   aiGenerated: boolean
   autotaskProjectId?: string | null
   company: { displayName: string; slug: string }
-  phases: Array<{ status: string }>
+  phases: Array<{ status: string; tasks?: Array<{ status: string; completed: boolean }> }>
 }
 
 type SortKey = 'title' | 'company' | 'type' | 'status' | 'progress' | 'created'
@@ -73,10 +73,19 @@ export default function ProjectList({ projects }: { projects: Project[] }) {
     }
   }
 
-  const getProgress = (phases: Array<{ status: string }>) => {
-    if (phases.length === 0) return 0
-    const completed = phases.filter(p => p.status === 'COMPLETE').length
-    return Math.round((completed / phases.length) * 100)
+  const DONE_STATUSES = ['REVIEWED_AND_DONE', 'NOT_APPLICABLE', 'ITG_DOCUMENTED']
+
+  const getProgress = (phases: Array<{ status: string; tasks?: Array<{ status: string; completed: boolean }> }>) => {
+    // Task-based progress: count completed tasks across all phases
+    const allTasks = phases.flatMap(p => p.tasks || [])
+    if (allTasks.length === 0) {
+      // Fallback to phase-based if no task data
+      if (phases.length === 0) return 0
+      const completed = phases.filter(p => p.status === 'COMPLETE').length
+      return Math.round((completed / phases.length) * 100)
+    }
+    const doneTasks = allTasks.filter(t => DONE_STATUSES.includes(t.status) || t.completed).length
+    return Math.round((doneTasks / allTasks.length) * 100)
   }
 
   const statusOrder: Record<string, number> = useMemo(() => ({ ACTIVE: 0, ON_HOLD: 1, COMPLETED: 2, CANCELLED: 3 }), [])

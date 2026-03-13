@@ -518,7 +518,7 @@ async function handleResync(client: AutotaskClient, page: number) {
 
       for (const phase of localPhases) {
         if (phase.tasks.length === 0) continue;
-        const allComplete = phase.tasks.every((t) => t.completed || t.status === 'REVIEWED_AND_DONE' || t.status === 'NOT_APPLICABLE');
+        const allComplete = phase.tasks.every((t) => t.completed || t.status === 'REVIEWED_AND_DONE' || t.status === 'NOT_APPLICABLE' || t.status === 'ITG_DOCUMENTED');
         const anyInProgress = phase.tasks.some((t) => t.status === 'WORK_IN_PROGRESS' || t.status === 'ASSIGNED');
         const anyWaiting = phase.tasks.some((t) => t.status === 'WAITING_ON_CLIENT' || t.status === 'WAITING_ON_VENDOR');
 
@@ -539,6 +539,20 @@ async function handleResync(client: AutotaskClient, page: number) {
             data: { status: newStatus },
           });
         }
+      }
+
+      // Update project status from Autotask
+      try {
+        const atProject = await client.getProject(atProjectId);
+        if (atProject) {
+          const newProjectStatus = mapAtProjectStatus(atProject.status) as ProjectStatus;
+          await prisma.project.update({
+            where: { id: project.id },
+            data: { status: newProjectStatus },
+          });
+        }
+      } catch (err) {
+        pLog.errors.push(`Project status update: ${err instanceof Error ? err.message : String(err)}`);
       }
 
     } catch (err) {
