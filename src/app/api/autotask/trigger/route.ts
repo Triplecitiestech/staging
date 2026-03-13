@@ -299,11 +299,13 @@ async function handleMerge() {
           try {
             const loserContacts = await prisma.companyContact.findMany({
               where: { companyId: loser.id },
+              select: { id: true, email: true },
             });
             for (const contact of loserContacts) {
               // Check if winner already has a contact with this email
               const existingContact = await prisma.companyContact.findFirst({
                 where: { companyId: winner.id, email: contact.email },
+                select: { id: true },
               });
               if (existingContact) {
                 // Delete the duplicate contact
@@ -511,7 +513,9 @@ async function handleResync(client: AutotaskClient, page: number) {
       // Also update phase statuses based on their tasks
       const localPhases = await prisma.phase.findMany({
         where: { projectId: project.id },
-        include: {
+        select: {
+          id: true,
+          status: true,
           tasks: { select: { status: true, completed: true } },
         },
       });
@@ -934,13 +938,14 @@ async function handleProjectsSync(client: AutotaskClient, page: number) {
         // Find or create local company
         let company = await prisma.company.findFirst({
           where: { autotaskCompanyId: String(atProject.companyID) },
+          select: { id: true },
         });
 
         if (!company) {
           try {
             const atCompany = await client.getCompany(atProject.companyID);
             const companyResult = await syncCompany(atCompany);
-            company = await prisma.company.findUnique({ where: { id: companyResult.companyId } });
+            company = await prisma.company.findUnique({ where: { id: companyResult.companyId }, select: { id: true } });
           } catch (err) {
             const msg = `Missing company ${atProject.companyID}: ${err instanceof Error ? err.message : String(err)}`;
             projectLog.errors.push(msg);
@@ -1098,6 +1103,7 @@ async function handleContactsSync(client: AutotaskClient) {
 
             const existing = await prisma.companyContact.findFirst({
               where: { autotaskContactId: atId },
+              select: { id: true, title: true, phone: true, phoneType: true },
             });
 
             if (existing) {
@@ -1116,6 +1122,7 @@ async function handleContactsSync(client: AutotaskClient) {
               // Check email collision
               const emailExists = await prisma.companyContact.findFirst({
                 where: { companyId: company.id, email },
+                select: { id: true },
               });
 
               if (emailExists) {
@@ -1207,6 +1214,7 @@ async function syncCompany(
 
   const existing = await prisma.company.findFirst({
     where: { autotaskCompanyId: atId },
+    select: { id: true, displayName: true },
   });
 
   // Persist classification from Autotask (e.g., "Platinum Managed Service")
@@ -1228,7 +1236,7 @@ async function syncCompany(
   }
 
   let slug = generateSlug(atCompany.companyName);
-  const slugExists = await prisma.company.findFirst({ where: { slug } });
+  const slugExists = await prisma.company.findFirst({ where: { slug }, select: { id: true } });
   if (slugExists) slug = `${slug}-${atId}`;
 
   const randomPassword = crypto.randomBytes(16).toString('hex');
@@ -1268,6 +1276,7 @@ async function syncProject(
 
   const existing = await prisma.project.findFirst({
     where: { autotaskProjectId: atId },
+    select: { id: true, startedAt: true, completedAt: true, estimatedDuration: true },
   });
 
   const status = mapAtProjectStatus(atProject.status) as ProjectStatus;
@@ -1296,7 +1305,7 @@ async function syncProject(
     });
 
     let slug = generateSlug(`${company?.displayName || 'company'}-${atProject.projectName}`);
-    const slugExists = await prisma.project.findFirst({ where: { slug } });
+    const slugExists = await prisma.project.findFirst({ where: { slug }, select: { id: true } });
     if (slugExists) slug = `${slug}-at${atId}`;
 
     const newProject = await prisma.project.create({
@@ -1341,6 +1350,7 @@ async function syncProject(
           content: atProject.description,
           authorEmail: SYSTEM_EMAIL,
         },
+        select: { id: true },
       });
       if (!existingDescComment) {
         // Find the first phase to attach the description to
@@ -1511,7 +1521,10 @@ async function syncPhase(
   const atId = String(atPhase.id);
   const status = mapAtPhaseStatus(atPhase);
 
-  const existing = await prisma.phase.findFirst({ where: { autotaskPhaseId: atId } });
+  const existing = await prisma.phase.findFirst({
+    where: { autotaskPhaseId: atId },
+    select: { id: true, description: true, scheduledDate: true, estimatedDays: true },
+  });
 
   if (existing) {
     await prisma.phase.update({
@@ -1550,7 +1563,10 @@ async function syncTask(
 ): Promise<{ created: boolean }> {
   const atId = String(atTask.id);
 
-  const existing = await prisma.phaseTask.findFirst({ where: { autotaskTaskId: atId } });
+  const existing = await prisma.phaseTask.findFirst({
+    where: { autotaskTaskId: atId },
+    select: { id: true, dueDate: true, completedAt: true, notes: true },
+  });
 
   const status = mapAtTaskStatus(atTask.status) as TaskStatus;
   const priority = mapAtTaskPriority(atTask.priority) as Priority;
@@ -1637,6 +1653,7 @@ async function syncProjectNotes(
         content: { startsWith: notePrefix },
         authorEmail: SYSTEM_EMAIL,
       },
+      select: { id: true },
     });
 
     if (alreadyExists) continue;
