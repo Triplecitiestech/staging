@@ -460,16 +460,16 @@ async function syncProjectPhasesAndTasks(
   let atPhases: AutotaskProjectPhase[] = [];
   try {
     atPhases = await client.getProjectPhases(atProjectId);
-  } catch {
-    // Some projects may not have phases - that's ok
+  } catch (err) {
+    console.error(`[Autotask Sync] Failed to fetch phases for project ${atProjectId}: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   // Fetch tasks from Autotask
   let atTasks: AutotaskTask[] = [];
   try {
     atTasks = await client.getProjectTasks(atProjectId);
-  } catch {
-    // Some projects may not have tasks
+  } catch (err) {
+    console.error(`[Autotask Sync] Failed to fetch tasks for project ${atProjectId}: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   // Create a mapping of AT phase ID -> local phase ID
