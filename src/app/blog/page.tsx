@@ -2,15 +2,30 @@ import { Metadata } from 'next';
 import Link from 'next/link';
 import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
+import Breadcrumbs from '@/components/seo/Breadcrumbs';
+
+const baseUrl = 'https://www.triplecitiestech.com';
 
 export const metadata: Metadata = {
-  title: 'Blog | Triple Cities Tech - Cybersecurity & IT Insights',
-  description: 'Expert insights on cybersecurity, IT management, and technology solutions for small businesses in Central New York.',
+  title: 'IT & Cybersecurity Blog | Triple Cities Tech | Central NY',
+  description: 'Expert insights on cybersecurity, managed IT services, cloud solutions, and technology best practices for small businesses in Central New York. Stay informed with Triple Cities Tech.',
+  keywords: ['cybersecurity blog', 'IT management tips', 'small business technology', 'managed IT insights', 'Central New York IT', 'cybersecurity news', 'IT best practices'],
   openGraph: {
-    title: 'Blog | Triple Cities Tech',
+    title: 'IT & Cybersecurity Blog | Triple Cities Tech',
+    description: 'Expert insights on cybersecurity, IT management, and technology solutions for small businesses in Central New York.',
+    type: 'website',
+    url: `${baseUrl}/blog`,
+    siteName: 'Triple Cities Tech',
+    images: [{ url: `${baseUrl}/og-home.jpg`, width: 1200, height: 630, alt: 'Triple Cities Tech Blog' }],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'IT & Cybersecurity Blog | Triple Cities Tech',
     description: 'Expert insights on cybersecurity, IT management, and technology solutions for small businesses.',
-    type: 'website'
-  }
+  },
+  alternates: {
+    canonical: `${baseUrl}/blog`,
+  },
 };
 
 export const dynamic = 'force-dynamic';
@@ -54,13 +69,13 @@ export default async function BlogPage() {
 
     // Fetch published blog posts (only PUBLIC visibility on the public blog)
     // Posts without a visibility field (pre-migration) default to PUBLIC
+    // Use NOT IN to exclude non-public posts rather than explicit OR for null handling
     posts = await prisma.blogPost.findMany({
       where: {
         status: 'PUBLISHED',
-        OR: [
-          { visibility: 'PUBLIC' },
-          { visibility: null as unknown as undefined },
-        ],
+        NOT: {
+          visibility: { in: ['CUSTOMER', 'INTERNAL'] }
+        },
       },
       include: {
         category: true,
@@ -69,7 +84,7 @@ export default async function BlogPage() {
       orderBy: {
         publishedAt: 'desc'
       },
-      take: 20
+      take: 50
     });
 
     // Fetch categories
@@ -122,10 +137,39 @@ export default async function BlogPage() {
     );
   }
 
+  // Build JSON-LD for blog listing
+  const blogListingSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'Blog',
+    name: 'Triple Cities Tech Blog',
+    description: 'Expert insights on cybersecurity, IT management, and technology solutions for small businesses in Central New York.',
+    url: `${baseUrl}/blog`,
+    publisher: {
+      '@type': 'Organization',
+      name: 'Triple Cities Tech',
+      logo: { '@type': 'ImageObject', url: `${baseUrl}/logo/tctlogo.webp` },
+    },
+    ...(posts.length > 0 && {
+      blogPost: posts.map((post) => ({
+        '@type': 'BlogPosting',
+        headline: post.title,
+        description: post.excerpt,
+        url: `${baseUrl}/blog/${post.slug}`,
+        datePublished: post.publishedAt?.toISOString(),
+        author: { '@type': 'Organization', name: post.author?.name || 'Triple Cities Tech' },
+      })),
+    }),
+  };
+
   return (
     <>
       <Header />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(blogListingSchema) }}
+      />
       <main className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900 pt-20">
+        <Breadcrumbs />
         <div className="container mx-auto px-4 py-12">
           {/* Header - centered like customer view */}
           <div className="mb-12 text-center">
