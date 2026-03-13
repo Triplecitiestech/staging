@@ -60,18 +60,36 @@ export async function computeLifecycle(): Promise<LifecycleResult> {
       try {
         const lifecycle = await computeTicketLifecycle(ticket);
 
-        await prisma.ticketLifecycle.upsert({
-          where: { autotaskTicketId: ticket.autotaskTicketId },
-          create: {
-            autotaskTicketId: ticket.autotaskTicketId,
-            ...lifecycle,
-            computedAt: new Date(),
-          },
-          update: {
-            ...lifecycle,
-            computedAt: new Date(),
-          },
-        });
+        try {
+          await prisma.ticketLifecycle.upsert({
+            where: { autotaskTicketId: ticket.autotaskTicketId },
+            create: {
+              autotaskTicketId: ticket.autotaskTicketId,
+              ...lifecycle,
+              computedAt: new Date(),
+            },
+            update: {
+              ...lifecycle,
+              computedAt: new Date(),
+            },
+          });
+        } catch {
+          // slaResolutionPlanMet column may not exist yet — retry without it
+          const { slaResolutionPlanMet: _unused, ...lifecycleWithout } = lifecycle;
+          void _unused;
+          await prisma.ticketLifecycle.upsert({
+            where: { autotaskTicketId: ticket.autotaskTicketId },
+            create: {
+              autotaskTicketId: ticket.autotaskTicketId,
+              ...lifecycleWithout,
+              computedAt: new Date(),
+            },
+            update: {
+              ...lifecycleWithout,
+              computedAt: new Date(),
+            },
+          });
+        }
 
         result.computed++;
       } catch (err) {

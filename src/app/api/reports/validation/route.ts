@@ -39,10 +39,28 @@ export async function GET(request: NextRequest) {
       }
 
       case 'lifecycle': {
-        const lifecycles = await prisma.ticketLifecycle.findMany({
-          take: limit,
-          orderBy: { computedAt: 'desc' },
-        });
+        let lifecycles;
+        try {
+          lifecycles = await prisma.ticketLifecycle.findMany({
+            take: limit,
+            orderBy: { computedAt: 'desc' },
+          });
+        } catch {
+          // slaResolutionPlanMet column may not exist yet — use explicit select without it
+          lifecycles = await prisma.ticketLifecycle.findMany({
+            take: limit,
+            orderBy: { computedAt: 'desc' },
+            select: {
+              id: true, autotaskTicketId: true, companyId: true, assignedResourceId: true,
+              priority: true, queueId: true, createDate: true, completedDate: true,
+              isResolved: true, firstResponseMinutes: true, firstResolutionMinutes: true,
+              fullResolutionMinutes: true, activeResolutionMinutes: true, waitingCustomerMinutes: true,
+              techNoteCount: true, customerNoteCount: true, reopenCount: true,
+              totalHoursLogged: true, billableHoursLogged: true, isFirstTouchResolution: true,
+              slaResponseMet: true, slaResolutionMet: true, computedAt: true,
+            },
+          });
+        }
         return NextResponse.json({ view, count: lifecycles.length, data: lifecycles });
       }
 

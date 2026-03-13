@@ -348,24 +348,40 @@ async function countAgingTickets(companyId: string): Promise<number> {
 }
 
 async function getSlaCompliance(companyId: string, start: Date, end: Date): Promise<number | null> {
-  const lifecycles = await prisma.ticketLifecycle.findMany({
-    where: {
-      companyId,
-      isResolved: true,
-      completedDate: { gte: start, lte: end },
-    },
-    select: {
-      slaResponseMet: true,
-      slaResolutionPlanMet: true,
-      slaResolutionMet: true,
-    },
-  });
+  let lifecycles: { slaResponseMet: boolean | null; slaResolutionPlanMet?: boolean | null; slaResolutionMet: boolean | null }[];
+  try {
+    lifecycles = await prisma.ticketLifecycle.findMany({
+      where: {
+        companyId,
+        isResolved: true,
+        completedDate: { gte: start, lte: end },
+      },
+      select: {
+        slaResponseMet: true,
+        slaResolutionPlanMet: true,
+        slaResolutionMet: true,
+      },
+    });
+  } catch {
+    // slaResolutionPlanMet column may not exist yet — fallback without it
+    lifecycles = (await prisma.ticketLifecycle.findMany({
+      where: {
+        companyId,
+        isResolved: true,
+        completedDate: { gte: start, lte: end },
+      },
+      select: {
+        slaResponseMet: true,
+        slaResolutionMet: true,
+      },
+    })).map(r => ({ ...r, slaResolutionPlanMet: null }));
+  }
 
   const responseResults = lifecycles
     .map(l => l.slaResponseMet)
     .filter((v): v is boolean => v !== null);
   const planResults = lifecycles
-    .map(l => l.slaResolutionPlanMet)
+    .map(l => l.slaResolutionPlanMet ?? null)
     .filter((v): v is boolean => v !== null);
   const resolutionResults = lifecycles
     .map(l => l.slaResolutionMet)
