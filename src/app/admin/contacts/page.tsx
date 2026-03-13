@@ -105,6 +105,7 @@ export default async function ContactsPage() {
             customerRole: c.customerRole || 'CLIENT_USER',
             inviteStatus: c.inviteStatus || 'NOT_INVITED',
             invitedAt: c.invitedAt?.toISOString() || null,
+            inviteAcceptedAt: c.inviteAcceptedAt?.toISOString() || null,
             lastPortalLogin: c.lastPortalLogin?.toISOString() || null,
           }))}
           staffUsers={staffUsers.map(s => ({
