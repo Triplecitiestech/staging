@@ -175,9 +175,7 @@ export default function Industries() {
 
                 <div>
                   <a
-                    href="https://calendly.com/kurtis-tct"
-                    target="_blank"
-                    rel="noopener noreferrer"
+                    href="/schedule"
                     className="inline-flex items-center justify-center w-full text-center bg-gradient-to-r from-purple-500 to-purple-600 hover:opacity-90 text-white font-bold px-4 py-3 md:px-6 md:py-4 rounded-xl transition-all duration-300 hover:scale-105 shadow-lg"
                   >
                     Schedule Now

@@ -247,7 +247,7 @@ export default function ProspectEngagement() {
       title: 'Schedule a Meeting',
       description: 'Book a free consultation with our IT experts to discuss your needs.',
       color: 'from-purple-500 to-purple-600',
-      href: 'https://calendly.com/kurtis-tct',
+      href: '/schedule',
       actionText: 'Schedule Now'
     },
     {
