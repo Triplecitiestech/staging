@@ -64,22 +64,21 @@ export default function SchedulePage() {
             </div>
           </div>
 
-          {/* Calendly Embed */}
-          <div className="bg-gray-800/30 border border-gray-700/50 rounded-xl overflow-hidden">
-            {!widgetReady && (
-              <div className="flex items-center justify-center py-32">
-                <div className="text-center">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400 mx-auto mb-4" />
-                  <p className="text-gray-400">Loading calendar...</p>
-                </div>
+          {/* Calendly Embed — no wrapper overflow, let iframe auto-resize */}
+          {!widgetReady && (
+            <div className="flex items-center justify-center py-32">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400 mx-auto mb-4" />
+                <p className="text-gray-400">Loading calendar...</p>
               </div>
-            )}
-            <div
-              className="calendly-inline-widget"
-              data-url="https://calendly.com/kurtis-tct?background_color=111827&text_color=e5e7eb&primary_color=06b6d4&hide_gdpr_banner=1"
-              style={{ minWidth: '320px', minHeight: '1200px' }}
-            />
-          </div>
+            </div>
+          )}
+          <div
+            className="calendly-inline-widget"
+            data-url="https://calendly.com/kurtis-tct?background_color=111827&text_color=e5e7eb&primary_color=06b6d4&hide_gdpr_banner=1"
+            data-resize="true"
+            style={{ minWidth: '320px', width: '100%' }}
+          />
         </div>
       </section>
 
