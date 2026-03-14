@@ -8,17 +8,34 @@ Active development work and outstanding items. Only currently active work belong
 
 ## Active Development
 
-### SOC Dashboard Overhaul
-- **Status**: In progress
-- **Key files**: `src/components/soc/`, `src/app/api/soc/`, `src/lib/soc/`
-- **Recent work**: Actionable filter, AI-generated rules, trend analysis, ticket-centric dashboard redesign
-- **Remaining**: Production hardening (rate limiting on AI calls, error recovery, false positive rate monitoring)
+### SOC Reasoning Layer (Phase 1 — COMPLETE)
+- **Status**: Complete (2026-03-14)
+- **Key files**: `src/lib/soc/types.ts`, `src/lib/soc/prompts.ts`, `src/lib/soc/engine.ts`, `src/components/soc/SocTicketDetail.tsx`, `src/app/api/soc/tickets/[id]/analysis/route.ts`, `src/app/api/soc/migrate/route.ts`
+- **What shipped**:
+  - 5-value classification: false_positive, expected_activity, informational, suspicious, confirmed_threat
+  - Dynamic `EvidenceItem[]` array with color-coded indicators
+  - `buildReasoningPrompt()` with technician roster context and historical FP rate
+  - `generateReasoning()` engine integration with legacy fallback
+  - Customer messages gated by `customerMessageRequired` flag
+  - Reasoning-first UI: Summary → Assessment → Evidence → Recommended Action → Actions → Technical Details (collapsed)
+  - `reasoning JSONB` column on `soc_incidents`; `internal_site_ids` seeded with `["177027"]`
+  - Fixed 504 timeouts on 3 SOC API routes (maxDuration + Promise.all parallelization)
 
-### AI SOC Analyst Agent
-- **Status**: In progress
-- **Key files**: `src/lib/soc/engine.ts`, `src/lib/soc/prompts.ts`, `src/lib/soc/correlation.ts`
-- **Recent work**: Full AI classification pipeline, human approval workflow, OSINT prompts, action plans, merge recommendations
-- **Remaining**: Tune AI prompts based on production data, improve correlation accuracy
+### SOC Phase 2 (Future)
+- **Status**: Not started
+- **Key files**: `docs/plans/SOC_REDESIGN_PLAN.md`
+- **Planned work**:
+  - OSINT API integrations (AbuseIPDB, VirusTotal, AlienVault OTX, ip-api.com)
+  - Auto-action tiers (Tier 1 full auto, Tier 2 semi-auto, Tier 3/4 human required)
+  - Single-pass AI analysis (replacing 3-call pipeline with 1-2 calls)
+  - Dashboard stat card updates (auto-resolved, awaiting review metrics)
+  - Datto RMM job/session data integration
+  - IP reputation service integration
+
+### SOC Production Hardening
+- **Status**: Ongoing
+- **Key files**: `src/lib/soc/engine.ts`, `src/app/api/soc/`
+- **Remaining**: Rate limiting on AI calls, error recovery for partial failures, tune AI prompts based on production data, improve correlation accuracy
 
 ### Autotask Integration Improvements
 - **Status**: Ongoing

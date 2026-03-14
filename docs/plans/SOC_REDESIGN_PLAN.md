@@ -1,5 +1,16 @@
 # SOC Analyst Agent Redesign Plan
 
+> **Status: PHASE 1 COMPLETE (2026-03-14)**
+>
+> The **Reasoning Layer** (Phase 1) has been implemented. See `docs/plans/SOC_REASONING_LAYER_DESIGN.md` for the detailed design and implementation status.
+>
+> **What remains (Phase 2 — future):**
+> - OSINT API integrations (AbuseIPDB, VirusTotal, AlienVault OTX, ip-api.com)
+> - Auto-action tiers (Tier 1 full auto, Tier 2 semi-auto, Tier 3/4 human required)
+> - Single-pass AI analysis (replacing 3-call pipeline with 1-2 calls)
+> - `soc_osint_cache` table and enrichment context
+> - Dashboard stat card updates (auto-resolved, awaiting review metrics)
+
 ## Problem Statement
 
 The current SOC system behaves like a traditional alerting system that generates investigation checklists for humans. The AI classifies alerts and proposes actions, but does not perform actual investigative work (OSINT, threat intelligence, reputation lookups). The UI is verbose, showing reasoning chains, step-by-step playbooks, and duplicated information instead of concise investigation results.

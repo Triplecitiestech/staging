@@ -173,26 +173,50 @@ POST /api/soc/run → SOC Engine (src/lib/soc/engine.ts)
   ├─ For each ticket:
   │   ├─ IP extraction (src/lib/soc/ip-extractor.ts)
   │   ├─ Rule matching (src/lib/soc/rules.ts)
-  │   ├─ AI classification via Claude (src/lib/soc/prompts.ts)
-  │   │   → severity, category, action plan, OSINT prompts
+  │   ├─ AI screening via Claude Haiku (Tier 1)
+  │   │   → alertSource, category, isFalsePositive, confidence
+  │   ├─ AI deep analysis via Claude Sonnet (Tier 2, if needed)
+  │   │   → verdict, confidence, reasoning, ticketNote
   │   ├─ Correlation check (src/lib/soc/correlation.ts)
   │   │   → merge recommendations for related incidents
-  │   └─ Create/update soc_incidents + soc_activities
+  │   ├─ Context enrichment:
+  │   │   ├─ Historical FP rate (getHistoricalFpRate)
+  │   │   ├─ Technician roster (getTechnicianRoster)
+  │   │   └─ Device verification (technician-verifier.ts)
+  │   ├─ Reasoning generation via Claude Sonnet (Tier 3)
+  │   │   → SocReasoning: incidentSummary, classification (5-value),
+  │   │     riskLevel, confidence, evidence[], recommendedAction,
+  │   │     customerMessageRequired, customerMessageDraft, internalNote
+  │   └─ Create/update soc_incidents + soc_pending_actions + soc_activity_log
   │
   ▼
 Admin UI (/admin/soc)
   ├─ Dashboard: ticket-centric view, actionable filter, trend analysis
-  ├─ Incidents: detail view with action plans, notes, Autotask links
+  ├─ Ticket Detail: reasoning-first layout:
+  │   1. Ticket Header (number, status, priority, company)
+  │   2. Incident Summary (plain-language from reasoning)
+  │   3. Security Assessment (classification badge + risk + confidence)
+  │   4. Investigation Evidence (dynamic EvidenceItem[] with colors)
+  │   5. Recommended Action
+  │   6. Pending Actions (approve/reject, below reasoning)
+  │   7. Technical Details (collapsed)
+  │   Legacy fallback for old records without reasoning data
   ├─ Rules: AI-generated + manual rules, enable/disable
   ├─ Config: engine settings, run controls
   └─ Human approval: review AI recommendations → approve/reject actions
+
+Classification system (5 values):
+  false_positive (green) | expected_activity (cyan) | informational (blue)
+  suspicious (rose) | confirmed_threat (red)
+
+Customer message gating: only created when reasoning.customerMessageRequired === true
 ```
 
 **Key files:**
-- `src/lib/soc/` — engine, correlation, rules, prompts, types, IP extractor
+- `src/lib/soc/` — engine, correlation, rules, prompts, types, IP extractor, technician-verifier
 - `src/app/api/soc/` — 11 endpoints (tickets, incidents, rules, trends, run, config, etc.)
-- `src/components/soc/` — dashboard, config panel, rules manager, incident detail, flowchart
-- Tables: `soc_incidents`, `soc_activities`, `soc_config`, `soc_rules` (raw SQL, not Prisma)
+- `src/components/soc/` — dashboard, ticket detail (reasoning-first), config panel, rules manager, flowchart
+- Tables: `soc_incidents` (with `reasoning` JSONB), `soc_ticket_analysis`, `soc_activity_log`, `soc_pending_actions`, `soc_rules`, `soc_config`, `soc_job_status`, `datto_devices`, `soc_communications` (raw SQL, not Prisma)
 
 ## Reporting & Analytics Flow
 

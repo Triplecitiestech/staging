@@ -72,7 +72,7 @@ This document maps every major subsystem to its primary source files. Use it to 
 | Directory | Purpose | Key Components |
 |-----------|---------|----------------|
 | `admin/` | Admin dashboard widgets | `AIProjectAssistant`, `AdminHeader`, `SyncPanel`, `AdminErrorBoundary` |
-| `soc/` | SOC Analyst Agent UI | `SocDashboardClient`, `SocIncidentDetail`, `SocRulesManager`, `SocConfigPanel`, `SocFlowchart` |
+| `soc/` | SOC Analyst Agent UI | `SocDashboardClient`, `SocTicketDetail` (reasoning-first layout with dynamic evidence), `SocIncidentDetail`, `SocRulesManager`, `SocConfigPanel`, `SocFlowchart` |
 | `reporting/` | Reporting & analytics | `ReportingDashboard`, `AnalyticsDashboard`, `BusinessReviewDetail`, `ReportAIAssistant`, `TrendChart`, `HealthReport` |
 | `tickets/` | Shared ticket components | `TicketTable`, `TicketDetail`, `PriorityBadge`, `SlaIndicator`, `TimelineEntry` |
 | `onboarding/` | Customer portal | `OnboardingPortal`, `CustomerDashboard`, `OnboardingJourney`, `TicketTimeline`, `PasswordGate` |
@@ -107,13 +107,13 @@ This document maps every major subsystem to its primary source files. Use it to 
 ### SOC Analyst Agent (`src/lib/soc/`)
 | File | Purpose |
 |------|---------|
-| `engine.ts` | Main SOC processing engine — ticket classification, incident creation |
-| `correlation.ts` | Incident correlation and merge recommendations |
-| `rules.ts` | Rule matching engine (manual + AI-generated) |
-| `prompts.ts` | Claude AI prompts for classification and action plans |
-| `ip-extractor.ts` | IP address extraction from ticket text |
-| `types.ts` | SOC type definitions |
-| `technician-verifier.ts` | Verify technician identity for AT write-back |
+| `engine.ts` | Main SOC processing engine — 3-tier AI pipeline (screening → deep analysis → reasoning), incident creation, context enrichment (historical FP rate, technician roster), pending action generation with customer message gating |
+| `correlation.ts` | Incident correlation and merge recommendations (text-based hostname/IP extraction + company/time window) |
+| `rules.ts` | Rule matching engine (manual + AI-generated suppression/correlation/escalation rules) |
+| `prompts.ts` | Claude AI prompts — `buildScreeningPrompt()` (Tier 1), `buildDeepAnalysisPrompt()` (Tier 2), `buildReasoningPrompt()` (Tier 3, 5-value classification with dynamic evidence), `buildActionPlanPrompt()` (legacy) |
+| `ip-extractor.ts` | IP address extraction from ticket text via regex |
+| `types.ts` | SOC type definitions — includes `Classification`, `EvidenceItem`, `SocReasoning`, `RiskLevel`, `Verdict` (with `expected_activity` and `confirmed_threat`), `TriageResult` (with `socReasoning` field) |
+| `technician-verifier.ts` | IP-based device verification chain: Datto RMM cache lookup → site ID check → username matching → live API fallback |
 
 ### Reporting & Analytics (`src/lib/reporting/`)
 | File | Purpose |
@@ -160,7 +160,7 @@ This document maps every major subsystem to its primary source files. Use it to 
 | Table Group | Tables | Created By |
 |-------------|--------|------------|
 | Reporting | `report_tickets`, `report_time_entries`, `report_ticket_notes`, `report_aggregations`, `report_schedules`, `report_targets` | `/api/reports/migrate` + `ensure-tables.ts` |
-| SOC | `soc_incidents`, `soc_activities`, `soc_config`, `soc_rules` | `/api/soc/bootstrap` or `/api/soc/migrate` |
+| SOC | `soc_ticket_analysis`, `soc_incidents` (with `reasoning` JSONB), `soc_activity_log`, `soc_pending_actions`, `soc_rules`, `soc_config`, `soc_job_status`, `soc_communications`, `datto_devices` | `/api/soc/bootstrap` or `/api/soc/migrate` |
 | Testing | `test_failures` | `/api/test-failures/migrate` |
 
 ---
