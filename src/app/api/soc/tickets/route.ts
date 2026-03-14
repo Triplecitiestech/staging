@@ -13,6 +13,7 @@ interface SocAnalysis {
   verdict: string | null;
   confidenceScore: number | null;
   status: string;
+  processedAt: string | null;
 }
 
 /**
@@ -64,7 +65,7 @@ export async function GET(request: NextRequest) {
     try {
       if (allTicketIds.length > 0) {
         socAnalyses = await prisma.$queryRaw<SocAnalysis[]>`
-          SELECT "autotaskTicketId", verdict, "confidenceScore", status
+          SELECT "autotaskTicketId", verdict, "confidenceScore", status, "processedAt"
           FROM soc_ticket_analysis
           WHERE "autotaskTicketId" = ANY(${allTicketIds})
         `;
@@ -132,6 +133,7 @@ export async function GET(request: NextRequest) {
       companyName: string | null;
       socVerdict: string | null;
       socConfidence: number | null;
+      socProcessedAt: string | null;
     })[] = tickets.map(t => {
       const soc = socMap.get(t.autotaskTicketId);
       return {
@@ -157,6 +159,7 @@ export async function GET(request: NextRequest) {
         companyName: t.company?.displayName || null,
         socVerdict: soc?.verdict || null,
         socConfidence: soc?.confidenceScore != null ? Number(soc.confidenceScore) : null,
+        socProcessedAt: soc?.processedAt ? String(soc.processedAt) : null,
       };
     });
 

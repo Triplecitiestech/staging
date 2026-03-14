@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
-import { TicketTable } from '@/components/tickets'
 import type { UnifiedTicketRow } from '@/types/tickets'
 import StatCard from '@/components/reporting/StatCard'
 import SocTicketDetail from './SocTicketDetail'
+
+// ── Interfaces ──
 
 interface JobStatus {
   jobName: string
@@ -35,6 +36,7 @@ interface SocTicketRow extends UnifiedTicketRow {
   companyName: string | null
   socVerdict: string | null
   socConfidence: number | null
+  socProcessedAt: string | null
 }
 
 interface TicketsData {
@@ -57,16 +59,6 @@ interface ActivityEntry {
   createdAt: string
 }
 
-interface TicketDetailData {
-  autotaskTicketId: string
-  ticketNumber: string
-  title: string
-  status: 'processed' | 'skipped' | 'error'
-  verdict?: string
-  confidence?: number
-  reason?: string
-}
-
 interface RunResultData {
   ticketsFound: number
   ticketsProcessed: number
@@ -76,8 +68,14 @@ interface RunResultData {
   dryRun: boolean
   errors?: string[]
   durationMs?: number
-  ticketDetails?: TicketDetailData[]
 }
+
+interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+// ── Component ──
 
 export default function SocDashboardClient() {
   const [status, setStatus] = useState<StatusData | null>(null)
@@ -85,20 +83,46 @@ export default function SocDashboardClient() {
   const [activity, setActivity] = useState<ActivityEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
-  const [activeTab, setActiveTab] = useState<'open' | 'all' | 'activity'>('open')
-  const [ticketFilter, setTicketFilter] = useState<'actionable' | 'all'>('actionable')
+  const [activeTab, setActiveTab] = useState<'tickets' | 'activity' | 'analyst'>('tickets')
   const [runError, setRunError] = useState<string | null>(null)
   const [lastRunResult, setLastRunResult] = useState<RunResultData | null>(null)
 
-  // SOC ticket detail view state
+  // SOC ticket detail view
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null)
+
+  // AI Analyst state
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('soc-analyst-messages')
+      if (saved) try { return JSON.parse(saved) } catch { /* ignore */ }
+    }
+    return []
+  })
+  const [chatInput, setChatInput] = useState('')
+  const [chatLoading, setChatLoading] = useState(false)
+  const [isListening, setIsListening] = useState(false)
+  const chatEndRef = useRef<HTMLDivElement>(null)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null)
+
+  // Persist chat messages
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('soc-analyst-messages', JSON.stringify(chatMessages))
+    }
+  }, [chatMessages])
+
+  // Auto-scroll chat
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [chatMessages, chatLoading])
 
   const fetchData = useCallback(async () => {
     try {
       const [statusRes, ticketsRes, activityRes] = await Promise.all([
         fetch('/api/soc/status'),
-        fetch(`/api/soc/tickets?days=30&filter=${ticketFilter}`),
-        fetch('/api/soc/activity?limit=20'),
+        fetch('/api/soc/tickets?days=30&filter=actionable'),
+        fetch('/api/soc/activity?limit=50'),
       ])
       if (statusRes.ok) setStatus(await statusRes.json())
       if (ticketsRes.ok) setTicketsData(await ticketsRes.json())
@@ -107,30 +131,28 @@ export default function SocDashboardClient() {
         setActivity(data.entries || [])
       }
     } catch {
-      // Silently handle — tables may not exist yet
+      // Tables may not exist yet
     } finally {
       setLoading(false)
     }
-  }, [ticketFilter])
+  }, [])
 
   useEffect(() => { fetchData() }, [fetchData])
-
-  const handleTicketClick = (ticketId: string) => {
-    setSelectedTicketId(ticketId)
-  }
 
   const handleRunNow = async (reprocess = false) => {
     setRunning(true)
     setRunError(null)
     setLastRunResult(null)
     try {
-      const res = await fetch('/api/soc/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reprocess }) })
+      const res = await fetch('/api/soc/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reprocess }),
+      })
       const text = await res.text()
       let data
-      try {
-        data = JSON.parse(text)
-      } catch {
-        setRunError(`Server returned invalid response (${res.status}): ${text.slice(0, 200) || 'empty'}`)
+      try { data = JSON.parse(text) } catch {
+        setRunError(`Server returned invalid response (${res.status})`)
         return
       }
       if (!res.ok || data.status === 'error') {
@@ -147,7 +169,6 @@ export default function SocDashboardClient() {
           dryRun: data.dryRun || false,
           errors: data.errors,
           durationMs: data.durationMs,
-          ticketDetails: data.ticketDetails,
         })
         await fetchData()
       }
@@ -158,6 +179,126 @@ export default function SocDashboardClient() {
     }
   }
 
+  // ── AI Analyst Chat ──
+
+  const sendChatMessage = async (text: string) => {
+    if (!text.trim() || chatLoading) return
+    const userMsg: ChatMessage = { role: 'user', content: text.trim() }
+    const updatedMessages = [...chatMessages, userMsg]
+    setChatMessages(updatedMessages)
+    setChatInput('')
+    setChatLoading(true)
+
+    try {
+      const res = await fetch('/api/soc/analyst', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: updatedMessages }),
+      })
+      const data = await res.json()
+      if (data.success && data.message) {
+        setChatMessages([...updatedMessages, { role: 'assistant', content: data.message }])
+      } else {
+        setChatMessages([...updatedMessages, {
+          role: 'assistant',
+          content: `Error: ${data.error || 'Failed to get response'}`,
+        }])
+      }
+    } catch {
+      setChatMessages([...updatedMessages, {
+        role: 'assistant',
+        content: 'Error: Network error. Please try again.',
+      }])
+    } finally {
+      setChatLoading(false)
+    }
+  }
+
+  const handleCreateRule = async (ruleJson: Record<string, unknown>) => {
+    try {
+      const res = await fetch('/api/soc/analyst', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ createRule: ruleJson }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        setChatMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `Rule "${ruleJson.name}" created successfully (ID: ${data.ruleId}). It is now active and will be applied in the next SOC triage run.`,
+        }])
+      } else {
+        setChatMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `Failed to create rule: ${data.error}`,
+        }])
+      }
+    } catch {
+      setChatMessages(prev => [...prev, {
+        role: 'assistant',
+        content: 'Error: Failed to create rule. Network error.',
+      }])
+    }
+  }
+
+  // ── Dictate (Speech-to-Text) ──
+
+  const toggleDictation = () => {
+    if (isListening) {
+      recognitionRef.current?.stop()
+      setIsListening(false)
+      return
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = window as any
+    const SpeechRecognitionAPI = w.SpeechRecognition || w.webkitSpeechRecognition
+    if (!SpeechRecognitionAPI) {
+      setChatMessages(prev => [...prev, {
+        role: 'assistant',
+        content: 'Speech recognition is not supported in this browser. Please use Chrome or Edge.',
+      }])
+      return
+    }
+
+    const recognition = new SpeechRecognitionAPI()
+    recognition.continuous = true
+    recognition.interimResults = true
+    recognition.lang = 'en-US'
+
+    let finalTranscript = ''
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    recognition.onresult = (event: any) => {
+      let interim = ''
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        if (event.results[i].isFinal) {
+          finalTranscript += event.results[i][0].transcript + ' '
+        } else {
+          interim += event.results[i][0].transcript
+        }
+      }
+      setChatInput(finalTranscript + interim)
+    }
+
+    recognition.onerror = () => {
+      setIsListening(false)
+    }
+
+    recognition.onend = () => {
+      setIsListening(false)
+      if (finalTranscript.trim()) {
+        setChatInput(finalTranscript.trim())
+      }
+    }
+
+    recognitionRef.current = recognition
+    recognition.start()
+    setIsListening(true)
+  }
+
+  // ── Render ──
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -166,7 +307,7 @@ export default function SocDashboardClient() {
     )
   }
 
-  // If a ticket is selected, show the SOC-specific detail view
+  // Ticket detail view
   if (selectedTicketId) {
     return (
       <SocTicketDetail
@@ -191,37 +332,8 @@ export default function SocDashboardClient() {
     return `${Math.floor(hrs / 24)}d ago`
   }
 
-  // Filter tickets based on active tab
-  const openTickets = ticketsData?.tickets.filter(t => !t.isResolved) || []
-  const allTickets = ticketsData?.tickets || []
-
-  const actionIcon = (action: string) => {
-    const icons: Record<string, string> = {
-      analyzed: 'text-cyan-400',
-      note_added: 'text-green-400',
-      error: 'text-red-400',
-      skipped: 'text-slate-500',
-      correlated: 'text-violet-400',
-      escalated: 'text-rose-400',
-      override: 'text-rose-400',
-    }
-    return icons[action] || 'text-slate-400'
-  }
-
-  const verdictBadge = (verdict: string | null) => {
-    const colors: Record<string, string> = {
-      false_positive: 'bg-green-500/20 text-green-400 border-green-500/30',
-      suspicious: 'bg-rose-500/20 text-rose-400 border-rose-500/30',
-      escalate: 'bg-red-500/20 text-red-400 border-red-500/30',
-      informational: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
-    }
-    const label = verdict?.replace('_', ' ') || 'pending'
-    return (
-      <span className={`px-2 py-0.5 text-xs font-medium rounded-full border ${colors[verdict || ''] || 'bg-slate-500/20 text-slate-400 border-slate-500/30'}`}>
-        {label}
-      </span>
-    )
-  }
+  // Only open security tickets
+  const openSecurityTickets = ticketsData?.tickets.filter(t => !t.isResolved) || []
 
   return (
     <div className="space-y-6">
@@ -272,7 +384,7 @@ export default function SocDashboardClient() {
         </div>
       </div>
 
-      {/* Run Result Banner */}
+      {/* Run Result / Error Banners */}
       {runError && (
         <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
           <div className="flex items-start justify-between gap-4">
@@ -293,112 +405,31 @@ export default function SocDashboardClient() {
                 {lastRunResult.durationMs ? ` — ${(lastRunResult.durationMs / 1000).toFixed(1)}s` : ''}
               </p>
               <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-sm">
-                <span className="text-slate-300"><span className="text-white font-medium">{lastRunResult.ticketsFound}</span> tickets found</span>
+                <span className="text-slate-300"><span className="text-white font-medium">{lastRunResult.ticketsFound}</span> found</span>
                 <span className="text-slate-300"><span className="text-white font-medium">{lastRunResult.ticketsProcessed}</span> processed</span>
-                <span className="text-slate-300"><span className="text-green-400 font-medium">{lastRunResult.falsePositives}</span> false positives</span>
+                <span className="text-slate-300"><span className="text-green-400 font-medium">{lastRunResult.falsePositives}</span> FP</span>
                 <span className="text-slate-300"><span className="text-red-400 font-medium">{lastRunResult.escalated}</span> escalated</span>
-                {lastRunResult.skipped > 0 && (
-                  <span className="text-slate-300"><span className="text-slate-400 font-medium">{lastRunResult.skipped}</span> skipped (non-security)</span>
-                )}
               </div>
-              {lastRunResult.errors && lastRunResult.errors.length > 0 && (
-                <div className="mt-2 space-y-1">
-                  {lastRunResult.errors.map((e, i) => <p key={i} className="text-xs text-rose-400">{e}</p>)}
-                </div>
-              )}
-              {lastRunResult.ticketDetails && lastRunResult.ticketDetails.length > 0 && (
-                <div className="mt-3 border-t border-cyan-500/20 pt-3">
-                  <p className="text-xs font-medium text-slate-400 mb-2">Ticket Breakdown</p>
-                  <div className="space-y-1.5 max-h-[300px] overflow-y-auto">
-                    {lastRunResult.ticketDetails.map(t => (
-                      <div key={t.autotaskTicketId} className="flex items-center gap-3 text-xs">
-                        <span className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${
-                          t.status === 'processed' ? 'bg-green-500'
-                          : t.status === 'error' ? 'bg-red-500'
-                          : 'bg-slate-500'
-                        }`} />
-                        <span className="text-slate-500 font-mono w-16 flex-shrink-0">{t.ticketNumber}</span>
-                        <span className="text-white truncate flex-1 min-w-0">{t.title}</span>
-                        {t.verdict && (
-                          <span className={`flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                            t.verdict === 'false_positive' ? 'bg-green-500/20 text-green-400'
-                            : t.verdict === 'escalate' ? 'bg-red-500/20 text-red-400'
-                            : t.verdict === 'suspicious' ? 'bg-rose-500/20 text-rose-400'
-                            : 'bg-blue-500/20 text-blue-400'
-                          }`}>
-                            {t.verdict.replace('_', ' ')}
-                          </span>
-                        )}
-                        {t.confidence != null && (
-                          <span className="text-slate-500 flex-shrink-0 w-10 text-right">{Math.round(t.confidence * 100)}%</span>
-                        )}
-                        {t.status === 'skipped' && (
-                          <span className="text-slate-500 flex-shrink-0 italic">skipped</span>
-                        )}
-                        {t.status === 'error' && (
-                          <span className="text-red-400 flex-shrink-0 italic truncate max-w-[200px]" title={t.reason}>
-                            {t.reason || 'error'}
-                          </span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
             <button onClick={() => setLastRunResult(null)} className="text-slate-500 hover:text-white text-lg leading-none flex-shrink-0">&times;</button>
           </div>
         </div>
       )}
 
-      {/* Stats Cards — clickable to filter */}
+      {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <button onClick={() => setActiveTab('all')} className="text-left">
-          <StatCard label="Total Tickets" value={ticketsData?.totalTickets || 0} />
-        </button>
-        <button onClick={() => setActiveTab('open')} className="text-left">
-          <StatCard label="Open" value={ticketsData?.openCount || 0} />
-        </button>
-        <button onClick={() => setActiveTab('all')} className="text-left">
-          <StatCard label="Resolved" value={ticketsData?.resolvedCount || 0} />
-        </button>
-        <button onClick={() => setActiveTab('all')} className="text-left">
-          <StatCard label="Suspicious" value={ticketsData?.suspiciousCount || 0} />
-        </button>
+        <StatCard label="Open Alerts" value={openSecurityTickets.length} />
+        <StatCard label="Total (30d)" value={ticketsData?.totalTickets || 0} />
+        <StatCard label="Suspicious" value={ticketsData?.suspiciousCount || 0} />
+        <StatCard label="Resolved (30d)" value={ticketsData?.resolvedCount || 0} />
       </div>
 
       {/* Tabs */}
       <div className="flex items-center gap-1 border-b border-white/10 pb-px">
-        {/* Ticket scope filter */}
-        <div className="relative group flex items-center gap-1 bg-slate-800/50 rounded-lg p-0.5 mr-2">
-          <button
-            onClick={() => setTicketFilter('actionable')}
-            className={`px-2 py-1 text-xs rounded-md transition-colors ${
-              ticketFilter === 'actionable' ? 'bg-cyan-500 text-white' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            SOC Only
-          </button>
-          <button
-            onClick={() => setTicketFilter('all')}
-            className={`px-2 py-1 text-xs rounded-md transition-colors ${
-              ticketFilter === 'all' ? 'bg-cyan-500 text-white' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            All
-          </button>
-          {/* Tooltip explaining filter behavior */}
-          <div className="absolute top-full left-0 mt-2 w-72 bg-slate-900 border border-white/10 rounded-lg p-3 shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 pointer-events-none">
-            <p className="text-xs font-medium text-white mb-1">SOC Only Filter</p>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Shows tickets from security monitoring queues (Security Monitoring Alert, Managed SOC) and tickets matching security keywords (malware, phishing, suspicious login, etc.). Hides general service desk tickets.
-            </p>
-          </div>
-        </div>
         {[
-          { key: 'open' as const, label: 'Open Tickets', count: ticketsData?.openCount },
-          { key: 'all' as const, label: 'All Tickets', count: ticketsData?.totalTickets },
+          { key: 'tickets' as const, label: 'Security Alerts', count: openSecurityTickets.length },
           { key: 'activity' as const, label: 'Activity Feed' },
+          { key: 'analyst' as const, label: 'AI Analyst' },
         ].map(tab => (
           <button
             key={tab.key}
@@ -417,9 +448,6 @@ export default function SocDashboardClient() {
         ))}
         <div className="flex-1" />
         <div className="flex gap-2">
-          <Link href="/admin/soc/incidents" className="px-3 py-1.5 text-xs text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg transition-colors">
-            Incidents
-          </Link>
           <Link href="/admin/soc/rules" className="px-3 py-1.5 text-xs text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg transition-colors">
             Rules
           </Link>
@@ -429,104 +457,349 @@ export default function SocDashboardClient() {
         </div>
       </div>
 
-      {/* Tab Content */}
-      {(activeTab === 'open' || activeTab === 'all') && (
-        <TicketTable
-          tickets={activeTab === 'open' ? openTickets : allTickets}
-          perspective="staff"
-          onTicketClick={handleTicketClick}
-          autotaskWebUrl={ticketsData?.autotaskWebUrl}
-        />
+      {/* ── Tab: Security Alerts ── */}
+      {activeTab === 'tickets' && (
+        <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg overflow-hidden">
+          <div className="px-4 py-3 border-b border-white/5">
+            <p className="text-xs text-slate-500">
+              Showing open tickets from Security Monitoring Alert queue and keyword-matched security alerts
+            </p>
+          </div>
+          {openSecurityTickets.length === 0 ? (
+            <div className="p-8 text-center text-slate-400">
+              No open security alerts. All clear.
+            </div>
+          ) : (
+            <div className="divide-y divide-white/5">
+              {openSecurityTickets.map(ticket => (
+                <button
+                  key={ticket.ticketId}
+                  onClick={() => setSelectedTicketId(ticket.ticketId)}
+                  className="w-full text-left px-4 py-3 hover:bg-white/5 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    {/* Verdict indicator */}
+                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                      ticket.socVerdict === 'false_positive' ? 'bg-green-500'
+                      : ticket.socVerdict === 'escalate' ? 'bg-red-500'
+                      : ticket.socVerdict === 'suspicious' ? 'bg-rose-500'
+                      : ticket.socVerdict === 'informational' ? 'bg-blue-500'
+                      : 'bg-slate-600'
+                    }`} />
+
+                    {/* Ticket info */}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono text-slate-500">#{ticket.ticketNumber}</span>
+                        <span className="text-sm text-white truncate">{ticket.title}</span>
+                      </div>
+                      <div className="flex items-center gap-3 mt-0.5 text-xs text-slate-500">
+                        {ticket.companyName && <span className="text-cyan-400/70">{ticket.companyName}</span>}
+                        <span>{ticket.priorityLabel}</span>
+                        <span>{ticket.assignedTo}</span>
+                      </div>
+                    </div>
+
+                    {/* SOC verdict badge */}
+                    {ticket.socVerdict && (
+                      <span className={`px-2 py-0.5 text-[10px] font-medium rounded-full border flex-shrink-0 ${
+                        ticket.socVerdict === 'false_positive' ? 'bg-green-500/20 text-green-400 border-green-500/30'
+                        : ticket.socVerdict === 'escalate' ? 'bg-red-500/20 text-red-400 border-red-500/30'
+                        : ticket.socVerdict === 'suspicious' ? 'bg-rose-500/20 text-rose-400 border-rose-500/30'
+                        : 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+                      }`}>
+                        {ticket.socVerdict.replace(/_/g, ' ')}
+                      </span>
+                    )}
+
+                    {/* AI Analyzed indicator */}
+                    <div className="flex-shrink-0 text-right min-w-[80px]">
+                      {ticket.socProcessedAt ? (
+                        <div>
+                          <span className="text-[10px] text-cyan-400 block">AI Analyzed</span>
+                          <span className="text-[10px] text-slate-500">
+                            {timeAgo(ticket.socProcessedAt)}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-slate-600 italic">Not analyzed</span>
+                      )}
+                    </div>
+
+                    {/* Arrow */}
+                    <svg className="w-4 h-4 text-slate-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
+      {/* ── Tab: Activity Feed ── */}
       {activeTab === 'activity' && (
         <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg divide-y divide-white/5">
           {activity.length === 0 ? (
             <div className="p-8 text-center text-slate-400">
-              No activity yet. Run the SOC agent or wait for the next cron cycle.
+              No SOC activity yet. Run the agent to start analyzing tickets.
             </div>
           ) : (
             activity.map(entry => {
               const meta = entry.metadata || {}
-              const hasIncident = Boolean(entry.incidentId)
-              const content = (
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex items-start gap-3 min-w-0">
-                    <div className={`mt-0.5 w-2 h-2 rounded-full flex-shrink-0 ${actionIcon(entry.action).replace('text-', 'bg-')}`} />
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-medium text-white capitalize">{entry.action.replace(/_/g, ' ')}</span>
-                        {entry.confidenceScore != null && verdictBadge(
-                          meta.verdict as string || (entry.confidenceScore > 0.7 ? 'false_positive' : 'suspicious')
-                        )}
-                        {Boolean(meta.mergeRecommended) && (
-                          <span className="px-1.5 py-0.5 text-[10px] font-medium bg-cyan-500/20 text-cyan-400 rounded">
-                            MERGE &rarr; #{String(meta.mergeSurvivingTicket || '')}
-                          </span>
-                        )}
-                        {Boolean(meta.escalationRecommended) && (
-                          <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${
-                            String(meta.escalationUrgency) === 'critical' ? 'bg-red-500/20 text-red-400'
-                            : String(meta.escalationUrgency) === 'urgent' ? 'bg-rose-500/20 text-rose-400'
-                            : 'bg-slate-500/20 text-slate-400'
-                          }`}>ESCALATE</span>
-                        )}
-                        {Number(meta.ticketCount) > 1 && (
-                          <span className="px-1.5 py-0.5 text-[10px] font-medium bg-violet-500/20 text-violet-400 rounded">
-                            {Number(meta.ticketCount)} CORRELATED
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 mt-1 text-xs text-slate-500 flex-wrap">
-                        {Boolean(meta.companyName) && (
-                          <span className="text-cyan-400/80">{String(meta.companyName)}</span>
-                        )}
-                        {Boolean(meta.deviceHostname) && <span>Device: {String(meta.deviceHostname)}</span>}
-                        {Array.isArray(meta.ticketNumbers) && meta.ticketNumbers.length > 0 && (
-                          <span className="font-mono">
-                            {(meta.ticketNumbers as string[]).map((tn: string, i: number) => (
-                              <span key={tn}>{i > 0 && ', '}#{tn}</span>
-                            ))}
-                          </span>
-                        )}
-                        {!meta.ticketNumbers && entry.autotaskTicketId && (
-                          <span className="font-mono">Ticket #{entry.autotaskTicketId}</span>
-                        )}
-                        {Boolean(meta.riskLevel) && String(meta.riskLevel) !== 'none' && (
-                          <span className={`font-medium ${
-                            String(meta.riskLevel) === 'critical' ? 'text-red-400'
-                            : String(meta.riskLevel) === 'high' ? 'text-rose-400'
-                            : String(meta.riskLevel) === 'medium' ? 'text-cyan-400'
-                            : 'text-green-400'
-                          }`}>{String(meta.riskLevel)} risk</span>
-                        )}
-                      </div>
-                      {entry.detail && (
-                        <p className="text-sm text-slate-400 mt-1 truncate">{entry.detail}</p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className="text-xs text-slate-500">{timeAgo(entry.createdAt)}</span>
-                    {hasIncident && (
-                      <span className="text-slate-600">&rsaquo;</span>
-                    )}
-                  </div>
-                </div>
-              )
-              return hasIncident ? (
-                <Link key={entry.id} href={`/admin/soc/incidents/${entry.incidentId}`} className="block p-4 hover:bg-white/5 transition-colors">
-                  {content}
-                </Link>
-              ) : (
+              return (
                 <div key={entry.id} className="p-4 hover:bg-white/5 transition-colors">
-                  {content}
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <div className={`mt-0.5 w-2 h-2 rounded-full flex-shrink-0 ${
+                        entry.action === 'analyzed' ? 'bg-cyan-500'
+                        : entry.action === 'note_added' || entry.action === 'action_approved' ? 'bg-green-500'
+                        : entry.action === 'error' ? 'bg-red-500'
+                        : entry.action === 'correlated' ? 'bg-violet-500'
+                        : entry.action === 'escalated' ? 'bg-rose-500'
+                        : entry.action === 'action_rejected' ? 'bg-red-400'
+                        : 'bg-slate-500'
+                      }`} />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-medium text-white capitalize">
+                            {entry.action.replace(/_/g, ' ')}
+                          </span>
+                          {entry.confidenceScore != null && (
+                            <span className="text-xs text-slate-500">
+                              {Math.round(Number(entry.confidenceScore) * 100)}% conf
+                            </span>
+                          )}
+                          {Boolean(meta.verdict) && (
+                            <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded border ${
+                              meta.verdict === 'false_positive' ? 'bg-green-500/20 text-green-400 border-green-500/30'
+                              : meta.verdict === 'escalate' ? 'bg-red-500/20 text-red-400 border-red-500/30'
+                              : 'bg-slate-500/20 text-slate-400 border-slate-500/30'
+                            }`}>{String(meta.verdict).replace(/_/g, ' ')}</span>
+                          )}
+                        </div>
+                        {entry.detail && (
+                          <p className="text-sm text-slate-400 mt-0.5 line-clamp-2">{entry.detail}</p>
+                        )}
+                        <div className="flex items-center gap-2 mt-1 text-xs text-slate-600">
+                          {Boolean(meta.companyName) && <span>{String(meta.companyName)}</span>}
+                          {Array.isArray(meta.ticketNumbers) && (
+                            <span className="font-mono">
+                              {(meta.ticketNumbers as string[]).map(tn => `#${tn}`).join(', ')}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <span className="text-xs text-slate-600 flex-shrink-0">{timeAgo(entry.createdAt)}</span>
+                  </div>
                 </div>
               )
             })
           )}
         </div>
       )}
+
+      {/* ── Tab: AI Analyst ── */}
+      {activeTab === 'analyst' && (
+        <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg flex flex-col" style={{ height: '600px' }}>
+          {/* Chat header */}
+          <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-white">SOC AI Analyst</h3>
+              <p className="text-xs text-slate-500">Analyzes 6 months of security alerts. Suggest patterns, rules, and refinements.</p>
+            </div>
+            {chatMessages.length > 0 && (
+              <button
+                onClick={() => { setChatMessages([]); localStorage.removeItem('soc-analyst-messages') }}
+                className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+              >
+                Clear history
+              </button>
+            )}
+          </div>
+
+          {/* Chat messages */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            {chatMessages.length === 0 && !chatLoading && (
+              <div className="text-center py-12">
+                <p className="text-slate-400 text-sm mb-4">Ask the AI analyst to review your security alerts and suggest rules.</p>
+                <div className="flex flex-wrap gap-2 justify-center">
+                  {[
+                    'What are the most common false positive patterns?',
+                    'Suggest suppression rules for recurring alerts',
+                    'Which companies have the most security alerts?',
+                    'Are there any concerning trends I should know about?',
+                  ].map(suggestion => (
+                    <button
+                      key={suggestion}
+                      onClick={() => sendChatMessage(suggestion)}
+                      className="px-3 py-2 text-xs text-slate-300 bg-slate-700/50 hover:bg-slate-700 border border-white/10 rounded-lg transition-colors text-left"
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {chatMessages.map((msg, i) => (
+              <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[85%] rounded-lg px-4 py-3 ${
+                  msg.role === 'user'
+                    ? 'bg-cyan-500/20 border border-cyan-500/30 text-white'
+                    : 'bg-slate-700/50 border border-white/10 text-slate-300'
+                }`}>
+                  <AnalystMessage content={msg.content} onCreateRule={handleCreateRule} />
+                </div>
+              </div>
+            ))}
+
+            {chatLoading && (
+              <div className="flex justify-start">
+                <div className="bg-slate-700/50 border border-white/10 rounded-lg px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-cyan-500" />
+                    <span className="text-sm text-slate-400">Analyzing security data...</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div ref={chatEndRef} />
+          </div>
+
+          {/* Chat input */}
+          <div className="border-t border-white/10 p-4">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={toggleDictation}
+                className={`p-2 rounded-lg transition-colors flex-shrink-0 ${
+                  isListening
+                    ? 'bg-red-500/20 text-red-400 border border-red-500/30 animate-pulse'
+                    : 'bg-slate-700/50 text-slate-400 hover:text-white border border-white/10'
+                }`}
+                title={isListening ? 'Stop dictation' : 'Start dictation'}
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                </svg>
+              </button>
+              <input
+                type="text"
+                value={chatInput}
+                onChange={e => setChatInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(chatInput) } }}
+                placeholder={isListening ? 'Listening...' : 'Ask about patterns, suggest rules, refine analysis...'}
+                className="flex-1 bg-slate-900/50 border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50"
+                disabled={chatLoading}
+              />
+              <button
+                onClick={() => sendChatMessage(chatInput)}
+                disabled={chatLoading || !chatInput.trim()}
+                className="px-4 py-2.5 text-sm font-medium bg-cyan-500 hover:bg-cyan-600 text-white rounded-lg transition-colors disabled:opacity-50 flex-shrink-0"
+              >
+                Send
+              </button>
+            </div>
+            {isListening && (
+              <p className="text-xs text-red-400 mt-1 animate-pulse">Recording... click mic to stop</p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Analyst Message Renderer ──
+// Parses AI responses for rule JSON blocks and renders "Create Rule" buttons
+
+function AnalystMessage({ content, onCreateRule }: { content: string; onCreateRule: (rule: Record<string, unknown>) => void }) {
+  // Split content into text segments and rule blocks
+  const parts: Array<{ type: 'text' | 'rule'; content: string; rule?: Record<string, unknown> }> = []
+  const ruleRegex = /```json:rule\s*\n([\s\S]*?)```/g
+  let lastIndex = 0
+  let match
+
+  while ((match = ruleRegex.exec(content)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push({ type: 'text', content: content.slice(lastIndex, match.index) })
+    }
+    try {
+      const rule = JSON.parse(match[1])
+      parts.push({ type: 'rule', content: match[1], rule })
+    } catch {
+      parts.push({ type: 'text', content: match[0] })
+    }
+    lastIndex = match.index + match[0].length
+  }
+  if (lastIndex < content.length) {
+    parts.push({ type: 'text', content: content.slice(lastIndex) })
+  }
+
+  // If no rule blocks found, check for regular ```json blocks that look like rules
+  if (parts.length === 1 && parts[0].type === 'text') {
+    const jsonRegex = /```json\s*\n([\s\S]*?)```/g
+    const newParts: typeof parts = []
+    lastIndex = 0
+    while ((match = jsonRegex.exec(content)) !== null) {
+      if (match.index > lastIndex) {
+        newParts.push({ type: 'text', content: content.slice(lastIndex, match.index) })
+      }
+      try {
+        const parsed = JSON.parse(match[1])
+        if (parsed.name && parsed.ruleType && parsed.pattern && parsed.action) {
+          newParts.push({ type: 'rule', content: match[1], rule: parsed })
+        } else {
+          newParts.push({ type: 'text', content: match[0] })
+        }
+      } catch {
+        newParts.push({ type: 'text', content: match[0] })
+      }
+      lastIndex = match.index + match[0].length
+    }
+    if (lastIndex < content.length) {
+      newParts.push({ type: 'text', content: content.slice(lastIndex) })
+    }
+    if (newParts.length > 1) {
+      parts.splice(0, parts.length, ...newParts)
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      {parts.map((part, i) => {
+        if (part.type === 'rule' && part.rule) {
+          return (
+            <div key={i} className="bg-slate-800/80 border border-cyan-500/20 rounded-lg p-3 my-2">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-cyan-400">{String(part.rule.name)}</p>
+                  {part.rule.description && (
+                    <p className="text-xs text-slate-400 mt-0.5">{String(part.rule.description)}</p>
+                  )}
+                  <div className="flex items-center gap-2 mt-1 text-xs text-slate-500">
+                    <span>Type: {String(part.rule.ruleType)}</span>
+                    <span>Action: {String(part.rule.action)}</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => onCreateRule(part.rule!)}
+                  className="px-3 py-1.5 text-xs font-medium bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 border border-cyan-500/30 rounded-lg transition-colors flex-shrink-0"
+                >
+                  Create Rule
+                </button>
+              </div>
+            </div>
+          )
+        }
+        return (
+          <div key={i} className="text-sm whitespace-pre-wrap break-words">{part.content}</div>
+        )
+      })}
     </div>
   )
 }
