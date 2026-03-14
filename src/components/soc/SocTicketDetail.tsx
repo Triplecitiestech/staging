@@ -180,7 +180,6 @@ function evidenceDotColor(type: string): string {
   }
 }
 
-// Legacy verdict color (for fallback rendering)
 function verdictColor(verdict: string | null): string {
   switch (verdict) {
     case 'false_positive': return 'bg-green-500/20 text-green-400 border-green-500/30';
@@ -209,8 +208,9 @@ export default function SocTicketDetail({ ticketId, onBack }: SocTicketDetailPro
   const [data, setData] = useState<AnalysisData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showRawDetails, setShowRawDetails] = useState(false);
+  const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
   const [decidingAction, setDecidingAction] = useState<string | null>(null);
+  const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());
 
   const fetchAnalysis = useCallback(async () => {
     setLoading(true);
@@ -276,17 +276,18 @@ export default function SocTicketDetail({ ticketId, onBack }: SocTicketDetailPro
   const pendingActions = data.pendingActions.filter(a => a.status === 'pending');
   const isResolved = ticket.completedDate !== null;
 
-  // Parse reasoning from API (may be a JSON string or object)
+  // Parse reasoning from API
   const parsedReasoning = parseJsonField<SocReasoningData>(reasoning);
 
-  // Legacy fields (for old records without reasoning)
+  // Legacy fields
   const proposedActions = parseJsonField<ProposedActions>(incidentActionPlan?.proposedActions);
   const humanGuidance = parseJsonField<HumanGuidance>(incidentActionPlan?.humanGuidance);
   const customerComm = parseJsonField<CustomerCommunication>(incidentActionPlan?.customerCommunication);
   const nextChecks = parseJsonField<string[]>(incidentActionPlan?.nextCycleChecks);
 
-  // Decide which layout to use
-  const useReasoningLayout = parsedReasoning !== null;
+  // Determine state
+  const hasAnalysis = analysis !== null;
+  const useReasoningLayout = hasAnalysis && parsedReasoning !== null;
 
   return (
     <div className="space-y-6">
@@ -296,7 +297,9 @@ export default function SocTicketDetail({ ticketId, onBack }: SocTicketDetailPro
         Back to SOC Dashboard
       </button>
 
-      {/* ── Section 1: Ticket Header ── */}
+      {/* ═══════════════════════════════════════════
+           STEP 1: TICKET HEADER
+         ═══════════════════════════════════════════ */}
       <div className="bg-slate-800/50 border border-white/10 rounded-lg p-6">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div className="min-w-0 flex-1">
@@ -328,400 +331,472 @@ export default function SocTicketDetail({ ticketId, onBack }: SocTicketDetailPro
         </div>
       </div>
 
-      {/* ════════════════════════════════════════════════════════════
-           NEW REASONING LAYOUT — used when reasoning data exists
-         ════════════════════════════════════════════════════════════ */}
-      {useReasoningLayout && parsedReasoning && (
-        <>
-          {/* ── Section 2: Incident Summary ── */}
-          <div className="bg-slate-800/50 border border-white/10 rounded-lg p-6">
-            <h3 className="text-sm font-semibold text-white uppercase tracking-wider mb-3">Incident Summary</h3>
-            <p className="text-sm text-slate-300 leading-relaxed">{parsedReasoning.incidentSummary}</p>
-          </div>
-
-          {/* ── Section 3: Security Assessment ── */}
-          <div className="bg-slate-800/50 border border-white/10 rounded-lg p-6">
-            <h3 className="text-sm font-semibold text-white uppercase tracking-wider mb-4">Security Assessment</h3>
-            <div className="flex items-center gap-3 mb-4 flex-wrap">
-              <span className={`px-3 py-1 text-sm font-medium rounded-full border ${classificationColor(parsedReasoning.classification)}`}>
-                {classificationLabel(parsedReasoning.classification)}
-              </span>
-              <span className={`px-2.5 py-0.5 text-xs font-medium rounded-full border ${riskBadgeColor(parsedReasoning.riskLevel)}`}>
-                {parsedReasoning.riskLevel === 'none' ? 'No Risk' : `${parsedReasoning.riskLevel.charAt(0).toUpperCase() + parsedReasoning.riskLevel.slice(1)} Risk`}
-              </span>
-              <span className="text-xs text-slate-500">
-                {Math.round(parsedReasoning.confidence * 100)}% confidence
-              </span>
-            </div>
-            <p className="text-sm text-slate-300 leading-relaxed">{parsedReasoning.assessmentRationale}</p>
-          </div>
-
-          {/* ── Section 4: Investigation Evidence ── */}
-          {parsedReasoning.evidence && parsedReasoning.evidence.length > 0 && (
-            <div className="bg-slate-800/50 border border-white/10 rounded-lg p-6">
-              <h3 className="text-sm font-semibold text-white uppercase tracking-wider mb-4">Investigation Evidence</h3>
-              <div className="space-y-2">
-                {parsedReasoning.evidence.map((item, i) => (
-                  <div key={i} className="flex items-start gap-3 py-1.5">
-                    <span className={`flex-shrink-0 w-2 h-2 rounded-full mt-1.5 ${evidenceDotColor(item.type)}`} />
-                    <div className="min-w-0 flex-1">
-                      <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">{item.label}</span>
-                      <p className={`text-sm ${evidenceTypeColor(item.type)}`}>{item.value}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ── Section 5: Recommended Action ── */}
-          <div className="bg-slate-800/50 border border-white/10 rounded-lg p-6">
-            <h3 className="text-sm font-semibold text-white uppercase tracking-wider mb-3">Recommended Action</h3>
-            <p className="text-sm text-slate-300 leading-relaxed">{parsedReasoning.recommendedAction}</p>
-            {/* Quick facts row */}
-            {analysis && (
-              <div className="flex items-center gap-4 text-xs text-slate-500 mt-4 pt-3 border-t border-white/5 flex-wrap">
-                {analysis.alertSource && analysis.alertSource !== 'unknown' && (
-                  <span>Source: <span className="text-slate-300">{analysis.alertSource.replace(/_/g, ' ')}</span></span>
-                )}
-                {analysis.alertCategory && analysis.alertCategory !== 'unknown' && (
-                  <span>Category: <span className="text-slate-300">{analysis.alertCategory.replace(/_/g, ' ')}</span></span>
-                )}
-                {analysis.ipExtracted && (
-                  <span>IP: <span className="text-slate-300 font-mono">{analysis.ipExtracted}</span></span>
-                )}
-                {analysis.deviceVerified && (
-                  <span className="text-green-400">Device verified</span>
-                )}
-                {analysis.technicianVerified && (
-                  <span className="text-green-400">Tech: {analysis.technicianVerified}</span>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* ── Section 6: Customer Communication (only when required) ── */}
-          {parsedReasoning.customerMessageRequired && parsedReasoning.customerMessageDraft && (
-            <div className="bg-slate-800/50 border border-white/10 rounded-lg p-6">
-              <h3 className="text-sm font-semibold text-white uppercase tracking-wider mb-3">Customer Communication</h3>
-              <div className="bg-slate-700/30 border border-white/5 rounded-lg px-4 py-3">
-                <p className="text-xs font-semibold text-cyan-400 uppercase mb-2">Draft Message</p>
-                <p className="text-sm text-slate-300 whitespace-pre-wrap">{parsedReasoning.customerMessageDraft}</p>
-              </div>
-            </div>
-          )}
-        </>
-      )}
-
-      {/* ════════════════════════════════════════════════════════════
-           LEGACY LAYOUT — used when no reasoning data (old records)
-         ════════════════════════════════════════════════════════════ */}
-      {!useReasoningLayout && analysis && (
-        <>
-          {/* Legacy SOC Assessment */}
-          <div className="bg-slate-800/50 border border-white/10 rounded-lg p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-white uppercase tracking-wider">SOC Assessment</h3>
-              <div className="flex items-center gap-2">
-                {analysis.verdict && (
-                  <span className={`px-2.5 py-0.5 text-xs font-medium rounded-full border ${verdictColor(analysis.verdict)}`}>
-                    {analysis.verdict.replace(/_/g, ' ')}
-                  </span>
-                )}
-                {analysis.confidenceScore != null && (
-                  <span className="text-xs text-slate-500">{Math.round(Number(analysis.confidenceScore) * 100)}% confidence</span>
-                )}
-              </div>
-            </div>
-
-            {humanGuidance?.summary ? (
-              <p className="text-sm text-slate-300 leading-relaxed mb-4">{humanGuidance.summary}</p>
-            ) : incidentActionPlan?.aiSummary ? (
-              <p className="text-sm text-slate-300 leading-relaxed mb-4">{incidentActionPlan.aiSummary}</p>
-            ) : analysis.aiReasoning ? (
-              <p className="text-sm text-slate-300 leading-relaxed mb-4">{analysis.aiReasoning}</p>
-            ) : (
-              <p className="text-sm text-slate-500 italic mb-4">No AI summary available for this ticket.</p>
-            )}
-
-            <div className="flex items-center gap-4 text-xs text-slate-500 flex-wrap">
-              {analysis.alertSource && analysis.alertSource !== 'unknown' && (
-                <span>Source: <span className="text-slate-300">{analysis.alertSource.replace(/_/g, ' ')}</span></span>
-              )}
-              {analysis.alertCategory && analysis.alertCategory !== 'unknown' && (
-                <span>Category: <span className="text-slate-300">{analysis.alertCategory.replace(/_/g, ' ')}</span></span>
-              )}
-              {analysis.ipExtracted && (
-                <span>IP: <span className="text-slate-300 font-mono">{analysis.ipExtracted}</span></span>
-              )}
-              {analysis.deviceVerified && (
-                <span className="text-green-400">Device verified</span>
-              )}
-              {analysis.technicianVerified && (
-                <span className="text-green-400">Tech: {analysis.technicianVerified}</span>
-              )}
-              {humanGuidance?.riskLevel && humanGuidance.riskLevel !== 'none' && (
-                <span className={riskColor(humanGuidance.riskLevel)}>
-                  {humanGuidance.riskLevel} risk
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* Legacy Remediation Plan */}
-          {(proposedActions || humanGuidance?.steps) && (
-            <div className="bg-slate-800/50 border border-white/10 rounded-lg p-6">
-              <h3 className="text-sm font-semibold text-white uppercase tracking-wider mb-4">Remediation Plan</h3>
-              {humanGuidance?.steps && humanGuidance.steps.length > 0 && (
-                <div className="space-y-2 mb-4">
-                  {humanGuidance.steps.map((step, i) => (
-                    <div key={i} className="flex items-start gap-3">
-                      <span className="flex-shrink-0 w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-400 text-xs font-medium flex items-center justify-center mt-0.5">
-                        {i + 1}
-                      </span>
-                      <p className="text-sm text-slate-300">{step}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {proposedActions && (
-                <div className="space-y-2 mt-4 pt-4 border-t border-white/5">
-                  <p className="text-xs font-semibold text-slate-500 uppercase">Autotask Changes</p>
-                  <div className="space-y-1.5">
-                    {proposedActions.internalNote && (
-                      <div className="flex items-start gap-2 text-sm">
-                        <span className="text-slate-500 flex-shrink-0">Internal Note:</span>
-                        <span className="text-slate-300 line-clamp-2">{proposedActions.internalNote}</span>
-                      </div>
-                    )}
-                    {proposedActions.statusChange && (
-                      <div className="flex items-center gap-2 text-sm">
-                        <span className="text-slate-500">Status:</span>
-                        <span className="text-slate-400">{proposedActions.statusChange.from}</span>
-                        <span className="text-slate-600">&rarr;</span>
-                        <span className="text-white">{proposedActions.statusChange.to}</span>
-                      </div>
-                    )}
-                    {proposedActions.priorityChange && (
-                      <div className="flex items-center gap-2 text-sm">
-                        <span className="text-slate-500">Priority:</span>
-                        <span className="text-slate-400">{proposedActions.priorityChange.from}</span>
-                        <span className="text-slate-600">&rarr;</span>
-                        <span className="text-white">{proposedActions.priorityChange.to}</span>
-                      </div>
-                    )}
-                    {proposedActions.escalation?.recommended && (
-                      <div className="flex items-center gap-2 text-sm">
-                        <span className="text-rose-400 font-medium">Escalation recommended</span>
-                        {proposedActions.escalation.urgency && (
-                          <span className={`px-1.5 py-0.5 text-[10px] rounded ${
-                            proposedActions.escalation.urgency === 'critical' ? 'bg-red-500/20 text-red-400'
-                            : proposedActions.escalation.urgency === 'urgent' ? 'bg-rose-500/20 text-rose-400'
-                            : 'bg-slate-500/20 text-slate-400'
-                          }`}>{proposedActions.escalation.urgency}</span>
-                        )}
-                        {proposedActions.escalation.reason && (
-                          <span className="text-slate-400">— {proposedActions.escalation.reason}</span>
-                        )}
-                      </div>
-                    )}
-                    {proposedActions.merge?.shouldMerge && (
-                      <div className="flex items-center gap-2 text-sm">
-                        <span className="text-cyan-400 font-medium">Merge recommended</span>
-                        <span className="text-slate-400">— {proposedActions.merge.mergeReasoning}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Legacy Customer Communication */}
-          {customerComm?.required && customerComm.message && (
-            <div className="bg-slate-800/50 border border-white/10 rounded-lg p-6">
-              <h3 className="text-sm font-semibold text-white uppercase tracking-wider mb-4">Customer Communication</h3>
-              <div className="bg-slate-700/30 border border-white/5 rounded-lg px-4 py-3 mb-3">
-                <p className="text-xs font-semibold text-cyan-400 uppercase mb-2">Draft Message</p>
-                <p className="text-sm text-slate-300 whitespace-pre-wrap">{customerComm.message}</p>
-              </div>
-              {customerComm.followUpMessage && (
-                <div className="bg-slate-700/30 border border-white/5 rounded-lg px-4 py-3 mb-3">
-                  <p className="text-xs font-semibold text-slate-500 uppercase mb-2">
-                    Follow-up{customerComm.followUpDays ? ` (${customerComm.followUpDays} days)` : ''}
-                  </p>
-                  <p className="text-sm text-slate-400 whitespace-pre-wrap">{customerComm.followUpMessage}</p>
-                </div>
-              )}
-              {customerComm.method && (
-                <p className="text-xs text-slate-500">Delivery: {customerComm.method}</p>
-              )}
-            </div>
-          )}
-
-          {/* Legacy Next Cycle Checks */}
-          {nextChecks && nextChecks.length > 0 && (
-            <div className="bg-slate-800/50 border border-white/10 rounded-lg p-6">
-              <h3 className="text-sm font-semibold text-white uppercase tracking-wider mb-3">Follow-up Monitoring</h3>
-              <ul className="space-y-1.5">
-                {nextChecks.map((check, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm text-slate-400">
-                    <span className="text-slate-600 mt-0.5">&#8226;</span>
-                    {check}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </>
-      )}
-
-      {/* ── Pending Actions (approve/reject) — shared by both layouts ── */}
-      {pendingActions.length > 0 && (
-        <div className="bg-slate-800/50 border border-cyan-500/20 rounded-lg p-6">
-          <h3 className="text-sm font-semibold text-white uppercase tracking-wider mb-4">
-            Pending Approval
-            <span className="ml-2 text-xs font-normal text-cyan-400">({pendingActions.length})</span>
-          </h3>
-          <div className="space-y-3">
-            {pendingActions.map(action => (
-              <div key={action.id} className="bg-slate-700/30 border border-white/5 rounded-lg px-4 py-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xs font-medium text-cyan-400 uppercase">
-                        {action.actionType.replace(/_/g, ' ')}
-                      </span>
-                      {action.ticketNumber && (
-                        <span className="text-xs text-slate-500 font-mono">#{action.ticketNumber}</span>
-                      )}
-                    </div>
-                    <p className="text-sm text-slate-300">{action.previewSummary}</p>
-                  </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <button
-                      onClick={() => handleActionDecision(action.id, 'approve')}
-                      disabled={decidingAction === action.id}
-                      className="px-3 py-1 text-xs font-medium bg-green-500/20 text-green-400 hover:bg-green-500/30 border border-green-500/30 rounded-lg transition-colors disabled:opacity-50"
-                    >
-                      {decidingAction === action.id ? '...' : 'Approve'}
-                    </button>
-                    <button
-                      onClick={() => handleActionDecision(action.id, 'reject')}
-                      disabled={decidingAction === action.id}
-                      className="px-3 py-1 text-xs font-medium bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30 rounded-lg transition-colors disabled:opacity-50"
-                    >
-                      Reject
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+      {/* ═══════════════════════════════════════════
+           STEP 1B: ORIGINAL ALERT
+           Always visible — this is the source-of-truth alert
+         ═══════════════════════════════════════════ */}
+      {ticket.description && (
+        <div className="bg-slate-800/50 border border-white/10 rounded-lg p-6">
+          <h3 className="text-sm font-semibold text-white uppercase tracking-wider mb-3">Original Alert</h3>
+          <pre className="text-sm text-slate-300 whitespace-pre-wrap break-words font-sans leading-relaxed">
+            {ticket.description}
+          </pre>
         </div>
       )}
 
-      {/* ── Technical Details (collapsed) — shared by both layouts ── */}
-      {analysis && (
-        <div className="bg-slate-800/30 border border-white/5 rounded-lg">
-          <button
-            onClick={() => setShowRawDetails(!showRawDetails)}
-            className="w-full px-6 py-3 flex items-center justify-between text-sm text-slate-500 hover:text-slate-300 transition-colors"
-          >
-            <span>Technical Details</span>
-            <svg className={`w-4 h-4 transition-transform ${showRawDetails ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+      {/* ═══════════════════════════════════════════
+           NOT ANALYZED STATE
+           When no analysis exists, show clear message and stop
+         ═══════════════════════════════════════════ */}
+      {!hasAnalysis && (
+        <div className="bg-slate-800/50 border border-slate-600/30 rounded-lg p-8 text-center">
+          <div className="w-12 h-12 rounded-full bg-slate-700/50 flex items-center justify-center mx-auto mb-4">
+            <svg className="w-6 h-6 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-          </button>
-          {showRawDetails && (
-            <div className="px-6 pb-4 space-y-4">
-              {/* Original Alert */}
-              {ticket.description && (
-                <div>
-                  <p className="text-xs font-semibold text-slate-500 uppercase mb-1">Original Alert</p>
-                  <p className="text-sm text-slate-400 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
-                    {ticket.description}
-                  </p>
-                </div>
-              )}
-              {/* Full AI Reasoning */}
-              {analysis.aiReasoning && (
-                <div>
-                  <p className="text-xs font-semibold text-slate-500 uppercase mb-1">AI Reasoning</p>
-                  <p className="text-sm text-slate-400 whitespace-pre-wrap">{analysis.aiReasoning}</p>
-                </div>
-              )}
-              {/* Full internal note (from reasoning or legacy) */}
-              {parsedReasoning?.internalNote && (
-                <div>
-                  <p className="text-xs font-semibold text-slate-500 uppercase mb-1">Internal Investigation Note</p>
-                  <pre className="text-xs text-slate-400 whitespace-pre-wrap bg-slate-900/50 rounded p-3 max-h-60 overflow-y-auto">
-                    {parsedReasoning.internalNote}
-                  </pre>
-                </div>
-              )}
-              {/* Supporting Reasoning from legacy incident */}
-              {!parsedReasoning && incidentActionPlan?.supportingReasoning && (
-                <div>
-                  <p className="text-xs font-semibold text-slate-500 uppercase mb-1">Supporting Analysis</p>
-                  <p className="text-sm text-slate-400 whitespace-pre-wrap">
-                    {typeof incidentActionPlan.supportingReasoning === 'string'
-                      ? incidentActionPlan.supportingReasoning
-                      : JSON.stringify(incidentActionPlan.supportingReasoning, null, 2)}
-                  </p>
-                </div>
-              )}
-              {/* Full internal note from legacy */}
-              {!parsedReasoning && proposedActions?.internalNote && (
-                <div>
-                  <p className="text-xs font-semibold text-slate-500 uppercase mb-1">Full Internal Note</p>
-                  <pre className="text-xs text-slate-400 whitespace-pre-wrap bg-slate-900/50 rounded p-3 max-h-60 overflow-y-auto">
-                    {proposedActions.internalNote}
-                  </pre>
-                </div>
-              )}
-              {/* Metadata */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
-                {analysis.processedAt && (
-                  <div>
-                    <span className="text-slate-600">Analyzed:</span>{' '}
-                    <span className="text-slate-400">{new Date(analysis.processedAt).toLocaleString()}</span>
-                  </div>
-                )}
-                {analysis.recommendedAction && (
-                  <div>
-                    <span className="text-slate-600">Action:</span>{' '}
-                    <span className="text-slate-400">{analysis.recommendedAction}</span>
-                  </div>
-                )}
-                {incidentActionPlan?.correlationReason && (
-                  <div>
-                    <span className="text-slate-600">Correlation:</span>{' '}
-                    <span className="text-slate-400">{incidentActionPlan.correlationReason.replace(/_/g, ' ')}</span>
-                  </div>
-                )}
-                {incidentActionPlan && (incidentActionPlan.ticketCount ?? 0) > 1 && (
-                  <div>
-                    <span className="text-slate-600">Related tickets:</span>{' '}
-                    <span className="text-slate-400">{incidentActionPlan.ticketCount}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+          </div>
+          <p className="text-slate-300 text-sm font-medium mb-1">
+            SOC analysis has not run yet
+          </p>
+          <p className="text-slate-500 text-xs">
+            Run analysis from the SOC Dashboard or wait for the scheduled triage cycle to process this ticket.
+          </p>
         </div>
       )}
 
-      {/* No analysis state */}
-      {!analysis && (
-        <div className="bg-slate-800/50 border border-white/10 rounded-lg p-6 text-center">
-          <p className="text-slate-400 text-sm">
-            This ticket has not been analyzed by the SOC agent yet.
-          </p>
-          <p className="text-slate-500 text-xs mt-1">
-            Run the SOC agent or wait for the next scheduled triage cycle to process this ticket.
-          </p>
-        </div>
+      {/* ═══════════════════════════════════════════
+           ANALYZED STATE — Everything below requires analysis
+         ═══════════════════════════════════════════ */}
+      {hasAnalysis && (
+        <>
+          {/* ═══════════════════════════════════════════
+               REASONING LAYOUT (new records with reasoning data)
+             ═══════════════════════════════════════════ */}
+          {useReasoningLayout && parsedReasoning && (
+            <>
+              {/* STEP 2: AI Investigation Summary */}
+              <div className="bg-slate-800/50 border border-white/10 rounded-lg p-6">
+                <h3 className="text-sm font-semibold text-white uppercase tracking-wider mb-3">AI Investigation Summary</h3>
+                <p className="text-sm text-slate-300 leading-relaxed">{parsedReasoning.incidentSummary}</p>
+                {/* Classification + Risk badges */}
+                <div className="flex items-center gap-3 mt-4 pt-3 border-t border-white/5 flex-wrap">
+                  <span className={`px-3 py-1 text-sm font-medium rounded-full border ${classificationColor(parsedReasoning.classification)}`}>
+                    {classificationLabel(parsedReasoning.classification)}
+                  </span>
+                  <span className={`px-2.5 py-0.5 text-xs font-medium rounded-full border ${riskBadgeColor(parsedReasoning.riskLevel)}`}>
+                    {parsedReasoning.riskLevel === 'none' ? 'No Risk' : `${parsedReasoning.riskLevel.charAt(0).toUpperCase() + parsedReasoning.riskLevel.slice(1)} Risk`}
+                  </span>
+                  <span className="text-xs text-slate-500">
+                    {Math.round(parsedReasoning.confidence * 100)}% confidence
+                  </span>
+                </div>
+                {parsedReasoning.assessmentRationale && (
+                  <p className="text-sm text-slate-400 leading-relaxed mt-3">{parsedReasoning.assessmentRationale}</p>
+                )}
+              </div>
+
+              {/* STEP 3: Investigation Evidence */}
+              {parsedReasoning.evidence && parsedReasoning.evidence.length > 0 && (
+                <div className="bg-slate-800/50 border border-white/10 rounded-lg p-6">
+                  <h3 className="text-sm font-semibold text-white uppercase tracking-wider mb-4">Investigation Evidence</h3>
+                  <div className="space-y-2">
+                    {parsedReasoning.evidence.map((item, i) => (
+                      <div key={i} className="flex items-start gap-3 py-1.5">
+                        <span className={`flex-shrink-0 w-2 h-2 rounded-full mt-1.5 ${evidenceDotColor(item.type)}`} />
+                        <div className="min-w-0 flex-1">
+                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">{item.label}</span>
+                          <p className={`text-sm ${evidenceTypeColor(item.type)}`}>{item.value}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* STEP 4: Recommended Action */}
+              <div className="bg-slate-800/50 border border-white/10 rounded-lg p-6">
+                <h3 className="text-sm font-semibold text-white uppercase tracking-wider mb-3">Recommended Action</h3>
+                <p className="text-sm text-slate-300 leading-relaxed">{parsedReasoning.recommendedAction}</p>
+                {/* Quick facts */}
+                {analysis && (
+                  <div className="flex items-center gap-4 text-xs text-slate-500 mt-4 pt-3 border-t border-white/5 flex-wrap">
+                    {analysis.alertSource && analysis.alertSource !== 'unknown' && (
+                      <span>Source: <span className="text-slate-300">{analysis.alertSource.replace(/_/g, ' ')}</span></span>
+                    )}
+                    {analysis.alertCategory && analysis.alertCategory !== 'unknown' && (
+                      <span>Category: <span className="text-slate-300">{analysis.alertCategory.replace(/_/g, ' ')}</span></span>
+                    )}
+                    {analysis.ipExtracted && (
+                      <span>IP: <span className="text-slate-300 font-mono">{analysis.ipExtracted}</span></span>
+                    )}
+                    {analysis.deviceVerified && (
+                      <span className="text-green-400">Device verified</span>
+                    )}
+                    {analysis.technicianVerified && (
+                      <span className="text-green-400">Tech: {analysis.technicianVerified}</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {/* ═══════════════════════════════════════════
+               LEGACY LAYOUT (old records without reasoning)
+             ═══════════════════════════════════════════ */}
+          {!useReasoningLayout && (
+            <>
+              {/* Legacy SOC Assessment */}
+              <div className="bg-slate-800/50 border border-white/10 rounded-lg p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-semibold text-white uppercase tracking-wider">SOC Assessment</h3>
+                  <div className="flex items-center gap-2">
+                    {analysis.verdict && (
+                      <span className={`px-2.5 py-0.5 text-xs font-medium rounded-full border ${verdictColor(analysis.verdict)}`}>
+                        {analysis.verdict.replace(/_/g, ' ')}
+                      </span>
+                    )}
+                    {analysis.confidenceScore != null && (
+                      <span className="text-xs text-slate-500">{Math.round(Number(analysis.confidenceScore) * 100)}% confidence</span>
+                    )}
+                  </div>
+                </div>
+
+                {humanGuidance?.summary ? (
+                  <p className="text-sm text-slate-300 leading-relaxed mb-4">{humanGuidance.summary}</p>
+                ) : incidentActionPlan?.aiSummary ? (
+                  <p className="text-sm text-slate-300 leading-relaxed mb-4">{incidentActionPlan.aiSummary}</p>
+                ) : analysis.aiReasoning ? (
+                  <p className="text-sm text-slate-300 leading-relaxed mb-4">{analysis.aiReasoning}</p>
+                ) : (
+                  <p className="text-sm text-slate-500 italic mb-4">No AI summary available for this ticket.</p>
+                )}
+
+                <div className="flex items-center gap-4 text-xs text-slate-500 flex-wrap">
+                  {analysis.alertSource && analysis.alertSource !== 'unknown' && (
+                    <span>Source: <span className="text-slate-300">{analysis.alertSource.replace(/_/g, ' ')}</span></span>
+                  )}
+                  {analysis.alertCategory && analysis.alertCategory !== 'unknown' && (
+                    <span>Category: <span className="text-slate-300">{analysis.alertCategory.replace(/_/g, ' ')}</span></span>
+                  )}
+                  {analysis.ipExtracted && (
+                    <span>IP: <span className="text-slate-300 font-mono">{analysis.ipExtracted}</span></span>
+                  )}
+                  {analysis.deviceVerified && (
+                    <span className="text-green-400">Device verified</span>
+                  )}
+                  {analysis.technicianVerified && (
+                    <span className="text-green-400">Tech: {analysis.technicianVerified}</span>
+                  )}
+                  {humanGuidance?.riskLevel && humanGuidance.riskLevel !== 'none' && (
+                    <span className={riskColor(humanGuidance.riskLevel)}>
+                      {humanGuidance.riskLevel} risk
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Legacy Remediation Plan */}
+              {(proposedActions || humanGuidance?.steps) && (
+                <div className="bg-slate-800/50 border border-white/10 rounded-lg p-6">
+                  <h3 className="text-sm font-semibold text-white uppercase tracking-wider mb-4">Remediation Plan</h3>
+                  {humanGuidance?.steps && humanGuidance.steps.length > 0 && (
+                    <div className="space-y-2 mb-4">
+                      {humanGuidance.steps.map((step, i) => (
+                        <div key={i} className="flex items-start gap-3">
+                          <span className="flex-shrink-0 w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-400 text-xs font-medium flex items-center justify-center mt-0.5">
+                            {i + 1}
+                          </span>
+                          <p className="text-sm text-slate-300">{step}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {proposedActions && (
+                    <div className="space-y-2 mt-4 pt-4 border-t border-white/5">
+                      <p className="text-xs font-semibold text-slate-500 uppercase">Autotask Changes</p>
+                      <div className="space-y-1.5">
+                        {proposedActions.statusChange && (
+                          <div className="flex items-center gap-2 text-sm">
+                            <span className="text-slate-500">Status:</span>
+                            <span className="text-slate-400">{proposedActions.statusChange.from}</span>
+                            <span className="text-slate-600">&rarr;</span>
+                            <span className="text-white">{proposedActions.statusChange.to}</span>
+                          </div>
+                        )}
+                        {proposedActions.priorityChange && (
+                          <div className="flex items-center gap-2 text-sm">
+                            <span className="text-slate-500">Priority:</span>
+                            <span className="text-slate-400">{proposedActions.priorityChange.from}</span>
+                            <span className="text-slate-600">&rarr;</span>
+                            <span className="text-white">{proposedActions.priorityChange.to}</span>
+                          </div>
+                        )}
+                        {proposedActions.escalation?.recommended && (
+                          <div className="flex items-center gap-2 text-sm">
+                            <span className="text-rose-400 font-medium">Escalation recommended</span>
+                            {proposedActions.escalation.urgency && (
+                              <span className={`px-1.5 py-0.5 text-[10px] rounded ${
+                                proposedActions.escalation.urgency === 'critical' ? 'bg-red-500/20 text-red-400'
+                                : proposedActions.escalation.urgency === 'urgent' ? 'bg-rose-500/20 text-rose-400'
+                                : 'bg-slate-500/20 text-slate-400'
+                              }`}>{proposedActions.escalation.urgency}</span>
+                            )}
+                            {proposedActions.escalation.reason && (
+                              <span className="text-slate-400">— {proposedActions.escalation.reason}</span>
+                            )}
+                          </div>
+                        )}
+                        {proposedActions.merge?.shouldMerge && (
+                          <div className="flex items-center gap-2 text-sm">
+                            <span className="text-cyan-400 font-medium">Merge recommended</span>
+                            <span className="text-slate-400">— {proposedActions.merge.mergeReasoning}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Legacy Customer Communication */}
+              {customerComm?.required && customerComm.message && (
+                <div className="bg-slate-800/50 border border-white/10 rounded-lg p-6">
+                  <h3 className="text-sm font-semibold text-white uppercase tracking-wider mb-4">Customer Communication</h3>
+                  <div className="bg-slate-700/30 border border-white/5 rounded-lg px-4 py-3 mb-3">
+                    <p className="text-xs font-semibold text-cyan-400 uppercase mb-2">Draft Message</p>
+                    <p className="text-sm text-slate-300 whitespace-pre-wrap">{customerComm.message}</p>
+                  </div>
+                  {customerComm.followUpMessage && (
+                    <div className="bg-slate-700/30 border border-white/5 rounded-lg px-4 py-3 mb-3">
+                      <p className="text-xs font-semibold text-slate-500 uppercase mb-2">
+                        Follow-up{customerComm.followUpDays ? ` (${customerComm.followUpDays} days)` : ''}
+                      </p>
+                      <p className="text-sm text-slate-400 whitespace-pre-wrap">{customerComm.followUpMessage}</p>
+                    </div>
+                  )}
+                  {customerComm.method && (
+                    <p className="text-xs text-slate-500">Delivery: {customerComm.method}</p>
+                  )}
+                </div>
+              )}
+
+              {/* Legacy Next Cycle Checks */}
+              {nextChecks && nextChecks.length > 0 && (
+                <div className="bg-slate-800/50 border border-white/10 rounded-lg p-6">
+                  <h3 className="text-sm font-semibold text-white uppercase tracking-wider mb-3">Follow-up Monitoring</h3>
+                  <ul className="space-y-1.5">
+                    {nextChecks.map((check, i) => (
+                      <li key={i} className="flex items-start gap-2 text-sm text-slate-400">
+                        <span className="text-slate-600 mt-0.5">&#8226;</span>
+                        {check}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ═══════════════════════════════════════════
+               STEP 5: PROPOSED ACTIONS (Approval Section)
+               Only shown when analysis exists
+             ═══════════════════════════════════════════ */}
+          {pendingActions.length > 0 && (
+            <div className="bg-slate-800/50 border border-cyan-500/20 rounded-lg p-6">
+              <h3 className="text-sm font-semibold text-white uppercase tracking-wider mb-4">
+                Proposed Actions
+                <span className="ml-2 text-xs font-normal text-cyan-400">({pendingActions.length} awaiting review)</span>
+              </h3>
+              <div className="space-y-4">
+                {pendingActions.map(action => {
+                  const payload = action.actionPayload || {};
+                  const isCustomerMessage = action.actionType === 'send_customer_message';
+                  const isNote = action.actionType === 'add_note';
+                  const fullNoteBody = (payload.noteBody as string) || '';
+                  const isExpanded = expandedNotes.has(action.id);
+                  const recipient = (payload.recipient as string) || '';
+
+                  return (
+                    <div key={action.id} className="bg-slate-700/30 border border-white/5 rounded-lg px-4 py-4">
+                      {/* Action type header */}
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className={`px-2 py-0.5 text-xs font-medium uppercase rounded ${
+                          isCustomerMessage
+                            ? 'bg-cyan-500/20 text-cyan-400'
+                            : isNote
+                            ? 'bg-blue-500/20 text-blue-400'
+                            : 'bg-slate-500/20 text-slate-400'
+                        }`}>
+                          {action.actionType.replace(/_/g, ' ')}
+                        </span>
+                        {action.ticketNumber && (
+                          <span className="text-xs text-slate-500 font-mono">#{action.ticketNumber}</span>
+                        )}
+                      </div>
+
+                      {/* Customer message: show explicit recipient */}
+                      {isCustomerMessage && (
+                        <div className="mb-3">
+                          <div className="flex items-center gap-2 mb-2">
+                            <svg className="w-4 h-4 text-cyan-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" />
+                            </svg>
+                            <span className="text-sm text-slate-300">
+                              Send to: <span className="text-white font-medium">{recipient || 'Primary Contact'}</span>
+                              {action.actionPayload.companyName && (
+                                <span className="text-slate-500"> at {action.actionPayload.companyName as string}</span>
+                              )}
+                            </span>
+                          </div>
+                          {/* Full message preview */}
+                          <div className="bg-slate-900/50 border border-white/5 rounded-lg px-4 py-3">
+                            <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Message Preview</p>
+                            <p className="text-sm text-slate-300 whitespace-pre-wrap">{fullNoteBody}</p>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Internal note: show full text, expandable */}
+                      {isNote && fullNoteBody && (
+                        <div className="mb-3">
+                          <div className="bg-slate-900/50 border border-white/5 rounded-lg px-4 py-3">
+                            <div className="flex items-center justify-between mb-2">
+                              <p className="text-xs font-semibold text-slate-500 uppercase">Internal Note Preview</p>
+                              {fullNoteBody.length > 500 && (
+                                <button
+                                  onClick={() => {
+                                    const next = new Set(expandedNotes);
+                                    if (isExpanded) next.delete(action.id);
+                                    else next.add(action.id);
+                                    setExpandedNotes(next);
+                                  }}
+                                  className="text-xs text-cyan-400 hover:text-cyan-300"
+                                >
+                                  {isExpanded ? 'Collapse' : 'Show full note'}
+                                </button>
+                              )}
+                            </div>
+                            <pre className={`text-sm text-slate-300 whitespace-pre-wrap font-sans leading-relaxed ${
+                              !isExpanded && fullNoteBody.length > 500 ? 'max-h-48 overflow-y-auto' : ''
+                            }`}>
+                              {fullNoteBody}
+                            </pre>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Generic fallback for other action types */}
+                      {!isCustomerMessage && !isNote && (
+                        <p className="text-sm text-slate-300 mb-3">{action.previewSummary}</p>
+                      )}
+
+                      {/* Approve / Reject buttons */}
+                      <div className="flex items-center gap-2 pt-2 border-t border-white/5">
+                        <button
+                          onClick={() => handleActionDecision(action.id, 'approve')}
+                          disabled={decidingAction === action.id}
+                          className="px-4 py-1.5 text-xs font-medium bg-green-500/20 text-green-400 hover:bg-green-500/30 border border-green-500/30 rounded-lg transition-colors disabled:opacity-50"
+                        >
+                          {decidingAction === action.id ? 'Processing...' : 'Approve'}
+                        </button>
+                        <button
+                          onClick={() => handleActionDecision(action.id, 'reject')}
+                          disabled={decidingAction === action.id}
+                          className="px-4 py-1.5 text-xs font-medium bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30 rounded-lg transition-colors disabled:opacity-50"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ═══════════════════════════════════════════
+               TECHNICAL DETAILS (collapsed)
+             ═══════════════════════════════════════════ */}
+          <div className="bg-slate-800/30 border border-white/5 rounded-lg">
+            <button
+              onClick={() => setShowTechnicalDetails(!showTechnicalDetails)}
+              className="w-full px-6 py-3 flex items-center justify-between text-sm text-slate-500 hover:text-slate-300 transition-colors"
+            >
+              <span>Technical Details</span>
+              <svg className={`w-4 h-4 transition-transform ${showTechnicalDetails ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            {showTechnicalDetails && (
+              <div className="px-6 pb-4 space-y-4">
+                {/* Full AI Reasoning */}
+                {analysis.aiReasoning && (
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500 uppercase mb-1">AI Reasoning</p>
+                    <p className="text-sm text-slate-400 whitespace-pre-wrap">{analysis.aiReasoning}</p>
+                  </div>
+                )}
+                {/* Full internal note from reasoning */}
+                {parsedReasoning?.internalNote && (
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500 uppercase mb-1">Internal Investigation Note</p>
+                    <pre className="text-xs text-slate-400 whitespace-pre-wrap bg-slate-900/50 rounded p-3 max-h-60 overflow-y-auto">
+                      {parsedReasoning.internalNote}
+                    </pre>
+                  </div>
+                )}
+                {/* Supporting Reasoning from legacy incident */}
+                {!parsedReasoning && incidentActionPlan?.supportingReasoning && (
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500 uppercase mb-1">Supporting Analysis</p>
+                    <p className="text-sm text-slate-400 whitespace-pre-wrap">
+                      {typeof incidentActionPlan.supportingReasoning === 'string'
+                        ? incidentActionPlan.supportingReasoning
+                        : JSON.stringify(incidentActionPlan.supportingReasoning, null, 2)}
+                    </p>
+                  </div>
+                )}
+                {/* Full internal note from legacy */}
+                {!parsedReasoning && proposedActions?.internalNote && (
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500 uppercase mb-1">Full Internal Note</p>
+                    <pre className="text-xs text-slate-400 whitespace-pre-wrap bg-slate-900/50 rounded p-3 max-h-60 overflow-y-auto">
+                      {proposedActions.internalNote}
+                    </pre>
+                  </div>
+                )}
+                {/* Metadata */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                  {analysis.processedAt && (
+                    <div>
+                      <span className="text-slate-600">Analyzed:</span>{' '}
+                      <span className="text-slate-400">{new Date(analysis.processedAt).toLocaleString()}</span>
+                    </div>
+                  )}
+                  {analysis.recommendedAction && (
+                    <div>
+                      <span className="text-slate-600">Action:</span>{' '}
+                      <span className="text-slate-400">{analysis.recommendedAction}</span>
+                    </div>
+                  )}
+                  {incidentActionPlan?.correlationReason && (
+                    <div>
+                      <span className="text-slate-600">Correlation:</span>{' '}
+                      <span className="text-slate-400">{incidentActionPlan.correlationReason.replace(/_/g, ' ')}</span>
+                    </div>
+                  )}
+                  {incidentActionPlan && (incidentActionPlan.ticketCount ?? 0) > 1 && (
+                    <div>
+                      <span className="text-slate-600">Related tickets:</span>{' '}
+                      <span className="text-slate-400">{incidentActionPlan.ticketCount}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </>
       )}
     </div>
   );
