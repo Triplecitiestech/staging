@@ -62,7 +62,7 @@ export async function GET(
                si."confidenceScore" as "incidentConfidence", si."aiSummary",
                si."proposedActions", si."humanGuidance", si."customerCommunication",
                si."nextCycleChecks", si."supportingReasoning", si.status as "incidentStatus",
-               si."correlationReason", si."ticketCount"
+               si."correlationReason", si."ticketCount", si.reasoning as "socReasoning"
         FROM soc_ticket_analysis sa
         LEFT JOIN soc_incidents si ON si.id = sa."incidentId"
         WHERE sa."autotaskTicketId" = ${autotaskTicketId}
@@ -113,6 +113,9 @@ export async function GET(
       ticketCount: row.ticketCount,
     } : null;
 
+    // Extract reasoning document from the incident (new format, may be null for old records)
+    const reasoning = row?.socReasoning || null;
+
     return NextResponse.json({
       ticket: {
         autotaskTicketId: ticket.autotaskTicketId,
@@ -132,6 +135,7 @@ export async function GET(
         companySlug: ticket.company?.slug || null,
       },
       analysis,
+      reasoning,
       incidentActionPlan,
       pendingActions: pendingRows,
       autotaskWebUrl: getAutotaskWebUrl(),

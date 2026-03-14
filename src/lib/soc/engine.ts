@@ -9,7 +9,7 @@ import { prisma } from '@/lib/prisma';
 import { trackAnthropicCall } from '@/lib/api-usage-tracker';
 import { correlateTickets } from './correlation';
 import { extractPrimaryIp } from './ip-extractor';
-import { buildScreeningPrompt, buildDeepAnalysisPrompt, buildActionPlanPrompt, formatTicketNote } from './prompts';
+import { buildScreeningPrompt, buildDeepAnalysisPrompt, buildActionPlanPrompt, buildReasoningPrompt, formatTicketNote } from './prompts';
 import { matchRules, isSecurityTicket, detectAlertSource } from './rules';
 import { verifyTechnicianByIp, verifyTechnicianLive } from './technician-verifier';
 import type {
@@ -23,6 +23,7 @@ import type {
   DeviceVerification,
   IncidentGroup,
   IncidentActionPlan,
+  SocReasoning,
   Verdict,
   AlertSource,
   AlertCategory,
@@ -225,6 +226,48 @@ export async function runTriagePipeline(
   return { meta, results, errors, ticketDetails };
 }
 
+// ── Context Enrichment ──
+
+async function getHistoricalFpRate(companyId: string | null, alertSource: string): Promise<{ fpRate: number | null; similarFpCount: number }> {
+  if (!companyId) return { fpRate: null, similarFpCount: 0 };
+  try {
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const [stats] = await prisma.$queryRaw<[{ total: bigint; fps: bigint }]>`
+      SELECT
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE verdict IN ('false_positive', 'expected_activity')) as fps
+      FROM soc_ticket_analysis
+      WHERE "companyId" = ${companyId}
+        AND "alertSource" = ${alertSource}
+        AND "processedAt" >= ${thirtyDaysAgo}
+    `;
+    const total = Number(stats.total);
+    const fps = Number(stats.fps);
+    return {
+      fpRate: total > 0 ? Math.round((fps / total) * 100) : null,
+      similarFpCount: fps,
+    };
+  } catch {
+    return { fpRate: null, similarFpCount: 0 };
+  }
+}
+
+async function getTechnicianRoster(): Promise<string[]> {
+  try {
+    const resources = await prisma.resource.findMany({
+      where: { isActive: true },
+      select: { firstName: true, lastName: true },
+    });
+    return resources
+      .map(r => `${r.firstName} ${r.lastName}`.trim())
+      .filter(name => name.length > 0);
+  } catch {
+    return [];
+  }
+}
+
 // ── Process Single Incident Group ──
 
 async function processIncidentGroup(
@@ -278,7 +321,10 @@ async function processIncidentGroup(
   // Step 2: Deep analysis if needed
   if (needsDeep && screening.confidence < 0.95) {
     onAiCall();
-    const deepResult = await runDeepAnalysis(group, deviceVerification, config.deep_analysis_model);
+    // Fetch historical FP data for deep analysis context
+    const alertSrc = detectAlertSource(primary);
+    const historicalData = await getHistoricalFpRate(primary.companyId, alertSrc);
+    const deepResult = await runDeepAnalysis(group, deviceVerification, config.deep_analysis_model, historicalData.fpRate, historicalData.similarFpCount);
 
     if (deepResult) {
       finalVerdict = deepResult.verdict;
@@ -318,40 +364,78 @@ async function processIncidentGroup(
     );
   }
 
-  // Generate action plan for correlated groups and non-false-positive incidents
+  // Generate reasoning document (replaces action plan for new analyses)
   // Skip for high-confidence single false positives to stay within timeout
   let actionPlan: IncidentActionPlan | undefined;
+  let reasoning: SocReasoning | undefined;
   if (finalVerdict !== 'false_positive' || group.tickets.length > 1 || finalConfidence < config.confidence_auto_close) {
     try {
       onAiCall();
-      actionPlan = await generateActionPlan(
-        group, finalVerdict, finalConfidence, finalReasoning, deviceVerification, config.screening_model,
+
+      // Fetch enrichment context in parallel
+      const alertSource = detectAlertSource(primary);
+      const [historicalData, technicianRoster] = await Promise.all([
+        getHistoricalFpRate(primary.companyId, alertSource),
+        getTechnicianRoster(),
+      ]);
+
+      reasoning = await generateReasoning(
+        group, finalVerdict, finalConfidence, finalReasoning, deviceVerification,
+        config.deep_analysis_model, technicianRoster,
+        historicalData.fpRate, historicalData.similarFpCount,
       );
-      // If action plan generated a better note, use it
-      if (actionPlan.proposedActions.internalNote) {
-        finalNote = actionPlan.proposedActions.internalNote;
+
+      // Use reasoning's internal note if available
+      if (reasoning.internalNote) {
+        finalNote = reasoning.internalNote;
       }
-      // Enforce: never allow AI to invent queue changes
-      if (actionPlan.proposedActions.queueChange) {
-        actionPlan.proposedActions.queueChange = null;
+
+      // Map reasoning classification to verdict for backwards compat
+      if (reasoning.classification === 'expected_activity') {
+        finalVerdict = 'expected_activity' as Verdict;
+      } else if (reasoning.classification === 'confirmed_threat') {
+        finalVerdict = 'confirmed_threat' as Verdict;
+      } else if (reasoning.classification === 'false_positive') {
+        finalVerdict = 'false_positive';
+      } else if (reasoning.classification === 'suspicious') {
+        finalVerdict = 'suspicious';
+      } else if (reasoning.classification === 'informational') {
+        finalVerdict = 'informational' as Verdict;
       }
+
+      finalConfidence = reasoning.confidence;
     } catch (err) {
-      console.error('[SOC] Action plan generation failed:', err);
-      await logActivity({
-        analysisId: null,
-        incidentId: null,
-        autotaskTicketId: primary.autotaskTicketId,
-        action: 'error',
-        detail: `Action plan generation failed: ${err instanceof Error ? err.message : String(err)}`,
-        aiReasoning: null,
-        confidenceScore: null,
-        metadata: { ticketNumber: primary.ticketNumber, phase: 'action_plan' },
-      });
+      console.error('[SOC] Reasoning generation failed, falling back to action plan:', err);
+      // Fallback to legacy action plan if reasoning fails
+      try {
+        onAiCall();
+        actionPlan = await generateActionPlan(
+          group, finalVerdict, finalConfidence, finalReasoning, deviceVerification, config.screening_model,
+        );
+        if (actionPlan.proposedActions.internalNote) {
+          finalNote = actionPlan.proposedActions.internalNote;
+        }
+        if (actionPlan.proposedActions.queueChange) {
+          actionPlan.proposedActions.queueChange = null;
+        }
+      } catch (apErr) {
+        console.error('[SOC] Action plan fallback also failed:', apErr);
+        await logActivity({
+          analysisId: null,
+          incidentId: null,
+          autotaskTicketId: primary.autotaskTicketId,
+          action: 'error',
+          detail: `Reasoning generation failed: ${err instanceof Error ? err.message : String(err)}`,
+          aiReasoning: null,
+          confidenceScore: null,
+          metadata: { ticketNumber: primary.ticketNumber, phase: 'reasoning' },
+        });
+      }
     }
   }
 
   // Create incident record for every analyzed group (single or correlated)
-  const incidentId = await createIncident(group, finalVerdict, finalConfidence, finalReasoning, actionPlan);
+  const incidentId = await createIncident(group, finalVerdict, finalConfidence, finalReasoning, actionPlan, reasoning);
 
   // Create pending actions for human approval
   // Always create these — even in dry run mode — so the admin can preview and approve
@@ -371,8 +455,15 @@ async function processIncidentGroup(
       previewSummary: `Add internal note to ticket #${primary.ticketNumber} (${primary.companyName || 'Unknown Company'}): "${finalNote.slice(0, 150)}${finalNote.length > 150 ? '...' : ''}"`,
     });
 
-    // 2. Customer communication action (if the action plan calls for it)
-    if (actionPlan?.customerCommunication?.required && actionPlan.customerCommunication.message) {
+    // 2. Customer communication — use reasoning gate if available, fall back to action plan
+    const customerRequired = reasoning
+      ? reasoning.customerMessageRequired && reasoning.customerMessageDraft
+      : actionPlan?.customerCommunication?.required && actionPlan.customerCommunication.message;
+
+    const customerMessage = reasoning?.customerMessageDraft || actionPlan?.customerCommunication?.message;
+    const customerRecipient = actionPlan?.customerCommunication?.recipient || 'primary contact';
+
+    if (customerRequired && customerMessage) {
       await createPendingAction({
         incidentId: incidentId,
         autotaskTicketId: primary.autotaskTicketId,
@@ -381,14 +472,14 @@ async function processIncidentGroup(
         actionType: 'send_customer_message',
         actionPayload: {
           noteTitle: 'SOC Security Alert - Action Required',
-          noteBody: actionPlan.customerCommunication.message,
+          noteBody: customerMessage,
           notePublish: 1, // Customer-visible (All Autotask Users)
-          recipient: actionPlan.customerCommunication.recipient,
-          setStatusWaitingCustomer: actionPlan.customerCommunication.setStatusWaitingCustomer,
-          followUpDays: actionPlan.customerCommunication.followUpDays,
-          followUpMessage: actionPlan.customerCommunication.followUpMessage,
+          recipient: customerRecipient,
+          setStatusWaitingCustomer: reasoning ? reasoning.customerMessageRequired : actionPlan?.customerCommunication?.setStatusWaitingCustomer,
+          followUpDays: actionPlan?.customerCommunication?.followUpDays,
+          followUpMessage: actionPlan?.customerCommunication?.followUpMessage,
         },
-        previewSummary: `Send customer message on ticket #${primary.ticketNumber} to ${actionPlan.customerCommunication.recipient || 'primary contact'} at ${primary.companyName || 'Unknown Company'} and set status to Waiting Customer`,
+        previewSummary: `Send customer message on ticket #${primary.ticketNumber} to ${customerRecipient} at ${primary.companyName || 'Unknown Company'}`,
       });
     }
   }
@@ -408,6 +499,7 @@ async function processIncidentGroup(
     tokensUsed: totalTokens,
     incidentId,
     actionPlan,
+    reasoning,
   };
 }
 
@@ -462,13 +554,15 @@ async function runDeepAnalysis(
   group: IncidentGroup,
   deviceVerification: DeviceVerification | null,
   model: string,
+  historicalFpRate: number | null = null,
+  similarFpCount: number = 0,
 ): Promise<DeepAnalysisWithTokens | null> {
   const prompt = buildDeepAnalysisPrompt(
     group.tickets,
     group.reason,
     deviceVerification,
-    null, // historical FP rate — TODO: compute from past analyses
-    0,    // similar FP count — TODO: compute from past analyses
+    historicalFpRate,
+    similarFpCount,
   );
 
   try {
@@ -523,6 +617,39 @@ async function generateActionPlan(
   return JSON.parse(jsonText) as IncidentActionPlan;
 }
 
+// ── Reasoning Generation ──
+
+async function generateReasoning(
+  group: IncidentGroup,
+  verdict: string,
+  confidence: number,
+  reasoning: string,
+  deviceVerification: DeviceVerification | null,
+  model: string,
+  technicianRoster: string[],
+  historicalFpRate: number | null,
+  similarFpCount: number,
+): Promise<SocReasoning> {
+  const prompt = buildReasoningPrompt(
+    group.tickets, group.reason, verdict, confidence, reasoning,
+    deviceVerification, technicianRoster, historicalFpRate, similarFpCount,
+  );
+
+  const response = await trackAnthropicCall('soc_reasoning', model, () =>
+    anthropic.messages.create({
+      model,
+      max_tokens: 4096,
+      temperature: 0,
+      messages: [{ role: 'user', content: prompt }],
+    })
+  );
+
+  const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
+  if (!text) throw new Error('AI returned empty reasoning document');
+  const jsonText = text.replace(/^```json\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
+  return JSON.parse(jsonText) as SocReasoning;
+}
+
 // ── Helpers ──
 
 function determineAction(
@@ -548,14 +675,15 @@ async function createIncident(
   group: IncidentGroup,
   verdict: Verdict,
   confidence: number,
-  reasoning: string,
+  reasoningText: string,
   actionPlan?: IncidentActionPlan,
+  reasoning?: SocReasoning,
 ): Promise<string> {
   const title = actionPlan?.proposedActions?.merge?.proposedTitle
     || (group.tickets.length > 1
       ? `${group.tickets.length} correlated alerts: ${group.primaryTicket.title.slice(0, 100)}`
       : group.primaryTicket.title.slice(0, 200));
-  const summary = actionPlan?.incidentSummary || reasoning.slice(0, 2000);
+  const summary = reasoning?.incidentSummary || actionPlan?.incidentSummary || reasoningText.slice(0, 2000);
   const companyName = group.primaryTicket.companyName || null;
 
   const result = await prisma.$queryRaw<[{ id: string }]>`
@@ -563,7 +691,7 @@ async function createIncident(
       id, title, "companyId", "companyName", "alertSource", "ticketCount",
       verdict, "confidenceScore", "aiSummary", "correlationReason",
       "primaryTicketId", status, "proposedActions", "humanGuidance",
-      "customerCommunication", "nextCycleChecks"
+      "customerCommunication", "nextCycleChecks", reasoning
     )
     VALUES (
       gen_random_uuid()::text,
@@ -581,7 +709,8 @@ async function createIncident(
       ${actionPlan?.proposedActions ? JSON.stringify(actionPlan.proposedActions) : null}::jsonb,
       ${actionPlan?.humanGuidance ? JSON.stringify(actionPlan.humanGuidance) : null}::jsonb,
       ${actionPlan?.customerCommunication ? JSON.stringify(actionPlan.customerCommunication) : null}::jsonb,
-      ${actionPlan?.nextCycleChecks ? JSON.stringify(actionPlan.nextCycleChecks) : null}::jsonb
+      ${actionPlan?.nextCycleChecks ? JSON.stringify(actionPlan.nextCycleChecks) : null}::jsonb,
+      ${reasoning ? JSON.stringify(reasoning) : null}::jsonb
     )
     RETURNING id
   `;

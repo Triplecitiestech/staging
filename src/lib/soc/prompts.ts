@@ -263,6 +263,113 @@ Respond ONLY with valid JSON (no markdown, no backticks):
 }
 
 /**
+ * Build the reasoning layer prompt (replaces action plan for new analyses).
+ * Produces a structured SocReasoning document with dynamic evidence items.
+ */
+export function buildReasoningPrompt(
+  tickets: SecurityTicket[],
+  correlationReason: string,
+  verdict: string,
+  confidence: number,
+  aiReasoning: string,
+  deviceVerification: DeviceVerification | null,
+  technicianRoster: string[],
+  historicalFpRate: number | null,
+  similarFpCount: number,
+): string {
+  const ticketDetails = tickets.map((t, i) =>
+    `  ${i + 1}. [${t.ticketNumber}] "${t.title}"
+     - Company: ${t.companyName || t.companyId || 'Unknown'}
+     - Status: ${t.statusLabel || t.status} | Priority: ${t.priorityLabel || t.priority}
+     - Queue: ${t.queueLabel || 'Unknown'} | Source: ${t.sourceLabel || 'Unknown'}
+     - Created: ${t.createDate}
+     - Description: ${t.description?.slice(0, 500) || '(no description)'}`
+  ).join('\n');
+
+  const deviceSummary = deviceVerification
+    ? deviceVerification.verified
+      ? `VERIFIED TECHNICIAN DEVICE:\n  Device: ${deviceVerification.device?.hostname}\n  Technician: ${deviceVerification.technician}\n  IP: ${deviceVerification.device?.extIpAddress}\n  Site: ${deviceVerification.device?.siteName}\n  Last Seen: ${deviceVerification.device?.lastSeen}`
+      : `DEVICE NOT VERIFIED: ${deviceVerification.reason || 'No matching device'}`
+    : 'No IP extracted — device lookup skipped';
+
+  const rosterSummary = technicianRoster.length > 0
+    ? `Known TCT Technicians: ${technicianRoster.join(', ')}`
+    : 'Technician roster not available';
+
+  const historicalSummary = historicalFpRate !== null
+    ? `This company's historical false positive rate: ${historicalFpRate}%\nSimilar alerts resolved as FP in past 30 days: ${similarFpCount}`
+    : 'No historical data available for this company/alert type';
+
+  return `You are a senior SOC Analyst for Triple Cities Tech (TCT), a managed IT services provider.
+You have already performed initial triage on this incident:
+  Initial Verdict: ${verdict} (Confidence: ${Math.round(confidence * 100)}%)
+  Initial Reasoning: ${aiReasoning}
+
+Now produce a COMPLETE reasoning document for this incident.
+
+TICKETS (${tickets.length}):
+${ticketDetails}
+
+CORRELATION: ${correlationReason}
+DEVICE VERIFICATION: ${deviceSummary}
+${rosterSummary}
+
+HISTORICAL PATTERNS:
+${historicalSummary}
+
+YOUR TASK: Produce a structured reasoning document that explains your analysis clearly for a technician who may not be a security expert.
+
+CLASSIFICATION SYSTEM (use exactly one):
+- "false_positive": Alert triggered by a system error, misconfiguration, or benign anomaly. No real security event occurred.
+- "expected_activity": Real activity that is legitimate and expected — technician login, scheduled scan, onboarding, RMM script execution. Alert is accurate but not a threat.
+- "informational": Activity worth noting but no immediate action needed — new software detected, password change, configuration change.
+- "suspicious": Cannot be confirmed as benign. Requires investigation or customer verification.
+- "confirmed_threat": Activity confirmed malicious or compromised. Requires immediate human response.
+
+IMPORTANT DISTINCTION: A technician logging in from a verified device is "expected_activity", NOT "false_positive". Reserve "false_positive" for alerts that should not have fired at all.
+
+EVIDENCE RULES:
+- Include ONLY evidence items relevant to THIS specific alert type
+- Each evidence item has a label, value, and type (positive=confirms benign, negative=raises concern, neutral=context, info=supplemental)
+- For a suspicious login: include login location, device, user account, IP reputation, login history
+- For malware detection: include file path, detection engine, device, quarantine status
+- For software install: include software name, device, user, whether expected
+- Do NOT pad with irrelevant fields. If there is no IP to report, do not include an IP evidence item.
+
+CUSTOMER MESSAGE RULES:
+- Set customerMessageRequired to TRUE only when:
+  * The customer must confirm or deny the activity
+  * A confirmed or likely compromise the customer must know about
+  * The customer must take a specific action (change password, etc.)
+- Set customerMessageRequired to FALSE when:
+  * False positive or expected activity — no customer action needed
+  * Informational alert with no required customer response
+  * The SOC team can fully resolve without customer involvement
+- Customer messages must use PLAIN, NON-TECHNICAL LANGUAGE. No jargon like "IP address", "OSINT", "false positive", "threat intelligence". Say things like "we noticed a login from an unfamiliar location" or "we detected new software being installed on one of your computers".
+
+INTERNAL NOTE RULES:
+- The internal note is for TCT technicians, technical language is fine
+- Include: investigation findings, IP lookups, device verification, timeline analysis, evidence chain, verdict justification
+- This should read like a thorough analyst's investigation report
+
+Respond ONLY with valid JSON (no markdown, no backticks):
+{
+  "incidentSummary": "Plain-language explanation of what happened. 2-4 sentences. No jargon.",
+  "classification": "false_positive" or "expected_activity" or "informational" or "suspicious" or "confirmed_threat",
+  "riskLevel": "none" or "low" or "medium" or "high" or "critical",
+  "confidence": 0.0 to 1.0,
+  "assessmentRationale": "1-3 sentences explaining why this classification was chosen",
+  "evidence": [
+    { "label": "Relevant Field Name", "value": "The finding", "type": "positive" or "negative" or "neutral" or "info" }
+  ],
+  "recommendedAction": "Clear recommendation for what to do with this ticket",
+  "customerMessageRequired": true or false,
+  "customerMessageDraft": "The exact customer message (plain language) or null if not required",
+  "internalNote": "Full technical investigation note for Autotask internal use"
+}`;
+}
+
+/**
  * Format the internal Autotask ticket note added by the SOC agent.
  */
 export function formatTicketNote(
