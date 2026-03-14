@@ -142,7 +142,7 @@ export default function TicketTable({
                     ? 'bg-rose-500/20 text-rose-300'
                     : 'bg-blue-500/20 text-blue-300'
               }`}>
-                {ticket.isResolved ? 'Closed' : isWaitingOnCustomer(ticket.status) ? 'Waiting on You' : 'Open'}
+                {ticket.isResolved ? 'Closed' : isWaitingOnCustomer(ticket.status) ? (isStaff ? 'Waiting on Customer' : 'Awaiting Your Team') : 'Open'}
               </span>
               <svg className="w-4 h-4 text-gray-500 group-hover:text-cyan-400 transition-colors flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -297,7 +297,7 @@ function TicketRow({
                 : 'bg-cyan-400/20 text-cyan-400'
           }`}
         >
-          {ticket.isResolved ? 'Resolved' : isWaitingOnCustomer(ticket.status) ? 'Waiting on You' : 'Open'}
+          {ticket.isResolved ? 'Resolved' : isWaitingOnCustomer(ticket.status) ? (isStaff ? 'Waiting on Customer' : 'Awaiting Your Team') : 'Open'}
         </span>
       </td>
       {isStaff && (
