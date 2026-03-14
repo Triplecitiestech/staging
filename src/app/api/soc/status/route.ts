@@ -38,10 +38,10 @@ export async function GET() {
           COUNT(*) FILTER (WHERE verdict = 'suspicious') as suspicious
         FROM soc_ticket_analysis
         WHERE "processedAt" >= ${today}
-      `.catch(() => [{ total: 0n, false_positives: 0n, escalated: 0n, suspicious: 0n }] as [{ total: bigint; false_positives: bigint; escalated: bigint; suspicious: bigint }]),
+      `.catch(() => [{ total: BigInt(0), false_positives: BigInt(0), escalated: BigInt(0), suspicious: BigInt(0) }] as [{ total: bigint; false_positives: bigint; escalated: bigint; suspicious: bigint }]),
       prisma.$queryRaw<[{ count: bigint }]>`
         SELECT COUNT(*) as count FROM soc_ticket_analysis WHERE status = 'pending'
-      `.catch(() => [{ count: 0n }] as [{ count: bigint }]),
+      `.catch(() => [{ count: BigInt(0) }] as [{ count: bigint }]),
       prisma.$queryRaw<Array<Record<string, unknown>>>`
         SELECT id, title, "ticketCount", verdict, "confidenceScore", status, "createdAt",
                "companyName", "deviceHostname", "alertSource", "correlationReason",
