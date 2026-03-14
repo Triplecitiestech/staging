@@ -86,6 +86,7 @@ export default function SocDashboardClient() {
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
   const [activeTab, setActiveTab] = useState<'open' | 'all' | 'activity'>('open')
+  const [ticketFilter, setTicketFilter] = useState<'actionable' | 'all'>('actionable')
   const [runError, setRunError] = useState<string | null>(null)
   const [lastRunResult, setLastRunResult] = useState<RunResultData | null>(null)
 
@@ -99,7 +100,7 @@ export default function SocDashboardClient() {
     try {
       const [statusRes, ticketsRes, activityRes] = await Promise.all([
         fetch('/api/soc/status'),
-        fetch('/api/soc/tickets?days=30'),
+        fetch(`/api/soc/tickets?days=30&filter=${ticketFilter}`),
         fetch('/api/soc/activity?limit=20'),
       ])
       if (statusRes.ok) setStatus(await statusRes.json())
@@ -113,7 +114,7 @@ export default function SocDashboardClient() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [ticketFilter])
 
   useEffect(() => { fetchData() }, [fetchData])
 
@@ -411,6 +412,25 @@ export default function SocDashboardClient() {
 
       {/* Tabs */}
       <div className="flex items-center gap-1 border-b border-white/10 pb-px">
+        {/* Ticket scope filter */}
+        <div className="flex items-center gap-1 bg-slate-800/50 rounded-lg p-0.5 mr-2">
+          <button
+            onClick={() => setTicketFilter('actionable')}
+            className={`px-2 py-1 text-xs rounded-md transition-colors ${
+              ticketFilter === 'actionable' ? 'bg-cyan-500 text-white' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            SOC Only
+          </button>
+          <button
+            onClick={() => setTicketFilter('all')}
+            className={`px-2 py-1 text-xs rounded-md transition-colors ${
+              ticketFilter === 'all' ? 'bg-cyan-500 text-white' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            All
+          </button>
+        </div>
         {[
           { key: 'open' as const, label: 'Open Tickets', count: ticketsData?.openCount },
           { key: 'all' as const, label: 'All Tickets', count: ticketsData?.totalTickets },

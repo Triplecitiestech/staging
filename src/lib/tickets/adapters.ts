@@ -202,17 +202,27 @@ export async function getStaffTicketNotes(
   visibility?: NoteVisibilityFilters,
 ): Promise<TicketNotesResponse> {
   // Build where clause based on visibility
-  const publishFilter: number[] = [];
   const vis = visibility || { showExternal: true, showInternal: true, showSystem: false };
-  if (vis.showExternal) publishFilter.push(NOTE_PUBLISH.CUSTOMER_PORTAL);
+
+  // Build publish filter. Notes with null publish are treated as internal.
+  const publishConditions: Array<Record<string, unknown>> = [];
+  if (vis.showExternal) {
+    publishConditions.push({ publish: NOTE_PUBLISH.CUSTOMER_PORTAL });
+  }
   if (vis.showInternal) {
-    publishFilter.push(NOTE_PUBLISH.ALL_AUTOTASK_USERS, NOTE_PUBLISH.INTERNAL_ONLY);
+    publishConditions.push({ publish: { in: [NOTE_PUBLISH.ALL_AUTOTASK_USERS, NOTE_PUBLISH.INTERNAL_ONLY] } });
+    // Include notes with null publish (system-generated, default to internal)
+    publishConditions.push({ publish: null });
+  }
+  if (vis.showSystem) {
+    // System notes may have null publish and no creator
+    publishConditions.push({ publish: null });
   }
 
   const notes = await prisma.ticketNote.findMany({
     where: {
       autotaskTicketId: ticketId,
-      ...(publishFilter.length > 0 ? { publish: { in: publishFilter } } : {}),
+      ...(publishConditions.length > 0 ? { OR: publishConditions } : {}),
     },
     select: {
       autotaskNoteId: true,
