@@ -50,10 +50,11 @@ Triple Cities Tech is a professional IT services marketing and project managemen
 - **Database**: PostgreSQL via Vercel Postgres, Prisma ORM 7.2
 - **Auth**: NextAuth.js 5 with Microsoft Azure AD OAuth
 - **Email**: Resend
-- **AI**: Anthropic Claude API (blog generation)
-- **PSA Integration**: Autotask PSA REST API (company/project/task sync)
+- **AI**: Anthropic Claude API (blog generation, SOC analysis, report assistant, project chat)
+- **PSA Integration**: Autotask PSA REST API (company/project/task/ticket sync)
 - **Bot Protection**: Cloudflare Turnstile
 - **Hosting**: Vercel (auto-deploys from `main`, region `iad1`)
+- **Charts**: Recharts (AreaChart for trends)
 
 ## Commands
 
@@ -77,11 +78,35 @@ src/
   app/                  # Next.js App Router pages & API routes
     (marketing)/        # Public marketing pages (route group)
     admin/              # Staff portal (protected)
-    api/                # 20+ API route handlers
+      soc/              # SOC Analyst Agent dashboard, config, rules, incidents
+      reporting/        # Reporting & analytics (dashboard, business reviews, technicians)
+      monitoring/       # Platform monitoring dashboard
+      marketing/        # Campaign management
+    api/                # 100+ API route handlers
+      soc/              # 11 SOC endpoints (tickets, incidents, rules, trends, etc.)
+      reports/          # 17 reporting endpoints (dashboard, business review, analytics, etc.)
+      autotask/         # Autotask sync (trigger, status)
     blog/               # AI-generated blog system
     onboarding/         # Customer onboarding portal
-  components/           # React components (layout/, sections/, ui/, seo/, admin/, etc.)
-  lib/                  # Core utilities (prisma, auth, blog-generator, security, etc.)
+    schedule/           # Calendly scheduling page
+  components/
+    admin/              # Dashboard widgets, sync panel, AI chat
+    soc/                # SOC dashboard, config, rules manager, incident detail, flowchart
+    reporting/          # Report dashboard, charts, AI assistant, business review, health
+    tickets/            # Shared ticket table, detail, priority badge, SLA indicator, timeline
+    onboarding/         # Customer portal, dashboard, journey, password gate
+    sections/           # Marketing page sections
+    ui/                 # Shared UI primitives
+    seo/                # JSON-LD structured data, breadcrumbs
+  lib/
+    soc/                # SOC engine, correlation, rules, prompts, types, IP extractor
+    reporting/          # 20+ modules: aggregation, analytics, backfill, health score, SLA, etc.
+    tickets/            # Unified ticket adapters and utils
+    permissions.ts      # Role-based staff permission system
+    autotask.ts         # Autotask REST API client
+    security.ts         # Rate limiting, input sanitization, CSRF
+    blog-generator.ts   # AI content generation
+    demo-mode.ts        # Contoso Industries demo data
   config/               # Site metadata & contact config
   constants/            # App-wide constants
   types/                # TypeScript type definitions
@@ -92,7 +117,7 @@ prisma/
   schema.prisma         # 500+ line schema, 30+ models
   migrations/           # Database migrations
 tests/
-  e2e/                  # Playwright end-to-end tests
+  e2e/                  # 30+ Playwright test specs
 ```
 
 ## Code Conventions
@@ -117,9 +142,11 @@ tests/
 - `prisma generate` runs automatically on `postinstall`
 - Connection pooling via PrismaPg adapter for serverless
 
-**Key models**: StaffUser, Company, CompanyContact, Project, Phase, PhaseTask, BlogPost, Comment, Assignment, AuditLog, Notification, AutotaskSyncLog
+**Key models**: StaffUser, Company, CompanyContact, Project, Phase, PhaseTask, BlogPost, Comment, Assignment, AuditLog, Notification, AutotaskSyncLog, MarketingCampaign, MarketingAudience, ErrorLog
 
-**Key enums**: BlogStatus (DRAFT → PENDING_APPROVAL → APPROVED → PUBLISHED), TaskStatus (12+ statuses), Priority (LOW/MEDIUM/HIGH/URGENT), PhaseStatus (NOT_STARTED → SCHEDULED → IN_PROGRESS → COMPLETE), ProjectStatus (ACTIVE/COMPLETED/ON_HOLD/CANCELLED)
+**Key enums**: BlogStatus (DRAFT → PENDING_APPROVAL → APPROVED → PUBLISHED → REJECTED), TaskStatus (12+ statuses), Priority (LOW/MEDIUM/HIGH/URGENT), PhaseStatus (NOT_STARTED → SCHEDULED → IN_PROGRESS → COMPLETE), ProjectStatus (ACTIVE/COMPLETED/ON_HOLD/CANCELLED)
+
+**Reporting tables** (created via migration endpoint, not Prisma-managed): `report_tickets`, `report_time_entries`, `report_ticket_notes`, `report_aggregations`, `report_schedules`, `report_targets`. Self-healing: `src/lib/reporting/ensure-tables.ts` auto-creates missing tables before jobs run.
 
 ## Authentication
 
@@ -135,6 +162,18 @@ tests/
 **Project Management**: Company → Project → Phase → PhaseTask hierarchy. Customer visibility controls, internal vs. customer-facing notes/comments, audit logging.
 
 **Autotask PSA Integration**: Syncs companies, projects, phases, tasks, contacts, and notes from Autotask into the local DB. See `AUTOTASK_SYNC.md` for full details.
+
+**SOC Analyst Agent**: AI-driven security alert triage system at `/admin/soc/*`. Ingests tickets from Autotask, classifies severity via Claude AI, generates action plans with OSINT prompts, supports human approval workflow before any automated response. Key files: `src/lib/soc/` (engine, correlation, rules, prompts), `src/app/api/soc/` (11 endpoints), `src/components/soc/` (dashboard, config, rules manager, incident detail). Features: trend analysis, AI-generated rules, Approve All for batch processing, merge recommendations, activity feed.
+
+**Reporting & Analytics**: Real-time reporting at `/admin/reporting/*` built on raw ticket data from Autotask. AI assistant with conversational history, downloadable business review PDFs, SLA metrics aligned with Autotask agreements, technician performance reports, company health scores. Self-healing pipeline auto-creates missing tables. Self-chaining backfill runs all sync jobs without timeout. Key files: `src/lib/reporting/` (20+ modules), `src/app/api/reports/` (17 endpoints), `src/components/reporting/` (18 components).
+
+**Unified Ticket System**: Shared `UnifiedTicket` type with adapters (`src/lib/tickets/adapters.ts`) consumed by all views (admin, SOC, customer portal, reporting). Shared components in `src/components/tickets/` (table, detail, priority badge, SLA indicator, timeline).
+
+**Staff Permissions**: Centralized role-based permissions at `src/lib/permissions.ts`. Three roles (ADMIN, MANAGER, VIEWER) with granular feature-level checks.
+
+**Marketing Campaigns**: Audience targeting (per-company + Autotask Contact Action Groups + manual), content visibility system, AI content refinement, delivery modes with magic link tokens. Pages at `/admin/marketing/*`.
+
+**Platform Monitoring**: System health dashboard on admin home page with Autotask sync logs, AI usage tracking, threshold alerts, and historical DB response time graph.
 
 **Security**: Strict CSP in `next.config.js` (separate dev/prod policies). Middleware blocks suspicious user agents and SQL injection. Honeypot fields and 3-second minimum on contact form. Adding third-party scripts requires CSP header updates.
 
@@ -238,16 +277,23 @@ This is the **primary external data source** for companies, projects, phases, an
 - **Admin test failure dashboard**: Available at `/admin/debug/failures`.
 - **Every Prisma schema field MUST have a migration**: Never add a field to `schema.prisma` without a corresponding migration SQL. Without a migration, any Prisma query without an explicit `select` will crash with "column does not exist". Runtime `ALTER TABLE` hacks in API routes are not sufficient — they only run when that specific endpoint is called, not when other pages query the same model. The migration `20260310000000_add_missing_columns` fixed a batch of these.
 - **Run e2e tests on every change**: `npm run test:e2e` covers all systems. Tests are in `tests/e2e/` and include: admin page health, public page rendering, customer portal, blog system, marketing system, SOC system, Autotask sync, API health, auth enforcement, forbidden colors, responsive viewports, and security checks. Always run before pushing. Requires the `test_failures` table (run migration via `POST /api/test-failures/migrate` with Bearer MIGRATION_SECRET).
+- **Reporting tables are NOT Prisma-managed**: The reporting system uses raw SQL tables (`report_tickets`, `report_time_entries`, etc.) created via migration endpoint. `src/lib/reporting/ensure-tables.ts` auto-creates them if missing. Don't try to add these to Prisma schema.
+- **SOC tables are NOT Prisma-managed**: SOC uses raw SQL tables (`soc_incidents`, `soc_activities`, `soc_config`, `soc_rules`) created via `/api/soc/bootstrap` or `/api/soc/migrate`. Same pattern as reporting.
+- **Self-chaining backfill**: The reporting sync uses fire-and-forget self-chaining — one API call triggers the next batch server-side. A single URL invocation runs all jobs to completion. Don't add polling or retry logic on top.
+- **Cron auth uses Vercel Authorization header**: Cron endpoints authenticate via `Authorization: Bearer <CRON_SECRET>` header (set by Vercel automatically). Don't use secret in query params or URL paths.
+- **Connection pool exhaustion**: Creating audiences or other bulk operations can exhaust the connection pool. Use explicit `$disconnect()` or connection-aware patterns for batch operations.
 
 ## Customer Portal Architecture
 
 The customer portal is at `/onboarding/[companyName]`. Key components:
 - **OnboardingPortal** — Main container, handles auth state, view switching
-- **CustomerDashboard** — Primary dashboard with projects, tickets, stats
+- **CustomerDashboard** — Primary dashboard with projects, tickets, stats, smart ticket sorting, metrics, chat CTA
 - **OnboardingJourney** — First-time login guided tour (5 steps, skippable)
 - **TicketTimeline** — Chronological ticket comms trail from Autotask
 
 **Ticket Timeline**: When a customer clicks a ticket, they see a full chronological timeline fetched from Autotask via `/api/customer/tickets/timeline`. Only external (customer-visible) notes appear. Customers can reply to open tickets via `/api/customer/tickets/reply`, which creates an Autotask note.
+
+**Customer Invites**: Staff can invite contacts via `/api/contacts/invite`. Contacts get portal roles (PRIMARY, TECHNICAL, BILLING, VIEWER). Staff can impersonate customer sessions via `/api/onboarding/impersonate`. See `docs/CUSTOMER_INVITE_AND_ONBOARDING.md`.
 
 **Status badges**: Always display as `Status: <label>` (e.g., "Status: In Progress").
 
@@ -257,7 +303,7 @@ Demo mode (`src/lib/demo-mode.ts`) provides Contoso Industries demo data for saf
 
 ## Sales & Marketing System
 
-All marketing pages (`/admin/marketing/*`) must include AdminHeader and the ambient gradient background. The audience system supports Autotask Contact Action Groups as a targeting option in addition to per-company targeting.
+All marketing pages (`/admin/marketing/*`) must include AdminHeader and the ambient gradient background. The audience system supports Autotask Contact Action Groups, per-company targeting, and manual audience entry. Features include content visibility controls, AI content refinement, delivery modes with magic link tokens, campaign approval workflow, and audience drill-down views.
 
 ## Additional Documentation
 
@@ -281,8 +327,12 @@ Detailed guides in the repo root — read these when working on specific feature
 - `BLOG_SYSTEM_README.md` — AI blog generation system
 - `OLUJO_PROJECT.md` — Olujo brand awareness CRM project
 - `ONBOARDING_PORTAL.md` — Customer onboarding portal
+- `docs/CUSTOMER_INVITE_AND_ONBOARDING.md` — Customer invite system and portal roles
 - `AZURE_AD_SETUP.md` — Microsoft OAuth configuration
 - `AUTOTASK_SYNC.md` — Autotask PSA integration (sync system, API, troubleshooting)
+- `docs/REPORTING_ARCHITECTURE.md` — Reporting pipeline architecture
+- `docs/PERFORMANCE_ANALYSIS.md` — Performance analysis and optimization
+- `docs/session-summary.md` — Current session state and recent changes
 - `CONTENT_EDITING_GUIDE.md`, `SPAM_PROTECTION.md`, `DATABASE_SETUP.md`, and others
 
 ## Known Secrets & API Endpoints

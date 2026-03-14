@@ -1,20 +1,22 @@
 # Architecture
 
+> Last updated: 2026-03-14
+
 ## System Overview
 
 Triple Cities Tech is a Next.js 15 App Router application with:
-- **Public site** — marketing pages, blog, contact form
-- **Admin dashboard** — staff-only project management, AI tools, blog CMS
-- **Customer portal** — per-company onboarding status pages
+- **Public site** — marketing pages, blog, contact form, scheduling
+- **Admin dashboard** — staff-only project management, AI tools, blog CMS, SOC analyst, reporting & analytics, platform monitoring, marketing campaigns
+- **Customer portal** — per-company onboarding with ticket timeline, invite system, portal roles
 
-All three share one Next.js deployment on Vercel (iad1).
+All four surface areas share one Next.js deployment on Vercel (iad1).
 
 ## Technology Stack
 
 ```
 ┌─────────────────────────────────────────────┐
 │  Browser                                    │
-│  React 18 + Tailwind CSS                    │
+│  React 18 + Tailwind CSS + Recharts         │
 │  NextAuth session (Azure AD)                │
 └──────────────┬──────────────────────────────┘
                │ HTTPS
@@ -25,15 +27,18 @@ All three share one Next.js deployment on Vercel (iad1).
                │
 ┌──────────────▼──────────────────────────────┐
 │  Next.js App Router                         │
-│  src/app/api/**  (REST API routes)          │
-│  30s function timeout (vercel.json)         │
-└──────┬───────────────┬──────────────────────┘
-       │               │
-┌──────▼──────┐  ┌─────▼──────────────────────┐
-│  Prisma 7   │  │  Anthropic SDK (Claude)    │
-│  PostgreSQL │  │  AI Chat / Blog Gen / Edit │
-│  (Vercel)   │  │  Timeout: 25s (AbortCtrl)  │
-└─────────────┘  └────────────────────────────┘
+│  src/app/api/**  (100+ REST API routes)     │
+│  30s default / 60s for sync routes          │
+└──────┬──────────┬───────────┬───────────────┘
+       │          │           │
+┌──────▼──────┐  ┌▼─────────┐ ┌▼──────────────┐
+│  Prisma 7   │  │ Claude   │ │ Autotask PSA  │
+│  PostgreSQL │  │ API      │ │ REST API v1.0 │
+│  (Vercel)   │  │ (25s TO) │ │ (sync/tickets)│
+│  + raw SQL  │  └──────────┘ └───────────────┘
+│  (reporting,│
+│   SOC, test)│
+└─────────────┘
 ```
 
 ## Authentication Flow
@@ -155,6 +160,159 @@ GET /api/autotask/trigger?step=<step>
 
 **See `AUTOTASK_SYNC.md` for full documentation.**
 
+## SOC Analyst Agent Flow
+
+```
+Autotask Tickets (security-related)
+  │
+  ▼
+GET /api/soc/tickets → fetch from Autotask, filter by security keywords
+  │
+  ▼
+POST /api/soc/run → SOC Engine (src/lib/soc/engine.ts)
+  ├─ For each ticket:
+  │   ├─ IP extraction (src/lib/soc/ip-extractor.ts)
+  │   ├─ Rule matching (src/lib/soc/rules.ts)
+  │   ├─ AI classification via Claude (src/lib/soc/prompts.ts)
+  │   │   → severity, category, action plan, OSINT prompts
+  │   ├─ Correlation check (src/lib/soc/correlation.ts)
+  │   │   → merge recommendations for related incidents
+  │   └─ Create/update soc_incidents + soc_activities
+  │
+  ▼
+Admin UI (/admin/soc)
+  ├─ Dashboard: ticket-centric view, actionable filter, trend analysis
+  ├─ Incidents: detail view with action plans, notes, Autotask links
+  ├─ Rules: AI-generated + manual rules, enable/disable
+  ├─ Config: engine settings, run controls
+  └─ Human approval: review AI recommendations → approve/reject actions
+```
+
+**Key files:**
+- `src/lib/soc/` — engine, correlation, rules, prompts, types, IP extractor
+- `src/app/api/soc/` — 11 endpoints (tickets, incidents, rules, trends, run, config, etc.)
+- `src/components/soc/` — dashboard, config panel, rules manager, incident detail, flowchart
+- Tables: `soc_incidents`, `soc_activities`, `soc_config`, `soc_rules` (raw SQL, not Prisma)
+
+## Reporting & Analytics Flow
+
+```
+Autotask API
+  │
+  ▼
+Backfill Pipeline (src/lib/reporting/backfill.ts)
+  ├─ Self-chaining: one API call triggers next batch server-side
+  ├─ Batch: 7 days per invocation to avoid timeouts
+  ├─ Self-healing: ensure-tables.ts auto-creates missing tables
+  └─ Writes to: report_tickets, report_time_entries, report_ticket_notes
+       │
+       ▼
+Real-time Queries (src/lib/reporting/realtime-queries.ts)
+  ├─ Dashboard metrics: open/closed/SLA/resolution time
+  ├─ Company health scores (src/lib/reporting/health-score.ts)
+  ├─ Technician performance
+  ├─ Trend analytics (src/lib/reporting/analytics.ts)
+  └─ API user filtering (src/lib/reporting/api-user-filter.ts)
+       │
+       ▼
+Admin UI (/admin/reporting)
+  ├─ Dashboard: stat cards, trend charts (Recharts AreaChart), drill-downs
+  ├─ Analytics: date range filtering, AI assistant with conversation history
+  ├─ Business Review: downloadable PDF, SLA metrics, cross-period tracking
+  ├─ Companies: per-company detail with health score
+  ├─ Technicians: per-tech performance metrics
+  └─ Health: health score distribution across all companies
+```
+
+**Key files:**
+- `src/lib/reporting/` — 20+ modules (aggregation, analytics, backfill, health-score, sla-config, etc.)
+- `src/app/api/reports/` — 17 endpoints
+- `src/components/reporting/` — 18 components
+- Tables: `report_tickets`, `report_time_entries`, `report_ticket_notes`, `report_aggregations`, `report_schedules`, `report_targets` (raw SQL, not Prisma)
+
+## Unified Ticket System
+
+```
+Autotask API → Raw ticket data
+  │
+  ▼
+Adapters (src/lib/tickets/adapters.ts)
+  → Normalize to UnifiedTicket type (src/types/tickets.ts)
+     │
+     ├─ Admin views (reporting dashboard, company detail)
+     ├─ SOC dashboard (security ticket triage)
+     ├─ Customer portal (customer-visible tickets)
+     └─ Shared components (src/components/tickets/)
+         ├─ TicketTable — sortable, filterable table
+         ├─ TicketDetail — full ticket view with notes
+         ├─ PriorityBadge — color-coded priority indicator
+         ├─ SlaIndicator — SLA status display
+         └─ TimelineEntry — chronological note display
+```
+
+## Staff Permission System
+
+```
+src/lib/permissions.ts
+  │
+  StaffRole (ADMIN | MANAGER | VIEWER)
+  │
+  ├─ ADMIN: full access to all features
+  ├─ MANAGER: project management, reporting, limited config
+  └─ VIEWER: read-only access to dashboards and reports
+
+Used by: API routes, admin components, navigation visibility
+```
+
+## Marketing Campaign Flow
+
+```
+Admin creates campaign (/admin/marketing/campaigns/new)
+  │
+  ▼
+Audience Selection
+  ├─ Per-company targeting
+  ├─ Autotask Contact Action Groups
+  └─ Manual audience entry
+  │
+  ▼
+Content Creation
+  ├─ Manual content authoring
+  ├─ AI content refinement via Claude
+  └─ Content visibility controls
+  │
+  ▼
+Campaign Workflow
+  ├─ Draft → Generate → Approve → Send
+  ├─ Delivery modes with magic link tokens
+  └─ Email delivery via Resend
+```
+
+**Key files:**
+- `src/app/api/marketing/campaigns/` — CRUD, generate, approve, publish, send
+- `src/app/admin/marketing/` — campaign list, editor, audience management
+
+## Customer Invite Flow
+
+```
+Staff (/admin/contacts)
+  │
+  ▼
+POST /api/contacts/invite
+  ├─ Assign portal role (PRIMARY, TECHNICAL, BILLING, VIEWER)
+  ├─ Generate invite email via Resend
+  └─ Track inviteAcceptedAt
+  │
+  ▼
+Customer accepts → /onboarding/[companyName]
+  ├─ Password gate (separate from Azure AD)
+  ├─ Dashboard with projects, tickets, stats
+  ├─ Ticket timeline and reply capability
+  └─ First-time onboarding journey
+```
+
+**See `docs/CUSTOMER_INVITE_AND_ONBOARDING.md` for full documentation.**
+
 ## Data Model (Key Entities)
 
 ```
@@ -167,12 +325,22 @@ Company ──── Project ──── Phase ──── PhaseTask
   │             │
   │           AuditLog
   │
-CompanyContact
+CompanyContact ─── (portal role, invite tracking)
   │
 AutotaskSyncLog
+
+MarketingCampaign ─── MarketingAudience
+ErrorLog
+Notification
+
+--- Raw SQL tables (not Prisma-managed) ---
+report_tickets, report_time_entries, report_ticket_notes
+report_aggregations, report_schedules, report_targets
+soc_incidents, soc_activities, soc_config, soc_rules
+test_failures
 ```
 
-Each entity can have Autotask ID fields (`autotaskCompanyId`, `autotaskProjectId`, etc.) linking them to Autotask records. See `prisma/schema.prisma` for the full schema.
+Each Prisma entity can have Autotask ID fields (`autotaskCompanyId`, `autotaskProjectId`, etc.) linking them to Autotask records. Raw SQL tables are created via migration endpoints and auto-healed by `ensure-tables.ts`. See `prisma/schema.prisma` for the full Prisma schema.
 
 ## Structured Logging
 
@@ -188,3 +356,17 @@ All API routes use `src/lib/server-logger.ts`:
 - **Client**: `AdminErrorBoundary` wraps all admin pages
 - **AI calls**: 25s timeout via AbortController; errors surfaced to user
 - **Non-critical failures** (audit logs): caught and logged, don't block primary operation
+- **Self-healing tables**: `ensure-tables.ts` auto-creates missing reporting/SOC tables before queries run
+- **Self-chaining sync**: Backfill auto-triggers next batch on completion; no manual retry needed
+- **SOC engine**: Never silently swallows AI errors; surfaces per-ticket error detail in dashboard
+
+## Cron Jobs
+
+| Schedule | Endpoint | Purpose |
+|----------|----------|---------|
+| MWF 8AM UTC | `/api/cron/generate-blog` | AI blog content generation |
+| Daily noon | `/api/cron/approval-emails` | Send blog approval emails |
+| Every 15min | `/api/cron/publish-blog` | Publish approved blog posts |
+| Configurable | `/api/cron/autotask-sync` | Autotask data sync |
+
+Auth: Vercel sets `Authorization: Bearer <CRON_SECRET>` automatically. Do not use secrets in URL paths.
