@@ -134,6 +134,12 @@ Triple Cities Tech is a Next.js 15 App Router application deployed on Vercel (ia
 - `CRON_SECRET` vs `AUTOTASK_SYNC_SECRET` naming inconsistency
 - Centralized structured logging beyond current server-logger
 
+### Pre-Launch Cleanup (Future — Not Immediate Priority)
+- Full hardening checklist documented in `CLAUDE.md` under "Pre-Launch Cleanup Required"
+- Includes: remove secrets from docs, audit auth/impersonation, review auto-deploy, harden customer portal, CSP reporting, environment separation
+- Must be completed before broader customer-facing production access expands
+- Current development shortcuts are intentionally preserved — see "Temporary Development Shortcuts" in CLAUDE.md
+
 ### Discussed But Not Yet Implemented
 - Advanced automated debugging (auto-issue creation from test failures, AI-generated PR drafts)
 - Additional Playwright tests for login flows, form submissions, Autotask sync verification
