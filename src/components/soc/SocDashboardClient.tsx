@@ -369,6 +369,7 @@ export default function SocDashboardClient() {
               onClick={() => handleRunNow(false)}
               disabled={running}
               className="px-3 py-1.5 text-sm font-medium bg-cyan-500 hover:bg-cyan-600 text-white rounded-lg transition-colors disabled:opacity-50"
+              title="Analyze new unprocessed security tickets using the AI pipeline (skips already-analyzed tickets)"
             >
               {running ? 'Running...' : 'Run Now'}
             </button>
@@ -376,7 +377,7 @@ export default function SocDashboardClient() {
               onClick={() => handleRunNow(true)}
               disabled={running}
               className="px-3 py-1.5 text-sm font-medium bg-slate-600 hover:bg-slate-500 text-white rounded-lg transition-colors disabled:opacity-50"
-              title="Clear previous analyses and re-run the full pipeline on all recent tickets"
+              title="Clear the last 7 days of AI analyses and re-run the full pipeline from scratch on all recent tickets"
             >
               Reprocess
             </button>
