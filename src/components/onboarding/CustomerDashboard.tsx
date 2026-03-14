@@ -110,7 +110,7 @@ function getProjectStatusLabel(status: string) {
   }
 }
 
-type DashboardView = 'dashboard' | 'open-tickets' | 'action-items' | 'closed-this-month' | 'hours-this-month'
+type DashboardView = 'dashboard' | 'open-tickets' | 'action-items' | 'closed-this-month'
 
 export default function CustomerDashboard({ projects, companyName, companySlug }: CustomerDashboardProps) {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
@@ -128,9 +128,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
   const [notesLoading, setNotesLoading] = useState(false)
   const [ticketSearch, setTicketSearch] = useState('')
   const [dashboardView, setDashboardView] = useState<DashboardView>('dashboard')
-  const [metrics, setMetrics] = useState<{ hoursWorkedThisMonth: number; ticketsClosedThisMonth: number; avgResolutionHours: number | null } | null>(null)
-
-  // Load tickets and metrics when companySlug is available
+  // Load tickets when companySlug is available
   useEffect(() => {
     if (!companySlug) return
     setTicketsLoading(true)
@@ -139,12 +137,6 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
       .then((data: TicketListResponse) => setTickets(data.tickets || []))
       .catch(() => setTickets([]))
       .finally(() => setTicketsLoading(false))
-
-    // Fetch customer metrics (hours worked, tickets closed this month)
-    fetch(`/api/customer/metrics?companySlug=${encodeURIComponent(companySlug)}`)
-      .then(res => res.ok ? res.json() : null)
-      .then(data => { if (data) setMetrics(data) })
-      .catch(() => {})
   }, [companySlug])
 
   const fetchTicketNotes = useCallback(async (ticketId: string) => {
@@ -357,7 +349,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
             <div className="text-2xl font-bold text-red-400">
               {project.phases.reduce((sum, ph) => sum + ph.tasks.filter(t => t.status === 'WAITING_ON_CLIENT' || t.status === 'CUSTOMER_NOTE_ADDED').length, 0)}
             </div>
-            <div className="text-xs text-gray-400 mt-1">Needs Your Action</div>
+            <div className="text-xs text-gray-400 mt-1">Awaiting Your Team</div>
           </div>
         </div>
 
@@ -691,7 +683,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
                   <div className="flex items-center gap-2 ml-3">
                     <span className={`px-2 py-0.5 text-xs font-medium rounded-full whitespace-nowrap ${
                       isWaitingOnCustomer(ticket.status) ? 'bg-rose-500/20 text-rose-300' : 'bg-blue-500/20 text-blue-300'
-                    }`}>{isWaitingOnCustomer(ticket.status) ? 'Waiting on You' : 'Open'}</span>
+                    }`}>{isWaitingOnCustomer(ticket.status) ? 'Awaiting Your Team' : 'Open'}</span>
                     <svg className="w-4 h-4 text-gray-500 group-hover:text-cyan-400 transition-colors flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                     </svg>
@@ -728,7 +720,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
           </svg>
           Back to Dashboard
         </button>
-        <h2 className="text-2xl font-bold text-white mb-4">Items Awaiting Your Action ({needsAction.length + actionTickets.length})</h2>
+        <h2 className="text-2xl font-bold text-white mb-4">Items Awaiting Your Team ({needsAction.length + actionTickets.length})</h2>
 
         {/* Tasks needing action grouped by project */}
         {actionProjects.length > 0 && (
@@ -750,7 +742,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
                         <div key={task.id} className="flex items-center gap-2 text-sm">
                           <div className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" />
                           <span className="text-gray-300">{task.taskText}</span>
-                          <span className="px-2 py-0.5 text-xs font-medium rounded-full border bg-red-500/20 text-red-400 border-red-500/30 whitespace-nowrap ml-auto">Waiting on You</span>
+                          <span className="px-2 py-0.5 text-xs font-medium rounded-full border bg-red-500/20 text-red-400 border-red-500/30 whitespace-nowrap ml-auto">Awaiting Your Team</span>
                         </div>
                       ))}
                     </div>
@@ -791,7 +783,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
             <p className="text-lg font-medium text-white">All caught up!</p>
-            <p className="text-sm text-gray-400 mt-1">No items currently require your action.</p>
+            <p className="text-sm text-gray-400 mt-1">No items currently require your team&apos;s action.</p>
           </div>
         )}
       </div>
@@ -867,62 +859,6 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
     )
   }
 
-  // "Hours This Month" sub-view
-  if (dashboardView === 'hours-this-month') {
-    // Show hours breakdown from time entries
-    const hoursValue = metrics ? metrics.hoursWorkedThisMonth : 0
-    return (
-      <div>
-        {companyName && (
-          <div className="mb-8 text-center">
-            <h1 className="text-4xl font-bold text-white mb-1">{companyName}</h1>
-          </div>
-        )}
-        <button
-          onClick={() => setDashboardView('dashboard')}
-          className="flex items-center gap-2 text-cyan-400 hover:text-cyan-300 transition-colors mb-6 text-sm"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-          Back to Dashboard
-        </button>
-        <h2 className="text-2xl font-bold text-white mb-4">Hours This Month</h2>
-        <div className="bg-gray-800/50 border border-violet-500/20 rounded-lg p-6">
-          <div className="flex items-center gap-4 mb-6">
-            <div className="w-16 h-16 rounded-full bg-violet-500/20 flex items-center justify-center">
-              <svg className="w-8 h-8 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <div>
-              <div className="text-4xl font-bold text-violet-400">{hoursValue}h</div>
-              <div className="text-sm text-gray-400">Total hours logged this month</div>
-            </div>
-          </div>
-          {metrics?.avgResolutionHours != null && (
-            <div className="border-t border-white/10 pt-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-cyan-500/20 flex items-center justify-center">
-                  <svg className="w-5 h-5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
-                </div>
-                <div>
-                  <div className="text-xl font-bold text-cyan-400">{metrics.avgResolutionHours}h</div>
-                  <div className="text-sm text-gray-400">Avg. resolution time for tickets closed this month</div>
-                </div>
-              </div>
-            </div>
-          )}
-          {hoursValue === 0 && (
-            <p className="text-sm text-gray-500 mt-2">No time entries have been logged for this month yet.</p>
-          )}
-        </div>
-      </div>
-    )
-  }
-
   // Dashboard view (default)
   return (
     <div>
@@ -935,7 +871,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
       )}
 
       {/* Summary Cards - all clickable, ticket cards grouped together */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
         <button
           onClick={() => setDashboardView('open-tickets')}
           className="bg-gray-800/50 border border-blue-500/30 hover:border-blue-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-blue-500/10 cursor-pointer"
@@ -964,7 +900,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
           className="bg-gray-800/50 border border-red-500/30 hover:border-red-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-red-500/10 cursor-pointer"
         >
           <div className="text-3xl font-bold text-red-400">{needsAction.length}</div>
-          <div className="text-sm text-gray-400 mt-1">Awaiting You</div>
+          <div className="text-sm text-gray-400 mt-1">Awaiting Your Team</div>
         </button>
         <button
           onClick={() => document.getElementById('projects-section')?.scrollIntoView({ behavior: 'smooth' })}
@@ -972,15 +908,6 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
         >
           <div className="text-3xl font-bold text-cyan-400">{activeProjects.length}</div>
           <div className="text-sm text-gray-400 mt-1">Active Projects</div>
-        </button>
-        <button
-          onClick={() => setDashboardView('hours-this-month')}
-          className="bg-gray-800/50 border border-violet-500/30 hover:border-violet-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-violet-500/10 cursor-pointer"
-        >
-          <div className="text-3xl font-bold text-violet-400">
-            {metrics ? `${metrics.hoursWorkedThisMonth}h` : '-'}
-          </div>
-          <div className="text-sm text-gray-400 mt-1">Hours This Month</div>
         </button>
       </div>
 
@@ -1058,7 +985,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
                     <span>-</span>
                     <span>{totalTasks} tasks</span>
                     {waiting > 0 && (
-                      <span className="text-red-400 font-medium">{waiting} needs you</span>
+                      <span className="text-red-400 font-medium">{waiting} awaiting your team</span>
                     )}
                   </div>
                   <div className="bg-gray-700 rounded-full h-2 overflow-hidden mb-2">
