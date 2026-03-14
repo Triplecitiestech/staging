@@ -644,8 +644,8 @@ export default function SocTicketDetail({ ticketId, onBack }: SocTicketDetailPro
                             </svg>
                             <span className="text-sm text-slate-300">
                               Send to: <span className="text-white font-medium">{recipient || 'Primary Contact'}</span>
-                              {action.actionPayload.companyName && (
-                                <span className="text-slate-500"> at {action.actionPayload.companyName as string}</span>
+                              {typeof payload.companyName === 'string' && payload.companyName && (
+                                <span className="text-slate-500"> at {payload.companyName}</span>
                               )}
                             </span>
                           </div>
