@@ -142,6 +142,7 @@ export interface TicketDetailProps {
   onNoteVisibilityChange?: (filters: NoteVisibilityFilters) => void;
   onBack: () => void;
   loading?: boolean;
+  notesError?: string | null;
   // Customer-only
   companySlug?: string;
   onReplySent?: () => void;

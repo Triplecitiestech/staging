@@ -164,7 +164,7 @@ export default function HealthReport() {
                       </td>
                       <td className="text-center px-4 py-3">
                         <button
-                          onClick={() => setExpanded(isExpanded ? null : score.companyId)}
+                          onClick={(e) => { e.stopPropagation(); setExpanded(isExpanded ? null : score.companyId) }}
                           className="text-xs text-cyan-400 hover:underline"
                         >
                           {isExpanded ? 'Hide' : 'Show'}
@@ -220,7 +220,7 @@ function ScoreBadge({ score, size = 'md' }: { score: number; size?: 'sm' | 'md' 
   const color =
     score >= 80 ? 'text-emerald-400' :
     score >= 60 ? 'text-cyan-400' :
-    score >= 40 ? 'text-orange-400' :
+    score >= 40 ? 'text-violet-400' :
     'text-rose-400'
 
   const sizeClass = size === 'sm' ? 'text-sm' : 'text-base font-bold'
@@ -232,7 +232,7 @@ function TierBadge({ tier }: { tier: string }) {
   const colors: Record<string, string> = {
     Healthy: 'text-emerald-400 bg-emerald-400/10',
     'Needs Attention': 'text-cyan-400 bg-cyan-400/10',
-    'At Risk': 'text-orange-400 bg-orange-400/10',
+    'At Risk': 'text-violet-400 bg-violet-400/10',
     Critical: 'text-rose-400 bg-rose-400/10',
   }
 

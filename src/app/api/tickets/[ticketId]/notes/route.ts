@@ -27,9 +27,9 @@ export async function GET(
 
   try {
     if (perspective === 'staff') {
-      return handleStaffNotes(request, ticketId);
+      return await handleStaffNotes(request, ticketId);
     }
-    return handleCustomerNotes(request, ticketId);
+    return await handleCustomerNotes(request, ticketId);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     console.error(`[api/tickets/${ticketId}/notes] Failed:`, message);

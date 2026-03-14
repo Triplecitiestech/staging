@@ -21,6 +21,7 @@ export default function CompanyDetail({ companyId }: CompanyDetailProps) {
   const [selectedTicket, setSelectedTicket] = useState<UnifiedTicketRow | null>(null)
   const [ticketNotes, setTicketNotes] = useState<UnifiedTicketNote[]>([])
   const [notesLoading, setNotesLoading] = useState(false)
+  const [notesError, setNotesError] = useState<string | null>(null)
   const [noteVisibility, setNoteVisibility] = useState<NoteVisibilityFilters>(DEFAULT_STAFF_VISIBILITY)
 
   const fetchData = useCallback(async () => {
@@ -40,6 +41,7 @@ export default function CompanyDetail({ companyId }: CompanyDetailProps) {
 
   const fetchNotes = useCallback(async (ticketId: string, vis: NoteVisibilityFilters) => {
     setNotesLoading(true)
+    setNotesError(null)
     try {
       const params = new URLSearchParams({
         perspective: 'staff',
@@ -52,9 +54,12 @@ export default function CompanyDetail({ companyId }: CompanyDetailProps) {
         const json = await res.json()
         setTicketNotes(json.notes || [])
       } else {
+        const errData = await res.json().catch(() => ({}))
+        setNotesError(errData.error || `Failed to load notes (HTTP ${res.status})`)
         setTicketNotes([])
       }
-    } catch {
+    } catch (err) {
+      setNotesError(err instanceof Error ? err.message : 'Failed to load notes')
       setTicketNotes([])
     }
     setNotesLoading(false)
@@ -87,6 +92,7 @@ export default function CompanyDetail({ companyId }: CompanyDetailProps) {
           onNoteVisibilityChange={handleNoteVisibilityChange}
           onBack={() => setSelectedTicket(null)}
           loading={notesLoading}
+          notesError={notesError}
         />
       </div>
     )

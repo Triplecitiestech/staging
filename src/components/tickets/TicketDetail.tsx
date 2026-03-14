@@ -15,6 +15,7 @@ export default function TicketDetail({
   onNoteVisibilityChange,
   onBack,
   loading = false,
+  notesError,
   companySlug,
   onReplySent,
 }: TicketDetailProps) {
@@ -151,6 +152,17 @@ export default function TicketDetail({
           <div className="relative pl-10 pb-4">
             <div className="absolute left-2.5 w-3 h-3 bg-gray-600 rounded-full border-2 border-gray-800 animate-pulse" />
             <p className="text-sm text-gray-500">Loading communications...</p>
+          </div>
+        )}
+
+        {/* Error */}
+        {!loading && notesError && (
+          <div className="relative pl-10 pb-4">
+            <div className="absolute left-2.5 w-3 h-3 bg-rose-500 rounded-full border-2 border-gray-800" />
+            <div className="bg-rose-500/10 border border-rose-500/20 rounded-lg px-4 py-3">
+              <p className="text-sm text-rose-400">Failed to load notes: {notesError}</p>
+              <p className="text-xs text-rose-300/60 mt-1">The ticket notes sync may need to be run. Check reporting sync status.</p>
+            </div>
           </div>
         )}
 
