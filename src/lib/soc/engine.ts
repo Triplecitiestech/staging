@@ -499,7 +499,7 @@ async function processIncidentGroup(
     tokensUsed: totalTokens,
     incidentId,
     actionPlan,
-    reasoning,
+    socReasoning: reasoning,
   };
 }
 

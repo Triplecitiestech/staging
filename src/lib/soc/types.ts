@@ -251,7 +251,7 @@ export interface TriageResult {
   tokensUsed: number;
   incidentId?: string;
   actionPlan?: IncidentActionPlan;
-  reasoning?: SocReasoning;
+  socReasoning?: SocReasoning;
 }
 
 // ── Proposed Actions (Dry Run Preview) ──
