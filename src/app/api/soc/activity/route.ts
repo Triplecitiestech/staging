@@ -3,6 +3,7 @@ import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 /** GET /api/soc/activity — Paginated SOC activity log (deduplicated) */
 export async function GET(request: NextRequest) {
