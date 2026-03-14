@@ -778,7 +778,7 @@ function AnalystMessage({ content, onCreateRule }: { content: string; onCreateRu
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-cyan-400">{String(part.rule.name)}</p>
-                  {part.rule.description && (
+                  {Boolean(part.rule.description) && (
                     <p className="text-xs text-slate-400 mt-0.5">{String(part.rule.description)}</p>
                   )}
                   <div className="flex items-center gap-2 mt-1 text-xs text-slate-500">
