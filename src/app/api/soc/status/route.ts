@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { getAutotaskWebUrl } from '@/lib/tickets/utils';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 /** GET /api/soc/status — SOC agent status and summary stats */
 export async function GET() {
@@ -13,49 +14,47 @@ export async function GET() {
   }
 
   try {
-    // Job status
-    const jobs = await prisma.$queryRaw<Array<{
-      jobName: string; lastRunAt: Date | null; lastRunStatus: string | null;
-      lastRunDurationMs: number | null; lastRunError: string | null;
-      lastRunMeta: Record<string, unknown> | null;
-    }>>`SELECT * FROM soc_job_status ORDER BY "lastRunAt" DESC NULLS LAST`;
-
-    // Config
-    const configRows = await prisma.$queryRaw<{ key: string; value: string }[]>`
-      SELECT key, value FROM soc_config
-    `;
-    const config = Object.fromEntries(configRows.map(r => [r.key, r.value]));
-
-    // Today's stats
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const [todayStats] = await prisma.$queryRaw<[{
-      total: bigint; false_positives: bigint; escalated: bigint; suspicious: bigint;
-    }]>`
-      SELECT
-        COUNT(*) as total,
-        COUNT(*) FILTER (WHERE verdict = 'false_positive') as false_positives,
-        COUNT(*) FILTER (WHERE verdict = 'escalate') as escalated,
-        COUNT(*) FILTER (WHERE verdict = 'suspicious') as suspicious
-      FROM soc_ticket_analysis
-      WHERE "processedAt" >= ${today}
-    `;
+    // Run all queries in parallel
+    const [jobs, configRows, todayStatsResult, pendingResult, recentIncidents] = await Promise.all([
+      prisma.$queryRaw<Array<{
+        jobName: string; lastRunAt: Date | null; lastRunStatus: string | null;
+        lastRunDurationMs: number | null; lastRunError: string | null;
+        lastRunMeta: Record<string, unknown> | null;
+      }>>`SELECT * FROM soc_job_status ORDER BY "lastRunAt" DESC NULLS LAST`
+        .catch(() => [] as Array<Record<string, unknown>>),
+      prisma.$queryRaw<{ key: string; value: string }[]>`
+        SELECT key, value FROM soc_config
+      `.catch(() => [] as { key: string; value: string }[]),
+      prisma.$queryRaw<[{
+        total: bigint; false_positives: bigint; escalated: bigint; suspicious: bigint;
+      }]>`
+        SELECT
+          COUNT(*) as total,
+          COUNT(*) FILTER (WHERE verdict = 'false_positive') as false_positives,
+          COUNT(*) FILTER (WHERE verdict = 'escalate') as escalated,
+          COUNT(*) FILTER (WHERE verdict = 'suspicious') as suspicious
+        FROM soc_ticket_analysis
+        WHERE "processedAt" >= ${today}
+      `.catch(() => [{ total: 0n, false_positives: 0n, escalated: 0n, suspicious: 0n }] as [{ total: bigint; false_positives: bigint; escalated: bigint; suspicious: bigint }]),
+      prisma.$queryRaw<[{ count: bigint }]>`
+        SELECT COUNT(*) as count FROM soc_ticket_analysis WHERE status = 'pending'
+      `.catch(() => [{ count: 0n }] as [{ count: bigint }]),
+      prisma.$queryRaw<Array<Record<string, unknown>>>`
+        SELECT id, title, "ticketCount", verdict, "confidenceScore", status, "createdAt",
+               "companyName", "deviceHostname", "alertSource", "correlationReason",
+               "proposedActions", "humanGuidance"
+        FROM soc_incidents
+        ORDER BY "createdAt" DESC
+        LIMIT 10
+      `.catch(() => [] as Array<Record<string, unknown>>),
+    ]);
 
-    // Pending count
-    const [pending] = await prisma.$queryRaw<[{ count: bigint }]>`
-      SELECT COUNT(*) as count FROM soc_ticket_analysis WHERE status = 'pending'
-    `;
-
-    // Recent incidents with action plan data
-    const recentIncidents = await prisma.$queryRaw<Array<Record<string, unknown>>>`
-      SELECT id, title, "ticketCount", verdict, "confidenceScore", status, "createdAt",
-             "companyName", "deviceHostname", "alertSource", "correlationReason",
-             "proposedActions", "humanGuidance"
-      FROM soc_incidents
-      ORDER BY "createdAt" DESC
-      LIMIT 10
-    `;
+    const config = Object.fromEntries(configRows.map(r => [r.key, r.value]));
+    const todayStats = todayStatsResult[0];
+    const pending = pendingResult[0];
 
     return NextResponse.json({
       jobs,

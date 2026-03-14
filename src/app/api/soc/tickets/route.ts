@@ -7,6 +7,7 @@ import type { SecurityTicket } from '@/lib/soc/types';
 import type { UnifiedTicketRow } from '@/types/tickets';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 interface SocAnalysis {
   autotaskTicketId: string;
@@ -99,28 +100,30 @@ export async function GET(request: NextRequest) {
       return isSecurityTicket(secTicket);
     });
 
-    // Resolve resource names
+    // Resolve resource names + time entries in parallel
     const resourceIds = Array.from(
       new Set(tickets.map(t => t.assignedResourceId).filter((v): v is number => v !== null)),
     );
-    const resources = resourceIds.length > 0
-      ? await prisma.resource.findMany({
-          where: { autotaskResourceId: { in: resourceIds } },
-          select: { autotaskResourceId: true, firstName: true, lastName: true },
-        })
-      : [];
+    const ticketIds = tickets.map(t => t.autotaskTicketId);
+
+    const [resources, timeEntries] = await Promise.all([
+      resourceIds.length > 0
+        ? prisma.resource.findMany({
+            where: { autotaskResourceId: { in: resourceIds } },
+            select: { autotaskResourceId: true, firstName: true, lastName: true },
+          })
+        : Promise.resolve([]),
+      ticketIds.length > 0
+        ? prisma.ticketTimeEntry.findMany({
+            where: { autotaskTicketId: { in: ticketIds } },
+            select: { autotaskTicketId: true, hoursWorked: true },
+          })
+        : Promise.resolve([]),
+    ]);
+
     const resourceNameMap = new Map(
       resources.map(r => [r.autotaskResourceId, `${r.firstName} ${r.lastName}`.trim()]),
     );
-
-    // Aggregate time entries per ticket
-    const ticketIds = tickets.map(t => t.autotaskTicketId);
-    const timeEntries = ticketIds.length > 0
-      ? await prisma.ticketTimeEntry.findMany({
-          where: { autotaskTicketId: { in: ticketIds } },
-          select: { autotaskTicketId: true, hoursWorked: true },
-        })
-      : [];
     const hoursByTicket = new Map<string, number>();
     for (const te of timeEntries) {
       hoursByTicket.set(te.autotaskTicketId, (hoursByTicket.get(te.autotaskTicketId) || 0) + te.hoursWorked);
