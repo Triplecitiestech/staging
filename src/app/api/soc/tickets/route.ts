@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { getAutotaskWebUrl, isResolvedStatus, PRIORITY_LABELS } from '@/lib/tickets/utils';
+import { isSecurityTicket } from '@/lib/soc/rules';
+import type { SecurityTicket } from '@/lib/soc/types';
 import type { UnifiedTicketRow } from '@/types/tickets';
 
 export const dynamic = 'force-dynamic';
@@ -28,8 +30,10 @@ export async function GET(request: NextRequest) {
     const fromDate = new Date();
     fromDate.setDate(fromDate.getDate() - days);
 
+    const filter = request.nextUrl.searchParams.get('filter') || 'actionable';
+
     // Fetch tickets from local DB
-    const tickets = await prisma.ticket.findMany({
+    const allTickets = await prisma.ticket.findMany({
       where: {
         createDate: { gte: fromDate },
       },
@@ -47,9 +51,51 @@ export async function GET(request: NextRequest) {
         completedDate: true,
         dueDateTime: true,
         companyId: true,
+        queueLabel: true,
+        sourceLabel: true,
         company: { select: { displayName: true } },
       },
       orderBy: { createDate: 'desc' },
+    });
+
+    // Get SOC analysis data for overlay (needed for filtering + display)
+    const allTicketIds = allTickets.map(t => t.autotaskTicketId);
+    let socAnalyses: SocAnalysis[] = [];
+    try {
+      if (allTicketIds.length > 0) {
+        socAnalyses = await prisma.$queryRaw<SocAnalysis[]>`
+          SELECT "autotaskTicketId", verdict, "confidenceScore", status
+          FROM soc_ticket_analysis
+          WHERE "autotaskTicketId" = ANY(${allTicketIds})
+        `;
+      }
+    } catch {
+      // SOC tables may not exist yet
+    }
+    const socMap = new Map(socAnalyses.map(a => [a.autotaskTicketId, a]));
+
+    // Filter to only SOC-actionable tickets (analyzed by SOC OR matches security filter)
+    const tickets = filter === 'all' ? allTickets : allTickets.filter(t => {
+      // Already analyzed by SOC agent
+      if (socMap.has(t.autotaskTicketId)) return true;
+      // Matches the security ticket filter (would be picked up by SOC)
+      const secTicket: SecurityTicket = {
+        autotaskTicketId: t.autotaskTicketId,
+        ticketNumber: t.ticketNumber,
+        companyId: t.companyId,
+        title: t.title,
+        description: t.description,
+        status: t.status,
+        statusLabel: t.statusLabel || '',
+        priority: t.priority,
+        priorityLabel: t.priorityLabel || '',
+        queueId: null,
+        queueLabel: t.queueLabel || null,
+        source: null,
+        sourceLabel: t.sourceLabel || null,
+        createDate: t.createDate.toISOString(),
+      };
+      return isSecurityTicket(secTicket);
     });
 
     // Resolve resource names
@@ -78,19 +124,6 @@ export async function GET(request: NextRequest) {
     for (const te of timeEntries) {
       hoursByTicket.set(te.autotaskTicketId, (hoursByTicket.get(te.autotaskTicketId) || 0) + te.hoursWorked);
     }
-
-    // Get SOC analysis data for overlay
-    let socAnalyses: SocAnalysis[] = [];
-    try {
-      socAnalyses = await prisma.$queryRaw<SocAnalysis[]>`
-        SELECT "autotaskTicketId", verdict, "confidenceScore", status
-        FROM soc_ticket_analysis
-        WHERE "autotaskTicketId" = ANY(${ticketIds})
-      `;
-    } catch {
-      // SOC tables may not exist yet
-    }
-    const socMap = new Map(socAnalyses.map(a => [a.autotaskTicketId, a]));
 
     const autotaskWebUrl = getAutotaskWebUrl();
     const round1 = (n: number) => Math.round(n * 10) / 10;
