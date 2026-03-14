@@ -5,7 +5,7 @@ import { loadSocConfig, loadActiveRules, runTriagePipeline } from '@/lib/soc/eng
 import type { SecurityTicket } from '@/lib/soc/types';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 /** POST /api/soc/run — Manual trigger for SOC triage pipeline */
 export async function POST(request: NextRequest) {
@@ -20,9 +20,9 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}));
     const ticketIds: string[] = body.ticketIds || [];
     const reprocess: boolean = body.reprocess || false;
-    // Reprocess is heavier (3 AI calls per ticket: screen + deep + action plan)
-    // so use a smaller default limit to stay within 60s function timeout
-    const defaultLimit = reprocess ? 10 : 50;
+    // Reprocess is heavier (up to 4 AI calls per ticket: screen + deep + reasoning + action plan)
+    // Each ticket takes ~15-25s, so limit reprocess to 5 tickets to stay within 300s timeout
+    const defaultLimit = reprocess ? 5 : 50;
     const limit = Math.min(body.limit || defaultLimit, 100);
 
     const config = await loadSocConfig();
@@ -66,18 +66,12 @@ export async function POST(request: NextRequest) {
       `;
     } else if (reprocess) {
       // Re-process all recent security tickets (clear old analyses first)
-      await prisma.$executeRawUnsafe(`
-        DELETE FROM soc_ticket_analysis WHERE "processedAt" > now() - interval '7 days'
-      `);
-      // Clear pending actions for incidents being reprocessed
-      await prisma.$executeRawUnsafe(`
-        DELETE FROM soc_pending_actions WHERE "incidentId" IN (
-          SELECT id FROM soc_incidents WHERE "createdAt" > now() - interval '7 days'
-        )
-      `);
-      await prisma.$executeRawUnsafe(`
-        DELETE FROM soc_incidents WHERE "createdAt" > now() - interval '7 days'
-      `);
+      // Delete analyses and pending actions in parallel, then incidents (which pending actions reference)
+      await Promise.all([
+        prisma.$executeRawUnsafe(`DELETE FROM soc_ticket_analysis WHERE "processedAt" > now() - interval '7 days'`),
+        prisma.$executeRawUnsafe(`DELETE FROM soc_pending_actions WHERE "incidentId" IN (SELECT id FROM soc_incidents WHERE "createdAt" > now() - interval '7 days')`),
+      ]);
+      await prisma.$executeRawUnsafe(`DELETE FROM soc_incidents WHERE "createdAt" > now() - interval '7 days'`);
       tickets = await prisma.$queryRaw<SecurityTicket[]>`
         SELECT
           t."autotaskTicketId",
