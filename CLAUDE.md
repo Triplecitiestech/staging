@@ -5,8 +5,9 @@
 **Start every session by reading, in order:**
 1. `docs/architecture.md` — System architecture, data flows, integration diagrams
 2. `docs/system-map.md` — Codebase map: which files own which subsystem
-3. `docs/session-summary.md` — Current state, recent changes, key decisions
-4. `docs/current-tasks.md` — Active development work and outstanding items
+3. `docs/data-model.md` — Database schema, entity relationships, data flows
+4. `docs/session-summary.md` — Current state, recent changes, key decisions
+5. `docs/current-tasks.md` — Active development work and outstanding items
 
 **Use for implementation and testing rules:**
 - `docs/coding-standards.md` — Engineering standards, QA process, ship cycle
@@ -30,7 +31,7 @@ If you encounter an error — a build failure, a lint warning, a type mismatch, 
 - **Run `npm run test:e2e` on every deploy/change.** The e2e test suite covers ALL systems (admin pages, public pages, customer portal, blog, marketing, SOC, Autotask sync, API health). Every test must pass before pushing. If a test fails, fix the root cause before proceeding.
 - Review your own `git diff` before committing — look for typos, broken imports, missing responsive classes.
 - Check that UI changes work at mobile (`sm`/`md`) AND desktop (`lg`+) breakpoints by reviewing Tailwind classes. Every layout must use responsive grid/flex patterns.
-- **Full QA is mandatory** — see `ENGINEERING_STANDARDS.md` and `QA_STANDARDS.md` for the complete process.
+- **Full QA is mandatory** — see `docs/coding-standards.md` and `docs/qa-standards.md` for the complete process.
 - Completion means the feature works end-to-end, not just that it compiles.
 
 ### 3. Every completed task must be committed and pushed.
@@ -49,6 +50,66 @@ If `npm run build` fails, read the error, fix the code, rebuild. If a push fails
 
 ### 6. Keep CLAUDE.md up to date.
 When the user corrects you or you learn a new project convention, update this file so future sessions don't repeat the mistake. Add it under the appropriate section or add a new Gotcha.
+
+---
+
+## Duplicate Prevention Rules
+
+Before implementing any feature or adding any module:
+
+1. **Search the repository first.** Use grep/glob to find existing implementations of the functionality you are about to build.
+2. **Reuse or extend existing modules** whenever possible. This codebase has 100+ API routes, 20+ reporting modules, and 30+ component directories — the feature you need may already exist.
+3. **Do not create parallel implementations** of existing systems. There must be exactly one Autotask client, one Prisma client, one permission system, one ticket adapter, etc.
+4. **Do not create new files** unless there is a clear architectural reason that the functionality cannot live in an existing file.
+5. **If similar functionality already exists**, extend it, refactor it, or explain to the user why a new implementation is necessary before proceeding.
+
+Violating these rules creates maintenance burden and divergent behavior. When in doubt, read the Source of Truth Rules below.
+
+---
+
+## Source of Truth Rules
+
+These are the authoritative modules for each subsystem. Claude must use these — never create duplicate clients, alternate service layers, or replacement adapters unless there is explicit architectural justification approved by the user.
+
+| Subsystem | Authoritative Module | Notes |
+|-----------|---------------------|-------|
+| Autotask API client | `src/lib/autotask.ts` | All Autotask REST calls go through this client |
+| Prisma / Database | `src/lib/prisma.ts` | Singleton PrismaClient with PrismaPg adapter |
+| Security utilities | `src/lib/security.ts` | Rate limiting, input sanitization, CSRF |
+| Staff permissions | `src/lib/permissions.ts` | Role-based access control (SUPER_ADMIN, ADMIN, BILLING_ADMIN, TECHNICIAN) |
+| Unified ticket system | `src/lib/tickets/` | Adapters, types, and utils consumed by all ticket views |
+| SOC engine | `src/lib/soc/` | Engine, correlation, rules, prompts, types |
+| Reporting engine | `src/lib/reporting/` | 20+ modules: sync, aggregation, analytics, health score, SLA, etc. |
+| Blog generation | `src/lib/blog-generator.ts` | AI content generation via Claude API |
+| Demo mode | `src/lib/demo-mode.ts` | Contoso Industries demo data |
+| Error logging | `src/lib/error-logger.ts` | Centralized error logging to ErrorLog model |
+| API usage tracking | `src/lib/api-usage-tracker.ts` | Tracks AI/email/API usage to ApiUsageLog |
+| Customer portal data | `src/lib/onboarding-data.ts` | Portal data loading |
+| Customer portal auth | `src/lib/onboarding-session.ts` | Portal session management |
+
+**Rule**: If you need functionality that one of these modules provides, import and use it. If it needs to be extended, extend the existing module. Do not create `autotask-v2.ts`, `prisma-new.ts`, `security-utils.ts`, or similar parallel files.
+
+---
+
+## Implementation Guardrail
+
+Before writing any code for a new feature or change, Claude must:
+
+1. **Inspect the existing subsystem** — Read the relevant source-of-truth modules and related files to understand current behavior.
+2. **Explain how the requested work fits** into the existing architecture. If the change crosses subsystem boundaries, identify which modules are affected.
+3. **Confirm whether the feature already exists** in full or in part. If it does, state what exists and propose extending it rather than rebuilding.
+4. **Prefer extending existing systems over rebuilding them.** Refactoring is acceptable when it improves the existing module; replacement requires explicit user approval.
+
+This guardrail prevents wasted work and architectural drift. Skip it only for trivial changes (typo fixes, single-line config changes).
+
+---
+
+## File Creation Policy
+
+- **Prefer modifying existing files** over creating new ones. Most changes belong in an existing module, component, or route handler.
+- **Do not create `*-v2`, `*-new`, `*-alt`, or parallel utility files.** If the existing file needs improvement, improve it in place.
+- **Only create new files** when separation is architecturally justified — e.g., a genuinely new subsystem, a new API route for a new resource, or a new component that has no logical home in existing files.
+- When creating a new file, explain why it cannot live in an existing file.
 
 ---
 
@@ -127,7 +188,7 @@ src/
   hooks/                # Custom React hooks
   middleware.ts         # Security headers, suspicious request blocking
 prisma/
-  schema.prisma         # 500+ line schema, 30+ models
+  schema.prisma         # 1300+ line schema, 35+ models (see docs/data-model.md)
   migrations/           # Database migrations
 tests/
   e2e/                  # 30+ Playwright test specs
@@ -163,7 +224,7 @@ tests/
 
 ## Authentication
 
-- Azure AD OAuth for staff (roles: ADMIN, MANAGER, VIEWER)
+- Azure AD OAuth for staff (roles: SUPER_ADMIN, ADMIN, BILLING_ADMIN, TECHNICIAN)
 - Staff users stored in `staff_users` table
 - Customer portal uses separate password-based auth
 - Session strategy: database-backed
@@ -182,7 +243,7 @@ tests/
 
 **Unified Ticket System**: Shared `UnifiedTicket` type with adapters (`src/lib/tickets/adapters.ts`) consumed by all views (admin, SOC, customer portal, reporting). Shared components in `src/components/tickets/` (table, detail, priority badge, SLA indicator, timeline).
 
-**Staff Permissions**: Centralized role-based permissions at `src/lib/permissions.ts`. Three roles (ADMIN, MANAGER, VIEWER) with granular feature-level checks.
+**Staff Permissions**: Centralized role-based permissions at `src/lib/permissions.ts`. Four roles (SUPER_ADMIN, ADMIN, BILLING_ADMIN, TECHNICIAN) with granular feature-level checks.
 
 **Marketing Campaigns**: Audience targeting (per-company + Autotask Contact Action Groups + manual), content visibility system, AI content refinement, delivery modes with magic link tokens. Pages at `/admin/marketing/*`.
 
@@ -245,7 +306,7 @@ When ending a session or preparing for a new one, follow these steps:
 1. **Update `docs/session-summary.md`** — Record what was built, key decisions made, and any outstanding work
 2. **Update `docs/current-tasks.md`** — Add new tasks discovered, mark completed ones, remove stale items
 3. **Commit and push** all changes to the working branch
-4. **Start new session** — The new session will reload context using the bootstrap docs (architecture → system-map → session-summary → current-tasks)
+4. **Start new session** — The new session will reload context using the bootstrap docs (architecture → system-map → data-model → session-summary → current-tasks)
 
 This ensures session continuity even when context is lost between sessions.
 
@@ -288,7 +349,7 @@ This is the **primary external data source** for companies, projects, phases, an
 - **CSP is strict**: Adding any third-party resource requires updating headers in `next.config.js`
 - **Serverless timeout**: 30s max for API routes (blog generation can be tight)
 - **ChatGenie widget**: Must use standard `<script>` tag, not Next.js `<Script>` component
-- **No test suite**: `npm run build` and `npm run lint` are the quality gates — always run both
+- **Quality gates**: `npm run build`, `npm run lint`, and `npm run test:e2e` are the quality gates — always run all three before pushing
 - **Production migrations**: Must use API endpoints, not Prisma CLI
 - **Mobile matters**: Every UI change must account for `sm`/`md`/`lg` breakpoints. Never ship desktop-only layouts.
 - **Autotask API has multiple entity paths**: Tasks can be at `Projects/{id}/Tasks`, `ProjectTasks`, or `Tasks`. Phases can be at `Projects/{id}/Phases` or `Phases`. The client tries multiple paths with fallbacks.
@@ -339,8 +400,9 @@ All marketing pages (`/admin/marketing/*`) must include AdminHeader and the ambi
 docs/
   architecture.md        # System architecture (bootstrap doc 1)
   system-map.md          # Codebase map (bootstrap doc 2)
-  session-summary.md     # Current state & recent changes (bootstrap doc 3)
-  current-tasks.md       # Active work items (bootstrap doc 4)
+  data-model.md          # Database schema & entity relationships (bootstrap doc 3)
+  session-summary.md     # Current state & recent changes (bootstrap doc 4)
+  current-tasks.md       # Active work items (bootstrap doc 5)
   coding-standards.md    # Engineering standards (implementation rules)
   qa-standards.md        # QA checklist (testing rules)
   UI_STANDARDS.md        # UI design standards, forbidden colors
@@ -353,6 +415,7 @@ docs/
 ### Authoritative docs (read at session start):
 - `docs/architecture.md` — System architecture, data flows, integration diagrams
 - `docs/system-map.md` — Which files own which subsystem
+- `docs/data-model.md` — Database schema, entity relationships, data flows
 - `docs/session-summary.md` — Current state, recent changes, key decisions
 - `docs/current-tasks.md` — Active development work
 
@@ -386,7 +449,49 @@ docs/
 ### Archive (`docs/archive/`):
 - Historical session summaries and superseded documents
 
+## Temporary Development Shortcuts
+
+> **These practices are intentionally kept in place to speed up active development. They are NOT production-ready and must be cleaned up before broader customer-facing rollout.**
+
+The following convenience-oriented practices currently exist in this documentation and codebase:
+
+1. **Hardcoded secrets in CLAUDE.md** — MIGRATION_SECRET and CRON_SECRET values are listed below for fast Claude session access. These must be removed from documentation before customer-facing production expands.
+2. **Auto-deploy from all branches** — Vercel auto-deploys preview environments from every push. This accelerates development but means any branch push creates a publicly accessible preview.
+3. **Auto-merge workflow** — Claude branches auto-merge to main via GitHub Actions, which triggers production deployment. This is fast but bypasses manual review.
+4. **Direct secret references in sync endpoints** — The Autotask sync trigger uses `?secret=MIGRATION_SECRET` in query params for convenience.
+5. **Impersonation endpoint** — `/api/onboarding/impersonate` allows staff to access customer portal sessions. Useful for development/support but requires audit before broader rollout.
+6. **Debug endpoints accessible** — `/admin/debug/failures`, `/admin/setup`, `/admin/run-migration`, `/blog/setup` are accessible with minimal auth guards.
+
+**Rules for Claude sessions:**
+- **Preserve** these shortcuts for now unless the user explicitly asks to remove them.
+- **Do not expand** these shortcuts further (e.g., do not add more hardcoded secrets, do not add more unguarded endpoints).
+- **Do not treat these as patterns to follow** for new code. New features should follow proper security practices.
+
+---
+
+## Pre-Launch Cleanup Required
+
+> **Checklist for hardening before broader customer-facing production access. This is a future task — not the immediate priority — but it must be completed before the platform is opened to customers beyond the current controlled group.**
+
+- [ ] **Remove secrets from documentation** — Remove MIGRATION_SECRET and CRON_SECRET values from CLAUDE.md. Reference environment variables only.
+- [ ] **Move all secrets to environment-variable-only handling** — Ensure no secret values appear in source code, documentation, or URL query parameters.
+- [ ] **Review deployment and branch protection rules** — Add required reviews for main branch, restrict auto-merge to passing CI only.
+- [ ] **Review auto-deploy behavior** — Ensure customer-facing production deploys require explicit approval or at minimum passing e2e tests.
+- [ ] **Audit auth flows and impersonation** — Review `/api/onboarding/impersonate` for proper authorization, logging, and rate limiting. Consider adding audit trail for impersonation sessions.
+- [ ] **Review logging for secret leakage** — Audit all `console.log` statements to ensure no secrets, tokens, or sensitive customer data appear in Vercel function logs.
+- [ ] **Validate production-safe migration procedures** — Ensure database migrations cannot be triggered by unauthorized parties. Review MIGRATION_SECRET rotation policy.
+- [ ] **Audit admin/debug endpoints** — Add session auth guards to `/admin/setup`, `/admin/run-migration`, `/blog/setup`. Consider removing or restricting `/admin/debug/failures` in production.
+- [ ] **Confirm CSP and third-party script usage** — Review `'unsafe-inline'` in production CSP. Implement CSP violation reporting (`report-uri` / `report-to`).
+- [ ] **Review demo mode and internal-only tools** — Ensure demo mode cannot be accidentally activated in production by non-staff users.
+- [ ] **Verify preview/production environment separation** — Ensure preview deployments cannot access production data or send real emails to customers.
+- [ ] **Audit customer portal security** — Review password hashing, session handling, rate limiting on auth endpoints, and contact role enforcement.
+- [ ] **Review MCP server access** — Ensure the MCP server (`mcp-server/`) is not deployed or accessible in production environments.
+
+---
+
 ## Known Secrets & API Endpoints
+
+> **TEMPORARY DEVELOPMENT CONVENIENCE** — These values are listed here to speed up Claude sessions during active development. They must be removed before broader production rollout. See "Pre-Launch Cleanup Required" above.
 
 **MIGRATION_SECRET**: `Ty3svIEQ5Ehntq4xJzYjAUT5UptrYXOj7tseRTxHYDI=`
 **CRON_SECRET**: `a63d095dce16b3ad9d55cc79a3db7b9f600502272033b8c3284673e23d757cb1`

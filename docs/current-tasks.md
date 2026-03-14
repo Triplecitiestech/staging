@@ -63,3 +63,17 @@ Active development work and outstanding items. Only currently active work belong
 - `'unsafe-inline'` in production CSP script-src
 - `CRON_SECRET` vs `AUTOTASK_SYNC_SECRET` naming inconsistency
 - `TestFailure` Prisma model exists but all queries use raw SQL
+
+---
+
+## Future Required: Pre-Launch Cleanup
+
+> **Not the immediate priority**, but must be completed before the platform is opened to customers beyond the current controlled group. Full checklist is in `CLAUDE.md` under "Pre-Launch Cleanup Required".
+
+Key items:
+- Remove hardcoded secrets from documentation (CLAUDE.md)
+- Audit auth flows, impersonation, and debug endpoints
+- Review auto-deploy and auto-merge behavior
+- Harden customer portal security
+- Implement CSP violation reporting
+- Verify preview/production environment separation
