@@ -332,9 +332,20 @@ const MIGRATION_STATEMENTS = [
  * Fully idempotent — safe to run multiple times. SQL is inlined so it
  * does not depend on filesystem access (works in Vercel serverless).
  */
+function checkAuth(request: NextRequest): boolean {
+  const expected = process.env.MIGRATION_SECRET;
+  if (!expected) return false;
+  // Accept query param: ?secret=XXX
+  const querySecret = request.nextUrl.searchParams.get('secret');
+  if (querySecret === expected) return true;
+  // Accept Bearer token: Authorization: Bearer XXX
+  const authHeader = request.headers.get('authorization');
+  if (authHeader === `Bearer ${expected}`) return true;
+  return false;
+}
+
 async function runMigration(request: NextRequest) {
-  const secret = request.nextUrl.searchParams.get('secret');
-  if (secret !== process.env.MIGRATION_SECRET) {
+  if (!checkAuth(request)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -435,8 +446,7 @@ export async function POST(request: NextRequest) {
  * Run the migration (convenience for CLI when POST is difficult).
  */
 export async function GET(request: NextRequest) {
-  const secret = request.nextUrl.searchParams.get('secret');
-  if (secret !== process.env.MIGRATION_SECRET) {
+  if (!checkAuth(request)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
