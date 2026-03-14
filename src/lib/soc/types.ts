@@ -5,7 +5,7 @@
 // ── Ticket Analysis ──
 
 export type AnalysisStatus = 'pending' | 'processing' | 'completed' | 'error' | 'skipped';
-export type Verdict = 'false_positive' | 'suspicious' | 'escalate' | 'informational';
+export type Verdict = 'false_positive' | 'expected_activity' | 'suspicious' | 'escalate' | 'informational' | 'confirmed_threat';
 export type RecommendedAction = 'close' | 'merge' | 'investigate' | 'escalate';
 export type AlertSource = 'saas_alerts' | 'datto_edr' | 'rocketcyber' | 'unknown';
 export type AlertCategory =
@@ -154,6 +154,49 @@ export interface DeepAnalysisResult {
   riskLevel: 'none' | 'low' | 'medium' | 'high' | 'critical';
 }
 
+// ── Reasoning Layer ──
+
+export type Classification =
+  | 'false_positive'
+  | 'expected_activity'
+  | 'informational'
+  | 'suspicious'
+  | 'confirmed_threat';
+
+export type RiskLevel = 'none' | 'low' | 'medium' | 'high' | 'critical';
+
+export interface EvidenceItem {
+  /** Display label, e.g. "Login Location", "Device", "IP Reputation" */
+  label: string;
+  /** The value, e.g. "Manila, Philippines", "ACME-WKS-001 (verified)" */
+  value: string;
+  /** Color-coding hint: positive=benign, negative=concerning, neutral=context, info=supplemental */
+  type: 'neutral' | 'positive' | 'negative' | 'info';
+}
+
+export interface SocReasoning {
+  /** Plain-language summary of what happened, 2-4 sentences */
+  incidentSummary: string;
+  /** 5-value classification */
+  classification: Classification;
+  /** Risk assessment */
+  riskLevel: RiskLevel;
+  /** Confidence in the classification, 0.0-1.0 */
+  confidence: number;
+  /** 1-3 sentence explanation of why this classification was chosen */
+  assessmentRationale: string;
+  /** Dynamic evidence items — only fields relevant to this specific alert */
+  evidence: EvidenceItem[];
+  /** Clear recommendation for what to do with the ticket */
+  recommendedAction: string;
+  /** Whether a customer message is truly necessary */
+  customerMessageRequired: boolean;
+  /** Draft customer message (only when customerMessageRequired=true) */
+  customerMessageDraft: string | null;
+  /** Full internal investigation note for Autotask */
+  internalNote: string;
+}
+
 // ── Processing Pipeline ──
 
 export interface SecurityTicket {
@@ -208,6 +251,7 @@ export interface TriageResult {
   tokensUsed: number;
   incidentId?: string;
   actionPlan?: IncidentActionPlan;
+  reasoning?: SocReasoning;
 }
 
 // ── Proposed Actions (Dry Run Preview) ──

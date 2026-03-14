@@ -80,6 +80,7 @@ export async function POST(request: Request) {
       await prisma.$executeRawUnsafe(`ALTER TABLE soc_incidents ADD COLUMN IF NOT EXISTS "companyName" TEXT`);
       await prisma.$executeRawUnsafe(`ALTER TABLE soc_incidents ADD COLUMN IF NOT EXISTS "customerCommunication" JSONB`);
       await prisma.$executeRawUnsafe(`ALTER TABLE soc_incidents ADD COLUMN IF NOT EXISTS "nextCycleChecks" JSONB`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE soc_incidents ADD COLUMN IF NOT EXISTS reasoning JSONB`);
     } catch { /* columns may already exist */ }
     created.push('soc_incidents');
 
@@ -237,7 +238,7 @@ export async function POST(request: Request) {
       ['max_ai_calls_per_run', '100'],
       ['screening_model', 'claude-haiku-4-5-20251001'],
       ['deep_analysis_model', 'claude-sonnet-4-6'],
-      ['internal_site_ids', '[]'],
+      ['internal_site_ids', '["177027"]'],
     ];
     for (const [key, value] of defaults) {
       await prisma.$executeRawUnsafe(`
