@@ -2,7 +2,20 @@
 
 > **This is the single source of truth for every Claude Code session.** Read this file first. It tells you how to behave, how to ship, and how to avoid mistakes.
 
-**Before performing development work, read:** `docs/CLAUDE_SESSION_START.md` — it defines the mandatory startup checklist, required reading order, and completion criteria for every session.
+**Start every session by reading, in order:**
+1. `docs/architecture.md` — System architecture, data flows, integration diagrams
+2. `docs/system-map.md` — Codebase map: which files own which subsystem
+3. `docs/session-summary.md` — Current state, recent changes, key decisions
+4. `docs/current-tasks.md` — Active development work and outstanding items
+
+**Use for implementation and testing rules:**
+- `docs/coding-standards.md` — Engineering standards, QA process, ship cycle
+- `docs/qa-standards.md` — QA checklist, validation report template, severity levels
+
+**Supporting documentation** (read when working on specific features):
+- Documents under `/docs/plans/`, `/docs/reference/`, or `/docs/archive/` are supporting material
+- They should NOT override architecture decisions unless explicitly referenced
+- See the Additional Documentation section below for the full index
 
 ---
 
@@ -225,6 +238,19 @@ When the user corrects a mistake or a session reveals a new convention:
 
 This ensures the same mistake never happens twice across sessions.
 
+## Session Reset Workflow
+
+When ending a session or preparing for a new one, follow these steps:
+
+1. **Update `docs/session-summary.md`** — Record what was built, key decisions made, and any outstanding work
+2. **Update `docs/current-tasks.md`** — Add new tasks discovered, mark completed ones, remove stale items
+3. **Commit and push** all changes to the working branch
+4. **Start new session** — The new session will reload context using the bootstrap docs (architecture → system-map → session-summary → current-tasks)
+
+This ensures session continuity even when context is lost between sessions.
+
+---
+
 ## Autotask Integration — Key Knowledge
 
 This is the **primary external data source** for companies, projects, phases, and tasks. The owner considers Autotask data authoritative. See `AUTOTASK_SYNC.md` for full docs.
@@ -307,33 +333,58 @@ All marketing pages (`/admin/marketing/*`) must include AdminHeader and the ambi
 
 ## Additional Documentation
 
-Detailed guides in the repo root — read these when working on specific features:
+### Documentation Hierarchy
 
-**Read at session start (mandatory):**
-- `docs/CLAUDE_SESSION_START.md` — **Session startup checklist** — read this first for the required reading order and completion criteria
-- `ENGINEERING_STANDARDS.md` — **Mandatory** engineering standards, QA process, testing safety rules, root cause fixing, single source of truth, separation of responsibilities, sensitive data filtering
-- `QA_STANDARDS.md` — **Mandatory** QA checklist, validation report template, severity levels
-- `docs/UI_STANDARDS.md` — UI design standards, forbidden colors, color palette, component conventions
+```
+docs/
+  architecture.md        # System architecture (bootstrap doc 1)
+  system-map.md          # Codebase map (bootstrap doc 2)
+  session-summary.md     # Current state & recent changes (bootstrap doc 3)
+  current-tasks.md       # Active work items (bootstrap doc 4)
+  coding-standards.md    # Engineering standards (implementation rules)
+  qa-standards.md        # QA checklist (testing rules)
+  UI_STANDARDS.md        # UI design standards, forbidden colors
+  runbooks/              # Incident response, debugging workflows
+  plans/                 # Project plans, design documents
+  reference/             # Setup guides, feature docs, historical
+  archive/               # Old session summaries, superseded docs
+```
 
-**Architecture & reliability:**
-- `docs/ARCHITECTURE.md` — System architecture, data flows, key entity diagrams
-- `docs/SELF_HEALING_AND_RELIABILITY.md` — API response envelopes, structured logging, timeouts, retry logic, idempotency
-- `docs/RUNBOOK.md` — Incident response procedures, diagnostics, rollback steps
-- `docs/DEBUGGING_WORKFLOW.md` — AI self-healing debugging workflow, failure capture, Claude debugging process
+### Authoritative docs (read at session start):
+- `docs/architecture.md` — System architecture, data flows, integration diagrams
+- `docs/system-map.md` — Which files own which subsystem
+- `docs/session-summary.md` — Current state, recent changes, key decisions
+- `docs/current-tasks.md` — Active development work
 
-**Feature-specific:**
-- `CLAUDE_SESSION_PREFERENCES.md` — Full session workflow and communication preferences
-- `PROJECT_OVERVIEW.md` — Comprehensive architecture reference
-- `BLOG_SYSTEM_README.md` — AI blog generation system
+### Implementation rules:
+- `docs/coding-standards.md` — Engineering standards, QA process, ship cycle, safety rules
+- `docs/qa-standards.md` — QA checklist, validation report template, severity levels
+- `docs/UI_STANDARDS.md` — Approved colors, forbidden colors, design patterns
+
+### Runbooks (`docs/runbooks/`):
+- `RUNBOOK.md` — Incident response procedures, diagnostics, rollback steps
+- `DEBUGGING_WORKFLOW.md` — AI self-healing debugging workflow, failure capture
+
+### Plans (`docs/plans/`):
+- `SOC_REDESIGN_PLAN.md` — SOC Analyst Agent redesign plan
+- `plan.md` — General implementation plans
 - `OLUJO_PROJECT.md` — Olujo brand awareness CRM project
-- `ONBOARDING_PORTAL.md` — Customer onboarding portal
-- `docs/CUSTOMER_INVITE_AND_ONBOARDING.md` — Customer invite system and portal roles
-- `AZURE_AD_SETUP.md` — Microsoft OAuth configuration
+- `PROJECT_OVERVIEW.md` — Comprehensive architecture reference
+
+### Reference (`docs/reference/`):
 - `AUTOTASK_SYNC.md` — Autotask PSA integration (sync system, API, troubleshooting)
-- `docs/REPORTING_ARCHITECTURE.md` — Reporting pipeline architecture
-- `docs/PERFORMANCE_ANALYSIS.md` — Performance analysis and optimization
-- `docs/session-summary.md` — Current session state and recent changes
-- `CONTENT_EDITING_GUIDE.md`, `SPAM_PROTECTION.md`, `DATABASE_SETUP.md`, and others
+- `REPORTING_ARCHITECTURE.md` — Reporting pipeline architecture
+- `CUSTOMER_INVITE_AND_ONBOARDING.md` — Customer invite system and portal roles
+- `ONBOARDING_PORTAL.md` — Customer onboarding portal
+- `BLOG_SYSTEM_README.md` — AI blog generation system
+- `CLAUDE_SESSION_PREFERENCES.md` — Session workflow and communication preferences
+- `AZURE_AD_SETUP.md` — Microsoft OAuth configuration
+- `DATABASE_SETUP.md` — Database setup guide
+- `COMPLETE_RESEND_SETUP_GUIDE.md` — Resend email setup
+- `CONTENT_EDITING_GUIDE.md`, `SPAM_PROTECTION.md`, `SELF_HEALING_AND_RELIABILITY.md`, and others
+
+### Archive (`docs/archive/`):
+- Historical session summaries and superseded documents
 
 ## Known Secrets & API Endpoints
 
