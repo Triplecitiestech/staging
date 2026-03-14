@@ -425,7 +425,7 @@ export default function SocDashboardClient() {
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-1 border-b border-white/10 pb-px">
+      <div className="flex items-center gap-1 border-b border-white/10 pb-px overflow-x-auto scrollbar-hide -mx-4 px-4 sm:mx-0 sm:px-0 sm:overflow-x-visible">
         {[
           { key: 'tickets' as const, label: 'Security Alerts', count: openSecurityTickets.length },
           { key: 'activity' as const, label: 'Activity Feed' },
@@ -434,7 +434,7 @@ export default function SocDashboardClient() {
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+            className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium rounded-t-lg transition-colors whitespace-nowrap ${
               activeTab === tab.key
                 ? 'bg-slate-800/50 text-white border-b-2 border-cyan-500'
                 : 'text-slate-400 hover:text-white hover:bg-white/5'
@@ -442,16 +442,16 @@ export default function SocDashboardClient() {
           >
             {tab.label}
             {tab.count != null && (
-              <span className="ml-1.5 text-xs text-slate-500">({tab.count})</span>
+              <span className="ml-1 sm:ml-1.5 text-xs text-slate-500">({tab.count})</span>
             )}
           </button>
         ))}
-        <div className="flex-1" />
-        <div className="flex gap-2">
-          <Link href="/admin/soc/rules" className="px-3 py-1.5 text-xs text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg transition-colors">
+        <div className="flex-1 min-w-[8px]" />
+        <div className="flex gap-1.5 sm:gap-2 flex-shrink-0">
+          <Link href="/admin/soc/rules" className="px-2.5 sm:px-3 py-1.5 text-xs text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg transition-colors whitespace-nowrap">
             Rules
           </Link>
-          <Link href="/admin/soc/config" className="px-3 py-1.5 text-xs text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg transition-colors">
+          <Link href="/admin/soc/config" className="px-2.5 sm:px-3 py-1.5 text-xs text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg transition-colors whitespace-nowrap">
             Config
           </Link>
         </div>
@@ -475,9 +475,10 @@ export default function SocDashboardClient() {
                 <button
                   key={ticket.ticketId}
                   onClick={() => setSelectedTicketId(ticket.ticketId)}
-                  className="w-full text-left px-4 py-3 hover:bg-white/5 transition-colors"
+                  className="w-full text-left px-3 sm:px-4 py-3 hover:bg-white/5 transition-colors"
                 >
-                  <div className="flex items-center gap-3">
+                  {/* Desktop: single row layout */}
+                  <div className="hidden sm:flex items-center gap-3">
                     {/* Verdict indicator */}
                     <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
                       ticket.socVerdict === 'false_positive' ? 'bg-green-500'
@@ -530,6 +531,43 @@ export default function SocDashboardClient() {
                     <svg className="w-4 h-4 text-slate-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                     </svg>
+                  </div>
+
+                  {/* Mobile: stacked layout */}
+                  <div className="sm:hidden">
+                    <div className="flex items-start gap-2">
+                      <div className={`w-2 h-2 rounded-full flex-shrink-0 mt-1.5 ${
+                        ticket.socVerdict === 'false_positive' ? 'bg-green-500'
+                        : ticket.socVerdict === 'escalate' ? 'bg-red-500'
+                        : ticket.socVerdict === 'suspicious' ? 'bg-rose-500'
+                        : ticket.socVerdict === 'informational' ? 'bg-blue-500'
+                        : 'bg-slate-600'
+                      }`} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-mono text-slate-500 flex-shrink-0">#{ticket.ticketNumber}</span>
+                          <span className="text-sm text-white line-clamp-2">{ticket.title}</span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-1 text-xs text-slate-500 flex-wrap">
+                          {ticket.companyName && <span className="text-cyan-400/70">{ticket.companyName}</span>}
+                          <span>{ticket.priorityLabel}</span>
+                          <span>{ticket.assignedTo}</span>
+                          {ticket.socVerdict && (
+                            <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded-full border ${
+                              ticket.socVerdict === 'false_positive' ? 'bg-green-500/20 text-green-400 border-green-500/30'
+                              : ticket.socVerdict === 'escalate' ? 'bg-red-500/20 text-red-400 border-red-500/30'
+                              : ticket.socVerdict === 'suspicious' ? 'bg-rose-500/20 text-rose-400 border-rose-500/30'
+                              : 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+                            }`}>
+                              {ticket.socVerdict.replace(/_/g, ' ')}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <svg className="w-4 h-4 text-slate-600 flex-shrink-0 mt-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                    </div>
                   </div>
                 </button>
               ))}
