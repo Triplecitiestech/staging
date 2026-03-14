@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { getAutotaskWebUrl } from '@/lib/tickets/utils';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 /**
  * GET /api/soc/tickets/[id]/analysis
@@ -21,89 +22,74 @@ export async function GET(
 
   const { id: autotaskTicketId } = await params;
 
-  // Fetch the ticket itself
-  const ticket = await prisma.ticket.findUnique({
-    where: { autotaskTicketId },
-    select: {
-      autotaskTicketId: true,
-      ticketNumber: true,
-      title: true,
-      description: true,
-      status: true,
-      statusLabel: true,
-      priority: true,
-      priorityLabel: true,
-      assignedResourceId: true,
-      createDate: true,
-      completedDate: true,
-      queueLabel: true,
-      sourceLabel: true,
-      companyId: true,
-      company: { select: { displayName: true, slug: true } },
-    },
-  });
+  // Run ticket fetch and SOC analysis fetch in parallel
+  const [ticket, analysisResult] = await Promise.all([
+    prisma.ticket.findUnique({
+      where: { autotaskTicketId },
+      select: {
+        autotaskTicketId: true,
+        ticketNumber: true,
+        title: true,
+        description: true,
+        status: true,
+        statusLabel: true,
+        priority: true,
+        priorityLabel: true,
+        assignedResourceId: true,
+        createDate: true,
+        completedDate: true,
+        queueLabel: true,
+        sourceLabel: true,
+        companyId: true,
+        company: { select: { displayName: true, slug: true } },
+      },
+    }),
+    prisma.$queryRaw<Array<Record<string, unknown>>>`
+      SELECT * FROM soc_ticket_analysis
+      WHERE "autotaskTicketId" = ${autotaskTicketId}
+      ORDER BY "processedAt" DESC
+      LIMIT 1
+    `.catch(() => [] as Array<Record<string, unknown>>),
+  ]);
 
   if (!ticket) {
     return NextResponse.json({ error: 'Ticket not found' }, { status: 404 });
   }
 
-  // Resolve assigned technician name
-  let assignedTo = 'Unassigned';
-  if (ticket.assignedResourceId) {
-    const resource = await prisma.resource.findUnique({
-      where: { autotaskResourceId: ticket.assignedResourceId },
-      select: { firstName: true, lastName: true },
-    });
-    if (resource) {
-      assignedTo = `${resource.firstName} ${resource.lastName}`.trim();
-    }
-  }
+  const analysis = analysisResult[0] || null;
 
-  // Fetch SOC analysis for this ticket
-  let analysis: Record<string, unknown> | null = null;
-  try {
-    const analyses = await prisma.$queryRaw<Array<Record<string, unknown>>>`
-      SELECT * FROM soc_ticket_analysis
-      WHERE "autotaskTicketId" = ${autotaskTicketId}
-      ORDER BY "processedAt" DESC
-      LIMIT 1
-    `;
-    analysis = analyses[0] || null;
-  } catch {
-    // SOC tables may not exist
-  }
+  // Resolve resource name + incident data in parallel
+  const incidentId = analysis?.incidentId ? String(analysis.incidentId) : null;
 
-  // If there's an incident, fetch the action plan from the incident
-  let incidentActionPlan: Record<string, unknown> | null = null;
-  let pendingActions: Array<Record<string, unknown>> = [];
-  if (analysis?.incidentId) {
-    try {
-      const incidents = await prisma.$queryRaw<Array<Record<string, unknown>>>`
-        SELECT id, title, verdict, "confidenceScore", "aiSummary",
-               "proposedActions", "humanGuidance", "customerCommunication",
-               "nextCycleChecks", "supportingReasoning", status,
-               "correlationReason", "ticketCount"
-        FROM soc_incidents
-        WHERE id = ${String(analysis.incidentId)}
-      `;
-      if (incidents.length > 0) {
-        incidentActionPlan = incidents[0];
-      }
-    } catch {
-      // Non-fatal
-    }
+  const [resource, incidentResult, pendingResult] = await Promise.all([
+    ticket.assignedResourceId
+      ? prisma.resource.findUnique({
+          where: { autotaskResourceId: ticket.assignedResourceId },
+          select: { firstName: true, lastName: true },
+        })
+      : null,
+    incidentId
+      ? prisma.$queryRaw<Array<Record<string, unknown>>>`
+          SELECT id, title, verdict, "confidenceScore", "aiSummary",
+                 "proposedActions", "humanGuidance", "customerCommunication",
+                 "nextCycleChecks", "supportingReasoning", status,
+                 "correlationReason", "ticketCount"
+          FROM soc_incidents
+          WHERE id = ${incidentId}
+        `.catch(() => [] as Array<Record<string, unknown>>)
+      : [],
+    incidentId
+      ? prisma.$queryRaw<Array<Record<string, unknown>>>`
+          SELECT * FROM soc_pending_actions
+          WHERE "autotaskTicketId" = ${autotaskTicketId}
+          ORDER BY "createdAt" DESC
+        `.catch(() => [] as Array<Record<string, unknown>>)
+      : [],
+  ]);
 
-    // Fetch pending actions for this specific ticket
-    try {
-      pendingActions = await prisma.$queryRaw<Array<Record<string, unknown>>>`
-        SELECT * FROM soc_pending_actions
-        WHERE "autotaskTicketId" = ${autotaskTicketId}
-        ORDER BY "createdAt" DESC
-      `;
-    } catch {
-      // Non-fatal
-    }
-  }
+  const assignedTo = resource
+    ? `${resource.firstName} ${resource.lastName}`.trim()
+    : 'Unassigned';
 
   return NextResponse.json({
     ticket: {
@@ -124,8 +110,8 @@ export async function GET(
       companySlug: ticket.company?.slug || null,
     },
     analysis,
-    incidentActionPlan,
-    pendingActions,
+    incidentActionPlan: incidentResult[0] || null,
+    pendingActions: pendingResult,
     autotaskWebUrl: getAutotaskWebUrl(),
   });
 }
