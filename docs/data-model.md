@@ -352,16 +352,19 @@ The database has two layers:
 
 These tables are created via `/api/soc/migrate` and managed with raw SQL queries.
 
-| Table | Purpose |
-|-------|---------|
-| `soc_ticket_analysis` | AI screening results for tickets — severity classification, action plans, OSINT prompts |
-| `soc_incidents` | Correlated incident groups linking related tickets |
-| `soc_activity_log` | Full audit trail of SOC actions (screening, triage, approvals) |
-| `soc_rules` | Suppression and correlation rules (editable via admin UI) |
-| `soc_config` | Key-value configuration (dry_run mode, thresholds, AI model, etc.) |
-| `soc_pending_actions` | Human approval queue for automated response actions |
-| `soc_job_status` | SOC pipeline job execution tracking |
-| `datto_devices` | Cached Datto RMM devices for technician IP verification |
+| Table | Purpose | Key Columns |
+|-------|---------|-------------|
+| `soc_ticket_analysis` | Per-ticket AI screening results — verdict, confidence, alertSource, alertCategory, aiReasoning, recommendedAction | `autotaskTicketId` (unique), `incidentId`, `verdict`, `confidenceScore`, `alertSource`, `alertCategory` |
+| `soc_incidents` | Correlated incident groups linking related tickets, with reasoning layer | `reasoning` (JSONB — `SocReasoning` document), `proposedActions` (JSONB, legacy), `humanGuidance` (JSONB, legacy), `customerCommunication` (JSONB, legacy), `verdict`, `confidenceScore`, `aiSummary` |
+| `soc_activity_log` | Full audit trail of SOC actions (screening, triage, approvals) | `action`, `detail`, `aiReasoning`, `metadata` (JSONB) |
+| `soc_pending_actions` | Human approval queue for automated response actions | `actionType` (add_note, send_customer_message, status_change, etc.), `actionPayload` (JSONB), `status` (pending/approved/rejected/executed/failed) |
+| `soc_rules` | Suppression and correlation rules (editable via admin UI) | `ruleType`, `pattern` (JSONB), `action`, `isActive`, `matchCount` |
+| `soc_config` | Key-value configuration (dry_run mode, thresholds, AI model, internal_site_ids, etc.) | `key` (unique), `value` |
+| `soc_job_status` | SOC pipeline job execution tracking | `jobName` (unique), `lastRunAt`, `lastRunStatus`, `lastRunMeta` (JSONB) |
+| `soc_communications` | Communication lifecycle tracking (outbound messages, follow-ups) | `incidentId`, `direction`, `messageType`, `status`, `followUpDueAt` |
+| `datto_devices` | Cached Datto RMM devices for technician IP verification | `dattoDeviceId` (unique), `hostname`, `extIpAddress`, `intIpAddress`, `lastUser`, `siteId`, `isTechDevice` |
+
+**Reasoning layer (2026-03-14)**: The `soc_incidents.reasoning` JSONB column stores a `SocReasoning` document with: `incidentSummary`, `classification` (5-value), `riskLevel`, `confidence`, `assessmentRationale`, `evidence[]` (dynamic items), `recommendedAction`, `customerMessageRequired`, `customerMessageDraft`, `internalNote`. Old records without this column use legacy `proposedActions`/`humanGuidance`/`customerCommunication` columns.
 
 **Used in**: SOC dashboard (`/admin/soc/*`), SOC triage engine (`src/lib/soc/engine.ts`)
 
@@ -639,11 +642,14 @@ Autotask Tickets API
 ```
 Ticket table (cached Autotask tickets)
   → SOC Engine (src/lib/soc/engine.ts)
-    → Claude AI classification
-      → soc_ticket_analysis (screening results)
+    → Tier 1: Claude Haiku screening → soc_ticket_analysis
+      → Tier 2: Claude Sonnet deep analysis (if needed)
         → Correlation → soc_incidents
-          → Human approval → soc_pending_actions
-            → Action execution → soc_activity_log
+          → Context enrichment (historical FP rate, technician roster, device verification)
+            → Tier 3: Claude Sonnet reasoning → SocReasoning JSONB on soc_incidents
+              → Derive pending actions (customer messages gated by customerMessageRequired)
+                → Human approval → soc_pending_actions
+                  → Action execution → soc_activity_log
 ```
 
 ### Blog Publishing Pipeline
@@ -764,10 +770,11 @@ BlogPost
 └── BlogTag (many-to-many)
 
 --- Raw SQL (not Prisma-managed) ---
-soc_ticket_analysis ── soc_incidents
+soc_ticket_analysis ── soc_incidents (reasoning JSONB)
 soc_rules             soc_config
 soc_activity_log      soc_pending_actions
-soc_job_status        datto_devices
+soc_job_status        soc_communications
+datto_devices
 ```
 
 ---

@@ -1,8 +1,8 @@
 # Session Summary
 
 > Last updated: 2026-03-14
-> Branch: `claude/load-project-context-64BuJ`
-> Latest commit: `81ea52f`
+> Branch: `claude/review-platform-architecture-gSIQc`
+> Latest commit: `c70b54b`
 > Previous summary: `docs/SYSTEM_STATE_SUMMARY.md` (2026-03-07)
 
 ---
@@ -64,7 +64,7 @@ Triple Cities Tech is a Next.js 15 App Router application deployed on Vercel (ia
 ## Recent Changes (Since 2026-03-07)
 
 ### Major Features Added
-1. **SOC Analyst Agent** — Full AI-driven security alert triage system with: ticket ingestion from Autotask, AI classification/severity, human approval workflow, OSINT prompts, action plans, merge recommendations, activity feed, trend analysis, AI-generated rules, Approve All button, cleanup endpoint, reprocess capability
+1. **SOC Analyst Agent + Reasoning Layer** — Full AI-driven security alert triage system with: ticket ingestion from Autotask, AI classification/severity, human approval workflow, OSINT prompts, action plans, merge recommendations, activity feed, trend analysis, AI-generated rules, Approve All button, cleanup endpoint, reprocess capability. **New (2026-03-14):** Reasoning layer with 5-value classification (false_positive, expected_activity, informational, suspicious, confirmed_threat), dynamic investigation evidence, customer message gating, technician roster context, historical FP rate computation, and reasoning-first UI layout
 2. **Reporting overhaul** — Rebuilt to use real-time queries from raw Ticket tables; added AI assistant with full conversation history, business review PDF (professional design, downloadable), SLA metrics aligned with Autotask agreement, auto-chaining backfill, self-healing pipeline
 3. **Platform monitoring dashboard** — System health cards on admin home, Autotask sync logs page, AI usage tracking, threshold alerts, historical DB response time graph
 4. **Unified ticket system** — Shared ticket types, adapters, API endpoints, and components integrated across all views (admin, SOC, customer portal, reporting)
@@ -76,6 +76,11 @@ Triple Cities Tech is a Next.js 15 App Router application deployed on Vercel (ia
 10. **MCP server** — Direct database and API access tool for development/debugging
 
 ### Key Bug Fixes
+- SOC: 504 timeouts on `/api/soc/tickets`, `/api/soc/status`, `/api/soc/activity` (added `maxDuration = 60`, parallelized queries with `Promise.all`)
+- SOC: BigInt literal build error (`0n` → `BigInt(0)` for ES target compat)
+- SOC: Type conflict — duplicate `reasoning` field on `TriageResult` (renamed to `socReasoning`)
+- SOC: Historical FP rate was hardcoded to null/0 (now computed from `soc_ticket_analysis`)
+- SOC: `internal_site_ids` was empty (seeded with TCT's Datto RMM site ID `177027`)
 - Silent catch bug in Autotask cron sync phase/task fetching
 - Prisma 'column does not exist' errors (migration `20260310000000_add_missing_columns`)
 - Customer portal 404 (DB errors swallowed in `companyExists`)
@@ -100,7 +105,7 @@ Triple Cities Tech is a Next.js 15 App Router application deployed on Vercel (ia
 
 1. **Real-time reporting over pre-aggregated** — Reporting queries raw Ticket tables directly rather than maintaining aggregation tables, with self-healing table creation and batched backfill to manage Vercel timeouts.
 
-2. **SOC human-in-the-loop** — AI classifies and recommends actions but requires human approval before any automated response. Approve All for batch processing, per-ticket detail for manual review.
+2. **SOC reasoning-first model** — AI investigates → summarizes → assesses risk → recommends actions. The reasoning layer produces a structured `SocReasoning` document with 5-value classification, dynamic evidence items, and gated customer messages. Human approval required before any automated response. Approve All for batch processing, per-ticket detail for manual review.
 
 3. **Unified ticket types** — Single `UnifiedTicket` type with adapters (`src/lib/tickets/adapters.ts`) so all views (admin, SOC, portal, reporting) consume the same data shape.
 

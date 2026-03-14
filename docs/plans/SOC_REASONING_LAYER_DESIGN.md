@@ -1,5 +1,18 @@
 # SOC Reasoning Layer — Design Proposal
 
+> **Status: IMPLEMENTED (2026-03-14)**
+> Phase 1 has been fully implemented across 6 files. The reasoning layer is live and will be used for all new SOC analyses. Old records without reasoning data fall back to the legacy layout.
+>
+> **Implemented files:**
+> - `src/lib/soc/types.ts` — Added `Classification`, `EvidenceItem`, `SocReasoning`, `RiskLevel` types
+> - `src/lib/soc/prompts.ts` — Added `buildReasoningPrompt()` with 5-value classification, dynamic evidence, customer message gating, technician roster context, historical FP rate
+> - `src/lib/soc/engine.ts` — Added `generateReasoning()`, `getHistoricalFpRate()`, `getTechnicianRoster()`; updated pipeline to use reasoning-first with legacy fallback; customer messages gated by `customerMessageRequired`
+> - `src/app/api/soc/migrate/route.ts` — Added `reasoning JSONB` column to `soc_incidents`; seeded `internal_site_ids` with `["177027"]`
+> - `src/app/api/soc/tickets/[id]/analysis/route.ts` — Returns `reasoning` field from incident data
+> - `src/components/soc/SocTicketDetail.tsx` — Reasoning-first UI: Summary → Assessment → Evidence → Action → Approvals → Technical Details (collapsed); legacy fallback for old records
+>
+> **What remains for Phase 2 (future):** OSINT API integrations (AbuseIPDB, VirusTotal, AlienVault OTX), Datto RMM job/session data, auto-action tiers, IP reputation lookups
+
 ## Problem Statement
 
 The current SOC dashboard shows raw alert data and immediately presents actionable buttons ("Add Note", "Send Customer Message") without clearly communicating **what the AI determined** about the alert. A technician opening a ticket sees the raw alert, a verdict badge, and proposed Autotask changes — but the system doesn't explain its reasoning in a structured, human-friendly way.
@@ -341,12 +354,12 @@ The current system is too eager with customer messages. The new policy encoded i
 
 ---
 
-## Open Questions for Discussion
+## Open Questions — Resolved
 
-1. **Should "Expected Activity" auto-close without pending action?** If a technician login is classified as Expected Activity with 95% confidence, should it skip the approval queue entirely?
+1. **Should "Expected Activity" auto-close without pending action?** — *Not yet. Currently all verdicts go through approval queue. Auto-action tiers are Phase 2.*
 
-2. **Should the evidence items have a fixed maximum?** The AI could return 20 evidence items for a complex alert. Should we cap at, say, 8 and put the rest in Technical Details?
+2. **Should the evidence items have a fixed maximum?** — *No cap implemented. The AI's prompt instructs it to include only relevant items (typically 3-8). The UI renders all items returned.*
 
-3. **Should the old `escalate` verdict records be migrated to `confirmed_threat`?** Or keep `escalate` as-is for historical records and only use `confirmed_threat` for new analyses?
+3. **Should the old `escalate` verdict records be migrated to `confirmed_threat`?** — *No migration. Old records keep `escalate` value. New analyses use `confirmed_threat`. The UI handles both.*
 
-4. **Should the reasoning document replace or supplement the current `proposedActions` JSONB?** Current approach: replace for new analyses, keep old data for backwards compat. Alternative: store both and let the UI prefer reasoning.
+4. **Should the reasoning document replace or supplement the current `proposedActions` JSONB?** — *Supplement. Both are stored. The UI checks for `reasoning` first, falls back to legacy `proposedActions`/`humanGuidance`/`customerCommunication` for old records. The `socReasoning` field on `TriageResult` holds the structured reasoning (renamed from `reasoning` to avoid conflict with the string `reasoning` field).*

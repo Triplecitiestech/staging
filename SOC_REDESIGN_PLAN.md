@@ -1,5 +1,27 @@
 # SOC Analyst Agent Redesign Plan
 
+> **Status: PHASE 1 COMPLETE (2026-03-14)**
+>
+> The **Reasoning Layer** (Phase 1) has been implemented. This adds a structured reasoning document (`SocReasoning`) to every new analysis with 5-value classification, dynamic evidence items, customer message gating, and a reasoning-first UI layout. See `docs/plans/SOC_REASONING_LAYER_DESIGN.md` for the detailed design.
+>
+> **What's implemented:**
+> - 5-value classification system (false_positive, expected_activity, informational, suspicious, confirmed_threat)
+> - Dynamic `EvidenceItem[]` array with color-coded indicators (positive/negative/neutral/info)
+> - `buildReasoningPrompt()` with technician roster context and historical FP rate
+> - `generateReasoning()` engine integration with legacy fallback
+> - Customer messages gated by `customerMessageRequired` flag
+> - Reasoning-first UI: Summary → Assessment → Evidence → Recommended Action → Actions → Technical Details
+> - `reasoning JSONB` column on `soc_incidents`
+> - `internal_site_ids` seeded with TCT's Datto RMM site ID `177027`
+>
+> **What remains (Phase 2 — future):**
+> - OSINT API integrations (AbuseIPDB, VirusTotal, AlienVault OTX, ip-api.com)
+> - Auto-action tiers (Tier 1 full auto, Tier 2 semi-auto, Tier 3/4 human required)
+> - Single-pass AI analysis (replacing 3-call pipeline with 1-2 calls)
+> - `soc_osint_cache` table and enrichment context
+> - Dashboard stat card updates (auto-resolved, awaiting review metrics)
+> - Incidents list verdict badge updates
+
 ## Problem Statement
 
 The current SOC system behaves like a traditional alerting system that generates investigation checklists for humans. The AI classifies alerts and proposes actions, but does not perform actual investigative work (OSINT, threat intelligence, reputation lookups). The UI is verbose, showing reasoning chains, step-by-step playbooks, and duplicated information instead of concise investigation results.
