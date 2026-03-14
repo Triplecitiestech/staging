@@ -2,10 +2,10 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
-import { TicketTable, TicketDetail } from '@/components/tickets'
-import type { UnifiedTicketRow, UnifiedTicketNote, NoteVisibilityFilters } from '@/types/tickets'
-import { DEFAULT_STAFF_VISIBILITY } from '@/types/tickets'
+import { TicketTable } from '@/components/tickets'
+import type { UnifiedTicketRow } from '@/types/tickets'
 import StatCard from '@/components/reporting/StatCard'
+import SocTicketDetail from './SocTicketDetail'
 
 interface JobStatus {
   jobName: string
@@ -90,11 +90,8 @@ export default function SocDashboardClient() {
   const [runError, setRunError] = useState<string | null>(null)
   const [lastRunResult, setLastRunResult] = useState<RunResultData | null>(null)
 
-  // Ticket detail view state
-  const [selectedTicket, setSelectedTicket] = useState<UnifiedTicketRow | null>(null)
-  const [ticketNotes, setTicketNotes] = useState<UnifiedTicketNote[]>([])
-  const [notesLoading, setNotesLoading] = useState(false)
-  const [noteVisibility, setNoteVisibility] = useState<NoteVisibilityFilters>(DEFAULT_STAFF_VISIBILITY)
+  // SOC ticket detail view state
+  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
     try {
@@ -118,41 +115,8 @@ export default function SocDashboardClient() {
 
   useEffect(() => { fetchData() }, [fetchData])
 
-  const fetchNotes = useCallback(async (ticketId: string, vis: NoteVisibilityFilters) => {
-    setNotesLoading(true)
-    try {
-      const params = new URLSearchParams({
-        perspective: 'staff',
-        showExternal: String(vis.showExternal),
-        showInternal: String(vis.showInternal),
-        showSystem: String(vis.showSystem),
-      })
-      const res = await fetch(`/api/tickets/${ticketId}/notes?${params.toString()}`)
-      if (res.ok) {
-        const json = await res.json()
-        setTicketNotes(json.notes || [])
-      } else {
-        setTicketNotes([])
-      }
-    } catch {
-      setTicketNotes([])
-    }
-    setNotesLoading(false)
-  }, [])
-
   const handleTicketClick = (ticketId: string) => {
-    const ticket = ticketsData?.tickets.find(t => t.ticketId === ticketId)
-    if (ticket) {
-      setSelectedTicket(ticket)
-      fetchNotes(ticketId, noteVisibility)
-    }
-  }
-
-  const handleNoteVisibilityChange = (newVis: NoteVisibilityFilters) => {
-    setNoteVisibility(newVis)
-    if (selectedTicket) {
-      fetchNotes(selectedTicket.ticketId, newVis)
-    }
+    setSelectedTicketId(ticketId)
   }
 
   const handleRunNow = async (reprocess = false) => {
@@ -202,20 +166,13 @@ export default function SocDashboardClient() {
     )
   }
 
-  // If a ticket is selected, show the detail view
-  if (selectedTicket) {
+  // If a ticket is selected, show the SOC-specific detail view
+  if (selectedTicketId) {
     return (
-      <div className="space-y-6">
-        <TicketDetail
-          ticket={selectedTicket}
-          notes={ticketNotes}
-          perspective="staff"
-          noteVisibility={noteVisibility}
-          onNoteVisibilityChange={handleNoteVisibilityChange}
-          onBack={() => { setSelectedTicket(null); setTicketNotes([]) }}
-          loading={notesLoading}
-        />
-      </div>
+      <SocTicketDetail
+        ticketId={selectedTicketId}
+        onBack={() => setSelectedTicketId(null)}
+      />
     )
   }
 
@@ -413,7 +370,7 @@ export default function SocDashboardClient() {
       {/* Tabs */}
       <div className="flex items-center gap-1 border-b border-white/10 pb-px">
         {/* Ticket scope filter */}
-        <div className="flex items-center gap-1 bg-slate-800/50 rounded-lg p-0.5 mr-2">
+        <div className="relative group flex items-center gap-1 bg-slate-800/50 rounded-lg p-0.5 mr-2">
           <button
             onClick={() => setTicketFilter('actionable')}
             className={`px-2 py-1 text-xs rounded-md transition-colors ${
@@ -430,6 +387,13 @@ export default function SocDashboardClient() {
           >
             All
           </button>
+          {/* Tooltip explaining filter behavior */}
+          <div className="absolute top-full left-0 mt-2 w-72 bg-slate-900 border border-white/10 rounded-lg p-3 shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 pointer-events-none">
+            <p className="text-xs font-medium text-white mb-1">SOC Only Filter</p>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Shows tickets from security monitoring queues (Security Monitoring Alert, Managed SOC) and tickets matching security keywords (malware, phishing, suspicious login, etc.). Hides general service desk tickets.
+            </p>
+          </div>
         </div>
         {[
           { key: 'open' as const, label: 'Open Tickets', count: ticketsData?.openCount },
