@@ -68,19 +68,43 @@ export async function GET(
         WHERE sa."autotaskTicketId" = ${autotaskTicketId}
         ORDER BY sa."processedAt" DESC
         LIMIT 1
-      `.catch(() => [] as Array<Record<string, unknown>>),
+      `.catch((err: unknown) => {
+        console.error('[soc/tickets/analysis] JOIN query failed:', err);
+        return [] as Array<Record<string, unknown>>;
+      }),
       prisma.$queryRaw<Array<Record<string, unknown>>>`
         SELECT * FROM soc_pending_actions
         WHERE "autotaskTicketId" = ${autotaskTicketId}
         ORDER BY "createdAt" DESC
-      `.catch(() => [] as Array<Record<string, unknown>>),
+      `.catch((err: unknown) => {
+        console.error('[soc/tickets/analysis] pending actions query failed:', err);
+        return [] as Array<Record<string, unknown>>;
+      }),
     ]);
+
+    // If the JOIN query failed silently, try a simpler query without the soc_incidents JOIN
+    let finalAnalysisRows = analysisRows;
+    if (finalAnalysisRows.length === 0) {
+      try {
+        finalAnalysisRows = await prisma.$queryRaw<Array<Record<string, unknown>>>`
+          SELECT * FROM soc_ticket_analysis
+          WHERE "autotaskTicketId" = ${autotaskTicketId}
+          ORDER BY "processedAt" DESC
+          LIMIT 1
+        `;
+        if (finalAnalysisRows.length > 0) {
+          console.warn('[soc/tickets/analysis] JOIN query returned empty but fallback found analysis — soc_incidents table may have issues');
+        }
+      } catch {
+        // soc_ticket_analysis table itself may not exist
+      }
+    }
 
     const assignedTo = resource
       ? `${resource.firstName} ${resource.lastName}`.trim()
       : 'Unassigned';
 
-    const row = analysisRows[0] || null;
+    const row = finalAnalysisRows[0] || null;
 
     // Split the joined row into analysis + incident plan
     const analysis = row ? {
