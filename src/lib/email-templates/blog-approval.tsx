@@ -11,394 +11,293 @@ export interface BlogApprovalEmailProps {
 
 /**
  * Generate HTML email for blog post approval
+ * Designed for compatibility with Outlook, Gmail, and mobile clients.
+ * Uses table-based layout for maximum email client support.
  */
 export function generateBlogApprovalEmail(props: BlogApprovalEmailProps): string {
   const { blogPost, approvalToken, previewUrl, approveUrl, rejectUrl, editUrl } = props;
 
+  const contentPreview = convertMarkdownToHtml(blogPost.content.substring(0, 800));
+  const truncated = blogPost.content.length > 800;
+
   return `
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Blog Post Approval: ${blogPost.title}</title>
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="x-apple-disable-message-reformatting">
+  <title>Blog Post Approval: ${escapeHtml(blogPost.title)}</title>
+  <!--[if mso]>
+  <noscript>
+    <xml>
+      <o:OfficeDocumentSettings>
+        <o:PixelsPerInch>96</o:PixelsPerInch>
+      </o:OfficeDocumentSettings>
+    </xml>
+  </noscript>
+  <![endif]-->
   <style>
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-      line-height: 1.6;
-      color: #333;
-      background-color: #f5f5f5;
-      margin: 0;
-      padding: 20px;
-    }
-    .container {
-      max-width: 800px;
-      margin: 0 auto;
-      background: white;
-      border-radius: 8px;
-      overflow: hidden;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    }
-    .header {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      padding: 30px;
-      text-align: center;
-    }
-    .header h1 {
-      margin: 0;
-      font-size: 24px;
-    }
-    .content {
-      padding: 30px;
-    }
-    .alert {
-      background: #fff3cd;
-      border-left: 4px solid #ffc107;
-      padding: 15px;
-      margin: 20px 0;
-      border-radius: 4px;
-    }
-    .alert-title {
-      font-weight: bold;
-      margin-bottom: 5px;
-    }
-    .blog-preview {
-      background: #f8f9fa;
-      border: 1px solid #dee2e6;
-      border-radius: 8px;
-      padding: 20px;
-      margin: 20px 0;
-    }
-    .blog-preview h2 {
-      margin-top: 0;
-      color: #667eea;
-    }
-    .blog-content {
-      line-height: 1.8;
-      color: #495057;
-    }
-    .meta-info {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 15px;
-      margin: 20px 0;
-      padding: 15px;
-      background: #f8f9fa;
-      border-radius: 4px;
-    }
-    .meta-item {
-      font-size: 14px;
-    }
-    .meta-label {
-      font-weight: bold;
-      color: #6c757d;
-      display: block;
-      margin-bottom: 5px;
-    }
-    .social-previews {
-      margin: 30px 0;
-    }
-    .social-preview {
-      border: 1px solid #dee2e6;
-      border-radius: 8px;
-      padding: 20px;
-      margin: 15px 0;
-      background: white;
-    }
-    .social-preview h3 {
-      margin-top: 0;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .platform-badge {
-      display: inline-block;
-      padding: 4px 12px;
-      border-radius: 20px;
-      font-size: 12px;
-      font-weight: bold;
-      text-transform: uppercase;
-    }
-    .facebook { background: #1877f2; color: white; }
-    .instagram { background: #e4405f; color: white; }
-    .linkedin { background: #0077b5; color: white; }
-    .social-content {
-      padding: 15px;
-      background: #f8f9fa;
-      border-radius: 4px;
-      margin-top: 10px;
-      white-space: pre-wrap;
-    }
-    .hashtags {
-      color: #667eea;
-      margin-top: 10px;
-      font-size: 14px;
-    }
-    .action-buttons {
-      display: flex;
-      gap: 15px;
-      margin: 30px 0;
-      flex-wrap: wrap;
-    }
-    .btn {
-      display: inline-block;
-      padding: 12px 30px;
-      text-decoration: none;
-      border-radius: 6px;
-      font-weight: bold;
-      text-align: center;
-      cursor: pointer;
-      transition: all 0.3s;
-    }
-    .btn-approve {
-      background: #28a745;
-      color: white;
-    }
-    .btn-approve:hover {
-      background: #218838;
-    }
-    .btn-reject {
-      background: #dc3545;
-      color: white;
-    }
-    .btn-reject:hover {
-      background: #c82333;
-    }
-    .btn-edit {
-      background: #6c757d;
-      color: white;
-    }
-    .btn-edit:hover {
-      background: #5a6268;
-    }
-    .btn-preview {
-      background: #667eea;
-      color: white;
-    }
-    .btn-preview:hover {
-      background: #5568d3;
-    }
-    .footer {
-      background: #f8f9fa;
-      padding: 20px;
-      text-align: center;
-      font-size: 14px;
-      color: #6c757d;
-      border-top: 1px solid #dee2e6;
-    }
-    .keywords {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-top: 10px;
-    }
-    .keyword-tag {
-      background: #e7f3ff;
-      color: #0066cc;
-      padding: 4px 12px;
-      border-radius: 20px;
-      font-size: 12px;
-    }
-    @media (max-width: 600px) {
-      .container {
-        margin: 0;
-        border-radius: 0;
-      }
-      .action-buttons {
-        flex-direction: column;
-      }
-      .btn {
-        width: 100%;
-      }
-      .meta-info {
-        grid-template-columns: 1fr;
-      }
+    body { margin: 0; padding: 0; background-color: #0f172a; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
+    table { border-spacing: 0; border-collapse: collapse; }
+    td { padding: 0; }
+    img { border: 0; }
+    a { color: #60a5fa; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    @media only screen and (max-width: 620px) {
+      .container { width: 100% !important; }
+      .mobile-padding { padding-left: 16px !important; padding-right: 16px !important; }
+      .btn-stack { display: block !important; width: 100% !important; margin-bottom: 8px !important; }
+      .social-grid { display: block !important; }
+      .social-grid td { display: block !important; width: 100% !important; }
     }
   </style>
 </head>
-<body>
-  <div class="container">
-    <!-- Header -->
-    <div class="header">
-      <h1>🎉 New Blog Post Ready for Review</h1>
-      <p style="margin: 10px 0 0; opacity: 0.9;">AI-generated draft awaiting your approval</p>
-    </div>
-
-    <!-- Main Content -->
-    <div class="content">
-      <!-- Alert -->
-      <div class="alert">
-        <div class="alert-title">⏰ Action Required</div>
-        <div>Please review this blog post and either approve it for publication or provide feedback for revision.</div>
-      </div>
-
-      <!-- Action Buttons -->
-      <div class="action-buttons">
-        <a href="${approveUrl}" class="btn btn-approve">✅ Approve & Schedule</a>
-        <a href="${rejectUrl}" class="btn btn-reject">❌ Request Changes</a>
-        <a href="${editUrl}" class="btn btn-edit">✏️ Edit in Admin Panel</a>
-        <a href="${previewUrl}" class="btn btn-preview">👁️ Full Preview</a>
-      </div>
-
-      <!-- Blog Post Preview -->
-      <div class="blog-preview">
-        <h2>${blogPost.title}</h2>
-
-        <div class="meta-info">
-          <div class="meta-item">
-            <span class="meta-label">Category</span>
-            ${blogPost.category}
-          </div>
-          <div class="meta-item">
-            <span class="meta-label">Reading Time</span>
-            ${blogPost.readingTime}
-          </div>
-          <div class="meta-item">
-            <span class="meta-label">Excerpt</span>
-            ${blogPost.excerpt}
-          </div>
-          <div class="meta-item">
-            <span class="meta-label">SEO Keywords</span>
-            <div class="keywords">
-              ${blogPost.keywords.map(k => `<span class="keyword-tag">${k}</span>`).join('')}
-            </div>
-          </div>
-        </div>
-
-        <div class="blog-content">
-          ${convertMarkdownToHtml(blogPost.content.substring(0, 1000))}
-          ${blogPost.content.length > 1000 ? `<p><em>... (content truncated in email, <a href="${previewUrl}">view full post</a>)</em></p>` : ''}
-        </div>
-      </div>
-
-      <!-- Social Media Previews -->
-      <div class="social-previews">
-        <h3 style="color: #667eea; border-bottom: 2px solid #667eea; padding-bottom: 10px;">
-          📱 Social Media Previews
-        </h3>
-
-        <!-- Facebook -->
-        <div class="social-preview">
-          <h3>
-            <span class="platform-badge facebook">Facebook</span>
-            ${blogPost.socialMedia.facebook.title}
-          </h3>
-          <div class="social-content">
-${blogPost.socialMedia.facebook.description}
-
-Read more: www.triplecitiestech.com/blog
-          </div>
-          <div class="hashtags">${blogPost.socialMedia.facebook.hashtags.join(' ')}</div>
-        </div>
-
-        <!-- Instagram -->
-        <div class="social-preview">
-          <h3>
-            <span class="platform-badge instagram">Instagram</span>
-            Instagram Post
-          </h3>
-          <div class="social-content">${blogPost.socialMedia.instagram.caption.substring(0, 500)}${blogPost.socialMedia.instagram.caption.length > 500 ? '...' : ''}</div>
-          <div class="hashtags">${blogPost.socialMedia.instagram.hashtags.join(' ')}</div>
-        </div>
-
-        <!-- LinkedIn -->
-        <div class="social-preview">
-          <h3>
-            <span class="platform-badge linkedin">LinkedIn</span>
-            ${blogPost.socialMedia.linkedin.title}
-          </h3>
-          <div class="social-content">
-${blogPost.socialMedia.linkedin.content}
-
-Article: www.triplecitiestech.com/blog
-          </div>
-          <div class="hashtags">${blogPost.socialMedia.linkedin.hashtags.join(' ')}</div>
-        </div>
-      </div>
-
-      <!-- SEO Metadata -->
-      <div style="margin: 30px 0; padding: 20px; background: #f8f9fa; border-radius: 8px;">
-        <h3 style="margin-top: 0; color: #667eea;">🔍 SEO Metadata</h3>
-        <div class="meta-item" style="margin-bottom: 15px;">
-          <span class="meta-label">Meta Title</span>
-          ${blogPost.metaTitle}
-        </div>
-        <div class="meta-item">
-          <span class="meta-label">Meta Description</span>
-          ${blogPost.metaDescription}
-        </div>
-      </div>
-
-      <!-- Source Attribution -->
-      <div style="margin: 20px 0; padding: 15px; background: #e7f3ff; border-radius: 4px;">
-        <div style="font-weight: bold; margin-bottom: 10px;">📚 Sources Used:</div>
-        <ul style="margin: 0; padding-left: 20px;">
-          ${blogPost.sourceUrls.map(url => `<li><a href="${url}" style="color: #0066cc;">${url}</a></li>`).join('')}
-        </ul>
-      </div>
-
-      <!-- Simple Reply Instructions -->
-      <div style="margin: 30px 0; padding: 20px; background: #fff3cd; border-radius: 8px;">
-        <h4 style="margin-top: 0;">💡 Quick Approval Options:</h4>
-        <ol style="margin: 0;">
-          <li><strong>Click "Approve & Schedule"</strong> button above to publish immediately</li>
-          <li><strong>Click "Request Changes"</strong> to provide feedback for AI regeneration</li>
-          <li><strong>Click "Edit in Admin Panel"</strong> for manual editing before approval</li>
-        </ol>
-      </div>
-
-      <!-- Token Info (for debugging) -->
-      <div style="margin: 20px 0; padding: 10px; background: #f8f9fa; border-radius: 4px; font-size: 12px; color: #6c757d;">
-        <strong>Approval Token:</strong> ${approvalToken.substring(0, 16)}...
-        <br>
-        <strong>Generated by:</strong> ${blogPost.aiModel}
-      </div>
-    </div>
-
-    <!-- Footer -->
-    <div class="footer">
-      <p><strong>Triple Cities Tech</strong> | Automated Blog System</p>
-      <p>This is an automated email. Links expire in 7 days.</p>
-    </div>
+<body style="margin: 0; padding: 0; background-color: #0f172a;">
+  <!-- Preheader text (hidden) -->
+  <div style="display: none; max-height: 0; overflow: hidden; mso-hide: all;">
+    New blog post "${escapeHtml(blogPost.title)}" is ready for your review and approval.
   </div>
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #0f172a;">
+    <tr>
+      <td align="center" style="padding: 24px 16px;">
+        <table role="presentation" class="container" width="600" cellpadding="0" cellspacing="0" style="max-width: 600px; width: 100%;">
+
+          <!-- Header -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #3b82f6, #8b5cf6); padding: 32px 24px; border-radius: 12px 12px 0 0; text-align: center;">
+              <h1 style="margin: 0; font-size: 22px; color: #ffffff; font-weight: 700;">New Blog Post Ready for Review</h1>
+              <p style="margin: 8px 0 0; font-size: 14px; color: rgba(255,255,255,0.85);">AI-generated draft awaiting your approval</p>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td class="mobile-padding" style="background-color: #1e293b; padding: 28px 24px;">
+
+              <!-- Action Required Banner -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 24px;">
+                <tr>
+                  <td style="background-color: #1e3a5f; border-left: 4px solid #3b82f6; padding: 14px 16px; border-radius: 0 6px 6px 0;">
+                    <p style="margin: 0; font-size: 14px; color: #93c5fd; font-weight: 600;">Action Required</p>
+                    <p style="margin: 4px 0 0; font-size: 13px; color: #94a3b8;">Review this blog post and approve it for publication or provide feedback.</p>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- CTA Buttons -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 28px;">
+                <tr>
+                  <td align="center">
+                    <table role="presentation" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td class="btn-stack" style="padding-right: 8px;">
+                          <a href="${approveUrl}" style="display: inline-block; padding: 12px 28px; background-color: #22c55e; color: #ffffff; font-size: 14px; font-weight: 700; border-radius: 8px; text-decoration: none; text-align: center;">Approve &amp; Schedule</a>
+                        </td>
+                        <td class="btn-stack" style="padding-right: 8px;">
+                          <a href="${rejectUrl}" style="display: inline-block; padding: 12px 28px; background-color: #ef4444; color: #ffffff; font-size: 14px; font-weight: 700; border-radius: 8px; text-decoration: none; text-align: center;">Request Changes</a>
+                        </td>
+                        <td class="btn-stack">
+                          <a href="${previewUrl}" style="display: inline-block; padding: 12px 28px; background-color: #3b82f6; color: #ffffff; font-size: 14px; font-weight: 700; border-radius: 8px; text-decoration: none; text-align: center;">Full Preview</a>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Blog Post Card -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; overflow: hidden; margin-bottom: 24px;">
+                <tr>
+                  <td style="padding: 20px;">
+                    <!-- Title -->
+                    <h2 style="margin: 0 0 12px; font-size: 20px; color: #e2e8f0; line-height: 1.3;">${escapeHtml(blogPost.title)}</h2>
+
+                    <!-- Meta row -->
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 16px;">
+                      <tr>
+                        <td>
+                          <span style="display: inline-block; background-color: #3b82f6; color: #ffffff; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600;">${escapeHtml(blogPost.category)}</span>
+                          <span style="color: #64748b; font-size: 12px; margin-left: 12px;">${escapeHtml(blogPost.readingTime)}</span>
+                        </td>
+                      </tr>
+                    </table>
+
+                    <!-- Excerpt -->
+                    <p style="margin: 0 0 16px; font-size: 14px; color: #94a3b8; font-style: italic; border-left: 3px solid #3b82f6; padding-left: 12px;">${escapeHtml(blogPost.excerpt)}</p>
+
+                    <!-- Content Preview -->
+                    <div style="font-size: 14px; color: #cbd5e1; line-height: 1.7;">
+                      ${contentPreview}
+                      ${truncated ? `<p style="color: #60a5fa; font-size: 13px;"><a href="${previewUrl}" style="color: #60a5fa;">Read full post &rarr;</a></p>` : ''}
+                    </div>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Keywords -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 24px;">
+                <tr>
+                  <td style="padding: 14px 16px; background-color: #0f172a; border: 1px solid #334155; border-radius: 8px;">
+                    <p style="margin: 0 0 8px; font-size: 12px; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">SEO Keywords</p>
+                    <td style="padding: 0;">
+                      ${blogPost.keywords.map(k => `<span style="display: inline-block; background-color: #1e3a5f; color: #93c5fd; padding: 3px 10px; border-radius: 12px; font-size: 11px; margin: 2px 4px 2px 0;">${escapeHtml(k)}</span>`).join('')}
+                    </td>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Social Media Previews -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 24px;">
+                <tr>
+                  <td style="padding-bottom: 12px;">
+                    <h3 style="margin: 0; font-size: 14px; color: #e2e8f0; font-weight: 600;">Social Media Previews</h3>
+                  </td>
+                </tr>
+
+                <!-- Facebook -->
+                <tr>
+                  <td style="padding-bottom: 10px;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #0f172a; border: 1px solid #334155; border-radius: 6px;">
+                      <tr>
+                        <td style="padding: 12px 16px;">
+                          <span style="display: inline-block; background-color: #1877f2; color: #ffffff; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 700; margin-bottom: 6px;">FACEBOOK</span>
+                          <p style="margin: 6px 0 0; font-size: 13px; color: #94a3b8; white-space: pre-wrap;">${escapeHtml(blogPost.socialMedia.facebook.description).substring(0, 200)}</p>
+                          <p style="margin: 4px 0 0; font-size: 11px; color: #3b82f6;">${blogPost.socialMedia.facebook.hashtags.join(' ')}</p>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+
+                <!-- Instagram -->
+                <tr>
+                  <td style="padding-bottom: 10px;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #0f172a; border: 1px solid #334155; border-radius: 6px;">
+                      <tr>
+                        <td style="padding: 12px 16px;">
+                          <span style="display: inline-block; background-color: #e4405f; color: #ffffff; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 700; margin-bottom: 6px;">INSTAGRAM</span>
+                          <p style="margin: 6px 0 0; font-size: 13px; color: #94a3b8; white-space: pre-wrap;">${escapeHtml(blogPost.socialMedia.instagram.caption).substring(0, 200)}</p>
+                          <p style="margin: 4px 0 0; font-size: 11px; color: #3b82f6;">${blogPost.socialMedia.instagram.hashtags.join(' ')}</p>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+
+                <!-- LinkedIn -->
+                <tr>
+                  <td>
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #0f172a; border: 1px solid #334155; border-radius: 6px;">
+                      <tr>
+                        <td style="padding: 12px 16px;">
+                          <span style="display: inline-block; background-color: #0077b5; color: #ffffff; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 700; margin-bottom: 6px;">LINKEDIN</span>
+                          <p style="margin: 6px 0 0; font-size: 13px; color: #94a3b8; white-space: pre-wrap;">${escapeHtml(blogPost.socialMedia.linkedin.content).substring(0, 200)}</p>
+                          <p style="margin: 4px 0 0; font-size: 11px; color: #3b82f6;">${blogPost.socialMedia.linkedin.hashtags.join(' ')}</p>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- SEO Metadata -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 24px;">
+                <tr>
+                  <td style="padding: 14px 16px; background-color: #0f172a; border: 1px solid #334155; border-radius: 8px;">
+                    <h3 style="margin: 0 0 10px; font-size: 13px; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">SEO Metadata</h3>
+                    <p style="margin: 0 0 6px; font-size: 13px; color: #cbd5e1;"><strong style="color: #94a3b8;">Title:</strong> ${escapeHtml(blogPost.metaTitle)}</p>
+                    <p style="margin: 0; font-size: 13px; color: #cbd5e1;"><strong style="color: #94a3b8;">Description:</strong> ${escapeHtml(blogPost.metaDescription)}</p>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Sources -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 24px;">
+                <tr>
+                  <td style="padding: 14px 16px; background-color: #0f172a; border: 1px solid #334155; border-radius: 8px;">
+                    <p style="margin: 0 0 8px; font-size: 12px; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Sources</p>
+                    ${blogPost.sourceUrls.map(url => `<p style="margin: 4px 0; font-size: 12px;"><a href="${url}" style="color: #60a5fa; word-break: break-all;">${url}</a></p>`).join('')}
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Edit in Admin -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 8px;">
+                <tr>
+                  <td align="center">
+                    <a href="${editUrl}" style="display: inline-block; padding: 10px 24px; background-color: #334155; color: #e2e8f0; font-size: 13px; font-weight: 600; border-radius: 6px; text-decoration: none;">Edit in Admin Panel</a>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Token debug info -->
+              <p style="margin: 16px 0 0; font-size: 11px; color: #475569; text-align: center;">
+                Token: ${approvalToken.substring(0, 16)}... &middot; Model: ${escapeHtml(blogPost.aiModel)}
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color: #0f172a; padding: 20px 24px; border-top: 1px solid #1e293b; border-radius: 0 0 12px 12px; text-align: center;">
+              <p style="margin: 0; font-size: 12px; color: #475569; font-weight: 600;">Triple Cities Tech &middot; Automated Blog System</p>
+              <p style="margin: 4px 0 0; font-size: 11px; color: #334155;">Approval links expire after use.</p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
 </body>
 </html>
   `.trim();
 }
 
 /**
- * Simple markdown to HTML conversion
+ * Escape HTML special characters to prevent XSS in email templates
+ */
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+/**
+ * Simple markdown to HTML conversion for email content
  */
 function convertMarkdownToHtml(markdown: string): string {
   let html = markdown;
 
   // Headers
-  html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
-  html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
-  html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');
+  html = html.replace(/^### (.*$)/gim, '<h3 style="margin: 16px 0 8px; font-size: 15px; color: #e2e8f0;">$1</h3>');
+  html = html.replace(/^## (.*$)/gim, '<h2 style="margin: 20px 0 10px; font-size: 17px; color: #e2e8f0;">$1</h2>');
+  html = html.replace(/^# (.*$)/gim, '<h1 style="margin: 20px 0 10px; font-size: 19px; color: #e2e8f0;">$1</h1>');
 
   // Bold
-  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/\_\_(.*?)\_\_/g, '<strong>$1</strong>');
+  html = html.replace(/\*\*(.*?)\*\*/g, '<strong style="color: #e2e8f0;">$1</strong>');
+  html = html.replace(/__(.*?)__/g, '<strong style="color: #e2e8f0;">$1</strong>');
 
   // Italic
   html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
-  html = html.replace(/\_(.*?)\_/g, '<em>$1</em>');
+  html = html.replace(/_(.*?)_/g, '<em>$1</em>');
 
   // Links
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" style="color: #60a5fa;">$1</a>');
 
   // Lists
-  html = html.replace(/^\* (.*$)/gim, '<li>$1</li>');
-  html = html.replace(/^- (.*$)/gim, '<li>$1</li>');
+  html = html.replace(/^\* (.*$)/gim, '<li style="margin: 4px 0; color: #cbd5e1;">$1</li>');
+  html = html.replace(/^- (.*$)/gim, '<li style="margin: 4px 0; color: #cbd5e1;">$1</li>');
 
-  // Wrap lists
-  html = html.replace(/(<li>[\s\S]*?<\/li>)/g, '<ul>$1</ul>');
-
-  // Line breaks
-  html = html.replace(/\n\n/g, '</p><p>');
-  html = '<p>' + html + '</p>';
+  // Paragraphs
+  html = html.replace(/\n\n/g, '</p><p style="margin: 10px 0; color: #cbd5e1;">');
+  html = '<p style="margin: 10px 0; color: #cbd5e1;">' + html + '</p>';
 
   return html;
 }
@@ -479,7 +378,6 @@ Generated by: ${blogPost.aiModel}
 
 ---
 Triple Cities Tech | Automated Blog System
-This email was sent to: kurtis@triplecitiestech.com
-Links expire in 7 days.
+Approval links expire after use.
   `.trim();
 }

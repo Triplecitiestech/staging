@@ -70,3 +70,21 @@ export const siteConfig = {
 } as const;
 
 export type SiteConfig = typeof siteConfig;
+
+/**
+ * Get the base URL for the current environment.
+ * Uses NEXT_PUBLIC_BASE_URL, VERCEL_URL, or falls back to production URL.
+ * Always returns a URL without trailing slash.
+ */
+export function getBaseUrl(): string {
+  // Explicit override takes priority
+  if (process.env.NEXT_PUBLIC_BASE_URL) {
+    return process.env.NEXT_PUBLIC_BASE_URL.replace(/\/$/, '');
+  }
+  // Vercel preview/production deployments
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}`;
+  }
+  // Fallback to production
+  return siteConfig.url;
+}

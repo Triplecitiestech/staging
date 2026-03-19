@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getBaseUrl } from '@/config/site';
 
 // Disable static generation for this API route
 export const dynamic = 'force-dynamic';
@@ -29,7 +30,7 @@ export async function GET(
 
     if (!blogPost) {
       return new NextResponse(
-        '<html><body><h1>404 - Post Not Found</h1><p>This approval link is invalid or has expired.</p></body></html>',
+        generateErrorHTML('Post Not Found', 'This approval link is invalid or has already been used.'),
         {
           status: 404,
           headers: { 'Content-Type': 'text/html' }
@@ -39,7 +40,10 @@ export async function GET(
 
     if (blogPost.status !== 'PENDING_APPROVAL') {
       return new NextResponse(
-        `<html><body><h1>Post Already Processed</h1><p>This blog post has already been ${blogPost.status.toLowerCase()}.</p></body></html>`,
+        generateErrorHTML(
+          'Already Processed',
+          `This blog post has already been ${blogPost.status.toLowerCase().replace('_', ' ')}.`
+        ),
         {
           status: 400,
           headers: { 'Content-Type': 'text/html' }
@@ -57,7 +61,7 @@ export async function GET(
     console.error('Error previewing blog post:', error);
 
     return new NextResponse(
-      '<html><body><h1>500 - Error</h1><p>Failed to load preview.</p></body></html>',
+      generateErrorHTML('Error', 'Failed to load preview. Please try again.'),
       {
         status: 500,
         headers: { 'Content-Type': 'text/html' }
@@ -76,8 +80,32 @@ interface BlogPostPreview {
   category: { name: string } | null;
 }
 
+function generateErrorHTML(title: string, message: string): string {
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title}</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; background: #0f172a; color: #e2e8f0; }
+    .card { max-width: 500px; background: #1e293b; padding: 40px; border-radius: 12px; text-align: center; border: 1px solid #334155; }
+    h1 { margin: 0 0 12px; font-size: 22px; }
+    p { margin: 0; color: #94a3b8; font-size: 15px; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>${title}</h1>
+    <p>${message}</p>
+  </div>
+</body>
+</html>`;
+}
+
 function generatePreviewHTML(post: BlogPostPreview): string {
-  // Convert markdown to HTML (simple version)
+  // Convert markdown to HTML
   let contentHtml = post.content;
   contentHtml = contentHtml.replace(/^### (.*$)/gim, '<h3>$1</h3>');
   contentHtml = contentHtml.replace(/^## (.*$)/gim, '<h2>$1</h2>');
@@ -90,7 +118,7 @@ function generatePreviewHTML(post: BlogPostPreview): string {
   contentHtml = contentHtml.replace(/\n\n/g, '</p><p>');
   contentHtml = '<p>' + contentHtml + '</p>';
 
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.triplecitiestech.com';
+  const baseUrl = getBaseUrl();
   const approveUrl = `${baseUrl}/api/blog/approval/${post.approvalToken}/approve`;
   const rejectUrl = `${baseUrl}/api/blog/approval/${post.approvalToken}/reject`;
 
@@ -106,193 +134,151 @@ function generatePreviewHTML(post: BlogPostPreview): string {
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
       line-height: 1.6;
-      color: #333;
+      color: #e2e8f0;
       margin: 0;
       padding: 0;
-      background: #f5f5f5;
+      background: #0f172a;
     }
     .preview-bar {
-      background: #ffc107;
-      color: #000;
-      padding: 15px;
+      background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+      color: #ffffff;
+      padding: 16px;
       text-align: center;
       font-weight: bold;
       position: sticky;
       top: 0;
       z-index: 1000;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+    }
+    .preview-bar-label {
+      font-size: 13px;
+      opacity: 0.9;
+      margin-bottom: 10px;
     }
     .action-buttons {
       display: flex;
       gap: 10px;
       justify-content: center;
-      margin-top: 10px;
       flex-wrap: wrap;
     }
     .btn {
-      padding: 10px 25px;
+      padding: 10px 28px;
       border: none;
-      border-radius: 6px;
-      font-weight: bold;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 14px;
       text-decoration: none;
       cursor: pointer;
-      transition: all 0.3s;
+      transition: all 0.2s;
       display: inline-block;
     }
-    .btn-approve { background: #28a745; color: white; }
-    .btn-approve:hover { background: #218838; }
-    .btn-reject { background: #dc3545; color: white; }
-    .btn-reject:hover { background: #c82333; }
+    .btn-approve { background: #22c55e; color: white; }
+    .btn-approve:hover { background: #16a34a; }
+    .btn-reject { background: #ef4444; color: white; }
+    .btn-reject:hover { background: #dc2626; }
     .container {
       max-width: 800px;
-      margin: 40px auto;
-      background: white;
+      margin: 32px auto;
+      background: #1e293b;
       padding: 40px;
-      border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      border-radius: 12px;
+      border: 1px solid #334155;
     }
     .blog-header {
-      border-bottom: 3px solid #667eea;
+      border-bottom: 3px solid #3b82f6;
       padding-bottom: 20px;
       margin-bottom: 30px;
     }
     .blog-title {
-      font-size: 36px;
+      font-size: 34px;
       font-weight: bold;
-      color: #1a1a1a;
+      color: #f1f5f9;
       margin: 0 0 15px 0;
       line-height: 1.2;
     }
     .blog-meta {
       display: flex;
-      gap: 20px;
+      gap: 16px;
       flex-wrap: wrap;
-      color: #666;
+      color: #94a3b8;
       font-size: 14px;
-    }
-    .blog-meta span {
-      display: flex;
       align-items: center;
-      gap: 5px;
     }
     .category-badge {
-      background: #667eea;
+      background: #3b82f6;
       color: white;
-      padding: 4px 12px;
+      padding: 4px 14px;
       border-radius: 20px;
       font-size: 12px;
       font-weight: bold;
     }
     .blog-excerpt {
-      font-size: 20px;
-      color: #555;
+      font-size: 18px;
+      color: #94a3b8;
       font-style: italic;
       margin: 20px 0;
       padding: 20px;
-      background: #f8f9fa;
-      border-left: 4px solid #667eea;
+      background: #0f172a;
+      border-left: 4px solid #3b82f6;
+      border-radius: 0 8px 8px 0;
     }
     .blog-content {
-      font-size: 18px;
+      font-size: 17px;
       line-height: 1.8;
-      color: #333;
+      color: #cbd5e1;
     }
-    .blog-content h1,
-    .blog-content h2,
-    .blog-content h3 {
-      color: #1a1a1a;
-      margin-top: 30px;
-      margin-bottom: 15px;
+    .blog-content h1, .blog-content h2, .blog-content h3 {
+      color: #f1f5f9;
+      margin-top: 28px;
+      margin-bottom: 14px;
     }
-    .blog-content h2 {
-      font-size: 28px;
-      border-bottom: 2px solid #eee;
-      padding-bottom: 10px;
-    }
-    .blog-content h3 {
-      font-size: 22px;
-    }
-    .blog-content ul,
-    .blog-content ol {
-      margin: 20px 0;
-      padding-left: 30px;
-    }
-    .blog-content li {
-      margin: 10px 0;
-    }
-    .blog-content a {
-      color: #667eea;
-      text-decoration: none;
-      border-bottom: 1px solid #667eea;
-    }
-    .blog-content a:hover {
-      color: #5568d3;
-      border-bottom-color: #5568d3;
-    }
+    .blog-content h2 { font-size: 26px; border-bottom: 1px solid #334155; padding-bottom: 8px; }
+    .blog-content h3 { font-size: 20px; }
+    .blog-content ul, .blog-content ol { margin: 16px 0; padding-left: 28px; }
+    .blog-content li { margin: 8px 0; }
+    .blog-content a { color: #60a5fa; text-decoration: none; border-bottom: 1px solid #60a5fa; }
+    .blog-content a:hover { color: #93c5fd; }
     .keywords {
       margin: 30px 0;
       padding: 20px;
-      background: #f8f9fa;
+      background: #0f172a;
       border-radius: 8px;
+      border: 1px solid #334155;
     }
     .keyword-tag {
       display: inline-block;
-      background: #e7f3ff;
-      color: #0066cc;
+      background: #1e3a5f;
+      color: #93c5fd;
       padding: 4px 12px;
       border-radius: 20px;
-      margin: 5px;
+      margin: 4px;
       font-size: 12px;
     }
     .sources {
-      margin-top: 40px;
+      margin-top: 30px;
       padding: 20px;
-      background: #f8f9fa;
+      background: #0f172a;
       border-radius: 8px;
+      border: 1px solid #334155;
     }
-    .sources h3 {
-      margin-top: 0;
-      color: #667eea;
-    }
-    .sources ul {
-      list-style: none;
-      padding: 0;
-    }
-    .sources li {
-      margin: 10px 0;
-      padding-left: 25px;
-      position: relative;
-    }
-    .sources li:before {
-      content: "→";
-      position: absolute;
-      left: 0;
-      color: #667eea;
-    }
-    .sources a {
-      color: #0066cc;
-      word-break: break-all;
-    }
+    .sources h3 { margin-top: 0; color: #60a5fa; }
+    .sources ul { list-style: none; padding: 0; }
+    .sources li { margin: 8px 0; padding-left: 20px; position: relative; }
+    .sources li:before { content: "\\2192"; position: absolute; left: 0; color: #3b82f6; }
+    .sources a { color: #60a5fa; word-break: break-all; }
     @media (max-width: 768px) {
-      .container {
-        margin: 20px;
-        padding: 20px;
-      }
-      .blog-title {
-        font-size: 28px;
-      }
-      .blog-content {
-        font-size: 16px;
-      }
+      .container { margin: 16px; padding: 20px; }
+      .blog-title { font-size: 26px; }
+      .blog-content { font-size: 15px; }
     }
   </style>
 </head>
 <body>
   <div class="preview-bar">
-    ⚠️ PREVIEW MODE - This post is pending approval
+    <div class="preview-bar-label">PREVIEW MODE &mdash; This post is pending approval</div>
     <div class="action-buttons">
-      <a href="${approveUrl}" class="btn btn-approve">✅ Approve & Schedule</a>
-      <a href="${rejectUrl}" class="btn btn-reject">❌ Request Changes</a>
+      <a href="${approveUrl}" class="btn btn-approve">Approve &amp; Schedule</a>
+      <a href="${rejectUrl}" class="btn btn-reject">Request Changes</a>
     </div>
   </div>
 
@@ -302,8 +288,8 @@ function generatePreviewHTML(post: BlogPostPreview): string {
 
       <div class="blog-meta">
         <span class="category-badge">${post.category?.name || 'Uncategorized'}</span>
-        <span>📅 ${new Date().toLocaleDateString()}</span>
-        <span>👤 AI Generated</span>
+        <span>${new Date().toLocaleDateString()}</span>
+        <span>AI Generated</span>
       </div>
 
       <div class="blog-excerpt">
@@ -316,12 +302,12 @@ function generatePreviewHTML(post: BlogPostPreview): string {
     </div>
 
     <div class="keywords">
-      <strong>SEO Keywords:</strong>
+      <strong style="color: #94a3b8; font-size: 13px;">SEO Keywords:</strong><br>
       ${post.keywords.map((k: string) => `<span class="keyword-tag">${k}</span>`).join('')}
     </div>
 
     <div class="sources">
-      <h3>📚 Sources</h3>
+      <h3>Sources</h3>
       <ul>
         ${post.sourceUrls.map((url: string) => `<li><a href="${url}" target="_blank">${url}</a></li>`).join('')}
       </ul>
@@ -329,7 +315,6 @@ function generatePreviewHTML(post: BlogPostPreview): string {
   </div>
 
   <script>
-    // Simple confirmation for actions
     document.querySelectorAll('.btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         if (btn.classList.contains('btn-approve')) {

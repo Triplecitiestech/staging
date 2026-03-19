@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createSocialMediaPublisher, type PublishResult } from '@/lib/social-publisher';
+import { createSocialMediaPublisher, type PublishResult, type SocialMediaConfig } from '@/lib/social-publisher';
 import type { BlogPostDraft } from '@/lib/blog-generator';
 import { Resend } from 'resend';
+import { getBaseUrl } from '@/config/site';
 
 // Disable static generation for this API route
 export const dynamic = 'force-dynamic';
@@ -89,9 +90,13 @@ async function handlePublishScheduled(request: NextRequest) {
           }
         });
 
-        // Publish to social media
-        const socialPublisher = createSocialMediaPublisher();
-        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.triplecitiestech.com';
+        // Publish to social media (load config from DB + env vars)
+        const socialConfig = await loadSocialConfig(prisma);
+        const { SocialMediaPublisher } = await import('@/lib/social-publisher');
+        const socialPublisher = Object.keys(socialConfig).length > 0
+          ? new SocialMediaPublisher(socialConfig)
+          : createSocialMediaPublisher();
+        const baseUrl = getBaseUrl();
         const blogUrl = `${baseUrl}/blog/${post.slug}`;
         const imageUrl = post.featuredImage || undefined;
 
@@ -305,4 +310,51 @@ ${successfulPosts.map(p => `- ${p.platform}: ${p.postUrl || 'Posted'}`).join('\n
 ---
 Triple Cities Tech Blog System
   `;
+}
+
+/**
+ * Load social media configuration from BlogSettings (DB) with env var fallback.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function loadSocialConfig(prisma: any): Promise<SocialMediaConfig> {
+  const config: SocialMediaConfig = {};
+
+  try {
+    const settings = await prisma.blogSettings.findMany({
+      where: {
+        key: {
+          in: [
+            'facebook_access_token', 'facebook_page_id',
+            'instagram_access_token', 'instagram_account_id',
+            'linkedin_access_token', 'linkedin_org_id'
+          ]
+        }
+      }
+    });
+
+    const map = new Map(settings.map((s: { key: string; value: string }) => [s.key, s.value]));
+
+    const fbToken = (map.get('facebook_access_token') as string) || process.env.FACEBOOK_ACCESS_TOKEN;
+    const fbPageId = (map.get('facebook_page_id') as string) || process.env.FACEBOOK_PAGE_ID;
+    if (fbToken && fbPageId) {
+      config.facebook = { accessToken: fbToken, pageId: fbPageId };
+    }
+
+    const igToken = (map.get('instagram_access_token') as string) || process.env.INSTAGRAM_ACCESS_TOKEN;
+    const igAccountId = (map.get('instagram_account_id') as string) || process.env.INSTAGRAM_ACCOUNT_ID;
+    if (igToken && igAccountId) {
+      config.instagram = { accessToken: igToken, accountId: igAccountId };
+    }
+
+    const liToken = (map.get('linkedin_access_token') as string) || process.env.LINKEDIN_ACCESS_TOKEN;
+    const liOrgId = (map.get('linkedin_org_id') as string) || process.env.LINKEDIN_ORG_ID;
+    if (liToken && liOrgId) {
+      config.linkedin = { accessToken: liToken, organizationId: liOrgId };
+    }
+  } catch (error) {
+    console.error('Error loading social config from DB, falling back to env vars:', error);
+    // Fall back to empty config (env vars will be used by createSocialMediaPublisher)
+  }
+
+  return config;
 }

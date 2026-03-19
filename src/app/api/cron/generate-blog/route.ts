@@ -155,7 +155,8 @@ async function handleGenerateBlog(request: NextRequest) {
     console.log(`💾 Saved blog post to database: ${blogPost.id}`);
 
     // Send approval email
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.triplecitiestech.com';
+    const { getBaseUrl } = await import('@/config/site');
+    const baseUrl = getBaseUrl();
     const approvalEmail = process.env.APPROVAL_EMAIL || 'kurtis@triplecitiestech.com';
 
     const emailProps = {
