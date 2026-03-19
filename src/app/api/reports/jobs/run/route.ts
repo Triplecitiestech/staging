@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { syncTickets, syncTimeEntries, syncTicketNotes, syncResources } from '@/lib/reporting/sync';
+import { syncTickets, syncTimeEntries, syncTimeEntriesBulk, syncTicketNotes, syncResources } from '@/lib/reporting/sync';
 import { computeLifecycle } from '@/lib/reporting/lifecycle';
 import { aggregateTechnicianDaily, aggregateCompanyDaily } from '@/lib/reporting/aggregation';
 import { computeCustomerHealth } from '@/lib/reporting/health-score';
@@ -12,6 +12,7 @@ export const maxDuration = 60;
 const JOB_MAP: Record<string, (date?: Date, days?: number) => Promise<unknown>> = {
   sync_tickets: (_date?: Date, days?: number) => syncTickets(days || 90),
   sync_time_entries: () => syncTimeEntries(),
+  sync_time_entries_bulk: (_date?: Date, days?: number) => syncTimeEntriesBulk(days || 90),
   sync_ticket_notes: () => syncTicketNotes(),
   sync_resources: () => syncResources(),
   compute_lifecycle: () => computeLifecycle(),
@@ -24,6 +25,7 @@ const JOB_MAP: Record<string, (date?: Date, days?: number) => Promise<unknown>> 
 const PIPELINE_ORDER = [
   'sync_tickets',
   'sync_time_entries',
+  'sync_time_entries_bulk',
   'sync_ticket_notes',
   'sync_resources',
   'compute_lifecycle',

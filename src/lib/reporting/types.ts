@@ -150,6 +150,7 @@ export function priorityToTargetScope(priority: number): string {
 export const JOB_NAMES = {
   SYNC_TICKETS: 'sync_tickets',
   SYNC_TIME_ENTRIES: 'sync_time_entries',
+  SYNC_TIME_ENTRIES_BULK: 'sync_time_entries_bulk',
   SYNC_TICKET_NOTES: 'sync_ticket_notes',
   SYNC_RESOURCES: 'sync_resources',
   COMPUTE_LIFECYCLE: 'compute_lifecycle',

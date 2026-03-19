@@ -270,16 +270,21 @@ export class AutotaskClient {
     return response.json() as Promise<T>;
   }
 
-  private async queryAll<T>(entityPath: string, filter: object): Promise<T[]> {
+  /**
+   * Query all records from an Autotask entity with compound filters.
+   * Accepts a single filter OR an array of filters (implicitly ANDed by the API).
+   */
+  private async queryAll<T>(entityPath: string, filter: object | object[]): Promise<T[]> {
     const results: T[] = [];
     let nextPageUrl: string | undefined;
 
-    // First request
+    // First request — wrap single filter in array, pass arrays as-is
+    const filterArray = Array.isArray(filter) ? filter : [filter];
     const url = `${this.baseUrl}/v1.0/${entityPath}/query`;
     const response = await fetch(url, {
       method: 'POST',
       headers: this.headers,
-      body: JSON.stringify({ filter: [filter] }),
+      body: JSON.stringify({ filter: filterArray }),
     });
 
     if (!response.ok) {
@@ -842,6 +847,26 @@ export class AutotaskClient {
         console.error(`[autotask] Failed to get time entries for ticket ${ticketId}: ${err instanceof Error ? err.message : String(err)}`);
         return [];
       }
+    }
+  }
+
+  /**
+   * Get ALL time entries in a date range, across all tickets and tasks.
+   * Uses compound filters (dateWorked >= from AND dateWorked <= to).
+   * This is much more efficient than per-ticket queries and captures
+   * both ticket and project task time entries.
+   */
+  async getTimeEntriesByDateRange(from: Date, to: Date): Promise<AutotaskTimeEntry[]> {
+    const fromStr = from.toISOString().split('T')[0];
+    const toStr = to.toISOString().split('T')[0];
+    try {
+      return await this.queryAll<AutotaskTimeEntry>('TimeEntries', [
+        { op: 'gte', field: 'dateWorked', value: fromStr },
+        { op: 'lte', field: 'dateWorked', value: toStr },
+      ]);
+    } catch (err) {
+      console.error(`[autotask] Failed to get time entries for range ${fromStr} to ${toStr}: ${err instanceof Error ? err.message : String(err)}`);
+      return [];
     }
   }
 
