@@ -59,6 +59,10 @@ interface PendingAction {
   previewSummary: string;
   status: string;
   ticketNumber: string | null;
+  decidedBy: string | null;
+  decidedAt: string | null;
+  executionResult: Record<string, unknown> | null;
+  createdAt: string | null;
 }
 
 interface EvidenceItem {
@@ -274,7 +278,13 @@ export default function SocTicketDetail({ ticketId, onBack }: SocTicketDetailPro
 
   const { ticket, analysis, reasoning, incidentActionPlan } = data;
   const autotaskUrl = data.autotaskWebUrl ? `${data.autotaskWebUrl}?ticketId=${ticket.autotaskTicketId}` : null;
-  const pendingActions = data.pendingActions.filter(a => a.status === 'pending');
+  // All actions sorted chronologically (oldest first)
+  const allActions = [...data.pendingActions].sort((a, b) => {
+    const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return aTime - bTime;
+  });
+  const pendingCount = allActions.filter(a => a.status === 'pending').length;
   const isResolved = ticket.completedDate !== null;
 
   // Parse reasoning from API
@@ -586,39 +596,80 @@ export default function SocTicketDetail({ ticketId, onBack }: SocTicketDetailPro
           )}
 
           {/* ═══════════════════════════════════════════
-               PROPOSED ACTIONS (Approval Section)
+               ACTIONS LOG (chronological — pending, approved, rejected)
              ═══════════════════════════════════════════ */}
-          {pendingActions.length > 0 && (
+          {allActions.length > 0 && (
             <div className="bg-slate-800/50 border border-cyan-500/20 rounded-lg p-6">
               <h3 className="text-sm font-semibold text-white uppercase tracking-wider mb-4">
-                Proposed Actions
-                <span className="ml-2 text-xs font-normal text-cyan-400">({pendingActions.length} awaiting review)</span>
+                Actions
+                {pendingCount > 0 && (
+                  <span className="ml-2 text-xs font-normal text-cyan-400">({pendingCount} awaiting review)</span>
+                )}
               </h3>
               <div className="space-y-4">
-                {pendingActions.map(action => {
+                {allActions.map(action => {
                   const payload = action.actionPayload || {};
                   const isCustomerMessage = action.actionType === 'send_customer_message';
                   const isNote = action.actionType === 'add_note';
                   const fullNoteBody = (payload.noteBody as string) || '';
                   const isExpanded = expandedNotes.has(action.id);
                   const recipient = (payload.recipient as string) || '';
+                  const isPending = action.status === 'pending';
+                  const isApproved = action.status === 'approved';
+                  const isRejected = action.status === 'rejected';
+                  const executionResult = action.executionResult;
+                  const executionSuccess = executionResult && typeof executionResult === 'object' && 'success' in executionResult
+                    ? (executionResult as { success?: boolean }).success
+                    : null;
 
                   return (
-                    <div key={action.id} className="bg-slate-700/30 border border-white/5 rounded-lg px-4 py-4">
-                      {/* Action type header */}
-                      <div className="flex items-center gap-2 mb-3">
-                        <span className={`px-2 py-0.5 text-xs font-medium uppercase rounded ${
-                          isCustomerMessage
-                            ? 'bg-cyan-500/20 text-cyan-400'
-                            : isNote
-                            ? 'bg-blue-500/20 text-blue-400'
-                            : 'bg-slate-500/20 text-slate-400'
-                        }`}>
-                          {action.actionType.replace(/_/g, ' ')}
-                        </span>
-                        {action.ticketNumber && (
-                          <span className="text-xs text-slate-500 font-mono">#{action.ticketNumber}</span>
-                        )}
+                    <div key={action.id} className={`bg-slate-700/30 border rounded-lg px-4 py-4 ${
+                      isPending ? 'border-cyan-500/20' : isApproved ? 'border-green-500/10' : 'border-white/5'
+                    }`}>
+                      {/* Action header with status */}
+                      <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2 py-0.5 text-xs font-medium uppercase rounded ${
+                            isCustomerMessage
+                              ? 'bg-cyan-500/20 text-cyan-400'
+                              : isNote
+                              ? 'bg-blue-500/20 text-blue-400'
+                              : 'bg-slate-500/20 text-slate-400'
+                          }`}>
+                            {action.actionType.replace(/_/g, ' ')}
+                          </span>
+                          {action.ticketNumber && (
+                            <span className="text-xs text-slate-500 font-mono">#{action.ticketNumber}</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {/* Status badge */}
+                          {isApproved && (
+                            <span className="px-2 py-0.5 text-[10px] font-medium uppercase rounded bg-green-500/20 text-green-400 border border-green-500/20">
+                              Approved{executionSuccess === true ? ' & Sent' : executionSuccess === false ? ' (failed to send)' : ''}
+                            </span>
+                          )}
+                          {isRejected && (
+                            <span className="px-2 py-0.5 text-[10px] font-medium uppercase rounded bg-red-500/20 text-red-400 border border-red-500/20">
+                              Rejected
+                            </span>
+                          )}
+                          {isPending && (
+                            <span className="px-2 py-0.5 text-[10px] font-medium uppercase rounded bg-cyan-500/20 text-cyan-400 border border-cyan-500/20">
+                              Pending
+                            </span>
+                          )}
+                          {/* Timestamp */}
+                          {action.decidedAt ? (
+                            <span className="text-[10px] text-slate-600">
+                              {new Date(action.decidedAt).toLocaleString()}
+                            </span>
+                          ) : action.createdAt ? (
+                            <span className="text-[10px] text-slate-600">
+                              {new Date(action.createdAt).toLocaleString()}
+                            </span>
+                          ) : null}
+                        </div>
                       </div>
 
                       {/* Customer message: show explicit recipient */}
@@ -635,7 +686,6 @@ export default function SocTicketDetail({ ticketId, onBack }: SocTicketDetailPro
                               )}
                             </span>
                           </div>
-                          {/* Full message preview */}
                           <div className="bg-slate-900/50 border border-white/5 rounded-lg px-4 py-3">
                             <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Message Preview</p>
                             <p className="text-sm text-slate-300 whitespace-pre-wrap">{fullNoteBody}</p>
@@ -677,23 +727,32 @@ export default function SocTicketDetail({ ticketId, onBack }: SocTicketDetailPro
                         <p className="text-sm text-slate-300 mb-3">{action.previewSummary}</p>
                       )}
 
-                      {/* Approve / Reject buttons */}
-                      <div className="flex items-center gap-2 pt-2 border-t border-white/5">
-                        <button
-                          onClick={() => handleActionDecision(action.id, 'approve')}
-                          disabled={decidingAction === action.id}
-                          className="px-4 py-1.5 text-xs font-medium bg-green-500/20 text-green-400 hover:bg-green-500/30 border border-green-500/30 rounded-lg transition-colors disabled:opacity-50"
-                        >
-                          {decidingAction === action.id ? 'Processing...' : 'Approve'}
-                        </button>
-                        <button
-                          onClick={() => handleActionDecision(action.id, 'reject')}
-                          disabled={decidingAction === action.id}
-                          className="px-4 py-1.5 text-xs font-medium bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30 rounded-lg transition-colors disabled:opacity-50"
-                        >
-                          Reject
-                        </button>
-                      </div>
+                      {/* Decision info for completed actions */}
+                      {(isApproved || isRejected) && action.decidedBy && (
+                        <p className="text-xs text-slate-600 mt-1">
+                          {isApproved ? 'Approved' : 'Rejected'} by {action.decidedBy}
+                        </p>
+                      )}
+
+                      {/* Approve / Reject buttons — only for pending */}
+                      {isPending && (
+                        <div className="flex items-center gap-2 pt-2 border-t border-white/5">
+                          <button
+                            onClick={() => handleActionDecision(action.id, 'approve')}
+                            disabled={decidingAction === action.id}
+                            className="px-4 py-1.5 text-xs font-medium bg-green-500/20 text-green-400 hover:bg-green-500/30 border border-green-500/30 rounded-lg transition-colors disabled:opacity-50"
+                          >
+                            {decidingAction === action.id ? 'Processing...' : 'Approve'}
+                          </button>
+                          <button
+                            onClick={() => handleActionDecision(action.id, 'reject')}
+                            disabled={decidingAction === action.id}
+                            className="px-4 py-1.5 text-xs font-medium bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30 rounded-lg transition-colors disabled:opacity-50"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
