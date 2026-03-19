@@ -159,7 +159,7 @@ export class BlogGenerator {
     const response = await trackAnthropicCall('blog-generation', MODEL, () =>
       anthropic.messages.create({
         model: MODEL,
-        max_tokens: 3000,
+        max_tokens: 2048,
         temperature: 0.8,
         messages: [
           {
@@ -167,7 +167,7 @@ export class BlogGenerator {
             content: prompt
           }
         ]
-      })
+      }, { timeout: 40000 })
     );
 
     const content = response.content[0].type === 'text' ? response.content[0].text : '';
@@ -194,7 +194,7 @@ export class BlogGenerator {
     const response = await trackAnthropicCall('blog-regeneration', MODEL, () =>
       anthropic.messages.create({
         model: MODEL,
-        max_tokens: 3000,
+        max_tokens: 2048,
         temperature: 0.8,
         messages: [
           {
@@ -332,20 +332,11 @@ OPENING HOOK APPROACH:
 ${openingHook}
 
 CONTENT REQUIREMENTS:
-- Original content — synthesize insights from sources into something new and valuable
-- 900-1400 words
-- SEO-optimized with natural keyword integration (never stuff keywords)
-- Use markdown formatting: ## headers for main sections, **bold** for emphasis, bullet lists for key points
-- Include 2-4 specific, actionable recommendations the reader can implement this week
-- End with a natural, non-salesy mention of Triple Cities Tech (varied — don't always use the same CTA format)
-- Make the post genuinely useful — a reader should learn something concrete
-
-STRUCTURE REQUIREMENTS:
-- Do NOT start with "In today's digital landscape" or "In an increasingly connected world" or similar cliches
-- Do NOT use the phrase "cyber threats" or "threat landscape" more than once
-- Vary your paragraph lengths — mix short punchy paragraphs with longer explanatory ones
-- Use at least one concrete example, analogy, or mini-scenario
-- Include at least one surprising fact, statistic, or counterintuitive insight
+- Original content synthesized from sources, 700-1000 words
+- SEO-optimized with natural keywords, markdown formatting (## headers, **bold**, bullets)
+- 2-3 actionable recommendations, end with natural Triple Cities Tech mention
+- No cliché openings ("In today's digital landscape..."), vary paragraph lengths
+- Include a concrete example or analogy and a surprising fact
 
 SOURCE MATERIAL (use as research context, not for direct copying):
 ${sourceMaterial}${trendingContext}${recentTitlesContext}
@@ -356,8 +347,8 @@ Create a blog post in the following JSON format. Include platform-specific socia
 \`\`\`json
 {
   "title": "Engaging, specific title (avoid generic phrasing, max 70 chars)",
-  "excerpt": "Compelling 2-3 sentence summary that makes the reader want to click (150-160 chars)",
-  "content": "Full blog post in markdown (900-1400 words)",
+  "excerpt": "Compelling 2-sentence summary (150-160 chars)",
+  "content": "Full blog post in markdown (700-1000 words)",
   "metaTitle": "SEO title with primary keyword (50-60 chars)",
   "metaDescription": "SEO meta description with keyword and value proposition (120-155 chars, NEVER exceed 155)",
   "keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"],
@@ -432,10 +423,8 @@ Return ONLY the JSON object, no additional text.`;
     const material = articles.map((article, idx) => `
 SOURCE ${idx + 1}: ${article.source}
 Title: ${article.title}
-Published: ${article.pubDate.toLocaleDateString()}
 Link: ${article.link}
-Content: ${article.contentSnippet}
-${article.categories ? `Categories: ${article.categories.join(', ')}` : ''}
+Summary: ${article.contentSnippet.substring(0, 200)}
 ---`).join('\n');
 
     return material;
@@ -537,11 +526,11 @@ Read the full article on our blog (link in bio)
     }
 
     // Content validation
-    if (!draft.content || draft.content.length < 500) {
-      errors.push('Content is too short (minimum 500 characters)');
+    if (!draft.content || draft.content.length < 400) {
+      errors.push('Content is too short (minimum 400 characters)');
     }
-    if (draft.content.length > 15000) {
-      errors.push('Content is too long (maximum 15000 characters)');
+    if (draft.content.length > 10000) {
+      errors.push('Content is too long (maximum 10000 characters)');
     }
 
     // SEO validation
