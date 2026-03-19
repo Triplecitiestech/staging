@@ -5,7 +5,7 @@
 
 import { prisma } from '@/lib/prisma';
 import { createJobTracker } from './job-status';
-import { JOB_NAMES } from './types';
+import { JOB_NAMES, getResolvedStatuses } from './types';
 import { assertTableExists } from './sync';
 
 // ============================================
@@ -131,6 +131,7 @@ async function aggregateCompanyForDay(date: Date): Promise<AggregationResult> {
   const result: AggregationResult = { rowsComputed: 0, errors: [] };
   const dayStart = startOfDay(date);
   const dayEnd = endOfDay(date);
+  const resolvedStatuses = getResolvedStatuses();
 
   const companies = await prisma.company.findMany({
     where: { autotaskCompanyId: { not: null } },
@@ -150,35 +151,22 @@ async function aggregateCompanyForDay(date: Date): Promise<AggregationResult> {
       const ticketsCreatedMedium = ticketsCreatedList.filter(t => t.priority === 3).length;
       const ticketsCreatedLow = ticketsCreatedList.filter(t => t.priority === 4).length;
 
+      // Find ticket IDs resolved via status history on this day (for tickets with null completedDate)
+      const nullDateResolvedIds = await getResolvedTicketIdsFromHistory(
+        dayStart, dayEnd, resolvedStatuses,
+        { companyId: company.id }
+      );
+
       // Count tickets closed this day: resolved with completedDate in range,
       // OR resolved with null completedDate but status history shows resolution this day
       const ticketsClosedWithDate = await prisma.ticketLifecycle.count({
         where: { companyId: company.id, isResolved: true, completedDate: { gte: dayStart, lte: dayEnd } },
       });
-      const ticketsClosedNullDate = await prisma.ticketLifecycle.count({
-        where: {
-          companyId: company.id,
-          isResolved: true,
-          completedDate: null,
-          // Use the ticket's last status change into resolved as the "closed" date
-          autotaskTicketId: {
-            in: (await prisma.ticketStatusHistory.findMany({
-              where: {
-                changedAt: { gte: dayStart, lte: dayEnd },
-                newStatus: { in: [5, 13, 29] },
-                autotaskTicketId: {
-                  in: (await prisma.ticket.findMany({
-                    where: { companyId: company.id, completedDate: null, status: { in: [5, 13, 29] } },
-                    select: { autotaskTicketId: true },
-                  })).map(t => t.autotaskTicketId),
-                },
-              },
-              select: { autotaskTicketId: true },
-              distinct: ['autotaskTicketId'],
-            })).map(h => h.autotaskTicketId),
-          },
-        },
-      });
+      const ticketsClosedNullDate = nullDateResolvedIds.length > 0
+        ? await prisma.ticketLifecycle.count({
+            where: { companyId: company.id, isResolved: true, completedDate: null, autotaskTicketId: { in: nullDateResolvedIds } },
+          })
+        : 0;
       const ticketsClosed = ticketsClosedWithDate + ticketsClosedNullDate;
 
       const companyTicketIds = (await prisma.ticket.findMany({
@@ -191,8 +179,8 @@ async function aggregateCompanyForDay(date: Date): Promise<AggregationResult> {
             where: {
               changedAt: { gte: dayStart, lte: dayEnd },
               autotaskTicketId: { in: companyTicketIds },
-              previousStatus: { in: [5, 13, 29] },
-              NOT: { newStatus: { in: [5, 13, 29] } },
+              previousStatus: { in: resolvedStatuses },
+              NOT: { newStatus: { in: resolvedStatuses } },
             },
           })
         : 0;
@@ -210,21 +198,6 @@ async function aggregateCompanyForDay(date: Date): Promise<AggregationResult> {
         where: { companyId: company.id, isResolved: true, completedDate: { gte: dayStart, lte: dayEnd } },
         select: { firstResponseMinutes: true, fullResolutionMinutes: true, isFirstTouchResolution: true, reopenCount: true, slaResponseMet: true, slaResolutionMet: true },
       });
-      // Also grab lifecycles for null-completedDate tickets resolved this day (from status history)
-      const nullDateResolvedIds = (await prisma.ticketStatusHistory.findMany({
-        where: {
-          changedAt: { gte: dayStart, lte: dayEnd },
-          newStatus: { in: [5, 13, 29] },
-          autotaskTicketId: {
-            in: (await prisma.ticket.findMany({
-              where: { companyId: company.id, completedDate: null, status: { in: [5, 13, 29] } },
-              select: { autotaskTicketId: true },
-            })).map(t => t.autotaskTicketId),
-          },
-        },
-        select: { autotaskTicketId: true },
-        distinct: ['autotaskTicketId'],
-      })).map(h => h.autotaskTicketId);
       const closedNullDateLc = nullDateResolvedIds.length > 0
         ? await prisma.ticketLifecycle.findMany({
             where: { autotaskTicketId: { in: nullDateResolvedIds }, companyId: company.id },
@@ -253,7 +226,7 @@ async function aggregateCompanyForDay(date: Date): Promise<AggregationResult> {
         where: {
           companyId: company.id, createDate: { lte: dayEnd },
           OR: [{ completedDate: null }, { completedDate: { gt: dayEnd } }],
-          NOT: { status: { in: [5, 13, 29] } },
+          NOT: { status: { in: resolvedStatuses } },
         },
         select: { priority: true },
       });
@@ -291,6 +264,7 @@ async function aggregateTechnicianForDay(date: Date): Promise<AggregationResult>
   const result: AggregationResult = { rowsComputed: 0, errors: [] };
   const dayStart = startOfDay(date);
   const dayEnd = endOfDay(date);
+  const resolvedStatuses = getResolvedStatuses();
 
   const resources = await prisma.resource.findMany({
     where: { isActive: true },
@@ -316,8 +290,13 @@ async function aggregateTechnicianForDay(date: Date): Promise<AggregationResult>
         },
       });
 
+      // Find ticket IDs resolved via status history on this day (for tickets with null completedDate)
+      const nullDateTechIds = await getResolvedTicketIdsFromHistory(
+        dayStart, dayEnd, resolvedStatuses,
+        { assignedResourceId: resourceId }
+      );
+
       // Count resolved tickets: with completedDate in range OR resolved with null completedDate
-      // but status history shows they transitioned to resolved this day
       const ticketsClosedWithDate = await prisma.ticketLifecycle.count({
         where: {
           assignedResourceId: resourceId,
@@ -325,44 +304,28 @@ async function aggregateTechnicianForDay(date: Date): Promise<AggregationResult>
           completedDate: { gte: dayStart, lte: dayEnd },
         },
       });
-      const ticketsClosedNullDate = await prisma.ticketLifecycle.count({
-        where: {
-          assignedResourceId: resourceId,
-          isResolved: true,
-          completedDate: null,
-          autotaskTicketId: {
-            in: (await prisma.ticketStatusHistory.findMany({
-              where: {
-                changedAt: { gte: dayStart, lte: dayEnd },
-                newStatus: { in: [5, 13, 29] },
-                autotaskTicketId: {
-                  in: (await prisma.ticket.findMany({
-                    where: { assignedResourceId: resourceId, completedDate: null, status: { in: [5, 13, 29] } },
-                    select: { autotaskTicketId: true },
-                  })).map(t => t.autotaskTicketId),
-                },
-              },
-              select: { autotaskTicketId: true },
-              distinct: ['autotaskTicketId'],
-            })).map(h => h.autotaskTicketId),
-          },
-        },
-      });
+      const ticketsClosedNullDate = nullDateTechIds.length > 0
+        ? await prisma.ticketLifecycle.count({
+            where: { assignedResourceId: resourceId, isResolved: true, completedDate: null, autotaskTicketId: { in: nullDateTechIds } },
+          })
+        : 0;
       const ticketsClosed = ticketsClosedWithDate + ticketsClosedNullDate;
 
-      const ticketsReopened = await prisma.ticketStatusHistory.count({
-        where: {
-          changedAt: { gte: dayStart, lte: dayEnd },
-          autotaskTicketId: {
-            in: (await prisma.ticket.findMany({
-              where: { assignedResourceId: resourceId },
-              select: { autotaskTicketId: true },
-            })).map(t => t.autotaskTicketId),
-          },
-          previousStatus: { in: [5, 13, 29] },
-          NOT: { newStatus: { in: [5, 13, 29] } },
-        },
-      });
+      const techTicketIds = (await prisma.ticket.findMany({
+        where: { assignedResourceId: resourceId },
+        select: { autotaskTicketId: true },
+      })).map(t => t.autotaskTicketId);
+
+      const ticketsReopened = techTicketIds.length > 0
+        ? await prisma.ticketStatusHistory.count({
+            where: {
+              changedAt: { gte: dayStart, lte: dayEnd },
+              autotaskTicketId: { in: techTicketIds },
+              previousStatus: { in: resolvedStatuses },
+              NOT: { newStatus: { in: resolvedStatuses } },
+            },
+          })
+        : 0;
 
       const timeEntries = await prisma.ticketTimeEntry.findMany({
         where: { resourceId, dateWorked: { gte: dayStart, lte: dayEnd } },
@@ -378,20 +341,6 @@ async function aggregateTechnicianForDay(date: Date): Promise<AggregationResult>
         where: { assignedResourceId: resourceId, isResolved: true, completedDate: { gte: dayStart, lte: dayEnd } },
         select: { firstResponseMinutes: true, fullResolutionMinutes: true, isFirstTouchResolution: true },
       });
-      const nullDateTechIds = (await prisma.ticketStatusHistory.findMany({
-        where: {
-          changedAt: { gte: dayStart, lte: dayEnd },
-          newStatus: { in: [5, 13, 29] },
-          autotaskTicketId: {
-            in: (await prisma.ticket.findMany({
-              where: { assignedResourceId: resourceId, completedDate: null, status: { in: [5, 13, 29] } },
-              select: { autotaskTicketId: true },
-            })).map(t => t.autotaskTicketId),
-          },
-        },
-        select: { autotaskTicketId: true },
-        distinct: ['autotaskTicketId'],
-      })).map(h => h.autotaskTicketId);
       const closedNullDateTechLc = nullDateTechIds.length > 0
         ? await prisma.ticketLifecycle.findMany({
             where: { autotaskTicketId: { in: nullDateTechIds }, assignedResourceId: resourceId },
@@ -411,7 +360,7 @@ async function aggregateTechnicianForDay(date: Date): Promise<AggregationResult>
           assignedResourceId: resourceId,
           createDate: { lte: dayEnd },
           OR: [{ completedDate: null }, { completedDate: { gt: dayEnd } }],
-          NOT: { status: { in: [5, 13, 29] } },
+          NOT: { status: { in: resolvedStatuses } },
         },
       });
 
@@ -437,6 +386,49 @@ async function aggregateTechnicianForDay(date: Date): Promise<AggregationResult>
     }
   }
   return result;
+}
+
+// ============================================
+// SHARED HELPERS
+// ============================================
+
+/**
+ * Find ticket IDs that were resolved on a given day via status history.
+ * Handles the case where completedDate is null but the ticket transitioned
+ * to a resolved status during the day.
+ * This replaces the deeply nested inline queries that were duplicated 4 times.
+ */
+async function getResolvedTicketIdsFromHistory(
+  dayStart: Date,
+  dayEnd: Date,
+  resolvedStatuses: number[],
+  ticketFilter: { companyId?: string; assignedResourceId?: number },
+): Promise<string[]> {
+  // Step 1: Find tickets matching filter that are currently resolved but have no completedDate
+  const candidateTickets = await prisma.ticket.findMany({
+    where: {
+      ...ticketFilter,
+      completedDate: null,
+      status: { in: resolvedStatuses },
+    },
+    select: { autotaskTicketId: true },
+  });
+
+  if (candidateTickets.length === 0) return [];
+  const candidateIds = candidateTickets.map(t => t.autotaskTicketId);
+
+  // Step 2: Find which of these had a status transition to resolved on this day
+  const historyEntries = await prisma.ticketStatusHistory.findMany({
+    where: {
+      changedAt: { gte: dayStart, lte: dayEnd },
+      newStatus: { in: resolvedStatuses },
+      autotaskTicketId: { in: candidateIds },
+    },
+    select: { autotaskTicketId: true },
+    distinct: ['autotaskTicketId'],
+  });
+
+  return historyEntries.map(h => h.autotaskTicketId);
 }
 
 // ============================================

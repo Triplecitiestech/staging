@@ -16,7 +16,7 @@
 
 import { prisma } from '@/lib/prisma';
 import { createJobTracker } from './job-status';
-import { JOB_NAMES } from './types';
+import { JOB_NAMES, getResolvedStatuses } from './types';
 import { resolveTarget } from './targets';
 import { assertTableExists } from './sync';
 
@@ -327,7 +327,7 @@ async function countAgingTickets(companyId: string): Promise<number> {
   const openTickets = await prisma.ticket.findMany({
     where: {
       companyId,
-      NOT: { status: { in: [5, 13, 29] } },
+      NOT: { status: { in: getResolvedStatuses() } },
       completedDate: null,
     },
     select: { createDate: true, priority: true },

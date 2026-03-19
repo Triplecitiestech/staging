@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { parseFiltersFromParams } from '@/lib/reporting/filters';
-import { RESOLVED_STATUSES, PRIORITY_LABELS } from '@/lib/reporting/types';
+import { getResolvedStatuses, PRIORITY_LABELS } from '@/lib/reporting/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -72,7 +72,7 @@ export async function GET(request: NextRequest) {
 
     const companySummaries = Array.from(companyTickets.entries())
       .map(([cId, tix]) => {
-        const resolved = tix.filter(t => (RESOLVED_STATUSES as readonly number[]).includes(t.status)).length;
+        const resolved = tix.filter(t => getResolvedStatuses().includes(t.status)).length;
         return {
           companyId: cId,
           companyName: companyMap.get(cId) || 'Unknown',
@@ -83,7 +83,7 @@ export async function GET(request: NextRequest) {
             ticketId: t.autotaskTicketId,
             ticketNumber: t.ticketNumber,
             title: t.title,
-            isResolved: (RESOLVED_STATUSES as readonly number[]).includes(t.status),
+            isResolved: getResolvedStatuses().includes(t.status),
             assignedTo: t.assignedResourceId ? resourceMap.get(t.assignedResourceId) || 'Unassigned' : 'Unassigned',
             createDate: t.createDate.toISOString(),
             completedDate: t.completedDate?.toISOString() || null,

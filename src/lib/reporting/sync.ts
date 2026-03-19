@@ -6,7 +6,7 @@
 import { prisma } from '@/lib/prisma';
 import { AutotaskClient } from '@/lib/autotask';
 import { createJobTracker, getLastSuccessfulRun } from './job-status';
-import { JOB_NAMES, isResolvedStatus } from './types';
+import { JOB_NAMES, isResolvedStatus, updateStatusClassification } from './types';
 import { ensureReportingTables } from './ensure-tables';
 
 // ============================================
@@ -139,26 +139,22 @@ async function processCompanyTickets(
           statusLabel: picklistCache.ticketStatus[atTicket.status] || null,
           priority: atTicket.priority,
           priorityLabel: picklistCache.ticketPriority[atTicket.priority] || null,
-          queueId: (atTicket as Record<string, unknown>).queueID as number | null ?? null,
-          queueLabel: picklistCache.ticketQueue[(atTicket as Record<string, unknown>).queueID as number] || null,
-          source: (atTicket as Record<string, unknown>).source as number | null ?? null,
-          sourceLabel: picklistCache.ticketSource[(atTicket as Record<string, unknown>).source as number] || null,
-          issueType: (atTicket as Record<string, unknown>).issueType as number | null ?? null,
-          subIssueType: (atTicket as Record<string, unknown>).subIssueType as number | null ?? null,
-          assignedResourceId: (atTicket as Record<string, unknown>).assignedResourceID as number | null ?? null,
-          creatorResourceId: (atTicket as Record<string, unknown>).creatorResourceID as number | null ?? null,
-          contactId: (atTicket as Record<string, unknown>).contactID as number | null ?? null,
-          contractId: (atTicket as Record<string, unknown>).contractID as number | null ?? null,
-          slaId: (atTicket as Record<string, unknown>).serviceLevelAgreementID as number | null ?? null,
-          dueDateTime: (atTicket as Record<string, unknown>).dueDateTime
-            ? new Date((atTicket as Record<string, unknown>).dueDateTime as string)
-            : null,
-          estimatedHours: (atTicket as Record<string, unknown>).estimatedHours as number | null ?? null,
+          queueId: atTicket.queueID ?? null,
+          queueLabel: atTicket.queueID ? (picklistCache.ticketQueue[atTicket.queueID] || null) : null,
+          source: atTicket.source ?? null,
+          sourceLabel: atTicket.source ? (picklistCache.ticketSource[atTicket.source] || null) : null,
+          issueType: atTicket.issueType ?? null,
+          subIssueType: atTicket.subIssueType ?? null,
+          assignedResourceId: atTicket.assignedResourceID ?? null,
+          creatorResourceId: atTicket.creatorResourceID ?? null,
+          contactId: atTicket.contactID ?? null,
+          contractId: atTicket.contractID ?? null,
+          slaId: atTicket.serviceLevelAgreementID ?? null,
+          dueDateTime: atTicket.dueDateTime ? new Date(atTicket.dueDateTime) : null,
+          estimatedHours: atTicket.estimatedHours ?? null,
           createDate: new Date(atTicket.createDate),
           completedDate: atTicket.completedDate ? new Date(atTicket.completedDate) : null,
-          lastActivityDate: (atTicket as Record<string, unknown>).lastActivityDate
-            ? new Date((atTicket as Record<string, unknown>).lastActivityDate as string)
-            : null,
+          lastActivityDate: atTicket.lastActivityDate ? new Date(atTicket.lastActivityDate) : null,
           autotaskLastSync: new Date(),
         };
 
@@ -553,6 +549,12 @@ async function resolvePicklists(client: AutotaskClient): Promise<PicklistCache> 
         switch (field.name) {
           case 'status':
             cache.ticketStatus = map;
+            // Dynamically classify which statuses mean "resolved" and "waiting customer"
+            // based on the actual picklist labels from this Autotask instance
+            {
+              const classification = updateStatusClassification(field.picklistValues);
+              console.log(`[ReportingSync] Dynamic status classification — resolved: [${classification.resolved.join(',')}], waitingCustomer: [${classification.waitingCustomer.join(',')}]`);
+            }
             break;
           case 'priority':
             cache.ticketPriority = map;
@@ -568,7 +570,7 @@ async function resolvePicklists(client: AutotaskClient): Promise<PicklistCache> 
     }
   } catch {
     // Picklist resolution is best-effort — proceed without labels
-    console.warn('[ReportingSync] Failed to resolve picklists — labels will be null');
+    console.warn('[ReportingSync] Failed to resolve picklists — labels will be null, using default status classification');
   }
 
   return cache;

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
-import { RESOLVED_STATUSES } from '@/lib/reporting/types';
+import { getResolvedStatuses } from '@/lib/reporting/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,14 +29,17 @@ export async function GET() {
 
     for (const t of tickets) {
       statusCounts[t.status] = (statusCounts[t.status] || 0) + 1;
-      const isResolved = (RESOLVED_STATUSES as readonly number[]).includes(t.status);
-      if (isResolved) {
+      const resolvedStatuses = getResolvedStatuses();
+      const isTicketResolved = resolvedStatuses.includes(t.status);
+      if (isTicketResolved) {
         if (t.completedDate) resolvedWithDate++;
         else resolvedWithoutDate++;
       } else {
         unresolvedTotal++;
       }
     }
+
+    const resolvedStatuses = getResolvedStatuses();
 
     // 2. Status labels from picklist (if available)
     const statusLabels: Record<number, string> = {};
@@ -78,8 +81,8 @@ export async function GET() {
         resourceTickets[t.assignedResourceId] = { assigned: 0, resolved: 0, resolvedNoDate: 0 };
       }
       resourceTickets[t.assignedResourceId].assigned++;
-      const isResolved = (RESOLVED_STATUSES as readonly number[]).includes(t.status);
-      if (isResolved) {
+      const isTicketResolved = resolvedStatuses.includes(t.status);
+      if (isTicketResolved) {
         if (t.completedDate) resourceTickets[t.assignedResourceId].resolved++;
         else resourceTickets[t.assignedResourceId].resolvedNoDate++;
       }
@@ -112,14 +115,14 @@ export async function GET() {
 
     return NextResponse.json({
       totalTickets: tickets.length,
-      resolvedStatuses: Array.from(RESOLVED_STATUSES),
+      resolvedStatuses: resolvedStatuses,
       statusDistribution: Object.entries(statusCounts)
         .sort(([a], [b]) => Number(a) - Number(b))
         .map(([status, count]) => ({
           status: Number(status),
           label: statusLabels[Number(status)] || `Status ${status}`,
           count,
-          isResolvedInSystem: (RESOLVED_STATUSES as readonly number[]).includes(Number(status)),
+          isResolvedInSystem: resolvedStatuses.includes(Number(status)),
         })),
       resolvedWithCompletedDate: resolvedWithDate,
       resolvedWithoutCompletedDate: resolvedWithoutDate,

@@ -4,7 +4,7 @@
  */
 
 import { prisma } from '@/lib/prisma';
-import { PRIORITY_LABELS, RESOLVED_STATUSES } from '../types';
+import { PRIORITY_LABELS, getResolvedStatuses } from '../types';
 import {
   ReviewReportData,
   SupportActivityData,
@@ -18,14 +18,13 @@ import {
   ReportType,
 } from './types';
 
-const resolvedSet = new Set(RESOLVED_STATUSES as unknown as number[]);
-
 export async function buildReportData(
   companyId: string,
   reportType: ReportType,
   periodStart: Date,
   periodEnd: Date,
 ): Promise<ReviewReportData> {
+  const resolvedSet = new Set(getResolvedStatuses());
   const company = await prisma.company.findUnique({
     where: { id: companyId },
     select: { id: true, displayName: true },
@@ -568,7 +567,7 @@ async function buildBacklog(companyId: string, periodEnd: Date): Promise<Backlog
   const openTickets = await prisma.ticket.findMany({
     where: {
       companyId,
-      status: { notIn: Array.from(resolvedSet) },
+      status: { notIn: getResolvedStatuses() },
     },
     select: { priority: true, createDate: true },
   });
