@@ -66,7 +66,7 @@ const STATUS_COLORS: Record<string, string> = {
   APPROVED: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
   PUBLISHING: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
   PUBLISHED: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
-  SENDING: 'bg-orange-500/20 text-orange-300 border-orange-500/30',
+  SENDING: 'bg-violet-500/20 text-violet-300 border-violet-500/30',
   SENT: 'bg-green-500/20 text-green-300 border-green-500/30',
   FAILED: 'bg-red-500/20 text-red-300 border-red-500/30',
   CANCELLED: 'bg-slate-500/20 text-slate-400 border-slate-500/30',
@@ -385,7 +385,7 @@ export default function CampaignDetailPage() {
                   }
                 }}
                 disabled={!!actionLoading}
-                className="px-4 py-2 bg-orange-600 hover:bg-orange-500 disabled:bg-slate-600 text-white rounded-lg transition-colors text-sm font-medium"
+                className="px-4 py-2 bg-violet-600 hover:bg-violet-500 disabled:bg-slate-600 text-white rounded-lg transition-colors text-sm font-medium"
               >
                 {actionLoading === 'send' ? 'Sending...' : `Send to ${campaign._count.recipients} Recipients`}
               </button>

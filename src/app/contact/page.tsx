@@ -362,7 +362,7 @@ export default function Contact() {
                   </div>
 
                   <div className="flex items-start space-x-4 group">
-                    <div className="w-14 h-14 bg-gradient-to-br from-orange-500 to-red-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform duration-300">
+                    <div className="w-14 h-14 bg-gradient-to-br from-rose-500 to-red-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform duration-300">
                       <ClockIcon size={24} className="text-white" />
                     </div>
                     <div>
@@ -477,11 +477,11 @@ export default function Contact() {
                   rel="noopener noreferrer"
                   className="flex items-start space-x-4 group"
                 >
-                  <div className="w-14 h-14 bg-gradient-to-br from-orange-500 to-red-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform duration-300">
+                  <div className="w-14 h-14 bg-gradient-to-br from-rose-500 to-red-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform duration-300">
                     <GlobeIcon size={24} className="text-white" />
                   </div>
                   <div>
-                    <h4 className="text-lg font-bold text-white mb-1 group-hover:text-orange-300 transition-colors duration-300">Payment Portal</h4>
+                    <h4 className="text-lg font-bold text-white mb-1 group-hover:text-rose-300 transition-colors duration-300">Payment Portal</h4>
                     <p className="text-white/90 text-sm group-hover:text-white transition-colors duration-300">View invoices and make payments securely</p>
                   </div>
                 </a>

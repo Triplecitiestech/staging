@@ -64,11 +64,11 @@ export default function ComplianceMonitoringPage() {
           <h2 className="text-3xl font-bold text-white mb-6">Compliance Monitoring Process</h2>
 
           <div className="space-y-6">
-            <div className="bg-orange-500/10 border-l-4 border-orange-500 rounded px-6 py-4">
-              <h3 className="text-lg font-bold text-orange-400 mb-3">Kellan&apos;s team is responsible for:</h3>
+            <div className="bg-violet-500/10 border-l-4 border-violet-500 rounded px-6 py-4">
+              <h3 className="text-lg font-bold text-violet-400 mb-3">Kellan&apos;s team is responsible for:</h3>
               <div className="space-y-3">
                 <div className="flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-full bg-orange-400 flex items-center justify-center flex-shrink-0 mt-1">
+                  <div className="w-6 h-6 rounded-full bg-violet-400 flex items-center justify-center flex-shrink-0 mt-1">
                     <span className="text-slate-900 font-bold text-sm">1</span>
                   </div>
                   <div className="flex-1">
@@ -78,7 +78,7 @@ export default function ComplianceMonitoringPage() {
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-full bg-orange-400 flex items-center justify-center flex-shrink-0 mt-1">
+                  <div className="w-6 h-6 rounded-full bg-violet-400 flex items-center justify-center flex-shrink-0 mt-1">
                     <span className="text-slate-900 font-bold text-sm">2</span>
                   </div>
                   <div className="flex-1">
@@ -88,7 +88,7 @@ export default function ComplianceMonitoringPage() {
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-full bg-orange-400 flex items-center justify-center flex-shrink-0 mt-1">
+                  <div className="w-6 h-6 rounded-full bg-violet-400 flex items-center justify-center flex-shrink-0 mt-1">
                     <span className="text-slate-900 font-bold text-sm">3</span>
                   </div>
                   <div className="flex-1">
@@ -98,7 +98,7 @@ export default function ComplianceMonitoringPage() {
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-full bg-orange-400 flex items-center justify-center flex-shrink-0 mt-1">
+                  <div className="w-6 h-6 rounded-full bg-violet-400 flex items-center justify-center flex-shrink-0 mt-1">
                     <span className="text-slate-900 font-bold text-sm">4</span>
                   </div>
                   <div className="flex-1">
@@ -108,7 +108,7 @@ export default function ComplianceMonitoringPage() {
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-full bg-orange-400 flex items-center justify-center flex-shrink-0 mt-1">
+                  <div className="w-6 h-6 rounded-full bg-violet-400 flex items-center justify-center flex-shrink-0 mt-1">
                     <span className="text-slate-900 font-bold text-sm">5</span>
                   </div>
                   <div className="flex-1">
@@ -157,8 +157,8 @@ export default function ComplianceMonitoringPage() {
               </div>
             </div>
 
-            <div className="bg-orange-900/20 border border-orange-500/30 rounded-lg p-6 mt-6">
-              <p className="text-orange-200 font-semibold mb-3">
+            <div className="bg-violet-900/20 border border-violet-500/30 rounded-lg p-6 mt-6">
+              <p className="text-violet-200 font-semibold mb-3">
                 Response to Red Flags:
               </p>
               <p className="text-slate-300">

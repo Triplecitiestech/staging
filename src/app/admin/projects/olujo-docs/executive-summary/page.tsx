@@ -253,8 +253,8 @@ export default function ExecutiveSummaryPage() {
               <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-cyan-400 mt-2" />
               <span><strong className="text-white">Compensation:</strong> Hourly rate only</span>
             </div>
-            <div className="bg-orange-900/20 border border-orange-500/30 rounded-lg p-4 mt-4">
-              <p className="text-orange-300 font-semibold mb-2">Compliance Requirement</p>
+            <div className="bg-violet-900/20 border border-violet-500/30 rounded-lg p-4 mt-4">
+              <p className="text-violet-300 font-semibold mb-2">Compliance Requirement</p>
               <p className="text-sm text-slate-300">
                 Contractors are paid hourly only. No commission, bonuses, or sales-based compensation. This ensures compliance with New York State liquor regulations and maintains the integrity of the awareness-only mission.
               </p>
@@ -263,7 +263,7 @@ export default function ExecutiveSummaryPage() {
         </section>
 
         {/* Cost Awareness & Budget Considerations */}
-        <section className="mb-12 bg-gradient-to-br from-orange-600/20 to-orange-500/10 backdrop-blur-sm border-2 border-orange-500/50 rounded-lg p-8">
+        <section className="mb-12 bg-gradient-to-br from-violet-600/20 to-violet-500/10 backdrop-blur-sm border-2 border-violet-500/50 rounded-lg p-8">
           <h2 className="text-2xl font-bold text-white mb-6">Cost Awareness & Budget Considerations</h2>
           <div className="space-y-4 text-slate-300">
             <p className="text-lg">
@@ -271,24 +271,24 @@ export default function ExecutiveSummaryPage() {
             </p>
             <div className="grid md:grid-cols-2 gap-3">
               <div className="flex items-start gap-3">
-                <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-orange-400 mt-2" />
+                <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-violet-400 mt-2" />
                 <span>Salesforce CRM user licenses</span>
               </div>
               <div className="flex items-start gap-3">
-                <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-orange-400 mt-2" />
+                <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-violet-400 mt-2" />
                 <span>RingCentral phone system licenses (~$30/user/month)</span>
               </div>
               <div className="flex items-start gap-3">
-                <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-orange-400 mt-2" />
+                <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-violet-400 mt-2" />
                 <span>Contractor hourly labor</span>
               </div>
               <div className="flex items-start gap-3">
-                <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-orange-400 mt-2" />
+                <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-violet-400 mt-2" />
                 <span>Lead acquisition and data preparation</span>
               </div>
             </div>
-            <div className="bg-orange-900/20 border border-orange-500/30 rounded-lg p-6 mt-6">
-              <p className="text-orange-200 font-semibold mb-3">
+            <div className="bg-violet-900/20 border border-violet-500/30 rounded-lg p-6 mt-6">
+              <p className="text-violet-200 font-semibold mb-3">
                 A cost review and budget alignment step is required before CRM configuration, hiring, or pilot execution.
               </p>
               <p className="text-slate-300">

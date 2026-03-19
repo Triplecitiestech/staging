@@ -152,23 +152,23 @@ export default function ManagerHiringPage() {
 
           {/* Quality Assurance */}
           <div className="mb-8">
-            <h3 className="text-xl font-bold text-orange-400 mb-4">4. Quality Assurance</h3>
+            <h3 className="text-xl font-bold text-violet-400 mb-4">4. Quality Assurance</h3>
             <p className="text-slate-300 mb-4">Reviewing call logs and transcripts for quality and compliance:</p>
             <div className="bg-slate-900/50 rounded-lg p-6 space-y-3">
               <div className="flex items-start gap-3">
-                <div className="w-1.5 h-1.5 rounded-full bg-orange-400 mt-2 flex-shrink-0"></div>
+                <div className="w-1.5 h-1.5 rounded-full bg-violet-400 mt-2 flex-shrink-0"></div>
                 <span className="text-slate-300">Identifying script drift</span>
               </div>
               <div className="flex items-start gap-3">
-                <div className="w-1.5 h-1.5 rounded-full bg-orange-400 mt-2 flex-shrink-0"></div>
+                <div className="w-1.5 h-1.5 rounded-full bg-violet-400 mt-2 flex-shrink-0"></div>
                 <span className="text-slate-300">Identifying incomplete documentation</span>
               </div>
               <div className="flex items-start gap-3">
-                <div className="w-1.5 h-1.5 rounded-full bg-orange-400 mt-2 flex-shrink-0"></div>
+                <div className="w-1.5 h-1.5 rounded-full bg-violet-400 mt-2 flex-shrink-0"></div>
                 <span className="text-slate-300">Identifying over-talking or subtle selling behavior</span>
               </div>
               <div className="flex items-start gap-3">
-                <div className="w-1.5 h-1.5 rounded-full bg-orange-400 mt-2 flex-shrink-0"></div>
+                <div className="w-1.5 h-1.5 rounded-full bg-violet-400 mt-2 flex-shrink-0"></div>
                 <span className="text-slate-300">Correcting issues through coaching or escalation</span>
               </div>
             </div>
@@ -321,13 +321,13 @@ export default function ManagerHiringPage() {
         </section>
 
         {/* Compensation & Authority */}
-        <section className="mb-12 bg-gradient-to-br from-orange-600/20 to-orange-500/10 backdrop-blur-sm border-2 border-orange-500/50 rounded-lg p-8">
+        <section className="mb-12 bg-gradient-to-br from-violet-600/20 to-violet-500/10 backdrop-blur-sm border-2 border-violet-500/50 rounded-lg p-8">
           <h2 className="text-3xl font-bold text-white mb-6">Compensation &amp; Authority Clarification</h2>
 
           {/* Compensation */}
           <div className="mb-6">
-            <h3 className="text-xl font-bold text-orange-400 mb-4">Compensation</h3>
-            <div className="bg-orange-900/30 rounded-lg p-6">
+            <h3 className="text-xl font-bold text-violet-400 mb-4">Compensation</h3>
+            <div className="bg-violet-900/30 rounded-lg p-6">
               <p className="text-slate-300 mb-3">
                 The Manager is paid <strong className="text-white">hourly only</strong>.
               </p>
@@ -356,13 +356,13 @@ export default function ManagerHiringPage() {
 
           {/* Payment & Admin Authority */}
           <div>
-            <h3 className="text-xl font-bold text-orange-400 mb-4">Payment &amp; Admin Authority</h3>
-            <div className="bg-slate-900/50 border border-orange-500/30 rounded-lg p-6">
+            <h3 className="text-xl font-bold text-violet-400 mb-4">Payment &amp; Admin Authority</h3>
+            <div className="bg-slate-900/50 border border-violet-500/30 rounded-lg p-6">
               <p className="text-slate-300 mb-4">
                 The Manager may assist with coordination and onboarding logistics.
               </p>
-              <div className="bg-orange-900/30 border border-orange-500/50 rounded-lg p-4">
-                <p className="text-orange-200 font-bold mb-3">Final authority for:</p>
+              <div className="bg-violet-900/30 border border-violet-500/50 rounded-lg p-4">
+                <p className="text-violet-200 font-bold mb-3">Final authority for:</p>
                 <ul className="space-y-2 text-slate-300">
                   <li className="flex items-start gap-2">
                     <span className="flex-shrink-0">•</span>
@@ -377,7 +377,7 @@ export default function ManagerHiringPage() {
                     <span>Contract approval</span>
                   </li>
                 </ul>
-                <p className="text-orange-200 font-semibold mt-3">
+                <p className="text-violet-200 font-semibold mt-3">
                   ...rests with Olujo leadership (e.g., Kellan), unless explicitly delegated.
                 </p>
               </div>
@@ -406,8 +406,8 @@ export default function ManagerHiringPage() {
               <h3 className="text-lg font-bold text-purple-400 mb-2">What the Manager Does:</h3>
               <p className="text-slate-300">Supervise agents, enforce compliance, train, report, escalate issues</p>
             </div>
-            <div className="bg-orange-900/20 border border-orange-500/30 rounded-lg p-4">
-              <h3 className="text-lg font-bold text-orange-400 mb-2">What Olujo Leadership Controls:</h3>
+            <div className="bg-violet-900/20 border border-violet-500/30 rounded-lg p-4">
+              <h3 className="text-lg font-bold text-violet-400 mb-2">What Olujo Leadership Controls:</h3>
               <p className="text-slate-300">Pay rates, contract approval, final hiring decisions, strategic direction</p>
             </div>
           </div>

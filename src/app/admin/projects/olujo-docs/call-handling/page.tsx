@@ -189,14 +189,14 @@ export default function CallHandlingPage() {
         </section>
 
         {/* Inbound Call Policy */}
-        <section className="mb-12 bg-gradient-to-br from-orange-600/20 to-orange-500/10 backdrop-blur-sm border-2 border-orange-500/50 rounded-lg p-8">
+        <section className="mb-12 bg-gradient-to-br from-violet-600/20 to-violet-500/10 backdrop-blur-sm border-2 border-violet-500/50 rounded-lg p-8">
           <div className="flex items-center gap-3 mb-6">
-            <Phone className="w-8 h-8 text-orange-400" />
+            <Phone className="w-8 h-8 text-violet-400" />
             <h2 className="text-3xl font-bold text-white">Inbound Call Policy</h2>
           </div>
           <div className="space-y-4">
-            <div className="bg-orange-900/30 border border-orange-500/50 rounded-lg p-6">
-              <p className="text-orange-200 font-bold text-lg mb-3">
+            <div className="bg-violet-900/30 border border-violet-500/50 rounded-lg p-6">
+              <p className="text-violet-200 font-bold text-lg mb-3">
                 Contractors must NEVER answer inbound calls.
               </p>
               <p className="text-slate-300 mb-3">
@@ -207,7 +207,7 @@ export default function CallHandlingPage() {
               </p>
             </div>
             <div className="bg-slate-900/50 rounded-lg p-6">
-              <h3 className="text-lg font-bold text-orange-400 mb-3">Why this matters:</h3>
+              <h3 className="text-lg font-bold text-violet-400 mb-3">Why this matters:</h3>
               <p className="text-slate-300">
                 Contractors are not licensed to sell alcohol in New York. Answering inbound calls or discussing orders, pricing, or availability could create regulatory compliance issues and liability for Olujo.
               </p>

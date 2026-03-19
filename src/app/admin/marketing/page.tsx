@@ -31,7 +31,7 @@ const STATUS_COLORS: Record<string, string> = {
   APPROVED: 'bg-emerald-500/20 text-emerald-300',
   PUBLISHING: 'bg-cyan-500/20 text-cyan-300',
   PUBLISHED: 'bg-cyan-500/20 text-cyan-300',
-  SENDING: 'bg-orange-500/20 text-orange-300',
+  SENDING: 'bg-violet-500/20 text-violet-300',
   SENT: 'bg-green-500/20 text-green-300',
   FAILED: 'bg-red-500/20 text-red-300',
   CANCELLED: 'bg-slate-500/20 text-slate-400',

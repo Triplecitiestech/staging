@@ -174,7 +174,7 @@ export default function BusinessReviewDetail({ reviewId }: Props) {
       </div>
 
       {isInternal && (
-        <div className="bg-orange-500/10 border border-orange-500/30 rounded-lg p-3 text-orange-400 text-sm font-medium text-center">
+        <div className="bg-violet-500/10 border border-violet-500/30 rounded-lg p-3 text-violet-400 text-sm font-medium text-center">
           INTERNAL DOCUMENT — NOT FOR CUSTOMER DISTRIBUTION
         </div>
       )}
@@ -238,7 +238,7 @@ export default function BusinessReviewDetail({ reviewId }: Props) {
             <div className={`w-20 h-20 rounded-full flex items-center justify-center text-2xl font-bold text-white ${
               rd.healthSnapshot.overallScore >= 80 ? 'bg-emerald-500' :
               rd.healthSnapshot.overallScore >= 60 ? 'bg-cyan-500' :
-              rd.healthSnapshot.overallScore >= 40 ? 'bg-orange-500' : 'bg-rose-500'
+              rd.healthSnapshot.overallScore >= 40 ? 'bg-violet-500' : 'bg-rose-500'
             }`}>
               {Math.round(rd.healthSnapshot.overallScore)}
             </div>
@@ -283,7 +283,7 @@ export default function BusinessReviewDetail({ reviewId }: Props) {
                     'bg-slate-600 text-slate-300'
                   }`}>{rec.priority}</span>
                   <span className="text-xs text-slate-500 uppercase">{rec.category}</span>
-                  {rec.internalOnly && <span className="text-xs text-orange-400">(internal)</span>}
+                  {rec.internalOnly && <span className="text-xs text-violet-400">(internal)</span>}
                 </div>
                 <h4 className="text-sm font-bold text-white mb-1">{rec.title}</h4>
                 <p className="text-sm text-slate-300 mb-2">{rec.description}</p>
@@ -297,7 +297,7 @@ export default function BusinessReviewDetail({ reviewId }: Props) {
       {/* Internal Notes */}
       {isInternal && review.narrative.internalNotes && (
         <Section title="Internal Notes">
-          <div className="bg-orange-500/5 border border-orange-500/20 rounded-lg p-4">
+          <div className="bg-violet-500/5 border border-violet-500/20 rounded-lg p-4">
             <p className="text-sm text-slate-300 whitespace-pre-line">{review.narrative.internalNotes}</p>
           </div>
         </Section>
@@ -348,7 +348,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function VariantBadge({ variant }: { variant: string }) {
-  return <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${variant === 'internal' ? 'text-orange-400 bg-orange-400/10' : 'text-cyan-400 bg-cyan-400/10'}`}>{variant}</span>
+  return <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${variant === 'internal' ? 'text-violet-400 bg-violet-400/10' : 'text-cyan-400 bg-cyan-400/10'}`}>{variant}</span>
 }
 
 function fmtMin(minutes: number): string {

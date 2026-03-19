@@ -52,10 +52,10 @@ export default function Benefits() {
     {
       title: 'Strategic Technology Planning',
       description: 'We help you plan for the future with technology roadmaps that align with your business growth and goals.',
-      gradient: 'from-orange-400 via-red-500 to-pink-600',
-      accent: 'bg-orange-400/20',
-      border: 'border-orange-400/30',
-      glow: 'shadow-orange-400/50',
+      gradient: 'from-rose-400 via-red-500 to-pink-600',
+      accent: 'bg-rose-400/20',
+      border: 'border-rose-400/30',
+      glow: 'shadow-rose-400/50',
       delay: 800,
       number: '04'
     },
@@ -127,7 +127,7 @@ export default function Benefits() {
         
         {/* Additional 3D Elements */}
         <div 
-          className="absolute top-1/4 left-1/4 w-32 h-32 bg-gradient-to-br from-orange-200/30 to-red-200/30 rounded-full blur-2xl animate-pulse delay-1500"
+          className="absolute top-1/4 left-1/4 w-32 h-32 bg-gradient-to-br from-rose-200/30 to-red-200/30 rounded-full blur-2xl animate-pulse delay-1500"
           style={{ 
             transform: `translateY(${parallaxOffset * 0.25}px) translateZ(0px)`,
             filter: 'blur(25px)'

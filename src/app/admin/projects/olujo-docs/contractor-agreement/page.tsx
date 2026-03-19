@@ -91,7 +91,7 @@ export default function ContractorAgreementPage() {
                 </p>
               </div>
               <div>
-                <h3 className="text-lg font-bold text-orange-400 mb-2">Filipino Operations Manager</h3>
+                <h3 className="text-lg font-bold text-violet-400 mb-2">Filipino Operations Manager</h3>
                 <p className="text-slate-300">
                   Supervises awareness-only agents, enforces SOPs and compliance requirements, conducts agent hiring and training, performs quality assurance, and reports operational metrics to Olujo leadership. Does NOT sell and does NOT contact stores for outreach (except for training or QA purposes).
                 </p>
@@ -169,8 +169,8 @@ export default function ContractorAgreementPage() {
               </p>
             </div>
 
-            <div className="bg-orange-900/20 border border-orange-500/50 rounded-lg p-6">
-              <h3 className="text-lg font-bold text-orange-400 mb-4">Compliance Requirement</h3>
+            <div className="bg-violet-900/20 border border-violet-500/50 rounded-lg p-6">
+              <h3 className="text-lg font-bold text-violet-400 mb-4">Compliance Requirement</h3>
               <p className="text-slate-300 mb-3">
                 Contractors are paid <strong className="text-white">hourly only</strong>. There is no commission, bonus, or sales-based compensation.
               </p>
@@ -236,22 +236,22 @@ export default function ContractorAgreementPage() {
               </ul>
             </div>
 
-            <div className="bg-orange-900/20 border border-orange-500/50 rounded-lg p-6">
-              <h3 className="text-lg font-bold text-orange-400 mb-4">Performance Enforcement</h3>
+            <div className="bg-violet-900/20 border border-violet-500/50 rounded-lg p-6">
+              <h3 className="text-lg font-bold text-violet-400 mb-4">Performance Enforcement</h3>
               <p className="text-slate-300 mb-3">
                 Failure to meet performance targets may result in:
               </p>
               <div className="space-y-2">
                 <div className="flex items-start gap-3">
-                  <div className="w-1.5 h-1.5 rounded-full bg-orange-400 mt-2 flex-shrink-0"></div>
+                  <div className="w-1.5 h-1.5 rounded-full bg-violet-400 mt-2 flex-shrink-0"></div>
                   <span className="text-slate-300"><strong className="text-white">Coaching and feedback:</strong> Management will provide guidance to help contractors improve activity levels</span>
                 </div>
                 <div className="flex items-start gap-3">
-                  <div className="w-1.5 h-1.5 rounded-full bg-orange-400 mt-2 flex-shrink-0"></div>
+                  <div className="w-1.5 h-1.5 rounded-full bg-violet-400 mt-2 flex-shrink-0"></div>
                   <span className="text-slate-300"><strong className="text-white">Reduced hours:</strong> Persistent underperformance may lead to reduced scheduled hours or shift reassignment</span>
                 </div>
                 <div className="flex items-start gap-3">
-                  <div className="w-1.5 h-1.5 rounded-full bg-orange-400 mt-2 flex-shrink-0"></div>
+                  <div className="w-1.5 h-1.5 rounded-full bg-violet-400 mt-2 flex-shrink-0"></div>
                   <span className="text-slate-300"><strong className="text-white">Termination:</strong> Consistent failure to meet minimum activity expectations may result in termination of this Agreement</span>
                 </div>
               </div>
@@ -388,26 +388,26 @@ export default function ContractorAgreementPage() {
               </div>
             </div>
 
-            <div className="bg-orange-900/30 border border-orange-500/50 rounded-lg p-6 mt-6">
-              <h3 className="text-lg font-bold text-orange-400 mb-4">Additional Termination Grounds for Operations Managers</h3>
+            <div className="bg-violet-900/30 border border-violet-500/50 rounded-lg p-6 mt-6">
+              <h3 className="text-lg font-bold text-violet-400 mb-4">Additional Termination Grounds for Operations Managers</h3>
               <p className="text-slate-300 mb-3">
                 Operations Managers are held to a <strong className="text-white">higher standard</strong> of conduct and enforcement. Immediate termination may occur for:
               </p>
               <div className="space-y-3">
                 <div className="flex items-start gap-3">
-                  <div className="w-1.5 h-1.5 rounded-full bg-orange-400 mt-2 flex-shrink-0"></div>
+                  <div className="w-1.5 h-1.5 rounded-full bg-violet-400 mt-2 flex-shrink-0"></div>
                   <span className="text-slate-300">Failure to enforce SOPs or compliance requirements with agents</span>
                 </div>
                 <div className="flex items-start gap-3">
-                  <div className="w-1.5 h-1.5 rounded-full bg-orange-400 mt-2 flex-shrink-0"></div>
+                  <div className="w-1.5 h-1.5 rounded-full bg-violet-400 mt-2 flex-shrink-0"></div>
                   <span className="text-slate-300">Knowingly allowing or ignoring compliance violations by agents</span>
                 </div>
                 <div className="flex items-start gap-3">
-                  <div className="w-1.5 h-1.5 rounded-full bg-orange-400 mt-2 flex-shrink-0"></div>
+                  <div className="w-1.5 h-1.5 rounded-full bg-violet-400 mt-2 flex-shrink-0"></div>
                   <span className="text-slate-300">Repeated failure to meet operational expectations or reporting requirements</span>
                 </div>
                 <div className="flex items-start gap-3">
-                  <div className="w-1.5 h-1.5 rounded-full bg-orange-400 mt-2 flex-shrink-0"></div>
+                  <div className="w-1.5 h-1.5 rounded-full bg-violet-400 mt-2 flex-shrink-0"></div>
                   <span className="text-slate-300">Misrepresentation of agent performance or data integrity issues</span>
                 </div>
               </div>

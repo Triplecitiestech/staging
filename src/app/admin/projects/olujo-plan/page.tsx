@@ -168,8 +168,8 @@ export default function OlujoPlanPage() {
 
           {/* Operations Manager */}
           <div className="grid md:grid-cols-1 gap-6">
-            <div className="bg-slate-900/50 border border-orange-500/30 rounded-lg p-6">
-              <h3 className="text-xl font-bold text-orange-400 mb-2">Filipino Operations Manager — Agent Supervisor (Contractor)</h3>
+            <div className="bg-slate-900/50 border border-violet-500/30 rounded-lg p-6">
+              <h3 className="text-xl font-bold text-violet-400 mb-2">Filipino Operations Manager — Agent Supervisor (Contractor)</h3>
               <p className="text-sm text-slate-400 mb-4">(Senior Contractor - Non-Selling)</p>
 
               <div>

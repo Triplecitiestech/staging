@@ -145,13 +145,13 @@ export default function Services() {
 
               {/* Call Directly */}
               <div className="group">
-                <div className="relative bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl md:rounded-3xl p-6 md:p-8 hover:border-white/30 transition-all duration-500 hover:scale-[1.02] hover:shadow-2xl hover:shadow-orange-500/20 h-full flex flex-col">
-                  <div className="w-16 h-16 md:w-20 md:h-20 rounded-2xl bg-gradient-to-r from-orange-500 to-orange-600 flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform duration-300 mx-auto mb-6">
+                <div className="relative bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl md:rounded-3xl p-6 md:p-8 hover:border-white/30 transition-all duration-500 hover:scale-[1.02] hover:shadow-2xl hover:shadow-rose-500/20 h-full flex flex-col">
+                  <div className="w-16 h-16 md:w-20 md:h-20 rounded-2xl bg-gradient-to-r from-rose-500 to-rose-600 flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform duration-300 mx-auto mb-6">
                     <PhoneIcon size={28} className="text-white" />
                   </div>
 
                   <div className="text-center mb-6 flex-grow">
-                    <h4 className="text-xl md:text-2xl font-bold text-white mb-3 group-hover:text-orange-200 transition-colors duration-300">
+                    <h4 className="text-xl md:text-2xl font-bold text-white mb-3 group-hover:text-rose-200 transition-colors duration-300">
                       Call Us Directly
                     </h4>
                     <p className="text-white/90 text-sm md:text-base leading-relaxed">
@@ -162,7 +162,7 @@ export default function Services() {
                   <div>
                     <a
                       href={`tel:${CONTACT_INFO.phone}`}
-                      className="inline-flex items-center justify-center w-full text-center bg-gradient-to-r from-orange-500 to-orange-600 hover:opacity-90 text-white font-bold px-4 py-3 md:px-6 md:py-4 rounded-xl transition-all duration-300 hover:scale-105 shadow-lg text-lg md:text-xl"
+                      className="inline-flex items-center justify-center w-full text-center bg-gradient-to-r from-rose-500 to-rose-600 hover:opacity-90 text-white font-bold px-4 py-3 md:px-6 md:py-4 rounded-xl transition-all duration-300 hover:scale-105 shadow-lg text-lg md:text-xl"
                     >
                       {CONTACT_INFO.phone}
                     </a>
