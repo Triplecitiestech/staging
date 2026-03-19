@@ -25,6 +25,7 @@ interface SystemHealthResponse {
     status: string;
     durationMs: number | null;
     schedule: string;
+    stale: boolean;
   }[];
   errors: {
     last24h: number;
@@ -90,10 +91,12 @@ export async function GET() {
   const servicesDegraded = services.filter(s => s.status === 'degraded').length;
   const servicesUnconfigured = services.filter(s => s.status === 'unconfigured').length;
   const highErrorRate = errors.last24h > 50;
+  const staleJobs = cronJobs.filter(j => j.stale).length;
+  const failedJobs = cronJobs.filter(j => j.status === 'failed' || j.status === 'error').length;
 
   let overall: 'healthy' | 'degraded' | 'down' = 'healthy';
   if (!dbHealthy || servicesDown > 0) overall = 'down';
-  else if (servicesDegraded > 0 || servicesUnconfigured > 2 || highErrorRate) overall = 'degraded';
+  else if (servicesDegraded > 0 || servicesUnconfigured > 2 || highErrorRate || staleJobs > 2 || failedJobs > 2) overall = 'degraded';
 
   // Persist a health snapshot for historical graphing (fire-and-forget)
   const servicesHealthy = services.filter(s => s.status === 'healthy').length;
@@ -166,20 +169,43 @@ async function getTableCounts(): Promise<{ name: string; rowCount: number }[]> {
 }
 
 async function getCronJobStatuses() {
+  // Expected intervals in minutes for staleness detection (3x the interval = stale)
+  const expectedIntervalMinutes: Record<string, number> = {
+    'sync-tickets': 120,
+    'sync-time-entries': 120,
+    'sync-ticket-notes': 120,
+    'sync-resources': 1440,       // daily
+    'aggregate-company': 1440,
+    'aggregate-technician': 1440,
+    'compute-health': 10080,      // weekly
+    'compute-lifecycle': 120,
+    'deliver': 1440,
+    'generate-blog': 2880,        // ~every 2 days (Mon/Wed/Fri)
+    'publish-scheduled': 15,
+    'autotask-sync': 5,
+    'send-approval-emails': 1440,
+    'soc-triage': 5,
+    'datto-device-sync': 30,
+  };
+
+  // Schedules must match vercel.json cron definitions exactly
   const schedules: Record<string, string> = {
     'sync-tickets': 'Every 2 hours',
-    'sync-time-entries': 'Every 2 hours',
-    'sync-ticket-notes': 'Every 2 hours',
-    'sync-resources': 'Daily',
-    'aggregate-company': 'Nightly',
-    'aggregate-technician': 'Nightly',
-    'compute-health': 'Nightly',
-    'compute-lifecycle': 'Nightly',
-    'deliver': 'Nightly',
+    'sync-time-entries': 'Every 2 hours (+10min)',
+    'sync-ticket-notes': 'Every 2 hours (+20min)',
+    'sync-resources': 'Daily midnight',
+    'aggregate-company': 'Nightly 1:15AM',
+    'aggregate-technician': 'Nightly 1AM',
+    'compute-health': 'Weekly (Sun 2AM)',
+    'compute-lifecycle': 'Every 2 hours (+30min)',
+    'deliver': 'Daily 8AM',
     'backfill': 'On demand',
     'generate-blog': 'Mon/Wed/Fri 8AM',
     'publish-scheduled': 'Every 15 min',
     'autotask-sync': 'Every 5 min',
+    'send-approval-emails': 'Daily noon',
+    'soc-triage': 'Every 5 min',
+    'datto-device-sync': 'Every 30 min',
   };
 
   try {
@@ -187,13 +213,46 @@ async function getCronJobStatuses() {
       orderBy: { lastRunAt: 'desc' },
     });
 
-    return jobs.map(job => ({
-      name: job.jobName,
-      lastRun: job.lastRunAt?.toISOString() ?? null,
-      status: job.lastRunStatus ?? 'unknown',
-      durationMs: job.lastRunDurationMs,
-      schedule: schedules[job.jobName] || 'Unknown',
-    }));
+    const now = Date.now();
+    const result = jobs.map(job => {
+      const lastRunMs = job.lastRunAt?.getTime() ?? 0;
+      const expectedMin = expectedIntervalMinutes[job.jobName];
+      // Stale if last run > 3x the expected interval
+      const stale = !!(expectedMin && lastRunMs > 0 && (now - lastRunMs) > expectedMin * 3 * 60 * 1000);
+      return {
+        name: job.jobName,
+        lastRun: job.lastRunAt?.toISOString() ?? null,
+        status: job.lastRunStatus ?? 'unknown',
+        durationMs: job.lastRunDurationMs,
+        schedule: schedules[job.jobName] || 'Unknown',
+        stale,
+      };
+    });
+
+    // Include Autotask sync from its own log table (it uses AutotaskSyncLog, not ReportingJobStatus)
+    if (!result.some(j => j.name === 'autotask-sync')) {
+      try {
+        const lastAtSync = await prisma.autotaskSyncLog.findFirst({
+          orderBy: { startedAt: 'desc' },
+        });
+        if (lastAtSync) {
+          const atLastRunMs = lastAtSync.completedAt?.getTime() ?? lastAtSync.startedAt.getTime();
+          const atExpected = expectedIntervalMinutes['autotask-sync'] || 5;
+          result.push({
+            name: 'autotask-sync',
+            lastRun: lastAtSync.completedAt?.toISOString() ?? lastAtSync.startedAt.toISOString(),
+            status: lastAtSync.status === 'success' || lastAtSync.status === 'partial' ? 'success' : 'failed',
+            durationMs: lastAtSync.durationMs,
+            schedule: schedules['autotask-sync'] || 'Every 5 min',
+            stale: (now - atLastRunMs) > atExpected * 3 * 60 * 1000,
+          });
+        }
+      } catch {
+        // AutotaskSyncLog table may not exist
+      }
+    }
+
+    return result;
   } catch {
     return [];
   }
