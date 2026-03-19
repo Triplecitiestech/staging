@@ -209,6 +209,7 @@ export default function SocTicketDetail({ ticketId, onBack }: SocTicketDetailPro
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
+  const [showOriginalAlert, setShowOriginalAlert] = useState(false);
   const [decidingAction, setDecidingAction] = useState<string | null>(null);
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());
 
@@ -332,70 +333,90 @@ export default function SocTicketDetail({ ticketId, onBack }: SocTicketDetailPro
       </div>
 
       {/* ═══════════════════════════════════════════
-           STEP 1B: ORIGINAL ALERT
-           Always visible — this is the source-of-truth alert
-         ═══════════════════════════════════════════ */}
-      {ticket.description && (
-        <div className="bg-slate-800/50 border border-white/10 rounded-lg p-6">
-          <h3 className="text-sm font-semibold text-white uppercase tracking-wider mb-3">Original Alert</h3>
-          <pre className="text-sm text-slate-300 whitespace-pre-wrap break-words font-sans leading-relaxed">
-            {ticket.description}
-          </pre>
-        </div>
-      )}
-
-      {/* ═══════════════════════════════════════════
            NOT ANALYZED STATE
-           When no analysis exists, show clear message and stop
          ═══════════════════════════════════════════ */}
       {!hasAnalysis && (
-        <div className="bg-slate-800/50 border border-slate-600/30 rounded-lg p-8 text-center">
-          <div className="w-12 h-12 rounded-full bg-slate-700/50 flex items-center justify-center mx-auto mb-4">
-            <svg className="w-6 h-6 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
+        <>
+          {/* Show original alert when no analysis */}
+          {ticket.description && (
+            <div className="bg-slate-800/50 border border-white/10 rounded-lg p-6">
+              <h3 className="text-sm font-semibold text-white uppercase tracking-wider mb-3">Original Alert</h3>
+              <pre className="text-sm text-slate-300 whitespace-pre-wrap break-words font-sans leading-relaxed">
+                {ticket.description}
+              </pre>
+            </div>
+          )}
+          <div className="bg-slate-800/50 border border-slate-600/30 rounded-lg p-8 text-center">
+            <div className="w-12 h-12 rounded-full bg-slate-700/50 flex items-center justify-center mx-auto mb-4">
+              <svg className="w-6 h-6 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <p className="text-slate-300 text-sm font-medium mb-1">
+              SOC analysis has not run yet
+            </p>
+            <p className="text-slate-500 text-xs">
+              Run analysis from the SOC Dashboard or wait for the scheduled triage cycle to process this ticket.
+            </p>
           </div>
-          <p className="text-slate-300 text-sm font-medium mb-1">
-            SOC analysis has not run yet
-          </p>
-          <p className="text-slate-500 text-xs">
-            Run analysis from the SOC Dashboard or wait for the scheduled triage cycle to process this ticket.
-          </p>
-        </div>
+        </>
       )}
 
       {/* ═══════════════════════════════════════════
-           ANALYZED STATE — Everything below requires analysis
+           ANALYZED STATE — SOC Assessment first, then actions, then alert
          ═══════════════════════════════════════════ */}
       {hasAnalysis && (
         <>
           {/* ═══════════════════════════════════════════
-               REASONING LAYOUT (new records with reasoning data)
+               SOC ASSESSMENT (the key decision — always first)
              ═══════════════════════════════════════════ */}
-          {useReasoningLayout && parsedReasoning && (
+          {useReasoningLayout && parsedReasoning ? (
             <>
-              {/* STEP 2: AI Investigation Summary */}
+              {/* New reasoning layout */}
               <div className="bg-slate-800/50 border border-white/10 rounded-lg p-6">
-                <h3 className="text-sm font-semibold text-white uppercase tracking-wider mb-3">AI Investigation Summary</h3>
-                <p className="text-sm text-slate-300 leading-relaxed">{parsedReasoning.incidentSummary}</p>
-                {/* Classification + Risk badges */}
-                <div className="flex items-center gap-3 mt-4 pt-3 border-t border-white/5 flex-wrap">
-                  <span className={`px-3 py-1 text-sm font-medium rounded-full border ${classificationColor(parsedReasoning.classification)}`}>
-                    {classificationLabel(parsedReasoning.classification)}
-                  </span>
-                  <span className={`px-2.5 py-0.5 text-xs font-medium rounded-full border ${riskBadgeColor(parsedReasoning.riskLevel)}`}>
-                    {parsedReasoning.riskLevel === 'none' ? 'No Risk' : `${parsedReasoning.riskLevel.charAt(0).toUpperCase() + parsedReasoning.riskLevel.slice(1)} Risk`}
-                  </span>
-                  <span className="text-xs text-slate-500">
-                    {Math.round(parsedReasoning.confidence * 100)}% confidence
-                  </span>
+                <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                  <h3 className="text-sm font-semibold text-white uppercase tracking-wider">SOC Assessment</h3>
+                  <div className="flex items-center gap-2">
+                    <span className={`px-3 py-1 text-sm font-medium rounded-full border ${classificationColor(parsedReasoning.classification)}`}>
+                      {classificationLabel(parsedReasoning.classification)}
+                    </span>
+                    <span className={`px-2.5 py-0.5 text-xs font-medium rounded-full border ${riskBadgeColor(parsedReasoning.riskLevel)}`}>
+                      {parsedReasoning.riskLevel === 'none' ? 'No Risk' : `${parsedReasoning.riskLevel.charAt(0).toUpperCase() + parsedReasoning.riskLevel.slice(1)} Risk`}
+                    </span>
+                    <span className="text-xs text-slate-500">
+                      {Math.round(parsedReasoning.confidence * 100)}%
+                    </span>
+                  </div>
                 </div>
+                <p className="text-sm text-slate-300 leading-relaxed">{parsedReasoning.incidentSummary}</p>
                 {parsedReasoning.assessmentRationale && (
-                  <p className="text-sm text-slate-400 leading-relaxed mt-3">{parsedReasoning.assessmentRationale}</p>
+                  <p className="text-sm text-slate-400 leading-relaxed mt-2">{parsedReasoning.assessmentRationale}</p>
                 )}
+                {/* Recommended action inline */}
+                <div className="mt-4 pt-3 border-t border-white/5">
+                  <p className="text-xs font-semibold text-slate-500 uppercase mb-1">Recommended Action</p>
+                  <p className="text-sm text-slate-300">{parsedReasoning.recommendedAction}</p>
+                </div>
+                {/* Quick facts */}
+                <div className="flex items-center gap-4 text-xs text-slate-500 mt-3 flex-wrap">
+                  {analysis && analysis.alertSource && analysis.alertSource !== 'unknown' && (
+                    <span>Source: <span className="text-slate-300">{analysis.alertSource.replace(/_/g, ' ')}</span></span>
+                  )}
+                  {analysis && analysis.alertCategory && analysis.alertCategory !== 'unknown' && (
+                    <span>Category: <span className="text-slate-300">{analysis.alertCategory.replace(/_/g, ' ')}</span></span>
+                  )}
+                  {analysis?.ipExtracted && (
+                    <span>IP: <span className="text-slate-300 font-mono">{analysis.ipExtracted}</span></span>
+                  )}
+                  {analysis?.deviceVerified && <span className="text-green-400">Device verified</span>}
+                  {analysis?.technicianVerified && <span className="text-green-400">Tech: {analysis.technicianVerified}</span>}
+                  {analysis?.processedAt && (
+                    <span>Analyzed: <span className="text-slate-400">{new Date(analysis.processedAt).toLocaleString()}</span></span>
+                  )}
+                </div>
               </div>
 
-              {/* STEP 3: Investigation Evidence */}
+              {/* Investigation Evidence */}
               {parsedReasoning.evidence && parsedReasoning.evidence.length > 0 && (
                 <div className="bg-slate-800/50 border border-white/10 rounded-lg p-6">
                   <h3 className="text-sm font-semibold text-white uppercase tracking-wider mb-4">Investigation Evidence</h3>
@@ -412,43 +433,12 @@ export default function SocTicketDetail({ ticketId, onBack }: SocTicketDetailPro
                   </div>
                 </div>
               )}
-
-              {/* STEP 4: Recommended Action */}
-              <div className="bg-slate-800/50 border border-white/10 rounded-lg p-6">
-                <h3 className="text-sm font-semibold text-white uppercase tracking-wider mb-3">Recommended Action</h3>
-                <p className="text-sm text-slate-300 leading-relaxed">{parsedReasoning.recommendedAction}</p>
-                {/* Quick facts */}
-                {analysis && (
-                  <div className="flex items-center gap-4 text-xs text-slate-500 mt-4 pt-3 border-t border-white/5 flex-wrap">
-                    {analysis.alertSource && analysis.alertSource !== 'unknown' && (
-                      <span>Source: <span className="text-slate-300">{analysis.alertSource.replace(/_/g, ' ')}</span></span>
-                    )}
-                    {analysis.alertCategory && analysis.alertCategory !== 'unknown' && (
-                      <span>Category: <span className="text-slate-300">{analysis.alertCategory.replace(/_/g, ' ')}</span></span>
-                    )}
-                    {analysis.ipExtracted && (
-                      <span>IP: <span className="text-slate-300 font-mono">{analysis.ipExtracted}</span></span>
-                    )}
-                    {analysis.deviceVerified && (
-                      <span className="text-green-400">Device verified</span>
-                    )}
-                    {analysis.technicianVerified && (
-                      <span className="text-green-400">Tech: {analysis.technicianVerified}</span>
-                    )}
-                  </div>
-                )}
-              </div>
             </>
-          )}
-
-          {/* ═══════════════════════════════════════════
-               LEGACY LAYOUT (old records without reasoning)
-             ═══════════════════════════════════════════ */}
-          {!useReasoningLayout && (
+          ) : (
             <>
               {/* Legacy SOC Assessment */}
               <div className="bg-slate-800/50 border border-white/10 rounded-lg p-6">
-                <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
                   <h3 className="text-sm font-semibold text-white uppercase tracking-wider">SOC Assessment</h3>
                   <div className="flex items-center gap-2">
                     {analysis.verdict && (
@@ -482,16 +472,13 @@ export default function SocTicketDetail({ ticketId, onBack }: SocTicketDetailPro
                   {analysis.ipExtracted && (
                     <span>IP: <span className="text-slate-300 font-mono">{analysis.ipExtracted}</span></span>
                   )}
-                  {analysis.deviceVerified && (
-                    <span className="text-green-400">Device verified</span>
-                  )}
-                  {analysis.technicianVerified && (
-                    <span className="text-green-400">Tech: {analysis.technicianVerified}</span>
-                  )}
+                  {analysis.deviceVerified && <span className="text-green-400">Device verified</span>}
+                  {analysis.technicianVerified && <span className="text-green-400">Tech: {analysis.technicianVerified}</span>}
                   {humanGuidance?.riskLevel && humanGuidance.riskLevel !== 'none' && (
-                    <span className={riskColor(humanGuidance.riskLevel)}>
-                      {humanGuidance.riskLevel} risk
-                    </span>
+                    <span className={riskColor(humanGuidance.riskLevel)}>{humanGuidance.riskLevel} risk</span>
+                  )}
+                  {analysis.processedAt && (
+                    <span>Analyzed: <span className="text-slate-400">{new Date(analysis.processedAt).toLocaleString()}</span></span>
                   )}
                 </div>
               </div>
@@ -599,8 +586,7 @@ export default function SocTicketDetail({ ticketId, onBack }: SocTicketDetailPro
           )}
 
           {/* ═══════════════════════════════════════════
-               STEP 5: PROPOSED ACTIONS (Approval Section)
-               Only shown when analysis exists
+               PROPOSED ACTIONS (Approval Section)
              ═══════════════════════════════════════════ */}
           {pendingActions.length > 0 && (
             <div className="bg-slate-800/50 border border-cyan-500/20 rounded-lg p-6">
@@ -716,7 +702,31 @@ export default function SocTicketDetail({ ticketId, onBack }: SocTicketDetailPro
           )}
 
           {/* ═══════════════════════════════════════════
-               TECHNICAL DETAILS (collapsed)
+               ORIGINAL ALERT (collapsible — reference material)
+             ═══════════════════════════════════════════ */}
+          {ticket.description && (
+            <div className="bg-slate-800/30 border border-white/5 rounded-lg">
+              <button
+                onClick={() => setShowOriginalAlert(!showOriginalAlert)}
+                className="w-full px-6 py-3 flex items-center justify-between text-sm text-slate-500 hover:text-slate-300 transition-colors"
+              >
+                <span>Original Alert</span>
+                <svg className={`w-4 h-4 transition-transform ${showOriginalAlert ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              {showOriginalAlert && (
+                <div className="px-6 pb-4">
+                  <pre className="text-sm text-slate-300 whitespace-pre-wrap break-words font-sans leading-relaxed">
+                    {ticket.description}
+                  </pre>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ═══════════════════════════════════════════
+               TECHNICAL DETAILS (collapsed — metadata only, no redundant content)
              ═══════════════════════════════════════════ */}
           <div className="bg-slate-800/30 border border-white/5 rounded-lg">
             <button
@@ -730,14 +740,7 @@ export default function SocTicketDetail({ ticketId, onBack }: SocTicketDetailPro
             </button>
             {showTechnicalDetails && (
               <div className="px-6 pb-4 space-y-4">
-                {/* Full AI Reasoning */}
-                {analysis.aiReasoning && (
-                  <div>
-                    <p className="text-xs font-semibold text-slate-500 uppercase mb-1">AI Reasoning</p>
-                    <p className="text-sm text-slate-400 whitespace-pre-wrap">{analysis.aiReasoning}</p>
-                  </div>
-                )}
-                {/* Full internal note from reasoning */}
+                {/* Full internal note from reasoning (unique to Technical Details) */}
                 {parsedReasoning?.internalNote && (
                   <div>
                     <p className="text-xs font-semibold text-slate-500 uppercase mb-1">Internal Investigation Note</p>
@@ -757,7 +760,7 @@ export default function SocTicketDetail({ ticketId, onBack }: SocTicketDetailPro
                     </p>
                   </div>
                 )}
-                {/* Full internal note from legacy */}
+                {/* Full internal note from legacy (only if not already shown in assessment) */}
                 {!parsedReasoning && proposedActions?.internalNote && (
                   <div>
                     <p className="text-xs font-semibold text-slate-500 uppercase mb-1">Full Internal Note</p>
@@ -768,15 +771,9 @@ export default function SocTicketDetail({ ticketId, onBack }: SocTicketDetailPro
                 )}
                 {/* Metadata */}
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
-                  {analysis.processedAt && (
-                    <div>
-                      <span className="text-slate-600">Analyzed:</span>{' '}
-                      <span className="text-slate-400">{new Date(analysis.processedAt).toLocaleString()}</span>
-                    </div>
-                  )}
                   {analysis.recommendedAction && (
                     <div>
-                      <span className="text-slate-600">Action:</span>{' '}
+                      <span className="text-slate-600">Engine Action:</span>{' '}
                       <span className="text-slate-400">{analysis.recommendedAction}</span>
                     </div>
                   )}
@@ -790,6 +787,12 @@ export default function SocTicketDetail({ ticketId, onBack }: SocTicketDetailPro
                     <div>
                       <span className="text-slate-600">Related tickets:</span>{' '}
                       <span className="text-slate-400">{incidentActionPlan.ticketCount}</span>
+                    </div>
+                  )}
+                  {analysis.incidentId && (
+                    <div>
+                      <span className="text-slate-600">Incident:</span>{' '}
+                      <span className="text-slate-400 font-mono text-[10px]">{analysis.incidentId}</span>
                     </div>
                   )}
                 </div>
