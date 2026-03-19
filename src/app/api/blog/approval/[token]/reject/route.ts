@@ -132,6 +132,10 @@ export async function POST(
 }
 
 function generateRejectionHTML(title: string, message: string, isError: boolean): string {
+  const bgColor = isError ? 'rgba(239, 68, 68, 0.1)' : 'rgba(59, 130, 246, 0.1)';
+  const borderColor = isError ? '#ef4444' : '#3b82f6';
+  const textColor = isError ? '#fca5a5' : '#93c5fd';
+
   return `
 <!DOCTYPE html>
 <html lang="en">
@@ -147,56 +151,56 @@ function generateRejectionHTML(title: string, message: string, isError: boolean)
       align-items: center;
       min-height: 100vh;
       margin: 0;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background: #0f172a;
     }
     .container {
       max-width: 600px;
-      background: white;
+      background: #1e293b;
       padding: 40px;
       border-radius: 12px;
-      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+      box-shadow: 0 10px 40px rgba(0,0,0,0.3);
       text-align: center;
-    }
-    .icon {
-      font-size: 64px;
-      margin-bottom: 20px;
+      border: 1px solid #334155;
     }
     h1 {
-      color: #333;
+      color: #f1f5f9;
       margin: 0 0 20px 0;
-      font-size: 28px;
+      font-size: 24px;
     }
     .message {
-      background: ${isError ? '#f8d7da' : '#fff3cd'};
-      border: 1px solid ${isError ? '#f5c6cb' : '#ffeaa7'};
-      color: ${isError ? '#721c24' : '#856404'};
+      background: ${bgColor};
+      border: 1px solid ${borderColor};
+      color: ${textColor};
       padding: 20px;
       border-radius: 8px;
       margin: 20px 0;
       text-align: left;
+      line-height: 1.6;
     }
     .message p {
-      margin: 10px 0;
+      margin: 8px 0;
+    }
+    .message strong {
+      color: #e2e8f0;
     }
     .btn {
       display: inline-block;
-      padding: 12px 30px;
-      background: #667eea;
+      padding: 12px 28px;
+      background: #3b82f6;
       color: white;
       text-decoration: none;
-      border-radius: 6px;
+      border-radius: 8px;
       margin-top: 20px;
-      font-weight: bold;
-      transition: background 0.3s;
+      font-weight: 600;
+      transition: background 0.2s;
     }
     .btn:hover {
-      background: #5568d3;
+      background: #2563eb;
     }
   </style>
 </head>
 <body>
   <div class="container">
-    <div class="icon">${isError ? '❌' : '📝'}</div>
     <h1>${title}</h1>
     <div class="message">
       ${message}

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getBaseUrl } from '@/config/site';
 
 // Disable static generation for this API route
 export const dynamic = 'force-dynamic';
@@ -27,7 +28,7 @@ export async function GET(
 
     if (!blogPost) {
       return new NextResponse(
-        generateSimpleHTML('❌ Not Found', 'This approval link is invalid or has expired.'),
+        generateResultHTML('Not Found', 'This approval link is invalid or has already been used.', 'error'),
         {
           status: 404,
           headers: { 'Content-Type': 'text/html' }
@@ -37,7 +38,7 @@ export async function GET(
 
     if (blogPost.status !== 'PENDING_APPROVAL') {
       return new NextResponse(
-        generateSimpleHTML('⚠️ Already Processed', `This blog post has already been ${blogPost.status.toLowerCase()}.`),
+        generateResultHTML('Already Processed', `This blog post has already been ${blogPost.status.toLowerCase().replace('_', ' ')}.`, 'info'),
         {
           status: 400,
           headers: { 'Content-Type': 'text/html' }
@@ -60,13 +61,18 @@ export async function GET(
       }
     });
 
-    console.log(`✅ Blog post approved: "${blogPost.title}"`);
-    console.log(`📅 Scheduled for: ${scheduledFor.toISOString()}`);
+    console.log(`Blog post approved: "${blogPost.title}"`);
+    console.log(`Scheduled for: ${scheduledFor.toISOString()}`);
+
+    const baseUrl = getBaseUrl();
+    const blogUrl = `${baseUrl}/blog/${blogPost.slug}`;
 
     return new NextResponse(
-      generateSimpleHTML(
-        '✅ Approval Successful',
-        `Blog post "${blogPost.title}" approved and will publish on ${scheduledFor.toLocaleDateString()}.`
+      generateResultHTML(
+        'Approved',
+        `<strong>${blogPost.title}</strong> has been approved and scheduled for publication on <strong>${scheduledFor.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</strong> at 9:00 AM EST.`,
+        'success',
+        blogUrl
       ),
       {
         headers: { 'Content-Type': 'text/html' }
@@ -76,7 +82,7 @@ export async function GET(
     console.error('Error approving blog post:', error);
 
     return new NextResponse(
-      generateSimpleHTML('❌ Error', 'Failed to approve blog post. Please try again or contact support.'),
+      generateResultHTML('Error', 'Failed to approve blog post. Please try again or contact support.', 'error'),
       {
         status: 500,
         headers: { 'Content-Type': 'text/html' }
@@ -96,16 +102,13 @@ function calculateNextPublishingSlot(): Date {
   // Set time to 9 AM EST (14:00 UTC)
   publishTime.setHours(14, 0, 0, 0);
 
-  // Get day of week (0 = Sunday, 1 = Monday, etc.)
-  const dayOfWeek = publishTime.getDay();
-
-  // Publishing days: Mon (1), Wed (3), Fri (5)
-  const publishingDays = [1, 3, 5];
-
-  // If it's past 9 AM today, move to next day
+  // If it's past 9 AM EST today, move to next day
   if (now.getHours() >= 14) {
     publishTime.setDate(publishTime.getDate() + 1);
   }
+
+  // Publishing days: Mon (1), Wed (3), Fri (5)
+  const publishingDays = [1, 3, 5];
 
   // Find next publishing day
   let daysToAdd = 0;
@@ -124,7 +127,10 @@ function calculateNextPublishingSlot(): Date {
   return publishTime;
 }
 
-function generateSimpleHTML(title: string, message: string): string {
+function generateResultHTML(title: string, message: string, type: 'success' | 'error' | 'info', blogUrl?: string): string {
+  const accentColor = type === 'success' ? '#22c55e' : type === 'error' ? '#ef4444' : '#3b82f6';
+  const icon = type === 'success' ? '&#10003;' : type === 'error' ? '&#10007;' : '&#8505;';
+
   return `
 <!DOCTYPE html>
 <html lang="en">
@@ -140,35 +146,66 @@ function generateSimpleHTML(title: string, message: string): string {
       align-items: center;
       min-height: 100vh;
       margin: 0;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background: #0f172a;
     }
     .container {
       max-width: 500px;
-      background: white;
+      background: #1e293b;
       padding: 40px;
       border-radius: 12px;
-      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+      box-shadow: 0 10px 40px rgba(0,0,0,0.3);
       text-align: center;
+      border: 1px solid #334155;
+    }
+    .icon-circle {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      background: ${accentColor};
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      font-weight: bold;
+      margin: 0 auto 20px;
     }
     h1 {
-      color: #333;
-      margin: 0 0 15px 0;
+      color: #f1f5f9;
+      margin: 0 0 16px 0;
       font-size: 24px;
     }
-    p {
-      color: #666;
+    .message {
+      color: #94a3b8;
       margin: 0;
-      font-size: 16px;
-      line-height: 1.5;
+      font-size: 15px;
+      line-height: 1.6;
     }
+    .message strong {
+      color: #e2e8f0;
+    }
+    .btn {
+      display: inline-block;
+      padding: 12px 28px;
+      background: #3b82f6;
+      color: white;
+      text-decoration: none;
+      border-radius: 8px;
+      margin-top: 24px;
+      font-weight: 600;
+      font-size: 14px;
+      transition: background 0.2s;
+    }
+    .btn:hover { background: #2563eb; }
   </style>
 </head>
 <body>
   <div class="container">
+    <div class="icon-circle">${icon}</div>
     <h1>${title}</h1>
-    <p>${message}</p>
+    <p class="message">${message}</p>
+    ${blogUrl ? `<a href="${blogUrl}" class="btn">View Blog Post</a>` : ''}
   </div>
-  <script>setTimeout(() => window.close(), 3000);</script>
 </body>
 </html>
   `;

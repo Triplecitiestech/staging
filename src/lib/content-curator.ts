@@ -12,9 +12,10 @@ export interface RSSArticle {
   categories?: string[];
 }
 
-// Trusted security news sources (limited to 3 fastest/most reliable feeds
-// to keep total generation time under 60s on Vercel)
+// Trusted news sources covering cybersecurity, IT, and business technology.
+// Organized by category for diverse topic selection.
 export const DEFAULT_SOURCES = [
+  // Cybersecurity
   {
     name: 'Bleeping Computer',
     url: 'https://www.bleepingcomputer.com',
@@ -119,14 +120,25 @@ export class ContentCurator {
     const keywordFrequency = new Map<string, number>();
     const articlesByKeyword = new Map<string, RSSArticle[]>();
 
-    // Common cybersecurity keywords to track
+    // Broader keyword list covering IT, security, productivity, and business tech
     const trackKeywords = [
+      // Cybersecurity
       'ransomware', 'phishing', 'malware', 'breach', 'vulnerability',
       'zero-day', 'exploit', 'hack', 'attack', 'security',
+      // Microsoft & Cloud
       'microsoft', 'windows', 'azure', 'office 365', 'm365',
+      'teams', 'sharepoint', 'copilot', 'onedrive',
+      // Infrastructure
       'backup', 'disaster recovery', 'mfa', 'authentication',
+      'firewall', 'vpn', 'endpoint', 'patch', 'update',
+      // Business & Compliance
       'gdpr', 'compliance', 'data protection', 'encryption',
-      'firewall', 'vpn', 'endpoint', 'patch', 'update'
+      'hipaa', 'pci', 'audit', 'regulation',
+      // Productivity & Operations
+      'remote work', 'hybrid', 'automation', 'ai', 'artificial intelligence',
+      'productivity', 'collaboration', 'cloud migration', 'saas',
+      // Industry
+      'small business', 'smb', 'healthcare', 'construction', 'manufacturing'
     ];
 
     articles.forEach(article => {
@@ -146,33 +158,33 @@ export class ContentCurator {
 
     // Convert to trending topics array
     const trendingTopics: TrendingTopic[] = Array.from(keywordFrequency.entries())
-      .filter(([_, count]) => count >= 3) // Must appear in at least 3 articles
+      .filter(([, count]) => count >= 2) // Lowered threshold for broader coverage
       .map(([keyword, count]) => ({
         keyword,
         frequency: count,
-        articles: articlesByKeyword.get(keyword)!.slice(0, 5), // Top 5 articles
+        articles: articlesByKeyword.get(keyword)!.slice(0, 5),
         relevanceScore: this.calculateRelevanceScore(keyword, count, articles.length)
       }))
       .sort((a, b) => b.relevanceScore - a.relevanceScore);
 
-    return trendingTopics.slice(0, 10); // Top 10 trending topics
+    return trendingTopics.slice(0, 10);
   }
 
   /**
-   * Select best articles for blog content generation
-   * Note: fetches RSS feeds once and reuses for both article selection and trending analysis
+   * Select best articles for blog content generation.
+   * Uses diversity-aware selection to avoid always picking the same trending topic.
    */
   async selectArticlesForBlog(options: {
     maxArticles?: number;
     daysBack?: number;
     preferTrending?: boolean;
   } = {}): Promise<{ articles: RSSArticle[]; trendingTopics: TrendingTopic[] }> {
-    const { maxArticles = 5, daysBack = 3, preferTrending = true } = options;
+    const { maxArticles = 5, daysBack = 5, preferTrending = true } = options;
 
-    // Fetch all articles once (avoid double-fetching for trending + selection)
+    // Fetch all articles once
     const allArticles = await this.fetchRecentArticles(daysBack);
 
-    // Analyze trending topics from the already-fetched articles
+    // Analyze trending topics
     let trendingTopics: TrendingTopic[] = [];
     if (preferTrending) {
       trendingTopics = this.analyzeTrendingTopics(allArticles);
@@ -181,11 +193,12 @@ export class ContentCurator {
     let selectedArticles: RSSArticle[] = [];
 
     if (preferTrending && trendingTopics.length > 0) {
-      // Prioritize articles about trending topics
-      const topTopic = trendingTopics[0];
-      selectedArticles = topTopic.articles.slice(0, maxArticles);
+      // Pick from top 3 trending topics randomly for diversity (not always #1)
+      const topTopics = trendingTopics.slice(0, Math.min(3, trendingTopics.length));
+      const selectedTopic = topTopics[Math.floor(Math.random() * topTopics.length)];
+      selectedArticles = selectedTopic.articles.slice(0, maxArticles);
 
-      console.log(`Selected ${selectedArticles.length} articles about trending topic: ${topTopic.keyword}`);
+      console.log(`Selected ${selectedArticles.length} articles about: ${selectedTopic.keyword} (from ${topTopics.length} top topics)`);
     } else {
       // Select most recent high-quality articles
       selectedArticles = allArticles
@@ -217,17 +230,14 @@ export class ContentCurator {
   }
 
   /**
-   * Check if article is high quality (has good content length, recent, etc.)
+   * Check if article is high quality
    */
   private isHighQuality(article: RSSArticle): boolean {
-    // Must have substantial content
     if (article.contentSnippet.length < 100) return false;
 
-    // Must be recent (last 7 days)
     const daysOld = (Date.now() - article.pubDate.getTime()) / (1000 * 60 * 60 * 24);
     if (daysOld > 7) return false;
 
-    // Exclude press releases and promotional content
     const lowQualityIndicators = ['sponsored', 'advertisement', 'press release'];
     const text = `${article.title} ${article.contentSnippet}`.toLowerCase();
     if (lowQualityIndicators.some(indicator => text.includes(indicator))) {
@@ -241,13 +251,13 @@ export class ContentCurator {
    * Calculate relevance score for a topic
    */
   private calculateRelevanceScore(keyword: string, frequency: number, totalArticles: number): number {
-    // Base score on frequency
     let score = frequency;
 
     // Boost for SMB-relevant topics
     const smbRelevantKeywords = [
       'small business', 'smb', 'microsoft', 'office 365', 'm365',
-      'backup', 'ransomware', 'phishing', 'mfa', 'compliance'
+      'backup', 'ransomware', 'phishing', 'mfa', 'compliance',
+      'remote work', 'ai', 'productivity', 'teams', 'copilot'
     ];
 
     if (smbRelevantKeywords.some(k => keyword.includes(k))) {
