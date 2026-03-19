@@ -130,13 +130,13 @@ export default function CoManagedIT() {
       <Breadcrumbs />
 
       {/* Hero */}
-      <section className="relative min-h-[500px] flex items-center justify-center overflow-hidden bg-gradient-to-br from-gray-900 via-black to-orange-900">
+      <section className="relative min-h-[500px] flex items-center justify-center overflow-hidden bg-gradient-to-br from-gray-900 via-black to-rose-900">
         {/* Tech hexagon pattern */}
         <div className="absolute inset-0 opacity-12">
           <svg className="absolute inset-0 w-full h-full" xmlns="http://www.w3.org/2000/svg">
             <defs>
               <pattern id="hexagons" x="0" y="0" width="100" height="87" patternUnits="userSpaceOnUse" patternTransform="scale(1.5)">
-                <polygon points="50,0 93.3,25 93.3,75 50,100 6.7,75 6.7,25" fill="none" stroke="#f97316" strokeWidth="1.5"/>
+                <polygon points="50,0 93.3,25 93.3,75 50,100 6.7,75 6.7,25" fill="none" stroke="#f43f5e" strokeWidth="1.5"/>
               </pattern>
             </defs>
             <rect width="100%" height="100%" fill="url(#hexagons)" />
@@ -145,21 +145,21 @@ export default function CoManagedIT() {
 
         {/* Circuit board style connections */}
         <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-1/4 left-1/4 w-20 h-20 border-2 border-orange-500 rounded-full"></div>
-          <div className="absolute top-1/4 right-1/4 w-20 h-20 border-2 border-orange-500 rounded-full"></div>
-          <div className="absolute bottom-1/3 left-1/3 w-20 h-20 border-2 border-orange-400 rounded-full"></div>
+          <div className="absolute top-1/4 left-1/4 w-20 h-20 border-2 border-rose-500 rounded-full"></div>
+          <div className="absolute top-1/4 right-1/4 w-20 h-20 border-2 border-rose-500 rounded-full"></div>
+          <div className="absolute bottom-1/3 left-1/3 w-20 h-20 border-2 border-rose-400 rounded-full"></div>
           <svg className="absolute inset-0 w-full h-full" xmlns="http://www.w3.org/2000/svg">
-            <line x1="25%" y1="25%" x2="75%" y2="25%" stroke="#f97316" strokeWidth="2" strokeDasharray="10,5" />
-            <line x1="25%" y1="25%" x2="33%" y2="66%" stroke="#f97316" strokeWidth="2" strokeDasharray="10,5" />
-            <line x1="75%" y1="25%" x2="33%" y2="66%" stroke="#f97316" strokeWidth="2" strokeDasharray="10,5" />
+            <line x1="25%" y1="25%" x2="75%" y2="25%" stroke="#f43f5e" strokeWidth="2" strokeDasharray="10,5" />
+            <line x1="25%" y1="25%" x2="33%" y2="66%" stroke="#f43f5e" strokeWidth="2" strokeDasharray="10,5" />
+            <line x1="75%" y1="25%" x2="33%" y2="66%" stroke="#f43f5e" strokeWidth="2" strokeDasharray="10,5" />
           </svg>
         </div>
 
         {/* Digital grid overlay */}
         <div className="absolute inset-0 opacity-5" style={{
           backgroundImage: `
-            linear-gradient(90deg, #f97316 1px, transparent 1px),
-            linear-gradient(0deg, #f97316 1px, transparent 1px)
+            linear-gradient(90deg, #f43f5e 1px, transparent 1px),
+            linear-gradient(0deg, #f43f5e 1px, transparent 1px)
           `,
           backgroundSize: '40px 40px'
         }}></div>
@@ -174,7 +174,7 @@ export default function CoManagedIT() {
         </div>
       </section>
 
-      <section className="relative bg-gradient-to-br from-gray-900 via-black to-orange-900 py-20">
+      <section className="relative bg-gradient-to-br from-gray-900 via-black to-rose-900 py-20">
         <div className="max-w-7xl mx-auto px-6">
           <div className="text-center mb-12">
             <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">Co-Managed IT Challenges We Solve</h2>
@@ -183,7 +183,7 @@ export default function CoManagedIT() {
 
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
             {painPoints.map((point, index) => (
-              <div key={index} className="bg-white/10 backdrop-blur-sm border border-orange-500/30 rounded-xl p-6 hover:bg-white/15 transition-all">
+              <div key={index} className="bg-white/10 backdrop-blur-sm border border-rose-500/30 rounded-xl p-6 hover:bg-white/15 transition-all">
                 <p className="text-white/90 text-lg">{point}</p>
               </div>
             ))}
@@ -191,7 +191,7 @@ export default function CoManagedIT() {
         </div>
       </section>
 
-      <section className="relative bg-gradient-to-br from-black via-gray-900 to-orange-900 py-20">
+      <section className="relative bg-gradient-to-br from-black via-gray-900 to-rose-900 py-20">
         <div className="max-w-7xl mx-auto px-6">
           <div className="text-center mb-12">
             <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">Our Co-Managed IT Solutions</h2>
@@ -200,8 +200,8 @@ export default function CoManagedIT() {
 
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
             {solutions.map((solution, index) => (
-              <div key={index} className="bg-white/10 backdrop-blur-sm border border-orange-500/30 rounded-2xl p-8 hover:border-orange-500 transition-all group">
-                <div className="w-16 h-16 bg-gradient-to-br from-orange-400 to-orange-500 rounded-xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+              <div key={index} className="bg-white/10 backdrop-blur-sm border border-rose-500/30 rounded-2xl p-8 hover:border-rose-500 transition-all group">
+                <div className="w-16 h-16 bg-gradient-to-br from-rose-400 to-rose-500 rounded-xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
                   <solution.icon size={32} className="text-white" />
                 </div>
                 <h3 className="text-2xl font-bold text-white mb-4">{solution.title}</h3>
@@ -212,7 +212,7 @@ export default function CoManagedIT() {
         </div>
       </section>
 
-      <section className="relative bg-gradient-to-br from-orange-900 via-black to-gray-900 py-20">
+      <section className="relative bg-gradient-to-br from-rose-900 via-black to-gray-900 py-20">
         <div className="max-w-7xl mx-auto px-6">
           <div className="text-center mb-12">
             <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">What You'll Achieve</h2>
@@ -221,8 +221,8 @@ export default function CoManagedIT() {
 
           <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
             {benefits.map((benefit, index) => (
-              <div key={index} className="flex items-start space-x-4 bg-white/5 backdrop-blur-sm border border-orange-500/30 rounded-xl p-6">
-                <CheckCircleIcon size={24} className="text-orange-400 flex-shrink-0 mt-1" />
+              <div key={index} className="flex items-start space-x-4 bg-white/5 backdrop-blur-sm border border-rose-500/30 rounded-xl p-6">
+                <CheckCircleIcon size={24} className="text-rose-400 flex-shrink-0 mt-1" />
                 <p className="text-white text-lg">{benefit}</p>
               </div>
             ))}
@@ -230,7 +230,7 @@ export default function CoManagedIT() {
         </div>
       </section>
 
-      <section className="relative bg-gradient-to-br from-black via-gray-900 to-orange-900 py-20">
+      <section className="relative bg-gradient-to-br from-black via-gray-900 to-rose-900 py-20">
         <div className="max-w-4xl mx-auto px-6">
           <div className="text-center mb-12">
             <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">Frequently Asked Questions</h2>
@@ -239,8 +239,8 @@ export default function CoManagedIT() {
 
           <div className="space-y-6">
             {faqs.map((faq, index) => (
-              <div key={index} className="bg-white/10 backdrop-blur-sm border border-orange-500/30 rounded-xl p-8">
-                <h3 className="text-xl font-bold text-orange-400 mb-4">{faq.question}</h3>
+              <div key={index} className="bg-white/10 backdrop-blur-sm border border-rose-500/30 rounded-xl p-8">
+                <h3 className="text-xl font-bold text-rose-400 mb-4">{faq.question}</h3>
                 <p className="text-white/90 leading-relaxed">{faq.answer}</p>
               </div>
             ))}
@@ -248,23 +248,23 @@ export default function CoManagedIT() {
         </div>
       </section>
 
-      <section className="relative bg-gradient-to-br from-orange-600 to-orange-700 py-20">
+      <section className="relative bg-gradient-to-br from-rose-600 to-rose-700 py-20">
         <div className="max-w-4xl mx-auto px-6 text-center">
           <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">Ready to Empower Your IT Team?</h2>
           <p className="text-xl text-white/90 mb-10">Let's discuss how co-managed IT can give your team enterprise tools and expertise without the enterprise cost.</p>
 
           <div className="flex flex-col sm:flex-row gap-6 justify-center">
-            <Link href="/contact" className="inline-flex items-center justify-center bg-white hover:bg-gray-100 text-orange-700 font-bold px-10 py-4 rounded-xl transition-all duration-300 hover:scale-105 shadow-lg text-lg">
+            <Link href="/contact" className="inline-flex items-center justify-center bg-white hover:bg-gray-100 text-rose-700 font-bold px-10 py-4 rounded-xl transition-all duration-300 hover:scale-105 shadow-lg text-lg">
               Get Started Today
             </Link>
-            <a href={`tel:${CONTACT_INFO.phone}`} className="inline-flex items-center justify-center bg-orange-800 hover:bg-orange-900 text-white font-bold px-10 py-4 rounded-xl transition-all duration-300 hover:scale-105 shadow-lg text-lg">
+            <a href={`tel:${CONTACT_INFO.phone}`} className="inline-flex items-center justify-center bg-rose-800 hover:bg-rose-900 text-white font-bold px-10 py-4 rounded-xl transition-all duration-300 hover:scale-105 shadow-lg text-lg">
               <PhoneIcon size={20} className="mr-2" />
               {CONTACT_INFO.phone}
             </a>
           </div>
 
           <p className="text-white/80 mt-8">Or schedule a free consultation:</p>
-          <a href="/schedule" className="inline-flex items-center text-white hover:text-orange-200 font-semibold mt-4 text-lg">
+          <a href="/schedule" className="inline-flex items-center text-white hover:text-rose-200 font-semibold mt-4 text-lg">
             <CalendarIcon size={20} className="mr-2" />
             Book Your Consultation
           </a>

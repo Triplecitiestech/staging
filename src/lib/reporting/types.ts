@@ -70,7 +70,7 @@ export const JOB_NAMES = {
 
 export interface JobResult {
   jobName: string;
-  status: 'success' | 'failed';
+  status: 'success' | 'partial' | 'failed';
   durationMs: number;
   meta?: Record<string, unknown>;
   error?: string;

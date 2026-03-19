@@ -39,7 +39,7 @@ const STATUS_OPTIONS = ['open', 'investigating', 'fixed', 'wont_fix', 'duplicate
 
 const STATUS_COLORS: Record<string, string> = {
   open: 'bg-rose-500/20 text-rose-300 border-rose-500/30',
-  investigating: 'bg-orange-500/20 text-orange-300 border-orange-500/30',
+  investigating: 'bg-violet-500/20 text-violet-300 border-violet-500/30',
   fixed: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
   wont_fix: 'bg-slate-500/20 text-slate-300 border-slate-500/30',
   duplicate: 'bg-violet-500/20 text-violet-300 border-violet-500/30',
@@ -109,8 +109,8 @@ export default function FailureDashboard() {
 
   if (needsMigration) {
     return (
-      <div className="rounded-xl border border-orange-500/30 bg-orange-500/10 p-6">
-        <h2 className="text-lg font-semibold text-orange-300">Migration Required</h2>
+      <div className="rounded-xl border border-violet-500/30 bg-violet-500/10 p-6">
+        <h2 className="text-lg font-semibold text-violet-300">Migration Required</h2>
         <p className="text-slate-300 mt-2">
           The <code className="text-cyan-400">test_failures</code> table does not exist yet.
           Run the migration endpoint or apply the Prisma migration to enable this dashboard.
@@ -135,7 +135,7 @@ export default function FailureDashboard() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Total Failures" value={stats.total} color="text-white" />
         <StatCard label="Unresolved" value={stats.unresolved} color="text-rose-400" />
-        <StatCard label="Last 24h" value={stats.last24h} color="text-orange-400" />
+        <StatCard label="Last 24h" value={stats.last24h} color="text-violet-400" />
         <StatCard label="Fixed" value={stats.totalByStatus['fixed'] || 0} color="text-emerald-400" />
       </div>
 
@@ -323,7 +323,7 @@ function FailureDetail({
         <Section title={`Network Errors (${networkErrors.length})`}>
           <ul className="space-y-1">
             {networkErrors.map((e, i) => (
-              <li key={i} className="text-xs text-orange-300 font-mono bg-slate-950 rounded px-2 py-1">{e}</li>
+              <li key={i} className="text-xs text-violet-300 font-mono bg-slate-950 rounded px-2 py-1">{e}</li>
             ))}
           </ul>
         </Section>

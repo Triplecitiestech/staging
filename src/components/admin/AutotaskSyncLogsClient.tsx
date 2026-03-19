@@ -87,7 +87,7 @@ export default function AutotaskSyncLogsClient() {
   const statusBadge = (status: string) => {
     const colors: Record<string, string> = {
       success: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
-      partial: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
+      partial: 'bg-violet-500/20 text-violet-400 border-violet-500/30',
       failed: 'bg-rose-500/20 text-rose-400 border-rose-500/30',
     }
     return colors[status] || 'bg-slate-500/20 text-slate-400 border-slate-500/30'

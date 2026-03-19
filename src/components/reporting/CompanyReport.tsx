@@ -430,7 +430,7 @@ function HealthBadge({ score, trend }: { score: number; trend: string | null }) 
   const color =
     score >= 80 ? 'text-emerald-400 bg-emerald-400/10' :
     score >= 60 ? 'text-cyan-400 bg-cyan-400/10' :
-    score >= 40 ? 'text-orange-400 bg-orange-400/10' :
+    score >= 40 ? 'text-violet-400 bg-violet-400/10' :
     'text-rose-400 bg-rose-400/10'
 
   const arrow = trend === 'improving' ? '\u2191' : trend === 'declining' ? '\u2193' : ''

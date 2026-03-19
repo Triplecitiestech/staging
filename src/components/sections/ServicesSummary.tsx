@@ -37,7 +37,7 @@ export default function ServicesSummary() {
       icon: <BriefcaseIcon size={32} className="text-white" />,
       title: 'IT Strategy & Virtual CIO',
       description: 'Strategic technology planning and executive-level IT guidance.',
-      gradient: 'from-orange-500 to-red-500',
+      gradient: 'from-rose-500 to-red-500',
       link: '/services#strategy'
     },
     {
@@ -54,7 +54,7 @@ export default function ServicesSummary() {
       icon: <LayersIcon size={32} className="text-white" />,
       title: 'Co-Managed IT Services',
       description: 'Enterprise-grade tools and capabilities for your existing IT team.',
-      gradient: 'from-orange-500 to-rose-500',
+      gradient: 'from-rose-500 to-rose-600',
       link: '/services#co-managed-it-services'
     },
     {

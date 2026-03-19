@@ -29,7 +29,7 @@ const experienceSteps = [
     title: 'Scale & Dominate',
     description: 'Turn IT into your competitive advantage with strategic planning, AI integration, and growth-focused solutions',
     icon: '/icon/bg.webp',
-    gradient: 'from-orange-500 to-red-600'
+    gradient: 'from-rose-500 to-red-600'
   }
 ]
 

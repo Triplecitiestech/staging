@@ -41,9 +41,9 @@ export default function HiringGuidelinesPage() {
       {/* Main Content */}
       <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         {/* Scope Notice */}
-        <section className="mb-8 bg-gradient-to-br from-orange-600/20 to-orange-500/10 backdrop-blur-sm border-2 border-orange-500/50 rounded-lg p-6">
+        <section className="mb-8 bg-gradient-to-br from-violet-600/20 to-violet-500/10 backdrop-blur-sm border-2 border-violet-500/50 rounded-lg p-6">
           <div className="flex items-center gap-3 mb-4">
-            <AlertTriangle className="w-6 h-6 text-orange-400" />
+            <AlertTriangle className="w-6 h-6 text-violet-400" />
             <h2 className="text-xl font-bold text-white">Scope of This Document</h2>
           </div>
           <p className="text-slate-300 mb-3">
@@ -53,7 +53,7 @@ export default function HiringGuidelinesPage() {
             For hiring guidelines for the <strong className="text-white">Filipino Operations Manager</strong> (supervisory role), see:{' '}
             <Link
               href="/admin/projects/olujo-docs/manager-hiring"
-              className="text-orange-400 hover:text-orange-300 underline font-semibold"
+              className="text-violet-400 hover:text-violet-300 underline font-semibold"
             >
               Operations Manager Hiring Guidelines
             </Link>

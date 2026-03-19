@@ -254,7 +254,7 @@ export default function ProspectEngagement() {
       icon: <PhoneIcon size={32} className="text-white" />,
       title: 'Call Us Directly',
       description: 'Call and speak with our sales team today.',
-      color: 'from-orange-500 to-orange-600',
+      color: 'from-rose-500 to-rose-600',
       href: `tel:${CONTACT_INFO.phone}`,
       actionText: CONTACT_INFO.phone,
       isPhone: true

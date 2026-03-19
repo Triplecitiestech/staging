@@ -136,8 +136,8 @@ export default function ConstructionIT() {
           <div className="absolute inset-0" style={{
             backgroundImage: `repeating-linear-gradient(
               45deg,
-              #f97316 0px,
-              #f97316 40px,
+              #f43f5e 0px,
+              #f43f5e 40px,
               transparent 40px,
               transparent 80px
             )`
@@ -145,13 +145,13 @@ export default function ConstructionIT() {
         </div>
 
         {/* Solid accent bars */}
-        <div className="absolute top-0 left-0 right-0 h-2 bg-orange-400"></div>
-        <div className="absolute bottom-0 left-0 right-0 h-2 bg-orange-400"></div>
+        <div className="absolute top-0 left-0 right-0 h-2 bg-rose-400"></div>
+        <div className="absolute bottom-0 left-0 right-0 h-2 bg-rose-400"></div>
 
         {/* Construction geometric shapes */}
         <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-1/4 left-10 w-20 h-20 border-4 border-orange-400 rotate-45"></div>
-          <div className="absolute bottom-1/3 right-20 w-32 h-32 border-4 border-orange-400"></div>
+          <div className="absolute top-1/4 left-10 w-20 h-20 border-4 border-rose-400 rotate-45"></div>
+          <div className="absolute bottom-1/3 right-20 w-32 h-32 border-4 border-rose-400"></div>
           <div className="absolute top-1/2 right-1/3 w-0 h-0 border-l-[30px] border-l-transparent border-r-[30px] border-r-transparent border-b-[50px] border-b-orange-400"></div>
         </div>
 
@@ -159,13 +159,13 @@ export default function ConstructionIT() {
           <h1 className="text-5xl md:text-6xl font-bold text-white mb-6">
             Construction IT Services
           </h1>
-          <p className="text-xl md:text-2xl text-orange-400 max-w-4xl mx-auto font-semibold">
+          <p className="text-xl md:text-2xl text-rose-400 max-w-4xl mx-auto font-semibold">
             Managed IT and CMMC compliance for construction companies, contractors, and builders in Central New York
           </p>
         </div>
       </section>
 
-      <section className="relative bg-gradient-to-br from-black via-black to-orange-400 py-20">
+      <section className="relative bg-gradient-to-br from-black via-black to-rose-400 py-20">
         <div className="max-w-7xl mx-auto px-6">
           <div className="text-center mb-12">
             <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">Construction IT Challenges We Solve</h2>
@@ -174,7 +174,7 @@ export default function ConstructionIT() {
 
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
             {painPoints.map((point, index) => (
-              <div key={index} className="bg-orange-400/10 backdrop-blur-sm border border-orange-400/40 rounded-xl p-6 hover:bg-orange-400/20 transition-all">
+              <div key={index} className="bg-rose-400/10 backdrop-blur-sm border border-rose-400/40 rounded-xl p-6 hover:bg-rose-400/20 transition-all">
                 <p className="text-white/90 text-lg">{point}</p>
               </div>
             ))}
@@ -182,7 +182,7 @@ export default function ConstructionIT() {
         </div>
       </section>
 
-      <section className="relative bg-gradient-to-br from-orange-400 via-black to-black py-20">
+      <section className="relative bg-gradient-to-br from-rose-400 via-black to-black py-20">
         <div className="max-w-7xl mx-auto px-6">
           <div className="text-center mb-12">
             <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">Our Construction IT Solutions</h2>
@@ -191,8 +191,8 @@ export default function ConstructionIT() {
 
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
             {solutions.map((solution, index) => (
-              <div key={index} className="bg-black/40 backdrop-blur-sm border border-orange-400/40 rounded-2xl p-8 hover:border-orange-400 transition-all group">
-                <div className="w-16 h-16 bg-orange-400 rounded-xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform shadow-lg shadow-orange-400/50">
+              <div key={index} className="bg-black/40 backdrop-blur-sm border border-rose-400/40 rounded-2xl p-8 hover:border-rose-400 transition-all group">
+                <div className="w-16 h-16 bg-rose-400 rounded-xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform shadow-lg shadow-rose-400/50">
                   <solution.icon size={32} className="text-black" />
                 </div>
                 <h3 className="text-2xl font-bold text-white mb-4">{solution.title}</h3>
@@ -203,7 +203,7 @@ export default function ConstructionIT() {
         </div>
       </section>
 
-      <section className="relative bg-gradient-to-br from-black via-black to-orange-400 py-20">
+      <section className="relative bg-gradient-to-br from-black via-black to-rose-400 py-20">
         <div className="max-w-7xl mx-auto px-6">
           <div className="text-center mb-12">
             <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">What You'll Achieve</h2>
@@ -212,8 +212,8 @@ export default function ConstructionIT() {
 
           <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
             {benefits.map((benefit, index) => (
-              <div key={index} className="flex items-start space-x-4 bg-orange-400/10 backdrop-blur-sm border border-orange-400/40 rounded-xl p-6">
-                <CheckCircleIcon size={24} className="text-orange-400 flex-shrink-0 mt-1" />
+              <div key={index} className="flex items-start space-x-4 bg-rose-400/10 backdrop-blur-sm border border-rose-400/40 rounded-xl p-6">
+                <CheckCircleIcon size={24} className="text-rose-400 flex-shrink-0 mt-1" />
                 <p className="text-white text-lg">{benefit}</p>
               </div>
             ))}
@@ -221,7 +221,7 @@ export default function ConstructionIT() {
         </div>
       </section>
 
-      <section className="relative bg-gradient-to-br from-orange-400 via-black to-black py-20">
+      <section className="relative bg-gradient-to-br from-rose-400 via-black to-black py-20">
         <div className="max-w-4xl mx-auto px-6">
           <div className="text-center mb-12">
             <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">Frequently Asked Questions</h2>
@@ -230,8 +230,8 @@ export default function ConstructionIT() {
 
           <div className="space-y-6">
             {faqs.map((faq, index) => (
-              <div key={index} className="bg-black/40 backdrop-blur-sm border border-orange-400/40 rounded-xl p-8">
-                <h3 className="text-xl font-bold text-orange-400 mb-4">{faq.question}</h3>
+              <div key={index} className="bg-black/40 backdrop-blur-sm border border-rose-400/40 rounded-xl p-8">
+                <h3 className="text-xl font-bold text-rose-400 mb-4">{faq.question}</h3>
                 <p className="text-white/90 leading-relaxed">{faq.answer}</p>
               </div>
             ))}
@@ -239,16 +239,16 @@ export default function ConstructionIT() {
         </div>
       </section>
 
-      <section className="relative bg-gradient-to-br from-orange-400 to-orange-500 py-20">
+      <section className="relative bg-gradient-to-br from-rose-400 to-orange-500 py-20">
         <div className="max-w-4xl mx-auto px-6 text-center">
           <h2 className="text-4xl md:text-5xl font-bold text-black mb-6">Ready for IT That Keeps Up With Your Projects?</h2>
           <p className="text-xl text-black/90 mb-10">Let's discuss how we can support your field teams, secure your project data, and help you win more government contracts.</p>
 
           <div className="flex flex-col sm:flex-row gap-6 justify-center">
-            <Link href="/contact" className="inline-flex items-center justify-center bg-black hover:bg-gray-900 text-orange-400 font-bold px-10 py-4 rounded-xl transition-all duration-300 hover:scale-105 shadow-lg text-lg">
+            <Link href="/contact" className="inline-flex items-center justify-center bg-black hover:bg-gray-900 text-rose-400 font-bold px-10 py-4 rounded-xl transition-all duration-300 hover:scale-105 shadow-lg text-lg">
               Get Started Today
             </Link>
-            <a href={`tel:${CONTACT_INFO.phone}`} className="inline-flex items-center justify-center bg-gray-900 hover:bg-black text-orange-400 font-bold px-10 py-4 rounded-xl transition-all duration-300 hover:scale-105 shadow-lg text-lg">
+            <a href={`tel:${CONTACT_INFO.phone}`} className="inline-flex items-center justify-center bg-gray-900 hover:bg-black text-rose-400 font-bold px-10 py-4 rounded-xl transition-all duration-300 hover:scale-105 shadow-lg text-lg">
               <PhoneIcon size={20} className="mr-2" />
               {CONTACT_INFO.phone}
             </a>

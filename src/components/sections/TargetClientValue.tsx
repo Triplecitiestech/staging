@@ -169,11 +169,11 @@ export default function TargetClientValue() {
                 <div className="text-gray-300 text-sm font-semibold">Network Uptime</div>
               </div>
             </div>
-            <div className="relative bg-gradient-to-br from-gray-900/50 via-gray-800/40 to-black/60 backdrop-blur-xl border border-orange-400/30 rounded-3xl p-6 text-center shadow-2xl shadow-orange-400/20 overflow-hidden">
-              <div className="absolute top-0 left-0 right-0 h-4 bg-gradient-to-b from-orange-400/20 to-transparent rounded-t-3xl"></div>
-              <div className="absolute top-0 left-0 bottom-0 w-4 bg-gradient-to-r from-orange-400/15 to-transparent rounded-l-3xl"></div>
+            <div className="relative bg-gradient-to-br from-gray-900/50 via-gray-800/40 to-black/60 backdrop-blur-xl border border-rose-400/30 rounded-3xl p-6 text-center shadow-2xl shadow-rose-400/20 overflow-hidden">
+              <div className="absolute top-0 left-0 right-0 h-4 bg-gradient-to-b from-rose-400/20 to-transparent rounded-t-3xl"></div>
+              <div className="absolute top-0 left-0 bottom-0 w-4 bg-gradient-to-r from-rose-400/15 to-transparent rounded-l-3xl"></div>
               <div className="relative z-10">
-                <div className="text-3xl font-black text-orange-400 mb-2">250+</div>
+                <div className="text-3xl font-black text-rose-400 mb-2">250+</div>
                 <div className="text-gray-300 text-sm font-semibold">Happy Businesses</div>
               </div>
             </div>

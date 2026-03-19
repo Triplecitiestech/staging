@@ -115,7 +115,7 @@ export default function AnalyticsDashboard() {
                   alert.severity === 'critical'
                     ? 'bg-rose-500/10 border-rose-500/30 hover:border-rose-400/50'
                     : alert.severity === 'warning'
-                      ? 'bg-orange-500/10 border-orange-500/30 hover:border-orange-400/50'
+                      ? 'bg-violet-500/10 border-violet-500/30 hover:border-violet-400/50'
                       : 'bg-cyan-500/10 border-cyan-500/30 hover:border-cyan-400/50'
                 }`}
               >
@@ -250,7 +250,7 @@ export default function AnalyticsDashboard() {
 function SeverityBadge({ severity }: { severity: 'info' | 'warning' | 'critical' }) {
   const colors = {
     critical: 'bg-rose-400/20 text-rose-400',
-    warning: 'bg-orange-400/20 text-orange-400',
+    warning: 'bg-violet-400/20 text-violet-400',
     info: 'bg-cyan-400/20 text-cyan-400',
   }
 

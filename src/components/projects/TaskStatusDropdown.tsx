@@ -114,7 +114,7 @@ export default function TaskStatusDropdown({ taskId, currentStatus }: TaskStatus
         </div>
       )}
       {syncWarning && (
-        <div className="absolute left-0 mt-1 w-56 px-2 py-1.5 bg-orange-900/80 border border-orange-500/30 rounded text-xs text-orange-200 z-50">
+        <div className="absolute left-0 mt-1 w-56 px-2 py-1.5 bg-violet-900/80 border border-violet-500/30 rounded text-xs text-violet-200 z-50">
           {syncWarning}
         </div>
       )}

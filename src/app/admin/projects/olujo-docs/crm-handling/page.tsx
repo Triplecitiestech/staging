@@ -124,10 +124,10 @@ export default function CRMHandlingPage() {
               <p className="text-sm text-slate-400">Store asked not to be contacted again</p>
             </div>
 
-            <div className="bg-orange-900/20 border border-orange-500/30 rounded-lg p-5">
+            <div className="bg-violet-900/20 border border-violet-500/30 rounded-lg p-5">
               <div className="flex items-center gap-2 mb-2">
-                <div className="w-3 h-3 rounded-full bg-orange-400"></div>
-                <h3 className="font-bold text-orange-400">Inbound Interest – Needs Sales Follow-Up</h3>
+                <div className="w-3 h-3 rounded-full bg-violet-400"></div>
+                <h3 className="font-bold text-violet-400">Inbound Interest – Needs Sales Follow-Up</h3>
               </div>
               <p className="text-sm text-slate-400">Store expressed interest in ordering; must be routed to licensed sales staff</p>
             </div>

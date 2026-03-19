@@ -25,8 +25,8 @@ export default function Industries() {
       icon: '🏗️',
       title: 'Construction',
       description: 'Streamlined project management, secure document sharing, and mobile workforce solutions.',
-      gradient: 'from-orange-500 to-red-500',
-      color: 'orange',
+      gradient: 'from-rose-500 to-red-500',
+      color: 'rose',
       features: ['Project Management', 'Document Control', 'Mobile Solutions']
     },
     {
@@ -77,7 +77,7 @@ export default function Industries() {
       <div className="absolute inset-0">
         {/* Floating 3D Geometric Shapes */}
         <div 
-          className="absolute top-20 right-20 w-80 h-80 bg-gradient-to-br from-orange-200/20 to-red-200/20 rounded-full blur-3xl animate-pulse"
+          className="absolute top-20 right-20 w-80 h-80 bg-gradient-to-br from-rose-200/20 to-red-200/20 rounded-full blur-3xl animate-pulse"
           style={{ 
             transform: `translateY(${parallaxOffset * 0.1}px) translateZ(0px) rotate(${parallaxOffset * 0.1}deg)`,
             filter: 'blur(40px)'
