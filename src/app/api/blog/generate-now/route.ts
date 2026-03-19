@@ -117,6 +117,7 @@ export async function GET(request: Request) {
           slug: true,
           status: true,
           content: true,
+          createdAt: true,
           category: { select: { name: true } },
         }
       });
@@ -127,6 +128,30 @@ export async function GET(request: Request) {
 
       const isGenerating = post.status === 'DRAFT' && post.title === 'Generating...';
       const isFailed = post.status === 'REJECTED' && (post.title === 'Generation Failed' || post.content?.startsWith('Generation failed'));
+
+      // Detect stale placeholder: if it's been generating for > 90s, mark as failed
+      if (isGenerating && post.createdAt) {
+        const ageMs = Date.now() - new Date(post.createdAt).getTime();
+        if (ageMs > 90000) {
+          await prisma.blogPost.update({
+            where: { id },
+            data: {
+              title: 'Generation Failed',
+              status: 'REJECTED',
+              content: 'Generation timed out. The server function may have been terminated. Please try again.',
+            }
+          });
+          return NextResponse.json({
+            id: post.id,
+            status: 'failed',
+            title: 'Generation Failed',
+            slug: post.slug,
+            category: post.category?.name,
+            blogStatus: 'REJECTED',
+            error: 'Generation timed out. Please try again.',
+          });
+        }
+      }
 
       return NextResponse.json({
         id: post.id,

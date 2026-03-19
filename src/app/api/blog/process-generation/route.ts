@@ -23,6 +23,8 @@ export async function POST(request: Request) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   let blogPostId: string | undefined;
+  let deadlineTimer: ReturnType<typeof setTimeout> | null = null;
+  let deadlineFired = false;
 
   try {
     const body = await request.json();
@@ -33,6 +35,24 @@ export async function POST(request: Request) {
     }
 
     const { prisma } = await import('@/lib/prisma');
+
+    // Self-imposed deadline: mark as failed at 50s so we clean up before Vercel kills us at 60s
+    deadlineTimer = setTimeout(async () => {
+      deadlineFired = true;
+      console.error(`⏱️ Blog generation deadline reached (50s) for post ${blogPostId}`);
+      try {
+        await prisma.blogPost.update({
+          where: { id: blogPostId! },
+          data: {
+            title: 'Generation Failed',
+            status: 'REJECTED',
+            content: 'Generation timed out after 50 seconds. This can happen when RSS feeds or AI generation are slow. Please try again.',
+          }
+        });
+      } catch (e) {
+        console.error('Failed to update post on deadline:', e);
+      }
+    }, 50000);
 
     console.log(`🤖 Processing blog generation for post ${blogPostId}...`);
 
@@ -149,13 +169,19 @@ export async function POST(request: Request) {
       }
     }
 
+    // Clear the deadline timer — we completed successfully
+    if (deadlineTimer) clearTimeout(deadlineTimer);
+
     console.log('✅ Blog generation complete');
     return NextResponse.json({ success: true, blogPostId });
   } catch (error) {
+    // Clear the deadline timer
+    if (deadlineTimer) clearTimeout(deadlineTimer);
+
     console.error('❌ Blog generation failed:', error);
 
-    // Mark the post as failed
-    if (blogPostId) {
+    // Mark the post as failed (unless deadline already fired)
+    if (blogPostId && !deadlineFired) {
       try {
         const { prisma } = await import('@/lib/prisma');
         await prisma.blogPost.update({
