@@ -111,10 +111,16 @@ function AutotaskSyncCard() {
   const [data, setData] = useState<AutotaskSyncData | null>(null)
   const [loading, setLoading] = useState(true)
 
+  const [authFailed, setAuthFailed] = useState(false)
+
   const fetchData = useCallback(async () => {
     try {
       const res = await fetch('/api/autotask/status')
-      if (res.ok) setData(await res.json())
+      if (res.status === 401) {
+        setAuthFailed(true)
+      } else if (res.ok) {
+        setData(await res.json())
+      }
     } catch { /* handled by null state */ }
     setLoading(false)
   }, [])
@@ -123,11 +129,33 @@ function AutotaskSyncCard() {
 
   if (loading) return <CardSkeleton title="Autotask PSA" />
 
-  const lastSync = data?.lastSuccessfulSync
-  const recentFailures = data?.recentSyncs?.filter(s => s.status === 'failed').length ?? 0
-  const recentTotal = data?.recentSyncs?.length ?? 0
+  // If auth failed, show unknown rather than falsely claiming credentials are missing
+  if (authFailed || !data) {
+    const unknownStatus: 'healthy' | 'degraded' | 'down' | 'unknown' = authFailed ? 'unknown' : 'unknown'
+    return (
+      <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <StatusDot status={unknownStatus} />
+            <h3 className="text-sm font-medium text-white">Autotask Sync Status</h3>
+          </div>
+          <SystemBadge label="Autotask PSA" />
+        </div>
+        <p className="text-xs text-slate-400">{authFailed ? 'Loading session...' : 'Unable to load sync status'}</p>
+        <div className="mt-3 pt-3 border-t border-slate-700/50">
+          <Link href="/admin/autotask-logs" className="text-xs text-cyan-400 hover:text-cyan-300">
+            View sync logs →
+          </Link>
+        </div>
+      </div>
+    )
+  }
+
+  const lastSync = data.lastSuccessfulSync
+  const recentFailures = data.recentSyncs?.filter(s => s.status === 'failed').length ?? 0
+  const recentTotal = data.recentSyncs?.length ?? 0
   const overallStatus: 'healthy' | 'degraded' | 'down' | 'unknown' =
-    !data?.credentialsConfigured ? 'down' :
+    !data.credentialsConfigured ? 'down' :
     recentFailures > recentTotal / 2 ? 'degraded' :
     recentFailures === 0 ? 'healthy' : 'degraded'
 

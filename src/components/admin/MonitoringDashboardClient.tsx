@@ -77,7 +77,7 @@ interface MonitorData {
 
 // ---- Constants ----
 
-const PIE_COLORS = ['#06b6d4', '#8b5cf6', '#f43f5e', '#f97316', '#10b981', '#ec4899']
+const PIE_COLORS = ['#06b6d4', '#8b5cf6', '#f43f5e', '#3b82f6', '#10b981', '#ec4899']
 
 // ---- Component ----
 
@@ -86,10 +86,26 @@ export default function MonitoringDashboardClient() {
   const [loading, setLoading] = useState(true)
   const [activeSection, setActiveSection] = useState<string | null>(null)
 
+  const [setupNeeded, setSetupNeeded] = useState(false)
+  const [settingUp, setSettingUp] = useState(false)
+
   const fetchData = useCallback(async () => {
     try {
       const res = await fetch('/api/admin/platform-monitor')
-      if (res.ok) setData(await res.json())
+      if (res.ok) {
+        const result = await res.json()
+        // Check if we got empty data indicating tables don't exist
+        const isEmpty = result.aiUsage?.summary?.length === 0 &&
+          result.database?.tables?.length === 0 &&
+          result.thresholds?.length === 0 &&
+          result.errorTrend?.length === 0
+        if (isEmpty) {
+          setSetupNeeded(true)
+        }
+        setData(result)
+      } else if (res.status === 401) {
+        // Session not ready yet — will retry on next mount
+      }
     } catch { /* handled by null state */ }
     setLoading(false)
   }, [])
@@ -105,12 +121,48 @@ export default function MonitoringDashboardClient() {
     )
   }
 
+  const runSetup = async () => {
+    setSettingUp(true)
+    try {
+      const res = await fetch('/api/admin/platform-monitor/migrate', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${process.env.NEXT_PUBLIC_MIGRATION_SECRET || ''}` },
+      })
+      if (res.ok) {
+        setSetupNeeded(false)
+        fetchData()
+      }
+    } catch { /* will show manual instructions */ }
+    setSettingUp(false)
+  }
+
   if (!data) {
     return (
       <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-8 text-center">
-        <p className="text-slate-400 mb-4">Platform monitoring tables may not be set up yet.</p>
-        <p className="text-xs text-slate-500">
-          Run the migration: <code className="bg-slate-900 px-2 py-1 rounded">POST /api/admin/platform-monitor/migrate</code> with Bearer MIGRATION_SECRET
+        <p className="text-slate-400 mb-4">Platform monitoring data is loading or session is initializing.</p>
+        <button onClick={fetchData} className="px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors text-sm">
+          Retry
+        </button>
+      </div>
+    )
+  }
+
+  if (setupNeeded) {
+    return (
+      <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-8 text-center">
+        <p className="text-slate-400 mb-4">Platform monitoring tables may not be set up yet, or no data has been collected.</p>
+        <p className="text-xs text-slate-500 mb-4">
+          Run the migration to create monitoring tables and seed default thresholds:
+        </p>
+        <button
+          onClick={runSetup}
+          disabled={settingUp}
+          className="px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 disabled:bg-slate-700 transition-colors text-sm"
+        >
+          {settingUp ? 'Setting up...' : 'Run Setup Migration'}
+        </button>
+        <p className="text-xs text-slate-600 mt-3">
+          Or manually: <code className="bg-slate-900 px-2 py-1 rounded">POST /api/admin/platform-monitor/migrate</code> with Bearer MIGRATION_SECRET
         </p>
       </div>
     )

@@ -124,21 +124,31 @@ export async function GET() {
 }
 
 async function checkDatabase(): Promise<{ status: 'healthy' | 'degraded' | 'down'; latencyMs: number; error?: string }> {
-  const start = Date.now();
-  try {
-    await prisma.$queryRawUnsafe('SELECT 1');
-    const latencyMs = Date.now() - start;
-    return {
-      status: latencyMs > 2000 ? 'degraded' : 'healthy',
-      latencyMs,
-    };
-  } catch (err) {
-    return {
-      status: 'down',
-      latencyMs: Date.now() - start,
-      error: err instanceof Error ? err.message : 'Unknown error',
-    };
+  // Retry once on failure — transient connection errors are common in serverless
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const start = Date.now();
+    try {
+      await prisma.$queryRawUnsafe('SELECT 1');
+      const latencyMs = Date.now() - start;
+      return {
+        status: latencyMs > 2000 ? 'degraded' : 'healthy',
+        latencyMs,
+      };
+    } catch (err) {
+      if (attempt === 0) {
+        // Wait briefly before retry
+        await new Promise(r => setTimeout(r, 500));
+        continue;
+      }
+      return {
+        status: 'down',
+        latencyMs: Date.now() - start,
+        error: err instanceof Error ? err.message : 'Unknown error',
+      };
+    }
   }
+  // Unreachable, but TypeScript needs it
+  return { status: 'down', latencyMs: 0, error: 'Retry exhausted' };
 }
 
 async function getTableCounts(): Promise<{ name: string; rowCount: number }[]> {
@@ -319,8 +329,8 @@ function checkServices(now: string): ServiceStatus[] {
     lastChecked: now,
   });
 
-  // Autotask
-  const atConfigured = !!(process.env.AUTOTASK_API_USERNAME && process.env.AUTOTASK_API_SECRET && process.env.AUTOTASK_API_INTEGRATION_CODE);
+  // Autotask — must check all 4 vars (same as /api/autotask/status)
+  const atConfigured = !!(process.env.AUTOTASK_API_USERNAME && process.env.AUTOTASK_API_SECRET && process.env.AUTOTASK_API_INTEGRATION_CODE && process.env.AUTOTASK_API_BASE_URL);
   services.push({
     name: 'Autotask PSA',
     status: atConfigured ? 'healthy' : 'unconfigured',
