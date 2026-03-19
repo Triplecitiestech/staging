@@ -195,12 +195,25 @@ export default function TechnicianReport() {
         <div className="flex-1">
           <ReportFilterBar basePath="/admin/reporting/technicians" showTechnicianSelector />
         </div>
-        <button
-          onClick={() => setShowAtSearch(!showAtSearch)}
-          className="px-4 py-2 text-sm bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors whitespace-nowrap shrink-0"
-        >
-          {showAtSearch ? 'Hide Autotask Search' : 'Browse Autotask Users'}
-        </button>
+        <div className="flex gap-2 shrink-0">
+          <button
+            onClick={() => {
+              const params = new URLSearchParams(searchParams.toString())
+              if (!params.has('preset')) params.set('preset', 'last_30_days')
+              window.open(`/api/reports/technicians/pdf?${params.toString()}`, '_blank')
+            }}
+            className="px-4 py-2 text-sm bg-cyan-600 text-white rounded-lg hover:bg-cyan-500 transition-colors whitespace-nowrap"
+            title="Download technician performance report as PDF"
+          >
+            Download PDF
+          </button>
+          <button
+            onClick={() => setShowAtSearch(!showAtSearch)}
+            className="px-4 py-2 text-sm bg-slate-700 text-white rounded-lg hover:bg-slate-600 transition-colors whitespace-nowrap"
+          >
+            {showAtSearch ? 'Hide Autotask Search' : 'Browse Autotask Users'}
+          </button>
+        </div>
       </div>
 
       {/* Autotask resource search panel */}

@@ -308,6 +308,88 @@ export async function syncTimeEntries(timeBudgetMs: number = 45000): Promise<Tim
 }
 
 // ============================================
+// BULK TIME ENTRY SYNC (by date range)
+// ============================================
+
+/**
+ * Bulk-sync ALL time entries from Autotask for a given date range.
+ * Queries the TimeEntries entity directly with dateWorked range filters,
+ * which is much faster than per-ticket fetching and captures entries
+ * for both tickets and project tasks.
+ *
+ * This supplements the per-ticket sync by filling gaps where:
+ * 1. The per-ticket sync hasn't processed a ticket yet (time budget)
+ * 2. Time entries are logged against project tasks (not captured per-ticket)
+ */
+export async function syncTimeEntriesBulk(defaultDays: number = 90): Promise<TimeEntrySyncResult & { fetched: number }> {
+  const finish = createJobTracker(JOB_NAMES.SYNC_TIME_ENTRIES_BULK);
+  const result: TimeEntrySyncResult & { fetched: number } = { created: 0, updated: 0, errors: [], fetched: 0 };
+
+  try {
+    await assertTableExists('ticket_time_entries');
+
+    const client = new AutotaskClient();
+    const from = new Date(Date.now() - defaultDays * 24 * 60 * 60 * 1000);
+    const to = new Date();
+
+    console.log(`[syncTimeEntriesBulk] Fetching all time entries from ${from.toISOString().split('T')[0]} to ${to.toISOString().split('T')[0]}`);
+    const entries = await client.getTimeEntriesByDateRange(from, to);
+    result.fetched = entries.length;
+    console.log(`[syncTimeEntriesBulk] Fetched ${entries.length} time entries from Autotask`);
+
+    for (const entry of entries) {
+      try {
+        // Only store entries that have a ticketID (skip pure project-task entries
+        // unless we have the ticket in our DB). We store ticketID as string.
+        const ticketId = entry.ticketID ? String(entry.ticketID) : null;
+
+        const entryData = {
+          autotaskTimeEntryId: String(entry.id),
+          autotaskTicketId: ticketId || `task-${entry.taskID || 0}`,
+          resourceId: entry.resourceID,
+          dateWorked: new Date(entry.dateWorked),
+          startDateTime: entry.startDateTime ? new Date(entry.startDateTime) : null,
+          endDateTime: entry.endDateTime ? new Date(entry.endDateTime) : null,
+          hoursWorked: entry.hoursWorked,
+          summaryNotes: entry.summaryNotes || null,
+          isNonBillable: entry.isNonBillable || false,
+          createDateTime: entry.createDateTime ? new Date(entry.createDateTime) : null,
+        };
+
+        const existing = await prisma.ticketTimeEntry.findUnique({
+          where: { autotaskTimeEntryId: String(entry.id) },
+        });
+
+        if (existing) {
+          await prisma.ticketTimeEntry.update({
+            where: { autotaskTimeEntryId: String(entry.id) },
+            data: entryData,
+          });
+          result.updated++;
+        } else {
+          await prisma.ticketTimeEntry.create({ data: entryData });
+          result.created++;
+        }
+      } catch (err) {
+        result.errors.push(`TimeEntry ${entry.id}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    await finish({
+      status: result.errors.length > 0 && result.errors.length > result.fetched / 2 ? 'failed' : 'success',
+      meta: { fetched: result.fetched, created: result.created, updated: result.updated, errorCount: result.errors.length },
+      error: result.errors.length > 0 ? result.errors.slice(0, 10).join('; ') : undefined,
+    });
+
+    return result;
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    await finish({ status: 'failed', error });
+    throw err;
+  }
+}
+
+// ============================================
 // TICKET NOTE SYNC
 // ============================================
 
