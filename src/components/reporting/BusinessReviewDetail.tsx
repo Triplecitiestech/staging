@@ -215,7 +215,7 @@ export default function BusinessReviewDetail({ reviewId }: Props) {
         <Section title="Priority Breakdown">
           <div className="flex rounded-lg overflow-hidden h-6 mb-4">
             {rd.priorityBreakdown.map(p => {
-              const colors: Record<string, string> = { Critical: '#ef4444', High: '#f97316', Medium: '#06b6d4', Low: '#8b5cf6' }
+              const colors: Record<string, string> = { Critical: '#ef4444', High: '#f43f5e', Medium: '#06b6d4', Low: '#8b5cf6' }
               return <div key={p.priority} style={{ width: `${p.percentage}%`, backgroundColor: colors[p.priority] || '#64748b' }} />
             })}
           </div>

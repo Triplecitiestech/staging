@@ -152,7 +152,7 @@ export default function ConstructionIT() {
         <div className="absolute inset-0 opacity-10">
           <div className="absolute top-1/4 left-10 w-20 h-20 border-4 border-rose-400 rotate-45"></div>
           <div className="absolute bottom-1/3 right-20 w-32 h-32 border-4 border-rose-400"></div>
-          <div className="absolute top-1/2 right-1/3 w-0 h-0 border-l-[30px] border-l-transparent border-r-[30px] border-r-transparent border-b-[50px] border-b-orange-400"></div>
+          <div className="absolute top-1/2 right-1/3 w-0 h-0 border-l-[30px] border-l-transparent border-r-[30px] border-r-transparent border-b-[50px] border-b-rose-400"></div>
         </div>
 
         <div className="relative z-10 max-w-5xl mx-auto px-6 py-20 text-center">
@@ -239,7 +239,7 @@ export default function ConstructionIT() {
         </div>
       </section>
 
-      <section className="relative bg-gradient-to-br from-rose-400 to-orange-500 py-20">
+      <section className="relative bg-gradient-to-br from-rose-400 to-rose-500 py-20">
         <div className="max-w-4xl mx-auto px-6 text-center">
           <h2 className="text-4xl md:text-5xl font-bold text-black mb-6">Ready for IT That Keeps Up With Your Projects?</h2>
           <p className="text-xl text-black/90 mb-10">Let's discuss how we can support your field teams, secure your project data, and help you win more government contracts.</p>
