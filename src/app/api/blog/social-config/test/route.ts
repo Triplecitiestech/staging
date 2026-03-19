@@ -85,8 +85,8 @@ async function loadPlatformCredentials(prisma: any, platform: string): Promise<P
   });
   const dbMap = new Map(dbSettings.map((s: { key: string; value: string }) => [s.key, s.value]));
 
-  const accessToken = dbMap.get(config.tokenKey) || process.env[config.envToken];
-  const id = dbMap.get(config.idKey) || process.env[config.envId];
+  const accessToken: string | undefined = dbMap.get(config.tokenKey) || process.env[config.envToken] as string | undefined;
+  const id: string | undefined = dbMap.get(config.idKey) || process.env[config.envId] as string | undefined;
 
   if (!accessToken || !id) return null;
 
