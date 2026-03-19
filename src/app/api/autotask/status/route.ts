@@ -39,7 +39,8 @@ export async function GET() {
       });
     }
 
-    const lastSuccessful = recentSyncs.find((s) => s.status === 'success');
+    // Include 'partial' syncs — these completed successfully but had some non-critical errors
+    const lastSuccessful = recentSyncs.find((s) => s.status === 'success' || s.status === 'partial');
 
     return NextResponse.json({
       credentialsConfigured,

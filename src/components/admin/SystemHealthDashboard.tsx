@@ -16,6 +16,7 @@ interface CronJob {
   status: string
   durationMs: number | null
   schedule: string
+  stale?: boolean
 }
 
 interface SystemHealth {
@@ -43,7 +44,7 @@ interface SystemHealth {
 
 const STATUS_COLORS = {
   healthy: 'bg-emerald-500',
-  degraded: 'bg-orange-500',
+  degraded: 'bg-violet-500',
   down: 'bg-rose-500',
   unconfigured: 'bg-slate-500',
   unknown: 'bg-slate-500',
@@ -51,14 +52,14 @@ const STATUS_COLORS = {
 
 const STATUS_TEXT = {
   healthy: 'text-emerald-400',
-  degraded: 'text-orange-400',
+  degraded: 'text-violet-400',
   down: 'text-rose-400',
   unconfigured: 'text-slate-400',
 } as const
 
 const STATUS_BORDER = {
   healthy: 'border-emerald-500/30',
-  degraded: 'border-orange-500/30',
+  degraded: 'border-violet-500/30',
   down: 'border-rose-500/30',
   unconfigured: 'border-slate-500/30',
 } as const
@@ -179,7 +180,7 @@ export default function SystemHealthDashboard() {
       {/* Overall Status Banner */}
       <div className={`rounded-xl p-6 border ${
         health.overall === 'healthy' ? 'bg-emerald-500/5 border-emerald-500/30' :
-        health.overall === 'degraded' ? 'bg-orange-500/5 border-orange-500/30' :
+        health.overall === 'degraded' ? 'bg-violet-500/5 border-violet-500/30' :
         'bg-rose-500/5 border-rose-500/30'
       }`}>
         <div className="flex items-center justify-between flex-wrap gap-4">
@@ -318,7 +319,7 @@ export default function SystemHealthDashboard() {
           <button onClick={() => toggleSection('errors')} className="w-full flex items-center justify-between mb-3">
             <h3 className="text-sm font-medium text-slate-300">Errors (24h)</h3>
             <div className="flex items-center gap-2">
-              <span className={`text-xs font-medium ${health.errors.last24h > 10 ? 'text-rose-400' : health.errors.last24h > 0 ? 'text-orange-400' : 'text-emerald-400'}`}>
+              <span className={`text-xs font-medium ${health.errors.last24h > 10 ? 'text-rose-400' : health.errors.last24h > 0 ? 'text-violet-400' : 'text-emerald-400'}`}>
                 {health.errors.last24h} errors | {health.errors.unresolved} unresolved
               </span>
             </div>
@@ -374,8 +375,14 @@ export default function SystemHealthDashboard() {
                     <td className="py-1.5 pr-4 text-slate-400">{job.schedule}</td>
                     <td className="py-1.5 pr-4 text-slate-400">{timeAgo(job.lastRun)}</td>
                     <td className="py-1.5 pr-4">
-                      <span className={`${job.status === 'success' ? 'text-emerald-400' : job.status === 'error' ? 'text-rose-400' : 'text-slate-400'}`}>
-                        {job.status}
+                      <span className={`${
+                        job.status === 'success' && !job.stale ? 'text-emerald-400' :
+                        job.status === 'partial' ? 'text-violet-400' :
+                        job.status === 'failed' || job.status === 'error' ? 'text-rose-400' :
+                        job.stale ? 'text-rose-400' :
+                        'text-slate-400'
+                      }`}>
+                        {job.stale ? `${job.status} (stale)` : job.status}
                       </span>
                     </td>
                     <td className="py-1.5 text-right text-slate-400">

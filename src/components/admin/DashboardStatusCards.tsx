@@ -90,7 +90,7 @@ function timeAgo(iso: string | null): string {
 function StatusDot({ status }: { status: 'healthy' | 'degraded' | 'down' | 'unknown' }) {
   const colors = {
     healthy: 'bg-emerald-500',
-    degraded: 'bg-orange-500',
+    degraded: 'bg-violet-500',
     down: 'bg-rose-500',
     unknown: 'bg-slate-500',
   }
@@ -213,7 +213,7 @@ function ReportingPipelineCard() {
   if (loading) return <CardSkeleton title="Reporting Pipeline" />
 
   const jobs = data?.jobs ?? []
-  const healthyJobs = jobs.filter(j => j.lastRunStatus === 'success').length
+  const healthyJobs = jobs.filter(j => j.lastRunStatus === 'success' || j.lastRunStatus === 'partial').length
   const failedJobs = jobs.filter(j => j.lastRunStatus === 'failed').length
   const totalJobs = jobs.length
   const overallStatus: 'healthy' | 'degraded' | 'down' | 'unknown' =
@@ -302,7 +302,7 @@ function AIUsageCard() {
       if (!res.ok) return
       const health = await res.json()
 
-      const aiService = health.services?.find((s: { name: string }) => s.name === 'AI (Anthropic)')
+      const aiService = health.services?.find((s: { name: string }) => s.name === 'AI (Anthropic Claude)')
       const genJob = health.cronJobs?.find((j: { name: string }) => j.name === 'generate-blog')
 
       setData({
@@ -342,7 +342,7 @@ function AIUsageCard() {
             <p className="text-xs text-slate-500">API Status</p>
             <p className={`text-sm font-medium capitalize ${
               serviceStatus === 'healthy' ? 'text-emerald-400' :
-              serviceStatus === 'degraded' ? 'text-orange-400' :
+              serviceStatus === 'degraded' ? 'text-violet-400' :
               serviceStatus === 'down' ? 'text-rose-400' : 'text-slate-400'
             }`}>
               {serviceStatus === 'healthy' ? 'Connected' : serviceStatus}

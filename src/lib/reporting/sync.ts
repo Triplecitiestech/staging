@@ -85,10 +85,15 @@ export async function syncTickets(defaultDays: number = 90, batchSize: number = 
       }
     }
 
+    // Distinguish partial success (some errors but most records synced) from total failure
+    const totalProcessed = result.created + result.updated;
+    const hasErrors = result.errors.length > 0;
+    const status = !hasErrors ? 'success' : totalProcessed > 0 ? 'partial' : 'failed';
+
     await finish({
-      status: result.errors.length > 0 ? 'failed' : 'success',
+      status,
       meta: { created: result.created, updated: result.updated, statusChanges: result.statusChanges, errorCount: result.errors.length },
-      error: result.errors.length > 0 ? result.errors.slice(0, 10).join('; ') : undefined,
+      error: hasErrors ? result.errors.slice(0, 10).join('; ') : undefined,
     });
 
     return result;
@@ -297,10 +302,14 @@ export async function syncTimeEntries(timeBudgetMs: number = 45000): Promise<Tim
 
     result.remaining = Math.max(0, allCandidates.length - result.processed);
 
+    const totalProcessed = result.created + result.updated;
+    const hasErrors = result.errors.length > 0;
+    const status = !hasErrors ? 'success' : totalProcessed > 0 ? 'partial' : 'failed';
+
     await finish({
-      status: result.errors.length > 0 ? 'failed' : 'success',
+      status,
       meta: { created: result.created, updated: result.updated, processed: result.processed, remaining: result.remaining, errorCount: result.errors.length },
-      error: result.errors.length > 0 ? result.errors.slice(0, 10).join('; ') : undefined,
+      error: hasErrors ? result.errors.slice(0, 10).join('; ') : undefined,
     });
 
     return result;
@@ -416,10 +425,14 @@ export async function syncTicketNotes(timeBudgetMs: number = 45000): Promise<Not
 
     result.remaining = Math.max(0, allCandidates.length - result.processed);
 
+    const totalProcessedNotes = result.created + result.updated;
+    const hasNoteErrors = result.errors.length > 0;
+    const noteStatus = !hasNoteErrors ? 'success' : totalProcessedNotes > 0 ? 'partial' : 'failed';
+
     await finish({
-      status: result.errors.length > 0 ? 'failed' : 'success',
+      status: noteStatus,
       meta: { created: result.created, updated: result.updated, processed: result.processed, remaining: result.remaining, errorCount: result.errors.length },
-      error: result.errors.length > 0 ? result.errors.slice(0, 10).join('; ') : undefined,
+      error: hasNoteErrors ? result.errors.slice(0, 10).join('; ') : undefined,
     });
 
     return result;
@@ -483,10 +496,14 @@ export async function syncResources(): Promise<ResourceSyncResult> {
       }
     }
 
+    const totalResourcesProcessed = result.created + result.updated;
+    const hasResourceErrors = result.errors.length > 0;
+    const resourceStatus = !hasResourceErrors ? 'success' : totalResourcesProcessed > 0 ? 'partial' : 'failed';
+
     await finish({
-      status: result.errors.length > 0 ? 'failed' : 'success',
+      status: resourceStatus,
       meta: { created: result.created, updated: result.updated, errorCount: result.errors.length },
-      error: result.errors.length > 0 ? result.errors.slice(0, 10).join('; ') : undefined,
+      error: hasResourceErrors ? result.errors.slice(0, 10).join('; ') : undefined,
     });
 
     return result;

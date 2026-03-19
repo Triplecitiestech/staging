@@ -74,7 +74,7 @@ export async function getLastSuccessfulRun(jobName: string): Promise<Date | null
     const record = await prisma.reportingJobStatus.findUnique({
       where: { jobName },
     });
-    if (record && record.lastRunStatus === 'success' && record.lastRunAt) {
+    if (record && (record.lastRunStatus === 'success' || record.lastRunStatus === 'partial') && record.lastRunAt) {
       return record.lastRunAt;
     }
     return null;

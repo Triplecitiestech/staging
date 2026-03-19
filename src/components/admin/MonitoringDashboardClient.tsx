@@ -157,8 +157,8 @@ export default function MonitoringDashboardClient() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {data.thresholds.map(t => {
               const pct = t.limitValue > 0 ? (t.currentValue / t.limitValue) * 100 : 0
-              const barColor = pct >= 95 ? 'bg-rose-500' : pct >= 80 ? 'bg-orange-500' : pct >= 60 ? 'bg-cyan-500' : 'bg-emerald-500'
-              const textColor = pct >= 95 ? 'text-rose-400' : pct >= 80 ? 'text-orange-400' : 'text-emerald-400'
+              const barColor = pct >= 95 ? 'bg-rose-500' : pct >= 80 ? 'bg-violet-500' : pct >= 60 ? 'bg-cyan-500' : 'bg-emerald-500'
+              const textColor = pct >= 95 ? 'text-rose-400' : pct >= 80 ? 'text-violet-400' : 'text-emerald-400'
 
               return (
                 <div key={t.id} className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4">
@@ -178,7 +178,7 @@ export default function MonitoringDashboardClient() {
                     <span className={`font-medium ${textColor}`}>{Math.round(pct)}%</span>
                   </div>
                   {t.lastAlertedAt && (
-                    <p className="text-[10px] text-orange-400/60 mt-1">
+                    <p className="text-[10px] text-violet-400/60 mt-1">
                       Last alert: {new Date(t.lastAlertedAt).toLocaleDateString()}
                     </p>
                   )}
