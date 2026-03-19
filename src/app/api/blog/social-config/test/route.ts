@@ -85,14 +85,14 @@ async function loadPlatformCredentials(prisma: any, platform: string): Promise<P
   });
   const dbMap = new Map(dbSettings.map((s: { key: string; value: string }) => [s.key, s.value]));
 
-  const envToken = String(config.envToken);
-  const envId = String(config.envId);
-  const accessToken = dbMap.get(config.tokenKey) || process.env[envToken];
-  const id = dbMap.get(config.idKey) || process.env[envId];
+  const dbToken = dbMap.get(config.tokenKey);
+  const dbId = dbMap.get(config.idKey);
+  const accessToken = dbToken || (process.env[String(config.envToken)] as string | undefined);
+  const id = dbId || (process.env[String(config.envId)] as string | undefined);
 
   if (!accessToken || !id) return null;
 
-  return { accessToken, id };
+  return { accessToken: accessToken as string, id: id as string };
 }
 
 async function testPlatformConnection(
