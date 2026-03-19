@@ -159,7 +159,7 @@ export class BlogGenerator {
     const response = await trackAnthropicCall('blog-generation', MODEL, () =>
       anthropic.messages.create({
         model: MODEL,
-        max_tokens: 4096,
+        max_tokens: 3000,
         temperature: 0.8,
         messages: [
           {
@@ -194,7 +194,7 @@ export class BlogGenerator {
     const response = await trackAnthropicCall('blog-regeneration', MODEL, () =>
       anthropic.messages.create({
         model: MODEL,
-        max_tokens: 4096,
+        max_tokens: 3000,
         temperature: 0.8,
         messages: [
           {
