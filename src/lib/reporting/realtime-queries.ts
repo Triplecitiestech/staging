@@ -10,10 +10,10 @@ import {
   TechnicianSummary,
   CompanySummary,
   DashboardSummary,
-  RESOLVED_STATUSES,
   PRIORITY_LABELS,
   TrendPoint,
   PriorityBreakdown,
+  getResolvedStatuses,
 } from './types';
 import { isApiOrSystemUser } from './api-user-filter';
 import { dateToBucketKey, generateTrendBuckets, getComparisonRange } from './filters';
@@ -22,10 +22,8 @@ import { dateToBucketKey, generateTrendBuckets, getComparisonRange } from './fil
 // HELPERS
 // ============================================
 
-const resolvedSet = new Set(RESOLVED_STATUSES as unknown as number[]);
-
 function isResolved(status: number): boolean {
-  return resolvedSet.has(status);
+  return getResolvedStatuses().includes(status);
 }
 
 function round1(v: number): number {
@@ -80,7 +78,7 @@ export async function getRealtimeTechnicianMetrics(
     const histories = await prisma.ticketStatusHistory.findMany({
       where: {
         autotaskTicketId: { in: resolvedIds },
-        newStatus: { in: Array.from(resolvedSet) },
+        newStatus: { in: getResolvedStatuses() },
         changedAt: { gte: range.from, lte: range.to },
       },
       orderBy: { changedAt: 'desc' },
@@ -266,7 +264,7 @@ export async function getRealtimeCompanyMetrics(
         { createDate: { gte: range.from, lte: range.to } },
         { completedDate: { gte: range.from, lte: range.to } },
         // Include open tickets created before the period
-        { createDate: { lte: range.to }, status: { notIn: Array.from(resolvedSet) } },
+        { createDate: { lte: range.to }, status: { notIn: getResolvedStatuses() } },
       ],
     },
     select: {
@@ -471,7 +469,7 @@ export async function getRealtimeDashboardSummary(range: DateRange): Promise<Das
 
   // Backlog (open tickets)
   const totalBacklog = await prisma.ticket.count({
-    where: { status: { notIn: Array.from(resolvedSet) } },
+    where: { status: { notIn: getResolvedStatuses() } },
   });
 
   // Avg resolution time

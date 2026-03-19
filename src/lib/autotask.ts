@@ -105,6 +105,34 @@ export interface AutotaskTaskNote {
   createDateTime?: string;
 }
 
+/**
+ * Autotask Ticket entity.
+ * The Autotask API returns all fields by default in query responses.
+ * This interface covers the fields used by the reporting sync pipeline.
+ */
+export interface AutotaskTicket {
+  id: number;
+  ticketNumber: string;
+  title: string;
+  description?: string;
+  status: number;
+  createDate: string;
+  completedDate?: string;
+  priority: number;
+  queueID?: number | null;
+  source?: number | null;
+  issueType?: number | null;
+  subIssueType?: number | null;
+  assignedResourceID?: number | null;
+  creatorResourceID?: number | null;
+  contactID?: number | null;
+  contractID?: number | null;
+  serviceLevelAgreementID?: number | null;
+  dueDateTime?: string | null;
+  estimatedHours?: number | null;
+  lastActivityDate?: string | null;
+}
+
 export interface AutotaskTicketNote {
   id: number;
   ticketID: number;
@@ -708,16 +736,7 @@ export class AutotaskClient {
    * Get tickets for a company from the last N days.
    * Fetches tickets created OR with activity in the window to capture status changes.
    */
-  async getCompanyTickets(companyId: number, days: number = 30): Promise<{
-    id: number;
-    ticketNumber: string;
-    title: string;
-    description?: string;
-    status: number;
-    createDate: string;
-    completedDate?: string;
-    priority: number;
-  }[]> {
+  async getCompanyTickets(companyId: number, days: number = 30): Promise<AutotaskTicket[]> {
     const since = new Date();
     since.setDate(since.getDate() - days);
     try {

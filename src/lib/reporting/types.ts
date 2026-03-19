@@ -22,19 +22,109 @@ export interface ReportResponse<T> {
   meta: ReportMeta;
 }
 
-/** Autotask resolved ticket statuses (picklist values that mean "closed/complete") */
-export const RESOLVED_STATUSES = [5, 13, 29] as const;
+/**
+ * Autotask ticket status classification.
+ *
+ * Autotask picklist values are instance-specific — different customers may have
+ * different numeric IDs for "Complete", "Waiting Customer", etc.
+ * These defaults match the TCT Autotask instance. During sync, the actual picklist
+ * values are fetched and cached via `updateStatusClassification()`.
+ *
+ * The classification is resolved by matching picklist LABELS (case-insensitive)
+ * against known patterns, with fallback to these hardcoded defaults.
+ */
+
+/** Default resolved status IDs — fallback when picklist fetch fails */
+const DEFAULT_RESOLVED_STATUSES = [5, 13, 29];
+/** Default waiting-customer status IDs — fallback when picklist fetch fails */
+const DEFAULT_WAITING_CUSTOMER_STATUSES = [7, 12];
+
+/** Patterns that indicate a "resolved/closed/complete" ticket status label */
+const RESOLVED_LABEL_PATTERNS = [
+  /\bcomplete\b/i,
+  /\bclosed\b/i,
+  /\bresolved\b/i,
+  /\bdone\b/i,
+  /\bcancelled\b/i,
+  /\bcanceled\b/i,
+];
+
+/** Patterns that indicate a "waiting on customer" ticket status label */
+const WAITING_CUSTOMER_LABEL_PATTERNS = [
+  /\bwaiting\s*(on|for)?\s*customer\b/i,
+  /\bcustomer\s*respond\b/i,
+  /\bpending\s*customer\b/i,
+  /\bclient\s*response\b/i,
+  /\bwaiting\s*(on|for)?\s*client\b/i,
+];
+
+/** In-memory cache of dynamically resolved status IDs */
+let cachedResolvedStatuses: number[] | null = null;
+let cachedWaitingCustomerStatuses: number[] | null = null;
+
+/**
+ * Update status classification from Autotask picklist data.
+ * Called during ticket sync after fetching field info.
+ * Matches status labels against known patterns to classify statuses dynamically.
+ */
+export function updateStatusClassification(
+  statusPicklist: Array<{ value: string; label: string; isActive: boolean }>
+): { resolved: number[]; waitingCustomer: number[] } {
+  const resolved: number[] = [];
+  const waitingCustomer: number[] = [];
+
+  for (const entry of statusPicklist) {
+    if (!entry.isActive) continue;
+    const id = parseInt(entry.value, 10);
+    if (isNaN(id)) continue;
+
+    if (RESOLVED_LABEL_PATTERNS.some(p => p.test(entry.label))) {
+      resolved.push(id);
+    }
+    if (WAITING_CUSTOMER_LABEL_PATTERNS.some(p => p.test(entry.label))) {
+      waitingCustomer.push(id);
+    }
+  }
+
+  // Only update cache if we found at least one match (picklist was valid)
+  if (resolved.length > 0) {
+    cachedResolvedStatuses = resolved;
+  }
+  if (waitingCustomer.length > 0) {
+    cachedWaitingCustomerStatuses = waitingCustomer;
+  }
+
+  return { resolved: getResolvedStatuses(), waitingCustomer: getWaitingCustomerStatuses() };
+}
+
+/** Get the current resolved status IDs (dynamic or default fallback) */
+export function getResolvedStatuses(): number[] {
+  return cachedResolvedStatuses ?? DEFAULT_RESOLVED_STATUSES;
+}
+
+/** Get the current waiting-customer status IDs (dynamic or default fallback) */
+export function getWaitingCustomerStatuses(): number[] {
+  return cachedWaitingCustomerStatuses ?? DEFAULT_WAITING_CUSTOMER_STATUSES;
+}
+
+/**
+ * Exported constant for backward compatibility.
+ * Consumers that need a static array for Prisma `{ in: [...] }` queries
+ * should call getResolvedStatuses() instead for dynamic values.
+ * @deprecated Use getResolvedStatuses() for dynamic classification
+ */
+export const RESOLVED_STATUSES = DEFAULT_RESOLVED_STATUSES;
 
 /** Check if a status value is a resolved status */
 export function isResolvedStatus(status: number): boolean {
-  return (RESOLVED_STATUSES as readonly number[]).includes(status);
+  return getResolvedStatuses().includes(status);
 }
 
 /** Autotask "waiting customer" statuses */
-export const WAITING_CUSTOMER_STATUSES = [7, 12] as const;
+export const WAITING_CUSTOMER_STATUSES = DEFAULT_WAITING_CUSTOMER_STATUSES;
 
 export function isWaitingCustomerStatus(status: number): boolean {
-  return (WAITING_CUSTOMER_STATUSES as readonly number[]).includes(status);
+  return getWaitingCustomerStatuses().includes(status);
 }
 
 /** Priority picklist mappings (Autotask defaults) */

@@ -17,6 +17,7 @@ import { createJobTracker, getLastSuccessfulRun } from './job-status';
 import { JOB_NAMES, isResolvedStatus, isWaitingCustomerStatus } from './types';
 import { resolveTarget } from './targets';
 import { assertTableExists } from './sync';
+import { computeBusinessMinutes } from './business-hours';
 
 interface LifecycleResult {
   computed: number;
@@ -164,12 +165,19 @@ async function computeTicketLifecycle(ticket: TicketInput): Promise<LifecycleDat
 
   const isResolved = isResolvedStatus(ticket.status);
 
-  // M1: First Response Time
+  // M1: First Response Time (wall-clock minutes for general reporting)
   const firstResponseMinutes = computeFirstResponseTime(ticket, notes, timeEntries);
 
-  // M2/M3: Resolution times
+  // M1-biz: First Response Time in business hours (for SLA evaluation)
+  const firstResponseBusinessMinutes = computeFirstResponseTime(ticket, notes, timeEntries, true);
+
+  // M2/M3: Resolution times (wall-clock for general reporting)
   const firstResolutionMinutes = computeFirstResolutionTime(ticket, statusHistory);
   const fullResolutionMinutes = computeFullResolutionTime(ticket);
+
+  // M2-biz/M3-biz: Resolution times in business hours (for SLA evaluation)
+  const firstResolutionBusinessMinutes = computeFirstResolutionTime(ticket, statusHistory, true);
+  const fullResolutionBusinessMinutes = computeFullResolutionTime(ticket, true);
 
   // M3a: Active resolution time (exclude waiting-on-customer periods)
   const waitingCustomerMinutes = computeWaitingCustomerTime(ticket, statusHistory);
@@ -194,9 +202,10 @@ async function computeTicketLifecycle(ticket: TicketInput): Promise<LifecycleDat
   const isFirstTouchResolution = isResolved && techNoteCount <= 1 && reopenCount === 0;
 
   // M12: SLA compliance (3 metrics per Autotask SLA agreement)
-  const slaResponseMet = await evaluateSlaResponse(ticket, firstResponseMinutes);
-  const slaResolutionPlanMet = await evaluateSlaResolutionPlan(ticket, firstResolutionMinutes);
-  const slaResolutionMet = await evaluateSlaResolution(ticket, fullResolutionMinutes);
+  // SLA targets are defined in business-hour minutes, so compare against business-hour elapsed time
+  const slaResponseMet = await evaluateSlaResponse(ticket, firstResponseBusinessMinutes);
+  const slaResolutionPlanMet = await evaluateSlaResolutionPlan(ticket, firstResolutionBusinessMinutes);
+  const slaResolutionMet = await evaluateSlaResolution(ticket, fullResolutionBusinessMinutes);
 
   return {
     companyId: ticket.companyId,
@@ -226,11 +235,13 @@ async function computeTicketLifecycle(ticket: TicketInput): Promise<LifecycleDat
 /**
  * M1: First Response Time — minutes from ticket creation to first technician response.
  * A response is either a note created by a resource or a time entry.
+ * @param useBusinessHours If true, returns business-hour minutes (for SLA comparison)
  */
 function computeFirstResponseTime(
   ticket: TicketInput,
   notes: Array<{ createDateTime: Date; creatorResourceId: number | null }>,
   timeEntries: Array<{ createDateTime: Date | null }>,
+  useBusinessHours: boolean = false,
 ): number | null {
   const techNotes = notes.filter(n => n.creatorResourceId !== null);
   const firstTechNote = techNotes.length > 0 ? techNotes[0].createDateTime : null;
@@ -248,32 +259,47 @@ function computeFirstResponseTime(
 
   if (!firstResponse) return null;
 
+  if (useBusinessHours) {
+    return computeBusinessMinutes(ticket.createDate, firstResponse);
+  }
   return (firstResponse.getTime() - ticket.createDate.getTime()) / (1000 * 60);
 }
 
 /**
  * M2: First Resolution Time — minutes from creation to first transition to resolved status.
+ * @param useBusinessHours If true, returns business-hour minutes (for SLA comparison)
  */
 function computeFirstResolutionTime(
   ticket: TicketInput,
   statusHistory: Array<{ newStatus: number; changedAt: Date }>,
+  useBusinessHours: boolean = false,
 ): number | null {
   const firstResolution = statusHistory.find(h => isResolvedStatus(h.newStatus));
   if (firstResolution) {
+    if (useBusinessHours) {
+      return computeBusinessMinutes(ticket.createDate, firstResolution.changedAt);
+    }
     return (firstResolution.changedAt.getTime() - ticket.createDate.getTime()) / (1000 * 60);
   }
   // If currently resolved but no history, use completedDate
   if (isResolvedStatus(ticket.status) && ticket.completedDate) {
+    if (useBusinessHours) {
+      return computeBusinessMinutes(ticket.createDate, ticket.completedDate);
+    }
     return (ticket.completedDate.getTime() - ticket.createDate.getTime()) / (1000 * 60);
   }
   return null;
 }
 
 /**
- * M3: Full Resolution Time — wall-clock minutes from creation to final close.
+ * M3: Full Resolution Time — minutes from creation to final close.
+ * @param useBusinessHours If true, returns business-hour minutes (for SLA comparison)
  */
-function computeFullResolutionTime(ticket: TicketInput): number | null {
+function computeFullResolutionTime(ticket: TicketInput, useBusinessHours: boolean = false): number | null {
   if (!isResolvedStatus(ticket.status) || !ticket.completedDate) return null;
+  if (useBusinessHours) {
+    return computeBusinessMinutes(ticket.createDate, ticket.completedDate);
+  }
   return (ticket.completedDate.getTime() - ticket.createDate.getTime()) / (1000 * 60);
 }
 

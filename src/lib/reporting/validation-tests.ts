@@ -259,8 +259,8 @@ export async function runAllValidationTests(): Promise<ValidationReport> {
   // Traces every step of business review generation to find exactly where data goes missing
   results.push(await runTest('Business Review Deep Diagnostic', async () => {
     const { buildReportData } = await import('./business-review/data-builder');
-    const { RESOLVED_STATUSES } = await import('./types');
-    const resolvedSet = new Set(RESOLVED_STATUSES as unknown as number[]);
+    const { getResolvedStatuses } = await import('./types');
+    const resolvedSet = new Set(getResolvedStatuses());
 
     // Feb 2026 period (matching what the UI sends)
     const monthStart = new Date(Date.UTC(2026, 1, 1)); // Feb 1
