@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React from 'react'
 import { useRouter } from 'next/navigation'
 import { LogOut, RefreshCw } from 'lucide-react'
 import { Container } from '@/components/ui/Container'
@@ -34,29 +34,19 @@ export default function OnboardingPortal({
   isManager,
 }: OnboardingPortalProps) {
   const router = useRouter()
-  const [, setIsLoggingOut] = useState(false)
   const { showOnboarding, completeOnboarding } = useOnboardingJourney(
     isAuthenticated ? companySlug : undefined
   )
 
   const displayName = companyDisplayName || companySlug
 
-  const handleLogout = async () => {
-    setIsLoggingOut(true)
-
-    try {
-      const response = await fetch('/api/portal/auth/logout', {
-        method: 'POST',
+  const handleLogout = () => {
+    // Clear cookie via POST, then redirect immediately
+    fetch('/api/portal/auth/logout', { method: 'POST' })
+      .finally(() => {
+        // Always redirect regardless of fetch outcome
+        window.location.replace(`/api/portal/auth/login?company=${companySlug}`)
       })
-
-      if (response.ok) {
-        window.location.href = '/api/portal/auth/login?company=' + companySlug
-      }
-    } catch (error) {
-      console.error('Logout error:', error)
-    } finally {
-      setIsLoggingOut(false)
-    }
   }
 
   return (
