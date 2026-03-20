@@ -80,3 +80,4 @@ Active development work and outstanding items. Only currently active work belong
 | Remove portal password gate | `a7fbd1a` |
 | Improve tech onboarding wizard Step 1 checklist | `a766b47` |
 | Clarify role badge click-to-edit in wizard instructions | `93c7945` |
+| Fix HR submit route: `companies.name` → `"displayName"` as name | `claude/fix-hr-submit-name-column` |

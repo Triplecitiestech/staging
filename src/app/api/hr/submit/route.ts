@@ -67,7 +67,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     // 3a. Look up company by slug
     const companyRes = await client.query<{ id: string; name: string }>(
-      `SELECT id, name FROM companies WHERE slug = $1 LIMIT 1`,
+      `SELECT id, "displayName" as name FROM companies WHERE slug = $1 LIMIT 1`,
       [normalizedSlug]
     )
 

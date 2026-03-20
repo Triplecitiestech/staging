@@ -136,6 +136,9 @@ Triple Cities Tech is a Next.js 15 App Router application deployed on Vercel (ia
 
 ## Remaining Work (as of 2026-03-20)
 
+### Fixed
+6. **HR submit route** — `SELECT id, name FROM companies` → `SELECT id, "displayName" as name FROM companies` (Prisma stores camelCase column names verbatim; `name` doesn't exist, `"displayName"` does)
+
 ### Immediate
 1. **OnboardingPortal layout** — portal layout rewrite in progress (uncommitted): always show CustomerDashboard + HrRequestSection below stats, regardless of project count
 2. **Portal verify modal** — manager email verify on HR section still triggers on each browser session (sessionStorage-based); consider whether to simplify given password gate is removed
