@@ -126,18 +126,43 @@ async function computeCompanyHealth(
   const ticketVolumeTrendScore = computeTrendScore(ticketCountCurrent, ticketCountPrevious);
 
   // 2. Reopen Rate Score
+  // Reopen detection relies on TicketStatusHistory records, which are only
+  // captured during ticket sync (point-in-time deltas). If resolved tickets
+  // have no status history at all, we can't reliably determine reopens —
+  // use a neutral score rather than claiming zero reopens.
   const currentLifecycles = await prisma.ticketLifecycle.findMany({
     where: {
       companyId,
       isResolved: true,
       completedDate: { gte: periodStart, lte: periodEnd },
     },
-    select: { reopenCount: true },
+    select: { autotaskTicketId: true, reopenCount: true },
   });
   const totalResolved = currentLifecycles.length;
   const reopened = currentLifecycles.filter(l => l.reopenCount > 0).length;
-  const reopenRateValue = totalResolved > 0 ? (reopened / totalResolved) * 100 : 0;
-  const reopenRateScore = scoreReopenRate(reopenRateValue);
+
+  // Check how many resolved tickets actually have status history records
+  // (without status history, we can't detect reopens at all)
+  let ticketsWithHistory = 0;
+  if (totalResolved > 0) {
+    const resolvedIds = currentLifecycles.map(l => l.autotaskTicketId);
+    const historyCount = await prisma.ticketStatusHistory.groupBy({
+      by: ['autotaskTicketId'],
+      where: { autotaskTicketId: { in: resolvedIds } },
+    });
+    ticketsWithHistory = historyCount.length;
+  }
+
+  let reopenRateValue: number;
+  let reopenRateScore: number;
+  if (totalResolved === 0 || ticketsWithHistory === 0) {
+    // No data to compute reopen rate — use neutral score
+    reopenRateValue = 0;
+    reopenRateScore = 50; // Neutral when we have no status history data
+  } else {
+    reopenRateValue = (reopened / totalResolved) * 100;
+    reopenRateScore = scoreReopenRate(reopenRateValue);
+  }
 
   // 3. Priority Mix Score
   const urgentHighCount = currentTickets.filter(t => t.priority <= 2).length;
