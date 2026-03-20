@@ -100,46 +100,58 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     )
   }
 
-  // 3. Look up company
-  const company = await prisma.company.findFirst({
-    where: { slug: normalizedSlug },
-  })
+  try {
+    // 3. Look up company
+    const company = await prisma.company.findFirst({
+      where: { slug: normalizedSlug },
+    })
 
-  if (!company) {
-    // Return same 403 as "not a manager" to avoid leaking company existence
-    return NextResponse.json(
-      { verified: false, message: 'This email is not authorized for employee management requests.' },
-      { status: 403 }
-    )
-  }
+    if (!company) {
+      // Return same 403 as "not a manager" to avoid leaking company existence
+      return NextResponse.json(
+        { verified: false, message: 'This email is not authorized for employee management requests.' },
+        { status: 403 }
+      )
+    }
 
-  // 4. Look up contact with CLIENT_MANAGER role
-  const contact = await prisma.companyContact.findFirst({
-    where: {
-      companyId:    company.id,
-      email:        { equals: normalizedEmail, mode: 'insensitive' },
-      customerRole: 'CLIENT_MANAGER',
-      isActive:     true,
-    },
-  })
+    // 4. Look up contact — accept CLIENT_MANAGER role OR isPrimary=true as a fallback
+    // (isPrimary covers the case where contacts were synced before customerRole was set)
+    const contact = await prisma.companyContact.findFirst({
+      where: {
+        companyId: company.id,
+        email:     { equals: normalizedEmail, mode: 'insensitive' },
+        isActive:  true,
+        OR: [
+          { customerRole: 'CLIENT_MANAGER' },
+          { isPrimary: true },
+        ],
+      },
+    })
 
-  if (!contact) {
+    if (!contact) {
+      return NextResponse.json(
+        {
+          verified: false,
+          message: 'This email is not authorized for employee management requests. Ask your TCT representative to grant you Manager access.',
+        },
+        { status: 403 }
+      )
+    }
+
+    // 5. Verified!
     return NextResponse.json(
       {
-        verified: false,
-        message: 'This email is not authorized for employee management requests.',
+        verified: true,
+        name:     contact.name ?? normalizedEmail,
+        role:     contact.customerRole,
       },
-      { status: 403 }
+      { status: 200 }
+    )
+  } catch (err) {
+    console.error('[hr/verify-manager] DB error:', err)
+    return NextResponse.json(
+      { verified: false, message: 'Verification service temporarily unavailable. Please try again.' },
+      { status: 500 }
     )
   }
-
-  // 5. Verified!
-  return NextResponse.json(
-    {
-      verified: true,
-      name:     contact.name ?? normalizedEmail,
-      role:     contact.customerRole,
-    },
-    { status: 200 }
-  )
 }
