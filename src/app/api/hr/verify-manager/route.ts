@@ -21,11 +21,11 @@ const CLEANUP_INTERVAL  = 15 * 60 * 1000 // Clean up stale entries every 15 min
 if (typeof global !== 'undefined') {
   setInterval(() => {
     const now = Date.now()
-    for (const [key, entry] of rateLimitMap.entries()) {
+    Array.from(rateLimitMap.entries()).forEach(([key, entry]) => {
       if (now - entry.windowStart > RATE_LIMIT_WINDOW) {
         rateLimitMap.delete(key)
       }
-    }
+    })
   }, CLEANUP_INTERVAL)
 }
 
