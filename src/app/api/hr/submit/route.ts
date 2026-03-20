@@ -57,7 +57,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   // 3. Load company by slug
   const company = await prisma.company.findFirst({
-    where: { slug: session.companySlug },
+    where: { slug: session },
     include: {
       contacts: {
         where: { isActive: true },
@@ -126,7 +126,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const hrRequest = await prisma.hrRequest.create({
     data: {
       companyId: company.id,
-      companySlug: session.companySlug,
+      companySlug: session,
       type,
       status: 'pending',
       submittedByEmail: normalizedEmail,

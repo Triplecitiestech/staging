@@ -26,7 +26,7 @@ export async function GET(
 
   // 2. Resolve company
   const company = await prisma.company.findFirst({
-    where: { slug: session.companySlug },
+    where: { slug: session },
   })
 
   if (!company) {
