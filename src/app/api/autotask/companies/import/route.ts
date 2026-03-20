@@ -39,11 +39,13 @@ export async function POST(request: NextRequest) {
           autotaskCompanyId: String(atCompany.id),
           displayName: atCompany.companyName,
         },
+        select: { id: true, displayName: true, slug: true, autotaskCompanyId: true },
       });
     } else {
       // Check if company already exists with this Autotask ID
       company = await prisma.company.findFirst({
         where: { autotaskCompanyId: String(atCompany.id) },
+        select: { id: true, displayName: true, slug: true, autotaskCompanyId: true },
       });
 
       if (!company) {
@@ -65,6 +67,7 @@ export async function POST(request: NextRequest) {
             autotaskCompanyId: String(atCompany.id),
             passwordHash,
           },
+          select: { id: true, displayName: true, slug: true, autotaskCompanyId: true },
         });
       }
     }

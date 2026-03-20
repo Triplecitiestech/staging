@@ -78,7 +78,8 @@ export async function POST(request: NextRequest) {
     // Get company for slug generation
     const timerDb = log.startTimer('db-total')
     const company = await prisma.company.findUnique({
-      where: { id: companyId }
+      where: { id: companyId },
+      select: { id: true, slug: true, displayName: true },
     })
 
     if (!company) {

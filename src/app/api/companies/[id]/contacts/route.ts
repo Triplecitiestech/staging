@@ -51,7 +51,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     }
 
     // Verify company exists
-    const company = await prisma.company.findUnique({ where: { id } })
+    const company = await prisma.company.findUnique({ where: { id }, select: { id: true } })
     if (!company) {
       return NextResponse.json({ error: 'Company not found' }, { status: 404 })
     }

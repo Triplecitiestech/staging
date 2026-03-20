@@ -38,7 +38,16 @@ export default async function AdminPreviewPage({ params }: PageProps) {
     try {
       company = await prisma.company.findUnique({
         where: { slug },
-        include: {
+        select: {
+          id: true,
+          slug: true,
+          displayName: true,
+          primaryContact: true,
+          contactEmail: true,
+          contactTitle: true,
+          autotaskCompanyId: true,
+          createdAt: true,
+          updatedAt: true,
           projects: {
             include: {
               phases: {
@@ -97,7 +106,16 @@ export default async function AdminPreviewPage({ params }: PageProps) {
       // Try without specific task fields if there's a schema mismatch
       company = await prisma.company.findUnique({
         where: { slug },
-        include: {
+        select: {
+          id: true,
+          slug: true,
+          displayName: true,
+          primaryContact: true,
+          contactEmail: true,
+          contactTitle: true,
+          autotaskCompanyId: true,
+          createdAt: true,
+          updatedAt: true,
           projects: {
             include: {
               phases: {

@@ -154,7 +154,9 @@ export class AutotaskAudienceProvider implements AudienceProvider {
       where: {
         autotaskCompanyId: { not: null },
       },
-      include: {
+      select: {
+        id: true,
+        displayName: true,
         _count: {
           select: {
             contacts: {

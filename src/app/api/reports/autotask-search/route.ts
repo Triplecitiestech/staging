@@ -124,6 +124,7 @@ export async function POST(request: NextRequest) {
       // Check if already imported
       const existing = await prisma.company.findFirst({
         where: { autotaskCompanyId: String(autotaskId) },
+        select: { id: true, displayName: true, autotaskCompanyId: true },
       });
       if (existing) {
         return NextResponse.json({ success: true, action: 'already_exists', id: existing.id });
@@ -141,7 +142,7 @@ export async function POST(request: NextRequest) {
       // Ensure unique slug
       let slug = baseSlug;
       let counter = 0;
-      while (await prisma.company.findUnique({ where: { slug } })) {
+      while (await prisma.company.findUnique({ where: { slug }, select: { id: true } })) {
         counter++;
         slug = `${baseSlug}-${counter}`;
       }
@@ -154,6 +155,7 @@ export async function POST(request: NextRequest) {
           autotaskCompanyId: String(atCompany.id),
           autotaskLastSync: new Date(),
         },
+        select: { id: true, displayName: true },
       });
 
       return NextResponse.json({ success: true, action: 'imported', id: company.id, name: atCompany.companyName });
