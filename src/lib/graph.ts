@@ -239,7 +239,8 @@ async function graphGetAll<T>(token: string, path: string): Promise<T[]> {
   let url: string | null = path.startsWith('https://') ? path : `https://graph.microsoft.com/v1.0${path}`
 
   while (url) {
-    const page = await graphRequest<{ value: T[]; '@odata.nextLink'?: string }>(token, url)
+    const page: { value: T[]; '@odata.nextLink'?: string } =
+      await graphRequest<{ value: T[]; '@odata.nextLink'?: string }>(token, url)
     results.push(...(page.value ?? []))
     url = page['@odata.nextLink'] ?? null
   }
