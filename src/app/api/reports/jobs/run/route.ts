@@ -54,7 +54,9 @@ async function runPipeline(jobName: string, days?: number, date?: Date) {
         }
         const start = Date.now();
         try {
-          await JOB_MAP[name](undefined, days);
+          // Cap bulk time entry sync to 14 days in pipeline mode to avoid timeout
+          const jobDays = name === 'sync_time_entries_bulk' ? Math.min(days || 14, 14) : days;
+          await JOB_MAP[name](undefined, jobDays);
           results.push({ job: name, success: true, durationMs: Date.now() - start });
         } catch (err) {
           const errorMsg = err instanceof Error ? err.message : 'Unknown error';
