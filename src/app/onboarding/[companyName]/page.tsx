@@ -1,6 +1,6 @@
 import React from 'react'
-import { notFound } from 'next/navigation'
-import { getAuthenticatedCompany } from '@/lib/onboarding-session'
+import { notFound, redirect } from 'next/navigation'
+import { getPortalSession } from '@/lib/portal-session'
 import { getOnboardingData, companyExists } from '@/lib/onboarding-data'
 import OnboardingPortal from '@/components/onboarding/OnboardingPortal'
 import { DEMO_COMPANY, DEMO_PROJECTS } from '@/lib/demo-mode'
@@ -37,11 +37,14 @@ export default async function OnboardingPage({ params }: PageProps) {
     notFound()
   }
 
-  // Portal is open to anyone with the URL — no password required.
-  // The company URL is shared directly by TCT techs and acts as the access control.
-  // Sensitive actions (HR requests) are separately gated by manager email verification.
+  // Check SSO session cookie — redirect to login if missing/expired
+  const session = await getPortalSession()
+
+  if (!session || session.companySlug !== companySlug) {
+    redirect(`/api/portal/auth/login?company=${encodeURIComponent(companySlug)}`)
+  }
+
   const isAuthenticated = true
-  void getAuthenticatedCompany // kept for legacy logout support
 
   // Get onboarding data only if authenticated
   const onboardingData = isAuthenticated ? await getOnboardingData(companySlug) : null
@@ -150,6 +153,10 @@ export default async function OnboardingPage({ params }: PageProps) {
       isAuthenticated={isAuthenticated}
       onboardingData={onboardingData}
       projects={projects}
+      userEmail={session.email}
+      userName={session.name}
+      userRole={session.role}
+      isManager={session.isManager}
     />
   )
 }

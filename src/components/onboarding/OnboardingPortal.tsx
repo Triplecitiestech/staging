@@ -7,7 +7,6 @@ import Header from '@/components/layout/Header'
 import Footer from '@/components/layout/Footer'
 import { Container } from '@/components/ui/Container'
 import { Button } from '@/components/ui/Button'
-import PasswordGate from './PasswordGate'
 import OnboardingTimeline from './OnboardingTimeline'
 import CustomerDashboard from './CustomerDashboard'
 import OnboardingJourney, { useOnboardingJourney } from './OnboardingJourney'
@@ -20,6 +19,10 @@ interface OnboardingPortalProps {
   isAuthenticated: boolean
   onboardingData: OnboardingData | null
   projects?: unknown[] | null
+  userEmail?: string
+  userName?: string
+  userRole?: string
+  isManager?: boolean
 }
 
 export default function OnboardingPortal({
@@ -28,30 +31,26 @@ export default function OnboardingPortal({
   isAuthenticated,
   onboardingData: initialData,
   projects,
+  userEmail,
+  userName,
+  isManager,
 }: OnboardingPortalProps) {
   const router = useRouter()
-  const [isLoggingOut, setIsLoggingOut] = useState(false)
+  const [, setIsLoggingOut] = useState(false)
   const { showOnboarding, completeOnboarding } = useOnboardingJourney(
     isAuthenticated ? companySlug : undefined
   )
-
-  const handleAuthenticated = () => {
-    // Refresh the page to get the authenticated data from the server
-    // Don't update local state - let the server component handle it with the new cookie
-    router.refresh()
-  }
 
   const handleLogout = async () => {
     setIsLoggingOut(true)
 
     try {
-      const response = await fetch('/api/onboarding/logout', {
+      const response = await fetch('/api/portal/auth/logout', {
         method: 'POST',
       })
 
       if (response.ok) {
-        // Refresh the page to clear the authenticated state
-        // Let the server component handle the state with the cleared cookie
+        // Refresh the page — server component will redirect to SSO login
         router.refresh()
       }
     } catch (error) {
@@ -103,6 +102,11 @@ export default function OnboardingPortal({
           <Container className="py-8 mt-4">
             {/* Top-right controls */}
             <div className="flex items-center justify-end mb-6 gap-2">
+              {userEmail && (
+                <span className="text-sm text-gray-400 mr-2">
+                  {userName || userEmail}
+                </span>
+              )}
               <Button onClick={() => router.refresh()} leftIcon={<RefreshCw size={16} />} className="bg-gray-700/50 hover:bg-gray-700 text-gray-300">
                 Refresh
               </Button>
@@ -120,7 +124,12 @@ export default function OnboardingPortal({
 
             {/* Employee Management — always below dashboard stats */}
             <div className="mt-8">
-              <HrRequestSection companySlug={companySlug} />
+              <HrRequestSection
+                companySlug={companySlug}
+                userEmail={userEmail}
+                userName={userName}
+                isManager={isManager}
+              />
             </div>
 
             {/* Contact section */}
