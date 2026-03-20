@@ -10,7 +10,6 @@ interface ProcessRequestBody {
 }
 
 interface AutotaskTicketPayload {
-  [key: string]: unknown   // required for Prisma Json field compatibility
   CompanyID: number
   Title: string
   Description: string
@@ -22,7 +21,6 @@ interface AutotaskTicketPayload {
 }
 
 interface AutotaskTimeEntryPayload {
-  [key: string]: unknown   // required for Prisma Json field compatibility
   TicketID: number
   ResourceID: number
   DateWorked: string
@@ -31,6 +29,13 @@ interface AutotaskTimeEntryPayload {
   HoursWorked: number
   SummaryNotes: string
   BillingCodeID?: number
+}
+
+// Prisma 7 Json fields require a plain object with no typed interface —
+// serialise through JSON to produce an InputJsonValue-compatible value.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function toJson(value: unknown): any {
+  return JSON.parse(JSON.stringify(value))
 }
 
 interface AutotaskTicketResponse {
@@ -242,7 +247,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       stepName: 'Create Autotask Ticket',
       status: ticketStepError ? 'failed' : 'completed',
       attempt: 1,
-      input: { payload: ticketPayload },
+      input: toJson({ payload: ticketPayload }),
       output: ticketId ? { ticketId, ticketNumber } : null,
       error: ticketStepError ? { message: ticketStepError } : null,
       startedAt: ticketStepStart,
@@ -334,7 +339,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       stepName: 'Add Time Entry (30 min)',
       status: timeStepError ? 'failed' : 'completed',
       attempt: 1,
-      input: { payload: timeEntryPayload },
+      input: toJson({ payload: timeEntryPayload }),
       output: timeStepError ? null : { hoursWorked: 0.5 },
       error: timeStepError ? { message: timeStepError } : null,
       startedAt: timeStepStart,
