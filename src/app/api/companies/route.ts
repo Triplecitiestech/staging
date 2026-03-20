@@ -74,7 +74,7 @@ export async function POST(req: Request) {
     // Check if slug exists and make it unique
     const timerDb = log.startTimer('db-create')
     let counter = 1
-    while (await prisma.company.findUnique({ where: { slug } })) {
+    while (await prisma.company.findUnique({ where: { slug }, select: { id: true } })) {
       slug = `${baseSlug}-${counter}`
       counter++
     }

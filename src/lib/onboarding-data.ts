@@ -73,7 +73,10 @@ export async function getOnboardingData(companySlug: string): Promise<Onboarding
 
     const company = await prisma.company.findUnique({
       where: { slug: companySlug },
-      include: {
+      select: {
+        id: true,
+        displayName: true,
+        slug: true,
         projects: {
           where: {
             projectType: 'ONBOARDING'

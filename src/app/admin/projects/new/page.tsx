@@ -15,7 +15,21 @@ export default async function NewProjectPage() {
   let companies
   try {
     companies = await prisma.company.findMany({
-      orderBy: { displayName: 'asc' }
+      orderBy: { displayName: 'asc' },
+      select: {
+        id: true,
+        slug: true,
+        displayName: true,
+        primaryContact: true,
+        contactEmail: true,
+        contactTitle: true,
+        passwordHash: true,
+        createdAt: true,
+        updatedAt: true,
+        autotaskCompanyId: true,
+        autotaskLastSync: true,
+        companyClassification: true,
+      },
     })
   } catch {
     // Fallback if there are any schema issues

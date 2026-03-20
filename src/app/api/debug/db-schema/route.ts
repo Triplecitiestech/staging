@@ -23,7 +23,7 @@ export async function GET() {
     // Try creating a minimal project to see what fails
     let testError = null
     try {
-      const testCompany = await prisma.company.findFirst()
+      const testCompany = await prisma.company.findFirst({ select: { id: true } })
       if (testCompany) {
         await prisma.project.create({
           data: {
