@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { HrRequestWizard } from './HrRequestWizard'
+import { useState, useEffect } from 'react'
+import { FormRenderer, type MergedFormConfig } from './FormRenderer'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -220,17 +220,100 @@ export function HrRequestCards({
         </div>
       )}
 
-      {/* Wizard overlay */}
+      {/* Form renderer overlay — loads config from question engine API */}
       {wizardType && (
-        <HrRequestWizard
+        <FormRendererLoader
           type={wizardType}
           companySlug={companySlug}
-          submitterEmail={contactEmail}
-          submitterName={contactName}
+          contactEmail={contactEmail}
+          contactName={contactName}
           onClose={() => setWizardType(null)}
           onSuccess={handleSuccess}
         />
       )}
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// FormRendererLoader — fetches config then renders FormRenderer
+// ---------------------------------------------------------------------------
+
+function FormRendererLoader({
+  type,
+  companySlug,
+  contactEmail,
+  contactName,
+  onClose,
+  onSuccess,
+}: {
+  type: 'onboarding' | 'offboarding'
+  companySlug: string
+  contactEmail: string
+  contactName: string
+  onClose: () => void
+  onSuccess: (requestId: string) => void
+}) {
+  const [config, setConfig] = useState<MergedFormConfig | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const params = new URLSearchParams({
+      companySlug,
+      type,
+      email: contactEmail,
+    })
+    fetch(`/api/forms/config?${params.toString()}`)
+      .then(async (res) => {
+        if (!res.ok) {
+          const data = await res.json()
+          setError(data.error ?? 'Failed to load form configuration')
+          return
+        }
+        const data = await res.json()
+        setConfig(data)
+      })
+      .catch(() => {
+        setError('Network error — please try again')
+      })
+      .finally(() => {
+        setLoading(false)
+      })
+  }, [companySlug, type, contactEmail])
+
+  if (loading) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+        <div className="bg-gray-900 border border-white/10 rounded-xl p-8 text-center max-w-sm">
+          <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-sm text-gray-300">Loading form configuration...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (error || !config) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+        <div className="bg-gray-900 border border-white/10 rounded-xl p-8 text-center max-w-sm">
+          <p className="text-sm text-red-400 mb-4">{error ?? 'Failed to load form'}</p>
+          <button onClick={onClose} className="text-sm text-gray-400 hover:text-white">
+            Close
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <FormRenderer
+      config={config}
+      companySlug={companySlug}
+      submitterEmail={contactEmail}
+      submitterName={contactName}
+      onSubmit={onSuccess}
+      onClose={onClose}
+    />
   )
 }
