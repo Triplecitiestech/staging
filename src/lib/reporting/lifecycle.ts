@@ -14,7 +14,7 @@
 
 import { prisma } from '@/lib/prisma';
 import { createJobTracker, getLastSuccessfulRun } from './job-status';
-import { JOB_NAMES, isResolvedStatus, isWaitingCustomerStatus } from './types';
+import { JOB_NAMES, isResolvedStatus, isCompleteStatus, isReopenStatus, isWaitingCustomerStatus } from './types';
 import { resolveTarget } from './targets';
 import { assertTableExists } from './sync';
 import { computeBusinessMinutes } from './business-hours';
@@ -334,14 +334,21 @@ function computeWaitingCustomerTime(
 }
 
 /**
- * M6: Count how many times a ticket was reopened (resolved → non-resolved transition).
+ * M6: Count how many times a ticket was reopened. Two criteria:
+ * 1. Transition from "Complete" status to a non-resolved status (Complete → anything else)
+ * 2. Ticket ever had a "Reopen" status (if the Autotask instance has one)
  */
 function computeReopenCount(
   statusHistory: Array<{ previousStatus: number | null; newStatus: number }>,
 ): number {
   let count = 0;
   for (const entry of statusHistory) {
-    if (entry.previousStatus !== null && isResolvedStatus(entry.previousStatus) && !isResolvedStatus(entry.newStatus)) {
+    // Criterion 1: Complete → non-resolved transition
+    if (entry.previousStatus !== null && isCompleteStatus(entry.previousStatus) && !isResolvedStatus(entry.newStatus)) {
+      count++;
+    }
+    // Criterion 2: Ticket transitioned TO a "Reopen" status at any point
+    if (isReopenStatus(entry.newStatus)) {
       count++;
     }
   }

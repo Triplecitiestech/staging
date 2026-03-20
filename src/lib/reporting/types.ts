@@ -36,6 +36,9 @@ export interface ReportResponse<T> {
 
 /** Default resolved status IDs — fallback when picklist fetch fails */
 const DEFAULT_RESOLVED_STATUSES = [5, 13, 29];
+/** Default "Complete" status IDs — only "Complete" (not Closed/Cancelled).
+ *  Used for reopen detection: only Complete→non-resolved counts as a reopen. */
+const DEFAULT_COMPLETE_STATUSES = [5];
 /** Default waiting-customer status IDs — fallback when picklist fetch fails */
 const DEFAULT_WAITING_CUSTOMER_STATUSES = [7, 12];
 
@@ -49,6 +52,20 @@ const RESOLVED_LABEL_PATTERNS = [
   /\bcanceled\b/i,
 ];
 
+/** Patterns that indicate a "Complete" status specifically (for reopen detection) */
+const COMPLETE_LABEL_PATTERNS = [
+  /\bcomplete\b/i,
+  /\bcompleted\b/i,
+];
+
+/** Patterns that indicate a "Reopen" status (tickets with this status were reopened) */
+const REOPEN_LABEL_PATTERNS = [
+  /\breopen\b/i,
+  /\bre-open\b/i,
+  /\breopened\b/i,
+  /\bre-opened\b/i,
+];
+
 /** Patterns that indicate a "waiting on customer" ticket status label */
 const WAITING_CUSTOMER_LABEL_PATTERNS = [
   /\bwaiting\s*(on|for)?\s*customer\b/i,
@@ -60,6 +77,8 @@ const WAITING_CUSTOMER_LABEL_PATTERNS = [
 
 /** In-memory cache of dynamically resolved status IDs */
 let cachedResolvedStatuses: number[] | null = null;
+let cachedCompleteStatuses: number[] | null = null;
+let cachedReopenStatuses: number[] | null = null;
 let cachedWaitingCustomerStatuses: number[] | null = null;
 
 /**
@@ -71,6 +90,8 @@ export function updateStatusClassification(
   statusPicklist: Array<{ value: string; label: string; isActive: boolean }>
 ): { resolved: number[]; waitingCustomer: number[] } {
   const resolved: number[] = [];
+  const complete: number[] = [];
+  const reopen: number[] = [];
   const waitingCustomer: number[] = [];
 
   for (const entry of statusPicklist) {
@@ -81,6 +102,12 @@ export function updateStatusClassification(
     if (RESOLVED_LABEL_PATTERNS.some(p => p.test(entry.label))) {
       resolved.push(id);
     }
+    if (COMPLETE_LABEL_PATTERNS.some(p => p.test(entry.label))) {
+      complete.push(id);
+    }
+    if (REOPEN_LABEL_PATTERNS.some(p => p.test(entry.label))) {
+      reopen.push(id);
+    }
     if (WAITING_CUSTOMER_LABEL_PATTERNS.some(p => p.test(entry.label))) {
       waitingCustomer.push(id);
     }
@@ -90,6 +117,11 @@ export function updateStatusClassification(
   if (resolved.length > 0) {
     cachedResolvedStatuses = resolved;
   }
+  if (complete.length > 0) {
+    cachedCompleteStatuses = complete;
+  }
+  // Always cache reopen statuses (empty array is valid — means no reopen status exists)
+  cachedReopenStatuses = reopen;
   if (waitingCustomer.length > 0) {
     cachedWaitingCustomerStatuses = waitingCustomer;
   }
@@ -115,9 +147,29 @@ export function getWaitingCustomerStatuses(): number[] {
  */
 export const RESOLVED_STATUSES = DEFAULT_RESOLVED_STATUSES;
 
+/** Get the current "Complete" status IDs (for reopen detection) */
+export function getCompleteStatuses(): number[] {
+  return cachedCompleteStatuses ?? DEFAULT_COMPLETE_STATUSES;
+}
+
 /** Check if a status value is a resolved status */
 export function isResolvedStatus(status: number): boolean {
   return getResolvedStatuses().includes(status);
+}
+
+/** Check if a status is specifically "Complete" (not just any resolved status) */
+export function isCompleteStatus(status: number): boolean {
+  return getCompleteStatuses().includes(status);
+}
+
+/** Get the "Reopen" status IDs (if the Autotask instance has a reopen status) */
+export function getReopenStatuses(): number[] {
+  return cachedReopenStatuses ?? [];
+}
+
+/** Check if a status is a "Reopen" status */
+export function isReopenStatus(status: number): boolean {
+  return getReopenStatuses().includes(status);
 }
 
 /** Autotask "waiting customer" statuses */
