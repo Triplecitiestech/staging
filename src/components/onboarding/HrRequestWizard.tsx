@@ -387,6 +387,7 @@ interface M365LicenseSku { skuId: string; skuPartNumber: string; displayName: st
 interface M365User { id: string; displayName: string; userPrincipalName: string }
 interface M365Data {
   configured: boolean
+  message?: string
   licenses: M365LicenseSku[]
   securityGroups: M365Group[]
   distributionLists: M365Group[]
