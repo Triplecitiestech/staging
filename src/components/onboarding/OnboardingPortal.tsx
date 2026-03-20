@@ -11,7 +11,7 @@ import PasswordGate from './PasswordGate'
 import OnboardingTimeline from './OnboardingTimeline'
 import CustomerDashboard from './CustomerDashboard'
 import OnboardingJourney, { useOnboardingJourney } from './OnboardingJourney'
-import HrRequestSection from './HrRequestSection'
+import { HrRequestSection } from './HrRequestSection'
 import type { OnboardingData } from '@/types/onboarding'
 
 interface OnboardingPortalProps {
