@@ -120,6 +120,7 @@ model Company {
   contacts        CompanyContact[]
   tickets         Ticket[]
   businessReviews BusinessReview[]
+  hrRequests      HrRequest[]
 
   @@map("companies")
 }
@@ -1320,3 +1321,93 @@ model ReportingJobStatus {
 
   @@map("reporting_job_status")
 }
+
+// ============================================
+// HR REQUESTS (ONBOARDING / OFFBOARDING)
+// ============================================
+
+// ============================================================
+// Prisma Schema Additions — HR Request Models
+// Triple Cities Tech Customer Portal
+//
+// Add these models to the BOTTOM of your existing prisma/schema.prisma
+// Also add the following field to the Company model:
+//   hrRequests HrRequest[]
+// ============================================================
+
+// HR Request (Onboarding / Offboarding)
+model HrRequest {
+  id                   String   @id @default(uuid())
+  companyId            String
+  companySlug          String
+  type                 String   // "onboarding" | "offboarding"
+  status               String   @default("pending")
+  submittedByEmail     String
+  submittedByName      String?
+  answers              Json     @default("{}")
+  resolvedActionPlan   Json?
+  autotaskTicketId     Int?
+  autotaskTicketNumber String?
+  targetUpn            String?
+  targetUserId         String?
+  idempotencyKey       String   @unique
+  errorMessage         String?
+  retryCount           Int      @default(0)
+  startedAt            DateTime?
+  completedAt          DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  company   Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  steps     HrRequestStep[]
+  auditLogs HrAuditLog[]
+
+  @@map("hr_requests")
+  @@index([companyId, status])
+}
+
+model HrRequestStep {
+  id          String    @id @default(uuid())
+  requestId   String
+  stepKey     String
+  stepName    String
+  status      String    @default("pending")
+  attempt     Int       @default(1)
+  input       Json?
+  output      Json?
+  error       Json?
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  request HrRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@map("hr_request_steps")
+  @@index([requestId])
+}
+
+model HrAuditLog {
+  id         String    @id @default(uuid())
+  companyId  String
+  requestId  String?
+  actor      String
+  action     String
+  resource   String?
+  details    Json?
+  severity   String    @default("info")
+  createdAt  DateTime  @default(now())
+
+  request HrRequest? @relation(fields: [requestId], references: [id])
+
+  @@map("hr_audit_logs")
+  @@index([companyId, createdAt(sort: Desc)])
+}
+
+// ============================================================
+// IMPORTANT: Also add this line to your existing Company model:
+//
+//   model Company {
+//     ...existing fields...
+//     hrRequests HrRequest[]   // <-- ADD THIS LINE
+//   }
+// ============================================================

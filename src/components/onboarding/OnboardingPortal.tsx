@@ -11,6 +11,7 @@ import PasswordGate from './PasswordGate'
 import OnboardingTimeline from './OnboardingTimeline'
 import CustomerDashboard from './CustomerDashboard'
 import OnboardingJourney, { useOnboardingJourney } from './OnboardingJourney'
+import { HrRequestSection } from './HrRequestSection'
 import type { OnboardingData } from '@/types/onboarding'
 
 interface OnboardingPortalProps {
@@ -133,6 +134,8 @@ export default function OnboardingPortal({
               </div>
             </div>
 
+            <HrRequestSection companySlug={companySlug} />
+
             <CustomerDashboard companyName={companyDisplayName || companySlug} companySlug={companySlug} projects={projects as { id: string; title: string; projectType: string; status: string; phases: { id: string; title: string; description: string | null; status: string; customerNotes: string | null; orderIndex: number; tasks: { id: string; taskText: string; completed: boolean; orderIndex: number; status: string; notes?: string | null; autotaskTaskId?: string | null; comments?: { id: string; content: string; authorName: string; createdAt: string | Date }[] }[] }[]; createdAt: string | Date; updatedAt: string | Date }[]} />
 
             {/* Contact section */}
@@ -169,6 +172,8 @@ export default function OnboardingPortal({
               <p className="text-gray-300 text-lg mb-6">
                 Your portal is being set up. Your project details will appear here once your account manager adds them.
               </p>
+
+            <HrRequestSection companySlug={companySlug} />
               <p className="text-gray-400 mb-8">
                 If you have any questions, don&apos;t hesitate to reach out to our team.
               </p>
