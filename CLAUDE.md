@@ -369,18 +369,30 @@ This is the **primary external data source** for companies, projects, phases, an
 - **Self-chaining backfill**: The reporting sync uses fire-and-forget self-chaining — one API call triggers the next batch server-side. A single URL invocation runs all jobs to completion. Don't add polling or retry logic on top.
 - **Cron auth uses Vercel Authorization header**: Cron endpoints authenticate via `Authorization: Bearer <CRON_SECRET>` header (set by Vercel automatically). Don't use secret in query params or URL paths.
 - **Connection pool exhaustion**: Creating audiences or other bulk operations can exhaust the connection pool. Use explicit `$disconnect()` or connection-aware patterns for batch operations.
+- **HR routes use raw pg, NEVER Prisma**: All routes under `src/app/api/hr/` use `new Pool({ connectionString: process.env.DATABASE_URL })`. Do not switch them to Prisma — it caused 500s. Always pass `companySlug` in the request body (POST) or query params (GET).
+- **M365 routes use raw pg**: `src/app/api/admin/companies/[id]/m365/route.ts` uses raw pg. Column `updatedAt` must be quoted: `"updatedAt" = NOW()` — NOT `updated_at`.
+- **M365 columns are snake_case in DB**: The 6 M365 columns (`m365_tenant_id`, `m365_client_id`, etc.) use `@map()` in Prisma schema and ARE snake_case in PostgreSQL. All other Company fields are camelCase in the DB.
+- **Prisma schema + raw SQL migration must stay in sync**: Any column added via raw SQL migration must also be added to `prisma/schema.prisma`. Otherwise Prisma will throw `column (not available) does not exist` on any query touching that table. When adding schema fields, also check for `select` clauses in server components that pass data to components typed as the full Prisma model — those selects need the new fields too.
+- **JSONB columns need ::jsonb cast in raw pg**: When inserting a JSON.stringify() string into a jsonb column via raw pg, use `$1::jsonb` not `$1`.
+- **Tech onboarding wizard**: At `/admin/companies/[id]/onboard`. Step 1 = Autotask sync (run from Pipeline Status page). Step 2 = M365 app registration creds. Step 3 = test connection. Step 4 = mark complete + share portal URL.
 
 ## Customer Portal Architecture
 
 The customer portal is at `/onboarding/[companyName]`. Key components:
-- **OnboardingPortal** — Main container, handles auth state, view switching
+- **OnboardingPortal** — Main container. `isAuthenticated` is always `true` (password gate removed 2026-03-20)
 - **CustomerDashboard** — Primary dashboard with projects, tickets, stats, smart ticket sorting, metrics, chat CTA
+- **HrRequestSection** — Employee Management card. Rendered below CustomerDashboard. Gated by manager email verify (not password)
+- **HrRequestWizard** — Multi-step onboard/offboard form. Step 2 loads live M365 data when tenant creds are configured
 - **OnboardingJourney** — First-time login guided tour (5 steps, skippable)
 - **TicketTimeline** — Chronological ticket comms trail from Autotask
 
+**Portal auth**: URL is the access control — TCT shares the URL directly with the customer. `PasswordGate` component still exists but is never rendered.
+
+**HR access gate**: Clicking "Request Employee Changes" prompts manager email verification. The email is checked against `company_contacts` for `customerRole = CLIENT_MANAGER` or `isPrimary = true`. This is stored in sessionStorage for the browser session.
+
 **Ticket Timeline**: When a customer clicks a ticket, they see a full chronological timeline fetched from Autotask via `/api/customer/tickets/timeline`. Only external (customer-visible) notes appear. Customers can reply to open tickets via `/api/customer/tickets/reply`, which creates an Autotask note.
 
-**Customer Invites**: Staff can invite contacts via `/api/contacts/invite`. Contacts get portal roles (PRIMARY, TECHNICAL, BILLING, VIEWER). Staff can impersonate customer sessions via `/api/onboarding/impersonate`. See `docs/CUSTOMER_INVITE_AND_ONBOARDING.md`.
+**Customer Invites**: Staff can invite contacts via `/api/contacts/invite`. Contacts get portal roles (CLIENT_MANAGER, CLIENT_USER, CLIENT_VIEWER). Set via the Portal Role badge (click to edit inline dropdown) on `/admin/contacts`. NOT managed in Autotask.
 
 **Status badges**: Always display as `Status: <label>` (e.g., "Status: In Progress").
 

@@ -42,6 +42,14 @@ The database has two layers:
 | `autotaskCompanyId` | String? (unique) | Autotask Company/Account ID |
 | `autotaskLastSync` | DateTime? | Last successful sync |
 | `companyClassification` | String? | Autotask classification (e.g., "Platinum Managed Service") |
+| `m365TenantId` | String? | Azure AD Tenant ID (`m365_tenant_id` in DB) |
+| `m365ClientId` | String? | Azure AD App Client ID (`m365_client_id` in DB) |
+| `m365ClientSecret` | String? | Azure AD App Client Secret (`m365_client_secret` in DB) |
+| `m365VerifiedAt` | DateTime? | When Graph API connection was last verified (`m365_verified_at`) |
+| `m365SetupStatus` | String? | `not_configured` \| `credentials_saved` \| `verified` \| `error` (`m365_setup_status`) |
+| `onboardingCompletedAt` | DateTime? | When tech completed the onboarding wizard (`onboarding_completed_at`) |
+
+**Note on M365 columns**: Added via `migrations/add_m365_tenant_credentials.sql` (already run). These use `@map("snake_case")` in schema so column names ARE snake_case in PostgreSQL, unlike most other fields.
 
 **Relationships**:
 - Has many `Project`
@@ -554,7 +562,13 @@ These tables are created via `/api/soc/migrate` and managed with raw SQL queries
 
 ### Customer Authentication
 
-Customer portal auth is **not** OAuth-based. Companies have a `passwordHash` field on the `Company` model. Individual contacts use `CompanyContact` with `customerRole` and `inviteStatus` for portal access management. Customer sessions are managed via `src/lib/onboarding-session.ts`.
+Customer portal auth uses **URL as access control** (password gate removed 2026-03-20). The portal at `/onboarding/[companyName]` is open to anyone with the URL — TCT shares the URL directly with the customer.
+
+Sensitive features (HR requests via `HrRequestSection`) are separately gated by manager email verification: the user enters their email, which is checked against `company_contacts` for `customerRole = CLIENT_MANAGER` or `isPrimary = true`.
+
+The `passwordHash` field on `Company` is legacy and no longer used for auth. `src/lib/onboarding-session.ts` is kept for logout support only.
+
+**Setting manager role**: Admin → More → Contacts → click the colored Portal Role badge next to a contact → select Manager from inline dropdown. This sets `customerRole = 'CLIENT_MANAGER'`.
 
 ---
 

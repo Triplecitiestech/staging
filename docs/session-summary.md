@@ -1,9 +1,8 @@
 # Session Summary
 
-> Last updated: 2026-03-14
-> Branch: `claude/review-platform-architecture-gSIQc`
-> Latest commit: `c70b54b`
-> Previous summary: `docs/SYSTEM_STATE_SUMMARY.md` (2026-03-07)
+> Last updated: 2026-03-20
+> Branch: `main`
+> Latest commit: `a7fbd1a` (portal password gate removal)
 
 ---
 
@@ -13,139 +12,141 @@ Triple Cities Tech is a Next.js 15 App Router application deployed on Vercel (ia
 
 ### 1. Public Marketing Site
 - Route group `src/app/(marketing)/` — home, about, contact, services, industries, support, payment, MSA
-- `/schedule` page with embedded Calendly widget (all scheduling links routed internally)
+- `/schedule` page with embedded Calendly widget
 - `/blog` with AI-generated content, SEO optimization, dynamic sitemap/robots.txt
 - Cloudflare Turnstile + honeypot + rate limiting on contact form
 
 ### 2. Admin Dashboard (`/admin/*`)
-- Azure AD OAuth via NextAuth 5 (roles: ADMIN, MANAGER, VIEWER)
-- **Project management**: Company → Project → Phase → Task hierarchy with Autotask sync
-- **Blog CMS**: AI generation → approval email → scheduled publish (cron-driven)
-- **Marketing campaigns**: Audience targeting (per-company + Autotask Contact Action Groups), content visibility system, AI refinement, delivery modes with magic link tokens
-- **Reporting & Analytics**: Real-time queries from raw ticket tables, AI assistant with conversational history, business review PDF generation, SLA metrics aligned with Autotask agreements, company-specific deep dives
-- **SOC Analyst Agent**: AI-driven security alert triage with human approval workflow, OSINT prompts, action plans, merge recommendations, trend analysis, AI-generated rules, ticket-centric dashboard
-- **Platform monitoring**: System health dashboard, Autotask sync logs, AI usage tracking, threshold alerts, historical DB response time graph
-- **Staff permissions**: Role-based permission levels (`src/lib/permissions.ts`)
-- **Customer invite system**: Portal roles, impersonation, invite tracking
-- **Demo mode**: Contoso Industries synthetic data for safe presentations
-- **Test failure dashboard**: `/admin/debug/failures` with status workflow
+- NextAuth (Azure AD) session required for all `/admin/*` routes
+- Companies, Projects, Contacts, SOC, Reporting/Analytics, Blog CMS, Marketing Campaigns, Pipeline Status
+- `/admin/companies/[id]/onboard` — tech onboarding wizard (4-step: Autotask sync, M365 creds, test connection, portal access)
 
 ### 3. Customer Portal (`/onboarding/[companyName]`)
-- Password-based auth (separate from Azure AD)
-- Smart ticket sorting, metrics, chat CTA
-- Ticket timeline from Autotask (external notes only) with reply capability
-- First-time guided onboarding journey (5 steps, skippable)
-- Health score display, ticket notes/time entries
+- **No password required** — URL is the access control (removed password gate 2026-03-20)
+- Shows `CustomerDashboard` (ticket stats + projects) and `HrRequestSection` for all visitors
+- `HrRequestSection` (Employee Management card) is gated by manager email verification
+- Manager email verify calls `/api/hr/verify-manager` → checks `company_contacts` for CLIENT_MANAGER or isPrimary
 
-### 4. API Layer (`src/app/api/`)
-- 100+ route handlers
-- Autotask multi-step sync with pagination (5 projects/page, 60s timeout)
-- Self-healing reporting pipeline: auto-creates missing tables before jobs run
-- Fire-and-forget self-chaining backfill for sync jobs
-- Unified ticket type system with adapters across all views
-- MCP server for direct database and API access (`mcp-server/`)
-
-### Technology Stack
-| Layer | Technology |
-|-------|-----------|
-| Framework | Next.js 15 (App Router), React 18, TypeScript strict |
-| Styling | Tailwind CSS 3.4, custom theme (forbidden: yellow/amber/orange) |
-| Database | PostgreSQL (Vercel Postgres), Prisma ORM 7.2 |
-| Auth | NextAuth.js 5 + Azure AD OAuth |
-| Email | Resend |
-| AI | Anthropic Claude API (blog gen, project chat, SOC analysis, report assistant) |
-| PSA | Autotask REST API (two-way sync with caveats) |
-| Bot protection | Cloudflare Turnstile |
-| Testing | Playwright (Chromium + iPhone 13), Browserbase for remote |
-| Hosting | Vercel (auto-deploy from main, preview from branches) |
+### 4. HR Request System
+- All HR API routes use **raw `pg` Pool** (NOT Prisma) — Prisma caused 500s due to schema/adapter issues
+- `companySlug` passed explicitly in all API calls (no session cookie dependency)
+- Routes: `/api/hr/submit`, `/api/hr/verify-manager`, `/api/hr/requests`, `/api/hr/requests/[id]`
+- Background processing via fire-and-forget fetch to `/api/hr/process`
+- JSONB columns require `::jsonb` cast when passing `JSON.stringify()` string
 
 ---
 
-## Recent Changes (Since 2026-03-07)
+## Database
 
-### Major Features Added
-1. **SOC Analyst Agent + Reasoning Layer** — Full AI-driven security alert triage system with: ticket ingestion from Autotask, AI classification/severity, human approval workflow, OSINT prompts, action plans, merge recommendations, activity feed, trend analysis, AI-generated rules, Approve All button, cleanup endpoint, reprocess capability. **New (2026-03-14):** Reasoning layer with 5-value classification (false_positive, expected_activity, informational, suspicious, confirmed_threat), dynamic investigation evidence, customer message gating, technician roster context, historical FP rate computation, and reasoning-first UI layout
-2. **Reporting overhaul** — Rebuilt to use real-time queries from raw Ticket tables; added AI assistant with full conversation history, business review PDF (professional design, downloadable), SLA metrics aligned with Autotask agreement, auto-chaining backfill, self-healing pipeline
-3. **Platform monitoring dashboard** — System health cards on admin home, Autotask sync logs page, AI usage tracking, threshold alerts, historical DB response time graph
-4. **Unified ticket system** — Shared ticket types, adapters, API endpoints, and components integrated across all views (admin, SOC, customer portal, reporting)
-5. **Marketing enhancements** — Content visibility system, AI refinement, audience improvements, delivery modes with magic link tokens, manual audience support, campaign fixes (connection pool, enum types, recipient counts)
-6. **Customer portal improvements** — Smart ticket sorting, improved metrics, chat CTA, staff permission levels, customer invite/impersonate system with portal roles
-7. **Staff permissions** — New `src/lib/permissions.ts` (290 lines) with role-based permission levels
-8. **Scheduling page** — `/schedule` with embedded Calendly widget, all external links routed internally
-9. **Comprehensive e2e tests** — 30+ Playwright specs covering admin, public, portal, blog, marketing, SOC, Autotask, API health, auth, forbidden colors, responsive viewports, security
-10. **MCP server** — Direct database and API access tool for development/debugging
+**Connection**: Prisma Data Platform (db.prisma.io:5432) via `DATABASE_URL` env var
+**ORM**: Prisma 7.2.0 with PrismaPg serverless adapter
+**Important**: Some API routes use raw `pg.Pool` directly (all HR routes, M365 routes)
 
-### Key Bug Fixes
-- SOC: 504 timeouts on `/api/soc/tickets`, `/api/soc/status`, `/api/soc/activity` (added `maxDuration = 60`, parallelized queries with `Promise.all`)
-- SOC: BigInt literal build error (`0n` → `BigInt(0)` for ES target compat)
-- SOC: Type conflict — duplicate `reasoning` field on `TriageResult` (renamed to `socReasoning`)
-- SOC: Historical FP rate was hardcoded to null/0 (now computed from `soc_ticket_analysis`)
-- SOC: `internal_site_ids` was empty (seeded with TCT's Datto RMM site ID `177027`)
-- Silent catch bug in Autotask cron sync phase/task fetching
-- Prisma 'column does not exist' errors (migration `20260310000000_add_missing_columns`)
-- Customer portal 404 (DB errors swallowed in `companyExists`)
-- Admin dashboard crash (client component layout wrapper)
-- SOC: JSON truncation, 504 timeouts, TicketNotes 404, toUpperCase crashes
-- Reporting: empty data, API user filtering, resolution averages, business review zeros
-- Blog post visibility filter
-- Audience creation connection pool exhaustion, TEXT vs enum type mismatch
-- Company detail page and projects page crashes
+### Recent Migrations (run manually via raw SQL)
+- `migrations/add_m365_tenant_credentials.sql` — **ALREADY RUN** — added to `companies` table:
+  - `m365_tenant_id`, `m365_client_id`, `m365_client_secret` (TEXT)
+  - `m365_verified_at` (TIMESTAMPTZ)
+  - `m365_setup_status` (TEXT, default 'not_configured')
+  - `onboarding_completed_at` (TIMESTAMPTZ)
+- These columns are now also declared in `prisma/schema.prisma` with `@map()` annotations
 
-### Infrastructure Changes
-- Cron auth switched to Vercel Authorization header (removed literal secrets from paths)
-- Migration endpoint improved for Vercel serverless compatibility
-- Sync default bumped to 180 days
-- Batch processing + time-aware pipeline to fix sync timeouts
-- Orange added to forbidden colors list
-- Dynamic sitemap/robots.txt replacing static files
+### Column naming gotcha
+- Prisma stores camelCase field names as-is in PostgreSQL (no auto snake_case)
+- `updatedAt` in schema = `"updatedAt"` column in DB (must quote in raw SQL)
+- `autotaskCompanyId` = `"autotaskCompanyId"` column in DB
+- Exception: M365 columns use `@map("snake_case")` so they ARE snake_case in DB
+
+### HR Tables (raw SQL, NOT Prisma-managed)
+- `hr_requests` — main request record
+- `hr_request_steps` — step-by-step processing log
+- `hr_audit_logs` — audit trail
 
 ---
 
-## Key Design Decisions
+## M365 Integration
 
-1. **Real-time reporting over pre-aggregated** — Reporting queries raw Ticket tables directly rather than maintaining aggregation tables, with self-healing table creation and batched backfill to manage Vercel timeouts.
+### Architecture
+- Per-customer Azure AD app registrations stored in `companies` table
+- Graph API client: `src/lib/graph.ts` — token cache per tenantId (5-min buffer before expiry)
+- Methods: `getUsers`, `getSecurityGroups`, `getDistributionLists`, `getM365Groups`, `getSharePointSites`, `getLicenseSkus`
+- `graphGetAll<T>()` handles `@odata.nextLink` pagination automatically
 
-2. **SOC reasoning-first model** — AI investigates → summarizes → assesses risk → recommends actions. The reasoning layer produces a structured `SocReasoning` document with 5-value classification, dynamic evidence items, and gated customer messages. Human approval required before any automated response. Approve All for batch processing, per-ticket detail for manual review.
+### API Routes
+- `GET/PUT/POST/PATCH /api/admin/companies/[id]/m365` — credentials CRUD + test connection + mark complete
+  - **Raw pg** — credentials saved to `m365_tenant_id`, `m365_client_id`, `m365_client_secret`
+  - Column is `"updatedAt"` (camelCase, must quote in raw SQL)
+- `GET /api/hr/m365-data?companySlug=X&email=Y` — returns live tenant groups/licenses/users/sites
 
-3. **Unified ticket types** — Single `UnifiedTicket` type with adapters (`src/lib/tickets/adapters.ts`) so all views (admin, SOC, portal, reporting) consume the same data shape.
+### Tech Onboarding Wizard (`/admin/companies/[id]/onboard`)
+- Step 1: Autotask sync check — links to Pipeline Status (`/admin/reporting/status`) and Contacts (`/admin/contacts`)
+- Step 2: M365 app registration — enter Tenant ID, Client ID, Client Secret
+- Step 3: Test connection — calls POST `/api/admin/companies/[id]/m365` with `{ action: 'test' }`
+- Step 4: Portal access — shows portal URL, marks onboarding complete
 
-4. **Self-chaining sync** — Backfill jobs auto-trigger the next batch server-side (fire-and-forget) so a single URL invocation runs all sync jobs to completion without timeout issues.
-
-5. **Permission system** — Centralized `src/lib/permissions.ts` rather than ad-hoc role checks in each route. Three staff roles (ADMIN, MANAGER, VIEWER) with granular feature permissions.
-
-6. **MCP server for dev access** — Direct database queries and API calls during development sessions, avoiding manual curl/Invoke-RestMethod commands.
-
-7. **Forbidden orange** — Added `orange-*` to forbidden Tailwind classes because on dark backgrounds it renders visually as amber/gold. Use rose/red/violet instead.
+### Setting Manager Role
+- Go to `/admin/contacts`, find the contact, click the colored **Portal Role badge** (e.g. "User") in the Portal Role column — it becomes an inline dropdown
+- Select **Manager** (CLIENT_MANAGER)
+- This is done in the TCT admin site, NOT in Autotask
+- Portal roles are stored in `company_contacts.customerRole`
 
 ---
 
-## Outstanding Tasks
+## Autotask Sync
 
-### High Priority
-- **E2e test suite maintenance** — Tests should be run before every push; some may need updates after recent SOC/reporting changes
-- **SOC agent production hardening** — Rate limiting on AI calls, error recovery for partial failures, monitoring for false positive rates
-- **Reporting backfill completion** — Ensure all companies have full historical data synced
+### Sync errors fixed (2026-03-20)
+- Root cause: M365 columns existed in DB but not in `prisma/schema.prisma`
+- Prisma threw `column (not available) does not exist` on any company create/update
+- Fix: added all 6 M365 columns to schema with `@map()` annotations
 
-### Medium Priority
-- **CSP violation reporting** — Add `report-uri` / `report-to` endpoint
-- **Remove setup pages** — `/admin/setup` and `/admin/run-migration` have no session auth guard (API calls require MIGRATION_SECRET, but pages render)
-- **Blog setup page access** — `/blog/setup` is publicly accessible
-- **Admin route role checks** — Several routes check for session existence but not specific role
-- **TestFailure Prisma model cleanup** — Model exists in schema but all queries use raw SQL
+### Sync flow
+- Cron: `/api/cron/autotask-sync` (every 5 min via Vercel Cron)
+- Manual trigger: `/admin/reporting/status` → click Run next to "Sync Tickets"
+- Syncs: companies → contacts → projects → phases → tasks (incremental if prior success log exists)
+- Logs to `autotask_sync_logs` table, viewable at `/admin/autotask-logs`
 
-### Low Priority / Technical Debt
-- Pre-existing lint warnings (~10 unused variables across blog/social/onboarding)
-- `'unsafe-inline'` in production CSP script-src (needed for Next.js)
-- `CRON_SECRET` vs `AUTOTASK_SYNC_SECRET` naming inconsistency
-- Centralized structured logging beyond current server-logger
+---
 
-### Pre-Launch Cleanup (Future — Not Immediate Priority)
-- Full hardening checklist documented in `CLAUDE.md` under "Pre-Launch Cleanup Required"
-- Includes: remove secrets from docs, audit auth/impersonation, review auto-deploy, harden customer portal, CSP reporting, environment separation
-- Must be completed before broader customer-facing production access expands
-- Current development shortcuts are intentionally preserved — see "Temporary Development Shortcuts" in CLAUDE.md
+## Key Decisions & Conventions
 
-### Discussed But Not Yet Implemented
-- Advanced automated debugging (auto-issue creation from test failures, AI-generated PR drafts)
-- Additional Playwright tests for login flows, form submissions, Autotask sync verification
-- Olujo brand awareness CRM project integration
+| Decision | Rationale |
+|---|---|
+| Raw `pg` for HR routes | Prisma 7 + serverless adapter caused intermittent 500s on hr tables |
+| `companySlug` in request body/params | Session cookie unreliable in serverless; explicit is safer |
+| Portal URL = access control | No shared password needed; manager email verify handles HR access |
+| Per-customer Azure AD app | Each customer tenant needs its own app registration |
+| `"updatedAt"` quoted in raw SQL | Prisma stores camelCase field names verbatim in PostgreSQL |
+
+---
+
+## Environment Variables Required
+
+| Var | Purpose |
+|---|---|
+| `DATABASE_URL` | Prisma Data Platform direct URL |
+| `PRISMA_DATABASE_URL` | Same as DATABASE_URL (some routes use this) |
+| `AUTOTASK_API_USERNAME` | Autotask API credentials |
+| `AUTOTASK_API_SECRET` | Autotask API credentials |
+| `AUTOTASK_API_INTEGRATION_CODE` | Autotask API credentials |
+| `AUTOTASK_API_BASE_URL` | `https://webservices14.autotask.net/ATServicesRest` |
+| `CRON_SECRET` | Bearer token for cron job auth |
+| `NEXTAUTH_SECRET` | NextAuth session signing |
+| `AZURE_AD_*` | Azure AD OAuth for admin login |
+
+---
+
+## Remaining Work (as of 2026-03-20)
+
+### Immediate
+1. **OnboardingPortal layout** — portal layout rewrite in progress (uncommitted): always show CustomerDashboard + HrRequestSection below stats, regardless of project count
+2. **Portal verify modal** — manager email verify on HR section still triggers on each browser session (sessionStorage-based); consider whether to simplify given password gate is removed
+
+### Soon
+3. **DNS** — add CNAME `portal → 48fc0e6b423bbc2a.vercel-dns-010.com.` for `portal.triplecitiestech.com`
+4. **Pax8 secret rotation** — rotate `PAX8_CLIENT_SECRET` in Pax8 portal → update Vercel env var
+5. **kflorance M365 setup** — enter Azure AD app creds via Admin → Companies → kflorance → Onboard Customer → Step 2
+
+### Backlog
+- HR wizard Step 2 live group pickers (groups/distros/Teams/SharePoint/licenses) — works once M365 creds set per company
+- SOC Phase 2: OSINT integrations (AbuseIPDB, VirusTotal, AlienVault OTX)
+- Background job architecture for long-running provisioning (BullMQ or similar)
+- Pax8 license sync integration

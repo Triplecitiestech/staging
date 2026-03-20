@@ -1,6 +1,6 @@
 # System Map
 
-> Last updated: 2026-03-14
+> Last updated: 2026-03-20
 
 This document maps every major subsystem to its primary source files. Use it to find where logic lives before making changes.
 
@@ -10,8 +10,8 @@ This document maps every major subsystem to its primary source files. Use it to 
 
 ### Public Marketing (`src/app/(marketing)/`)
 | Page | File | Purpose |
-|------|------|---------|
-| Home | `page.tsx` | Landing page with hero, services, testimonials |
+|------|------|---------| 
+| Home | `page.tsx` | Landing page |
 | About | `about/page.tsx` | Company info |
 | Contact | `contact/page.tsx` | Contact form (Turnstile + honeypot) |
 | Services | `services/page.tsx` | Service listings |
@@ -24,183 +24,109 @@ This document maps every major subsystem to its primary source files. Use it to 
 ### Blog (`src/app/blog/`)
 - `page.tsx` — blog listing (public)
 - `[slug]/page.tsx` — individual blog post
-- `setup/page.tsx` — blog setup (should be restricted)
 
 ### Admin Dashboard (`src/app/admin/`)
 | Section | Directory | Primary Logic |
 |---------|-----------|---------------|
-| Dashboard Home | `page.tsx` | System health cards, quick stats |
-| Companies | `companies/` | Company CRUD, Autotask links |
-| Contacts | `contacts/page.tsx` | Contact management, invites |
-| Projects | `projects/` | Project/phase/task management |
-| Blog CMS | `blog/` | Blog editor, approval, scheduling |
-| SOC Analyst | `soc/` | Security dashboard, incidents, rules, config |
-| Reporting | `reporting/` | Analytics, business reviews, health, technicians |
-| Monitoring | `monitoring/page.tsx` | Platform health, AT sync logs, AI usage |
-| Marketing | `marketing/` | Campaigns, audiences, content |
-| Autotask Logs | `autotask-logs/` | Sync history viewer |
-| Debug | `debug/` | Test failure dashboard |
-| Preview | `preview/` | Customer portal preview |
+| Dashboard | `page.tsx` | KPI overview |
+| Companies | `companies/` | Company CRUD, company detail |
+| **Company Onboarding** | `companies/[id]/onboard/page.tsx` | 4-step tech wizard (Autotask + M365 + portal) |
+| Projects | `projects/` | Project list, new project, AI project creation |
+| Contacts | `contacts/page.tsx` | All contacts with role management |
+| SOC | `soc/` | Security alert triage, incident management |
+| Reporting | `reporting/` | Analytics, health scores, business reviews, pipeline status |
+| Blog CMS | `blog/` | Post management, AI generation, approval workflow |
+| Marketing | `marketing/` | Campaigns, social setup, audiences |
+| Autotask Logs | `autotask-logs/page.tsx` | Sync history and error log |
+| Pipeline Status | `reporting/status/page.tsx` | Manual pipeline job triggers |
 
 ### Customer Portal (`src/app/onboarding/`)
-- `[companyName]/page.tsx` — portal entry point
-- Uses components from `src/components/onboarding/`
+| File | Purpose |
+|------|---------|
+| `[companyName]/page.tsx` | Portal entry — no password, always authenticated |
+| `[companyName]/error.tsx` | Error boundary |
 
-### API Routes (`src/app/api/`)
-| Group | Directory | Endpoints |
-|-------|-----------|-----------|
-| Autotask | `autotask/` | `trigger` (multi-step sync), `status` (history) |
-| Blog | `blog/` | CRUD, approval, generation |
-| Companies | `companies/` | CRUD |
-| Contacts | `contacts/` | CRUD, invite |
-| Cron | `cron/` | Blog generation, approval emails, publish, AT sync |
-| Customer | `customer/` | Tickets timeline, reply |
-| Marketing | `marketing/` | Campaigns CRUD, generate, approve, send |
-| Onboarding | `onboarding/` | Auth, impersonate |
-| Projects | `projects/` | CRUD |
-| Reports | `reports/` | 17 endpoints (dashboard, analytics, business review, etc.) |
-| SOC | `soc/` | 11 endpoints (tickets, incidents, rules, trends, etc.) |
-| Tasks | `tasks/` | CRUD with Autotask write-back |
-| Admin | `admin/` | AI chat, staff, portal access |
-| Errors | `errors/` | Client error capture |
-| Test Failures | `test-failures/` | Ingest, list, migrate |
+### HR API Routes (`src/app/api/hr/`)
+| Route | Method | Purpose |
+|-------|--------|---------|
+| `verify-manager/route.ts` | POST | Verify email is CLIENT_MANAGER or isPrimary |
+| `submit/route.ts` | POST | Submit HR request (raw pg, requires companySlug in body) |
+| `requests/route.ts` | GET | List requests (requires companySlug + email params) |
+| `requests/[id]/route.ts` | GET | Single request detail |
+| `process/route.ts` | POST | Background processing (fire-and-forget) |
+| `m365-data/route.ts` | GET | Live tenant data (groups, licenses, users, sites) |
+
+### M365 Admin Routes (`src/app/api/admin/companies/[id]/`)
+| Route | Methods | Purpose |
+|-------|---------|---------|
+| `m365/route.ts` | GET, PUT, POST, PATCH | M365 credentials CRUD + test + complete |
 
 ---
 
-## 2. Components (`src/components/`)
+## 2. Key Components (`src/components/`)
 
-| Directory | Purpose | Key Components |
-|-----------|---------|----------------|
-| `admin/` | Admin dashboard widgets | `AIProjectAssistant`, `AdminHeader`, `SyncPanel`, `AdminErrorBoundary` |
-| `soc/` | SOC Analyst Agent UI | `SocDashboardClient`, `SocTicketDetail` (reasoning-first layout with dynamic evidence), `SocIncidentDetail`, `SocRulesManager`, `SocConfigPanel`, `SocFlowchart` |
-| `reporting/` | Reporting & analytics | `ReportingDashboard`, `AnalyticsDashboard`, `BusinessReviewDetail`, `ReportAIAssistant`, `TrendChart`, `HealthReport` |
-| `tickets/` | Shared ticket components | `TicketTable`, `TicketDetail`, `PriorityBadge`, `SlaIndicator`, `TimelineEntry` |
-| `onboarding/` | Customer portal | `OnboardingPortal`, `CustomerDashboard`, `OnboardingJourney`, `TicketTimeline`, `PasswordGate` |
-| `sections/` | Marketing page sections | Hero, services, testimonials, CTA sections |
-| `companies/` | Company management | `CompanyList`, `NewCompanyForm` |
-| `contacts/` | Contact management | `ContactsList` |
-| `projects/` | Project management | `NewProjectForm`, `ProjectList` |
-| `ui/` | Shared primitives | Buttons, cards, modals, inputs |
-| `seo/` | SEO components | JSON-LD structured data, breadcrumbs |
-| `layout/` | Layout components | Navigation, footer, page wrappers |
+### Admin
+| Component | File | Purpose |
+|-----------|------|---------|
+| Tech Onboarding Wizard | `admin/TechOnboardingWizard.tsx` | 4-step wizard for techs to onboard customers |
+| Company Detail | `companies/CompanyDetail.tsx` | Company detail page with "Onboard Customer" button |
 
----
-
-## 3. Core Libraries (`src/lib/`)
-
-### Authentication & Security
-| File | Purpose |
-|------|---------|
-| `src/auth.ts` | NextAuth 5 config, Azure AD provider, session enrichment |
-| `src/lib/security.ts` | Rate limiting, input sanitization, CSRF, request validation |
-| `src/lib/permissions.ts` | Role-based staff permission system (ADMIN/MANAGER/VIEWER) |
-| `src/lib/onboarding-data.ts` | Customer portal data layer, password validation |
-| `src/lib/onboarding-session.ts` | Signed cookie session management for customer portal |
-| `src/middleware.ts` | Security headers, bot blocking, suspicious param filtering |
-
-### AI & Content
-| File | Purpose |
-|------|---------|
-| `src/lib/blog-generator.ts` | Claude Sonnet blog content generation |
-| `src/lib/content-curator.ts` | RSS feed aggregation for blog topics |
-
-### SOC Analyst Agent (`src/lib/soc/`)
-| File | Purpose |
-|------|---------|
-| `engine.ts` | Main SOC processing engine — 3-tier AI pipeline (screening → deep analysis → reasoning), incident creation, context enrichment (historical FP rate, technician roster), pending action generation with customer message gating |
-| `correlation.ts` | Incident correlation and merge recommendations (text-based hostname/IP extraction + company/time window) |
-| `rules.ts` | Rule matching engine (manual + AI-generated suppression/correlation/escalation rules) |
-| `prompts.ts` | Claude AI prompts — `buildScreeningPrompt()` (Tier 1), `buildDeepAnalysisPrompt()` (Tier 2), `buildReasoningPrompt()` (Tier 3, 5-value classification with dynamic evidence), `buildActionPlanPrompt()` (legacy) |
-| `ip-extractor.ts` | IP address extraction from ticket text via regex |
-| `types.ts` | SOC type definitions — includes `Classification`, `EvidenceItem`, `SocReasoning`, `RiskLevel`, `Verdict` (with `expected_activity` and `confirmed_threat`), `TriageResult` (with `socReasoning` field) |
-| `technician-verifier.ts` | IP-based device verification chain: Datto RMM cache lookup → site ID check → username matching → live API fallback |
-
-### Reporting & Analytics (`src/lib/reporting/`)
-| File | Purpose |
-|------|---------|
-| `realtime-queries.ts` | Real-time dashboard metric queries |
-| `health-score.ts` | Company health score calculation |
-| `analytics.ts` | Trend analytics and time-series data |
-| `backfill.ts` | Self-chaining Autotask data backfill |
-| `aggregation.ts` | Metric aggregation pipeline |
-| `ensure-tables.ts` | Self-healing table creation |
-| `sla-config.ts` | SLA threshold configuration |
-| `api-user-filter.ts` | Filter out API/automation users from metrics |
-| `sync.ts` | Ticket/time entry/note sync from Autotask |
-| `lifecycle.ts` | Ticket lifecycle tracking |
-| `services.ts` | Reporting service orchestration |
-| `types.ts` | Reporting type definitions |
-
-### Unified Tickets (`src/lib/tickets/`)
-| File | Purpose |
-|------|---------|
-| `adapters.ts` | Normalize various ticket sources to `UnifiedTicket` type |
-| `utils.ts` | Ticket utility functions |
-
-### Other
-| File | Purpose |
-|------|---------|
-| `src/lib/prisma.ts` | Prisma client singleton with PrismaPg adapter |
-| `src/lib/autotask.ts` | Autotask REST API client, types, status mappers |
-| `src/lib/demo-mode.ts` | Contoso Industries demo data generation |
-| `src/lib/error-logger.ts` | Centralized error capture with deduplication |
-| `src/lib/server-logger.ts` | Structured request logging with requestId |
+### Customer Portal
+| Component | File | Purpose |
+|-----------|------|---------|
+| OnboardingPortal | `onboarding/OnboardingPortal.tsx` | Portal shell — routes to dashboard or legacy timeline |
+| CustomerDashboard | `onboarding/CustomerDashboard.tsx` | Ticket stats cards + project list + ticket table |
+| HrRequestSection | `onboarding/HrRequestSection.tsx` | Employee Management card + manager verify modal |
+| HrRequestWizard | `onboarding/HrRequestWizard.tsx` | Multi-step onboard/offboard form (Step 2 uses live M365 data) |
+| PasswordGate | `onboarding/PasswordGate.tsx` | Legacy — no longer rendered (portal is open) |
 
 ---
 
-## 4. Database Layer
+## 3. Libraries (`src/lib/`)
 
-### Prisma Schema (`prisma/schema.prisma`)
-- 30+ models, 500+ lines
-- Key models: `StaffUser`, `Company`, `CompanyContact`, `Project`, `Phase`, `PhaseTask`, `BlogPost`, `Comment`, `Assignment`, `AuditLog`, `MarketingCampaign`, `MarketingAudience`
-- Key enums: `BlogStatus`, `TaskStatus`, `PhaseStatus`, `ProjectStatus`, `Priority`, `StaffRole`
-- All Autotask-linked models have `autotask*Id` fields
-
-### Raw SQL Tables (not Prisma-managed)
-| Table Group | Tables | Created By |
-|-------------|--------|------------|
-| Reporting | `report_tickets`, `report_time_entries`, `report_ticket_notes`, `report_aggregations`, `report_schedules`, `report_targets` | `/api/reports/migrate` + `ensure-tables.ts` |
-| SOC | `soc_ticket_analysis`, `soc_incidents` (with `reasoning` JSONB), `soc_activity_log`, `soc_pending_actions`, `soc_rules`, `soc_config`, `soc_job_status`, `soc_communications`, `datto_devices` | `/api/soc/bootstrap` or `/api/soc/migrate` |
-| Testing | `test_failures` | `/api/test-failures/migrate` |
+| File | Purpose |
+|------|---------|
+| `prisma.ts` | Singleton PrismaClient with PrismaPg serverless adapter |
+| `graph.ts` | Microsoft Graph API client — per-tenant token cache, all Graph methods |
+| `autotask.ts` | Autotask REST API client — companies, contacts, projects, phases, tasks, tickets |
+| `pax8.ts` | Pax8 partner API client |
+| `onboarding-session.ts` | Legacy signed-cookie session (still used for logout, not for auth) |
+| `onboarding-data.ts` | Fetches structured onboarding data for legacy timeline view |
+| `security.ts` | Rate limiting, request validation, security event logging |
 
 ---
 
-## 5. External Integrations
+## 4. Database (`prisma/schema.prisma`)
 
-### Autotask PSA
-- **Client**: `src/lib/autotask.ts` — REST API v1.0 with retry and fallback paths
-- **Sync orchestrator**: `src/app/api/autotask/trigger/route.ts` — multi-step sync (cleanup, companies, projects, contacts, merge, resync, diagnose)
-- **Cron**: `src/app/api/cron/autotask-sync/route.ts` — scheduled sync
-- **Data flow**: Autotask API → AutotaskClient → sync functions → Prisma upsert
+Key models and their table names:
 
-### Anthropic Claude AI
-- **Blog generation**: `src/lib/blog-generator.ts` (Claude Sonnet)
-- **Project chat**: `src/app/api/admin/ai-chat/route.ts` (Claude Haiku)
-- **SOC analysis**: `src/lib/soc/prompts.ts` (classification, action plans)
-- **Report AI assistant**: `src/app/api/reports/ai-assistant/route.ts` (conversational)
-- **Marketing refinement**: `src/app/api/marketing/campaigns/[id]/refine/route.ts`
+| Model | Table | Notes |
+|-------|-------|-------|
+| `Company` | `companies` | Has M365 credential fields (added via migration, declared in schema) |
+| `CompanyContact` | `company_contacts` | Mixed camelCase columns (`companyId`, `customerRole`, `isPrimary`, `isActive`) |
+| `Project` | `projects` | |
+| `Phase` | `phases` | |
+| `PhaseTask` | `phase_tasks` | |
+| `Ticket` | `tickets` | Synced from Autotask |
+| `AutotaskSyncLog` | `autotask_sync_logs` | Sync run history |
+| `HrRequest` | `hr_requests` | Raw pg only |
+| `HrRequestStep` | `hr_request_steps` | Raw pg only |
+| `HrAuditLog` | `hr_audit_logs` | Raw pg only |
 
-### Resend (Email)
-- Contact form submissions
-- Blog approval emails
-- Marketing campaign delivery
-- Customer invite emails
-
-### Cloudflare Turnstile
-- Contact form bot protection
-- Site key (public) + secret key (server validation)
-
-### Calendly
-- Embedded widget on `/schedule` page
-- All scheduling links routed to `/schedule` internally
+### Raw SQL tables (NOT Prisma-managed)
+- SOC tables: `soc_incidents`, `soc_rules`, `soc_config`
+- Reporting tables: created via `/api/reports/migrate`
 
 ---
 
-## 6. Testing Infrastructure
+## 5. Critical Gotchas
 
-- **Config**: `playwright.config.ts` — Chromium + iPhone 13 viewports
-- **Tests**: `tests/e2e/` — 30+ specs covering all systems
-- **Custom reporter**: `tests/e2e/failure-reporter.ts` — JSON + markdown summaries
-- **Browserbase**: `tests/e2e/browserbase.setup.ts` — remote browser testing via CDP
-- **Debug CLI**: `scripts/debug-failures.ts` (`npm run debug:failures`)
-- **Failure dashboard**: `/admin/debug/failures`
+| Gotcha | Detail |
+|--------|--------|
+| Raw pg for HR routes | Never use Prisma for `hr_*` tables — use `pg.Pool` with `DATABASE_URL` |
+| `"updatedAt"` in raw SQL | Prisma stores camelCase field names verbatim — must quote: `"updatedAt" = NOW()` |
+| `companySlug` required | All HR API calls need `companySlug` in body (POST) or query params (GET) |
+| M365 columns snake_case | Only M365 columns use `@map("snake_case")` — everything else is camelCase in DB |
+| Portal is open | `isAuthenticated = true` always in `onboarding/[companyName]/page.tsx` |
+| JSONB cast | Raw pg inserts of JSON strings need `::jsonb` cast: `$1::jsonb` |
+| Manager verify | CLIENT_MANAGER role OR `isPrimary=true` in `company_contacts` grants HR access |

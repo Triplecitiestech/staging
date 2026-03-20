@@ -71,127 +71,65 @@ export default function OnboardingPortal({
       )}
 
       <main className="flex-1 pt-20">
-        {!isAuthenticated ? (
-          // Unauthenticated view - show password gate
-          <PasswordGate companyName={companySlug} onAuthenticated={handleAuthenticated} />
-        ) : initialData ? (
-          // Authenticated view - show onboarding timeline
+        {initialData ? (
+          // Onboarding timeline view (legacy structured onboarding program)
           <Container className="py-12 mt-4">
-            {/* Header */}
             <div className="mb-8 text-center">
-              <h1 className="text-5xl font-bold text-white mb-2">
-                {initialData.companyDisplayName}
-              </h1>
+              <h1 className="text-5xl font-bold text-white mb-2">{initialData.companyDisplayName}</h1>
               <p className="text-2xl text-cyan-400 font-semibold">
-                {projects && projects.length === 1
+                {projects && (projects as unknown[]).length === 1
                   ? (projects[0] as { title: string }).title
-                  : projects && projects.length > 1
+                  : projects && (projects as unknown[]).length > 1
                   ? 'Your Projects'
                   : 'Onboarding Program'}
               </p>
             </div>
-
-            {/* Timeline */}
             <OnboardingTimeline
               phases={initialData.phases}
               currentPhaseId={initialData.currentPhaseId}
               companySlug={companySlug}
             />
-
-            {/* Contact section */}
             <div className="mt-12 p-6 bg-gray-800/50 backdrop-blur-sm border border-cyan-500/30 rounded-lg shadow-lg shadow-cyan-500/10 text-center">
-              <h3 className="text-lg font-bold text-cyan-400 mb-2">
-                Need Help or Have Questions?
-              </h3>
-              <p className="text-gray-300 mb-4">
-                Our team is here to assist you throughout your onboarding journey.
-              </p>
+              <h3 className="text-lg font-bold text-cyan-400 mb-2">Need Help or Have Questions?</h3>
+              <p className="text-gray-300 mb-4">Our team is here to assist you throughout your onboarding journey.</p>
               <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                <a href="tel:+16073417500" className="inline-flex items-center justify-center px-6 py-3 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700 text-white font-semibold rounded-lg shadow-lg shadow-cyan-500/30 transition-all">
-                  Call (607) 341-7500
-                </a>
-                <a href="mailto:support@triplecitiestech.com" className="inline-flex items-center justify-center px-6 py-3 bg-gray-700/50 hover:bg-gray-700 text-cyan-400 font-semibold rounded-lg border-2 border-cyan-500/50 hover:border-cyan-500 transition-all">
-                  Email Support
-                </a>
-                <a href="/contact#customer-support" className="inline-flex items-center justify-center px-6 py-3 bg-gray-700/50 hover:bg-gray-700 text-emerald-400 font-semibold rounded-lg border-2 border-emerald-500/50 hover:border-emerald-500 transition-all">
-                  Contact Us
-                </a>
-              </div>
-            </div>
-          </Container>
-        ) : projects && (projects as unknown[]).length > 0 ? (
-          // Authenticated with projects - show dashboard/projects toggle
-          <Container className="py-12 mt-4">
-            {/* Portal Navigation */}
-            <div className="flex items-center justify-end mb-8">
-              <div className="flex gap-2">
-                <Button onClick={() => router.refresh()} leftIcon={<RefreshCw size={16} />} className="bg-gray-700/50 hover:bg-gray-700 text-gray-300">
-                  Refresh
-                </Button>
-                <Button onClick={handleLogout} variant="outline" leftIcon={<LogOut size={16} />} className="border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white">
-                  Log Out
-                </Button>
-              </div>
-            </div>
-
-            <HrRequestSection companySlug={companySlug} />
-
-            <CustomerDashboard companyName={companyDisplayName || companySlug} companySlug={companySlug} projects={projects as { id: string; title: string; projectType: string; status: string; phases: { id: string; title: string; description: string | null; status: string; customerNotes: string | null; orderIndex: number; tasks: { id: string; taskText: string; completed: boolean; orderIndex: number; status: string; notes?: string | null; autotaskTaskId?: string | null; comments?: { id: string; content: string; authorName: string; createdAt: string | Date }[] }[] }[]; createdAt: string | Date; updatedAt: string | Date }[]} />
-
-            {/* Contact section */}
-            <div className="mt-12 p-6 bg-gray-800/50 backdrop-blur-sm border border-cyan-500/30 rounded-lg shadow-lg shadow-cyan-500/10 text-center">
-              <h3 className="text-lg font-bold text-cyan-400 mb-2">
-                Need Help or Have Questions?
-              </h3>
-              <p className="text-gray-300 mb-4">
-                Our team is here to assist you throughout your journey.
-              </p>
-              <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                <a href="tel:+16073417500" className="inline-flex items-center justify-center px-6 py-3 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700 text-white font-semibold rounded-lg shadow-lg shadow-cyan-500/30 transition-all">
-                  Call (607) 341-7500
-                </a>
-                <a href="mailto:support@triplecitiestech.com" className="inline-flex items-center justify-center px-6 py-3 bg-gray-700/50 hover:bg-gray-700 text-cyan-400 font-semibold rounded-lg border-2 border-cyan-500/50 hover:border-cyan-500 transition-all">
-                  Email Support
-                </a>
-                <a href="/contact#customer-support" className="inline-flex items-center justify-center px-6 py-3 bg-gray-700/50 hover:bg-gray-700 text-emerald-400 font-semibold rounded-lg border-2 border-emerald-500/50 hover:border-emerald-500 transition-all">
-                  Contact Us
-                </a>
+                <a href="tel:+16073417500" className="inline-flex items-center justify-center px-6 py-3 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700 text-white font-semibold rounded-lg shadow-lg shadow-cyan-500/30 transition-all">Call (607) 341-7500</a>
+                <a href="mailto:support@triplecitiestech.com" className="inline-flex items-center justify-center px-6 py-3 bg-gray-700/50 hover:bg-gray-700 text-cyan-400 font-semibold rounded-lg border-2 border-cyan-500/50 hover:border-cyan-500 transition-all">Email Support</a>
               </div>
             </div>
           </Container>
         ) : (
-          // Authenticated but no projects yet
-          <Container className="py-12 mt-4">
-            <div className="text-center max-w-2xl mx-auto">
-              <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-cyan-500/20 to-cyan-600/20 border border-cyan-500/30 rounded-full mb-6">
-                <svg className="w-10 h-10 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-              <h1 className="text-3xl font-bold text-white mb-4">Welcome!</h1>
-              <p className="text-gray-300 text-lg mb-6">
-                Your portal is being set up. Your project details will appear here once your account manager adds them.
-              </p>
+          // Standard portal view — always show dashboard + HR section regardless of project count
+          <Container className="py-8 mt-4">
+            {/* Top-right controls */}
+            <div className="flex items-center justify-end mb-6 gap-2">
+              <Button onClick={() => router.refresh()} leftIcon={<RefreshCw size={16} />} className="bg-gray-700/50 hover:bg-gray-700 text-gray-300">
+                Refresh
+              </Button>
+              <Button onClick={handleLogout} variant="outline" leftIcon={<LogOut size={16} />} className="border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white">
+                Log Out
+              </Button>
+            </div>
 
-            <HrRequestSection companySlug={companySlug} />
-              <p className="text-gray-400 mb-8">
-                If you have any questions, don&apos;t hesitate to reach out to our team.
-              </p>
+            {/* Dashboard — tickets + projects (shows 0s if nothing synced yet) */}
+            <CustomerDashboard
+              companyName={companyDisplayName || companySlug}
+              companySlug={companySlug}
+              projects={(projects ?? []) as { id: string; title: string; projectType: string; status: string; phases: { id: string; title: string; description: string | null; status: string; customerNotes: string | null; orderIndex: number; tasks: { id: string; taskText: string; completed: boolean; orderIndex: number; status: string; notes?: string | null; autotaskTaskId?: string | null; comments?: { id: string; content: string; authorName: string; createdAt: string | Date }[] }[] }[]; createdAt: string | Date; updatedAt: string | Date }[]}
+            />
+
+            {/* Employee Management — always below dashboard stats */}
+            <div className="mt-8">
+              <HrRequestSection companySlug={companySlug} />
+            </div>
+
+            {/* Contact section */}
+            <div className="mt-10 p-6 bg-gray-800/50 backdrop-blur-sm border border-cyan-500/30 rounded-lg shadow-lg shadow-cyan-500/10 text-center">
+              <h3 className="text-lg font-bold text-cyan-400 mb-2">Need Help or Have Questions?</h3>
+              <p className="text-gray-300 mb-4">Our team is here to assist you throughout your journey.</p>
               <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                <a href="tel:+16073417500" className="inline-flex items-center justify-center px-6 py-3 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700 text-white font-semibold rounded-lg shadow-lg shadow-cyan-500/30 transition-all">
-                  Call (607) 341-7500
-                </a>
-                <a href="mailto:support@triplecitiestech.com" className="inline-flex items-center justify-center px-6 py-3 bg-gray-700/50 hover:bg-gray-700 text-cyan-400 font-semibold rounded-lg border-2 border-cyan-500/50 hover:border-cyan-500 transition-all">
-                  Email Support
-                </a>
-              </div>
-              <div className="mt-8 flex gap-3 justify-center">
-                <Button onClick={() => router.refresh()} leftIcon={<RefreshCw size={16} />} className="bg-gray-700/50 hover:bg-gray-700 text-gray-300">
-                  Refresh
-                </Button>
-                <Button onClick={handleLogout} variant="outline" leftIcon={<LogOut size={16} />} className="border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white">
-                  Log Out
-                </Button>
+                <a href="tel:+16073417500" className="inline-flex items-center justify-center px-6 py-3 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700 text-white font-semibold rounded-lg shadow-lg shadow-cyan-500/30 transition-all">Call (607) 341-7500</a>
+                <a href="mailto:support@triplecitiestech.com" className="inline-flex items-center justify-center px-6 py-3 bg-gray-700/50 hover:bg-gray-700 text-cyan-400 font-semibold rounded-lg border-2 border-cyan-500/50 hover:border-cyan-500 transition-all">Email Support</a>
               </div>
             </div>
           </Container>

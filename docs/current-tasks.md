@@ -1,96 +1,82 @@
 # Current Tasks
 
-> Last updated: 2026-03-14
+> Last updated: 2026-03-20
 
 Active development work and outstanding items. Only currently active work belongs here — completed work moves to `docs/session-summary.md`.
 
 ---
 
-## Active Development
+## In Progress
 
-### SOC Reasoning Layer (Phase 1 — COMPLETE)
-- **Status**: Complete (2026-03-14)
-- **Key files**: `src/lib/soc/types.ts`, `src/lib/soc/prompts.ts`, `src/lib/soc/engine.ts`, `src/components/soc/SocTicketDetail.tsx`, `src/app/api/soc/tickets/[id]/analysis/route.ts`, `src/app/api/soc/migrate/route.ts`
-- **What shipped**:
-  - 5-value classification: false_positive, expected_activity, informational, suspicious, confirmed_threat
-  - Dynamic `EvidenceItem[]` array with color-coded indicators
-  - `buildReasoningPrompt()` with technician roster context and historical FP rate
-  - `generateReasoning()` engine integration with legacy fallback
-  - Customer messages gated by `customerMessageRequired` flag
-  - Reasoning-first UI: Summary → Assessment → Evidence → Recommended Action → Actions → Technical Details (collapsed)
-  - `reasoning JSONB` column on `soc_incidents`; `internal_site_ids` seeded with `["177027"]`
-  - Fixed 504 timeouts on 3 SOC API routes (maxDuration + Promise.all parallelization)
+### Portal Layout Unification (UNCOMMITTED)
+- **Status**: Code written, not yet committed/pushed
+- **File**: `src/components/onboarding/OnboardingPortal.tsx`
+- **What changed**: Removed the 3-branch conditional (no projects / has projects / has onboarding data). Now always renders `CustomerDashboard` + `HrRequestSection` below it. `CustomerDashboard` fetches its own ticket stats and handles empty state gracefully.
+- **Next**: Commit and push, verify on kflorance portal
 
-### SOC Phase 2 (Future)
+---
+
+## Immediate Backlog (do next)
+
+### 1. kflorance M365 Setup
+- Go to `/admin/companies/kflorance/onboard` → Step 2
+- Enter Azure AD Tenant ID, Client ID, Client Secret for the kflorance tenant
+- Click Test Connection, then Mark Complete
+- Once done, HR wizard Step 2 will show live groups/licenses/users from Azure AD
+
+### 2. DNS — portal subdomain
+- Add CNAME record: `portal` → `48fc0e6b423bbc2a.vercel-dns-010.com.`
+- At whatever DNS provider manages `triplecitiestech.com`
+- Then add `portal.triplecitiestech.com` as a domain alias in Vercel project settings
+
+### 3. Pax8 Secret Rotation
+- Log into Pax8 portal → rotate `PAX8_CLIENT_SECRET`
+- Update `PAX8_CLIENT_SECRET` env var in Vercel project settings
+- Redeploy or wait for next deploy to pick it up
+
+### 4. Manager Verify UX
+- Currently: clicking "Request Employee Changes" always shows email verify modal (sessionStorage-based, resets each browser session)
+- Since password gate is gone, the email verify is the only identity gate — that's correct behavior
+- Consider: could the portal URL include a pre-auth token so managers don't have to type email? (optional UX improvement)
+
+---
+
+## Upcoming Features
+
+### HR Wizard — Live M365 Group Pickers
+- **Status**: Built, waiting on M365 creds per company
+- **What it does**: Step 2 of HR wizard shows checkboxes for Azure AD security groups, distro lists, Teams, SharePoint sites; license SKU dropdown; user dropdown (clone-from)
+- **Requirement**: Each company needs M365 credentials entered via tech onboarding wizard first
+- **File**: `src/components/onboarding/HrRequestWizard.tsx`
+
+### SOC Phase 2
 - **Status**: Not started
-- **Key files**: `docs/plans/SOC_REDESIGN_PLAN.md`
-- **Planned work**:
-  - OSINT API integrations (AbuseIPDB, VirusTotal, AlienVault OTX, ip-api.com)
-  - Auto-action tiers (Tier 1 full auto, Tier 2 semi-auto, Tier 3/4 human required)
-  - Single-pass AI analysis (replacing 3-call pipeline with 1-2 calls)
-  - Dashboard stat card updates (auto-resolved, awaiting review metrics)
-  - Datto RMM job/session data integration
-  - IP reputation service integration
+- **Plans**: `docs/plans/SOC_REDESIGN_PLAN.md`
+- OSINT API integrations (AbuseIPDB, VirusTotal, AlienVault OTX, ip-api.com)
+- Auto-action tiers (Tier 1 full auto, Tier 2 semi-auto, Tier 3/4 human required)
+- Single-pass AI analysis
 
-### SOC Production Hardening
-- **Status**: Ongoing
-- **Key files**: `src/lib/soc/engine.ts`, `src/app/api/soc/`
-- **Remaining**: Rate limiting on AI calls, error recovery for partial failures, tune AI prompts based on production data, improve correlation accuracy
+### Background Job Architecture
+- **Status**: Researched, not started
+- **Problem**: Long-running HR provisioning (create AD user, assign licenses, add to groups) can't run inside a Vercel function (10s timeout on hobby, 60s on pro)
+- **Options**: BullMQ on Railway, Upstash QStash, or Vercel Cron + DB job queue
+- **User preference**: "reliable background job processing architecture, not simple request/response"
 
-### Autotask Integration Improvements
-- **Status**: Ongoing
-- **Key files**: `src/lib/autotask.ts`, `src/app/api/autotask/trigger/route.ts`
-- **Recent work**: Fixed silent catch bugs, cron auth via Vercel Authorization header, cleanup step handles dependent records, resync improvements
-- **Remaining**: Task status PATCH still returns 404 (Autotask instance limitation), reporting backfill completion for all companies
-
-### Reporting & Analytics
-- **Status**: In progress
-- **Key files**: `src/lib/reporting/`, `src/app/api/reports/`, `src/components/reporting/`
-- **Recent work**: Real-time queries, self-healing pipeline, self-chaining backfill, business review PDF, AI assistant, SLA metrics
-- **Remaining**: Ensure all companies have full historical data, refine health score algorithm
-
-### Monitoring Dashboards
-- **Status**: Recently added
-- **Key files**: `src/app/admin/monitoring/page.tsx`, `src/app/admin/page.tsx`
-- **Recent work**: System health cards on admin home, AT sync logs page, AI usage tracking, threshold alerts, DB response time graph
-- **Remaining**: Add alerting notifications, expand monitored metrics
-
-### Customer Portal Improvements
-- **Status**: Ongoing
-- **Key files**: `src/components/onboarding/`, `src/app/onboarding/`
-- **Recent work**: Smart ticket sorting, metrics, chat CTA, invite system with portal roles, impersonation
-- **Remaining**: Improve onboarding journey flow, add more self-service features
+### Pax8 License Sync
+- **Status**: Not started
+- Pax8 has a partner API for subscription/license data
+- Goal: show per-company license counts in admin dashboard
 
 ---
 
-## Outstanding Technical Debt
+## Completed This Session (2026-03-20)
 
-### High Priority
-- E2e test suite needs updates after recent SOC/reporting changes
-- Reporting backfill completion for all companies
-
-### Medium Priority
-- CSP violation reporting (`report-uri` / `report-to`) not implemented
-- `/admin/setup` and `/admin/run-migration` have no session auth guard
-- `/blog/setup` publicly accessible
-- Several admin API routes lack role-specific checks
-
-### Low Priority
-- ~10 pre-existing lint warnings (unused variables)
-- `'unsafe-inline'` in production CSP script-src
-- `CRON_SECRET` vs `AUTOTASK_SYNC_SECRET` naming inconsistency
-- `TestFailure` Prisma model exists but all queries use raw SQL
-
----
-
-## Future Required: Pre-Launch Cleanup
-
-> **Not the immediate priority**, but must be completed before the platform is opened to customers beyond the current controlled group. Full checklist is in `CLAUDE.md` under "Pre-Launch Cleanup Required".
-
-Key items:
-- Remove hardcoded secrets from documentation (CLAUDE.md)
-- Audit auth flows, impersonation, and debug endpoints
-- Review auto-deploy and auto-merge behavior
-- Harden customer portal security
-- Implement CSP violation reporting
-- Verify preview/production environment separation
+| Task | Commit |
+|---|---|
+| Fix `page` implicit any in `graph.ts` pagination | `4170d65` |
+| Fix M365 sync errors: add M365 columns to Prisma schema | `a766b47` |
+| Fix `updated_at` → `"updatedAt"` in M365 raw SQL routes | `93c7945` |
+| Fix Prisma type cascade: add M365 fields to `new/page.tsx` select | `5da471e` |
+| Remove portal password gate | `a7fbd1a` |
+| Improve tech onboarding wizard Step 1 checklist | `a766b47` |
+| Clarify role badge click-to-edit in wizard instructions | `93c7945` |
