@@ -156,7 +156,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       `INSERT INTO hr_requests
          (company_id, company_slug, type, status, submitted_by_email, submitted_by_name,
           answers, idempotency_key, target_upn, created_at, updated_at)
-       VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7, $8, NOW(), NOW())
+       VALUES ($1, $2, $3, 'pending', $4, $5, $6::jsonb, $7, $8, NOW(), NOW())
        RETURNING id`,
       [
         company.id,
@@ -164,7 +164,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         type,
         normalizedEmail,
         submitterName,
-        JSON.stringify(answers),
+        JSON.stringify(answers),  // explicit cast to ::jsonb handles string→jsonb
         idempotencyKey,
         targetUpn,
       ]
@@ -177,7 +177,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     await client.query(
       `INSERT INTO hr_audit_logs
          (company_id, request_id, actor, action, resource, details, severity, created_at)
-       VALUES ($1, $2, $3, 'request_submitted', $4, $5, 'info', NOW())`,
+       VALUES ($1, $2, $3, 'request_submitted', $4, $5::jsonb, 'info', NOW())`,
       [
         company.id,
         requestId,
@@ -208,9 +208,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { status: 202 }
     )
   } catch (err) {
-    console.error('[hr/submit] DB error:', err)
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error('[hr/submit] DB error:', msg)
     return NextResponse.json(
-      { error: 'Submission failed. Please try again.' },
+      { error: 'Submission failed. Please try again.', detail: msg },
       { status: 500 }
     )
   } finally {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, FormEvent } from 'react'
+import { useState, useEffect, useCallback, FormEvent } from 'react'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -378,40 +378,209 @@ function OnboardingStep1({
   )
 }
 
+// ---------------------------------------------------------------------------
+// M365 Data types
+// ---------------------------------------------------------------------------
+
+interface M365Group { id: string; displayName: string; mail: string | null }
+interface M365LicenseSku { skuId: string; skuPartNumber: string; displayName: string | null; prepaidUnits: { enabled: number }; consumedUnits: number }
+interface M365User { id: string; displayName: string; userPrincipalName: string }
+interface M365Data {
+  configured: boolean
+  licenses: M365LicenseSku[]
+  securityGroups: M365Group[]
+  distributionLists: M365Group[]
+  m365Groups: M365Group[]
+  sharepointSites: Array<{ id: string; displayName: string; webUrl: string }>
+  users: M365User[]
+}
+
+// Multi-select checkbox group
+function CheckboxGroup({
+  label, items, selected, onToggle, loading, emptyText,
+}: {
+  label: string
+  items: Array<{ id: string; displayName: string; sub?: string }>
+  selected: string[]
+  onToggle: (id: string) => void
+  loading?: boolean
+  emptyText?: string
+}) {
+  return (
+    <div>
+      <FieldLabel>{label}</FieldLabel>
+      {loading ? (
+        <div className="text-sm text-gray-500 py-2">Loading from Microsoft 365...</div>
+      ) : items.length === 0 ? (
+        <div className="text-sm text-gray-500 py-2">{emptyText ?? 'None found'}</div>
+      ) : (
+        <div className="max-h-44 overflow-y-auto border border-white/10 rounded-lg divide-y divide-white/5 bg-slate-900/50">
+          {items.map((item) => (
+            <label key={item.id} className="flex items-center gap-3 px-3 py-2 hover:bg-white/5 cursor-pointer">
+              <input
+                type="checkbox"
+                className="accent-cyan-500 w-4 h-4 flex-shrink-0"
+                checked={selected.includes(item.id)}
+                onChange={() => onToggle(item.id)}
+              />
+              <span className="text-sm text-white">{item.displayName}</span>
+              {item.sub && <span className="text-xs text-gray-500 ml-auto truncate max-w-[160px]">{item.sub}</span>}
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function OnboardingStep2({
   answers,
   onChange,
   errors,
+  companySlug,
+  submitterEmail,
 }: {
   answers: OnboardingAnswers
   onChange: (key: keyof OnboardingAnswers, value: string) => void
   errors: Partial<Record<keyof OnboardingAnswers, string>>
+  companySlug: string
+  submitterEmail: string
 }) {
+  const [m365, setM365] = useState<M365Data | null>(null)
+  const [m365Loading, setM365Loading] = useState(true)
+  const [m365Error, setM365Error] = useState<string | null>(null)
+
+  // Selected group IDs → stored as JSON string in answers.groups_to_add
+  const selectedGroupIds: string[] = (() => {
+    try { return JSON.parse(answers.groups_to_add || '[]') } catch { return [] }
+  })()
+
+  const toggleGroup = useCallback((id: string) => {
+    const current = (() => { try { return JSON.parse(answers.groups_to_add || '[]') } catch { return [] } })()
+    const next = current.includes(id) ? current.filter((x: string) => x !== id) : [...current, id]
+    onChange('groups_to_add', JSON.stringify(next))
+  }, [answers.groups_to_add, onChange])
+
+  useEffect(() => {
+    if (!companySlug || !submitterEmail) return
+    const params = new URLSearchParams({ companySlug, email: submitterEmail })
+    fetch(`/api/hr/m365-data?${params}`)
+      .then((r) => r.json())
+      .then((data: M365Data & { error?: string }) => {
+        if (data.error) { setM365Error(data.error); return }
+        setM365(data)
+      })
+      .catch((e) => setM365Error(e.message ?? 'Failed to load Microsoft 365 data'))
+      .finally(() => setM365Loading(false))
+  }, [companySlug, submitterEmail])
+
+  // Build license options from live SKUs, fall back to static list if not configured
+  const licenseOptions = m365?.configured && m365.licenses.length > 0
+    ? m365.licenses.map((s) => ({
+        value: s.skuPartNumber,
+        label: `${s.displayName ?? s.skuPartNumber} (${s.prepaidUnits.enabled - s.consumedUnits} available)`,
+      }))
+    : LICENSE_OPTIONS
+
+  // Build user list for clone picker
+  const userOptions = m365?.configured && m365.users.length > 0
+    ? m365.users.map((u) => ({ value: u.userPrincipalName, label: `${u.displayName} (${u.userPrincipalName})` }))
+    : []
+
   return (
     <div className="flex flex-col gap-5">
+      {/* M365 status banner */}
+      {m365Loading && (
+        <div className="bg-slate-800/50 border border-white/10 rounded-lg px-4 py-3 text-sm text-gray-400">
+          🔄 Loading Microsoft 365 tenant data...
+        </div>
+      )}
+      {!m365Loading && m365Error && (
+        <div className="bg-yellow-950/30 border border-yellow-500/20 rounded-lg px-4 py-3 text-sm text-yellow-300">
+          ⚠️ Could not load live M365 data: {m365Error}. Using manual entry instead.
+        </div>
+      )}
+      {!m365Loading && m365 && !m365.configured && (
+        <div className="bg-blue-950/30 border border-blue-500/20 rounded-lg px-4 py-3 text-sm text-blue-300">
+          ℹ️ {m365.message ?? 'Microsoft 365 integration not yet configured. A TCT technician needs to complete the setup before live tenant data is available.'}
+        </div>
+      )}
+
+      {/* License picker */}
       <div>
         <FieldLabel required>License Type</FieldLabel>
         <SelectInput
           id="license_type"
           value={answers.license_type}
           onChange={(v) => onChange('license_type', v)}
-          options={LICENSE_OPTIONS}
-          placeholder="Select a license type..."
+          options={licenseOptions}
+          placeholder={m365Loading ? 'Loading licenses...' : 'Select a license type...'}
           error={errors.license_type}
         />
       </div>
 
-      <div>
-        <FieldLabel>Groups / Distribution Lists / Teams to Add</FieldLabel>
-        <TextareaInput
-          id="groups_to_add"
-          value={answers.groups_to_add}
-          onChange={(v) => onChange('groups_to_add', v)}
-          placeholder="e.g. All Staff, Sales Team, Marketing DL&#10;List each on a new line or comma-separated"
-          rows={3}
+      {/* Security groups */}
+      {m365?.configured && (
+        <CheckboxGroup
+          label="Security Groups to Add"
+          loading={m365Loading}
+          items={(m365?.securityGroups ?? []).map((g) => ({ id: g.id, displayName: g.displayName }))}
+          selected={selectedGroupIds}
+          onToggle={toggleGroup}
+          emptyText="No security groups found in tenant"
         />
-      </div>
+      )}
 
+      {/* Distribution lists */}
+      {m365?.configured && (
+        <CheckboxGroup
+          label="Distribution Lists to Add"
+          loading={m365Loading}
+          items={(m365?.distributionLists ?? []).map((g) => ({ id: g.id, displayName: g.displayName, sub: g.mail ?? undefined }))}
+          selected={selectedGroupIds}
+          onToggle={toggleGroup}
+          emptyText="No distribution lists found in tenant"
+        />
+      )}
+
+      {/* M365 Groups / Teams */}
+      {m365?.configured && (
+        <CheckboxGroup
+          label="Microsoft 365 Groups / Teams to Add"
+          loading={m365Loading}
+          items={(m365?.m365Groups ?? []).map((g) => ({ id: g.id, displayName: g.displayName }))}
+          selected={selectedGroupIds}
+          onToggle={toggleGroup}
+          emptyText="No M365 groups or Teams found in tenant"
+        />
+      )}
+
+      {/* SharePoint sites */}
+      {m365?.configured && (m365?.sharepointSites ?? []).length > 0 && (
+        <CheckboxGroup
+          label="SharePoint Sites to Grant Access"
+          loading={m365Loading}
+          items={(m365?.sharepointSites ?? []).map((s) => ({ id: s.id, displayName: s.displayName, sub: s.webUrl }))}
+          selected={selectedGroupIds}
+          onToggle={toggleGroup}
+        />
+      )}
+
+      {/* Fallback text field when no M365 configured */}
+      {(!m365?.configured || m365Error) && (
+        <div>
+          <FieldLabel>Groups / Distribution Lists / Teams to Add</FieldLabel>
+          <TextareaInput
+            id="groups_to_add_manual"
+            value={(() => { try { const p = JSON.parse(answers.groups_to_add || '[]'); return Array.isArray(p) ? '' : answers.groups_to_add } catch { return answers.groups_to_add } })()}
+            onChange={(v) => onChange('groups_to_add', v)}
+            placeholder="e.g. All Staff, Sales Team, Marketing DL&#10;List each on a new line or comma-separated"
+            rows={3}
+          />
+        </div>
+      )}
+
+      {/* Clone permissions */}
       <div>
         <FieldLabel>Clone permissions from an existing user?</FieldLabel>
         <RadioGroup
@@ -419,7 +588,7 @@ function OnboardingStep2({
           value={answers.clone_permissions}
           onChange={(v) => onChange('clone_permissions', v as 'yes' | 'no')}
           options={[
-            { value: 'yes', label: 'Yes — clone another user\'s groups and permissions' },
+            { value: 'yes', label: "Yes — clone another user's groups and permissions" },
             { value: 'no',  label: 'No — set up fresh' },
           ]}
         />
@@ -427,15 +596,31 @@ function OnboardingStep2({
 
       {answers.clone_permissions === 'yes' && (
         <div className="ml-4 pl-4 border-l border-cyan-500/20">
-          <FieldLabel>Clone from user (email address)</FieldLabel>
-          <TextInput
-            id="clone_from_user"
-            type="email"
-            value={answers.clone_from_user}
-            onChange={(v) => onChange('clone_from_user', v)}
-            placeholder="existing.user@yourcompany.com"
-            error={errors.clone_from_user}
-          />
+          {m365?.configured && userOptions.length > 0 ? (
+            <>
+              <FieldLabel>Clone from user</FieldLabel>
+              <SelectInput
+                id="clone_from_user"
+                value={answers.clone_from_user}
+                onChange={(v) => onChange('clone_from_user', v)}
+                options={userOptions}
+                placeholder="Select user to clone from..."
+                error={errors.clone_from_user}
+              />
+            </>
+          ) : (
+            <>
+              <FieldLabel>Clone from user (email address)</FieldLabel>
+              <TextInput
+                id="clone_from_user"
+                type="email"
+                value={answers.clone_from_user}
+                onChange={(v) => onChange('clone_from_user', v)}
+                placeholder="existing.user@yourcompany.com"
+                error={errors.clone_from_user}
+              />
+            </>
+          )}
         </div>
       )}
 
@@ -1097,6 +1282,8 @@ export function HrRequestWizard({
                       answers={onboardingAnswers}
                       onChange={updateOnboarding}
                       errors={onboardingErrors}
+                      companySlug={companySlug}
+                      submitterEmail={submitterEmail}
                     />
                   )}
                   {step === 3 && (
