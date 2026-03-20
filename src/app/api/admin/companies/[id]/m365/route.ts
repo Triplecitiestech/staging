@@ -98,7 +98,7 @@ export async function PUT(
              m365_client_id    = $2,
              m365_setup_status = 'credentials_saved',
              m365_verified_at  = NULL,
-             updated_at        = NOW()
+             "updatedAt"       = NOW()
          WHERE id = $3`,
         [tenantId.trim(), clientId.trim(), id]
       )
@@ -110,7 +110,7 @@ export async function PUT(
              m365_client_secret = $3,
              m365_setup_status  = 'credentials_saved',
              m365_verified_at   = NULL,
-             updated_at         = NOW()
+             "updatedAt"        = NOW()
          WHERE id = $4`,
         [tenantId.trim(), clientId.trim(), clientSecret.trim(), id]
       )
@@ -197,7 +197,7 @@ export async function POST(
     try {
       await verifyClient.query(
         `UPDATE companies
-         SET m365_setup_status = 'verified', m365_verified_at = NOW(), updated_at = NOW()
+         SET m365_setup_status = 'verified', m365_verified_at = NOW(), "updatedAt" = NOW()
          WHERE id = $1`,
         [id]
       )
@@ -218,7 +218,7 @@ export async function POST(
     const errClient = await pool.connect()
     try {
       await errClient.query(
-        `UPDATE companies SET m365_setup_status = 'error', updated_at = NOW() WHERE id = $1`,
+        `UPDATE companies SET m365_setup_status = 'error', "updatedAt" = NOW() WHERE id = $1`,
         [id]
       )
     } finally {
@@ -258,7 +258,7 @@ export async function PATCH(
   const client = await pool.connect()
   try {
     await client.query(
-      `UPDATE companies SET onboarding_completed_at = NOW(), updated_at = NOW() WHERE id = $1`,
+      `UPDATE companies SET onboarding_completed_at = NOW(), "updatedAt" = NOW() WHERE id = $1`,
       [id]
     )
     return NextResponse.json({ success: true })

@@ -295,8 +295,10 @@ export default function TechOnboardingWizard({ company }: TechOnboardingWizardPr
                     search for this company, and confirm contacts were imported.
                   </li>
                   <li>
-                    <strong>On this site — Contacts page:</strong> Find the contact who should be the portal manager, click the role dropdown next to their name, and set it to <strong>Manager</strong> (CLIENT_MANAGER).
+                    <strong>On this site — Contacts page:</strong> Find the contact who should be the portal manager.
+                    In the <strong>Portal Role</strong> column, click the colored role badge (e.g. &ldquo;User&rdquo;) next to their name — it turns into a dropdown. Select <strong>Manager</strong>.
                     Their email address is what they will type to verify identity on the portal.
+                    <em className="block text-blue-300 text-xs mt-0.5">Note: Portal roles are set here in the TCT admin, not inside Autotask.</em>
                   </li>
                   <li>
                     <strong>Verify above:</strong> The <em>Autotask Company ID</em> field above should show a number (not &quot;Not linked&quot;). If it&apos;s missing, the Autotask sync hasn&apos;t run for this company yet — re-run the sync.
