@@ -41,6 +41,37 @@ Active development work and outstanding items. Only currently active work belong
 
 ---
 
+## Question Engine
+
+### Phase 1: Database + Form Config API (COMPLETE)
+- **Branch**: `claude/question-engine-phase1`
+- **Migration**: `migrations/add_question_engine_tables.sql` — 8 tables (form_schemas, form_sections, form_questions, customer_form_configs, customer_custom_questions, customer_custom_sections, automation_mappings, form_links)
+- **Seed**: `migrations/seed_default_forms.sql` — default onboarding v1 + offboarding v1 schemas with all sections/questions
+- **API**: `GET /api/forms/config?companySlug=X&type=onboarding&email=Y` — merge algorithm + M365 data source resolution
+- **Architecture doc**: `docs/plans/QUESTION_ENGINE_ARCHITECTURE.md`
+- **Next**: Run migration SQL on database, then proceed to Phase 2
+
+### Phase 2: Form Renderer + Portal (NOT STARTED)
+- Build `<FormRenderer>` React component (step-by-step wizard)
+- Replace current HrRequestWizard with FormRenderer using config API
+- Visibility engine (client-side rule evaluation)
+
+### Phase 3: Admin UI (NOT STARTED)
+- Global form builder at `/admin/settings/form-builder`
+- Per-customer config at `/admin/companies/{id}/form-config`
+
+### Phase 4: Thread Integration (NOT STARTED)
+- Form links system (create, validate, expire)
+- `/form/[token]` portal route
+- Thread webhook handler
+
+### Phase 5: Automation Mapping (NOT STARTED)
+- Automation mapping admin UI
+- Process route evaluation of mappings
+- M365 provisioning actions
+
+---
+
 ## Upcoming Features
 
 ### HR Wizard — Live M365 Group Pickers
