@@ -42,6 +42,7 @@ interface AutotaskTimeEntryPayload {
 }
 
 interface AutotaskTicketResponse {
+  itemId?: number
   item?: {
     id: number
     ticketNumber: string
@@ -249,11 +250,34 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
       const ticketData = (await ticketRes.json()) as AutotaskTicketResponse
 
-      if (ticketData?.item?.id) {
+      // Autotask REST API v1.0 returns { itemId: number } on creation
+      // Some versions return { item: { id, ticketNumber } }
+      if (ticketData?.itemId) {
+        ticketId = ticketData.itemId
+        // ticketNumber isn't returned in the creation response — need to fetch it
+        ticketNumber = null
+      } else if (ticketData?.item?.id) {
         ticketId = ticketData.item.id
-        ticketNumber = ticketData.item.ticketNumber
+        ticketNumber = ticketData.item.ticketNumber ?? null
       } else {
         throw new Error(`Unexpected Autotask response shape: ${JSON.stringify(ticketData)}`)
+      }
+
+      // Fetch the ticket to get the ticketNumber if we don't have it
+      if (ticketId && !ticketNumber) {
+        try {
+          const getRes = await fetch(`${baseUrl}/V1.0/Tickets/${ticketId}`, {
+            method: 'GET',
+            headers: autotaskHeaders,
+          })
+          if (getRes.ok) {
+            const getData = await getRes.json()
+            ticketNumber = getData?.item?.ticketNumber ?? `T${ticketId}`
+          }
+        } catch {
+          // Non-fatal — use a fallback ticket number
+          ticketNumber = `T${ticketId}`
+        }
       }
     } catch (err) {
       ticketStepError = err instanceof Error ? err.message : String(err)
