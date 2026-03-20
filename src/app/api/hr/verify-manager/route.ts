@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { Pool } from 'pg'
+
+// ---------------------------------------------------------------------------
+// Raw pg pool — bypasses Prisma entirely so schema mismatches can't cause 500s
+// ---------------------------------------------------------------------------
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  max: 3,
+})
 
 // ---------------------------------------------------------------------------
 // Simple in-memory rate limiter
-// Tracks: how many times an email+slug pair has been checked in the last hour.
-// This resets on each server restart — for production, use Redis or a DB table.
 // ---------------------------------------------------------------------------
 
 interface RateLimitEntry {
@@ -14,10 +22,9 @@ interface RateLimitEntry {
 
 const rateLimitMap = new Map<string, RateLimitEntry>()
 const RATE_LIMIT_MAX    = 5
-const RATE_LIMIT_WINDOW = 60 * 60 * 1000 // 1 hour in ms
-const CLEANUP_INTERVAL  = 15 * 60 * 1000 // Clean up stale entries every 15 min
+const RATE_LIMIT_WINDOW = 60 * 60 * 1000
+const CLEANUP_INTERVAL  = 15 * 60 * 1000
 
-// Periodic cleanup to prevent memory leak in long-running instances
 if (typeof global !== 'undefined') {
   setInterval(() => {
     const now = Date.now()
@@ -33,19 +40,13 @@ function checkRateLimit(email: string, companySlug: string): boolean {
   const key = `${email.toLowerCase()}:${companySlug.toLowerCase()}`
   const now = Date.now()
   const entry = rateLimitMap.get(key)
-
   if (!entry || now - entry.windowStart > RATE_LIMIT_WINDOW) {
-    // New window
     rateLimitMap.set(key, { count: 1, windowStart: now })
-    return true // Within limit
+    return true
   }
-
-  if (entry.count >= RATE_LIMIT_MAX) {
-    return false // Over limit
-  }
-
+  if (entry.count >= RATE_LIMIT_MAX) return false
   entry.count += 1
-  return true // Within limit
+  return true
 }
 
 // ---------------------------------------------------------------------------
@@ -59,11 +60,9 @@ interface VerifyManagerBody {
 
 // ---------------------------------------------------------------------------
 // POST /api/hr/verify-manager
-// Public endpoint (no session required) — validates manager identity
 // ---------------------------------------------------------------------------
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  // 1. Parse body
   let body: VerifyManagerBody
   try {
     body = await request.json()
@@ -76,7 +75,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!companySlug || typeof companySlug !== 'string') {
     return NextResponse.json({ error: 'companySlug is required' }, { status: 400 })
   }
-
   if (!email || typeof email !== 'string') {
     return NextResponse.json({ error: 'email is required' }, { status: 400 })
   }
@@ -84,67 +82,68 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const normalizedEmail = email.toLowerCase().trim()
   const normalizedSlug  = companySlug.toLowerCase().trim()
 
-  // Basic email format check
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
     return NextResponse.json({ error: 'Invalid email format' }, { status: 400 })
   }
 
-  // 2. Rate limit check
   if (!checkRateLimit(normalizedEmail, normalizedSlug)) {
     return NextResponse.json(
-      {
-        verified: false,
-        message: 'Too many verification attempts. Please try again in an hour.',
-      },
+      { verified: false, message: 'Too many verification attempts. Please try again in an hour.' },
       { status: 429 }
     )
   }
 
+  const client = await pool.connect()
   try {
-    // 3. Look up company
-    const company = await prisma.company.findFirst({
-      where: { slug: normalizedSlug },
-    })
+    // 1. Find company by slug
+    const companyRes = await client.query<{ id: string }>(
+      `SELECT id FROM companies WHERE slug = $1 LIMIT 1`,
+      [normalizedSlug]
+    )
 
-    if (!company) {
-      // Return same 403 as "not a manager" to avoid leaking company existence
+    if (companyRes.rows.length === 0) {
       return NextResponse.json(
         { verified: false, message: 'This email is not authorized for employee management requests.' },
         { status: 403 }
       )
     }
 
-    // 4. Look up active contact by email
-    const contact = await prisma.companyContact.findFirst({
-      where: {
-        companyId: company.id,
-        email:     { equals: normalizedEmail, mode: 'insensitive' },
-        isActive:  true,
-      },
-    })
+    const companyId = companyRes.rows[0].id
 
-    // Accept CLIENT_MANAGER role OR isPrimary as fallback
-    // (isPrimary covers contacts synced before customerRole was set)
-    const isAuthorized = contact &&
-      (contact.customerRole === 'CLIENT_MANAGER' || contact.isPrimary)
+    // 2. Find active contact by email — accept CLIENT_MANAGER role OR isPrimary
+    const contactRes = await client.query<{
+      name: string
+      "customerRole": string
+      "isPrimary": boolean
+    }>(
+      `SELECT name, "customerRole", "isPrimary"
+       FROM company_contacts
+       WHERE "companyId" = $1
+         AND LOWER(email) = $2
+         AND "isActive" = true
+       LIMIT 1`,
+      [companyId, normalizedEmail]
+    )
 
-    if (!isAuthorized) {
+    if (contactRes.rows.length === 0) {
       return NextResponse.json(
-        {
-          verified: false,
-          message: 'This email is not authorized for employee management requests. Ask your TCT representative to grant you Manager access.',
-        },
+        { verified: false, message: 'This email is not authorized for employee management requests. Ask your TCT representative to grant you Manager access.' },
         { status: 403 }
       )
     }
 
-    // 5. Verified!
+    const contact = contactRes.rows[0]
+    const isAuthorized = contact.customerRole === 'CLIENT_MANAGER' || contact.isPrimary
+
+    if (!isAuthorized) {
+      return NextResponse.json(
+        { verified: false, message: 'This email is not authorized for employee management requests. Ask your TCT representative to grant you Manager access.' },
+        { status: 403 }
+      )
+    }
+
     return NextResponse.json(
-      {
-        verified: true,
-        name:     contact!.name ?? normalizedEmail,
-        role:     contact!.customerRole,
-      },
+      { verified: true, name: contact.name ?? normalizedEmail, role: contact.customerRole },
       { status: 200 }
     )
   } catch (err) {
@@ -153,5 +152,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { verified: false, message: 'Verification service temporarily unavailable. Please try again.' },
       { status: 500 }
     )
+  } finally {
+    client.release()
   }
 }
