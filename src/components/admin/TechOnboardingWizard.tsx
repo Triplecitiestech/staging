@@ -282,14 +282,26 @@ export default function TechOnboardingWizard({ company }: TechOnboardingWizardPr
               </div>
 
               <InfoBox>
-                <p className="font-semibold text-blue-100">Checklist:</p>
-                <ul className="list-disc list-inside space-y-1 mt-1">
-                  <li>Run the Autotask contact sync from the Admin dashboard</li>
-                  <li>Go to <strong>Admin → Contacts</strong> and find this company's contacts</li>
-                  <li>Set at least one contact's role to <strong>CLIENT_MANAGER</strong></li>
-                  <li>That contact's email is what they will use to verify identity in the portal</li>
-                  <li>Confirm the company's <code className="text-teal-300">autotaskCompanyId</code> is set</li>
-                </ul>
+                <p className="font-semibold text-blue-100 mb-2">Follow these steps in order:</p>
+                <ol className="list-decimal list-inside space-y-2 mt-1">
+                  <li>
+                    <strong>On this site (triplecitiestech.com):</strong> Go to{' '}
+                    <Link href="/admin/reporting/status" className="underline text-teal-300">Admin → More → Pipeline Status</Link>{' '}
+                    and click <strong>Run</strong> next to <em>Sync Tickets</em> — this also syncs contacts for all companies.
+                  </li>
+                  <li>
+                    <strong>On this site:</strong> Go to{' '}
+                    <Link href="/admin/contacts" className="underline text-teal-300">Admin → More → Contacts</Link>,
+                    search for this company, and confirm contacts were imported.
+                  </li>
+                  <li>
+                    <strong>On this site — Contacts page:</strong> Find the contact who should be the portal manager, click the role dropdown next to their name, and set it to <strong>Manager</strong> (CLIENT_MANAGER).
+                    Their email address is what they will type to verify identity on the portal.
+                  </li>
+                  <li>
+                    <strong>Verify above:</strong> The <em>Autotask Company ID</em> field above should show a number (not &quot;Not linked&quot;). If it&apos;s missing, the Autotask sync hasn&apos;t run for this company yet — re-run the sync.
+                  </li>
+                </ol>
               </InfoBox>
 
               {!company.autotaskCompanyId && (
@@ -302,12 +314,18 @@ export default function TechOnboardingWizard({ company }: TechOnboardingWizardPr
                 </div>
               )}
 
-              <div className="flex justify-end gap-3">
+              <div className="flex justify-end gap-3 flex-wrap">
+                <Link
+                  href="/admin/reporting/status"
+                  className="px-4 py-2 text-sm bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors"
+                >
+                  Pipeline Status →
+                </Link>
                 <Link
                   href="/admin/contacts"
                   className="px-4 py-2 text-sm bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors"
                 >
-                  Open Contacts →
+                  Contacts →
                 </Link>
                 <button
                   onClick={() => { markStep(1, 'complete'); setStep(2) }}

@@ -115,6 +115,14 @@ model Company {
   companyClassification String?  // Autotask classification (e.g., "Platinum Managed Service")
   // Only companies with classification "Platinum Managed Service" get SLA reporting
 
+  // M365 per-tenant app registration credentials (added via add_m365_tenant_credentials.sql)
+  m365TenantId          String?   @map("m365_tenant_id")
+  m365ClientId          String?   @map("m365_client_id")
+  m365ClientSecret      String?   @map("m365_client_secret")
+  m365VerifiedAt        DateTime? @map("m365_verified_at")
+  m365SetupStatus       String?   @default("not_configured") @map("m365_setup_status")
+  onboardingCompletedAt DateTime? @map("onboarding_completed_at")
+
   // Relations
   projects        Project[]
   contacts        CompanyContact[]
