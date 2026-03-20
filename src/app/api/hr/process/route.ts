@@ -127,6 +127,24 @@ function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
+function formatActionTypeName(actionType: string): string {
+  const names: Record<string, string> = {
+    revoke_sessions: 'Revoke All Sessions',
+    disable_account: 'Disable Account',
+    convert_to_shared: 'Convert Mailbox to Shared',
+    forward_email: 'Set Up Email Forwarding',
+    transfer_onedrive: 'Transfer OneDrive Files',
+    remove_groups: 'Remove from All Groups',
+    remove_licenses: 'Remove Licenses',
+    wipe_devices: 'Remote Wipe Devices',
+    create_user: 'Create M365 User',
+    assign_license: 'Assign License',
+    add_to_groups: 'Add to Groups',
+    clone_permissions: 'Clone User Permissions',
+  }
+  return names[actionType] ?? actionType.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
 // ---------------------------------------------------------------------------
 // POST /api/hr/process
 // ---------------------------------------------------------------------------
@@ -402,14 +420,86 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     )
 
     // -----------------------------------------------------------------
+    // STEP 3: Evaluate automation mappings and log planned actions
+    // -----------------------------------------------------------------
+
+    const automationSteps: string[] = []
+    try {
+      // Load automation mappings for this type + company (and global where company_id IS NULL)
+      const mappingsRes = await client.query<{
+        id: string
+        trigger_key: string
+        trigger_value: string | null
+        action_type: string
+        action_config: Record<string, unknown>
+        priority: number
+      }>(
+        `SELECT id, trigger_key, trigger_value, action_type, action_config, priority
+         FROM automation_mappings
+         WHERE type = $1
+           AND (company_id = $2 OR company_id IS NULL)
+           AND is_enabled = true
+         ORDER BY priority ASC`,
+        [hrRequest.type, hrRequest.company_id]
+      )
+
+      for (const mapping of mappingsRes.rows) {
+        const answerValue = answers[mapping.trigger_key]
+
+        // Check if trigger matches
+        let triggered = false
+        if (mapping.trigger_value === null) {
+          // NULL trigger_value means "any non-empty value"
+          triggered = answerValue !== undefined && answerValue !== null && answerValue !== ''
+        } else {
+          triggered = String(answerValue) === mapping.trigger_value
+        }
+
+        if (!triggered) continue
+
+        // Resolve template variables in action_config
+        const resolvedConfig = JSON.parse(
+          JSON.stringify(mapping.action_config).replace(
+            /\{\{answers\.(\w+)\}\}/g,
+            (_, key) => String(answers[key] ?? '')
+          )
+        )
+
+        // Log as a planned step (not executed — technician handles manually)
+        const stepKey = mapping.action_type
+        const stepName = formatActionTypeName(mapping.action_type)
+
+        await client.query(
+          `INSERT INTO hr_request_steps
+             (request_id, step_key, step_name, status, attempt, input, output, started_at, completed_at, created_at)
+           VALUES ($1, $2, $3, 'planned', 1, $4::jsonb, NULL, NOW(), NULL, NOW())`,
+          [
+            hrRequest.id,
+            stepKey,
+            stepName,
+            JSON.stringify({ action: mapping.action_type, config: resolvedConfig }),
+          ]
+        )
+
+        automationSteps.push(stepKey)
+      }
+    } catch (automationErr) {
+      console.error('[hr/process] Automation mapping evaluation failed (non-fatal):', automationErr)
+    }
+
+    // -----------------------------------------------------------------
     // Finalise the request
     // -----------------------------------------------------------------
+
+    const stepsCompleted = ['create_ticket']
+    if (!timeStepError) stepsCompleted.push('add_time_entry')
 
     await client.query(
       `UPDATE hr_requests
        SET status = 'completed',
            completed_at = NOW(),
            error_message = $2,
+           resolved_action_plan = $3::jsonb,
            updated_at = NOW()
        WHERE id = $1`,
       [
@@ -417,6 +507,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         timeStepError
           ? `Ticket created (${ticketNumber}) but time entry failed: ${timeStepError}`
           : null,
+        automationSteps.length > 0 ? JSON.stringify({ plannedActions: automationSteps }) : null,
       ]
     )
 
@@ -434,6 +525,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           ticketId,
           ticketNumber,
           timeEntryCreated: !timeStepError,
+          plannedActions: automationSteps,
         }),
         'info',
       ]
@@ -445,7 +537,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         requestId: hrRequest.id,
         ticketId,
         ticketNumber,
-        stepsCompleted: timeStepError ? ['create_ticket'] : ['create_ticket', 'add_time_entry'],
+        stepsCompleted,
+        plannedActions: automationSteps,
       },
       { status: 200 }
     )
