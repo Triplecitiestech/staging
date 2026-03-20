@@ -29,6 +29,12 @@ export default async function NewProjectPage() {
         autotaskCompanyId: true,
         autotaskLastSync: true,
         companyClassification: true,
+        m365TenantId: true,
+        m365ClientId: true,
+        m365ClientSecret: true,
+        m365VerifiedAt: true,
+        m365SetupStatus: true,
+        onboardingCompletedAt: true,
       },
     })
   } catch {
@@ -47,6 +53,12 @@ export default async function NewProjectPage() {
         autotaskCompanyId: true,
         autotaskLastSync: true,
         companyClassification: true,
+        m365TenantId: true,
+        m365ClientId: true,
+        m365ClientSecret: true,
+        m365VerifiedAt: true,
+        m365SetupStatus: true,
+        onboardingCompletedAt: true,
       },
       orderBy: { displayName: 'asc' }
     })
