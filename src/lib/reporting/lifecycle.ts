@@ -105,88 +105,78 @@ export async function computeLifecycle(): Promise<LifecycleResult> {
       return result;
     }
 
-    const ticketIds = tickets.map(t => t.autotaskTicketId);
-
-    // Batch-fetch all related data in 4 parallel queries (instead of 3N + 3N queries)
-    const [allNotes, allTimeEntries, allStatusHistory, allTargets] = await Promise.all([
-      prisma.ticketNote.findMany({
-        where: { autotaskTicketId: { in: ticketIds } },
-        select: {
-          autotaskTicketId: true,
-          createDateTime: true,
-          creatorResourceId: true,
-          creatorContactId: true,
-        },
-        orderBy: { createDateTime: 'asc' },
-      }),
-      prisma.ticketTimeEntry.findMany({
-        where: { autotaskTicketId: { in: ticketIds } },
-        select: {
-          autotaskTicketId: true,
-          createDateTime: true,
-          hoursWorked: true,
-          isNonBillable: true,
-        },
-      }),
-      prisma.ticketStatusHistory.findMany({
-        where: { autotaskTicketId: { in: ticketIds } },
-        select: {
-          autotaskTicketId: true,
-          previousStatus: true,
-          newStatus: true,
-          changedAt: true,
-        },
-        orderBy: { changedAt: 'asc' },
-      }),
-      // Load ALL active SLA targets in one query
-      prisma.reportingTarget.findMany({
-        where: {
-          isActive: true,
-          metricKey: { in: ['first_response_time', 'resolution_plan_time', 'resolution_time'] },
-        },
-      }),
-    ]);
-
-    // Index related data by ticket ID for O(1) lookups
-    const notesByTicket = new Map<string, typeof allNotes>();
-    for (const note of allNotes) {
-      const arr = notesByTicket.get(note.autotaskTicketId);
-      if (arr) arr.push(note);
-      else notesByTicket.set(note.autotaskTicketId, [note]);
-    }
-
-    const timeEntriesByTicket = new Map<string, typeof allTimeEntries>();
-    for (const entry of allTimeEntries) {
-      const arr = timeEntriesByTicket.get(entry.autotaskTicketId);
-      if (arr) arr.push(entry);
-      else timeEntriesByTicket.set(entry.autotaskTicketId, [entry]);
-    }
-
-    const statusHistoryByTicket = new Map<string, typeof allStatusHistory>();
-    for (const sh of allStatusHistory) {
-      const arr = statusHistoryByTicket.get(sh.autotaskTicketId);
-      if (arr) arr.push(sh);
-      else statusHistoryByTicket.set(sh.autotaskTicketId, [sh]);
-    }
-
-    // Build target cache
+    // Load SLA targets once (small table)
+    const allTargets = await prisma.reportingTarget.findMany({
+      where: {
+        isActive: true,
+        metricKey: { in: ['first_response_time', 'resolution_plan_time', 'resolution_time'] },
+      },
+    });
     const targetCache: TargetCache = new Map();
     for (const t of allTargets) {
       targetCache.set(buildTargetCacheKey(t.metricKey, t.scope, t.scopeValue), t.targetValue);
     }
 
-    // Process all tickets in memory (no more per-ticket DB queries)
-    const BATCH_SIZE = 50;
-    for (let i = 0; i < tickets.length; i += BATCH_SIZE) {
-      const batch = tickets.slice(i, i + BATCH_SIZE);
-      const upserts: Array<{ ticketId: string; lifecycle: LifecycleData }> = [];
+    // Process tickets in chunks — fetch related data per chunk to bound query size
+    const CHUNK_SIZE = 100;
+    const startTime = Date.now();
+    const MAX_MS = 50000; // 50s safety budget
 
-      for (const ticket of batch) {
+    for (let i = 0; i < tickets.length; i += CHUNK_SIZE) {
+      // Time guard — stop before Vercel kills us
+      if (Date.now() - startTime > MAX_MS) {
+        result.errors.push(`Stopped at ticket ${i}/${tickets.length} — approaching timeout. Run again to continue.`);
+        break;
+      }
+
+      const chunk = tickets.slice(i, i + CHUNK_SIZE);
+      const chunkIds = chunk.map(t => t.autotaskTicketId);
+
+      // Fetch related data for this chunk only (3 parallel queries)
+      const [chunkNotes, chunkTimeEntries, chunkStatusHistory] = await Promise.all([
+        prisma.ticketNote.findMany({
+          where: { autotaskTicketId: { in: chunkIds } },
+          select: { autotaskTicketId: true, createDateTime: true, creatorResourceId: true, creatorContactId: true },
+          orderBy: { createDateTime: 'asc' },
+        }),
+        prisma.ticketTimeEntry.findMany({
+          where: { autotaskTicketId: { in: chunkIds } },
+          select: { autotaskTicketId: true, createDateTime: true, hoursWorked: true, isNonBillable: true },
+        }),
+        prisma.ticketStatusHistory.findMany({
+          where: { autotaskTicketId: { in: chunkIds } },
+          select: { autotaskTicketId: true, previousStatus: true, newStatus: true, changedAt: true },
+          orderBy: { changedAt: 'asc' },
+        }),
+      ]);
+
+      // Index by ticket ID
+      const notesByTicket = new Map<string, typeof chunkNotes>();
+      for (const note of chunkNotes) {
+        const arr = notesByTicket.get(note.autotaskTicketId);
+        if (arr) arr.push(note);
+        else notesByTicket.set(note.autotaskTicketId, [note]);
+      }
+      const timeEntriesByTicket = new Map<string, typeof chunkTimeEntries>();
+      for (const entry of chunkTimeEntries) {
+        const arr = timeEntriesByTicket.get(entry.autotaskTicketId);
+        if (arr) arr.push(entry);
+        else timeEntriesByTicket.set(entry.autotaskTicketId, [entry]);
+      }
+      const statusHistoryByTicket = new Map<string, typeof chunkStatusHistory>();
+      for (const sh of chunkStatusHistory) {
+        const arr = statusHistoryByTicket.get(sh.autotaskTicketId);
+        if (arr) arr.push(sh);
+        else statusHistoryByTicket.set(sh.autotaskTicketId, [sh]);
+      }
+
+      // Compute lifecycle for each ticket in memory
+      const upserts: Array<{ ticketId: string; lifecycle: LifecycleData }> = [];
+      for (const ticket of chunk) {
         try {
           const notes = notesByTicket.get(ticket.autotaskTicketId) || [];
           const timeEntries = timeEntriesByTicket.get(ticket.autotaskTicketId) || [];
           const statusHistory = statusHistoryByTicket.get(ticket.autotaskTicketId) || [];
-
           const lifecycle = computeTicketLifecycleInMemory(ticket, notes, timeEntries, statusHistory, targetCache);
           upserts.push({ ticketId: ticket.autotaskTicketId, lifecycle });
         } catch (err) {
@@ -194,66 +184,36 @@ export async function computeLifecycle(): Promise<LifecycleResult> {
         }
       }
 
-      // Batch upsert within a transaction
-      if (upserts.length > 0) {
+      // Batch upsert within a transaction (sub-batches of 25 to avoid transaction size limits)
+      const TX_BATCH = 25;
+      for (let j = 0; j < upserts.length; j += TX_BATCH) {
+        const txBatch = upserts.slice(j, j + TX_BATCH);
         try {
           await prisma.$transaction(
-            upserts.map(({ ticketId, lifecycle }) =>
+            txBatch.map(({ ticketId, lifecycle }) =>
               prisma.ticketLifecycle.upsert({
                 where: { autotaskTicketId: ticketId },
-                create: {
-                  autotaskTicketId: ticketId,
-                  ...lifecycle,
-                  computedAt: new Date(),
-                },
-                update: {
-                  ...lifecycle,
-                  computedAt: new Date(),
-                },
+                create: { autotaskTicketId: ticketId, ...lifecycle, computedAt: new Date() },
+                update: { ...lifecycle, computedAt: new Date() },
               })
             ),
           );
-          result.computed += upserts.length;
+          result.computed += txBatch.length;
         } catch {
           // Retry without slaResolutionPlanMet in case column doesn't exist
-          try {
-            await prisma.$transaction(
-              upserts.map(({ ticketId, lifecycle }) => {
-                const { slaResolutionPlanMet: _unused, ...lifecycleWithout } = lifecycle;
-                void _unused;
-                return prisma.ticketLifecycle.upsert({
-                  where: { autotaskTicketId: ticketId },
-                  create: {
-                    autotaskTicketId: ticketId,
-                    ...lifecycleWithout,
-                    computedAt: new Date(),
-                  },
-                  update: {
-                    ...lifecycleWithout,
-                    computedAt: new Date(),
-                  },
-                });
-              }),
-            );
-            result.computed += upserts.length;
-          } catch (batchErr) {
-            // Fall back to individual upserts if transaction fails
-            for (const { ticketId, lifecycle } of upserts) {
-              try {
-                const { slaResolutionPlanMet: _unused, ...lifecycleWithout } = lifecycle;
-                void _unused;
-                await prisma.ticketLifecycle.upsert({
-                  where: { autotaskTicketId: ticketId },
-                  create: { autotaskTicketId: ticketId, ...lifecycleWithout, computedAt: new Date() },
-                  update: { ...lifecycleWithout, computedAt: new Date() },
-                });
-                result.computed++;
-              } catch (err) {
-                result.errors.push(`Ticket ${ticketId}: ${err instanceof Error ? err.message : String(err)}`);
-              }
+          for (const { ticketId, lifecycle } of txBatch) {
+            try {
+              const { slaResolutionPlanMet: _unused, ...lifecycleWithout } = lifecycle;
+              void _unused;
+              await prisma.ticketLifecycle.upsert({
+                where: { autotaskTicketId: ticketId },
+                create: { autotaskTicketId: ticketId, ...lifecycleWithout, computedAt: new Date() },
+                update: { ...lifecycleWithout, computedAt: new Date() },
+              });
+              result.computed++;
+            } catch (err) {
+              result.errors.push(`Ticket ${ticketId}: ${err instanceof Error ? err.message : String(err)}`);
             }
-            // Log batch error for diagnostics
-            result.errors.push(`Batch upsert failed, fell back to individual: ${batchErr instanceof Error ? batchErr.message : String(batchErr)}`);
           }
         }
       }
