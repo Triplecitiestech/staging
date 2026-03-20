@@ -25,6 +25,21 @@ export interface DattoSite {
   devicesCount: number;
 }
 
+export interface DattoAlert {
+  alertUid: string;
+  alertType: string;
+  alertContext: string;
+  alertMessage: string;
+  priority: string;
+  resolved: boolean;
+  resolvedAt: string | null;
+  timestamp: string;
+  deviceUid: string;
+  hostname: string;
+  siteUid: string;
+  siteName: string;
+}
+
 interface TokenResponse {
   access_token: string;
   token_type: string;
@@ -159,6 +174,69 @@ export class DattoRmmClient {
     const data = await this.request<{ devices: RawDevice[] }>(`/api/v2/site/${siteId}/devices`);
     return (data.devices || []).map(mapDevice);
   }
+
+  /** Fetch all alerts (paginated). Returns up to maxPages * 250 alerts. */
+  async getAlerts(maxPages = 20): Promise<DattoAlert[]> {
+    const alerts: DattoAlert[] = [];
+    let page = 1;
+
+    while (page <= maxPages) {
+      const data = await this.request<{ alerts: RawAlert[]; pageDetails: { nextPageUrl?: string } }>(
+        `/api/v2/account/alerts?page=${page}&max=250`
+      );
+
+      for (const a of data.alerts || []) {
+        alerts.push(mapAlert(a));
+      }
+
+      if (!data.pageDetails?.nextPageUrl) break;
+      page++;
+    }
+
+    return alerts;
+  }
+
+  /** Fetch resolved alerts (paginated). */
+  async getResolvedAlerts(maxPages = 20): Promise<DattoAlert[]> {
+    const alerts: DattoAlert[] = [];
+    let page = 1;
+
+    while (page <= maxPages) {
+      const data = await this.request<{ alerts: RawAlert[]; pageDetails: { nextPageUrl?: string } }>(
+        `/api/v2/account/alerts/resolved?page=${page}&max=250`
+      );
+
+      for (const a of data.alerts || []) {
+        alerts.push(mapAlert(a));
+      }
+
+      if (!data.pageDetails?.nextPageUrl) break;
+      page++;
+    }
+
+    return alerts;
+  }
+
+  /** Fetch open (active) alerts (paginated). */
+  async getOpenAlerts(maxPages = 20): Promise<DattoAlert[]> {
+    const alerts: DattoAlert[] = [];
+    let page = 1;
+
+    while (page <= maxPages) {
+      const data = await this.request<{ alerts: RawAlert[]; pageDetails: { nextPageUrl?: string } }>(
+        `/api/v2/account/alerts/open?page=${page}&max=250`
+      );
+
+      for (const a of data.alerts || []) {
+        alerts.push(mapAlert(a));
+      }
+
+      if (!data.pageDetails?.nextPageUrl) break;
+      page++;
+    }
+
+    return alerts;
+  }
 }
 
 // Raw API response types (Datto RMM API returns camelCase)
@@ -183,6 +261,40 @@ interface RawSite {
   name?: string;
   description?: string;
   devicesStatus?: { numberOfDevices?: number };
+}
+
+interface RawAlert {
+  alertUid?: string;
+  uid?: string;
+  alertType?: string;
+  alertContext?: string;
+  alertMessage?: string;
+  priority?: string;
+  resolved?: boolean;
+  resolvedAt?: string;
+  timestamp?: string;
+  alertTimestamp?: string;
+  deviceUid?: string;
+  hostname?: string;
+  siteUid?: string;
+  siteName?: string;
+}
+
+function mapAlert(a: RawAlert): DattoAlert {
+  return {
+    alertUid: a.alertUid || a.uid || '',
+    alertType: a.alertType || 'unknown',
+    alertContext: a.alertContext || '',
+    alertMessage: a.alertMessage || '',
+    priority: a.priority || 'information',
+    resolved: a.resolved ?? false,
+    resolvedAt: a.resolvedAt || null,
+    timestamp: a.timestamp || a.alertTimestamp || '',
+    deviceUid: a.deviceUid || '',
+    hostname: a.hostname || '',
+    siteUid: a.siteUid || '',
+    siteName: a.siteName || '',
+  };
 }
 
 function mapDevice(d: RawDevice): DattoDevice {
