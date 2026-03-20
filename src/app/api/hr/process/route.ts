@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 
 // ---------------------------------------------------------------------------
@@ -31,12 +32,14 @@ interface AutotaskTimeEntryPayload {
   BillingCodeID?: number
 }
 
-// Prisma 7 Json fields require a plain object with no typed interface —
-// serialise through JSON to produce an InputJsonValue-compatible value.
+// Prisma 7 Json fields require plain objects / Prisma.JsonNull for nullable fields.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function toJson(value: unknown): any {
   return JSON.parse(JSON.stringify(value))
 }
+
+// Use Prisma.JsonNull instead of plain null for nullable Json columns.
+const JsonNull = Prisma.JsonNull
 
 interface AutotaskTicketResponse {
   item?: {
@@ -248,8 +251,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       status: ticketStepError ? 'failed' : 'completed',
       attempt: 1,
       input: toJson({ payload: ticketPayload }),
-      output: ticketId ? { ticketId, ticketNumber } : null,
-      error: ticketStepError ? { message: ticketStepError } : null,
+      output: ticketId ? toJson({ ticketId, ticketNumber }) : JsonNull,
+      error: ticketStepError ? toJson({ message: ticketStepError }) : JsonNull,
       startedAt: ticketStepStart,
       completedAt: new Date(),
     },
@@ -273,7 +276,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         actor: 'system',
         action: 'request_failed',
         resource: `hr_request:${hrRequest.id}`,
-        details: { step: 'create_ticket', error: ticketStepError },
+        details: toJson({ step: 'create_ticket', error: ticketStepError ?? undefined }),
         severity: 'error',
       },
     })
@@ -340,8 +343,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       status: timeStepError ? 'failed' : 'completed',
       attempt: 1,
       input: toJson({ payload: timeEntryPayload }),
-      output: timeStepError ? null : { hoursWorked: 0.5 },
-      error: timeStepError ? { message: timeStepError } : null,
+      output: timeStepError ? JsonNull : toJson({ hoursWorked: 0.5 }),
+      error: timeStepError ? toJson({ message: timeStepError }) : JsonNull,
       startedAt: timeStepStart,
       completedAt: new Date(),
     },
@@ -370,11 +373,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       actor: 'system',
       action: 'request_completed',
       resource: `hr_request:${hrRequest.id}`,
-      details: {
+      details: toJson({
         ticketId,
         ticketNumber,
         timeEntryCreated: !timeStepError,
-      },
+      }),
       severity: 'info',
     },
   })

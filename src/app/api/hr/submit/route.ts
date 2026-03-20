@@ -3,6 +3,9 @@ import { createHash } from 'crypto'
 import { getAuthenticatedCompany } from '@/lib/onboarding-session'
 import { prisma } from '@/lib/prisma'
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const toJson = (v: unknown): any => JSON.parse(JSON.stringify(v))
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -128,7 +131,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       status: 'pending',
       submittedByEmail: normalizedEmail,
       submittedByName: submittedByName?.trim() ?? managerContact.name ?? null,
-      answers,
+      answers: toJson(answers),
       idempotencyKey,
       targetUpn,
     },
@@ -142,11 +145,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       actor: normalizedEmail,
       action: 'request_submitted',
       resource: `hr_request:${hrRequest.id}`,
-      details: {
+      details: toJson({
         type,
         employeeName: `${answersTyped.first_name ?? ''} ${answersTyped.last_name ?? ''}`.trim(),
-        submittedByName: hrRequest.submittedByName,
-      },
+        submittedByName: hrRequest.submittedByName ?? undefined,
+      }),
       severity: 'info',
     },
   })
