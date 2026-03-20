@@ -114,21 +114,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       )
     }
 
-    // 4. Look up contact — accept CLIENT_MANAGER role OR isPrimary=true as a fallback
-    // (isPrimary covers the case where contacts were synced before customerRole was set)
+    // 4. Look up active contact by email
     const contact = await prisma.companyContact.findFirst({
       where: {
         companyId: company.id,
         email:     { equals: normalizedEmail, mode: 'insensitive' },
         isActive:  true,
-        OR: [
-          { customerRole: 'CLIENT_MANAGER' },
-          { isPrimary: true },
-        ],
       },
     })
 
-    if (!contact) {
+    // Accept CLIENT_MANAGER role OR isPrimary as fallback
+    // (isPrimary covers contacts synced before customerRole was set)
+    const isAuthorized = contact &&
+      (contact.customerRole === 'CLIENT_MANAGER' || contact.isPrimary)
+
+    if (!isAuthorized) {
       return NextResponse.json(
         {
           verified: false,
@@ -142,8 +142,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json(
       {
         verified: true,
-        name:     contact.name ?? normalizedEmail,
-        role:     contact.customerRole,
+        name:     contact!.name ?? normalizedEmail,
+        role:     contact!.customerRole,
       },
       { status: 200 }
     )
