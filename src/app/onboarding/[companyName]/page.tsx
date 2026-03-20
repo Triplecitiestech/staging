@@ -37,9 +37,11 @@ export default async function OnboardingPage({ params }: PageProps) {
     notFound()
   }
 
-  // Check authentication
-  const authenticatedCompany = await getAuthenticatedCompany()
-  const isAuthenticated = authenticatedCompany === companySlug
+  // Portal is open to anyone with the URL — no password required.
+  // The company URL is shared directly by TCT techs and acts as the access control.
+  // Sensitive actions (HR requests) are separately gated by manager email verification.
+  const isAuthenticated = true
+  void getAuthenticatedCompany // kept for legacy logout support
 
   // Get onboarding data only if authenticated
   const onboardingData = isAuthenticated ? await getOnboardingData(companySlug) : null
