@@ -179,7 +179,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       where: { id: hrRequest.id },
       data: {
         status: 'failed',
-        errorMessage: `Company "${hrRequest.company.name}" has no Autotask Company ID configured`,
+        errorMessage: `Company "${hrRequest.company.displayName}" has no Autotask Company ID configured`,
         retryCount: { increment: 1 },
       },
     })
