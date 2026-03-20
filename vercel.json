@@ -3,7 +3,9 @@
   "devCommand": "next dev",
   "installCommand": "npm install",
   "framework": "nextjs",
-  "regions": ["iad1"],
+  "regions": [
+    "iad1"
+  ],
   "functions": {
     "src/app/api/**/*.ts": {
       "maxDuration": 30
@@ -73,6 +75,12 @@
     },
     "src/app/api/soc/bootstrap/route.ts": {
       "maxDuration": 60
+    },
+    "src/app/api/hr/process/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/hr/submit/route.ts": {
+      "maxDuration": 30
     }
   },
   "crons": [
