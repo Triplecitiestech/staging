@@ -304,19 +304,19 @@ async function findCompany(query: string) {
     });
   }
 
-  // Try exact name match
-  let company = await prisma.company.findFirst({
-    where: { displayName: { equals: query, mode: 'insensitive' } },
-    select: { id: true, displayName: true, autotaskCompanyId: true },
-  });
-  if (company) return company;
+  // Use raw SQL for case-insensitive matching (mode: 'insensitive' doesn't work with PrismaPg)
+  const rows = await prisma.$queryRawUnsafe<Array<{ id: string; displayName: string; autotaskCompanyId: string | null }>>(
+    `SELECT id, "displayName", "autotaskCompanyId" FROM companies WHERE LOWER("displayName") = LOWER($1) LIMIT 1`,
+    query,
+  );
+  if (rows.length > 0) return rows[0];
 
   // Try partial match
-  company = await prisma.company.findFirst({
-    where: { displayName: { contains: query, mode: 'insensitive' } },
-    select: { id: true, displayName: true, autotaskCompanyId: true },
-  });
-  return company;
+  const partialRows = await prisma.$queryRawUnsafe<Array<{ id: string; displayName: string; autotaskCompanyId: string | null }>>(
+    `SELECT id, "displayName", "autotaskCompanyId" FROM companies WHERE LOWER("displayName") LIKE LOWER($1) LIMIT 1`,
+    `%${query}%`,
+  );
+  return partialRows.length > 0 ? partialRows[0] : null;
 }
 
 async function fetchDattoAlerts(companyName: string, periodStart: Date): Promise<AlertSummary | null> {
