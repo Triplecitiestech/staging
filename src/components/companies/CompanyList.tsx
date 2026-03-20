@@ -2,14 +2,13 @@
 
 import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { Mail, RefreshCw, Eye } from 'lucide-react'
+import Link from 'next/link'
+import { RefreshCw, Eye } from 'lucide-react'
 
 interface Company {
   id: string
   slug: string
   displayName: string
-  primaryContact?: string | null
-  contactEmail?: string | null
   _count?: {
     projects: number
     contacts: number
@@ -19,7 +18,6 @@ interface Company {
 export default function CompanyList({ companies }: { companies: Company[] }) {
   const router = useRouter()
   const [deleting, setDeleting] = useState<string | null>(null)
-  const [sending, setSending] = useState<string | null>(null)
   const [impersonating, setImpersonating] = useState<string | null>(null)
   const [search, setSearch] = useState('')
 
@@ -55,45 +53,11 @@ export default function CompanyList({ companies }: { companies: Company[] }) {
     }
   }
 
-  const handleInvite = async (id: string, email: string | null | undefined, regenerate = false) => {
-    if (!email) {
-      alert('This company has no contact email. Please add an email address first.')
-      return
-    }
-
-    const action = regenerate ? 'resend invite with new password' : 'send portal invite'
-    if (!confirm(`${action} to ${email}?`)) return
-
-    setSending(id)
-    try {
-      const res = await fetch(`/api/companies/${id}/invite`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ regenerate })
-      })
-
-      const data = await res.json()
-
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to send invite')
-      }
-
-      alert(`Done: ${data.message}`)
-      router.refresh()
-    } catch (error) {
-      alert(`Failed to send invite: ${error instanceof Error ? error.message : 'Unknown error'}`)
-    } finally {
-      setSending(null)
-    }
-  }
-
   const filtered = useMemo(() => {
     if (!search) return companies
     const q = search.toLowerCase()
     return companies.filter(c =>
-      c.displayName.toLowerCase().includes(q) ||
-      (c.primaryContact && c.primaryContact.toLowerCase().includes(q)) ||
-      (c.contactEmail && c.contactEmail.toLowerCase().includes(q))
+      c.displayName.toLowerCase().includes(q)
     )
   }, [companies, search])
 
@@ -129,7 +93,6 @@ export default function CompanyList({ companies }: { companies: Company[] }) {
           <thead className="bg-slate-900/50">
             <tr>
               <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">Company Name</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">Contact</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">Projects</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase">Contacts</th>
               <th className="px-6 py-3 text-right text-xs font-medium text-slate-400 uppercase">Actions</th>
@@ -147,15 +110,16 @@ export default function CompanyList({ companies }: { companies: Company[] }) {
                     {company.displayName}
                   </span>
                 </td>
-                <td className="px-6 py-4">
-                  {company.primaryContact && <div className="text-sm text-slate-300">{company.primaryContact}</div>}
-                  {company.contactEmail && <div className="text-xs text-slate-400">{company.contactEmail}</div>}
-                  {!company.primaryContact && !company.contactEmail && <div className="text-xs text-slate-500">No contact</div>}
-                </td>
                 <td className="px-6 py-4 text-sm text-slate-300">{company._count?.projects || 0}</td>
                 <td className="px-6 py-4 text-sm text-slate-300">{company._count?.contacts || 0}</td>
                 <td className="px-6 py-4 text-right" onClick={e => e.stopPropagation()}>
                   <div className="flex items-center justify-end gap-2">
+                    <Link
+                      href={`/admin/companies/${company.id}/onboard`}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-medium rounded transition-colors"
+                    >
+                      Onboard
+                    </Link>
                     <button
                       onClick={() => handleImpersonate(company.slug)}
                       disabled={impersonating === company.slug}
@@ -171,24 +135,6 @@ export default function CompanyList({ companies }: { companies: Company[] }) {
                         <>
                           <Eye size={14} />
                           View Portal
-                        </>
-                      )}
-                    </button>
-                    <button
-                      onClick={() => handleInvite(company.id, company.contactEmail, true)}
-                      disabled={sending === company.id || !company.contactEmail}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 bg-cyan-600 hover:bg-cyan-700 disabled:bg-slate-600 text-white text-xs font-medium rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      title={!company.contactEmail ? 'Add email first' : 'Send portal credentials to company contact'}
-                    >
-                      {sending === company.id ? (
-                        <>
-                          <RefreshCw size={14} className="animate-spin" />
-                          Sending...
-                        </>
-                      ) : (
-                        <>
-                          <Mail size={14} />
-                          Send Credentials
                         </>
                       )}
                     </button>

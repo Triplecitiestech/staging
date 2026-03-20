@@ -18,8 +18,6 @@ export default async function CompaniesPage() {
       id: true,
       slug: true,
       displayName: true,
-      primaryContact: true,
-      contactEmail: true,
       _count: {
         select: { projects: true, contacts: true }
       }

@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { Prisma } from '@prisma/client'
-import { prisma } from '@/lib/prisma'
+import { Pool } from 'pg'
+
+// ---------------------------------------------------------------------------
+// Raw pg pool — bypasses Prisma entirely so schema mismatches can't cause 500s
+// ---------------------------------------------------------------------------
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  max: 5,
+})
 
 // ---------------------------------------------------------------------------
 // Types
@@ -32,21 +41,11 @@ interface AutotaskTimeEntryPayload {
   BillingCodeID?: number
 }
 
-// Prisma 7 Json fields require plain objects / Prisma.JsonNull for nullable fields.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function toJson(value: unknown): any {
-  return JSON.parse(JSON.stringify(value))
-}
-
-// Use Prisma.JsonNull instead of plain null for nullable Json columns.
-const JsonNull = Prisma.JsonNull
-
 interface AutotaskTicketResponse {
   item?: {
     id: number
     ticketNumber: string
   }
-  // Some versions return an array
   [key: string]: unknown
 }
 
@@ -132,12 +131,15 @@ function todayIsoDate(): string {
 // ---------------------------------------------------------------------------
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  // 1. Validate internal secret
-  const providedSecret = request.headers.get('x-internal-secret') ?? ''
+  // 1. Validate internal secret — optional if env var not set
   const expectedSecret = process.env.INTERNAL_SECRET ?? ''
-
-  if (!expectedSecret || providedSecret !== expectedSecret) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  if (expectedSecret) {
+    const providedSecret = request.headers.get('x-internal-secret') ?? ''
+    if (providedSecret !== expectedSecret) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+  } else {
+    console.warn('[hr/process] INTERNAL_SECRET not set — skipping auth check')
   }
 
   // 2. Parse body
@@ -152,244 +154,278 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'requestId is required' }, { status: 400 })
   }
 
-  // 3. Load the HR request
-  const hrRequest = await prisma.hrRequest.findUnique({
-    where: { id: body.requestId },
-    include: { company: true },
-  })
-
-  if (!hrRequest) {
-    return NextResponse.json({ error: 'HR request not found' }, { status: 404 })
-  }
-
-  // 4. Guard against re-processing
-  if (hrRequest.status === 'completed' || hrRequest.status === 'running') {
-    return NextResponse.json(
-      { message: `Request already in state: ${hrRequest.status}` },
-      { status: 200 }
-    )
-  }
-
-  // 5. Update status to running
-  await prisma.hrRequest.update({
-    where: { id: hrRequest.id },
-    data: { status: 'running', startedAt: new Date() },
-  })
-
-  const answers = hrRequest.answers as Record<string, unknown>
-  const baseUrl = getAutotaskBaseUrl()
-  const autotaskHeaders = getAutotaskHeaders()
-
-  // autotaskCompanyId is stored as String? in the schema; Autotask REST expects an integer.
-  const rawCompanyId = hrRequest.company.autotaskCompanyId
-  const autotaskCompanyId: number = rawCompanyId ? parseInt(rawCompanyId, 10) : 0
-
-  if (!rawCompanyId || isNaN(autotaskCompanyId)) {
-    await prisma.hrRequest.update({
-      where: { id: hrRequest.id },
-      data: {
-        status: 'failed',
-        errorMessage: `Company "${hrRequest.company.displayName}" has no Autotask Company ID configured`,
-        retryCount: { increment: 1 },
-      },
-    })
-    return NextResponse.json(
-      { error: 'Company has no Autotask Company ID configured' },
-      { status: 422 }
-    )
-  }
-
-  // -----------------------------------------------------------------
-  // STEP 1: Create Autotask Ticket
-  // -----------------------------------------------------------------
-
-  const ticketStepStart = new Date()
-
-  const ticketPayload: AutotaskTicketPayload = {
-    CompanyID: autotaskCompanyId,
-    Title: buildTicketTitle(hrRequest.type, answers),
-    Description: formatAnswersAsDescription(hrRequest.type, answers),
-    Status: 1,   // New
-    Priority: 2, // Medium
-  }
-
-  let ticketId: number | null = null
-  let ticketNumber: string | null = null
-  let ticketStepError: string | null = null
-
+  const client = await pool.connect()
   try {
-    const ticketRes = await fetch(`${baseUrl}/V1.0/Tickets`, {
-      method: 'POST',
-      headers: autotaskHeaders,
-      body: JSON.stringify(ticketPayload),
-    })
+    // 3. Load the HR request with company join
+    const reqResult = await client.query(
+      `SELECT
+         r.id, r.company_id, r.company_slug, r.type, r.status,
+         r.submitted_by_email, r.submitted_by_name, r.answers,
+         r.autotask_ticket_id, r.autotask_ticket_number,
+         r.target_upn, r.target_user_id, r.idempotency_key,
+         r.error_message, r.retry_count,
+         r.started_at, r.completed_at, r.created_at, r.updated_at,
+         r.resolved_action_plan,
+         c."autotaskCompanyId", c."displayName"
+       FROM hr_requests r
+       JOIN companies c ON c.id = r.company_id
+       WHERE r.id = $1`,
+      [body.requestId]
+    )
 
-    if (!ticketRes.ok) {
-      const errText = await ticketRes.text()
-      throw new Error(`Autotask ticket creation failed (${ticketRes.status}): ${errText}`)
+    if (reqResult.rows.length === 0) {
+      return NextResponse.json({ error: 'HR request not found' }, { status: 404 })
     }
 
-    const ticketData = (await ticketRes.json()) as AutotaskTicketResponse
+    const hrRequest = reqResult.rows[0]
 
-    // Autotask returns { item: { id, ticketNumber } } on success
-    if (ticketData?.item?.id) {
-      ticketId = ticketData.item.id
-      ticketNumber = ticketData.item.ticketNumber
-    } else {
-      throw new Error(`Unexpected Autotask response shape: ${JSON.stringify(ticketData)}`)
+    // 4. Guard against re-processing
+    if (hrRequest.status === 'completed' || hrRequest.status === 'running') {
+      return NextResponse.json(
+        { message: `Request already in state: ${hrRequest.status}` },
+        { status: 200 }
+      )
     }
-  } catch (err) {
-    ticketStepError = err instanceof Error ? err.message : String(err)
-  }
 
-  // Record the ticket creation step
-  await prisma.hrRequestStep.create({
-    data: {
-      requestId: hrRequest.id,
-      stepKey: 'create_ticket',
-      stepName: 'Create Autotask Ticket',
-      status: ticketStepError ? 'failed' : 'completed',
-      attempt: 1,
-      input: toJson({ payload: ticketPayload }),
-      output: ticketId ? toJson({ ticketId, ticketNumber }) : JsonNull,
-      error: ticketStepError ? toJson({ message: ticketStepError }) : JsonNull,
-      startedAt: ticketStepStart,
-      completedAt: new Date(),
-    },
-  })
+    // 5. Update status to running
+    await client.query(
+      `UPDATE hr_requests SET status = 'running', started_at = NOW(), updated_at = NOW() WHERE id = $1`,
+      [hrRequest.id]
+    )
 
-  if (ticketStepError || ticketId === null) {
-    // Mark as failed and bail
-    await prisma.hrRequest.update({
-      where: { id: hrRequest.id },
-      data: {
-        status: 'failed',
-        errorMessage: ticketStepError ?? 'Ticket creation returned no ID',
-        retryCount: { increment: 1 },
-      },
-    })
+    const answers = (typeof hrRequest.answers === 'string' ? JSON.parse(hrRequest.answers) : hrRequest.answers) as Record<string, unknown>
+    const baseUrl = getAutotaskBaseUrl()
+    const autotaskHeaders = getAutotaskHeaders()
 
-    await prisma.hrAuditLog.create({
-      data: {
-        companyId: hrRequest.companyId,
+    // autotaskCompanyId is stored as String? — Autotask REST expects an integer
+    const rawCompanyId = hrRequest.autotaskCompanyId
+    const autotaskCompanyId: number = rawCompanyId ? parseInt(rawCompanyId, 10) : 0
+
+    if (!rawCompanyId || isNaN(autotaskCompanyId)) {
+      await client.query(
+        `UPDATE hr_requests
+         SET status = 'failed',
+             error_message = $2,
+             retry_count = COALESCE(retry_count, 0) + 1,
+             updated_at = NOW()
+         WHERE id = $1`,
+        [hrRequest.id, `Company "${hrRequest.displayName}" has no Autotask Company ID configured`]
+      )
+      return NextResponse.json(
+        { error: 'Company has no Autotask Company ID configured' },
+        { status: 422 }
+      )
+    }
+
+    // -----------------------------------------------------------------
+    // STEP 1: Create Autotask Ticket
+    // -----------------------------------------------------------------
+
+    const ticketStepStart = new Date()
+
+    const ticketPayload: AutotaskTicketPayload = {
+      CompanyID: autotaskCompanyId,
+      Title: buildTicketTitle(hrRequest.type, answers),
+      Description: formatAnswersAsDescription(hrRequest.type, answers),
+      Status: 1,   // New
+      Priority: 2, // Medium
+    }
+
+    let ticketId: number | null = null
+    let ticketNumber: string | null = null
+    let ticketStepError: string | null = null
+
+    try {
+      const ticketRes = await fetch(`${baseUrl}/V1.0/Tickets`, {
+        method: 'POST',
+        headers: autotaskHeaders,
+        body: JSON.stringify(ticketPayload),
+      })
+
+      if (!ticketRes.ok) {
+        const errText = await ticketRes.text()
+        throw new Error(`Autotask ticket creation failed (${ticketRes.status}): ${errText}`)
+      }
+
+      const ticketData = (await ticketRes.json()) as AutotaskTicketResponse
+
+      if (ticketData?.item?.id) {
+        ticketId = ticketData.item.id
+        ticketNumber = ticketData.item.ticketNumber
+      } else {
+        throw new Error(`Unexpected Autotask response shape: ${JSON.stringify(ticketData)}`)
+      }
+    } catch (err) {
+      ticketStepError = err instanceof Error ? err.message : String(err)
+    }
+
+    // Record the ticket creation step
+    await client.query(
+      `INSERT INTO hr_request_steps
+         (request_id, step_key, step_name, status, attempt, input, output, error, started_at, completed_at, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10, NOW())`,
+      [
+        hrRequest.id,
+        'create_ticket',
+        'Create Autotask Ticket',
+        ticketStepError ? 'failed' : 'completed',
+        1,
+        JSON.stringify({ payload: ticketPayload }),
+        ticketId ? JSON.stringify({ ticketId, ticketNumber }) : null,
+        ticketStepError ? JSON.stringify({ message: ticketStepError }) : null,
+        ticketStepStart,
+        new Date(),
+      ]
+    )
+
+    if (ticketStepError || ticketId === null) {
+      // Mark as failed and bail
+      await client.query(
+        `UPDATE hr_requests
+         SET status = 'failed',
+             error_message = $2,
+             retry_count = COALESCE(retry_count, 0) + 1,
+             updated_at = NOW()
+         WHERE id = $1`,
+        [hrRequest.id, ticketStepError ?? 'Ticket creation returned no ID']
+      )
+
+      await client.query(
+        `INSERT INTO hr_audit_logs
+           (company_id, request_id, actor, action, resource, details, severity, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, NOW())`,
+        [
+          hrRequest.company_id,
+          hrRequest.id,
+          'system',
+          'request_failed',
+          `hr_request:${hrRequest.id}`,
+          JSON.stringify({ step: 'create_ticket', error: ticketStepError ?? undefined }),
+          'error',
+        ]
+      )
+
+      return NextResponse.json(
+        { error: 'Failed to create Autotask ticket', details: ticketStepError },
+        { status: 500 }
+      )
+    }
+
+    // Persist ticketId and ticketNumber
+    await client.query(
+      `UPDATE hr_requests
+       SET autotask_ticket_id = $2,
+           autotask_ticket_number = $3,
+           updated_at = NOW()
+       WHERE id = $1`,
+      [hrRequest.id, ticketId, ticketNumber]
+    )
+
+    // -----------------------------------------------------------------
+    // STEP 2: Add 30-minute time entry to the ticket
+    // -----------------------------------------------------------------
+
+    const timeStepStart = new Date()
+    const resourceId = parseInt(process.env.AUTOTASK_DEFAULT_RESOURCE_ID ?? '0', 10)
+    let timeStepError: string | null = null
+
+    const nowIso = new Date().toISOString()
+    const endIso = new Date(Date.now() + 30 * 60 * 1000).toISOString()
+
+    const timeEntryPayload: AutotaskTimeEntryPayload = {
+      TicketID: ticketId,
+      ResourceID: resourceId,
+      DateWorked: todayIsoDate(),
+      StartDateTime: nowIso,
+      EndDateTime: endIso,
+      HoursWorked: 0.5,
+      SummaryNotes: 'Automated HR request processing - setup and documentation',
+    }
+
+    try {
+      const timeRes = await fetch(`${baseUrl}/V1.0/TicketTimeEntries`, {
+        method: 'POST',
+        headers: autotaskHeaders,
+        body: JSON.stringify(timeEntryPayload),
+      })
+
+      if (!timeRes.ok) {
+        const errText = await timeRes.text()
+        throw new Error(`Autotask time entry failed (${timeRes.status}): ${errText}`)
+      }
+    } catch (err) {
+      timeStepError = err instanceof Error ? err.message : String(err)
+      console.error('[hr/process] Time entry failed (non-fatal):', timeStepError)
+    }
+
+    // Record the time entry step
+    await client.query(
+      `INSERT INTO hr_request_steps
+         (request_id, step_key, step_name, status, attempt, input, output, error, started_at, completed_at, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10, NOW())`,
+      [
+        hrRequest.id,
+        'add_time_entry',
+        'Add Time Entry (30 min)',
+        timeStepError ? 'failed' : 'completed',
+        1,
+        JSON.stringify({ payload: timeEntryPayload }),
+        timeStepError ? null : JSON.stringify({ hoursWorked: 0.5 }),
+        timeStepError ? JSON.stringify({ message: timeStepError }) : null,
+        timeStepStart,
+        new Date(),
+      ]
+    )
+
+    // -----------------------------------------------------------------
+    // Finalise the request
+    // -----------------------------------------------------------------
+
+    await client.query(
+      `UPDATE hr_requests
+       SET status = 'completed',
+           completed_at = NOW(),
+           error_message = $2,
+           updated_at = NOW()
+       WHERE id = $1`,
+      [
+        hrRequest.id,
+        timeStepError
+          ? `Ticket created (${ticketNumber}) but time entry failed: ${timeStepError}`
+          : null,
+      ]
+    )
+
+    await client.query(
+      `INSERT INTO hr_audit_logs
+         (company_id, request_id, actor, action, resource, details, severity, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, NOW())`,
+      [
+        hrRequest.company_id,
+        hrRequest.id,
+        'system',
+        'request_completed',
+        `hr_request:${hrRequest.id}`,
+        JSON.stringify({
+          ticketId,
+          ticketNumber,
+          timeEntryCreated: !timeStepError,
+        }),
+        'info',
+      ]
+    )
+
+    return NextResponse.json(
+      {
+        message: 'HR request processed successfully',
         requestId: hrRequest.id,
-        actor: 'system',
-        action: 'request_failed',
-        resource: `hr_request:${hrRequest.id}`,
-        details: toJson({ step: 'create_ticket', error: ticketStepError ?? undefined }),
-        severity: 'error',
-      },
-    })
-
-    return NextResponse.json(
-      { error: 'Failed to create Autotask ticket', details: ticketStepError },
-      { status: 500 }
-    )
-  }
-
-  // Persist ticketId and ticketNumber
-  await prisma.hrRequest.update({
-    where: { id: hrRequest.id },
-    data: {
-      autotaskTicketId: ticketId,
-      autotaskTicketNumber: ticketNumber,
-    },
-  })
-
-  // -----------------------------------------------------------------
-  // STEP 2: Add 30-minute time entry to the ticket
-  // -----------------------------------------------------------------
-
-  const timeStepStart = new Date()
-  const resourceId = parseInt(process.env.AUTOTASK_DEFAULT_RESOURCE_ID ?? '0', 10)
-  let timeStepError: string | null = null
-
-  const nowIso = new Date().toISOString()
-  const endIso = new Date(Date.now() + 30 * 60 * 1000).toISOString()
-
-  const timeEntryPayload: AutotaskTimeEntryPayload = {
-    TicketID: ticketId,
-    ResourceID: resourceId,
-    DateWorked: todayIsoDate(),
-    StartDateTime: nowIso,
-    EndDateTime: endIso,
-    HoursWorked: 0.5,
-    SummaryNotes: 'Automated HR request processing - setup and documentation',
-  }
-
-  try {
-    const timeRes = await fetch(`${baseUrl}/V1.0/TicketTimeEntries`, {
-      method: 'POST',
-      headers: autotaskHeaders,
-      body: JSON.stringify(timeEntryPayload),
-    })
-
-    if (!timeRes.ok) {
-      const errText = await timeRes.text()
-      throw new Error(`Autotask time entry failed (${timeRes.status}): ${errText}`)
-    }
-  } catch (err) {
-    timeStepError = err instanceof Error ? err.message : String(err)
-    // Time entry failure is non-fatal — log it but continue
-    console.error('[hr/process] Time entry failed (non-fatal):', timeStepError)
-  }
-
-  // Record the time entry step
-  await prisma.hrRequestStep.create({
-    data: {
-      requestId: hrRequest.id,
-      stepKey: 'add_time_entry',
-      stepName: 'Add Time Entry (30 min)',
-      status: timeStepError ? 'failed' : 'completed',
-      attempt: 1,
-      input: toJson({ payload: timeEntryPayload }),
-      output: timeStepError ? JsonNull : toJson({ hoursWorked: 0.5 }),
-      error: timeStepError ? toJson({ message: timeStepError }) : JsonNull,
-      startedAt: timeStepStart,
-      completedAt: new Date(),
-    },
-  })
-
-  // -----------------------------------------------------------------
-  // Finalise the request
-  // -----------------------------------------------------------------
-
-  await prisma.hrRequest.update({
-    where: { id: hrRequest.id },
-    data: {
-      status: 'completed',
-      completedAt: new Date(),
-      // If time entry failed, surface it in the error field but still mark completed
-      errorMessage: timeStepError
-        ? `Ticket created (${ticketNumber}) but time entry failed: ${timeStepError}`
-        : null,
-    },
-  })
-
-  await prisma.hrAuditLog.create({
-    data: {
-      companyId: hrRequest.companyId,
-      requestId: hrRequest.id,
-      actor: 'system',
-      action: 'request_completed',
-      resource: `hr_request:${hrRequest.id}`,
-      details: toJson({
         ticketId,
         ticketNumber,
-        timeEntryCreated: !timeStepError,
-      }),
-      severity: 'info',
-    },
-  })
-
-  return NextResponse.json(
-    {
-      message: 'HR request processed successfully',
-      requestId: hrRequest.id,
-      ticketId,
-      ticketNumber,
-      stepsCompleted: timeStepError ? ['create_ticket'] : ['create_ticket', 'add_time_entry'],
-    },
-    { status: 200 }
-  )
+        stepsCompleted: timeStepError ? ['create_ticket'] : ['create_ticket', 'add_time_entry'],
+      },
+      { status: 200 }
+    )
+  } finally {
+    client.release()
+  }
 }

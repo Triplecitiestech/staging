@@ -346,18 +346,31 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
               <div>
                 <h2 className="text-lg font-semibold text-white">Step 2 — Microsoft 365 App Registration</h2>
                 <p className="text-gray-400 text-sm mt-1">
-                  Create an App Registration in the customer's Azure AD tenant, grant it Graph API permissions, and enter the credentials below.
+                  Create an App Registration in the customer's Entra ID tenant, grant it Graph API permissions, and enter the credentials below.
                 </p>
               </div>
 
               <InfoBox>
-                <p className="font-semibold text-blue-100">Instructions — do this in the customer's Azure portal:</p>
+                <p className="font-semibold text-blue-100">Before You Begin — License Check</p>
+                <p className="mt-1">Before setting up M365 integration, ensure this customer&apos;s tenant is in your Pax8 partner portal and the reseller relationship is established. If the tenant is not in Pax8:</p>
+                <ol className="list-decimal list-inside space-y-1 mt-2">
+                  <li>Log into <a href="https://app.pax8.com" target="_blank" rel="noopener noreferrer" className="underline text-teal-300">app.pax8.com</a></li>
+                  <li>Go to <strong>Customers → Add Customer</strong></li>
+                  <li>Link the customer&apos;s Microsoft tenant by entering their domain</li>
+                  <li>Establish the reseller relationship (CSP indirect or direct)</li>
+                  <li>Once linked, you can order and manage M365 licenses through Pax8</li>
+                </ol>
+                <p className="mt-2 text-yellow-300 text-xs font-medium">Without a Pax8 reseller relationship, license ordering for new employee onboarding will fail.</p>
+              </InfoBox>
+
+              <InfoBox>
+                <p className="font-semibold text-blue-100">Instructions — do this in the customer's Entra admin center:</p>
                 <ol className="list-decimal list-inside space-y-2 mt-2">
                   <li>
-                    Sign into <strong>portal.azure.com</strong> as a Global Admin in the customer's tenant
+                    Sign into <strong>entra.microsoft.com</strong> as a Global Admin in the customer's tenant
                   </li>
                   <li>
-                    Go to <strong>Azure Active Directory → App registrations → New registration</strong>
+                    Go to <strong>Applications → App registrations → New registration</strong>
                   </li>
                   <li>
                     Name it: <code className="text-teal-300">TCT Portal Integration</code>
