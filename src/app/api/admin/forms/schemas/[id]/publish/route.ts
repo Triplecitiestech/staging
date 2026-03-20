@@ -19,7 +19,7 @@ export async function POST(
 ): Promise<NextResponse> {
   const session = await auth()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (!hasPermission(session.user?.role, 'system_settings')) {
+  if (!hasPermission(session.user?.role, 'manage_companies')) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
