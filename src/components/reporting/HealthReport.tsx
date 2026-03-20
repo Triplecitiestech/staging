@@ -42,6 +42,16 @@ const FACTOR_LABELS: Record<string, string> = {
   slaCompliance: 'SLA Compliance',
 }
 
+const FACTOR_TOOLTIPS: Record<string, string> = {
+  ticketVolumeTrend: 'Compares ticket count in current 30-day period vs prior 30 days. Score 100 = volume decreased 20%+, 50 = stable, 0 = increased 50%+. Lower ticket volume indicates healthier IT environment.',
+  reopenRate: 'Percentage of resolved tickets that were reopened (moved from Complete back to an active status, or assigned a Reopen status). Score 100 = 0% reopens, 70 = 5% reopens, 0 = 20%+ reopens. Shows neutral (50) when insufficient status history data exists.',
+  priorityMix: 'Percentage of tickets classified as Urgent or High priority. Score 100 = less than 10% urgent/high, 0 = over 60% urgent/high. A healthy mix has mostly medium/low priority tickets.',
+  supportHoursTrend: 'Compares total support hours consumed in current 30-day period vs prior 30 days. Score 100 = hours decreased 20%+, 50 = stable, 0 = increased 50%+. Decreasing hours suggests stabilizing environment.',
+  avgResolutionTime: 'Average time from ticket creation to resolution compared to target. Score 100 = at or below target, 0 = 3x above target. Uses business-hours calculation and configured SLA targets.',
+  agingTickets: 'Count of open tickets that exceed 2x the resolution time target for their priority level. Score 100 = no aging tickets, decreases proportionally. More aging tickets indicate growing backlog risk.',
+  slaCompliance: 'Percentage of resolved tickets that met their SLA targets (response time, resolution plan, and resolution time combined). Directly maps to score (e.g., 95% compliance = score of 95). Shows neutral (50) when no SLA data is available.',
+}
+
 export default function HealthReport() {
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -123,11 +133,11 @@ export default function HealthReport() {
             <thead>
               <tr className="border-b border-slate-700/50">
                 <th className="text-left text-xs text-slate-400 font-medium px-4 py-3">Company</th>
-                <th className="text-center text-xs text-slate-400 font-medium px-4 py-3">Score</th>
-                <th className="text-center text-xs text-slate-400 font-medium px-4 py-3">Tier</th>
-                <th className="text-center text-xs text-slate-400 font-medium px-4 py-3 hidden md:table-cell">Trend</th>
-                <th className="text-center text-xs text-slate-400 font-medium px-4 py-3 hidden lg:table-cell">Previous</th>
-                <th className="text-center text-xs text-slate-400 font-medium px-4 py-3 hidden lg:table-cell">Computed</th>
+                <th className="text-center text-xs text-slate-400 font-medium px-4 py-3" title="Weighted overall health score (0-100). Combines 7 factors: Ticket Volume (20%), Reopen Rate (15%), Priority Mix (15%), Support Hours (15%), Resolution Time (15%), Aging Tickets (10%), SLA Compliance (10%).">Score</th>
+                <th className="text-center text-xs text-slate-400 font-medium px-4 py-3" title="Health tier based on overall score. Healthy (80+), Needs Attention (60-79), At Risk (40-59), Critical (below 40).">Tier</th>
+                <th className="text-center text-xs text-slate-400 font-medium px-4 py-3 hidden md:table-cell" title="Score trend compared to previous computation. Improving = score increased by 5+, Declining = decreased by 5+, Stable = within 5 points.">Trend</th>
+                <th className="text-center text-xs text-slate-400 font-medium px-4 py-3 hidden lg:table-cell" title="Previous overall health score for comparison.">Previous</th>
+                <th className="text-center text-xs text-slate-400 font-medium px-4 py-3 hidden lg:table-cell" title="Date when this health score was last computed.">Computed</th>
                 <th className="text-center text-xs text-slate-400 font-medium px-4 py-3">Details</th>
               </tr>
             </thead>
@@ -176,8 +186,17 @@ export default function HealthReport() {
                         <td colSpan={7} className="px-4 py-4 bg-slate-900/50">
                           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
                             {Object.entries(score.factors).map(([key, value]) => (
-                              <div key={key} className="text-center">
-                                <p className="text-xs text-slate-500 mb-1">{FACTOR_LABELS[key] || key}</p>
+                              <div key={key} className="text-center group relative">
+                                <p className="text-xs text-slate-500 mb-1 flex items-center justify-center gap-1">
+                                  {FACTOR_LABELS[key] || key}
+                                  {FACTOR_TOOLTIPS[key] && (
+                                    <span className="inline-block cursor-help" title={FACTOR_TOOLTIPS[key]}>
+                                      <svg className="w-3 h-3 text-slate-600 hover:text-slate-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                      </svg>
+                                    </span>
+                                  )}
+                                </p>
                                 <ScoreBadge score={value} size="sm" />
                               </div>
                             ))}
