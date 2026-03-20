@@ -193,9 +193,11 @@ export function HrRequestSection({
   // ----- Load recent requests when verified -----
   const loadRequests = useCallback(async () => {
     if (sectionState !== 'verified') return
+    if (!verifiedEmail || !companySlug) return
     setLoadingRequests(true)
     try {
-      const res = await fetch('/api/hr/requests')
+      const params = new URLSearchParams({ companySlug, email: verifiedEmail })
+      const res = await fetch(`/api/hr/requests?${params.toString()}`)
       if (res.ok) {
         const data = await res.json()
         setRecentRequests(data.requests ?? [])
@@ -205,7 +207,7 @@ export function HrRequestSection({
     } finally {
       setLoadingRequests(false)
     }
-  }, [sectionState])
+  }, [sectionState, verifiedEmail, companySlug])
 
   useEffect(() => {
     loadRequests()

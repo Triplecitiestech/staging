@@ -997,6 +997,7 @@ export function HrRequestWizard({
           answers,
           submittedByEmail: submitterEmail,
           submittedByName: submitterName,
+          companySlug,
         }),
       })
 
