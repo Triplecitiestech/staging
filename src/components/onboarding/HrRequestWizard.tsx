@@ -170,6 +170,8 @@ function TextareaInput({
   )
 }
 
+type SelectOption = string | { value: string; label: string }
+
 function SelectInput({
   id,
   value,
@@ -181,7 +183,7 @@ function SelectInput({
   id: string
   value: string
   onChange: (v: string) => void
-  options: string[]
+  options: SelectOption[]
   placeholder?: string
   error?: string
 }) {
@@ -202,11 +204,15 @@ function SelectInput({
             {placeholder}
           </option>
         )}
-        {options.map((o) => (
-          <option key={o} value={o} className="bg-gray-900 text-white">
-            {o}
-          </option>
-        ))}
+        {options.map((o) => {
+          const v = typeof o === 'string' ? o : o.value
+          const l = typeof o === 'string' ? o : o.label
+          return (
+            <option key={v} value={v} className="bg-gray-900 text-white">
+              {l}
+            </option>
+          )
+        })}
       </select>
       {error && <p className="text-red-400 text-xs mt-1">{error}</p>}
     </div>
