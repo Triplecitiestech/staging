@@ -134,6 +134,42 @@ Triple Cities Tech is a Next.js 15 App Router application deployed on Vercel (ia
 
 ---
 
+## Question Engine (Phase 1 — 2026-03-20)
+
+### Architecture
+- Full design doc: `docs/plans/QUESTION_ENGINE_ARCHITECTURE.md`
+- Database-driven form schemas with per-customer overrides
+- Merge algorithm: global schema + sparse customer overrides + custom sections/questions
+- M365 data source resolution at API request time via Graph client
+
+### Database Tables (raw SQL, NOT Prisma-managed)
+- `form_schemas` — versioned global form templates (onboarding/offboarding)
+- `form_sections` — normalized sections within a schema
+- `form_questions` — normalized questions with type, validation, data sources, visibility rules
+- `customer_form_configs` — sparse per-customer overrides (hide/reorder/relabel)
+- `customer_custom_questions` — per-customer additional questions
+- `customer_custom_sections` — per-customer additional sections
+- `automation_mappings` — maps answer values to backend automation actions
+- `form_links` — secure form links for Thread integration
+
+### Migration & Seed
+- `migrations/add_question_engine_tables.sql` — creates all 8 tables with indexes
+- `migrations/seed_default_forms.sql` — seeds default onboarding + offboarding schemas (v1, published)
+
+### API Routes
+- `GET /api/forms/config?companySlug=X&type=onboarding&email=Y` — returns merged form config with resolved M365 data sources
+  - Uses raw `pg` Pool (matches HR route convention)
+  - Validates email is active company contact
+  - Loads published global schema, applies customer overrides, resolves M365 data sources in parallel
+
+### Remaining Phases
+- Phase 2: `<FormRenderer>` component + portal integration
+- Phase 3: Admin UI (global form builder + per-customer config)
+- Phase 4: Thread integration (form links, webhook handler)
+- Phase 5: Automation mapping engine
+
+---
+
 ## Remaining Work (as of 2026-03-20)
 
 ### Fixed
