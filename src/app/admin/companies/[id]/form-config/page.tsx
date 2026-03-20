@@ -1,5 +1,6 @@
 import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
+import Link from 'next/link'
 import { hasPermission } from '@/lib/permissions'
 import { Pool } from 'pg'
 import { CustomerFormConfig } from '@/components/admin/CustomerFormConfig'
@@ -40,9 +41,9 @@ export default async function CustomerFormConfigPage({
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-6">
           <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
-            <a href="/admin/companies" className="hover:text-gray-300">Companies</a>
+            <Link href="/admin/companies" className="hover:text-gray-300">Companies</Link>
             <span>/</span>
-            <a href={`/admin/companies/${companyId}`} className="hover:text-gray-300">{company.displayName}</a>
+            <Link href={`/admin/companies/${companyId}`} className="hover:text-gray-300">{company.displayName}</Link>
             <span>/</span>
             <span className="text-gray-300">Form Config</span>
           </div>
