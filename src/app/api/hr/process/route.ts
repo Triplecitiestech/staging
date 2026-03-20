@@ -10,6 +10,7 @@ interface ProcessRequestBody {
 }
 
 interface AutotaskTicketPayload {
+  [key: string]: unknown   // required for Prisma Json field compatibility
   CompanyID: number
   Title: string
   Description: string
@@ -21,6 +22,7 @@ interface AutotaskTicketPayload {
 }
 
 interface AutotaskTimeEntryPayload {
+  [key: string]: unknown   // required for Prisma Json field compatibility
   TicketID: number
   ResourceID: number
   DateWorked: string
