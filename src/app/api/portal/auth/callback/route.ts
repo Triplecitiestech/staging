@@ -1,0 +1,235 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { Pool } from 'pg'
+import {
+  verifyState,
+  createPortalSession,
+  setPortalSessionCookie,
+  type PortalSessionData,
+} from '@/lib/portal-session'
+
+// ---------------------------------------------------------------------------
+// Raw pg pool
+// ---------------------------------------------------------------------------
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  max: 5,
+})
+
+// ---------------------------------------------------------------------------
+// GET /api/portal/auth/callback?code=...&state=...
+// ---------------------------------------------------------------------------
+
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  const code = request.nextUrl.searchParams.get('code')
+  const stateParam = request.nextUrl.searchParams.get('state')
+  const errorParam = request.nextUrl.searchParams.get('error')
+  const errorDesc = request.nextUrl.searchParams.get('error_description')
+
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.triplecitiestech.com'
+
+  // Handle Azure AD error responses
+  if (errorParam) {
+    console.error(`[portal/auth/callback] Azure AD error: ${errorParam} — ${errorDesc}`)
+    return new NextResponse(errorPage(`Authentication failed: ${errorDesc || errorParam}`), {
+      status: 200,
+      headers: { 'Content-Type': 'text/html' },
+    })
+  }
+
+  if (!code || !stateParam) {
+    return new NextResponse(errorPage('Missing authorization code or state parameter.'), {
+      status: 400,
+      headers: { 'Content-Type': 'text/html' },
+    })
+  }
+
+  // 1. Validate state
+  const stateObj = verifyState(stateParam)
+  if (!stateObj || typeof stateObj.companySlug !== 'string') {
+    return new NextResponse(errorPage('Invalid or tampered state parameter.'), {
+      status: 400,
+      headers: { 'Content-Type': 'text/html' },
+    })
+  }
+
+  const companySlug = (stateObj.companySlug as string).toLowerCase().trim()
+
+  const client = await pool.connect()
+  try {
+    // 2. Look up company M365 credentials
+    const companyRes = await client.query<{
+      id: string
+      m365_tenant_id: string
+      m365_client_id: string
+      m365_client_secret: string
+    }>(
+      `SELECT id, m365_tenant_id, m365_client_id, m365_client_secret
+       FROM companies
+       WHERE slug = $1
+       LIMIT 1`,
+      [companySlug]
+    )
+
+    if (companyRes.rows.length === 0) {
+      return new NextResponse(errorPage('Company not found.'), {
+        status: 404,
+        headers: { 'Content-Type': 'text/html' },
+      })
+    }
+
+    const company = companyRes.rows[0]
+
+    if (!company.m365_tenant_id || !company.m365_client_id || !company.m365_client_secret) {
+      return new NextResponse(errorPage('SSO is not fully configured for this company.'), {
+        status: 200,
+        headers: { 'Content-Type': 'text/html' },
+      })
+    }
+
+    // 3. Exchange code for tokens
+    const redirectUri = `${baseUrl}/api/portal/auth/callback`
+    const tokenUrl = `https://login.microsoftonline.com/${company.m365_tenant_id}/oauth2/v2.0/token`
+
+    const tokenBody = new URLSearchParams({
+      client_id: company.m365_client_id,
+      client_secret: company.m365_client_secret,
+      code,
+      redirect_uri: redirectUri,
+      grant_type: 'authorization_code',
+      scope: 'openid profile email',
+    })
+
+    const tokenRes = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: tokenBody.toString(),
+    })
+
+    if (!tokenRes.ok) {
+      const errBody = await tokenRes.text()
+      console.error('[portal/auth/callback] Token exchange failed:', errBody)
+      return new NextResponse(
+        errorPage('Failed to complete authentication. Please try again.'),
+        { status: 200, headers: { 'Content-Type': 'text/html' } }
+      )
+    }
+
+    const tokenData = await tokenRes.json()
+    const idToken: string | undefined = tokenData.id_token
+
+    if (!idToken) {
+      return new NextResponse(errorPage('No ID token received from Microsoft.'), {
+        status: 200,
+        headers: { 'Content-Type': 'text/html' },
+      })
+    }
+
+    // 4. Decode ID token (JWT) — we only need the payload claims
+    const payloadB64 = idToken.split('.')[1]
+    if (!payloadB64) {
+      return new NextResponse(errorPage('Invalid ID token format.'), {
+        status: 200,
+        headers: { 'Content-Type': 'text/html' },
+      })
+    }
+
+    const claims = JSON.parse(Buffer.from(payloadB64, 'base64').toString('utf-8'))
+    const userEmail: string = (claims.email || claims.preferred_username || '').toLowerCase().trim()
+    const userName: string = claims.name || ''
+
+    if (!userEmail) {
+      return new NextResponse(
+        errorPage('Could not determine your email from the Microsoft account. Please contact your administrator.'),
+        { status: 200, headers: { 'Content-Type': 'text/html' } }
+      )
+    }
+
+    // 5. Verify user exists in company_contacts
+    const contactRes = await client.query<{
+      customerRole: string
+      isPrimary: boolean
+      name: string
+    }>(
+      `SELECT "customerRole", "isPrimary", name
+       FROM company_contacts
+       WHERE "companyId" = $1
+         AND LOWER(email) = $2
+         AND "isActive" = true
+       LIMIT 1`,
+      [company.id, userEmail]
+    )
+
+    if (contactRes.rows.length === 0) {
+      return new NextResponse(
+        errorPage(
+          'Access denied. Your email is not registered as a contact for this company. Please contact your administrator or Triple Cities Tech.'
+        ),
+        { status: 403, headers: { 'Content-Type': 'text/html' } }
+      )
+    }
+
+    const contact = contactRes.rows[0]
+    const isManager = contact.customerRole === 'CLIENT_MANAGER' || contact.isPrimary
+    const role = contact.customerRole || 'CLIENT_USER'
+
+    // 6. Create session cookie
+    const sessionData: PortalSessionData = {
+      email: userEmail,
+      name: userName || contact.name || userEmail,
+      companySlug,
+      role,
+      isManager,
+      exp: Date.now() + 8 * 60 * 60 * 1000, // 8 hours
+    }
+
+    const token = createPortalSession(sessionData)
+    await setPortalSessionCookie(token)
+
+    // 7. Redirect to the portal
+    return NextResponse.redirect(`${baseUrl}/onboarding/${companySlug}`)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error('[portal/auth/callback] Error:', msg)
+    return new NextResponse(
+      errorPage('An internal error occurred during authentication. Please try again.'),
+      { status: 500, headers: { 'Content-Type': 'text/html' } }
+    )
+  } finally {
+    client.release()
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Error page HTML
+// ---------------------------------------------------------------------------
+
+function errorPage(message: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Portal Sign In | Triple Cities Tech</title>
+  <style>
+    body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+           background:#0a0a0a; color:#e5e5e5; font-family:system-ui,-apple-system,sans-serif; }
+    .card { max-width:480px; padding:2rem; border:1px solid #333; border-radius:12px; text-align:center; }
+    h1 { font-size:1.25rem; color:#22d3ee; margin-bottom:1rem; }
+    p { font-size:0.95rem; line-height:1.6; color:#a3a3a3; }
+    a { color:#22d3ee; text-decoration:underline; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Triple Cities Tech — Customer Portal</h1>
+    <p>${escapeHtml(message)}</p>
+  </div>
+</body>
+</html>`
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}

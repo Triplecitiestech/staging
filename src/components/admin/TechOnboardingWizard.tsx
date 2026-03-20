@@ -376,7 +376,26 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
                       <li>Organization.Read.All</li>
                     </ul>
                   </li>
+                  <li>
+                    Still in <strong>API permissions → Add a permission → Microsoft Graph → Delegated permissions</strong>
+                    <br />
+                    Add these (for user SSO login to the customer portal):
+                    <ul className="list-disc list-inside ml-4 mt-1 space-y-0.5 text-teal-200 font-mono text-xs">
+                      <li>openid</li>
+                      <li>profile</li>
+                      <li>email</li>
+                    </ul>
+                  </li>
                   <li>Click <strong>Grant admin consent</strong> for the tenant</li>
+                  <li>
+                    Go to <strong>Authentication → Add a platform → Web</strong>
+                    <br />
+                    Set the <strong>Redirect URI</strong> to:
+                    <code className="block bg-slate-900 border border-white/10 rounded px-3 py-2 text-xs text-teal-300 font-mono break-all select-all mt-1">
+                      https://www.triplecitiestech.com/api/portal/auth/callback
+                    </code>
+                    <span className="block text-xs text-blue-300 mt-1">Under &ldquo;Implicit grant and hybrid flows&rdquo;, check <strong>ID tokens</strong>.</span>
+                  </li>
                   <li>
                     Go to <strong>Certificates &amp; secrets → New client secret</strong>.
                     Set expiry to 24 months. Copy the secret <em>value immediately</em> (shown once).
@@ -586,8 +605,8 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
                 <p className="mt-2 font-semibold text-blue-100">Share with the customer's manager contact. They will:</p>
                 <ol className="list-decimal list-inside mt-1 space-y-1">
                   <li>Navigate to the portal URL</li>
-                  <li>Click <strong>Employee Management</strong></li>
-                  <li>Enter their email to verify Manager access</li>
+                  <li>Sign in with their Microsoft 365 account (Azure AD SSO)</li>
+                  <li>Managers automatically get access to Employee Management</li>
                   <li>Submit onboarding or offboarding requests</li>
                 </ol>
               </InfoBox>
