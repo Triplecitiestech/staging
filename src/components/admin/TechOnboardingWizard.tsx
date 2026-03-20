@@ -23,6 +23,7 @@ interface CompanyData {
 
 interface TechOnboardingWizardProps {
   company: CompanyData
+  hasManager: boolean
 }
 
 type StepStatus = 'pending' | 'complete' | 'error'
@@ -86,7 +87,7 @@ function CodeBlock({ children }: { children: string }) {
 // Main wizard
 // ---------------------------------------------------------------------------
 
-export default function TechOnboardingWizard({ company }: TechOnboardingWizardProps) {
+export default function TechOnboardingWizard({ company, hasManager }: TechOnboardingWizardProps) {
   const [step, setStep] = useState(1)
   const [stepStatus, setStepStatus] = useState<Record<number, StepStatus>>({
     1: company.autotaskCompanyId ? 'complete' : 'pending',
@@ -561,7 +562,7 @@ export default function TechOnboardingWizard({ company }: TechOnboardingWizardPr
               <div className="space-y-3">
                 {[
                   { label: 'Autotask contact sync run',             done: !!company.autotaskCompanyId },
-                  { label: 'At least one contact set to CLIENT_MANAGER', done: false, note: 'Verify manually in Contacts' },
+                  { label: 'At least one contact set to CLIENT_MANAGER', done: hasManager, ...(!hasManager && { note: 'No active CLIENT_MANAGER found — set one in Contacts' }) },
                   { label: 'M365 credentials saved',                done: credsSaved || !!company.m365_client_secret_set },
                   { label: 'Graph API connection verified',          done: testResult?.success ?? company.m365_setup_status === 'verified' },
                 ].map((item, i) => (
