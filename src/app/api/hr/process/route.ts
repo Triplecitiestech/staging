@@ -169,7 +169,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const answers = hrRequest.answers as Record<string, unknown>
   const baseUrl = getAutotaskBaseUrl()
   const autotaskHeaders = getAutotaskHeaders()
-  const autotaskCompanyId = hrRequest.company.autotaskCompanyId
+
+  // autotaskCompanyId is stored as String? in the schema; Autotask REST expects an integer.
+  const rawCompanyId = hrRequest.company.autotaskCompanyId
+  const autotaskCompanyId: number = rawCompanyId ? parseInt(rawCompanyId, 10) : 0
+
+  if (!rawCompanyId || isNaN(autotaskCompanyId)) {
+    await prisma.hrRequest.update({
+      where: { id: hrRequest.id },
+      data: {
+        status: 'failed',
+        errorMessage: `Company "${hrRequest.company.name}" has no Autotask Company ID configured`,
+        retryCount: { increment: 1 },
+      },
+    })
+    return NextResponse.json(
+      { error: 'Company has no Autotask Company ID configured' },
+      { status: 422 }
+    )
+  }
 
   // -----------------------------------------------------------------
   // STEP 1: Create Autotask Ticket
