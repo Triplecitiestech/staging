@@ -427,11 +427,18 @@ export async function syncTicketNotes(timeBudgetMs: number = 45000): Promise<Not
     });
     const missingNoteTickets = allTickets.filter(t => !ticketsWithNotesSet.has(t.autotaskTicketId));
 
-    // Also get recently synced tickets
+    // Also get recently synced tickets AND tickets with recent activity
+    // (notes may be added after the ticket was initially synced)
     const lastSync = await getLastSuccessfulRun(JOB_NAMES.SYNC_TICKET_NOTES);
     const recentTickets = lastSync
       ? await prisma.ticket.findMany({
-          where: { autotaskLastSync: { gte: lastSync } },
+          where: {
+            OR: [
+              { autotaskLastSync: { gte: lastSync } },
+              // Re-fetch notes for tickets with recent activity (catches notes added after initial sync)
+              { lastActivityDate: { gte: lastSync } },
+            ],
+          },
           select: { autotaskTicketId: true },
         })
       : allTickets;
