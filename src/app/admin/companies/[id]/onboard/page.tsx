@@ -36,6 +36,7 @@ export default async function TechOnboardingPage({
     m365_verified_at: string | null
     onboarding_completed_at: string | null
   } | null = null
+  let hasManager = false
 
   try {
     const res = await client.query(
@@ -63,6 +64,14 @@ export default async function TechOnboardingPage({
       m365_verified_at:        row.m365_verified_at ? new Date(row.m365_verified_at).toISOString() : null,
       onboarding_completed_at: row.onboarding_completed_at ? new Date(row.onboarding_completed_at).toISOString() : null,
     }
+
+    // Check if the company has at least one active CLIENT_MANAGER contact
+    const managerRes = await client.query(
+      `SELECT COUNT(*)::int AS cnt FROM company_contacts
+       WHERE "companyId" = $1 AND "customerRole" = 'CLIENT_MANAGER' AND "isActive" = true`,
+      [id]
+    )
+    hasManager = (managerRes.rows[0]?.cnt ?? 0) > 0
   } finally {
     client.release()
   }
@@ -73,7 +82,7 @@ export default async function TechOnboardingPage({
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-gray-900 to-slate-950">
       <AdminHeader />
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <TechOnboardingWizard company={company} />
+        <TechOnboardingWizard company={company} hasManager={hasManager} />
       </main>
     </div>
   )
