@@ -161,16 +161,38 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       [company.id, userEmail]
     )
 
-    if (contactRes.rows.length === 0) {
-      return new NextResponse(
-        errorPage(
-          'Access denied. Your email is not registered as a contact for this company. Please contact your administrator or Triple Cities Tech.'
-        ),
-        { status: 403, headers: { 'Content-Type': 'text/html' } }
-      )
+    let contact = contactRes.rows[0] ?? null
+
+    // Fallback: try matching by username part (before @) against all contacts for this company
+    if (!contact) {
+      const usernamePart = userEmail.split('@')[0]
+      if (usernamePart) {
+        const fallbackRes = await client.query<{
+          customerRole: string
+          isPrimary: boolean
+          name: string
+        }>(
+          `SELECT "customerRole", "isPrimary", name
+           FROM company_contacts
+           WHERE "companyId" = $1
+             AND LOWER(email) LIKE $2
+             AND "isActive" = true
+           LIMIT 1`,
+          [company.id, usernamePart + '@%']
+        )
+        contact = fallbackRes.rows[0] ?? null
+      }
     }
 
-    const contact = contactRes.rows[0]
+    // Second fallback: user authenticated via the correct tenant — allow as basic viewer
+    if (!contact) {
+      contact = {
+        customerRole: 'CLIENT_USER',
+        isPrimary: false,
+        name: userName || userEmail,
+      }
+    }
+
     const isManager = contact.customerRole === 'CLIENT_MANAGER' || contact.isPrimary
     const role = contact.customerRole || 'CLIENT_USER'
 

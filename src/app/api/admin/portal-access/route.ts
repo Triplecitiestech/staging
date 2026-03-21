@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
-import { createSession, setSessionCookie } from '@/lib/onboarding-session'
+import { createPortalSession, setPortalSessionCookie, type PortalSessionData } from '@/lib/portal-session'
 
 /**
  * GET /api/admin/portal-access?company=slug
@@ -37,9 +37,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Company not found' }, { status: 404 })
     }
 
-    // Create a customer portal session for this company
-    const token = createSession(slug)
-    await setSessionCookie(token)
+    // Create a portal session for admin impersonation
+    const sessionData: PortalSessionData = {
+      email: session.user?.email ?? 'admin@triplecitiestech.com',
+      name: session.user?.name ?? 'TCT Admin',
+      companySlug: slug,
+      role: 'CLIENT_MANAGER',
+      isManager: true,
+      exp: Date.now() + 8 * 60 * 60 * 1000,
+    }
+    const token = createPortalSession(sessionData)
+    await setPortalSessionCookie(token)
 
     console.log(`[Admin Portal Access] Staff ${session.user?.email} impersonating customer portal for ${company.displayName} (${slug})`)
 
