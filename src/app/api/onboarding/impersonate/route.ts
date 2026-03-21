@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
-import { createSession, setSessionCookie } from '@/lib/onboarding-session'
+import { createPortalSession, setPortalSessionCookie, type PortalSessionData } from '@/lib/portal-session'
 
 export const dynamic = 'force-dynamic'
 
@@ -32,9 +32,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Company not found' }, { status: 404 })
     }
 
-    // Create a session token for this company and set the cookie
-    const token = createSession(company.slug)
-    await setSessionCookie(token)
+    // Create a portal session for admin impersonation
+    const sessionData: PortalSessionData = {
+      email: session.user?.email ?? 'admin@triplecitiestech.com',
+      name: session.user?.name ?? 'TCT Admin',
+      companySlug: company.slug,
+      role: 'CLIENT_MANAGER',
+      isManager: true,
+      exp: Date.now() + 8 * 60 * 60 * 1000,
+    }
+    const token = createPortalSession(sessionData)
+    await setPortalSessionCookie(token)
 
     return NextResponse.json({
       success: true,
