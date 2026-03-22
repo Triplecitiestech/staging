@@ -143,10 +143,10 @@ async function resolveUserDataSource(
   try {
     const users = await graphClient.getUsers()
     return users.map((u) => {
-      let label = String((u as Record<string, unknown>)[labelField] ?? '')
+      let label = String((u as unknown as Record<string, unknown>)[labelField] ?? '')
       if (labelSuffix) {
         let suffix = labelSuffix
-        suffix = suffix.replace(/\{(\w+)\}/g, (_, field) => String((u as Record<string, unknown>)[field] ?? ''))
+        suffix = suffix.replace(/\{(\w+)\}/g, (_, field) => String((u as unknown as Record<string, unknown>)[field] ?? ''))
         label += ' ' + suffix
       }
       return {

@@ -6,7 +6,6 @@ import {
   createGraphClient,
   getTenantCredentialsBySlug,
   type GraphGroup,
-  type GraphLicenseSku,
 } from '@/lib/graph'
 
 // ---------------------------------------------------------------------------
@@ -630,7 +629,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           }
 
           // --- Clone permissions from another user ---
-          let clonedGroups: GraphGroup[] = []
+          const clonedGroups: GraphGroup[] = []
           if (newUserId && a.clone_permissions === 'yes' && a.clone_from_user) {
             const cloneStart = new Date()
             try {
