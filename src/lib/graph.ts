@@ -369,6 +369,7 @@ export function createGraphClient(creds: TenantCredentials) {
       password: string
       jobTitle?: string
       department?: string
+      usageLocation?: string
       accountEnabled?: boolean
     }): Promise<GraphUser> {
       const t = await token()
@@ -384,6 +385,7 @@ export function createGraphClient(creds: TenantCredentials) {
           },
           jobTitle: userData.jobTitle ?? null,
           department: userData.department ?? null,
+          usageLocation: userData.usageLocation ?? null,
           accountEnabled: userData.accountEnabled ?? true,
         }),
       })

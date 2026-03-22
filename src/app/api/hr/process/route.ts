@@ -91,7 +91,8 @@ function formatAnswersAsDescription(
     if (a.start_date)      lines.push(`  Start Date:     ${a.start_date}`)
     if (a.job_title)       lines.push(`  Job Title:      ${a.job_title}`)
     if (a.department)      lines.push(`  Department:     ${a.department}`)
-    if (a.work_location)   lines.push(`  Work Location:  ${a.work_location}`)
+    if (a.work_country)    lines.push(`  Work Country:   ${a.work_country}`)
+    if (a.work_location_detail || a.work_location) lines.push(`  Work Location:  ${a.work_location_detail || a.work_location}`)
     if (a.personal_email)  lines.push(`  Personal Email: ${a.personal_email}`)
     if (a.phone)           lines.push(`  Phone:          ${a.phone}`)
 
@@ -548,6 +549,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               password: tempPassword,
               jobTitle: a.job_title ?? undefined,
               department: a.department ?? undefined,
+              usageLocation: a.work_country || 'US',
             })
             newUserId = newUser.id
             primaryActionSucceeded = true
@@ -749,23 +751,33 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
             // Send email notification
             if (resend) {
-              const recipientEmail = hrRequest.submitted_by_email || a.submitted_by_email
+              const submitterEmail = hrRequest.submitted_by_email || a.submitted_by_email
+              const credentialDelivery = a.credential_delivery || 'submitter'
+              const recipientEmail = credentialDelivery === 'personal_email' && a.personal_email
+                ? a.personal_email
+                : submitterEmail
+
               if (recipientEmail) {
+                const isPersonalEmail = credentialDelivery === 'personal_email' && a.personal_email
                 try {
                   await resend.emails.send({
                     from: FROM_EMAIL,
                     to: [recipientEmail],
                     subject: `Employee Onboarding Complete — ${fullName}`,
                     text: [
-                      `Hi ${hrRequest.submitted_by_name || 'there'},`,
+                      isPersonalEmail
+                        ? `Hi ${a.first_name || 'there'},`
+                        : `Hi ${hrRequest.submitted_by_name || 'there'},`,
                       '',
                       `The onboarding for ${fullName} has been completed.`,
                       '',
                       `New Email: ${upn}`,
+                      `Temporary Password: ${tempPassword}`,
+                      '',
+                      'Please change your password upon first sign-in.',
+                      '',
                       a.license_type ? `License Assigned: ${a.license_type}` : null,
                       allGroupDescriptions.length > 0 ? `Groups Added: ${allGroupDescriptions.length}` : null,
-                      '',
-                      'The temporary password will be shared securely by your TCT technician.',
                       '',
                       `Autotask Ticket: ${ticketNumber}`,
                       '',

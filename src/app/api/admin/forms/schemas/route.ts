@@ -355,6 +355,119 @@ async function migrateOffboardingUserSelect(client: PoolClient): Promise<void> {
   )
 }
 
+/** Idempotent migration: add credential_delivery and work_country/work_location_detail to onboarding */
+async function migrateOnboardingQuestions(client: PoolClient): Promise<void> {
+  const ONBOARDING_SCHEMA_ID = '550e8400-e29b-41d4-a716-446655440000'
+
+  // Check if work_country already exists — if yes, already migrated
+  const existing = await client.query(
+    `SELECT id FROM form_questions WHERE schema_id = $1 AND key = 'work_country' LIMIT 1`,
+    [ONBOARDING_SCHEMA_ID]
+  )
+  if (existing.rows.length > 0) return
+
+  // Get the employee_details section ID
+  const empSectionRes = await client.query<{ id: string }>(
+    `SELECT id FROM form_sections WHERE schema_id = $1 AND key = 'employee_details' LIMIT 1`,
+    [ONBOARDING_SCHEMA_ID]
+  )
+  if (empSectionRes.rows.length === 0) return
+  const empSectionId = empSectionRes.rows[0].id
+
+  // Delete old work_location question
+  await client.query(
+    `DELETE FROM form_questions WHERE schema_id = $1 AND key = 'work_location'`,
+    [ONBOARDING_SCHEMA_ID]
+  )
+
+  // Insert work_country select at sort_order 5
+  await client.query(
+    `INSERT INTO form_questions (section_id, schema_id, key, type, label, help_text, is_required, sort_order, static_options)
+     VALUES ($1, $2, 'work_country', 'select', 'Work Country',
+       'Select the country where this employee will primarily work. This affects compliance settings and SaaS Alerts geolocation whitelisting.',
+       true, 5, $3::jsonb)
+     ON CONFLICT (schema_id, key) DO NOTHING`,
+    [
+      empSectionId,
+      ONBOARDING_SCHEMA_ID,
+      JSON.stringify([
+        { value: 'US', label: 'United States' },
+        { value: 'BR', label: 'Brazil' },
+        { value: 'CA', label: 'Canada' },
+        { value: 'GB', label: 'United Kingdom' },
+        { value: 'DE', label: 'Germany' },
+        { value: 'FR', label: 'France' },
+        { value: 'AU', label: 'Australia' },
+        { value: 'IN', label: 'India' },
+        { value: 'MX', label: 'Mexico' },
+        { value: 'JP', label: 'Japan' },
+        { value: 'PH', label: 'Philippines' },
+        { value: 'CO', label: 'Colombia' },
+        { value: 'AR', label: 'Argentina' },
+        { value: 'CL', label: 'Chile' },
+        { value: 'OTHER', label: 'Other (specify below)' },
+      ]),
+    ]
+  )
+
+  // Insert work_location_detail text at sort_order 6
+  await client.query(
+    `INSERT INTO form_questions (section_id, schema_id, key, type, label, placeholder, sort_order)
+     VALUES ($1, $2, 'work_location_detail', 'text', 'City / State / Office Location',
+       'e.g. Binghamton, NY / São Paulo / Remote', 6)
+     ON CONFLICT (schema_id, key) DO NOTHING`,
+    [empSectionId, ONBOARDING_SCHEMA_ID]
+  )
+
+  // Shift personal_email to sort_order 7, phone to sort_order 8
+  await client.query(
+    `UPDATE form_questions SET sort_order = 7 WHERE schema_id = $1 AND key = 'personal_email'`,
+    [ONBOARDING_SCHEMA_ID]
+  )
+  await client.query(
+    `UPDATE form_questions SET sort_order = 8 WHERE schema_id = $1 AND key = 'phone'`,
+    [ONBOARDING_SCHEMA_ID]
+  )
+
+  // Get the special_instructions section ID
+  const specialSectionRes = await client.query<{ id: string }>(
+    `SELECT id FROM form_sections WHERE schema_id = $1 AND key = 'special_instructions' LIMIT 1`,
+    [ONBOARDING_SCHEMA_ID]
+  )
+  if (specialSectionRes.rows.length === 0) return
+  const specialSectionId = specialSectionRes.rows[0].id
+
+  // Insert credential_delivery radio at sort_order 0 (if not exists)
+  const credExisting = await client.query(
+    `SELECT id FROM form_questions WHERE schema_id = $1 AND key = 'credential_delivery' LIMIT 1`,
+    [ONBOARDING_SCHEMA_ID]
+  )
+  if (credExisting.rows.length === 0) {
+    await client.query(
+      `INSERT INTO form_questions (section_id, schema_id, key, type, label, help_text, is_required, sort_order, static_options)
+       VALUES ($1, $2, 'credential_delivery', 'radio',
+         'Where should we send the new account login information?',
+         'The new employee''s username, temporary password, and setup instructions will be sent to the selected recipient.',
+         true, 0, $3::jsonb)
+       ON CONFLICT (schema_id, key) DO NOTHING`,
+      [
+        specialSectionId,
+        ONBOARDING_SCHEMA_ID,
+        JSON.stringify([
+          { value: 'submitter', label: "Send to me (I'll share with the employee)" },
+          { value: 'personal_email', label: "Send directly to the employee's personal email" },
+        ]),
+      ]
+    )
+
+    // Shift additional_notes to sort_order 1
+    await client.query(
+      `UPDATE form_questions SET sort_order = 1 WHERE schema_id = $1 AND key = 'additional_notes' AND section_id = $2`,
+      [ONBOARDING_SCHEMA_ID, specialSectionId]
+    )
+  }
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/admin/forms/schemas?type=onboarding
 // ---------------------------------------------------------------------------
@@ -383,6 +496,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     try {
       const result = await client.query(query, params)
+      // Run idempotent migrations on every request
+      await migrateOffboardingUserSelect(client)
+      await migrateOnboardingQuestions(client)
       return NextResponse.json({ schemas: result.rows })
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : ''

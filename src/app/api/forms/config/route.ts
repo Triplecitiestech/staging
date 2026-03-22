@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { Pool } from 'pg'
+import { Pool, PoolClient } from 'pg'
 import { getTenantCredentialsBySlug, createGraphClient } from '@/lib/graph'
 
 // ---------------------------------------------------------------------------
@@ -239,6 +239,164 @@ function mergeSections(
 }
 
 // ---------------------------------------------------------------------------
+// Idempotent schema migrations (run on every request)
+// ---------------------------------------------------------------------------
+
+/** Idempotent migration: replace first_name/last_name/work_email with user_select in offboarding */
+async function migrateOffboardingUserSelect(client: PoolClient): Promise<void> {
+  const OFFBOARDING_SCHEMA_ID = '550e8400-e29b-41d4-a716-446655440001'
+  const existing = await client.query(
+    `SELECT id FROM form_questions WHERE schema_id = $1 AND key = 'employee_to_offboard' LIMIT 1`,
+    [OFFBOARDING_SCHEMA_ID]
+  )
+  if (existing.rows.length > 0) return
+
+  const sectionRes = await client.query<{ id: string }>(
+    `SELECT id FROM form_sections WHERE schema_id = $1 AND key = 'employee_details' LIMIT 1`,
+    [OFFBOARDING_SCHEMA_ID]
+  )
+  if (sectionRes.rows.length === 0) return
+  const sectionId = sectionRes.rows[0].id
+
+  await client.query(
+    `DELETE FROM form_questions WHERE schema_id = $1 AND key IN ('first_name', 'last_name', 'work_email')`,
+    [OFFBOARDING_SCHEMA_ID]
+  )
+
+  await client.query(
+    `INSERT INTO form_questions (section_id, schema_id, key, type, label, help_text, is_required, sort_order, data_source)
+     VALUES ($1, $2, 'employee_to_offboard', 'user_select', 'Select Employee', 'Search for the employee being offboarded', true, 0,
+       $3::jsonb)
+     ON CONFLICT (schema_id, key) DO NOTHING`,
+    [
+      sectionId,
+      OFFBOARDING_SCHEMA_ID,
+      JSON.stringify({
+        endpoint: 'users',
+        valueField: 'userPrincipalName',
+        labelField: 'displayName',
+        labelSuffix: '({userPrincipalName})',
+        cacheTtl: 300,
+        autoFill: {
+          first_name: 'givenName',
+          last_name: 'surname',
+          work_email: 'userPrincipalName',
+        },
+      }),
+    ]
+  )
+
+  await client.query(
+    `UPDATE form_questions SET sort_order = 1 WHERE schema_id = $1 AND key = 'last_day'`,
+    [OFFBOARDING_SCHEMA_ID]
+  )
+}
+
+/** Idempotent migration: add credential_delivery and work_country/work_location_detail to onboarding */
+async function migrateOnboardingQuestions(client: PoolClient): Promise<void> {
+  const ONBOARDING_SCHEMA_ID = '550e8400-e29b-41d4-a716-446655440000'
+
+  const existing = await client.query(
+    `SELECT id FROM form_questions WHERE schema_id = $1 AND key = 'work_country' LIMIT 1`,
+    [ONBOARDING_SCHEMA_ID]
+  )
+  if (existing.rows.length > 0) return
+
+  const empSectionRes = await client.query<{ id: string }>(
+    `SELECT id FROM form_sections WHERE schema_id = $1 AND key = 'employee_details' LIMIT 1`,
+    [ONBOARDING_SCHEMA_ID]
+  )
+  if (empSectionRes.rows.length === 0) return
+  const empSectionId = empSectionRes.rows[0].id
+
+  await client.query(
+    `DELETE FROM form_questions WHERE schema_id = $1 AND key = 'work_location'`,
+    [ONBOARDING_SCHEMA_ID]
+  )
+
+  await client.query(
+    `INSERT INTO form_questions (section_id, schema_id, key, type, label, help_text, is_required, sort_order, static_options)
+     VALUES ($1, $2, 'work_country', 'select', 'Work Country',
+       'Select the country where this employee will primarily work. This affects compliance settings and SaaS Alerts geolocation whitelisting.',
+       true, 5, $3::jsonb)
+     ON CONFLICT (schema_id, key) DO NOTHING`,
+    [
+      empSectionId,
+      ONBOARDING_SCHEMA_ID,
+      JSON.stringify([
+        { value: 'US', label: 'United States' },
+        { value: 'BR', label: 'Brazil' },
+        { value: 'CA', label: 'Canada' },
+        { value: 'GB', label: 'United Kingdom' },
+        { value: 'DE', label: 'Germany' },
+        { value: 'FR', label: 'France' },
+        { value: 'AU', label: 'Australia' },
+        { value: 'IN', label: 'India' },
+        { value: 'MX', label: 'Mexico' },
+        { value: 'JP', label: 'Japan' },
+        { value: 'PH', label: 'Philippines' },
+        { value: 'CO', label: 'Colombia' },
+        { value: 'AR', label: 'Argentina' },
+        { value: 'CL', label: 'Chile' },
+        { value: 'OTHER', label: 'Other (specify below)' },
+      ]),
+    ]
+  )
+
+  await client.query(
+    `INSERT INTO form_questions (section_id, schema_id, key, type, label, placeholder, sort_order)
+     VALUES ($1, $2, 'work_location_detail', 'text', 'City / State / Office Location',
+       'e.g. Binghamton, NY / São Paulo / Remote', 6)
+     ON CONFLICT (schema_id, key) DO NOTHING`,
+    [empSectionId, ONBOARDING_SCHEMA_ID]
+  )
+
+  await client.query(
+    `UPDATE form_questions SET sort_order = 7 WHERE schema_id = $1 AND key = 'personal_email'`,
+    [ONBOARDING_SCHEMA_ID]
+  )
+  await client.query(
+    `UPDATE form_questions SET sort_order = 8 WHERE schema_id = $1 AND key = 'phone'`,
+    [ONBOARDING_SCHEMA_ID]
+  )
+
+  const specialSectionRes = await client.query<{ id: string }>(
+    `SELECT id FROM form_sections WHERE schema_id = $1 AND key = 'special_instructions' LIMIT 1`,
+    [ONBOARDING_SCHEMA_ID]
+  )
+  if (specialSectionRes.rows.length === 0) return
+  const specialSectionId = specialSectionRes.rows[0].id
+
+  const credExisting = await client.query(
+    `SELECT id FROM form_questions WHERE schema_id = $1 AND key = 'credential_delivery' LIMIT 1`,
+    [ONBOARDING_SCHEMA_ID]
+  )
+  if (credExisting.rows.length === 0) {
+    await client.query(
+      `INSERT INTO form_questions (section_id, schema_id, key, type, label, help_text, is_required, sort_order, static_options)
+       VALUES ($1, $2, 'credential_delivery', 'radio',
+         'Where should we send the new account login information?',
+         'The new employee''s username, temporary password, and setup instructions will be sent to the selected recipient.',
+         true, 0, $3::jsonb)
+       ON CONFLICT (schema_id, key) DO NOTHING`,
+      [
+        specialSectionId,
+        ONBOARDING_SCHEMA_ID,
+        JSON.stringify([
+          { value: 'submitter', label: "Send to me (I'll share with the employee)" },
+          { value: 'personal_email', label: "Send directly to the employee's personal email" },
+        ]),
+      ]
+    )
+
+    await client.query(
+      `UPDATE form_questions SET sort_order = 1 WHERE schema_id = $1 AND key = 'additional_notes' AND section_id = $2`,
+      [ONBOARDING_SCHEMA_ID, specialSectionId]
+    )
+  }
+}
+
+// ---------------------------------------------------------------------------
 // GET /api/forms/config?companySlug=X&type=onboarding&email=Y
 // ---------------------------------------------------------------------------
 
@@ -267,6 +425,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   const client = await pool.connect()
   try {
+    // Run idempotent migrations on every request
+    await migrateOffboardingUserSelect(client)
+    await migrateOnboardingQuestions(client)
+
     // 1. Find company by slug
     const companyRes = await client.query<{ id: string }>(
       `SELECT id FROM companies WHERE slug = $1 LIMIT 1`,
