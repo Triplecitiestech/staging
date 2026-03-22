@@ -240,6 +240,7 @@ function mergeSections(
 
 // ---------------------------------------------------------------------------
 // Idempotent schema migrations (run on every request)
+// Each migration checks whether it has already run before making changes.
 // ---------------------------------------------------------------------------
 
 /** Idempotent migration: replace first_name/last_name/work_email with user_select in offboarding */
@@ -256,6 +257,8 @@ async function migrateOffboardingUserSelect(client: PoolClient): Promise<void> {
   )
   if (existing.rows.length > 0) return
 
+  console.log('[forms/config] Running migration: offboarding user_select')
+
   const sectionRes = await client.query<{ id: string }>(
     `SELECT id FROM form_sections WHERE schema_id = $1 AND key = 'employee_details' LIMIT 1`,
     [schemaId]
@@ -270,8 +273,9 @@ async function migrateOffboardingUserSelect(client: PoolClient): Promise<void> {
 
   await client.query(
     `INSERT INTO form_questions (section_id, schema_id, key, type, label, help_text, is_required, sort_order, data_source)
-     VALUES ($1, $2, 'employee_to_offboard', 'user_select', 'Select Employee', 'Search for the employee being offboarded', true, 0,
-       $3::jsonb)
+     VALUES ($1, $2, 'employee_to_offboard', 'user_select', 'Select Employee',
+       'Search by name or email to find the employee being offboarded. Their account details will be auto-filled.',
+       true, 0, $3::jsonb)
      ON CONFLICT (schema_id, key) DO NOTHING`,
     [
       sectionId,
@@ -292,12 +296,14 @@ async function migrateOffboardingUserSelect(client: PoolClient): Promise<void> {
   )
 
   await client.query(
-    `UPDATE form_questions SET sort_order = 1 WHERE schema_id = $1 AND key = 'last_day'`,
+    `UPDATE form_questions SET sort_order = 1, help_text = 'The last day this employee will have access. For immediate terminations, set to today.' WHERE schema_id = $1 AND key = 'last_day'`,
     [schemaId]
   )
+
+  console.log('[forms/config] Migration complete: offboarding user_select')
 }
 
-/** Idempotent migration: add credential_delivery and work_country/work_location_detail to onboarding */
+/** Idempotent migration: add credential_delivery, work_country, desired_username, billing_ack, merge sections, help text */
 async function migrateOnboardingQuestions(client: PoolClient): Promise<void> {
   const schemaRes = await client.query<{ id: string }>(
     `SELECT id FROM form_schemas WHERE type = 'onboarding' AND status = 'published' LIMIT 1`
@@ -305,11 +311,11 @@ async function migrateOnboardingQuestions(client: PoolClient): Promise<void> {
   if (schemaRes.rows.length === 0) return
   const schemaId = schemaRes.rows[0].id
 
-  const existing = await client.query(
+  // --- Phase A: Add work_country (multi_select), work_location_detail, replace work_location ---
+  const countryExists = await client.query(
     `SELECT id FROM form_questions WHERE schema_id = $1 AND key = 'work_country' LIMIT 1`,
     [schemaId]
   )
-  if (existing.rows.length > 0) return
 
   const empSectionRes = await client.query<{ id: string }>(
     `SELECT id FROM form_sections WHERE schema_id = $1 AND key = 'employee_details' LIMIT 1`,
@@ -318,57 +324,214 @@ async function migrateOnboardingQuestions(client: PoolClient): Promise<void> {
   if (empSectionRes.rows.length === 0) return
   const empSectionId = empSectionRes.rows[0].id
 
+  if (countryExists.rows.length === 0) {
+    console.log('[forms/config] Running migration: onboarding work_country + work_location_detail')
+    await client.query(
+      `DELETE FROM form_questions WHERE schema_id = $1 AND key = 'work_location'`,
+      [schemaId]
+    )
+
+    await client.query(
+      `INSERT INTO form_questions (section_id, schema_id, key, type, label, help_text, is_required, sort_order, static_options)
+       VALUES ($1, $2, 'work_country', 'multi_select', 'Work Countries',
+         'Select ALL countries where this employee will work. The first country selected will be set as the primary usageLocation in Microsoft 365 (affects licensing and compliance).',
+         true, 5, $3::jsonb)
+       ON CONFLICT (schema_id, key) DO NOTHING`,
+      [
+        empSectionId,
+        schemaId,
+        JSON.stringify([
+          { value: 'US', label: 'United States' },
+          { value: 'BR', label: 'Brazil' },
+          { value: 'CA', label: 'Canada' },
+          { value: 'GB', label: 'United Kingdom' },
+          { value: 'DE', label: 'Germany' },
+          { value: 'FR', label: 'France' },
+          { value: 'AU', label: 'Australia' },
+          { value: 'IN', label: 'India' },
+          { value: 'MX', label: 'Mexico' },
+          { value: 'JP', label: 'Japan' },
+          { value: 'PH', label: 'Philippines' },
+          { value: 'CO', label: 'Colombia' },
+          { value: 'AR', label: 'Argentina' },
+          { value: 'CL', label: 'Chile' },
+          { value: 'OTHER', label: 'Other (specify in notes)' },
+        ]),
+      ]
+    )
+
+    await client.query(
+      `INSERT INTO form_questions (section_id, schema_id, key, type, label, help_text, placeholder, sort_order)
+       VALUES ($1, $2, 'work_location_detail', 'text', 'City / State / Office Location',
+         'Helps us configure time zone defaults and local compliance settings.',
+         'e.g. Binghamton, NY / São Paulo / Remote', 6)
+       ON CONFLICT (schema_id, key) DO NOTHING`,
+      [empSectionId, schemaId]
+    )
+  } else {
+    // Upgrade existing work_country from select to multi_select if needed
+    await client.query(
+      `UPDATE form_questions SET type = 'multi_select', label = 'Work Countries',
+       help_text = 'Select ALL countries where this employee will work. The first country selected will be set as the primary usageLocation in Microsoft 365 (affects licensing and compliance).'
+       WHERE schema_id = $1 AND key = 'work_country' AND type = 'select'`,
+      [schemaId]
+    )
+  }
+
+  // --- Phase B: Add desired_username field ---
+  const usernameExists = await client.query(
+    `SELECT id FROM form_questions WHERE schema_id = $1 AND key = 'desired_username' LIMIT 1`,
+    [schemaId]
+  )
+  if (usernameExists.rows.length === 0) {
+    console.log('[forms/config] Running migration: onboarding desired_username')
+    await client.query(
+      `INSERT INTO form_questions (section_id, schema_id, key, type, label, help_text, placeholder, sort_order)
+       VALUES ($1, $2, 'desired_username', 'text', 'Desired Username (optional)',
+         'If you have a preferred username for this employee, enter it here. Otherwise we will generate one as firstname.lastname@yourdomain.com.',
+         'e.g. jsmith or jane.smith', 9)
+       ON CONFLICT (schema_id, key) DO NOTHING`,
+      [empSectionId, schemaId]
+    )
+  }
+
+  // --- Phase C: Update help text on existing fields ---
   await client.query(
-    `DELETE FROM form_questions WHERE schema_id = $1 AND key = 'work_location'`,
+    `UPDATE form_questions SET help_text = 'Legal first name as it should appear in the company directory and email address.'
+     WHERE schema_id = $1 AND key = 'first_name' AND (help_text IS NULL OR help_text = '')`,
+    [schemaId]
+  )
+  await client.query(
+    `UPDATE form_questions SET help_text = 'Legal last name as it should appear in the company directory and email address.'
+     WHERE schema_id = $1 AND key = 'last_name' AND (help_text IS NULL OR help_text = '')`,
+    [schemaId]
+  )
+  await client.query(
+    `UPDATE form_questions SET help_text = 'When should the employee''s account be ready? We recommend 1-2 business days before their first day.'
+     WHERE schema_id = $1 AND key = 'start_date'`,
+    [schemaId]
+  )
+  await client.query(
+    `UPDATE form_questions SET help_text = 'Used to set the user''s title in Microsoft 365 and the company directory.'
+     WHERE schema_id = $1 AND key = 'job_title' AND (help_text IS NULL OR help_text = '')`,
+    [schemaId]
+  )
+  await client.query(
+    `UPDATE form_questions SET help_text = 'Used to organize users in the company directory. Must match an existing department name if applicable.'
+     WHERE schema_id = $1 AND key = 'department' AND (help_text IS NULL OR help_text = '')`,
+    [schemaId]
+  )
+  await client.query(
+    `UPDATE form_questions SET help_text = 'We will send the new employee''s login credentials and setup instructions to this address.'
+     WHERE schema_id = $1 AND key = 'personal_email'`,
+    [schemaId]
+  )
+  await client.query(
+    `UPDATE form_questions SET help_text = 'Optional — we may call to coordinate account setup or verify identity.'
+     WHERE schema_id = $1 AND key = 'phone' AND (help_text IS NULL OR help_text = '')`,
     [schemaId]
   )
 
-  await client.query(
-    `INSERT INTO form_questions (section_id, schema_id, key, type, label, help_text, is_required, sort_order, static_options)
-     VALUES ($1, $2, 'work_country', 'select', 'Work Country',
-       'Select the country where this employee will primarily work. This affects compliance settings and SaaS Alerts geolocation whitelisting.',
-       true, 5, $3::jsonb)
-     ON CONFLICT (schema_id, key) DO NOTHING`,
-    [
-      empSectionId,
-      schemaId,
-      JSON.stringify([
-        { value: 'US', label: 'United States' },
-        { value: 'BR', label: 'Brazil' },
-        { value: 'CA', label: 'Canada' },
-        { value: 'GB', label: 'United Kingdom' },
-        { value: 'DE', label: 'Germany' },
-        { value: 'FR', label: 'France' },
-        { value: 'AU', label: 'Australia' },
-        { value: 'IN', label: 'India' },
-        { value: 'MX', label: 'Mexico' },
-        { value: 'JP', label: 'Japan' },
-        { value: 'PH', label: 'Philippines' },
-        { value: 'CO', label: 'Colombia' },
-        { value: 'AR', label: 'Argentina' },
-        { value: 'CL', label: 'Chile' },
-        { value: 'OTHER', label: 'Other (specify below)' },
-      ]),
-    ]
+  // --- Phase D: Merge access_profile and m365_license sections into role_and_license ---
+  const mergedSectionExists = await client.query(
+    `SELECT id FROM form_sections WHERE schema_id = $1 AND key = 'role_and_license' LIMIT 1`,
+    [schemaId]
   )
+  if (mergedSectionExists.rows.length === 0) {
+    console.log('[forms/config] Running migration: merge access_profile + m365_license → role_and_license')
 
-  await client.query(
-    `INSERT INTO form_questions (section_id, schema_id, key, type, label, placeholder, sort_order)
-     VALUES ($1, $2, 'work_location_detail', 'text', 'City / State / Office Location',
-       'e.g. Binghamton, NY / São Paulo / Remote', 6)
-     ON CONFLICT (schema_id, key) DO NOTHING`,
-    [empSectionId, schemaId]
-  )
+    // Create the merged section
+    await client.query(
+      `INSERT INTO form_sections (schema_id, key, title, description, sort_order)
+       VALUES ($1, 'role_and_license', 'Role & License', 'What kind of access does this employee need, and which Microsoft 365 license should they receive?', 1)`,
+      [schemaId]
+    )
 
+    const newSectionRes = await client.query<{ id: string }>(
+      `SELECT id FROM form_sections WHERE schema_id = $1 AND key = 'role_and_license' LIMIT 1`,
+      [schemaId]
+    )
+    if (newSectionRes.rows.length > 0) {
+      const newSectionId = newSectionRes.rows[0].id
+
+      // Move questions from access_profile section
+      const apSectionRes = await client.query<{ id: string }>(
+        `SELECT id FROM form_sections WHERE schema_id = $1 AND key = 'access_profile' LIMIT 1`,
+        [schemaId]
+      )
+      if (apSectionRes.rows.length > 0) {
+        await client.query(
+          `UPDATE form_questions SET section_id = $1, sort_order = 0,
+           help_text = 'This determines the default set of groups and permissions the employee receives. You can customize further in the Access & Permissions step.'
+           WHERE schema_id = $2 AND key = 'access_profile'`,
+          [newSectionId, schemaId]
+        )
+        // Disable old section
+        await client.query(
+          `UPDATE form_sections SET is_enabled = false WHERE schema_id = $1 AND key = 'access_profile'`,
+          [schemaId]
+        )
+      }
+
+      // Move questions from m365_license section
+      const licSectionRes = await client.query<{ id: string }>(
+        `SELECT id FROM form_sections WHERE schema_id = $1 AND key = 'm365_license' LIMIT 1`,
+        [schemaId]
+      )
+      if (licSectionRes.rows.length > 0) {
+        await client.query(
+          `UPDATE form_questions SET section_id = $1, sort_order = 1,
+           help_text = 'Each license has a monthly cost. Choose the license that matches the employee''s needs. Available counts are shown next to each option.'
+           WHERE schema_id = $2 AND key = 'license_type'`,
+          [newSectionId, schemaId]
+        )
+        // Disable old section
+        await client.query(
+          `UPDATE form_sections SET is_enabled = false WHERE schema_id = $1 AND key = 'm365_license'`,
+          [schemaId]
+        )
+      }
+
+      // Re-number remaining sections
+      await client.query(
+        `UPDATE form_sections SET sort_order = 2 WHERE schema_id = $1 AND key = 'access_permissions'`,
+        [schemaId]
+      )
+      await client.query(
+        `UPDATE form_sections SET sort_order = 3 WHERE schema_id = $1 AND key = 'special_instructions'`,
+        [schemaId]
+      )
+    }
+  }
+
+  // --- Phase E: Update help text on access_permissions questions ---
   await client.query(
-    `UPDATE form_questions SET sort_order = 7 WHERE schema_id = $1 AND key = 'personal_email'`,
+    `UPDATE form_questions SET help_text = 'Security groups control access to shared resources like file shares, printers, and internal applications.'
+     WHERE schema_id = $1 AND key = 'security_groups' AND (help_text IS NULL OR help_text = '')`,
     [schemaId]
   )
   await client.query(
-    `UPDATE form_questions SET sort_order = 8 WHERE schema_id = $1 AND key = 'phone'`,
+    `UPDATE form_questions SET help_text = 'Distribution lists are email groups. Members receive all messages sent to the list address.'
+     WHERE schema_id = $1 AND key = 'distribution_lists' AND (help_text IS NULL OR help_text = '')`,
+    [schemaId]
+  )
+  await client.query(
+    `UPDATE form_questions SET help_text = 'Microsoft Teams channels for collaboration. The employee will be added as a member of each selected team.'
+     WHERE schema_id = $1 AND key = 'teams_groups' AND (help_text IS NULL OR help_text = '')`,
+    [schemaId]
+  )
+  await client.query(
+    `UPDATE form_questions SET help_text = 'SharePoint sites the employee needs access to for document collaboration.'
+     WHERE schema_id = $1 AND key = 'sharepoint_sites' AND (help_text IS NULL OR help_text = '')`,
+    [schemaId]
+  )
+  await client.query(
+    `UPDATE form_questions SET help_text = 'Cloning copies all group memberships from an existing user — useful when the new employee has a similar role.'
+     WHERE schema_id = $1 AND key = 'clone_permissions' AND (help_text IS NULL OR help_text = '')`,
     [schemaId]
   )
 
+  // --- Phase F: Add credential_delivery to special_instructions ---
   const specialSectionRes = await client.query<{ id: string }>(
     `SELECT id FROM form_sections WHERE schema_id = $1 AND key = 'special_instructions' LIMIT 1`,
     [schemaId]
@@ -381,11 +544,12 @@ async function migrateOnboardingQuestions(client: PoolClient): Promise<void> {
     [schemaId]
   )
   if (credExisting.rows.length === 0) {
+    console.log('[forms/config] Running migration: onboarding credential_delivery')
     await client.query(
       `INSERT INTO form_questions (section_id, schema_id, key, type, label, help_text, is_required, sort_order, static_options)
        VALUES ($1, $2, 'credential_delivery', 'radio',
          'Where should we send the new account login information?',
-         'The new employee''s username, temporary password, and setup instructions will be sent to the selected recipient.',
+         'The new employee''s username, temporary password, and setup instructions will be sent to the selected recipient. Choose carefully — this email will contain sensitive credentials.',
          true, 0, $3::jsonb)
        ON CONFLICT (schema_id, key) DO NOTHING`,
       [
@@ -397,12 +561,43 @@ async function migrateOnboardingQuestions(client: PoolClient): Promise<void> {
         ]),
       ]
     )
+  }
 
+  // --- Phase G: Add billing acknowledgment checkbox ---
+  const billingExists = await client.query(
+    `SELECT id FROM form_questions WHERE schema_id = $1 AND key = 'billing_acknowledgment' LIMIT 1`,
+    [schemaId]
+  )
+  if (billingExists.rows.length === 0) {
+    console.log('[forms/config] Running migration: onboarding billing_acknowledgment')
     await client.query(
-      `UPDATE form_questions SET sort_order = 1 WHERE schema_id = $1 AND key = 'additional_notes' AND section_id = $2`,
-      [schemaId, specialSectionId]
+      `INSERT INTO form_questions (section_id, schema_id, key, type, label, help_text, is_required, sort_order)
+       VALUES ($1, $2, 'billing_acknowledgment', 'checkbox',
+         'I understand that adding a Microsoft 365 license will result in additional monthly charges on our next invoice.',
+         'The selected license will be billed at Microsoft''s current rate. You can view current pricing in your Microsoft 365 admin center.',
+         true, 1)
+       ON CONFLICT (schema_id, key) DO NOTHING`,
+      [specialSectionId, schemaId]
     )
   }
+
+  // Ensure additional_notes is last in special_instructions
+  await client.query(
+    `UPDATE form_questions SET sort_order = 2,
+     help_text = 'Include any special software needs, VPN access requirements, building access badges, equipment requests, or anything else we should know.'
+     WHERE schema_id = $1 AND key = 'additional_notes' AND section_id = $2`,
+    [schemaId, specialSectionId]
+  )
+
+  // --- Phase H: Update sort orders for personal_email and phone ---
+  await client.query(
+    `UPDATE form_questions SET sort_order = 7 WHERE schema_id = $1 AND key = 'personal_email'`,
+    [schemaId]
+  )
+  await client.query(
+    `UPDATE form_questions SET sort_order = 8 WHERE schema_id = $1 AND key = 'phone'`,
+    [schemaId]
+  )
 }
 
 // ---------------------------------------------------------------------------

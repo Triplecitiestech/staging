@@ -8,11 +8,7 @@ Active development work and outstanding items. Only currently active work belong
 
 ## In Progress
 
-### Portal Layout Unification (UNCOMMITTED)
-- **Status**: Code written, not yet committed/pushed
-- **File**: `src/components/onboarding/OnboardingPortal.tsx`
-- **What changed**: Removed the 3-branch conditional (no projects / has projects / has onboarding data). Now always renders `CustomerDashboard` + `HrRequestSection` below it. `CustomerDashboard` fetches its own ticket stats and handles empty state gracefully.
-- **Next**: Commit and push, verify on kflorance portal
+(No items currently in progress)
 
 ---
 
@@ -22,39 +18,30 @@ Active development work and outstanding items. Only currently active work belong
 - Go to `/admin/companies/kflorance/onboard` → Step 2
 - Enter Azure AD Tenant ID, Client ID, Client Secret for the kflorance tenant
 - Click Test Connection, then Mark Complete
-- Once done, HR wizard Step 2 will show live groups/licenses/users from Azure AD
+- Once done, HR forms will show live groups/licenses/users from Azure AD
 
 ### 2. DNS — portal subdomain
 - Add CNAME record: `portal` → `48fc0e6b423bbc2a.vercel-dns-010.com.`
-- At whatever DNS provider manages `triplecitiestech.com`
 - Then add `portal.triplecitiestech.com` as a domain alias in Vercel project settings
 
 ### 3. Pax8 Secret Rotation
 - Log into Pax8 portal → rotate `PAX8_CLIENT_SECRET`
 - Update `PAX8_CLIENT_SECRET` env var in Vercel project settings
-- Redeploy or wait for next deploy to pick it up
-
-### 4. Manager Verify UX
-- Currently: clicking "Request Employee Changes" always shows email verify modal (sessionStorage-based, resets each browser session)
-- Since password gate is gone, the email verify is the only identity gate — that's correct behavior
-- Consider: could the portal URL include a pre-auth token so managers don't have to type email? (optional UX improvement)
 
 ---
 
 ## Question Engine
 
 ### Phase 1: Database + Form Config API (COMPLETE)
-- **Branch**: `claude/question-engine-phase1`
-- **Migration**: `migrations/add_question_engine_tables.sql` — 8 tables (form_schemas, form_sections, form_questions, customer_form_configs, customer_custom_questions, customer_custom_sections, automation_mappings, form_links)
-- **Seed**: `migrations/seed_default_forms.sql` — default onboarding v1 + offboarding v1 schemas with all sections/questions
-- **API**: `GET /api/forms/config?companySlug=X&type=onboarding&email=Y` — merge algorithm + M365 data source resolution
-- **Architecture doc**: `docs/plans/QUESTION_ENGINE_ARCHITECTURE.md`
-- **Next**: Run migration SQL on database, then proceed to Phase 2
+- Migration: `migrations/add_question_engine_tables.sql` + `migrations/seed_default_forms.sql`
+- API: `GET /api/forms/config` — merge algorithm + M365 data source resolution + idempotent migrations
 
-### Phase 2: Form Renderer + Portal (NOT STARTED)
-- Build `<FormRenderer>` React component (step-by-step wizard)
-- Replace current HrRequestWizard with FormRenderer using config API
-- Visibility engine (client-side rule evaluation)
+### Phase 2: Form Renderer + Portal (COMPLETE)
+- `FormRenderer.tsx` — schema-driven step-by-step wizard
+- `FormField.tsx` — all field types (text, select, multi_select, radio, checkbox, user_select, date, etc.)
+- `VisibilityEngine.ts` — conditional visibility rule evaluation
+- `HrRequestCards.tsx` — action cards + FormRendererLoader that fetches config and renders FormRenderer
+- Legacy `HrRequestWizard.tsx` DELETED (was dead code)
 
 ### Phase 3: Admin UI (NOT STARTED)
 - Global form builder at `/admin/settings/form-builder`
@@ -63,12 +50,10 @@ Active development work and outstanding items. Only currently active work belong
 ### Phase 4: Thread Integration (NOT STARTED)
 - Form links system (create, validate, expire)
 - `/form/[token]` portal route
-- Thread webhook handler
 
 ### Phase 5: Automation Mapping (NOT STARTED)
 - Automation mapping admin UI
 - Process route evaluation of mappings
-- M365 provisioning actions
 
 ---
 

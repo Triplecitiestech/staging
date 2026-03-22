@@ -77,7 +77,10 @@ This document maps every major subsystem to its primary source files. Use it to 
 | OnboardingPortal | `onboarding/OnboardingPortal.tsx` | Portal shell — routes to dashboard or legacy timeline |
 | CustomerDashboard | `onboarding/CustomerDashboard.tsx` | Ticket stats cards + project list + ticket table |
 | HrRequestSection | `onboarding/HrRequestSection.tsx` | Employee Management card + manager verify modal |
-| HrRequestWizard | `onboarding/HrRequestWizard.tsx` | Multi-step onboard/offboard form (Step 2 uses live M365 data) |
+| HrRequestCards | `onboarding/HrRequestCards.tsx` | Action cards + FormRendererLoader — loads schema from API, renders FormRenderer |
+| FormRenderer | `onboarding/FormRenderer.tsx` | Schema-driven step-by-step wizard (replaces legacy HrRequestWizard) |
+| FormField | `onboarding/FormField.tsx` | Individual field components (text, select, multi_select, radio, checkbox, user_select, date, etc.) |
+| VisibilityEngine | `onboarding/VisibilityEngine.ts` | Conditional field visibility rule evaluation |
 | PasswordGate | `onboarding/PasswordGate.tsx` | Legacy — no longer rendered (portal is open) |
 
 ---
