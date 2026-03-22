@@ -239,11 +239,13 @@ INSERT INTO form_sections (id, schema_id, key, title, description, sort_order) V
   ('b0000001-0000-0000-0000-000000000005', '550e8400-e29b-41d4-a716-446655440001', 'special_instructions', 'Special Instructions', NULL, 4)
 ON CONFLICT DO NOTHING;
 
+INSERT INTO form_questions (section_id, schema_id, key, type, label, help_text, is_required, sort_order, data_source) VALUES
+  ('b0000001-0000-0000-0000-000000000001', '550e8400-e29b-41d4-a716-446655440001', 'employee_to_offboard', 'user_select', 'Select Employee', 'Search for the employee being offboarded', true, 0,
+   '{"endpoint": "users", "valueField": "userPrincipalName", "labelField": "displayName", "labelSuffix": "({userPrincipalName})", "cacheTtl": 300, "autoFill": {"first_name": "givenName", "last_name": "surname", "work_email": "userPrincipalName"}}'::jsonb)
+ON CONFLICT DO NOTHING;
+
 INSERT INTO form_questions (section_id, schema_id, key, type, label, is_required, sort_order) VALUES
-  ('b0000001-0000-0000-0000-000000000001', '550e8400-e29b-41d4-a716-446655440001', 'first_name', 'text', 'First Name', true, 0),
-  ('b0000001-0000-0000-0000-000000000001', '550e8400-e29b-41d4-a716-446655440001', 'last_name', 'text', 'Last Name', true, 1),
-  ('b0000001-0000-0000-0000-000000000001', '550e8400-e29b-41d4-a716-446655440001', 'work_email', 'email', 'Work Email', true, 2),
-  ('b0000001-0000-0000-0000-000000000001', '550e8400-e29b-41d4-a716-446655440001', 'last_day', 'date', 'Last Working Day', true, 3)
+  ('b0000001-0000-0000-0000-000000000001', '550e8400-e29b-41d4-a716-446655440001', 'last_day', 'date', 'Last Working Day', true, 1)
 ON CONFLICT DO NOTHING;
 
 INSERT INTO form_questions (section_id, schema_id, key, type, label, help_text, is_required, sort_order, static_options) VALUES
@@ -294,6 +296,63 @@ ON CONFLICT DO NOTHING;
 async function ensureTablesExist(client: PoolClient): Promise<void> {
   await client.query(MIGRATION_SQL)
   await client.query(SEED_SQL)
+  await migrateOffboardingUserSelect(client)
+}
+
+/** Idempotent migration: replace first_name/last_name/work_email with user_select in offboarding */
+async function migrateOffboardingUserSelect(client: PoolClient): Promise<void> {
+  const OFFBOARDING_SCHEMA_ID = '550e8400-e29b-41d4-a716-446655440001'
+
+  // Check if employee_to_offboard already exists
+  const existing = await client.query(
+    `SELECT id FROM form_questions WHERE schema_id = $1 AND key = 'employee_to_offboard' LIMIT 1`,
+    [OFFBOARDING_SCHEMA_ID]
+  )
+  if (existing.rows.length > 0) return // already migrated
+
+  // Get the employee_details section ID
+  const sectionRes = await client.query<{ id: string }>(
+    `SELECT id FROM form_sections WHERE schema_id = $1 AND key = 'employee_details' LIMIT 1`,
+    [OFFBOARDING_SCHEMA_ID]
+  )
+  if (sectionRes.rows.length === 0) return
+  const sectionId = sectionRes.rows[0].id
+
+  // Delete old first_name, last_name, work_email questions
+  await client.query(
+    `DELETE FROM form_questions WHERE schema_id = $1 AND key IN ('first_name', 'last_name', 'work_email')`,
+    [OFFBOARDING_SCHEMA_ID]
+  )
+
+  // Insert new employee_to_offboard user_select question
+  await client.query(
+    `INSERT INTO form_questions (section_id, schema_id, key, type, label, help_text, is_required, sort_order, data_source)
+     VALUES ($1, $2, 'employee_to_offboard', 'user_select', 'Select Employee', 'Search for the employee being offboarded', true, 0,
+       $3::jsonb)
+     ON CONFLICT (schema_id, key) DO NOTHING`,
+    [
+      sectionId,
+      OFFBOARDING_SCHEMA_ID,
+      JSON.stringify({
+        endpoint: 'users',
+        valueField: 'userPrincipalName',
+        labelField: 'displayName',
+        labelSuffix: '({userPrincipalName})',
+        cacheTtl: 300,
+        autoFill: {
+          first_name: 'givenName',
+          last_name: 'surname',
+          work_email: 'userPrincipalName',
+        },
+      }),
+    ]
+  )
+
+  // Update last_day sort_order to 1 (after employee_to_offboard)
+  await client.query(
+    `UPDATE form_questions SET sort_order = 1 WHERE schema_id = $1 AND key = 'last_day'`,
+    [OFFBOARDING_SCHEMA_ID]
+  )
 }
 
 // ---------------------------------------------------------------------------

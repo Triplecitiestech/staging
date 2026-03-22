@@ -109,7 +109,7 @@ function formatAnswersAsDescription(
     lines.push('=== EMPLOYEE OFFBOARDING REQUEST ===', '')
     lines.push('EMPLOYEE DETAILS')
     lines.push(`  Name:           ${a.first_name ?? ''} ${a.last_name ?? ''}`.trimEnd())
-    if (a.work_email)      lines.push(`  Work Email:     ${a.work_email}`)
+    if (a.work_email || a.employee_to_offboard) lines.push(`  Work Email:     ${a.work_email ?? a.employee_to_offboard}`)
     if (a.last_day)        lines.push(`  Last Day:       ${a.last_day}`)
 
     lines.push('', 'ACCOUNT HANDLING')
@@ -814,7 +814,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         stepsCompleted.push('load_m365_creds')
 
         const graph = createGraphClient(creds)
-        const workEmail = a.work_email ?? ''
+        const workEmail = a.work_email ?? a.employee_to_offboard ?? ''
 
         // Find user
         const findStart = new Date()

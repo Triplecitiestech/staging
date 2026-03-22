@@ -6,6 +6,18 @@ import { useState } from 'react'
 // Types
 // ---------------------------------------------------------------------------
 
+export interface UserOption {
+  value: string
+  label: string
+  displayName: string
+  givenName?: string
+  surname?: string
+  userPrincipalName: string
+  mail?: string
+  department?: string
+  jobTitle?: string
+}
+
 export interface FormFieldQuestion {
   key: string
   type: string
@@ -16,6 +28,8 @@ export interface FormFieldQuestion {
   defaultValue?: string | null
   validation?: { minLength?: number; maxLength?: number; pattern?: string } | null
   options?: { value: string; label: string }[]
+  userOptions?: UserOption[]
+  autoFillMap?: Record<string, string>
 }
 
 interface FormFieldProps {
@@ -126,6 +140,10 @@ export function FormField({ question, value, onChange, error }: FormFieldProps) 
         {error && <p className={errorClass}>{error}</p>}
       </div>
     )
+  }
+
+  if (type === 'user_select') {
+    return <UserSelectField question={question} value={value} onChange={onChange} error={error} />
   }
 
   if (type === 'select') {
@@ -296,6 +314,131 @@ function SelectField({
           </option>
         ))}
       </select>
+      {helpText && <p className={helpClass}>{helpText}</p>}
+      {error && <p className={errorClass}>{error}</p>}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// User select field — searchable user picker with auto-fill
+// ---------------------------------------------------------------------------
+
+function UserSelectField({
+  question,
+  value,
+  onChange,
+  error,
+}: {
+  question: FormFieldQuestion
+  value: unknown
+  onChange: (key: string, value: unknown) => void
+  error?: string | null
+}) {
+  const { key, label, helpText, isRequired, userOptions, autoFillMap } = question
+  const [search, setSearch] = useState('')
+
+  const users = userOptions ?? []
+  const selectedUpn = (value as string) ?? ''
+  const selectedUser = users.find((u) => u.value === selectedUpn) ?? null
+
+  const filtered = users.filter((u) => {
+    if (!search) return true
+    const q = search.toLowerCase()
+    return (
+      u.displayName.toLowerCase().includes(q) ||
+      u.userPrincipalName.toLowerCase().includes(q) ||
+      (u.department ?? '').toLowerCase().includes(q) ||
+      (u.jobTitle ?? '').toLowerCase().includes(q)
+    )
+  })
+
+  const handleSelect = (user: UserOption) => {
+    onChange(key, user.value)
+    if (autoFillMap) {
+      for (const [answerKey, userProp] of Object.entries(autoFillMap)) {
+        const propValue = user[userProp as keyof UserOption] ?? ''
+        onChange(answerKey, propValue)
+      }
+    }
+    setSearch('')
+  }
+
+  const handleClear = () => {
+    onChange(key, '')
+    if (autoFillMap) {
+      for (const answerKey of Object.keys(autoFillMap)) {
+        onChange(answerKey, '')
+      }
+    }
+    setSearch('')
+  }
+
+  return (
+    <div>
+      <label className={labelClass}>
+        {label}
+        {isRequired && <span className="text-red-400 ml-1">*</span>}
+      </label>
+
+      {selectedUser ? (
+        <div className="flex items-center gap-3 p-3 rounded-lg bg-cyan-500/10 border border-cyan-500/30">
+          <div className="w-9 h-9 rounded-full bg-cyan-500/20 flex items-center justify-center text-cyan-400 text-sm font-semibold flex-shrink-0">
+            {(selectedUser.givenName?.[0] ?? selectedUser.displayName[0]).toUpperCase()}
+            {(selectedUser.surname?.[0] ?? '').toUpperCase()}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-white truncate">{selectedUser.displayName}</p>
+            <p className="text-xs text-gray-400 truncate">{selectedUser.userPrincipalName}</p>
+          </div>
+          <button
+            type="button"
+            onClick={handleClear}
+            className="text-gray-400 hover:text-white transition-colors p-1 flex-shrink-0"
+            aria-label="Clear selection"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      ) : (
+        <>
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by name or email..."
+            className={inputClass}
+          />
+          <div className="mt-1.5 max-h-56 overflow-y-auto space-y-1 pr-1">
+            {filtered.length === 0 ? (
+              <p className="text-xs text-gray-500 py-2 text-center">
+                {search ? 'No matching users' : 'No users available'}
+              </p>
+            ) : (
+              filtered.slice(0, 50).map((user) => (
+                <button
+                  key={user.value}
+                  type="button"
+                  onClick={() => handleSelect(user)}
+                  className="w-full flex items-center gap-3 p-2.5 rounded-lg bg-gray-800/30 border border-white/5 hover:border-cyan-500/30 hover:bg-gray-800/60 cursor-pointer transition-colors text-left"
+                >
+                  <div className="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center text-gray-300 text-xs font-semibold flex-shrink-0">
+                    {(user.givenName?.[0] ?? user.displayName[0]).toUpperCase()}
+                    {(user.surname?.[0] ?? '').toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-gray-200 truncate">{user.displayName}</p>
+                    <p className="text-xs text-gray-500 truncate">{user.userPrincipalName}</p>
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        </>
+      )}
+
       {helpText && <p className={helpClass}>{helpText}</p>}
       {error && <p className={errorClass}>{error}</p>}
     </div>

@@ -107,12 +107,13 @@ INSERT INTO form_sections (id, schema_id, key, title, description, sort_order) V
   ('b0000001-0000-0000-0000-000000000004', '550e8400-e29b-41d4-a716-446655440001', 'device_handling', 'Device Handling', 'What should happen with the employee''s devices?', 3),
   ('b0000001-0000-0000-0000-000000000005', '550e8400-e29b-41d4-a716-446655440001', 'special_instructions', 'Special Instructions', NULL, 4);
 
--- Offboarding questions: employee_details
+-- Offboarding questions: employee_details (user_select + last_day)
+INSERT INTO form_questions (section_id, schema_id, key, type, label, help_text, is_required, sort_order, data_source) VALUES
+  ('b0000001-0000-0000-0000-000000000001', '550e8400-e29b-41d4-a716-446655440001', 'employee_to_offboard', 'user_select', 'Select Employee', 'Search for the employee being offboarded', true, 0,
+   '{"endpoint": "users", "valueField": "userPrincipalName", "labelField": "displayName", "labelSuffix": "({userPrincipalName})", "cacheTtl": 300, "autoFill": {"first_name": "givenName", "last_name": "surname", "work_email": "userPrincipalName"}}'::jsonb);
+
 INSERT INTO form_questions (section_id, schema_id, key, type, label, is_required, sort_order) VALUES
-  ('b0000001-0000-0000-0000-000000000001', '550e8400-e29b-41d4-a716-446655440001', 'first_name', 'text', 'First Name', true, 0),
-  ('b0000001-0000-0000-0000-000000000001', '550e8400-e29b-41d4-a716-446655440001', 'last_name', 'text', 'Last Name', true, 1),
-  ('b0000001-0000-0000-0000-000000000001', '550e8400-e29b-41d4-a716-446655440001', 'work_email', 'email', 'Work Email', true, 2),
-  ('b0000001-0000-0000-0000-000000000001', '550e8400-e29b-41d4-a716-446655440001', 'last_day', 'date', 'Last Working Day', true, 3);
+  ('b0000001-0000-0000-0000-000000000001', '550e8400-e29b-41d4-a716-446655440001', 'last_day', 'date', 'Last Working Day', true, 1);
 
 -- Offboarding questions: urgency_type
 INSERT INTO form_questions (section_id, schema_id, key, type, label, help_text, is_required, sort_order, static_options) VALUES
