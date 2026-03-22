@@ -924,6 +924,13 @@ export class AutotaskClient {
     return contacts;
   }
 
+  /**
+   * Update (PATCH) a ticket in Autotask
+   */
+  async patchTicket(ticketId: number, data: Record<string, unknown>): Promise<void> {
+    await this.patch('Tickets', { id: ticketId, ...data });
+  }
+
   async getResourceByEmail(email: string): Promise<AutotaskResource | null> {
     try {
       const resources = await this.queryAll<AutotaskResource>('Resources', {
