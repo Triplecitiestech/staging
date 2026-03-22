@@ -16,6 +16,18 @@ const pool = new Pool({
 // Types
 // ---------------------------------------------------------------------------
 
+interface UserOption {
+  value: string
+  label: string
+  displayName: string
+  givenName?: string
+  surname?: string
+  userPrincipalName: string
+  mail?: string
+  department?: string
+  jobTitle?: string
+}
+
 interface FormQuestion {
   key: string
   type: string
@@ -30,6 +42,8 @@ interface FormQuestion {
   staticOptions?: Array<{ value: string; label: string }> | null
   dataSource?: Record<string, unknown> | null
   resolvedOptions?: Array<{ value: string; label: string }> | null
+  resolvedUserOptions?: UserOption[] | null
+  autoFill?: Record<string, string> | null
   visibilityRules?: Record<string, unknown> | null
   automationKey?: string | null
 }
@@ -114,6 +128,41 @@ async function resolveDataSource(
     })
   } catch (err) {
     console.error(`[forms/config] Failed to resolve data source "${endpoint}":`, err)
+    return []
+  }
+}
+
+/** Resolve users data source with full user properties for user_select fields */
+async function resolveUserDataSource(
+  dataSource: Record<string, unknown>,
+  graphClient: GraphClient
+): Promise<UserOption[]> {
+  const labelField = dataSource.labelField as string
+  const labelSuffix = dataSource.labelSuffix as string | undefined
+
+  try {
+    const users = await graphClient.getUsers()
+    return users.map((u) => {
+      let label = String((u as Record<string, unknown>)[labelField] ?? '')
+      if (labelSuffix) {
+        let suffix = labelSuffix
+        suffix = suffix.replace(/\{(\w+)\}/g, (_, field) => String((u as Record<string, unknown>)[field] ?? ''))
+        label += ' ' + suffix
+      }
+      return {
+        value: u.userPrincipalName,
+        label,
+        displayName: u.displayName,
+        givenName: u.givenName ?? undefined,
+        surname: u.surname ?? undefined,
+        userPrincipalName: u.userPrincipalName,
+        mail: u.mail ?? undefined,
+        department: u.department ?? undefined,
+        jobTitle: u.jobTitle ?? undefined,
+      }
+    })
+  } catch (err) {
+    console.error('[forms/config] Failed to resolve user data source:', err)
     return []
   }
 }
@@ -356,6 +405,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           validation: q.validation,
           staticOptions: q.static_options,
           dataSource: q.data_source,
+          autoFill: (q.data_source as Record<string, unknown> | null)?.autoFill as Record<string, string> | null ?? null,
           visibilityRules: q.visibility_rules,
           automationKey: q.automation_key,
         })),
@@ -436,6 +486,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             validation: q.validation,
             staticOptions: q.static_options,
             dataSource: q.data_source,
+            autoFill: (q.data_source as Record<string, unknown> | null)?.autoFill as Record<string, string> | null ?? null,
             visibilityRules: q.visibility_rules,
             automationKey: q.automation_key,
           })),
@@ -458,6 +509,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           validation: q.validation,
           staticOptions: q.static_options,
           dataSource: q.data_source,
+          autoFill: (q.data_source as Record<string, unknown> | null)?.autoFill as Record<string, string> | null ?? null,
           visibilityRules: q.visibility_rules,
           automationKey: q.automation_key,
         }))
@@ -482,13 +534,25 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       for (const section of mergedSections) {
         for (const question of section.questions) {
           if (question.dataSource) {
-            resolvePromises.push(
-              resolveDataSource(question.dataSource as Record<string, unknown>, graphClient).then(
-                (options) => {
-                  question.resolvedOptions = options
-                }
+            if (question.type === 'user_select') {
+              // user_select gets full user objects for auto-fill
+              resolvePromises.push(
+                resolveUserDataSource(question.dataSource as Record<string, unknown>, graphClient).then(
+                  (userOptions) => {
+                    question.resolvedUserOptions = userOptions
+                    question.resolvedOptions = userOptions.map((u) => ({ value: u.value, label: u.label }))
+                  }
+                )
               )
-            )
+            } else {
+              resolvePromises.push(
+                resolveDataSource(question.dataSource as Record<string, unknown>, graphClient).then(
+                  (options) => {
+                    question.resolvedOptions = options
+                  }
+                )
+              )
+            }
           }
         }
       }

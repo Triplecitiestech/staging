@@ -162,6 +162,8 @@ export interface GraphUser {
   jobTitle: string | null
   department: string | null
   accountEnabled: boolean
+  givenName: string | null
+  surname: string | null
 }
 
 export interface GraphGroup {
@@ -281,7 +283,7 @@ export function createGraphClient(creds: TenantCredentials) {
       const t = await token()
       return graphGetAll<GraphUser>(
         t,
-        '/users?$select=id,displayName,userPrincipalName,mail,jobTitle,department,accountEnabled' +
+        '/users?$select=id,displayName,userPrincipalName,mail,jobTitle,department,accountEnabled,givenName,surname' +
         '&$filter=accountEnabled eq true&$top=999'
       )
     },

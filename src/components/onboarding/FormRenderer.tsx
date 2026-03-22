@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo, useCallback } from 'react'
-import { FormField } from './FormField'
+import { FormField, type UserOption } from './FormField'
 import { evaluateVisibility } from './VisibilityEngine'
 
 // ---------------------------------------------------------------------------
@@ -22,6 +22,9 @@ export interface MergedQuestion {
   resolvedOptions?: { value: string; label: string }[] | null
   visibilityRules?: Record<string, unknown> | null
   automationKey?: string | null
+  dataSource?: Record<string, unknown> | null
+  autoFill?: Record<string, string> | null
+  resolvedUserOptions?: UserOption[] | null
 }
 
 export interface MergedSection {
@@ -287,6 +290,10 @@ export function FormRenderer({
                   question={{
                     ...q,
                     options: getOptions(q),
+                    ...(q.type === 'user_select' ? {
+                      userOptions: q.resolvedUserOptions ?? undefined,
+                      autoFillMap: q.autoFill ?? undefined,
+                    } : {}),
                   }}
                   value={answers[q.key]}
                   onChange={handleChange}
