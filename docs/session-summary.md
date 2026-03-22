@@ -162,30 +162,33 @@ Triple Cities Tech is a Next.js 15 App Router application deployed on Vercel (ia
   - Validates email is active company contact
   - Loads published global schema, applies customer overrides, resolves M365 data sources in parallel
 
-### Remaining Phases
-- Phase 2: `<FormRenderer>` component + portal integration
-- Phase 3: Admin UI (global form builder + per-customer config)
-- Phase 4: Thread integration (form links, webhook handler)
-- Phase 5: Automation mapping engine
+### Question Engine Phase Status (as of 2026-03-22)
+- **Phase 1**: Database + Form Config API — COMPLETE
+- **Phase 2**: FormRenderer + Portal Integration — COMPLETE (FormRenderer, FormField, VisibilityEngine, HrRequestCards with FormRendererLoader)
+- Phase 3: Admin UI (global form builder + per-customer config) — NOT STARTED
+- Phase 4: Thread integration (form links, webhook handler) — NOT STARTED
+- Phase 5: Automation mapping engine — NOT STARTED
+
+### Key Architecture (2026-03-22)
+- **Legacy HrRequestWizard.tsx DELETED** — it was dead code, never imported
+- **FormRenderer is the single UI** — schema-driven, fetches config from `/api/forms/config`
+- **Idempotent migrations run on every config request** — no separate migration step needed
+- **Process route aligned with schema** — handles both new multi_select group fields AND legacy single fields
+- **Submit route aligned** — idempotency key uses `employee_to_offboard` for offboarding
 
 ---
 
-## Remaining Work (as of 2026-03-20)
-
-### Fixed
-6. **HR submit route** — `SELECT id, name FROM companies` → `SELECT id, "displayName" as name FROM companies` (Prisma stores camelCase column names verbatim; `name` doesn't exist, `"displayName"` does)
+## Remaining Work (as of 2026-03-22)
 
 ### Immediate
-1. **OnboardingPortal layout** — portal layout rewrite in progress (uncommitted): always show CustomerDashboard + HrRequestSection below stats, regardless of project count
-2. **Portal verify modal** — manager email verify on HR section still triggers on each browser session (sessionStorage-based); consider whether to simplify given password gate is removed
+1. **kflorance M365 setup** — enter Azure AD app creds via Admin → Companies → kflorance → Onboard Customer → Step 2
+2. **DNS** — add CNAME `portal → 48fc0e6b423bbc2a.vercel-dns-010.com.` for `portal.triplecitiestech.com`
 
 ### Soon
-3. **DNS** — add CNAME `portal → 48fc0e6b423bbc2a.vercel-dns-010.com.` for `portal.triplecitiestech.com`
-4. **Pax8 secret rotation** — rotate `PAX8_CLIENT_SECRET` in Pax8 portal → update Vercel env var
-5. **kflorance M365 setup** — enter Azure AD app creds via Admin → Companies → kflorance → Onboard Customer → Step 2
+3. **Pax8 secret rotation** — rotate `PAX8_CLIENT_SECRET` in Pax8 portal → update Vercel env var
+4. **Admin form builder UI** (Phase 3) — global form builder at `/admin/settings/form-builder`
 
 ### Backlog
-- HR wizard Step 2 live group pickers (groups/distros/Teams/SharePoint/licenses) — works once M365 creds set per company
 - SOC Phase 2: OSINT integrations (AbuseIPDB, VirusTotal, AlienVault OTX)
 - Background job architecture for long-running provisioning (BullMQ or similar)
 - Pax8 license sync integration

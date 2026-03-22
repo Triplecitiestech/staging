@@ -112,12 +112,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // 3c. Compute idempotency key — scoped per hour to prevent duplicate submissions
     const answersTyped = answers as Record<string, string>
     const hourSlot = Math.floor(Date.now() / 3_600_000)
+    // Use the most identifying field for each type
+    const identifierParts = type === 'offboarding'
+      ? [answersTyped.employee_to_offboard ?? answersTyped.work_email ?? '']
+      : [(answersTyped.first_name ?? '').trim().toLowerCase(), (answersTyped.last_name ?? '').trim().toLowerCase()]
     const rawKey = [
       company.id,
       normalizedEmail,
       type,
-      (answersTyped.first_name ?? '').trim().toLowerCase(),
-      (answersTyped.last_name ?? '').trim().toLowerCase(),
+      ...identifierParts,
       hourSlot,
     ].join(':')
 
@@ -144,9 +147,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     // 3e. Determine target UPN for offboarding
+    const offboardTarget = answersTyped.employee_to_offboard ?? answersTyped.work_email ?? ''
     const targetUpn =
-      type === 'offboarding' && typeof answersTyped.work_email === 'string'
-        ? answersTyped.work_email.toLowerCase().trim()
+      type === 'offboarding' && offboardTarget
+        ? offboardTarget.toLowerCase().trim()
         : null
 
     // 3f. Insert hr_request
@@ -173,7 +177,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const requestId = insertRes.rows[0].id
 
     // 3g. Write audit log
-    const employeeName = `${answersTyped.first_name ?? ''} ${answersTyped.last_name ?? ''}`.trim()
+    const employeeName = type === 'offboarding'
+      ? (answersTyped.employee_to_offboard ?? `${answersTyped.first_name ?? ''} ${answersTyped.last_name ?? ''}`.trim())
+      : `${answersTyped.first_name ?? ''} ${answersTyped.last_name ?? ''}`.trim()
     await client.query(
       `INSERT INTO hr_audit_logs
          (company_id, request_id, actor, action, resource, details, severity, created_at)

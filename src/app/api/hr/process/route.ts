@@ -84,6 +84,13 @@ function formatAnswersAsDescription(
   const lines: string[] = []
   const a = answers as Record<string, string>
 
+  // Helper to display array or string values
+  const fmtArray = (val: unknown): string => {
+    if (Array.isArray(val)) return val.join(', ')
+    if (typeof val === 'string') return val
+    return ''
+  }
+
   if (type === 'onboarding') {
     lines.push('=== EMPLOYEE ONBOARDING REQUEST ===', '')
     lines.push('EMPLOYEE DETAILS')
@@ -91,19 +98,31 @@ function formatAnswersAsDescription(
     if (a.start_date)      lines.push(`  Start Date:     ${a.start_date}`)
     if (a.job_title)       lines.push(`  Job Title:      ${a.job_title}`)
     if (a.department)      lines.push(`  Department:     ${a.department}`)
-    if (a.work_country)    lines.push(`  Work Country:   ${a.work_country}`)
+    const countries = fmtArray(answers.work_country)
+    if (countries)         lines.push(`  Work Countries: ${countries}`)
     if (a.work_location_detail || a.work_location) lines.push(`  Work Location:  ${a.work_location_detail || a.work_location}`)
+    if (a.desired_username) lines.push(`  Desired User:   ${a.desired_username}`)
     if (a.personal_email)  lines.push(`  Personal Email: ${a.personal_email}`)
     if (a.phone)           lines.push(`  Phone:          ${a.phone}`)
 
     lines.push('', 'MICROSOFT 365 SETUP')
+    if (a.access_profile)  lines.push(`  Access Profile: ${a.access_profile}`)
     if (a.license_type)    lines.push(`  License Type:   ${a.license_type}`)
+    // New schema uses separate multi_select fields for groups
+    const secGroups = fmtArray(answers.security_groups)
+    const distLists = fmtArray(answers.distribution_lists)
+    const teams = fmtArray(answers.teams_groups)
+    const spSites = fmtArray(answers.sharepoint_sites)
+    if (secGroups)   lines.push(`  Security Groups:  ${secGroups}`)
+    if (distLists)   lines.push(`  Distro Lists:     ${distLists}`)
+    if (teams)       lines.push(`  Teams:            ${teams}`)
+    if (spSites)     lines.push(`  SharePoint Sites: ${spSites}`)
+    // Legacy combined field
     if (a.groups_to_add)   lines.push(`  Groups/Teams:   ${a.groups_to_add}`)
     if (a.clone_permissions === 'yes') {
       lines.push(`  Clone From:     ${a.clone_from_user ?? 'Not specified'}`)
-    } else {
-      lines.push('  Clone Permissions: No')
     }
+    if (a.credential_delivery) lines.push(`  Credential Delivery: ${a.credential_delivery}`)
     if (a.additional_notes) lines.push('', `NOTES\n  ${a.additional_notes}`)
   } else {
     lines.push('=== EMPLOYEE OFFBOARDING REQUEST ===', '')
@@ -112,14 +131,22 @@ function formatAnswersAsDescription(
     if (a.work_email || a.employee_to_offboard) lines.push(`  Work Email:     ${a.work_email ?? a.employee_to_offboard}`)
     if (a.last_day)        lines.push(`  Last Day:       ${a.last_day}`)
 
-    lines.push('', 'ACCOUNT HANDLING')
+    lines.push('', 'URGENCY & TIMELINE')
+    if (a.urgency_type)    lines.push(`  Urgency:        ${a.urgency_type}`)
+
+    lines.push('', 'DATA & EMAIL HANDLING')
+    if (a.data_handling)      lines.push(`  Data Handling:  ${a.data_handling}`)
+    if (a.forward_email_to)   lines.push(`  Forward To:     ${a.forward_email_to}`)
+    if (a.delegate_access_to) lines.push(`  Delegate To:    ${a.delegate_access_to}`)
+    // Legacy fields
     if (a.account_action)  lines.push(`  Action:         ${a.account_action}`)
     if (a.forward_email)   lines.push(`  Forward To:     ${a.forward_email}`)
     if (a.delegate_access) lines.push(`  Delegate To:    ${a.delegate_access}`)
-    lines.push(
-      `  Remove Groups:  ${a.remove_from_groups === 'yes' ? 'Yes' : 'No'}`,
-      `  Wipe Devices:   ${a.wipe_devices === 'yes' ? 'Yes — wipe all managed devices' : 'No'}`,
-    )
+
+    lines.push('', 'DEVICE HANDLING')
+    if (a.device_handling) lines.push(`  Device:         ${a.device_handling}`)
+    if (a.wipe_confirmation) lines.push(`  Wipe Confirmed: Yes`)
+
     if (a.additional_notes) lines.push('', `NOTES\n  ${a.additional_notes}`)
   }
 
@@ -518,7 +545,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         // --- Generate UPN ---
         const firstName = (a.first_name ?? '').toLowerCase().replace(/[^a-z]/g, '')
         const lastName = (a.last_name ?? '').toLowerCase().replace(/[^a-z]/g, '')
-        const mailNickname = `${firstName}.${lastName}`
+        // Use desired_username if provided, otherwise fallback to firstname.lastname
+        let mailNickname: string
+        if (a.desired_username && a.desired_username.trim()) {
+          // Strip domain if user typed full email
+          mailNickname = a.desired_username.trim().split('@')[0].toLowerCase().replace(/[^a-z0-9.]/g, '')
+        } else {
+          mailNickname = `${firstName}.${lastName}`
+        }
 
         // Derive domain from existing users
         let domain: string | null = null
@@ -542,6 +576,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           const createStart = new Date()
           let newUserId: string | null = null
           try {
+            // Resolve usageLocation: first element of multi_select work_country array, or string fallback
+            const workCountry = answers.work_country
+            let usageLocation = 'US'
+            if (Array.isArray(workCountry) && workCountry.length > 0) {
+              usageLocation = workCountry[0] as string
+            } else if (typeof workCountry === 'string' && workCountry) {
+              usageLocation = workCountry
+            }
+
             const newUser = await graph.createUser({
               displayName: fullName,
               userPrincipalName: upn,
@@ -549,7 +592,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               password: tempPassword,
               jobTitle: a.job_title ?? undefined,
               department: a.department ?? undefined,
-              usageLocation: a.work_country || 'US',
+              usageLocation,
             })
             newUserId = newUser.id
             primaryActionSucceeded = true
@@ -597,18 +640,32 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             }
           }
 
-          // --- Add to groups (from groups_to_add JSON array) ---
+          // --- Add to groups (from schema multi_select fields OR legacy groups_to_add) ---
           const groupsAdded: string[] = []
-          if (newUserId && a.groups_to_add) {
-            let groupIds: string[] = []
-            try {
-              groupIds = JSON.parse(a.groups_to_add) as string[]
-            } catch {
-              // Could be a comma-separated string
-              groupIds = a.groups_to_add.split(',').map((s) => s.trim()).filter(Boolean)
-            }
 
-            for (const groupId of groupIds) {
+          // Collect all group IDs from the new schema fields + legacy field
+          const allGroupIds: string[] = []
+
+          // New schema: separate multi_select fields
+          for (const field of ['security_groups', 'distribution_lists', 'teams_groups', 'sharepoint_sites']) {
+            const fieldVal = answers[field]
+            if (Array.isArray(fieldVal)) {
+              allGroupIds.push(...(fieldVal as string[]))
+            }
+          }
+
+          // Legacy: groups_to_add (JSON array or comma-separated)
+          if (allGroupIds.length === 0 && a.groups_to_add) {
+            try {
+              const parsed = JSON.parse(a.groups_to_add) as string[]
+              allGroupIds.push(...parsed)
+            } catch {
+              allGroupIds.push(...a.groups_to_add.split(',').map((s) => s.trim()).filter(Boolean))
+            }
+          }
+
+          if (newUserId && allGroupIds.length > 0) {
+            for (const groupId of allGroupIds) {
               const gStart = new Date()
               try {
                 await graph.addUserToGroup(groupId, newUserId)
@@ -854,8 +911,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             [hrRequest.id, targetUpn, targetUserId]
           )
 
-          // Revoke sessions if immediate termination
-          if (a.account_action === 'immediate_termination' || a.urgency === 'immediate_termination') {
+          // Revoke sessions if immediate termination (new schema: urgency_type, legacy: account_action/urgency)
+          if (a.urgency_type === 'immediate_termination' || a.account_action === 'immediate_termination' || a.urgency === 'immediate_termination') {
             const revokeStart = new Date()
             try {
               await graph.revokeSignInSessions(targetUserId)

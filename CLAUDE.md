@@ -382,7 +382,8 @@ The customer portal is at `/onboarding/[companyName]`. Key components:
 - **OnboardingPortal** — Main container. `isAuthenticated` is always `true` (password gate removed 2026-03-20)
 - **CustomerDashboard** — Primary dashboard with projects, tickets, stats, smart ticket sorting, metrics, chat CTA
 - **HrRequestSection** — Employee Management card. Rendered below CustomerDashboard. Gated by manager email verify (not password)
-- **HrRequestWizard** — Multi-step onboard/offboard form. Step 2 loads live M365 data when tenant creds are configured
+- **HrRequestCards** — Action cards + FormRendererLoader. Loads config from `/api/forms/config`, renders FormRenderer (schema-driven)
+- **FormRenderer** — Schema-driven step-by-step wizard (replaced legacy HrRequestWizard which was deleted 2026-03-22)
 - **OnboardingJourney** — First-time login guided tour (5 steps, skippable)
 - **TicketTimeline** — Chronological ticket comms trail from Autotask
 
