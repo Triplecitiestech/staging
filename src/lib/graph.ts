@@ -354,5 +354,141 @@ export function createGraphClient(creds: TenantCredentials) {
         prepaidUnits: sku.prepaidUnits,
       })).sort((a, b) => (a.displayName ?? '').localeCompare(b.displayName ?? ''))
     },
+
+    // -----------------------------------------------------------------
+    // Write methods — provisioning pipeline
+    // -----------------------------------------------------------------
+
+    /** Create a new M365 user with a temporary password */
+    async createUser(userData: {
+      displayName: string
+      userPrincipalName: string
+      mailNickname: string
+      password: string
+      jobTitle?: string
+      department?: string
+      accountEnabled?: boolean
+    }): Promise<GraphUser> {
+      const t = await token()
+      return graphRequest<GraphUser>(t, '/users', {
+        method: 'POST',
+        body: JSON.stringify({
+          displayName: userData.displayName,
+          userPrincipalName: userData.userPrincipalName,
+          mailNickname: userData.mailNickname,
+          passwordProfile: {
+            password: userData.password,
+            forceChangePasswordNextSignIn: true,
+          },
+          jobTitle: userData.jobTitle ?? null,
+          department: userData.department ?? null,
+          accountEnabled: userData.accountEnabled ?? true,
+        }),
+      })
+    },
+
+    /** Assign a license to a user by SKU ID */
+    async assignLicense(userId: string, skuId: string): Promise<void> {
+      const t = await token()
+      await graphRequest(t, `/users/${userId}/assignLicense`, {
+        method: 'POST',
+        body: JSON.stringify({
+          addLicenses: [{ skuId, disabledPlans: [] }],
+          removeLicenses: [],
+        }),
+      })
+    },
+
+    /** Add a user to a group */
+    async addUserToGroup(groupId: string, userId: string): Promise<void> {
+      const t = await token()
+      await graphRequest(t, `/groups/${groupId}/members/$ref`, {
+        method: 'POST',
+        body: JSON.stringify({
+          '@odata.id': `https://graph.microsoft.com/v1.0/directoryObjects/${userId}`,
+        }),
+      })
+    },
+
+    /** Revoke all sign-in sessions for a user */
+    async revokeSignInSessions(userId: string): Promise<void> {
+      const t = await token()
+      await graphRequest(t, `/users/${userId}/revokeSignInSessions`, {
+        method: 'POST',
+      })
+    },
+
+    /** Disable a user account */
+    async disableAccount(userId: string): Promise<void> {
+      const t = await token()
+      await graphRequest(t, `/users/${userId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ accountEnabled: false }),
+      })
+    },
+
+    /** Remove a license from a user */
+    async removeLicense(userId: string, skuId: string): Promise<void> {
+      const t = await token()
+      await graphRequest(t, `/users/${userId}/assignLicense`, {
+        method: 'POST',
+        body: JSON.stringify({
+          addLicenses: [],
+          removeLicenses: [skuId],
+        }),
+      })
+    },
+
+    /** Remove a user from a group */
+    async removeUserFromGroup(groupId: string, userId: string): Promise<void> {
+      const t = await token()
+      await graphRequest(t, `/groups/${groupId}/members/${userId}/$ref`, {
+        method: 'DELETE',
+      })
+    },
+
+    /** Get all groups a user is a member of */
+    async getUserGroups(userId: string): Promise<GraphGroup[]> {
+      const t = await token()
+      return graphGetAll<GraphGroup>(t, `/users/${userId}/memberOf`)
+    },
+
+    /** Look up a user by email/UPN */
+    async getUserByEmail(email: string): Promise<GraphUser | null> {
+      const t = await token()
+      try {
+        return await graphRequest<GraphUser>(
+          t,
+          `/users/${encodeURIComponent(email)}?$select=id,displayName,userPrincipalName,mail,jobTitle,department,accountEnabled`
+        )
+      } catch {
+        return null
+      }
+    },
+
+    /** Find a license SKU by its part number (e.g. EXCHANGESTANDARD) */
+    async getLicenseSkuByPartNumber(partNumber: string): Promise<GraphLicenseSku | null> {
+      const t = await token()
+      const res = await graphRequest<{
+        value: Array<{
+          skuId: string
+          skuPartNumber: string
+          consumedUnits: number
+          prepaidUnits: { enabled: number; suspended: number; warning: number }
+        }>
+      }>(t, '/subscribedSkus?$select=skuId,skuPartNumber,consumedUnits,prepaidUnits')
+
+      const match = (res.value ?? []).find(
+        (s) => s.skuPartNumber.toLowerCase() === partNumber.toLowerCase()
+      )
+      if (!match) return null
+      return {
+        skuId: match.skuId,
+        skuPartNumber: match.skuPartNumber,
+        displayName: SKU_FRIENDLY_NAMES[match.skuPartNumber] ?? match.skuPartNumber,
+        consumedUnits: match.consumedUnits,
+        prepaidUnits: match.prepaidUnits,
+      }
+    },
   }
 }
