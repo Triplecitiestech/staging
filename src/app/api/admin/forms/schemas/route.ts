@@ -301,19 +301,23 @@ async function ensureTablesExist(client: PoolClient): Promise<void> {
 
 /** Idempotent migration: replace first_name/last_name/work_email with user_select in offboarding */
 async function migrateOffboardingUserSelect(client: PoolClient): Promise<void> {
-  const OFFBOARDING_SCHEMA_ID = '550e8400-e29b-41d4-a716-446655440001'
+  const schemaRes = await client.query<{ id: string }>(
+    `SELECT id FROM form_schemas WHERE type = 'offboarding' AND status = 'published' LIMIT 1`
+  )
+  if (schemaRes.rows.length === 0) return
+  const schemaId = schemaRes.rows[0].id
 
   // Check if employee_to_offboard already exists
   const existing = await client.query(
     `SELECT id FROM form_questions WHERE schema_id = $1 AND key = 'employee_to_offboard' LIMIT 1`,
-    [OFFBOARDING_SCHEMA_ID]
+    [schemaId]
   )
   if (existing.rows.length > 0) return // already migrated
 
   // Get the employee_details section ID
   const sectionRes = await client.query<{ id: string }>(
     `SELECT id FROM form_sections WHERE schema_id = $1 AND key = 'employee_details' LIMIT 1`,
-    [OFFBOARDING_SCHEMA_ID]
+    [schemaId]
   )
   if (sectionRes.rows.length === 0) return
   const sectionId = sectionRes.rows[0].id
@@ -321,7 +325,7 @@ async function migrateOffboardingUserSelect(client: PoolClient): Promise<void> {
   // Delete old first_name, last_name, work_email questions
   await client.query(
     `DELETE FROM form_questions WHERE schema_id = $1 AND key IN ('first_name', 'last_name', 'work_email')`,
-    [OFFBOARDING_SCHEMA_ID]
+    [schemaId]
   )
 
   // Insert new employee_to_offboard user_select question
@@ -332,7 +336,7 @@ async function migrateOffboardingUserSelect(client: PoolClient): Promise<void> {
      ON CONFLICT (schema_id, key) DO NOTHING`,
     [
       sectionId,
-      OFFBOARDING_SCHEMA_ID,
+      schemaId,
       JSON.stringify({
         endpoint: 'users',
         valueField: 'userPrincipalName',
@@ -351,25 +355,29 @@ async function migrateOffboardingUserSelect(client: PoolClient): Promise<void> {
   // Update last_day sort_order to 1 (after employee_to_offboard)
   await client.query(
     `UPDATE form_questions SET sort_order = 1 WHERE schema_id = $1 AND key = 'last_day'`,
-    [OFFBOARDING_SCHEMA_ID]
+    [schemaId]
   )
 }
 
 /** Idempotent migration: add credential_delivery and work_country/work_location_detail to onboarding */
 async function migrateOnboardingQuestions(client: PoolClient): Promise<void> {
-  const ONBOARDING_SCHEMA_ID = '550e8400-e29b-41d4-a716-446655440000'
+  const schemaRes = await client.query<{ id: string }>(
+    `SELECT id FROM form_schemas WHERE type = 'onboarding' AND status = 'published' LIMIT 1`
+  )
+  if (schemaRes.rows.length === 0) return
+  const schemaId = schemaRes.rows[0].id
 
   // Check if work_country already exists — if yes, already migrated
   const existing = await client.query(
     `SELECT id FROM form_questions WHERE schema_id = $1 AND key = 'work_country' LIMIT 1`,
-    [ONBOARDING_SCHEMA_ID]
+    [schemaId]
   )
   if (existing.rows.length > 0) return
 
   // Get the employee_details section ID
   const empSectionRes = await client.query<{ id: string }>(
     `SELECT id FROM form_sections WHERE schema_id = $1 AND key = 'employee_details' LIMIT 1`,
-    [ONBOARDING_SCHEMA_ID]
+    [schemaId]
   )
   if (empSectionRes.rows.length === 0) return
   const empSectionId = empSectionRes.rows[0].id
@@ -377,7 +385,7 @@ async function migrateOnboardingQuestions(client: PoolClient): Promise<void> {
   // Delete old work_location question
   await client.query(
     `DELETE FROM form_questions WHERE schema_id = $1 AND key = 'work_location'`,
-    [ONBOARDING_SCHEMA_ID]
+    [schemaId]
   )
 
   // Insert work_country select at sort_order 5
@@ -389,7 +397,7 @@ async function migrateOnboardingQuestions(client: PoolClient): Promise<void> {
      ON CONFLICT (schema_id, key) DO NOTHING`,
     [
       empSectionId,
-      ONBOARDING_SCHEMA_ID,
+      schemaId,
       JSON.stringify([
         { value: 'US', label: 'United States' },
         { value: 'BR', label: 'Brazil' },
@@ -416,23 +424,23 @@ async function migrateOnboardingQuestions(client: PoolClient): Promise<void> {
      VALUES ($1, $2, 'work_location_detail', 'text', 'City / State / Office Location',
        'e.g. Binghamton, NY / São Paulo / Remote', 6)
      ON CONFLICT (schema_id, key) DO NOTHING`,
-    [empSectionId, ONBOARDING_SCHEMA_ID]
+    [empSectionId, schemaId]
   )
 
   // Shift personal_email to sort_order 7, phone to sort_order 8
   await client.query(
     `UPDATE form_questions SET sort_order = 7 WHERE schema_id = $1 AND key = 'personal_email'`,
-    [ONBOARDING_SCHEMA_ID]
+    [schemaId]
   )
   await client.query(
     `UPDATE form_questions SET sort_order = 8 WHERE schema_id = $1 AND key = 'phone'`,
-    [ONBOARDING_SCHEMA_ID]
+    [schemaId]
   )
 
   // Get the special_instructions section ID
   const specialSectionRes = await client.query<{ id: string }>(
     `SELECT id FROM form_sections WHERE schema_id = $1 AND key = 'special_instructions' LIMIT 1`,
-    [ONBOARDING_SCHEMA_ID]
+    [schemaId]
   )
   if (specialSectionRes.rows.length === 0) return
   const specialSectionId = specialSectionRes.rows[0].id
@@ -440,7 +448,7 @@ async function migrateOnboardingQuestions(client: PoolClient): Promise<void> {
   // Insert credential_delivery radio at sort_order 0 (if not exists)
   const credExisting = await client.query(
     `SELECT id FROM form_questions WHERE schema_id = $1 AND key = 'credential_delivery' LIMIT 1`,
-    [ONBOARDING_SCHEMA_ID]
+    [schemaId]
   )
   if (credExisting.rows.length === 0) {
     await client.query(
@@ -452,7 +460,7 @@ async function migrateOnboardingQuestions(client: PoolClient): Promise<void> {
        ON CONFLICT (schema_id, key) DO NOTHING`,
       [
         specialSectionId,
-        ONBOARDING_SCHEMA_ID,
+        schemaId,
         JSON.stringify([
           { value: 'submitter', label: "Send to me (I'll share with the employee)" },
           { value: 'personal_email', label: "Send directly to the employee's personal email" },
@@ -463,7 +471,7 @@ async function migrateOnboardingQuestions(client: PoolClient): Promise<void> {
     // Shift additional_notes to sort_order 1
     await client.query(
       `UPDATE form_questions SET sort_order = 1 WHERE schema_id = $1 AND key = 'additional_notes' AND section_id = $2`,
-      [ONBOARDING_SCHEMA_ID, specialSectionId]
+      [schemaId, specialSectionId]
     )
   }
 }
