@@ -17,20 +17,39 @@ export async function GET() {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    const staff = await prisma.staffUser.findMany({
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        isActive: true,
-        lastLogin: true,
-        createdAt: true,
-        autotaskResourceId: true,
-        permissionOverrides: true,
-      },
-      orderBy: { name: 'asc' },
-    })
+    let staff
+    try {
+      staff = await prisma.staffUser.findMany({
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          isActive: true,
+          lastLogin: true,
+          createdAt: true,
+          autotaskResourceId: true,
+          permissionOverrides: true,
+        },
+        orderBy: { name: 'asc' },
+      })
+    } catch {
+      // permissionOverrides column may not exist yet
+      const rawStaff = await prisma.staffUser.findMany({
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          isActive: true,
+          lastLogin: true,
+          createdAt: true,
+          autotaskResourceId: true,
+        },
+        orderBy: { name: 'asc' },
+      })
+      staff = rawStaff.map(s => ({ ...s, permissionOverrides: null }))
+    }
 
     return NextResponse.json({ staff })
   } catch (error) {

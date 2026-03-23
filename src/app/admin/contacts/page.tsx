@@ -74,14 +74,23 @@ export default async function ContactsPage() {
     })
     staffUsers = rawStaff.map(s => ({ ...s, role: s.role as string }))
   } catch {
-    // StaffRole enum may have changed — fall back to raw query
+    // permissionOverrides column may not exist yet — try without it, then fall back to raw
     try {
-      staffUsers = await prisma.$queryRaw<typeof staffUsers>`
-        SELECT id, name, email, role::text, "isActive", "lastLogin", "permissionOverrides"
-        FROM staff_users ORDER BY name ASC
-      `
+      const rawStaff = await prisma.staffUser.findMany({
+        select: { id: true, name: true, email: true, role: true, isActive: true, lastLogin: true },
+        orderBy: { name: 'asc' },
+      })
+      staffUsers = rawStaff.map(s => ({ ...s, role: s.role as string, permissionOverrides: null }))
     } catch {
-      // Table may not exist
+      try {
+        const rawRows = await prisma.$queryRaw<Array<{ id: string; name: string; email: string; role: string; isActive: boolean; lastLogin: Date | null }>>`
+          SELECT id, name, email, role::text, "isActive", "lastLogin"
+          FROM staff_users ORDER BY name ASC
+        `
+        staffUsers = rawRows.map(s => ({ ...s, permissionOverrides: null }))
+      } catch {
+        // Table may not exist
+      }
     }
   }
 
