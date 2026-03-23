@@ -49,6 +49,7 @@ export interface FormRendererProps {
   submitterEmail: string
   submitterName: string
   preFill?: Record<string, unknown>
+  isPreview?: boolean
   onSubmit: (requestId: string) => void
   onClose: () => void
 }
@@ -63,6 +64,7 @@ export function FormRenderer({
   submitterEmail,
   submitterName,
   preFill,
+  isPreview = false,
   onSubmit,
   onClose,
 }: FormRendererProps) {
@@ -176,7 +178,7 @@ export function FormRenderer({
 
   // Navigation
   const handleNext = () => {
-    if (validateStep()) {
+    if (isPreview || validateStep()) {
       setCurrentStep((s) => Math.min(s + 1, totalSteps - 1))
     }
   }
@@ -238,9 +240,16 @@ export function FormRenderer({
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
           <div>
-            <h2 className="text-lg font-semibold text-white">
-              {config.type === 'onboarding' ? 'Employee Onboarding' : 'Employee Offboarding'}
-            </h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-semibold text-white">
+                {config.type === 'onboarding' ? 'Employee Onboarding' : 'Employee Offboarding'}
+              </h2>
+              {isPreview && (
+                <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-400 border border-violet-500/30 uppercase tracking-wide">
+                  Preview
+                </span>
+              )}
+            </div>
             <p className="text-xs text-gray-500 mt-0.5">
               Step {currentStep + 1} of {totalSteps}
               {!isReviewStep && currentSection ? ` — ${currentSection.title}` : ' — Review & Submit'}
@@ -319,6 +328,14 @@ export function FormRenderer({
             {currentStep === 0 ? 'Cancel' : 'Back'}
           </button>
           {isReviewStep ? (
+            isPreview ? (
+              <button
+                onClick={onClose}
+                className="bg-gradient-to-r from-violet-500 to-violet-600 hover:from-violet-600 hover:to-violet-700 text-white font-semibold rounded-lg px-6 py-2.5 text-sm transition-all"
+              >
+                Close Preview
+              </button>
+            ) : (
             <button
               onClick={handleSubmit}
               disabled={submitting}
@@ -336,6 +353,7 @@ export function FormRenderer({
                 'Submit Request'
               )}
             </button>
+            )
           ) : (
             <button
               onClick={handleNext}
