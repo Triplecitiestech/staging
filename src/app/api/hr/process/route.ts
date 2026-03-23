@@ -1010,6 +1010,86 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             await addTicketNote('License Removal Failed', `Error: ${msg}`)
           }
 
+          // OneDrive transfer — grant access to designated user
+          let oneDriveTransferredTo: string | null = null
+          let oneDriveWebUrl: string | null = null
+          if (a.transfer_onedrive_to && targetUserId) {
+            const odStart = new Date()
+            try {
+              const result = await graph.grantOneDriveAccess(targetUserId, a.transfer_onedrive_to as string)
+              oneDriveTransferredTo = a.transfer_onedrive_to as string
+              oneDriveWebUrl = result.webUrl
+              provisioningResults.push(`OneDrive Transferred To: ${oneDriveTransferredTo}`)
+              await logStep(client, hrRequest.id, 'transfer_onedrive', 'Transfer OneDrive Access', 'completed', odStart,
+                { targetUserId, recipientEmail: oneDriveTransferredTo }, { webUrl: oneDriveWebUrl })
+              stepsCompleted.push('transfer_onedrive')
+              await addTicketNote('OneDrive Access Granted', `Shared with: ${oneDriveTransferredTo}\nOneDrive URL: ${oneDriveWebUrl}`)
+
+              // Notify the recipient about their new OneDrive access
+              if (resend) {
+                try {
+                  await resend.emails.send({
+                    from: FROM_EMAIL,
+                    to: [oneDriveTransferredTo],
+                    subject: `OneDrive files shared with you — ${fullName}`,
+                    text: [
+                      'Hi,',
+                      '',
+                      `As part of the offboarding process for ${fullName}, their OneDrive files have been shared with you.`,
+                      '',
+                      `You can access the files here:`,
+                      oneDriveWebUrl,
+                      '',
+                      'If you have any questions about these files, please contact your IT administrator.',
+                      '',
+                      '—',
+                      'Triple Cities Tech',
+                    ].join('\n'),
+                  })
+                } catch (err) {
+                  console.warn('[hr/process] OneDrive notification email failed (non-fatal):', err instanceof Error ? err.message : err)
+                }
+              }
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err)
+              await logStep(client, hrRequest.id, 'transfer_onedrive', 'Transfer OneDrive Access', 'failed', odStart,
+                { targetUserId, recipientEmail: a.transfer_onedrive_to }, undefined, msg)
+              failedSteps.push('transfer_onedrive')
+              await addTicketNote('OneDrive Transfer Failed', `Recipient: ${a.transfer_onedrive_to}\nError: ${msg}`)
+            }
+          }
+
+          // OneDrive archive — move files to HR SharePoint site
+          let archiveFolderUrl: string | null = null
+          let archivedFileCount = 0
+          if (a.onedrive_archive === 'yes' && targetUserId) {
+            const archiveStart = new Date()
+            try {
+              const hrSite = await graph.getOrCreateHRSharePointSite()
+              const folderName = `${fullName} — Offboarded ${new Date().toISOString().slice(0, 10)}`
+              const archiveResult = await graph.archiveOneDriveToSharePoint(
+                targetUserId,
+                hrSite.driveId,
+                folderName
+              )
+              archiveFolderUrl = archiveResult.folderWebUrl
+              archivedFileCount = archiveResult.fileCount
+              provisioningResults.push(`OneDrive Archived: ${archivedFileCount} items to HR SharePoint`)
+              await logStep(client, hrRequest.id, 'archive_onedrive', 'Archive OneDrive to SharePoint', 'completed', archiveStart,
+                { targetUserId, driveId: hrSite.driveId },
+                { folderUrl: archiveFolderUrl, fileCount: archivedFileCount, siteUrl: hrSite.webUrl })
+              stepsCompleted.push('archive_onedrive')
+              await addTicketNote('OneDrive Files Archived',
+                `${archivedFileCount} items copied to HR SharePoint\nFolder: ${archiveFolderUrl}\nSite: ${hrSite.webUrl}`)
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err)
+              await logStep(client, hrRequest.id, 'archive_onedrive', 'Archive OneDrive to SharePoint', 'failed', archiveStart,
+                { targetUserId }, undefined, msg)
+              failedSteps.push('archive_onedrive')
+              await addTicketNote('OneDrive Archive Failed', `Error: ${msg}`)
+            }
+          }
+
           // Build provisioning results for ticket
           if (primaryActionSucceeded) {
             const resultLines = [
@@ -1019,6 +1099,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               'Action: Account disabled',
               `Groups Removed: ${removedGroupCount}`,
               `Licenses Removed: ${removedLicenseCount}`,
+              oneDriveTransferredTo ? `OneDrive Shared With: ${oneDriveTransferredTo}` : null,
+              archiveFolderUrl ? `OneDrive Archived: ${archivedFileCount} items to HR SharePoint` : null,
               failedSteps.length > 0 ? `\nFailed Steps: ${failedSteps.join(', ')}` : null,
               failedSteps.length > 0 ? 'Status: Completed with errors' : 'Status: All actions completed successfully',
             ].filter(Boolean).join('\n')
@@ -1044,17 +1126,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               `Account ${targetUpn} has been disabled.`,
               `Removed from ${removedGroupCount} group(s).`,
               `${removedLicenseCount} license(s) removed.`,
+              oneDriveTransferredTo ? `OneDrive files shared with ${oneDriveTransferredTo}.` : null,
+              archiveFolderUrl ? `OneDrive files archived to HR SharePoint (${archivedFileCount} items).` : null,
               '',
               'All access has been revoked.',
-            ].join('\n')
+            ].filter(Boolean).join('\n')
 
             await addTicketNote('Offboarding Complete', completionNote, 1)
 
-            // Email notification
+            // Email notification to submitter
             if (resend) {
               const recipientEmail = hrRequest.submitted_by_email || a.submitted_by_email
               if (recipientEmail) {
                 try {
+                  const companyName = hrRequest.displayName || 'your organization'
                   await resend.emails.send({
                     from: FROM_EMAIL,
                     to: [recipientEmail],
@@ -1062,17 +1147,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                     text: [
                       'Hi,',
                       '',
-                      `The offboarding for ${fullName} has been completed.`,
+                      `The offboarding for ${fullName} at ${companyName} has been completed.`,
                       '',
                       `Account ${targetUpn} has been disabled.`,
                       `Removed from ${removedGroupCount} group(s).`,
                       `${removedLicenseCount} license(s) removed.`,
+                      oneDriveTransferredTo ? `OneDrive files shared with ${oneDriveTransferredTo}.` : null,
+                      archiveFolderUrl ? `OneDrive files archived to HR SharePoint (${archivedFileCount} items).` : null,
                       '',
                       `Autotask Ticket: ${ticketNumber}`,
                       '',
                       '—',
                       'Triple Cities Tech',
-                    ].join('\n'),
+                    ].filter((l) => l !== null).join('\n'),
                   })
                 } catch (err) {
                   console.warn('[hr/process] Email notification failed (non-fatal):', err instanceof Error ? err.message : err)
