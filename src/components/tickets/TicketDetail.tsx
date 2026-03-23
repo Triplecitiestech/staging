@@ -124,16 +124,16 @@ export default function TicketDetail({
 
       {/* Timeline */}
       <div className="space-y-0 relative">
-        {/* Vertical line */}
-        <div className="absolute left-4 top-0 bottom-0 w-px bg-gray-700" />
+        {/* Vertical line — stops short of the last dot */}
+        <div className="absolute left-4 top-3 bottom-3 w-px bg-gray-700/60" />
 
         {/* Created marker */}
         <div className="relative pl-10 pb-4">
-          <div className="absolute left-2.5 w-3 h-3 bg-cyan-500 rounded-full border-2 border-gray-800" />
-          <div className="bg-cyan-500/10 border border-cyan-500/20 rounded-lg px-4 py-3">
-            <div className="flex items-center justify-between mb-1 flex-wrap gap-1">
-              <span className="text-xs font-semibold text-cyan-400">Ticket Created</span>
-              <span className="text-xs text-gray-500">
+          <div className="absolute left-2.5 w-3 h-3 bg-gray-600 rounded-full border-2 border-gray-800" />
+          <div className="bg-slate-700/40 border border-white/5 rounded-lg px-4 py-2.5">
+            <div className="flex items-center justify-between flex-wrap gap-1">
+              <span className="text-xs font-medium text-gray-400">Ticket Created</span>
+              <span className="text-xs text-gray-600">
                 {new Date(ticket.createDate).toLocaleDateString('en-US', {
                   year: 'numeric',
                   month: 'short',
@@ -143,7 +143,6 @@ export default function TicketDetail({
                 })}
               </span>
             </div>
-            <p className="text-sm text-gray-300">{ticket.title}</p>
           </div>
         </div>
 
@@ -194,19 +193,30 @@ export default function TicketDetail({
             <TimelineEntry key={entry.id} entry={entry} perspective={perspective} />
           ))}
 
-        {!loading && visibleNotes.length === 0 && (
+        {!loading && visibleNotes.length === 0 && !ticket.completedDate && (
           <div className="relative pl-10 pb-4">
-            <div className="absolute left-2.5 w-3 h-3 bg-gray-600 rounded-full border-2 border-gray-800" />
-            <p className="text-sm text-gray-500">No communications yet.</p>
+            <div className="absolute left-2.5 w-3 h-3 bg-cyan-500 rounded-full border-2 border-gray-800" />
+            <p className="text-sm text-gray-400">
+              Your request is being processed. Updates from our team will appear here.
+            </p>
           </div>
         )}
 
-        {/* Resolved marker */}
-        {ticket.completedDate && (
+        {!loading && visibleNotes.length === 0 && ticket.completedDate && (
           <div className="relative pl-10 pb-4">
-            <div className="absolute left-2.5 w-3 h-3 bg-green-500 rounded-full border-2 border-gray-800" />
-            <div className="bg-green-500/10 border border-green-500/20 rounded-lg px-4 py-3">
-              <div className="flex items-center justify-between mb-1 flex-wrap gap-1">
+            <div className="absolute left-2.5 w-3 h-3 bg-gray-600 rounded-full border-2 border-gray-800" />
+            <p className="text-sm text-gray-400">
+              This request was completed automatically. No additional communication was needed.
+            </p>
+          </div>
+        )}
+
+        {/* Resolved / Status marker — always the last item */}
+        {ticket.completedDate ? (
+          <div className="relative pl-10">
+            <div className="absolute left-2.5 w-3 h-3 bg-green-500 rounded-full border-2 border-gray-800 ring-2 ring-green-500/20" />
+            <div className="bg-green-500/10 border border-green-500/20 rounded-lg px-4 py-2.5">
+              <div className="flex items-center justify-between flex-wrap gap-1">
                 <span className="text-xs font-semibold text-green-400">Ticket Resolved</span>
                 <span className="text-xs text-gray-500">
                   {new Date(ticket.completedDate).toLocaleDateString('en-US', {
@@ -218,7 +228,13 @@ export default function TicketDetail({
                   })}
                 </span>
               </div>
-              <p className="text-sm text-gray-300">This ticket has been completed and closed.</p>
+            </div>
+          </div>
+        ) : (
+          <div className="relative pl-10">
+            <div className="absolute left-2.5 w-3 h-3 bg-cyan-500 rounded-full border-2 border-gray-800 ring-2 ring-cyan-500/20" />
+            <div className="bg-cyan-500/5 border border-cyan-500/10 rounded-lg px-4 py-2.5">
+              <span className="text-xs font-medium text-cyan-400">In Progress — awaiting update</span>
             </div>
           </div>
         )}
