@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { TicketTable, TicketDetail } from '@/components/tickets'
 import type { UnifiedTicketRow, UnifiedTicketNote, TicketListResponse } from '@/types/tickets'
 import { CUSTOMER_VISIBILITY } from '@/types/tickets'
+import { HrRequestSection } from './HrRequestSection'
 
 interface Comment {
   id: string
@@ -50,6 +51,9 @@ interface CustomerDashboardProps {
   projects: Project[]
   companyName?: string
   companySlug?: string
+  userEmail?: string
+  userName?: string
+  isManager?: boolean
 }
 
 const DONE_STATUSES = ['REVIEWED_AND_DONE', 'NOT_APPLICABLE', 'ITG_DOCUMENTED']
@@ -112,7 +116,7 @@ function getProjectStatusLabel(status: string) {
 
 type DashboardView = 'dashboard' | 'open-tickets' | 'action-items' | 'closed-this-month'
 
-export default function CustomerDashboard({ projects, companyName, companySlug }: CustomerDashboardProps) {
+export default function CustomerDashboard({ projects, companyName, companySlug, userEmail, userName, isManager }: CustomerDashboardProps) {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
   const [projectViewMode, setProjectViewMode] = useState<'vertical' | 'horizontal'>('vertical')
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
@@ -910,6 +914,18 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
           <div className="text-sm text-gray-400 mt-1">Active Projects</div>
         </button>
       </div>
+
+      {/* Employee Management — between stats and tickets */}
+      {companySlug && (
+        <div className="mb-8">
+          <HrRequestSection
+            companySlug={companySlug}
+            userEmail={userEmail}
+            userName={userName}
+            isManager={isManager}
+          />
+        </div>
+      )}
 
       {/* Tickets Section */}
       <div id="tickets-section" className="mb-8">

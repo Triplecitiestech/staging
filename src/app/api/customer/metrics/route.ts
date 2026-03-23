@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthenticatedCompany } from '@/lib/onboarding-session';
+import { getPortalSession } from '@/lib/portal-session';
 import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
@@ -19,8 +19,8 @@ export async function GET(request: NextRequest) {
   }
 
   // Verify customer auth
-  const authenticatedSlug = await getAuthenticatedCompany();
-  if (!authenticatedSlug || authenticatedSlug !== companySlug.toLowerCase().trim()) {
+  const session = await getPortalSession();
+  if (!session || session.companySlug !== companySlug.toLowerCase().trim()) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

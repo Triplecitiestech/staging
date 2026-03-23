@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { getAuthenticatedCompany } from '@/lib/onboarding-session';
+import { getPortalSession } from '@/lib/portal-session';
 import { parseFiltersFromParams } from '@/lib/reporting/filters';
 import { getStaffTicketList, getCustomerTicketList } from '@/lib/tickets/adapters';
 import type { TicketPerspective } from '@/types/tickets';
@@ -55,9 +55,9 @@ async function handleCustomerRequest(request: NextRequest) {
     return NextResponse.json({ error: 'companySlug is required' }, { status: 400 });
   }
 
-  // Verify customer is authenticated for this company
-  const authenticatedCompany = await getAuthenticatedCompany();
-  if (authenticatedCompany !== companySlug.toLowerCase().trim()) {
+  // Verify customer is authenticated for this company via portal session
+  const session = await getPortalSession();
+  if (!session || session.companySlug !== companySlug.toLowerCase().trim()) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

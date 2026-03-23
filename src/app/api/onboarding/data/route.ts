@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAuthenticatedCompany } from '@/lib/onboarding-session'
+import { getPortalSession } from '@/lib/portal-session'
 import { getOnboardingData } from '@/lib/onboarding-data'
 
 export async function GET(request: NextRequest) {
@@ -16,9 +16,9 @@ export async function GET(request: NextRequest) {
     }
 
     // Check authentication
-    const authenticatedCompany = await getAuthenticatedCompany()
+    const session = await getPortalSession()
 
-    if (!authenticatedCompany) {
+    if (!session) {
       return NextResponse.json(
         { error: 'Unauthorized - Please log in' },
         { status: 401 }
@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Ensure the authenticated company matches the requested company
-    if (authenticatedCompany !== requestedCompany.toLowerCase().trim()) {
+    if (session.companySlug !== requestedCompany.toLowerCase().trim()) {
       return NextResponse.json(
         { error: 'Unauthorized - Access denied for this company' },
         { status: 403 }
@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Get the onboarding data
-    const data = await getOnboardingData(authenticatedCompany)
+    const data = await getOnboardingData(session.companySlug)
 
     if (!data) {
       return NextResponse.json(
