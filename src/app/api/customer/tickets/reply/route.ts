@@ -53,16 +53,33 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid ticket ID' }, { status: 400 })
     }
 
+    // Look up the customer contact's Autotask ID so the note is attributed to them
+    let autotaskContactId: number | undefined
+    const customerName = session.name || session.email.split('@')[0]
+    if (session.email) {
+      const contact = await prisma.companyContact.findFirst({
+        where: {
+          email: session.email,
+          company: { slug: companySlug.toLowerCase().trim() },
+        },
+        select: { autotaskContactId: true, name: true },
+      })
+      if (contact?.autotaskContactId) {
+        autotaskContactId = parseInt(contact.autotaskContactId, 10)
+        if (isNaN(autotaskContactId)) autotaskContactId = undefined
+      }
+    }
+
     // Create the note in Autotask
     const { AutotaskClient } = await import('@/lib/autotask')
     const client = new AutotaskClient()
 
-    const companyDisplayName = company.displayName
     const note = await client.createTicketNote(atTicketId, {
-      title: `Customer Reply from ${companyDisplayName} Portal`,
+      title: `Customer Reply from ${customerName}`,
       description: message.trim(),
       noteType: 1,
       publish: 1, // External/customer-visible
+      creatorContactID: autotaskContactId,
     })
 
     return NextResponse.json({

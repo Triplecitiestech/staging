@@ -798,30 +798,36 @@ export class AutotaskClient {
     title: string;
     description: string;
     noteType?: number;
-    publish?: number; // 1=All/External, 2=Internal
+    publish?: number; // 1=All/External, 2=Internal, 3=Customer Portal visible
+    creatorContactID?: number; // Autotask contact ID — attributes note to customer instead of API user
   }): Promise<AutotaskTicketNote> {
-    const payload = {
+    const payload: Record<string, unknown> = {
       ticketID: ticketId,
       title: data.title,
       description: data.description,
       noteType: data.noteType || 1,
-      publish: data.publish || 1, // Default to external/customer-visible
+      publish: data.publish || 1,
     };
+
+    // Set creatorContactID so Autotask attributes the note to the customer, not the API user
+    if (data.creatorContactID) {
+      payload.creatorContactID = data.creatorContactID;
+    }
 
     // Try child entity path first (most reliable for this Autotask instance)
     try {
-      const result = await this.post<{ item: AutotaskTicketNote }>(
+      const result = await this.post<{ item?: AutotaskTicketNote; itemId?: number }>(
         `Tickets/${ticketId}/Notes`,
         payload
       );
-      return result.item;
+      return result.item ?? { id: result.itemId ?? 0, ticketID: ticketId, title: data.title, description: data.description } as AutotaskTicketNote;
     } catch {
       // Fallback to top-level TicketNotes entity
-      const result = await this.post<{ item: AutotaskTicketNote }>(
+      const result = await this.post<{ item?: AutotaskTicketNote; itemId?: number }>(
         'TicketNotes',
         payload
       );
-      return result.item;
+      return result.item ?? { id: result.itemId ?? 0, ticketID: ticketId, title: data.title, description: data.description } as AutotaskTicketNote;
     }
   }
 
