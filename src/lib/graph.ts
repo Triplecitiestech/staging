@@ -644,7 +644,7 @@ export function createGraphClient(creds: TenantCredentials) {
         {
           method: 'POST',
           body: JSON.stringify({
-            name: folderName,
+            name: folderName.trim(),
             folder: {},
             '@microsoft.graph.conflictBehavior': 'rename',
           }),

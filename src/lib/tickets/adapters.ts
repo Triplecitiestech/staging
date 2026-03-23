@@ -327,6 +327,9 @@ export async function getStaffTicketNotes(
 
 interface CustomerTicketListParams {
   companySlug: string;
+  /** If false/undefined, return all company tickets. If true + contactEmail provided, filter to contact's tickets only. */
+  contactEmail?: string;
+  isManager?: boolean;
 }
 
 /**
@@ -334,13 +337,13 @@ interface CustomerTicketListParams {
  * Strips staff-only fields. Returns only customer-visible data.
  */
 export async function getCustomerTicketList(params: CustomerTicketListParams): Promise<TicketListResponse> {
-  const { companySlug } = params;
+  const { companySlug, contactEmail, isManager } = params;
   const slug = companySlug.toLowerCase().trim();
 
   // Look up company
   const company = await prisma.company.findUnique({
     where: { slug },
-    select: { autotaskCompanyId: true, displayName: true },
+    select: { id: true, autotaskCompanyId: true, displayName: true },
   });
 
   if (!company?.autotaskCompanyId) {
@@ -370,7 +373,32 @@ export async function getCustomerTicketList(params: CustomerTicketListParams): P
   const client = new AutotaskClient();
   const rawTickets = await client.getCompanyTickets(atCompanyId, 90);
 
-  const rows: UnifiedTicketRow[] = rawTickets.map(t => ({
+  // For non-manager users, filter to only their tickets (by Autotask contactID)
+  let filteredTickets = rawTickets;
+  if (!isManager && contactEmail) {
+    // Look up the user's Autotask contact ID
+    const contact = await prisma.companyContact.findFirst({
+      where: {
+        companyId: company.id,
+        email: { equals: contactEmail, mode: 'insensitive' },
+        isActive: true,
+      },
+      select: { autotaskContactId: true },
+    });
+
+    if (contact?.autotaskContactId) {
+      const atContactId = parseInt(contact.autotaskContactId, 10);
+      if (!isNaN(atContactId)) {
+        filteredTickets = rawTickets.filter(t => t.contactID === atContactId);
+      }
+    } else {
+      // No Autotask contact ID found — show no tickets rather than all
+      console.warn(`[getCustomerTicketList] No autotaskContactId for contact email="${contactEmail}" in company="${slug}"`);
+      filteredTickets = [];
+    }
+  }
+
+  const rows: UnifiedTicketRow[] = filteredTickets.map(t => ({
     ticketId: String(t.id),
     ticketNumber: t.ticketNumber || String(t.id),
     title: t.title,
