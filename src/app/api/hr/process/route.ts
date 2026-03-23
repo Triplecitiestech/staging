@@ -355,7 +355,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const autotaskHeaders = getAutotaskHeaders()
     const firstName = (a.first_name ?? '').trim()
     const lastName = (a.last_name ?? '').trim()
-    const fullName = [firstName, lastName].filter(Boolean).join(' ')
+    let fullName = [firstName, lastName].filter(Boolean).join(' ')
 
     // autotaskCompanyId is stored as String? — Autotask REST expects an integer
     const rawCompanyId = hrRequest.autotaskCompanyId
@@ -1005,7 +1005,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                       ? `Welcome to ${companyName} — Your Microsoft 365 Account`
                       : `Employee Onboarding Complete — ${fullName}`,
                     text: [
-                      isPersonalEmail ? `Welcome to ${companyName}!` : 'Hi,',
+                      isPersonalEmail ? `Welcome to ${companyName}!` : 'Hello,',
                       '',
                       isPersonalEmail
                         ? `Your Microsoft 365 account has been created and is ready to use.`
@@ -1074,6 +1074,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           if (!user) throw new Error(`User not found: ${workEmail}`)
           targetUserId = user.id
           targetUpn = user.userPrincipalName
+          // Fill in fullName from Graph displayName if form answers didn't have first/last name
+          if (!fullName && user.displayName) fullName = user.displayName.trim()
           await logStep(client, hrRequest.id, 'find_user', 'Find User', 'completed', findStart,
             { email: workEmail }, { userId: targetUserId, upn: targetUpn })
           stepsCompleted.push('find_user')
@@ -1225,11 +1227,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                   await resend.emails.send({
                     from: FROM_EMAIL,
                     to: [oneDriveTransferredTo],
-                    subject: `OneDrive files shared with you — ${fullName}`,
+                    subject: `OneDrive files shared with you — ${fullName || targetUpn || 'Employee'}`,
                     text: [
-                      'Hi,',
+                      'Hello,',
                       '',
-                      `As part of the offboarding process for ${fullName}, their OneDrive files have been shared with you.`,
+                      `As part of the offboarding process for ${fullName || targetUpn || 'the employee'}, their OneDrive files have been shared with you.`,
                       '',
                       `You can access the files here:`,
                       oneDriveWebUrl,
@@ -1385,16 +1387,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               if (recipientEmail) {
                 try {
                   const companyName = hrRequest.displayName || 'your organization'
+                  // Final fallback: use targetUpn (email) if fullName is still empty
+                  const employeeName = fullName || targetUpn || 'the employee'
                   await resend.emails.send({
                     from: FROM_EMAIL,
                     to: [recipientEmail],
                     subject: manualSteps.length > 0
-                      ? `Employee Offboarding In Progress — ${fullName}`
-                      : `Employee Offboarding Complete — ${fullName}`,
+                      ? `Employee Offboarding In Progress — ${employeeName}`
+                      : `Employee Offboarding Complete — ${employeeName}`,
                     text: [
-                      'Hi,',
+                      'Hello,',
                       '',
-                      `The offboarding for ${fullName} at ${companyName} has been ${manualSteps.length > 0 ? 'partially completed' : 'completed'}.`,
+                      `The offboarding for ${employeeName} at ${companyName} has been ${manualSteps.length > 0 ? 'partially completed' : 'completed'}.`,
                       '',
                       `Account ${targetUpn} has been disabled.`,
                       `Removed from ${removedGroupCount} group(s) and distribution lists.`,
