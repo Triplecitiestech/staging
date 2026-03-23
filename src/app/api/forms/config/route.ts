@@ -838,6 +838,98 @@ async function migrateOnboardingQuestions(client: PoolClient): Promise<void> {
   }
 }
 
+/** Idempotent migration: offboarding UX improvements
+ *  - Remove remove_from_groups question (always done automatically)
+ *  - Remove "Remote wipe" from device_handling options
+ *  - Remove wipe_confirmation question
+ *  - Update file_handling archive option to clarify copy behavior + HR site + folder naming
+ *  - Update additional_notes to ask about other systems/websites access
+ *  - Update access_transfer section title
+ */
+async function migrateOffboardingUXImprovements(client: PoolClient): Promise<void> {
+  const schemaRes = await client.query<{ id: string }>(
+    `SELECT id FROM form_schemas WHERE type = 'offboarding' AND status = 'published' LIMIT 1`
+  )
+  if (schemaRes.rows.length === 0) return
+  const schemaId = schemaRes.rows[0].id
+
+  // Check if migration already ran: remove_from_groups should be gone
+  const alreadyDone = await client.query(
+    `SELECT id FROM form_questions WHERE schema_id = $1 AND key = 'offboarding_ux_v2_done' LIMIT 1`,
+    [schemaId]
+  )
+  // Use a sentinel approach: check if remove_from_groups still exists
+  const rfgExists = await client.query(
+    `SELECT id FROM form_questions WHERE schema_id = $1 AND key = 'remove_from_groups' LIMIT 1`,
+    [schemaId]
+  )
+  if (rfgExists.rows.length === 0 && alreadyDone.rows.length === 0) {
+    // Already migrated via a previous run — skip
+    return
+  }
+
+  console.log('[forms/config] Running migration: offboarding UX improvements')
+
+  // 1. Remove remove_from_groups (groups are always removed automatically)
+  await client.query(
+    `DELETE FROM form_questions WHERE schema_id = $1 AND key = 'remove_from_groups'`,
+    [schemaId]
+  )
+
+  // 2. Update device_handling: remove "Remote wipe" option, keep others
+  await client.query(
+    `UPDATE form_questions SET static_options = $2::jsonb
+     WHERE schema_id = $1 AND key = 'device_handling'`,
+    [
+      schemaId,
+      JSON.stringify([
+        { value: 'return_to_office', label: 'Return devices to the office', helpText: 'Employee will return all company-owned devices to the office. Our team will collect and re-image them.' },
+        { value: 'ship_to_tct', label: 'Ship devices to Triple Cities Tech', helpText: 'We will coordinate shipping for the devices to be returned and re-imaged.' },
+        { value: 'no_company_devices', label: 'No company-managed devices', helpText: 'Employee does not have any company-owned devices to return.' },
+      ]),
+    ]
+  )
+
+  // 3. Remove wipe_confirmation question
+  await client.query(
+    `DELETE FROM form_questions WHERE schema_id = $1 AND key = 'wipe_confirmation'`,
+    [schemaId]
+  )
+
+  // 4. Update file_handling archive_to_sharepoint option to clarify copy + HR site + folder naming
+  await client.query(
+    `UPDATE form_questions SET static_options = $2::jsonb
+     WHERE schema_id = $1 AND key = 'file_handling'`,
+    [
+      schemaId,
+      JSON.stringify([
+        { value: 'transfer_to_user', label: 'Transfer files to another employee', helpText: 'Instant — the selected person will receive an email with a link to access the files. No files are moved or copied.' },
+        { value: 'archive_to_sharepoint', label: 'Copy files to SharePoint for safekeeping', helpText: 'Files will be COPIED (not moved) to your company\'s HR SharePoint site in a folder named "[Employee Name] — Offboarding [Date]". The original files remain in the user\'s OneDrive during the 30-day retention period. The HR site URL will be shown in your confirmation summary.' },
+        { value: 'no_action', label: 'No file transfer needed', helpText: 'Files will remain in the account during the 30-day hold period, then be deleted.' },
+      ]),
+    ]
+  )
+
+  // 5. Update additional_notes to ask about other systems access
+  await client.query(
+    `UPDATE form_questions SET
+       label = 'Additional Notes & Other Systems',
+       help_text = 'Are there any other systems, websites, or applications that we manage or have access to that should be revoked? For example: Salesforce, UPS WorldShip, QuickBooks, vendor portals, etc. Include any other instructions or context for our team.',
+       placeholder = 'e.g. Please remove access to Salesforce, UPS WorldShip, and the company VPN. Also revoke their badge access if possible.'
+     WHERE schema_id = $1 AND key = 'additional_notes'`,
+    [schemaId]
+  )
+
+  // 6. Update access_transfer section title since groups question is removed
+  await client.query(
+    `UPDATE form_sections SET title = 'File Handling', description = 'What should happen to the departing employee''s files?'
+     WHERE schema_id = $1 AND key = 'access_transfer'`,
+    [schemaId]
+  )
+
+  console.log('[forms/config] Migration complete: offboarding UX improvements')
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/forms/config?companySlug=X&type=onboarding&email=Y
 // ---------------------------------------------------------------------------
@@ -871,6 +963,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     await migrateOffboardingUserSelect(client)
     await migrateOffboardingSteps34(client)
     await migrateOnboardingQuestions(client)
+    await migrateOffboardingUXImprovements(client)
 
     // 1. Find company by slug
     const companyRes = await client.query<{ id: string }>(
