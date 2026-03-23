@@ -40,7 +40,12 @@ export default function TimelineEntry({
 
   return (
     <div className="relative pl-10 pb-4">
-      <div className={`absolute left-2.5 w-3 h-3 rounded-full border-2 border-gray-800 ${dotColor}`} />
+      {/* Line segment: connects this row to the next */}
+      <div className="absolute left-[15px] top-0 bottom-0 w-px bg-gray-700/60" />
+      {/* Dot — vertically centered with card */}
+      <div className="absolute left-0 top-0 bottom-0 flex items-center" style={{ width: '2rem' }}>
+        <div className={`mx-auto w-3 h-3 rounded-full border-2 border-gray-800 relative z-10 ${dotColor}`} />
+      </div>
       <div className={`rounded-lg px-4 py-3 overflow-hidden ${cardBg}`}>
         <div className="flex items-center justify-between mb-1 flex-wrap gap-1">
           <div className="flex items-center gap-2">
