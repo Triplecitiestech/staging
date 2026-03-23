@@ -14,9 +14,11 @@
  *   - Group.ReadWrite.All
  *   - GroupMember.ReadWrite.All
  *   - Directory.ReadWrite.All
- *   - Sites.ReadWrite.All        (SharePoint)
- *   - Organization.Read.All      (license SKUs)
- *   - Mail.ReadWrite              (distribution lists via Exchange)
+ *   - Sites.ReadWrite.All                          (SharePoint)
+ *   - Organization.Read.All                        (license SKUs)
+ *   - DeviceManagementManagedDevices.Read.All       (Intune managed devices)
+ *   - Device.Read.All                               (Azure AD devices fallback)
+ *   - Mail.ReadWrite                                (distribution lists via Exchange)
  */
 
 import { Pool } from 'pg'
