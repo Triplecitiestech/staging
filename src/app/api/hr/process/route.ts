@@ -180,13 +180,14 @@ function formatAnswersAsDescription(
     // Legacy fields
     if (a.transfer_onedrive_to) lines.push(`  Transfer OneDrive To: ${a.transfer_onedrive_to}`)
     if (a.onedrive_archive)   lines.push(`  OneDrive Archive: ${a.onedrive_archive}`)
-    if (a.remove_from_groups) lines.push(`  Remove Groups:  ${a.remove_from_groups}`)
+
+    lines.push('', 'ACCESS & GROUPS')
+    lines.push('  Remove from all groups/distro lists: Yes (automatic)')
 
     lines.push('', 'DEVICE HANDLING')
     if (a.device_handling) lines.push(`  Device:         ${a.device_handling}`)
-    if (a.wipe_confirmation) lines.push(`  Wipe Confirmed: Yes`)
 
-    if (a.additional_notes) lines.push('', `NOTES\n  ${a.additional_notes}`)
+    if (a.additional_notes) lines.push('', `ADDITIONAL NOTES & OTHER SYSTEMS\n  ${a.additional_notes}`)
   }
 
   return lines.join('\n')
@@ -1256,7 +1257,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             const archiveStart = new Date()
             try {
               const hrSite = await graph.getOrCreateHRSharePointSite()
-              const folderName = `${fullName} — Offboarded ${new Date().toISOString().slice(0, 10)}`
+              const folderName = `${fullName} — Offboarding ${new Date().toISOString().slice(0, 10)}`
               const archiveResult = await graph.archiveOneDriveToSharePoint(
                 targetUserId,
                 hrSite.driveId,
@@ -1318,7 +1319,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               ...(removedLicenseNames.length > 0 ? removedLicenseNames.map(n => `  - ${n}`) : ['  (none)']),
               '',
               oneDriveTransferredTo ? `OneDrive Shared With: ${oneDriveTransferredTo}` : null,
-              archiveFolderUrl ? `OneDrive Archived: ${archivedFileCount} items to HR SharePoint` : null,
+              archiveFolderUrl ? `OneDrive Archived: ${archivedFileCount} items copied to HR SharePoint` : null,
+              archiveFolderUrl ? `Archive Folder: ${archiveFolderUrl}` : null,
               failedSteps.length > 0 ? `\nFailed Steps: ${failedSteps.join(', ')}` : null,
               failedSteps.length > 0
                 ? 'Status: Completed with errors — manual steps required'
@@ -1358,10 +1360,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               `Employee ${fullName} has been offboarded:`,
               '',
               `Account ${targetUpn} has been disabled.`,
-              `Removed from ${removedGroupCount} group(s).`,
+              `Removed from ${removedGroupCount} group(s) and distribution lists.`,
               `${removedLicenseCount} license(s) removed.`,
               oneDriveTransferredTo ? `OneDrive files shared with ${oneDriveTransferredTo}.` : null,
-              archiveFolderUrl ? `OneDrive files archived to HR SharePoint (${archivedFileCount} items).` : null,
+              archiveFolderUrl ? `OneDrive files copied to HR SharePoint (${archivedFileCount} items).` : null,
+              archiveFolderUrl ? `Archive location: ${archiveFolderUrl}` : null,
               '',
               manualSteps.length > 0
                 ? 'Some steps require manual action by our team. We will follow up shortly.'
@@ -1390,10 +1393,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                       `The offboarding for ${fullName} at ${companyName} has been ${manualSteps.length > 0 ? 'partially completed' : 'completed'}.`,
                       '',
                       `Account ${targetUpn} has been disabled.`,
-                      `Removed from ${removedGroupCount} group(s).`,
+                      `Removed from ${removedGroupCount} group(s) and distribution lists.`,
                       `${removedLicenseCount} license(s) removed.`,
                       oneDriveTransferredTo ? `OneDrive files shared with ${oneDriveTransferredTo}.` : null,
-                      archiveFolderUrl ? `OneDrive files archived to HR SharePoint (${archivedFileCount} items).` : null,
+                      archiveFolderUrl ? `OneDrive files copied to HR SharePoint (${archivedFileCount} items).` : null,
+                      archiveFolderUrl ? `Archive location: ${archiveFolderUrl}` : null,
                       '',
                       manualSteps.length > 0
                         ? 'Some steps require manual action by our team. We will follow up when everything is complete.'
