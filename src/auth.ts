@@ -2,6 +2,7 @@ import NextAuth from "next-auth"
 import AzureADProvider from "next-auth/providers/azure-ad"
 import { PrismaAdapter } from "@auth/prisma-adapter"
 import { prisma } from "@/lib/prisma"
+import { parseOverrides } from "@/lib/permissions"
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   adapter: PrismaAdapter(prisma),
@@ -65,6 +66,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           if (staffUser) {
             session.user.role = staffUser.role
             session.user.staffId = staffUser.id
+            session.user.permissionOverrides = parseOverrides(staffUser.permissionOverrides)
           }
         } catch (error) {
           console.error('Error fetching staff user for session:', error)
