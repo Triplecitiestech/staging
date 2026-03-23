@@ -74,7 +74,11 @@ async function handleCustomerRequest(request: NextRequest) {
   }
 
   try {
-    const result = await getCustomerTicketList({ companySlug });
+    const result = await getCustomerTicketList({
+      companySlug,
+      contactEmail: session.email,
+      isManager: session.isManager,
+    });
     return NextResponse.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';

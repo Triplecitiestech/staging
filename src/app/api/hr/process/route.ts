@@ -195,7 +195,9 @@ function formatAnswersAsDescription(
 
 function buildTicketTitle(type: string, answers: Record<string, unknown>): string {
   const a = answers as Record<string, string>
-  const fullName = `${a.first_name ?? ''} ${a.last_name ?? ''}`.trim()
+  const firstName = (a.first_name ?? '').trim()
+  const lastName = (a.last_name ?? '').trim()
+  const fullName = [firstName, lastName].filter(Boolean).join(' ')
   return type === 'onboarding'
     ? `[ONBOARDING] New Employee: ${fullName}`
     : `[OFFBOARDING] Employee Termination: ${fullName}`
@@ -351,7 +353,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const a = answers as Record<string, string>
     const baseUrl = getAutotaskBaseUrl()
     const autotaskHeaders = getAutotaskHeaders()
-    const fullName = `${a.first_name ?? ''} ${a.last_name ?? ''}`.trim()
+    const firstName = (a.first_name ?? '').trim()
+    const lastName = (a.last_name ?? '').trim()
+    const fullName = [firstName, lastName].filter(Boolean).join(' ')
 
     // autotaskCompanyId is stored as String? — Autotask REST expects an integer
     const rawCompanyId = hrRequest.autotaskCompanyId
@@ -1257,7 +1261,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             const archiveStart = new Date()
             try {
               const hrSite = await graph.getOrCreateHRSharePointSite()
-              const folderName = `${fullName} — Offboarding ${new Date().toISOString().slice(0, 10)}`
+              const folderName = `${fullName} — Offboarding ${new Date().toISOString().slice(0, 10)}`.trim()
               const archiveResult = await graph.archiveOneDriveToSharePoint(
                 targetUserId,
                 hrSite.driveId,
