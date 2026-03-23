@@ -109,10 +109,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       )
     }
 
-    // 3c. Compute idempotency key — scoped per hour to prevent duplicate submissions
+    // 3c. Compute idempotency key — prevents accidental double-clicks (2 min window)
     const answersTyped = answers as Record<string, string>
-    const hourSlot = Math.floor(Date.now() / 3_600_000)
-    // Use the most identifying field for each type
+    // Use 2-minute slot so legitimate re-submissions (e.g., re-hiring) are allowed quickly
+    const minuteSlot = Math.floor(Date.now() / 120_000)
     const identifierParts = type === 'offboarding'
       ? [answersTyped.employee_to_offboard ?? answersTyped.work_email ?? '']
       : [(answersTyped.first_name ?? '').trim().toLowerCase(), (answersTyped.last_name ?? '').trim().toLowerCase()]
@@ -121,25 +121,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       normalizedEmail,
       type,
       ...identifierParts,
-      hourSlot,
+      minuteSlot,
     ].join(':')
 
     const idempotencyKey = createHash('sha256').update(rawKey).digest('hex')
 
-    // 3d. Check for duplicate within the last 10 minutes
-    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString()
+    // 3d. Check for duplicate within the last 2 minutes (double-click protection only)
+    const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString()
     const dupRes = await client.query<{ id: string }>(
       `SELECT id FROM hr_requests
        WHERE idempotency_key = $1
          AND created_at >= $2
        LIMIT 1`,
-      [idempotencyKey, tenMinutesAgo]
+      [idempotencyKey, twoMinutesAgo]
     )
 
     if (dupRes.rows.length > 0) {
       return NextResponse.json(
         {
-          error: 'Duplicate request detected — an identical request was submitted within the last 10 minutes',
+          error: 'This request was already submitted moments ago. Please wait a moment before trying again.',
           requestId: dupRes.rows[0].id,
         },
         { status: 409 }
