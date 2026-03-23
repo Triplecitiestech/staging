@@ -1269,8 +1269,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                 { targetUserId, driveId: hrSite.driveId },
                 { folderUrl: archiveFolderUrl, fileCount: archivedFileCount, siteUrl: hrSite.webUrl })
               stepsCompleted.push('archive_onedrive')
-              await addTicketNote('OneDrive Files Archived',
-                `${archivedFileCount} items copied to HR SharePoint\nFolder: ${archiveFolderUrl}\nSite: ${hrSite.webUrl}`)
+              await addTicketNote('OneDrive Files Archived — Awaiting Review',
+                `${archivedFileCount} items copied to HR SharePoint\nFolder: ${archiveFolderUrl}\nSite: ${hrSite.webUrl}\n\n` +
+                'ACTION REQUIRED: Please review the archived files to confirm everything transferred correctly, then close this ticket.')
+              // Always require human review after archive
+              manualSteps.push(`Review SharePoint archive for ${fullName} (${archivedFileCount} items) and confirm completeness — then close this ticket`)
             } catch (err) {
               const msg = err instanceof Error ? err.message : String(err)
               await logStep(client, hrRequest.id, 'archive_onedrive', 'Archive OneDrive to SharePoint', 'failed', archiveStart,
