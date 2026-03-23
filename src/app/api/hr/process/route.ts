@@ -123,6 +123,26 @@ function formatAnswersAsDescription(
       lines.push(`  Clone From:     ${a.clone_from_user ?? 'Not specified'}`)
     }
     if (a.credential_delivery) lines.push(`  Credential Delivery: ${a.credential_delivery}`)
+
+    // Computer & device setup
+    if (a.computer_situation) {
+      lines.push('', 'COMPUTER & DEVICE SETUP')
+      if (a.computer_situation === 'existing_company') {
+        lines.push(`  Setup Type:     Existing company computer`)
+        if (a.existing_device) lines.push(`  Device:         ${a.existing_device}`)
+      } else if (a.computer_situation === 'new_computer') {
+        lines.push(`  Setup Type:     New computer needed`)
+        if (a.new_computer_type === 'custom_quote') {
+          lines.push(`  Quote Type:     Custom — sales team to create quote`)
+        } else if (a.new_computer_type === 'standard') {
+          const specs = fmtArray(answers.computer_spec)
+          if (specs) lines.push(`  Equipment:      ${specs}`)
+        }
+      } else if (a.computer_situation === 'personal_byod') {
+        lines.push(`  Setup Type:     BYOD / personal computer (work from home)`)
+      }
+    }
+
     if (a.additional_notes) lines.push('', `NOTES\n  ${a.additional_notes}`)
   } else {
     lines.push('=== EMPLOYEE OFFBOARDING REQUEST ===', '')
@@ -818,21 +838,79 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                 const isPersonalEmail = credentialDelivery === 'personal_email' && a.personal_email
                 try {
                   const companyName = hrRequest.displayName || 'your organization'
+
+                  // Build login instructions based on whether this goes to the new hire or the submitter
+                  const loginInstructions = isPersonalEmail ? [
+                    '',
+                    '═══════════════════════════════════',
+                    'HOW TO GET STARTED',
+                    '═══════════════════════════════════',
+                    '',
+                    '1. SIGN IN TO MICROSOFT 365',
+                    '   Go to https://portal.office.com',
+                    `   Email: ${upn}`,
+                    `   Password: ${tempPassword}`,
+                    '   You will be asked to change your password on first sign-in.',
+                    '',
+                    '2. SET UP MULTI-FACTOR AUTHENTICATION (MFA)',
+                    '   After changing your password, you will be prompted to set up MFA.',
+                    '   We recommend using the Microsoft Authenticator app:',
+                    '     a. Download "Microsoft Authenticator" from the App Store or Google Play',
+                    '     b. When prompted, choose "Add work or school account"',
+                    '     c. Scan the QR code shown on screen',
+                    '     d. You can also choose to receive a text or phone call instead',
+                    '',
+                    '3. SIGN IN ON YOUR COMPUTER',
+                    a.computer_situation === 'existing_company' || a.computer_situation === 'new_computer'
+                      ? [
+                        '   On your company computer:',
+                        '     a. Click the Windows Start menu → click your profile icon → "Switch user"',
+                        `     b. Sign in with: ${upn}`,
+                        '     c. Use the temporary password above, then set your new password',
+                        '     d. Complete the MFA setup if prompted',
+                      ].join('\n')
+                      : [
+                        '   From any web browser:',
+                        '     a. Go to https://portal.office.com',
+                        `     b. Sign in with: ${upn}`,
+                        '     c. You can access Outlook, Teams, OneDrive, and all Microsoft 365 apps from here',
+                        '     d. To install desktop apps, click "Install Microsoft 365" from the portal',
+                      ].join('\n'),
+                    '',
+                    '4. ACCESS YOUR APPS',
+                    '   • Outlook (email): https://outlook.office.com',
+                    '   • Microsoft Teams: https://teams.microsoft.com',
+                    '   • OneDrive (files): https://onedrive.live.com',
+                    '   • All apps: https://portal.office.com',
+                    '',
+                    'If you have any trouble signing in, contact your IT administrator.',
+                  ] : [
+                    '',
+                    'Please share these credentials securely with the new employee.',
+                    a.computer_situation === 'existing_company' || a.computer_situation === 'new_computer'
+                      ? 'They can sign in on their company computer via Start → Switch User, or at https://portal.office.com'
+                      : 'They can sign in at https://portal.office.com',
+                    'They will be prompted to change their password and set up MFA on first sign-in.',
+                  ]
+
                   await resend.emails.send({
                     from: FROM_EMAIL,
                     to: [recipientEmail],
-                    subject: `Employee Onboarding Complete — ${fullName}`,
+                    subject: isPersonalEmail
+                      ? `Welcome to ${companyName} — Your Microsoft 365 Account`
+                      : `Employee Onboarding Complete — ${fullName}`,
                     text: [
-                      'Hi,',
+                      isPersonalEmail ? `Welcome to ${companyName}!` : 'Hi,',
                       '',
-                      `A Microsoft 365 account has been created for ${fullName} for use with ${companyName}.`,
+                      isPersonalEmail
+                        ? `Your Microsoft 365 account has been created and is ready to use.`
+                        : `A Microsoft 365 account has been created for ${fullName} for use with ${companyName}.`,
                       '',
-                      `New Email: ${upn}`,
+                      `Email Address: ${upn}`,
                       `Temporary Password: ${tempPassword}`,
+                      ...loginInstructions,
                       '',
-                      'Please change your password upon first sign-in.',
-                      '',
-                      a.license_type ? `License Assigned: ${a.license_type}` : null,
+                      a.license_type ? `License: ${a.license_type}` : null,
                       allGroupDescriptions.length > 0 ? `Groups Added: ${allGroupDescriptions.length}` : null,
                       '',
                       `Autotask Ticket: ${ticketNumber}`,
