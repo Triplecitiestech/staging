@@ -114,14 +114,13 @@ function getProjectStatusLabel(status: string) {
   }
 }
 
-type DashboardView = 'dashboard' | 'open-tickets' | 'action-items' | 'closed-this-month'
+type TicketFilter = 'all' | 'open' | 'closed' | 'closed-this-month' | 'awaiting'
 
 export default function CustomerDashboard({ projects, companyName, companySlug, userEmail, userName, isManager }: CustomerDashboardProps) {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
   const [projectViewMode, setProjectViewMode] = useState<'vertical' | 'horizontal'>('vertical')
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
   const [collapsedPhases, setCollapsedPhases] = useState<Set<string>>(new Set('__all__'))
-  const [showAllTickets, setShowAllTickets] = useState(false)
   const [commentInputs, setCommentInputs] = useState<Record<string, string>>({})
   const [submittingComment, setSubmittingComment] = useState<string | null>(null)
   const [commentSuccess, setCommentSuccess] = useState<string | null>(null)
@@ -131,7 +130,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
   const [ticketNotes, setTicketNotes] = useState<UnifiedTicketNote[]>([])
   const [notesLoading, setNotesLoading] = useState(false)
   const [ticketSearch, setTicketSearch] = useState('')
-  const [dashboardView, setDashboardView] = useState<DashboardView>('dashboard')
+  const [ticketFilter, setTicketFilter] = useState<TicketFilter>('all')
   // Load tickets when companySlug is available
   useEffect(() => {
     if (!companySlug) return
@@ -239,6 +238,44 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
     }
     return [...titleMatches, ...otherMatches]
   }
+
+  // Apply stat card filter to tickets, sorted newest first
+  const filteredTickets = (() => {
+    let base: Ticket[]
+    switch (ticketFilter) {
+      case 'open':
+        base = openTickets
+        break
+      case 'closed':
+        base = closedTickets
+        break
+      case 'closed-this-month':
+        base = closedThisMonth
+        break
+      case 'awaiting':
+        base = openTickets.filter(t => isWaitingOnCustomer(t.status))
+        break
+      default:
+        base = tickets
+    }
+    return [...base].sort((a, b) => new Date(b.createDate).getTime() - new Date(a.createDate).getTime())
+  })()
+
+  // Toggle filter: clicking the same card again resets to 'all'
+  const toggleFilter = (filter: TicketFilter) => {
+    setTicketFilter(prev => prev === filter ? 'all' : filter)
+  }
+
+  // Label for the ticket section based on active filter
+  const ticketSectionLabel = (() => {
+    switch (ticketFilter) {
+      case 'open': return `Open Tickets (${openTickets.length})`
+      case 'closed': return `Closed Tickets (${closedTickets.length})`
+      case 'closed-this-month': return `Closed This Month (${closedThisMonth.length})`
+      case 'awaiting': return `Awaiting Your Team (${openTickets.filter(t => isWaitingOnCustomer(t.status)).length})`
+      default: return 'Tickets'
+    }
+  })()
 
   const handleSelectTicket = (ticket: Ticket) => {
     setSelectedTicket(ticket)
@@ -628,241 +665,6 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
     )
   }
 
-  // "Open Tickets" sub-view
-  if (dashboardView === 'open-tickets') {
-    // Sort: waiting-on-customer first, then open, both newest first
-    const sortedOpen = [...openTickets].sort((a, b) => {
-      const aWaiting = isWaitingOnCustomer(a.status) ? 0 : 1
-      const bWaiting = isWaitingOnCustomer(b.status) ? 0 : 1
-      if (aWaiting !== bWaiting) return aWaiting - bWaiting
-      return new Date(b.createDate).getTime() - new Date(a.createDate).getTime()
-    })
-    const filtered = filterTickets(sortedOpen)
-    return (
-      <div>
-        {companyName && (
-          <div className="mb-8 text-center">
-            <h1 className="text-4xl font-bold text-white mb-1">{companyName}</h1>
-          </div>
-        )}
-        <button
-          onClick={() => { setDashboardView('dashboard'); setTicketSearch('') }}
-          className="flex items-center gap-2 text-cyan-400 hover:text-cyan-300 transition-colors mb-6 text-sm"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-          Back to Dashboard
-        </button>
-        <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
-          <h2 className="text-2xl font-bold text-white">Open Tickets ({openTickets.length})</h2>
-          <div className="relative w-full md:w-72">
-            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            <input
-              type="text"
-              value={ticketSearch}
-              onChange={e => setTicketSearch(e.target.value)}
-              placeholder="Search tickets..."
-              className="w-full bg-gray-800/50 text-white text-sm rounded-lg pl-10 pr-3 py-2 border border-white/10 focus:border-cyan-500/50 focus:outline-none placeholder-gray-500"
-            />
-          </div>
-        </div>
-        <div className="bg-gray-800/50 border border-white/10 rounded-lg p-4">
-          {filtered.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-4">{ticketSearch ? 'No tickets match your search.' : 'No open tickets.'}</p>
-          ) : (
-            <div className="space-y-2 max-h-[600px] overflow-y-auto">
-              {filtered.map(ticket => (
-                <button
-                  key={ticket.ticketId}
-                  onClick={() => { handleSelectTicket(ticket); setDashboardView('dashboard') }}
-                  className="w-full flex items-center justify-between bg-gray-700/30 hover:bg-gray-700/50 rounded-lg px-4 py-3 transition-colors text-left group cursor-pointer"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm text-white truncate group-hover:text-cyan-300 transition-colors">{ticket.title}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">#{ticket.ticketNumber} - {new Date(ticket.createDate).toLocaleDateString()}</p>
-                  </div>
-                  <div className="flex items-center gap-2 ml-3">
-                    <span className={`px-2 py-0.5 text-xs font-medium rounded-full whitespace-nowrap ${
-                      isWaitingOnCustomer(ticket.status) ? 'bg-rose-500/20 text-rose-300' : 'bg-blue-500/20 text-blue-300'
-                    }`}>{isWaitingOnCustomer(ticket.status) ? 'Awaiting Your Team' : 'Open'}</span>
-                    <svg className="w-4 h-4 text-gray-500 group-hover:text-cyan-400 transition-colors flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    )
-  }
-
-  // "Awaiting Your Action" sub-view
-  if (dashboardView === 'action-items') {
-    const actionProjects = projects.filter(p => p.phases.some(ph => ph.tasks.some(t => t.status === 'WAITING_ON_CLIENT' || t.status === 'CUSTOMER_NOTE_ADDED')))
-    const actionTickets = openTickets.filter(t => {
-      const s = t.statusLabel.toLowerCase()
-      return s.includes('customer') || s.includes('waiting')
-    })
-    return (
-      <div>
-        {companyName && (
-          <div className="mb-8 text-center">
-            <h1 className="text-4xl font-bold text-white mb-1">{companyName}</h1>
-          </div>
-        )}
-        <button
-          onClick={() => setDashboardView('dashboard')}
-          className="flex items-center gap-2 text-cyan-400 hover:text-cyan-300 transition-colors mb-6 text-sm"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-          Back to Dashboard
-        </button>
-        <h2 className="text-2xl font-bold text-white mb-4">Items Awaiting Your Team ({needsAction.length + actionTickets.length})</h2>
-
-        {/* Tasks needing action grouped by project */}
-        {actionProjects.length > 0 && (
-          <div className="mb-6">
-            <h3 className="text-lg font-semibold text-white mb-3">Project Tasks</h3>
-            <div className="space-y-3">
-              {actionProjects.map(project => {
-                const waitingTasks = project.phases.flatMap(ph => ph.tasks.filter(t => t.status === 'WAITING_ON_CLIENT' || t.status === 'CUSTOMER_NOTE_ADDED'))
-                return (
-                  <div key={project.id} className="bg-gray-800/50 border border-red-500/20 rounded-lg p-4">
-                    <button
-                      onClick={() => setSelectedProject(project)}
-                      className="text-sm font-bold text-cyan-400 hover:text-cyan-300 transition-colors mb-2 block"
-                    >
-                      {project.title}
-                    </button>
-                    <div className="space-y-1.5">
-                      {waitingTasks.map(task => (
-                        <div key={task.id} className="flex items-center gap-2 text-sm">
-                          <div className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" />
-                          <span className="text-gray-300">{task.taskText}</span>
-                          <span className="px-2 py-0.5 text-xs font-medium rounded-full border bg-red-500/20 text-red-400 border-red-500/30 whitespace-nowrap ml-auto">Awaiting Your Team</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Tickets needing action */}
-        {actionTickets.length > 0 && (
-          <div>
-            <h3 className="text-lg font-semibold text-white mb-3">Tickets Needing Response</h3>
-            <div className="bg-gray-800/50 border border-white/10 rounded-lg p-4 space-y-2">
-              {actionTickets.map(ticket => (
-                <button
-                  key={ticket.ticketId}
-                  onClick={() => { handleSelectTicket(ticket); setDashboardView('dashboard') }}
-                  className="w-full flex items-center justify-between bg-gray-700/30 hover:bg-gray-700/50 rounded-lg px-4 py-3 transition-colors text-left group"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm text-white truncate group-hover:text-cyan-300">{ticket.title}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">#{ticket.ticketNumber}</p>
-                  </div>
-                  <svg className="w-4 h-4 text-gray-500 group-hover:text-cyan-400 flex-shrink-0 ml-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {needsAction.length === 0 && actionTickets.length === 0 && (
-          <div className="bg-gray-800/50 border border-green-500/20 rounded-lg p-8 text-center">
-            <svg className="w-12 h-12 text-green-400 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-            <p className="text-lg font-medium text-white">All caught up!</p>
-            <p className="text-sm text-gray-400 mt-1">No items currently require your team&apos;s action.</p>
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  // "Tickets Closed This Month" sub-view
-  if (dashboardView === 'closed-this-month') {
-    const sortedClosed = [...closedThisMonth].sort((a, b) => {
-      const aDate = a.completedDate ? new Date(a.completedDate).getTime() : 0
-      const bDate = b.completedDate ? new Date(b.completedDate).getTime() : 0
-      return bDate - aDate
-    })
-    const filtered = filterTickets(sortedClosed)
-    return (
-      <div>
-        {companyName && (
-          <div className="mb-8 text-center">
-            <h1 className="text-4xl font-bold text-white mb-1">{companyName}</h1>
-          </div>
-        )}
-        <button
-          onClick={() => { setDashboardView('dashboard'); setTicketSearch('') }}
-          className="flex items-center gap-2 text-cyan-400 hover:text-cyan-300 transition-colors mb-6 text-sm"
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-          Back to Dashboard
-        </button>
-        <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
-          <h2 className="text-2xl font-bold text-white">Tickets Closed This Month ({closedThisMonth.length})</h2>
-          <div className="relative w-full md:w-72">
-            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            <input
-              type="text"
-              value={ticketSearch}
-              onChange={e => setTicketSearch(e.target.value)}
-              placeholder="Search tickets..."
-              className="w-full bg-gray-800/50 text-white text-sm rounded-lg pl-10 pr-3 py-2 border border-white/10 focus:border-cyan-500/50 focus:outline-none placeholder-gray-500"
-            />
-          </div>
-        </div>
-        <div className="bg-gray-800/50 border border-white/10 rounded-lg p-4">
-          {filtered.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-4">{ticketSearch ? 'No tickets match your search.' : 'No tickets closed this month.'}</p>
-          ) : (
-            <div className="space-y-2 max-h-[600px] overflow-y-auto">
-              {filtered.map(ticket => (
-                <button
-                  key={ticket.ticketId}
-                  onClick={() => { handleSelectTicket(ticket); setDashboardView('dashboard') }}
-                  className="w-full flex items-center justify-between bg-gray-700/30 hover:bg-gray-700/50 rounded-lg px-4 py-3 transition-colors text-left group cursor-pointer"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm text-white truncate group-hover:text-cyan-300 transition-colors">{ticket.title}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">#{ticket.ticketNumber} - Closed {ticket.completedDate ? new Date(ticket.completedDate).toLocaleDateString() : ''}</p>
-                  </div>
-                  <div className="flex items-center gap-2 ml-3">
-                    <span className="px-2 py-0.5 text-xs font-medium rounded-full whitespace-nowrap bg-green-500/20 text-green-300">Closed</span>
-                    <svg className="w-4 h-4 text-gray-500 group-hover:text-cyan-400 transition-colors flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    )
-  }
-
   // Dashboard view (default)
   return (
     <div>
@@ -874,36 +676,52 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
         </div>
       )}
 
-      {/* Summary Cards - all clickable, ticket cards grouped together */}
+      {/* Summary Cards - click to filter tickets below, click again to reset */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
         <button
-          onClick={() => setDashboardView('open-tickets')}
-          className="bg-gray-800/50 border border-blue-500/30 hover:border-blue-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-blue-500/10 cursor-pointer"
+          onClick={() => { toggleFilter('open'); document.getElementById('tickets-section')?.scrollIntoView({ behavior: 'smooth' }) }}
+          className={`bg-gray-800/50 border rounded-lg p-4 text-center transition-all cursor-pointer ${
+            ticketFilter === 'open'
+              ? 'border-blue-400 ring-1 ring-blue-400/40 shadow-lg shadow-blue-500/20'
+              : 'border-blue-500/30 hover:border-blue-400/60 hover:shadow-lg hover:shadow-blue-500/10'
+          }`}
         >
           <div className="text-3xl font-bold text-blue-400">{openTickets.length}</div>
           <div className="text-sm text-gray-400 mt-1">Open Tickets</div>
         </button>
         <button
-          onClick={() => { setShowAllTickets(true); document.getElementById('tickets-section')?.scrollIntoView({ behavior: 'smooth' }) }}
-          className="bg-gray-800/50 border border-green-500/30 hover:border-green-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-green-500/10 cursor-pointer"
+          onClick={() => { toggleFilter('closed'); document.getElementById('tickets-section')?.scrollIntoView({ behavior: 'smooth' }) }}
+          className={`bg-gray-800/50 border rounded-lg p-4 text-center transition-all cursor-pointer ${
+            ticketFilter === 'closed'
+              ? 'border-green-400 ring-1 ring-green-400/40 shadow-lg shadow-green-500/20'
+              : 'border-green-500/30 hover:border-green-400/60 hover:shadow-lg hover:shadow-green-500/10'
+          }`}
         >
           <div className="text-3xl font-bold text-green-400">{closedTickets.length}</div>
           <div className="text-sm text-gray-400 mt-1">Tickets Closed</div>
         </button>
         <button
-          onClick={() => setDashboardView('closed-this-month')}
-          className="bg-gray-800/50 border border-emerald-500/30 hover:border-emerald-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-emerald-500/10 cursor-pointer"
+          onClick={() => { toggleFilter('closed-this-month'); document.getElementById('tickets-section')?.scrollIntoView({ behavior: 'smooth' }) }}
+          className={`bg-gray-800/50 border rounded-lg p-4 text-center transition-all cursor-pointer ${
+            ticketFilter === 'closed-this-month'
+              ? 'border-emerald-400 ring-1 ring-emerald-400/40 shadow-lg shadow-emerald-500/20'
+              : 'border-emerald-500/30 hover:border-emerald-400/60 hover:shadow-lg hover:shadow-emerald-500/10'
+          }`}
         >
           <div className="text-3xl font-bold text-emerald-400">
             {ticketsLoading ? '-' : closedThisMonth.length}
           </div>
-          <div className="text-sm text-gray-400 mt-1">Tickets Closed This Month</div>
+          <div className="text-sm text-gray-400 mt-1">Closed This Month</div>
         </button>
         <button
-          onClick={() => setDashboardView('action-items')}
-          className="bg-gray-800/50 border border-red-500/30 hover:border-red-400/60 rounded-lg p-4 text-center transition-all hover:shadow-lg hover:shadow-red-500/10 cursor-pointer"
+          onClick={() => { toggleFilter('awaiting'); document.getElementById('tickets-section')?.scrollIntoView({ behavior: 'smooth' }) }}
+          className={`bg-gray-800/50 border rounded-lg p-4 text-center transition-all cursor-pointer ${
+            ticketFilter === 'awaiting'
+              ? 'border-red-400 ring-1 ring-red-400/40 shadow-lg shadow-red-500/20'
+              : 'border-red-500/30 hover:border-red-400/60 hover:shadow-lg hover:shadow-red-500/10'
+          }`}
         >
-          <div className="text-3xl font-bold text-red-400">{needsAction.length}</div>
+          <div className="text-3xl font-bold text-red-400">{openTickets.filter(t => isWaitingOnCustomer(t.status)).length}</div>
           <div className="text-sm text-gray-400 mt-1">Awaiting Your Team</div>
         </button>
         <button
@@ -930,7 +748,15 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
       {/* Tickets Section */}
       <div id="tickets-section" className="mb-8">
         <div className="flex items-center gap-3 mb-3">
-          <h2 className="text-xl font-bold text-white">Tickets</h2>
+          <h2 className="text-xl font-bold text-white">{ticketSectionLabel}</h2>
+          {ticketFilter !== 'all' && (
+            <button
+              onClick={() => setTicketFilter('all')}
+              className="text-xs text-cyan-400 hover:text-cyan-300 border border-cyan-500/30 rounded px-2 py-0.5 transition-colors"
+            >
+              Clear Filter
+            </button>
+          )}
           <div className="flex-1" />
           <input
             type="text"
@@ -941,18 +767,15 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
           />
         </div>
         <TicketTable
-          tickets={tickets}
+          tickets={filteredTickets}
           perspective="customer"
           onTicketClick={(ticketId) => {
-            const ticket = tickets.find(t => t.ticketId === ticketId)
+            const ticket = filteredTickets.find(t => t.ticketId === ticketId)
             if (ticket) handleSelectTicket(ticket)
           }}
           compact
           search={ticketSearch}
           onSearchChange={setTicketSearch}
-          maxRows={showAllTickets ? undefined : 5}
-          showViewAll={tickets.length > 5}
-          onViewAll={() => setShowAllTickets(!showAllTickets)}
           loading={ticketsLoading}
         />
       </div>
