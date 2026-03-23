@@ -20,16 +20,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'perspective must be "staff" or "customer"' }, { status: 400 });
   }
 
-  try {
-    if (perspective === 'staff') {
-      return handleStaffRequest(request);
-    }
-    return handleCustomerRequest(request);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    console.error('[api/tickets] Failed:', message);
-    return NextResponse.json({ error: message }, { status: 500 });
+  if (perspective === 'staff') {
+    return handleStaffRequest(request);
   }
+  return handleCustomerRequest(request);
 }
 
 async function handleStaffRequest(request: NextRequest) {
@@ -79,6 +73,12 @@ async function handleCustomerRequest(request: NextRequest) {
     });
   }
 
-  const result = await getCustomerTicketList({ companySlug });
-  return NextResponse.json(result);
+  try {
+    const result = await getCustomerTicketList({ companySlug });
+    return NextResponse.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error(`[api/tickets] Customer ticket fetch failed for slug="${companySlug}":`, message);
+    return NextResponse.json({ error: message, tickets: [], totalTickets: 0, openCount: 0, resolvedCount: 0 }, { status: 500 });
+  }
 }

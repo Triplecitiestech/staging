@@ -254,6 +254,12 @@ async function migrateOffboardingUserSelect(client: PoolClient): Promise<void> {
   if (schemaRes.rows.length === 0) return
   const schemaId = schemaRes.rows[0].id
 
+  // Always clean up legacy first_name/last_name/work_email questions even if user_select exists
+  await client.query(
+    `DELETE FROM form_questions WHERE schema_id = $1 AND key IN ('first_name', 'last_name', 'work_email')`,
+    [schemaId]
+  )
+
   const existing = await client.query(
     `SELECT id FROM form_questions WHERE schema_id = $1 AND key = 'employee_to_offboard' LIMIT 1`,
     [schemaId]
@@ -640,6 +646,27 @@ async function migrateOnboardingQuestions(client: PoolClient): Promise<void> {
        help_text = 'Select the Microsoft 365 license for this employee. Only licenses available in your tenant are shown. Available counts are displayed next to each option.'
        WHERE schema_id = $2 AND key = 'license_type'`,
       [licSectionId, schemaId]
+    )
+
+    // Move clone_permissions and clone_from_user into this section (Step 2)
+    // so users are asked about cloning before selecting individual groups
+    await client.query(
+      `UPDATE form_questions SET section_id = $1, sort_order = -2
+       WHERE schema_id = $2 AND key = 'clone_permissions'`,
+      [licSectionId, schemaId]
+    )
+    await client.query(
+      `UPDATE form_questions SET section_id = $1, sort_order = -1
+       WHERE schema_id = $2 AND key = 'clone_from_user'`,
+      [licSectionId, schemaId]
+    )
+
+    // Update the section title/description to reflect the combined step
+    await client.query(
+      `UPDATE form_sections SET title = 'Microsoft 365 Setup',
+       description = 'Configure the new employee''s Microsoft 365 account — clone an existing user or select a license manually.'
+       WHERE id = $1`,
+      [licSectionId]
     )
   }
 }

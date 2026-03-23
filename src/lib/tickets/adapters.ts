@@ -344,12 +344,13 @@ export async function getCustomerTicketList(params: CustomerTicketListParams): P
   });
 
   if (!company?.autotaskCompanyId) {
+    console.warn(`[getCustomerTicketList] Company slug="${slug}" has no autotaskCompanyId (company found: ${!!company})`);
     return {
       tickets: [],
       totalTickets: 0,
       openCount: 0,
       resolvedCount: 0,
-      companyName: 'Unknown',
+      companyName: company?.displayName || 'Unknown',
     };
   }
 

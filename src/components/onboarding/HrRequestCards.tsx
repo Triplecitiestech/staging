@@ -7,72 +7,12 @@ import { FormRenderer, type MergedFormConfig } from './FormRenderer'
 // Types
 // ---------------------------------------------------------------------------
 
-export interface HrRequestSummary {
-  id: string
-  type: 'onboarding' | 'offboarding'
-  status: string
-  submittedByEmail: string
-  submittedByName: string | null
-  autotaskTicketNumber: string | null
-  employeeName: string
-  createdAt: string
-  completedAt: string | null
-  stepCount: number
-  completedStepCount: number
-}
-
 interface HrRequestCardsProps {
   companySlug: string
   contactRole: string
   contactEmail: string
   contactName: string
-  recentRequests: HrRequestSummary[]
   onRequestSubmitted?: (requestId: string) => void
-}
-
-// ---------------------------------------------------------------------------
-// Status badge helper
-// ---------------------------------------------------------------------------
-
-function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { label: string; className: string }> = {
-    completed:       { label: 'Completed',       className: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' },
-    running:         { label: 'Running',          className: 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/30' },
-    pending:         { label: 'Pending',          className: 'bg-gray-500/10 text-gray-400 border border-gray-500/30' },
-    failed:          { label: 'Failed',           className: 'bg-red-500/10 text-red-400 border border-red-500/30' },
-    requires_review: { label: 'Needs Review',     className: 'bg-orange-500/10 text-orange-400 border border-orange-500/30' },
-  }
-
-  const { label, className } = map[status] ?? map.pending
-
-  return (
-    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${className}`}>
-      <span
-        className={`w-1.5 h-1.5 rounded-full ${
-          status === 'running'
-            ? 'bg-yellow-400 animate-pulse'
-            : status === 'completed'
-            ? 'bg-emerald-400'
-            : status === 'failed'
-            ? 'bg-red-400'
-            : 'bg-gray-400'
-        }`}
-      />
-      {label}
-    </span>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Date format helper
-// ---------------------------------------------------------------------------
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  })
 }
 
 // ---------------------------------------------------------------------------
@@ -84,7 +24,6 @@ export function HrRequestCards({
   contactRole,
   contactEmail,
   contactName,
-  recentRequests,
   onRequestSubmitted,
 }: HrRequestCardsProps) {
   const [wizardType, setWizardType] = useState<'onboarding' | 'offboarding' | null>(null)
@@ -180,45 +119,6 @@ export function HrRequestCards({
           </button>
         </div>
       </div>
-
-      {/* Recent requests table */}
-      {recentRequests.length > 0 && (
-        <div className="bg-gray-800/50 border border-white/10 rounded-lg overflow-hidden">
-          <div className="px-5 py-3 border-b border-white/10">
-            <h3 className="text-sm font-medium text-gray-300">Recent Requests</h3>
-          </div>
-          <div className="divide-y divide-white/5">
-            {recentRequests.map((req) => (
-              <div
-                key={req.id}
-                className="px-5 py-3.5 flex items-center justify-between gap-4 hover:bg-white/2 transition-colors duration-150"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-700/60 flex items-center justify-center text-sm">
-                    {req.type === 'onboarding' ? '➕' : '➖'}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-white truncate">{req.employeeName}</p>
-                    <p className="text-xs text-gray-500 capitalize">{req.type}</p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-4 flex-shrink-0">
-                  <StatusBadge status={req.status} />
-                  <span className="text-xs text-gray-500 hidden sm:block">
-                    {formatDate(req.createdAt)}
-                  </span>
-                  {req.autotaskTicketNumber && (
-                    <span className="text-xs text-cyan-400/70 font-mono hidden md:block">
-                      #{req.autotaskTicketNumber}
-                    </span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Form renderer overlay — loads config from question engine API */}
       {wizardType && (

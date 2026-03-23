@@ -911,18 +911,6 @@ export default function CustomerDashboard({ projects, companyName, companySlug }
         </button>
       </div>
 
-      {/* Chat CTA - tell customers to use chat for new tickets */}
-      <div className="bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border border-cyan-500/30 rounded-lg px-5 py-4 mb-8 flex items-center gap-4">
-        <div className="flex-shrink-0">
-          <svg className="w-8 h-8 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-          </svg>
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-white">Need help? Use the chat in the bottom-right corner to create a support ticket.</p>
-        </div>
-      </div>
-
       {/* Tickets Section */}
       <div id="tickets-section" className="mb-8">
         <div className="flex items-center gap-3 mb-3">
