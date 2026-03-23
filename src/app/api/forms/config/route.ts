@@ -413,9 +413,23 @@ async function migrateOffboardingSteps34(client: PoolClient): Promise<void> {
       accessTransferSectionId,
       schemaId,
       JSON.stringify([
-        { value: 'transfer_to_user', label: 'Transfer files to another employee' },
-        { value: 'archive_to_sharepoint', label: 'Archive files to SharePoint' },
-        { value: 'no_action', label: 'No file transfer needed' },
+        { value: 'transfer_to_user', label: 'Transfer files to another employee', helpText: 'Instant — the selected person will receive an email with a link to access the files. No files are moved or copied.' },
+        { value: 'archive_to_sharepoint', label: 'Archive files to SharePoint', helpText: 'Files will be copied to an HR SharePoint site. This may take time for large file sets and will be reviewed by TCT staff.' },
+        { value: 'no_action', label: 'No file transfer needed', helpText: 'Files will remain in the account during the 30-day hold period, then be deleted.' },
+      ]),
+    ]
+  )
+
+  // Always update file_handling options (in case question already existed from prior migration run)
+  await client.query(
+    `UPDATE form_questions SET static_options = $2::jsonb
+     WHERE schema_id = $1 AND key = 'file_handling'`,
+    [
+      schemaId,
+      JSON.stringify([
+        { value: 'transfer_to_user', label: 'Transfer files to another employee', helpText: 'Instant — the selected person will receive an email with a link to access the files. No files are moved or copied.' },
+        { value: 'archive_to_sharepoint', label: 'Archive files to SharePoint', helpText: 'Files will be copied to an HR SharePoint site. This may take time for large file sets and will be reviewed by TCT staff.' },
+        { value: 'no_action', label: 'No file transfer needed', helpText: 'Files will remain in the account during the 30-day hold period, then be deleted.' },
       ]),
     ]
   )
