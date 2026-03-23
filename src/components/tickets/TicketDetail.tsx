@@ -131,8 +131,8 @@ export default function TicketDetail({
         <div className="relative pl-10 pb-4">
           {/* Line segment: from this dot center down to bottom of row (connects to next item) */}
           <div className="absolute left-[15px] top-1/2 bottom-0 w-px bg-gray-700/60" />
-          {/* Dot centered vertically */}
-          <div className="absolute left-0 top-0 bottom-0 flex items-center" style={{ width: '2rem' }}>
+          {/* Dot centered vertically — bottom-4 excludes pb-4 gap from centering */}
+          <div className="absolute left-0 top-0 bottom-4 flex items-center" style={{ width: '2rem' }}>
             <div className="mx-auto w-3 h-3 bg-gray-600 rounded-full border-2 border-gray-800 relative z-10" />
           </div>
           <div className="bg-slate-700/40 border border-white/5 rounded-lg px-4 py-2.5">
@@ -155,7 +155,7 @@ export default function TicketDetail({
         {loading && (
           <div className="relative pl-10 pb-4">
             <div className="absolute left-[15px] top-0 bottom-0 w-px bg-gray-700/60" />
-            <div className="absolute left-0 top-0 bottom-0 flex items-center" style={{ width: '2rem' }}>
+            <div className="absolute left-0 top-0 bottom-4 flex items-center" style={{ width: '2rem' }}>
               <div className="mx-auto w-3 h-3 bg-gray-600 rounded-full border-2 border-gray-800 animate-pulse relative z-10" />
             </div>
             <p className="text-sm text-gray-500 py-2">Loading communications...</p>
@@ -166,7 +166,7 @@ export default function TicketDetail({
         {!loading && notesError && (
           <div className="relative pl-10 pb-4">
             <div className="absolute left-[15px] top-0 bottom-0 w-px bg-gray-700/60" />
-            <div className="absolute left-0 top-0 bottom-0 flex items-center" style={{ width: '2rem' }}>
+            <div className="absolute left-0 top-0 bottom-4 flex items-center" style={{ width: '2rem' }}>
               <div className="mx-auto w-3 h-3 bg-rose-500 rounded-full border-2 border-gray-800 relative z-10" />
             </div>
             <div className="bg-rose-500/10 border border-rose-500/20 rounded-lg px-4 py-3">
@@ -182,7 +182,7 @@ export default function TicketDetail({
             <TimelineEntry entry={displayedEntries[0]} perspective={perspective} />
             <div className="relative pl-10 pb-4">
               <div className="absolute left-[15px] top-0 bottom-0 w-px bg-gray-700/60" />
-              <div className="absolute left-0 top-0 bottom-0 flex items-center" style={{ width: '2rem' }}>
+              <div className="absolute left-0 top-0 bottom-4 flex items-center" style={{ width: '2rem' }}>
                 <div className="mx-auto w-3 h-3 bg-gray-600 rounded-full border-2 border-gray-800 relative z-10" />
               </div>
               <button
@@ -210,7 +210,7 @@ export default function TicketDetail({
         {!loading && visibleNotes.length === 0 && !ticket.completedDate && (
           <div className="relative pl-10 pb-4">
             <div className="absolute left-[15px] top-0 bottom-0 w-px bg-gray-700/60" />
-            <div className="absolute left-0 top-0 bottom-0 flex items-center" style={{ width: '2rem' }}>
+            <div className="absolute left-0 top-0 bottom-4 flex items-center" style={{ width: '2rem' }}>
               <div className="mx-auto w-3 h-3 bg-gray-600 rounded-full border-2 border-gray-800 relative z-10" />
             </div>
             <p className="text-sm text-gray-400 py-2">
@@ -222,7 +222,7 @@ export default function TicketDetail({
         {!loading && visibleNotes.length === 0 && ticket.completedDate && (
           <div className="relative pl-10 pb-4">
             <div className="absolute left-[15px] top-0 bottom-0 w-px bg-gray-700/60" />
-            <div className="absolute left-0 top-0 bottom-0 flex items-center" style={{ width: '2rem' }}>
+            <div className="absolute left-0 top-0 bottom-4 flex items-center" style={{ width: '2rem' }}>
               <div className="mx-auto w-3 h-3 bg-gray-600 rounded-full border-2 border-gray-800 relative z-10" />
             </div>
             <p className="text-sm text-gray-400 py-2">
