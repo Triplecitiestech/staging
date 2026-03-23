@@ -1,12 +1,16 @@
 /**
  * Datto EDR (Endpoint Detection & Response) API Client
  *
- * Uses API token authentication.
- * Fetches security events, threats, and endpoint status.
- *
+ * Built on Infocyte LoopBack 3 framework.
  * Instance URL pattern: https://<instance>.infocyte.com/api
  * API Explorer: https://<instance>.infocyte.com/explorer/#/
- * (Powered by Infocyte / Datto EDR)
+ *
+ * Key API entities: Alerts, Events, HostScanResults, Agents, Applications,
+ * Vulnerabilities, ActivityTraces, FileDetails, ResponseResults, TargetGroups
+ *
+ * Auth: API token passed as access_token query parameter (LoopBack convention)
+ * Generate tokens at: Admin > Users & Tokens > API Tokens
+ * Tokens expire 1 year from creation.
  */
 
 export interface DattoEdrEvent {
@@ -45,7 +49,6 @@ export class DattoEdrClient {
     // Datto EDR uses instance-specific Infocyte LoopBack API:
     // https://<instance>.infocyte.com/api
     // Set DATTO_EDR_API_URL to your instance base (e.g. https://triple5695.infocyte.com/api)
-    // Visit https://<instance>.infocyte.com/explorer/#/ while logged in to see available endpoints
     this.baseUrl = process.env.DATTO_EDR_API_URL || 'https://triple5695.infocyte.com/api';
   }
 
@@ -53,11 +56,18 @@ export class DattoEdrClient {
     return !!this.apiToken;
   }
 
+  /**
+   * LoopBack APIs use access_token as a query parameter for auth.
+   * Some instances also accept Authorization header — we send both for compatibility.
+   */
   private async request<T>(path: string): Promise<T> {
-    const url = `${this.baseUrl}${path}`;
+    // Append access_token to the URL (LoopBack convention)
+    const separator = path.includes('?') ? '&' : '?';
+    const url = `${this.baseUrl}${path}${separator}access_token=${encodeURIComponent(this.apiToken)}`;
+
     const res = await fetch(url, {
       headers: {
-        'Authorization': `Bearer ${this.apiToken}`,
+        'Authorization': this.apiToken,
         'Content-Type': 'application/json',
         'Accept': 'application/json',
       },
@@ -73,56 +83,51 @@ export class DattoEdrClient {
   }
 
   /**
-   * Fetch security events/threats within a date range.
-   * Note: Exact endpoint paths depend on the Datto EDR API version.
-   * The client tries common patterns.
+   * Fetch alerts from the Infocyte /Alerts endpoint.
+   * LoopBack filter syntax: ?filter[where][createdOn][gte]=<ISO date>
    */
   async getEvents(since: Date, until: Date): Promise<DattoEdrEvent[]> {
     const sinceStr = since.toISOString();
     const untilStr = until.toISOString();
 
     try {
-      // Try the alerts/events endpoint
-      const data = await this.request<{
-        data?: Array<{
-          id?: string;
-          type?: string;
-          severity?: string;
-          description?: string;
-          timestamp?: string;
-          created_at?: string;
-          hostname?: string;
-          device_id?: string;
-          status?: string;
-          category?: string;
-          threat_name?: string;
-        }>;
-        items?: Array<{
-          id?: string;
-          type?: string;
-          severity?: string;
-          description?: string;
-          timestamp?: string;
-          created_at?: string;
-          hostname?: string;
-          device_id?: string;
-          status?: string;
-          category?: string;
-          threat_name?: string;
-        }>;
-      }>(`/alerts?since=${encodeURIComponent(sinceStr)}&until=${encodeURIComponent(untilStr)}&limit=1000`);
+      // Infocyte LoopBack /Alerts endpoint with where filter
+      const filter = JSON.stringify({
+        where: {
+          createdOn: { gte: sinceStr, lte: untilStr },
+        },
+        limit: 1000,
+        order: 'createdOn DESC',
+      });
 
-      const items = data.data || data.items || [];
-      return items.map((e) => ({
+      const items = await this.request<Array<{
+        id?: string;
+        alertType?: string;
+        type?: string;
+        severity?: string;
+        threatName?: string;
+        name?: string;
+        description?: string;
+        createdOn?: string;
+        hostname?: string;
+        hostId?: string;
+        status?: string;
+        flagName?: string;
+        category?: string;
+      }>>(`/Alerts?filter=${encodeURIComponent(filter)}`);
+
+      // LoopBack returns arrays directly (not wrapped in {data:} or {items:})
+      const list = Array.isArray(items) ? items : [];
+      return list.map((e) => ({
         id: e.id || '',
-        type: e.type || e.category || 'unknown',
+        type: e.alertType || e.type || e.flagName || 'unknown',
         severity: e.severity || 'medium',
-        description: e.description || e.threat_name || '',
-        timestamp: e.timestamp || e.created_at || '',
+        description: e.threatName || e.name || e.description || '',
+        timestamp: e.createdOn || '',
         hostname: e.hostname || '',
-        deviceId: e.device_id || '',
+        deviceId: e.hostId || '',
         status: e.status || 'unknown',
-        category: e.category || e.type || 'unknown',
+        category: e.category || e.alertType || e.type || 'unknown',
       }));
     } catch (error) {
       console.error('[DattoEDR] getEvents error:', error);
