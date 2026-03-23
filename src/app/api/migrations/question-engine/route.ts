@@ -175,12 +175,13 @@ VALUES (
   'Standard employee onboarding form', NOW()
 ) ON CONFLICT DO NOTHING;
 
--- Sections for onboarding (4 steps: Employee Details → Account Setup → Groups & Access → Additional Notes)
+-- Sections for onboarding (5 steps: Employee Details → Account Setup → Groups & Access → Computer Setup → Additional Notes)
 INSERT INTO form_sections (id, schema_id, key, title, description, sort_order) VALUES
   ('00000000-0000-4000-8001-000000000001', '00000000-0000-4000-8000-000000000001', 'employee_details', 'Employee Details', 'Basic information about the new employee', 0),
   ('00000000-0000-4000-8001-000000000002', '00000000-0000-4000-8000-000000000001', 'account_setup', 'Account Setup', NULL, 1),
   ('00000000-0000-4000-8001-000000000004', '00000000-0000-4000-8000-000000000001', 'access_permissions', 'Groups & Access', 'Select the groups and teams this employee should be added to', 2),
-  ('00000000-0000-4000-8001-000000000005', '00000000-0000-4000-8000-000000000001', 'special_instructions', 'Additional Notes', NULL, 3)
+  ('00000000-0000-4000-8001-000000000006', '00000000-0000-4000-8000-000000000001', 'device_setup', 'Computer & Device Setup', 'What computer will the new employee use?', 3),
+  ('00000000-0000-4000-8001-000000000005', '00000000-0000-4000-8000-000000000001', 'special_instructions', 'Additional Notes', NULL, 4)
 ON CONFLICT DO NOTHING;
 
 -- Questions for onboarding employee_details
@@ -222,6 +223,33 @@ INSERT INTO form_questions (schema_id, section_id, key, type, label, sort_order,
    '{"endpoint":"m365Groups","valueField":"id","labelField":"displayName","cacheTtl":300}'),
   ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8001-000000000004', 'sharepoint_sites', 'multi_select', 'SharePoint Sites', 3,
    '{"endpoint":"sharepointSites","valueField":"id","labelField":"displayName","cacheTtl":300}')
+ON CONFLICT DO NOTHING;
+
+-- Questions for onboarding device_setup (branching logic)
+INSERT INTO form_questions (schema_id, section_id, key, type, label, help_text, is_required, sort_order, static_options) VALUES
+  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8001-000000000006', 'computer_situation', 'radio', 'What computer will this employee use?', NULL, true, 0,
+   '[{"value":"existing_company","label":"An existing company computer"},{"value":"new_computer","label":"They need a new computer"},{"value":"personal_byod","label":"They''ll use their own computer (BYOD / work from home)"}]')
+ON CONFLICT DO NOTHING;
+
+-- If existing company computer: pick from M365 tenant devices
+INSERT INTO form_questions (schema_id, section_id, key, type, label, help_text, sort_order, data_source, visibility_rules) VALUES
+  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8001-000000000006', 'existing_device', 'select', 'Which computer?', 'Select from your organization''s enrolled Windows devices', 1,
+   '{"endpoint":"devices","valueField":"deviceName","labelField":"deviceName","labelSuffix":"({model})","cacheTtl":300}',
+   '{"operator":"and","conditions":[{"field":"computer_situation","op":"eq","value":"existing_company"}]}')
+ON CONFLICT DO NOTHING;
+
+-- If new computer: standard config or custom quote?
+INSERT INTO form_questions (schema_id, section_id, key, type, label, help_text, sort_order, static_options, visibility_rules) VALUES
+  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8001-000000000006', 'new_computer_type', 'radio', 'What kind of setup?', NULL, 2,
+   '[{"value":"standard","label":"Standard setup — choose a computer type below"},{"value":"custom_quote","label":"Custom — have our sales team create a quote"}]',
+   '{"operator":"and","conditions":[{"field":"computer_situation","op":"eq","value":"new_computer"}]}')
+ON CONFLICT DO NOTHING;
+
+-- If standard setup: pick computer type (multi-select so they can add a second display)
+INSERT INTO form_questions (schema_id, section_id, key, type, label, help_text, sort_order, static_options, visibility_rules) VALUES
+  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8001-000000000006', 'computer_spec', 'multi_select', 'Select equipment needed', 'You can select multiple items', 3,
+   '[{"value":"standard_laptop","label":"Standard Laptop"},{"value":"premium_laptop","label":"Premium Laptop"},{"value":"standard_workstation","label":"Standard Workstation"},{"value":"premium_workstation","label":"Premium Workstation"},{"value":"second_display","label":"Second Display"}]',
+   '{"operator":"and","conditions":[{"field":"new_computer_type","op":"eq","value":"standard"}]}')
 ON CONFLICT DO NOTHING;
 
 -- Questions for onboarding special_instructions
@@ -354,10 +382,19 @@ SET title = 'Groups & Access',
     sort_order = 2
 WHERE id = '00000000-0000-4000-8001-000000000004';
 
--- Update section 5 (special_instructions) to sort_order 3
+-- Create device_setup section (sort_order 3)
+INSERT INTO form_sections (id, schema_id, key, title, description, sort_order)
+VALUES (
+  '00000000-0000-4000-8001-000000000006',
+  '00000000-0000-4000-8000-000000000001',
+  'device_setup', 'Computer & Device Setup',
+  'What computer will the new employee use?', 3
+) ON CONFLICT (id) DO UPDATE SET sort_order = 3;
+
+-- Update section 5 (special_instructions) to sort_order 4
 UPDATE form_sections
 SET title = 'Additional Notes',
-    sort_order = 3
+    sort_order = 4
 WHERE id = '00000000-0000-4000-8001-000000000005';
 
 -- Remove old access_profile question from section 2 (replaced by clone + license)
@@ -411,6 +448,57 @@ SET label = 'Anything else we should know?',
     placeholder = 'e.g. They need access to a specific shared drive, software, or VPN...'
 WHERE section_id = '00000000-0000-4000-8001-000000000005'
   AND key = 'additional_notes';
+
+-- ============================================================
+-- Onboarding: add Computer & Device Setup questions
+-- ============================================================
+
+-- Q1: Computer situation (radio — always visible)
+INSERT INTO form_questions (schema_id, section_id, key, type, label, help_text, is_required, sort_order, static_options)
+VALUES (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8001-000000000006',
+  'computer_situation', 'radio',
+  'What computer will this employee use?',
+  NULL, true, 0,
+  '[{"value":"existing_company","label":"An existing company computer"},{"value":"new_computer","label":"They need a new computer"},{"value":"personal_byod","label":"They''ll use their own computer (BYOD / work from home)"}]'
+) ON CONFLICT DO NOTHING;
+
+-- Q2a: If existing computer — pick from M365 tenant devices
+INSERT INTO form_questions (schema_id, section_id, key, type, label, help_text, sort_order, data_source, visibility_rules)
+VALUES (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8001-000000000006',
+  'existing_device', 'select',
+  'Which computer?',
+  'Select from your organization''s enrolled Windows devices', 1,
+  '{"endpoint":"devices","valueField":"deviceName","labelField":"deviceName","labelSuffix":"({model})","cacheTtl":300}',
+  '{"operator":"and","conditions":[{"field":"computer_situation","op":"eq","value":"existing_company"}]}'
+) ON CONFLICT DO NOTHING;
+
+-- Q2b: If new computer — standard config or custom quote?
+INSERT INTO form_questions (schema_id, section_id, key, type, label, help_text, sort_order, static_options, visibility_rules)
+VALUES (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8001-000000000006',
+  'new_computer_type', 'radio',
+  'What kind of setup?',
+  NULL, 2,
+  '[{"value":"standard","label":"Standard setup — choose a computer type below"},{"value":"custom_quote","label":"Custom — have our sales team create a quote"}]',
+  '{"operator":"and","conditions":[{"field":"computer_situation","op":"eq","value":"new_computer"}]}'
+) ON CONFLICT DO NOTHING;
+
+-- Q3: If standard — pick computer specs (multi_select for adding second display)
+INSERT INTO form_questions (schema_id, section_id, key, type, label, help_text, sort_order, static_options, visibility_rules)
+VALUES (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8001-000000000006',
+  'computer_spec', 'multi_select',
+  'Select equipment needed',
+  'You can select multiple items', 3,
+  '[{"value":"standard_laptop","label":"Standard Laptop"},{"value":"premium_laptop","label":"Premium Laptop"},{"value":"standard_workstation","label":"Standard Workstation"},{"value":"premium_workstation","label":"Premium Workstation"},{"value":"second_display","label":"Second Display"}]',
+  '{"operator":"and","conditions":[{"field":"new_computer_type","op":"eq","value":"standard"}]}'
+) ON CONFLICT DO NOTHING;
 
 -- ============================================================
 -- Offboarding: add OneDrive handling options

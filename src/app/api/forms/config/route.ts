@@ -111,6 +111,9 @@ async function resolveDataSource(
       case 'users':
         items = (await graphClient.getUsers()) as unknown as Array<Record<string, unknown>>
         break
+      case 'devices':
+        items = (await graphClient.getManagedDevices()) as unknown as Array<Record<string, unknown>>
+        break
       default:
         console.warn(`[forms/config] Unknown data source endpoint: ${endpoint}`)
         return []

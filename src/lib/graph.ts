@@ -183,6 +183,19 @@ export interface GraphSite {
   name: string
 }
 
+export interface GraphDevice {
+  id: string
+  deviceName: string
+  operatingSystem: string
+  osVersion: string
+  model: string
+  manufacturer: string
+  managedDeviceOwnerType: string
+  enrolledDateTime: string
+  lastSyncDateTime: string
+  userPrincipalName: string | null
+}
+
 export interface GraphLicenseSku {
   skuId: string
   skuPartNumber: string
@@ -333,6 +346,52 @@ export function createGraphClient(creds: TenantCredentials) {
       } catch {
         // Sites.ReadWrite.All not consented — return empty rather than crashing
         return []
+      }
+    },
+
+    /** Windows managed devices from Intune/Entra (for device assignment) */
+    async getManagedDevices(): Promise<GraphDevice[]> {
+      const t = await token()
+      try {
+        const devices = await graphGetAll<GraphDevice>(
+          t,
+          "/deviceManagement/managedDevices?" +
+          "$select=id,deviceName,operatingSystem,osVersion,model,manufacturer,managedDeviceOwnerType,enrolledDateTime,lastSyncDateTime,userPrincipalName" +
+          "&$filter=operatingSystem eq 'Windows'" +
+          "&$orderby=deviceName&$top=999"
+        )
+        return devices.sort((a, b) => (a.deviceName ?? '').localeCompare(b.deviceName ?? ''))
+      } catch {
+        // DeviceManagementManagedDevices.Read.All not consented — try Azure AD devices as fallback
+        try {
+          const adDevices = await graphGetAll<{
+            id: string
+            displayName: string
+            operatingSystem: string
+            operatingSystemVersion: string
+            model: string
+            manufacturer: string
+          }>(
+            t,
+            "/devices?$select=id,displayName,operatingSystem,operatingSystemVersion,model,manufacturer" +
+            "&$filter=operatingSystem eq 'Windows'" +
+            "&$top=999"
+          )
+          return adDevices.map((d) => ({
+            id: d.id,
+            deviceName: d.displayName,
+            operatingSystem: d.operatingSystem ?? 'Windows',
+            osVersion: d.operatingSystemVersion ?? '',
+            model: d.model ?? '',
+            manufacturer: d.manufacturer ?? '',
+            managedDeviceOwnerType: 'unknown',
+            enrolledDateTime: '',
+            lastSyncDateTime: '',
+            userPrincipalName: null,
+          })).sort((a, b) => a.deviceName.localeCompare(b.deviceName))
+        } catch {
+          return []
+        }
       }
     },
 
