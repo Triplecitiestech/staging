@@ -67,6 +67,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             session.user.role = staffUser.role
             session.user.staffId = staffUser.id
             session.user.permissionOverrides = parseOverrides(staffUser.permissionOverrides)
+
+            // Keep lastLogin fresh — update if stale by more than 1 hour
+            const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000)
+            if (!staffUser.lastLogin || staffUser.lastLogin < oneHourAgo) {
+              prisma.staffUser.update({
+                where: { id: staffUser.id },
+                data: { lastLogin: new Date() },
+              }).catch(() => {}) // fire-and-forget, don't block session
+            }
           }
         } catch (error) {
           console.error('Error fetching staff user for session:', error)
