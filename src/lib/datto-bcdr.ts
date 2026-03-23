@@ -155,8 +155,9 @@ export class DattoBcdrClient {
 
   /**
    * Fetch agents (protected machines) for a device.
+   * Datto BCDR API uses serialNumber as the device identifier.
    */
-  async getDeviceAgents(deviceId: string): Promise<DattoBcdrAgent[]> {
+  async getDeviceAgents(serialNumber: string): Promise<DattoBcdrAgent[]> {
     try {
       const data = await this.request<{
         items?: Array<{
@@ -171,7 +172,7 @@ export class DattoBcdrClient {
           backupStatus?: string;
           isPaused?: boolean;
         }>;
-      }>(`/bcdr/device/${deviceId}/asset/agent`);
+      }>(`/bcdr/device/${serialNumber}/asset/agent`);
 
       return (data.items || []).map((a) => ({
         id: String(a.id || ''),
@@ -193,8 +194,9 @@ export class DattoBcdrClient {
 
   /**
    * Fetch alerts for a device.
+   * Datto BCDR API uses serialNumber as the device identifier.
    */
-  async getDeviceAlerts(deviceId: string): Promise<DattoBcdrAlert[]> {
+  async getDeviceAlerts(serialNumber: string): Promise<DattoBcdrAlert[]> {
     try {
       const data = await this.request<{
         items?: Array<{
@@ -204,11 +206,11 @@ export class DattoBcdrClient {
           timestamp?: string;
           resolved?: boolean;
         }>;
-      }>(`/bcdr/device/${deviceId}/alert`);
+      }>(`/bcdr/device/${serialNumber}/alert`);
 
       return (data.items || []).map((a) => ({
         id: String(a.id || ''),
-        deviceId,
+        deviceId: serialNumber,
         deviceName: '',
         alertType: a.alertType || 'unknown',
         alertMessage: a.alertMessage || '',
@@ -262,7 +264,7 @@ export class DattoBcdrClient {
       for (const device of filtered) {
         if (device.alertCount > 0) {
           try {
-            const alerts = await this.getDeviceAlerts(device.id);
+            const alerts = await this.getDeviceAlerts(device.serialNumber);
             for (const alert of alerts) {
               alertTypeCounts.set(alert.alertType, (alertTypeCounts.get(alert.alertType) || 0) + 1);
             }

@@ -41,8 +41,11 @@ export class DattoEdrClient {
 
   constructor() {
     this.apiToken = process.env.DATTO_EDR_API_TOKEN || '';
-    // Datto EDR API base URL — may vary by region
-    this.baseUrl = process.env.DATTO_EDR_API_URL || 'https://edr.datto.com/api/v1';
+    // Datto EDR uses instance-specific LoopBack API:
+    // https://<instance>.edr.datto.com/api
+    // Set DATTO_EDR_API_URL to your instance URL (e.g. https://mycompany.edr.datto.com/api)
+    // Visit https://<instance>.edr.datto.com/explorer/#/ while logged in to see available endpoints
+    this.baseUrl = process.env.DATTO_EDR_API_URL || 'https://edr.datto.com/api';
   }
 
   isConfigured(): boolean {
