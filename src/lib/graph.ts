@@ -247,7 +247,17 @@ async function graphRequest<T>(
     throw new Error(`Graph API ${path} failed (${res.status}): ${text}`)
   }
 
-  return res.json() as Promise<T>
+  // PATCH/DELETE often return 204 No Content — don't try to parse empty body
+  if (res.status === 204 || res.headers.get('content-length') === '0') {
+    return undefined as T
+  }
+
+  const text = await res.text()
+  if (!text || text.trim().length === 0) {
+    return undefined as T
+  }
+
+  return JSON.parse(text) as T
 }
 
 // Paginate through @odata.nextLink automatically

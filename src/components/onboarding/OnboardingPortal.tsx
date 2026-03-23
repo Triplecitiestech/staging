@@ -127,15 +127,6 @@ export default function OnboardingPortal({
                 isManager={isManager}
               />
             </div>
-
-            {/* Contact section — compact */}
-            <div className="mt-8 px-4 py-3 bg-gray-800/50 border border-cyan-500/20 rounded-lg flex flex-col sm:flex-row items-center justify-between gap-3">
-              <p className="text-sm text-gray-300">Need help? Reach out to our team.</p>
-              <div className="flex gap-3">
-                <a href="tel:+16073417500" className="text-sm font-medium text-cyan-400 hover:text-cyan-300 transition-colors">Call (607) 341-7500</a>
-                <a href="mailto:support@triplecitiestech.com" className="text-sm font-medium text-cyan-400 hover:text-cyan-300 transition-colors">Email Support</a>
-              </div>
-            </div>
           </Container>
         )}
       </main>

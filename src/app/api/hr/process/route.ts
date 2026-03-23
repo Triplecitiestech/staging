@@ -839,6 +839,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                 try {
                   const companyName = hrRequest.displayName || 'your organization'
 
+                  const isCompanyComputer = a.computer_situation === 'existing_company' || a.computer_situation === 'new_computer'
+
                   // Build login instructions based on whether this goes to the new hire or the submitter
                   const loginInstructions = isPersonalEmail ? [
                     '',
@@ -846,38 +848,51 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                     'HOW TO GET STARTED',
                     '═══════════════════════════════════',
                     '',
-                    '1. SIGN IN TO MICROSOFT 365',
-                    '   Go to https://portal.office.com',
-                    `   Email: ${upn}`,
-                    `   Password: ${tempPassword}`,
-                    '   You will be asked to change your password on first sign-in.',
+                    // Order sign-in instructions by scenario:
+                    // Company computer first if applicable, then browser access
+                    ...(isCompanyComputer ? [
+                      '1. SIGN IN ON YOUR COMPANY COMPUTER',
+                      '   From the Windows sign-in screen:',
+                      '     a. Click "Other user" (or "Switch user" if someone is already signed in)',
+                      `     b. Enter your email: ${upn}`,
+                      `     c. Enter your temporary password: ${tempPassword}`,
+                      '     d. You will be prompted to create a new password — choose something secure',
+                      '     e. Follow the prompts to set up Multi-Factor Authentication (MFA)',
+                      '',
+                      '2. SET UP MULTI-FACTOR AUTHENTICATION (MFA)',
+                      '   During sign-in, you will be prompted to set up MFA.',
+                      '   We recommend using the Microsoft Authenticator app:',
+                      '     a. Download "Microsoft Authenticator" from the App Store or Google Play',
+                      '     b. When prompted, choose "Add work or school account"',
+                      '     c. Scan the QR code shown on screen',
+                      '     d. You can also choose to receive a text or phone call instead',
+                      '',
+                      '3. ACCESS MICROSOFT 365 FROM A BROWSER',
+                      '   You can also access your apps from any web browser:',
+                      '     a. Go to https://portal.office.com',
+                      `     b. Sign in with: ${upn}`,
+                      '     c. Access Outlook, Teams, OneDrive, and all Microsoft 365 apps',
+                    ] : [
+                      '1. SIGN IN TO MICROSOFT 365',
+                      '   Go to https://portal.office.com',
+                      `   Email: ${upn}`,
+                      `   Password: ${tempPassword}`,
+                      '   You will be asked to change your password on first sign-in.',
+                      '',
+                      '2. SET UP MULTI-FACTOR AUTHENTICATION (MFA)',
+                      '   After changing your password, you will be prompted to set up MFA.',
+                      '   We recommend using the Microsoft Authenticator app:',
+                      '     a. Download "Microsoft Authenticator" from the App Store or Google Play',
+                      '     b. When prompted, choose "Add work or school account"',
+                      '     c. Scan the QR code shown on screen',
+                      '     d. You can also choose to receive a text or phone call instead',
+                      '',
+                      '3. INSTALL DESKTOP APPS (OPTIONAL)',
+                      '   From the Microsoft 365 portal, click "Install Microsoft 365" to download',
+                      '   Word, Excel, Outlook, and Teams on your computer.',
+                    ]),
                     '',
-                    '2. SET UP MULTI-FACTOR AUTHENTICATION (MFA)',
-                    '   After changing your password, you will be prompted to set up MFA.',
-                    '   We recommend using the Microsoft Authenticator app:',
-                    '     a. Download "Microsoft Authenticator" from the App Store or Google Play',
-                    '     b. When prompted, choose "Add work or school account"',
-                    '     c. Scan the QR code shown on screen',
-                    '     d. You can also choose to receive a text or phone call instead',
-                    '',
-                    '3. SIGN IN ON YOUR COMPUTER',
-                    a.computer_situation === 'existing_company' || a.computer_situation === 'new_computer'
-                      ? [
-                        '   On your company computer:',
-                        '     a. Click the Windows Start menu → click your profile icon → "Switch user"',
-                        `     b. Sign in with: ${upn}`,
-                        '     c. Use the temporary password above, then set your new password',
-                        '     d. Complete the MFA setup if prompted',
-                      ].join('\n')
-                      : [
-                        '   From any web browser:',
-                        '     a. Go to https://portal.office.com',
-                        `     b. Sign in with: ${upn}`,
-                        '     c. You can access Outlook, Teams, OneDrive, and all Microsoft 365 apps from here',
-                        '     d. To install desktop apps, click "Install Microsoft 365" from the portal',
-                      ].join('\n'),
-                    '',
-                    '4. ACCESS YOUR APPS',
+                    `${isCompanyComputer ? '4' : '4'}. ACCESS YOUR APPS`,
                     '   • Outlook (email): https://outlook.office.com',
                     '   • Microsoft Teams: https://teams.microsoft.com',
                     '   • OneDrive (files): https://onedrive.live.com',
@@ -887,8 +902,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                   ] : [
                     '',
                     'Please share these credentials securely with the new employee.',
-                    a.computer_situation === 'existing_company' || a.computer_situation === 'new_computer'
-                      ? 'They can sign in on their company computer via Start → Switch User, or at https://portal.office.com'
+                    isCompanyComputer
+                      ? 'They can sign in on their company computer from the Windows sign-in screen by clicking "Other user", or at https://portal.office.com'
                       : 'They can sign in at https://portal.office.com',
                     'They will be prompted to change their password and set up MFA on first sign-in.',
                   ]
@@ -910,10 +925,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                       `Temporary Password: ${tempPassword}`,
                       ...loginInstructions,
                       '',
-                      a.license_type ? `License: ${a.license_type}` : null,
-                      allGroupDescriptions.length > 0 ? `Groups Added: ${allGroupDescriptions.length}` : null,
-                      '',
-                      `Autotask Ticket: ${ticketNumber}`,
+                      `Triple Cities Tech | Support Ticket Number: ${ticketNumber}`,
                       '',
                       '—',
                       'Triple Cities Tech',
@@ -1027,6 +1039,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           // Remove from all groups
           const removeGrpStart = new Date()
           let removedGroupCount = 0
+          const removedGroupNames: string[] = []
+          const skippedGroupNames: string[] = []
           try {
             const userGroups = await graph.getUserGroups(targetUserId)
             const removableGroups = userGroups.filter(
@@ -1037,16 +1051,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               try {
                 await graph.removeUserFromGroup(grp.id, targetUserId)
                 removedGroupCount++
+                removedGroupNames.push(describeGroup(grp))
               } catch {
-                // Non-fatal per group — might be a dynamic group
+                skippedGroupNames.push(`${grp.displayName} (dynamic/protected)`)
               }
             }
 
             provisioningResults.push(`Groups Removed: ${removedGroupCount}/${removableGroups.length}`)
             await logStep(client, hrRequest.id, 'remove_groups', 'Remove from All Groups', 'completed', removeGrpStart,
-              { userId: targetUserId }, { removed: removedGroupCount, total: removableGroups.length })
+              { userId: targetUserId }, { removed: removedGroupCount, total: removableGroups.length, names: removedGroupNames })
             stepsCompleted.push('remove_groups')
-            await addTicketNote('Removed from Groups', `Removed from ${removedGroupCount}/${removableGroups.length} groups`)
+
+            const groupNoteLines = [
+              `Removed from ${removedGroupCount}/${removableGroups.length} groups:`,
+              ...removedGroupNames.map(n => `  ✓ ${n}`),
+              ...(skippedGroupNames.length > 0 ? ['Skipped (dynamic/protected):', ...skippedGroupNames.map(n => `  ⊘ ${n}`)] : []),
+            ]
+            await addTicketNote('Removed from Groups', groupNoteLines.join('\n'))
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err)
             await logStep(client, hrRequest.id, 'remove_groups', 'Remove from All Groups', 'failed', removeGrpStart,
@@ -1058,28 +1079,28 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           // Remove licenses
           const removeLicStart = new Date()
           let removedLicenseCount = 0
+          const removedLicenseNames: string[] = []
           try {
-            // Get the user's assigned licenses
-            const userDetail = await graph.getUserByEmail(workEmail)
-            // Need to call Graph directly for license details
             const skus = await graph.getLicenseSkus()
-            // Remove each license the tenant has — the API will only remove ones assigned to the user
             for (const sku of skus) {
               try {
                 await graph.removeLicense(targetUserId, sku.skuId)
                 removedLicenseCount++
+                removedLicenseNames.push(sku.displayName ?? sku.skuPartNumber)
               } catch {
                 // License wasn't assigned to this user — ignore
               }
             }
-            // Suppress unused variable warning
-            void userDetail
 
             provisioningResults.push(`Licenses Removed: ${removedLicenseCount}`)
             await logStep(client, hrRequest.id, 'remove_licenses', 'Remove Licenses', 'completed', removeLicStart,
-              { userId: targetUserId }, { removed: removedLicenseCount })
+              { userId: targetUserId }, { removed: removedLicenseCount, names: removedLicenseNames })
             stepsCompleted.push('remove_licenses')
-            await addTicketNote('Licenses Removed', `Removed ${removedLicenseCount} license(s)`)
+
+            const licNoteLines = removedLicenseCount > 0
+              ? [`Removed ${removedLicenseCount} license(s):`, ...removedLicenseNames.map(n => `  ✓ ${n}`)]
+              : ['No licenses were assigned to this user.']
+            await addTicketNote('Licenses Removed', licNoteLines.join('\n'))
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err)
             await logStep(client, hrRequest.id, 'remove_licenses', 'Remove Licenses', 'failed', removeLicStart,
@@ -1175,8 +1196,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               '=== PROVISIONING RESULTS ===',
               `Account: ${targetUpn}`,
               'Action: Account disabled',
-              `Groups Removed: ${removedGroupCount}`,
-              `Licenses Removed: ${removedLicenseCount}`,
+              '',
+              `Groups Removed (${removedGroupCount}):`,
+              ...(removedGroupNames.length > 0 ? removedGroupNames.map(n => `  - ${n}`) : ['  (none)']),
+              ...(skippedGroupNames.length > 0 ? [`Skipped Groups: ${skippedGroupNames.join(', ')}`] : []),
+              '',
+              `Licenses Removed (${removedLicenseCount}):`,
+              ...(removedLicenseNames.length > 0 ? removedLicenseNames.map(n => `  - ${n}`) : ['  (none)']),
+              '',
               oneDriveTransferredTo ? `OneDrive Shared With: ${oneDriveTransferredTo}` : null,
               archiveFolderUrl ? `OneDrive Archived: ${archivedFileCount} items to HR SharePoint` : null,
               failedSteps.length > 0 ? `\nFailed Steps: ${failedSteps.join(', ')}` : null,
@@ -1233,7 +1260,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                       oneDriveTransferredTo ? `OneDrive files shared with ${oneDriveTransferredTo}.` : null,
                       archiveFolderUrl ? `OneDrive files archived to HR SharePoint (${archivedFileCount} items).` : null,
                       '',
-                      `Autotask Ticket: ${ticketNumber}`,
+                      `Triple Cities Tech | Support Ticket Number: ${ticketNumber}`,
                       '',
                       '—',
                       'Triple Cities Tech',

@@ -1,7 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { HrRequestCards, HrRequestSummary } from './HrRequestCards'
+import { HrRequestCards } from './HrRequestCards'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -27,36 +26,6 @@ export function HrRequestSection({
   userName,
   isManager,
 }: HrRequestSectionProps) {
-  const [recentRequests, setRecentRequests] = useState<HrRequestSummary[]>([])
-  const [loadingRequests, setLoadingRequests] = useState(false)
-
-  // ----- Load recent requests when manager -----
-  const loadRequests = useCallback(async () => {
-    if (!isManager || !userEmail || !companySlug) return
-    setLoadingRequests(true)
-    try {
-      const params = new URLSearchParams({ companySlug, email: userEmail })
-      const res = await fetch(`/api/hr/requests?${params.toString()}`)
-      if (res.ok) {
-        const data = await res.json()
-        setRecentRequests(data.requests ?? [])
-      }
-    } catch {
-      // Silently fail — not critical
-    } finally {
-      setLoadingRequests(false)
-    }
-  }, [isManager, userEmail, companySlug])
-
-  useEffect(() => {
-    loadRequests()
-  }, [loadRequests])
-
-  function handleRequestSubmitted(_requestId: string) {
-    // Refresh the recent requests list after a short delay
-    setTimeout(() => loadRequests(), 1500)
-  }
-
   // ----- Not a manager — show a message -----
   if (!isManager) {
     return (
@@ -76,27 +45,12 @@ export function HrRequestSection({
     )
   }
 
-  // ----- Manager — show HR request cards -----
-  if (loadingRequests && recentRequests.length === 0) {
-    return (
-      <div className="mb-8 space-y-4">
-        <div className="h-6 bg-gray-700/40 rounded w-48 animate-pulse" />
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="bg-gray-800/50 border border-white/10 rounded-lg h-40 animate-pulse" />
-          <div className="bg-gray-800/50 border border-white/10 rounded-lg h-40 animate-pulse" />
-        </div>
-      </div>
-    )
-  }
-
   return (
     <HrRequestCards
       companySlug={companySlug}
       contactRole="CLIENT_MANAGER"
       contactEmail={userEmail ?? ''}
       contactName={userName ?? ''}
-      recentRequests={recentRequests}
-      onRequestSubmitted={handleRequestSubmitted}
     />
   )
 }
