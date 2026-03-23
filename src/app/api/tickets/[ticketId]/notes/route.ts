@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { getAuthenticatedCompany } from '@/lib/onboarding-session';
+import { getPortalSession } from '@/lib/portal-session';
 import { prisma } from '@/lib/prisma';
 import { getStaffTicketNotes, getCustomerTicketNotes } from '@/lib/tickets/adapters';
 import { DEFAULT_STAFF_VISIBILITY } from '@/types/tickets';
@@ -61,8 +61,8 @@ async function handleCustomerNotes(request: NextRequest, ticketId: string) {
   }
 
   // Verify customer is authenticated for this company
-  const authenticatedCompany = await getAuthenticatedCompany();
-  if (authenticatedCompany !== companySlug.toLowerCase().trim()) {
+  const session = await getPortalSession();
+  if (!session || session.companySlug !== companySlug.toLowerCase().trim()) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

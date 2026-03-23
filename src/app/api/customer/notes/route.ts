@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAuthenticatedCompany } from '@/lib/onboarding-session'
+import { getPortalSession } from '@/lib/portal-session'
 import { auth } from '@/auth'
 
 // POST /api/customer/notes - Save a customer note on a phase or task
@@ -15,16 +15,16 @@ export async function POST(request: NextRequest) {
     console.log('[Customer Notes API] Request body:', { phaseId, taskId, contentLength: content?.length })
 
     // Check authentication - either customer session OR admin session
-    const authenticatedCompany = await getAuthenticatedCompany()
+    const portalSession = await getPortalSession()
     const adminSession = await auth()
 
     console.log('[Customer Notes API] Auth check:', {
-      customerAuth: !!authenticatedCompany,
+      customerAuth: !!portalSession,
       adminAuth: !!adminSession
     })
 
     // Allow access if either customer is authenticated OR admin is authenticated (for preview mode)
-    if (!authenticatedCompany && !adminSession) {
+    if (!portalSession && !adminSession) {
       console.log('[Customer Notes API] Not authenticated - no valid customer or admin session found')
       return NextResponse.json(
         { error: 'Unauthorized - please log in again. Your session may have expired.' },
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Demo company: read-only access (no write operations)
-    if (authenticatedCompany === 'contoso-industries' && !adminSession) {
+    if (portalSession?.companySlug === 'contoso-industries' && !adminSession) {
       return NextResponse.json(
         { error: 'Demo portal is read-only. Write operations are disabled.' },
         { status: 403 }
@@ -50,9 +50,9 @@ export async function POST(request: NextRequest) {
     const { prisma } = await import('@/lib/prisma')
 
     // If customer (not admin), verify the resource belongs to their company
-    if (authenticatedCompany && !adminSession) {
+    if (portalSession && !adminSession) {
       const company = await prisma.company.findUnique({
-        where: { slug: authenticatedCompany },
+        where: { slug: portalSession.companySlug },
         select: { id: true }
       })
 

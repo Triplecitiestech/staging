@@ -8,7 +8,6 @@ import { Button } from '@/components/ui/Button'
 import OnboardingTimeline from './OnboardingTimeline'
 import CustomerDashboard from './CustomerDashboard'
 import OnboardingJourney, { useOnboardingJourney } from './OnboardingJourney'
-import { HrRequestSection } from './HrRequestSection'
 import type { OnboardingData } from '@/types/onboarding'
 
 interface OnboardingPortalProps {
@@ -111,22 +110,15 @@ export default function OnboardingPortal({
         ) : (
           // Standard portal view — always show dashboard + HR section regardless of project count
           <Container className="py-8 mt-4">
-            {/* Dashboard — tickets + projects (shows 0s if nothing synced yet) */}
+            {/* Dashboard — stats + employee management + tickets + projects */}
             <CustomerDashboard
               companyName={displayName}
               companySlug={companySlug}
               projects={(projects ?? []) as { id: string; title: string; projectType: string; status: string; phases: { id: string; title: string; description: string | null; status: string; customerNotes: string | null; orderIndex: number; tasks: { id: string; taskText: string; completed: boolean; orderIndex: number; status: string; notes?: string | null; autotaskTaskId?: string | null; comments?: { id: string; content: string; authorName: string; createdAt: string | Date }[] }[] }[]; createdAt: string | Date; updatedAt: string | Date }[]}
+              userEmail={userEmail}
+              userName={userName}
+              isManager={isManager}
             />
-
-            {/* Employee Management — always below dashboard stats */}
-            <div className="mt-8">
-              <HrRequestSection
-                companySlug={companySlug}
-                userEmail={userEmail}
-                userName={userName}
-                isManager={isManager}
-              />
-            </div>
           </Container>
         )}
       </main>

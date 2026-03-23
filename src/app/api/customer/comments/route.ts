@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAuthenticatedCompany } from '@/lib/onboarding-session'
+import { getPortalSession } from '@/lib/portal-session'
 import { auth } from '@/auth'
 
 export const dynamic = 'force-dynamic'
@@ -22,10 +22,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Check authentication - either customer session OR admin session
-    const authenticatedCompany = await getAuthenticatedCompany()
+    const portalSession = await getPortalSession()
     const adminSession = await auth()
 
-    if (!authenticatedCompany && !adminSession) {
+    if (!portalSession && !adminSession) {
       return NextResponse.json(
         { error: 'Unauthorized - please log in again.' },
         { status: 401 }
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Demo company: read-only access (no write operations)
-    if (authenticatedCompany === 'contoso-industries' && !adminSession) {
+    if (portalSession?.companySlug === 'contoso-industries' && !adminSession) {
       return NextResponse.json(
         { error: 'Demo portal is read-only. Write operations are disabled.' },
         { status: 403 }
@@ -70,9 +70,9 @@ export async function POST(request: NextRequest) {
     }
 
     // If customer (not admin), verify the task belongs to their company
-    if (authenticatedCompany && !adminSession) {
+    if (portalSession && !adminSession) {
       const companySlug = task.phase?.project?.company?.slug
-      if (companySlug !== authenticatedCompany) {
+      if (companySlug !== portalSession.companySlug) {
         return NextResponse.json({ error: 'Access denied' }, { status: 403 })
       }
     }
