@@ -274,6 +274,17 @@ export async function POST(request: Request) {
       results.push(`⚠️ companies.onboarding_completed_at: ${err.message}`)
     }
 
+    // Ensure StaffRole enum has all required values
+    for (const roleVal of ['SUPER_ADMIN', 'BILLING_ADMIN', 'TECHNICIAN']) {
+      try {
+        await client.query(`ALTER TYPE "StaffRole" ADD VALUE IF NOT EXISTS '${roleVal}'`)
+        results.push(`✅ Ensured StaffRole enum value: ${roleVal}`)
+      } catch (error) {
+        const err = error as Error
+        results.push(`⚠️ StaffRole.${roleVal}: ${err.message}`)
+      }
+    }
+
     // Promote Kurtis to SUPER_ADMIN
     try {
       const res = await client.query(
