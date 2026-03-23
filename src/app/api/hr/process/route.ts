@@ -38,6 +38,7 @@ interface AutotaskTicketPayload {
   QueueID?: number
   IssueType?: number
   SubIssueType?: number
+  ContactID?: number
 }
 
 interface AutotaskTimeEntryPayload {
@@ -79,7 +80,9 @@ function getAutotaskBaseUrl(): string {
 
 function formatAnswersAsDescription(
   type: string,
-  answers: Record<string, unknown>
+  answers: Record<string, unknown>,
+  submitterName?: string | null,
+  submitterEmail?: string | null,
 ): string {
   const lines: string[] = []
   const a = answers as Record<string, string>
@@ -93,6 +96,9 @@ function formatAnswersAsDescription(
 
   if (type === 'onboarding') {
     lines.push('=== EMPLOYEE ONBOARDING REQUEST ===', '')
+    if (submitterName) lines.push(`Requested by: ${submitterName}`)
+    if (submitterEmail) lines.push(`Requester email: ${submitterEmail}`)
+    lines.push('')
     lines.push('EMPLOYEE DETAILS')
     lines.push(`  Name:           ${a.first_name ?? ''} ${a.last_name ?? ''}`.trimEnd())
     if (a.start_date)      lines.push(`  Start Date:     ${a.start_date}`)
@@ -146,6 +152,9 @@ function formatAnswersAsDescription(
     if (a.additional_notes) lines.push('', `NOTES\n  ${a.additional_notes}`)
   } else {
     lines.push('=== EMPLOYEE OFFBOARDING REQUEST ===', '')
+    if (submitterName) lines.push(`Requested by: ${submitterName}`)
+    if (submitterEmail) lines.push(`Requester email: ${submitterEmail}`)
+    lines.push('')
     lines.push('EMPLOYEE DETAILS')
     lines.push(`  Name:           ${a.first_name ?? ''} ${a.last_name ?? ''}`.trimEnd())
     if (a.work_email || a.employee_to_offboard) lines.push(`  Work Email:     ${a.work_email ?? a.employee_to_offboard}`)
@@ -157,11 +166,21 @@ function formatAnswersAsDescription(
     lines.push('', 'DATA & EMAIL HANDLING')
     if (a.data_handling)      lines.push(`  Data Handling:  ${a.data_handling}`)
     if (a.forward_email_to)   lines.push(`  Forward To:     ${a.forward_email_to}`)
+    const sharedAccess = fmtArray(answers.shared_mailbox_access)
+    if (sharedAccess)         lines.push(`  Shared Mailbox Access: ${sharedAccess}`)
     if (a.delegate_access_to) lines.push(`  Delegate To:    ${a.delegate_access_to}`)
     // Legacy fields
     if (a.account_action)  lines.push(`  Action:         ${a.account_action}`)
     if (a.forward_email)   lines.push(`  Forward To:     ${a.forward_email}`)
     if (a.delegate_access) lines.push(`  Delegate To:    ${a.delegate_access}`)
+
+    lines.push('', 'FILE HANDLING')
+    if (a.file_handling)      lines.push(`  File Action:    ${a.file_handling}`)
+    if (a.transfer_files_to)  lines.push(`  Transfer To:    ${a.transfer_files_to}`)
+    // Legacy fields
+    if (a.transfer_onedrive_to) lines.push(`  Transfer OneDrive To: ${a.transfer_onedrive_to}`)
+    if (a.onedrive_archive)   lines.push(`  OneDrive Archive: ${a.onedrive_archive}`)
+    if (a.remove_from_groups) lines.push(`  Remove Groups:  ${a.remove_from_groups}`)
 
     lines.push('', 'DEVICE HANDLING')
     if (a.device_handling) lines.push(`  Device:         ${a.device_handling}`)
@@ -362,11 +381,29 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     // -----------------------------------------------------------------
+    // Look up requester's Autotask contact ID (best-effort)
+    // -----------------------------------------------------------------
+    let requesterContactId: number | undefined
+    if (autotask && hrRequest.submitted_by_email) {
+      try {
+        const contacts = await autotask.getContactsByCompany(autotaskCompanyId)
+        const match = contacts.find(
+          (c) => c.emailAddress?.toLowerCase() === hrRequest.submitted_by_email.toLowerCase()
+        )
+        if (match) requesterContactId = match.id
+      } catch (err) {
+        console.warn('[hr/process] Could not look up requester contact:', err instanceof Error ? err.message : err)
+      }
+    }
+
+    // -----------------------------------------------------------------
     // STEP 1: Create Autotask Ticket
     // -----------------------------------------------------------------
 
     const ticketStepStart = new Date()
-    const originalDescription = formatAnswersAsDescription(hrRequest.type, answers)
+    const originalDescription = formatAnswersAsDescription(
+      hrRequest.type, answers, hrRequest.submitted_by_name, hrRequest.submitted_by_email
+    )
 
     const ticketPayload: AutotaskTicketPayload = {
       CompanyID: autotaskCompanyId,
@@ -374,6 +411,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       Description: originalDescription,
       Status: 1,   // New
       Priority: 2, // Medium
+      ...(requesterContactId ? { ContactID: requesterContactId } : {}),
     }
 
     let ticketId: number | null = null
@@ -1137,13 +1175,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           }
 
           // OneDrive transfer — grant access to designated user
+          // Supports both new (file_handling + transfer_files_to) and legacy (transfer_onedrive_to) answer keys
           let oneDriveTransferredTo: string | null = null
           let oneDriveWebUrl: string | null = null
-          if (a.transfer_onedrive_to && targetUserId) {
+          const transferRecipient = a.transfer_files_to || a.transfer_onedrive_to
+          const shouldTransferFiles = (a.file_handling === 'transfer_to_user' && a.transfer_files_to) || a.transfer_onedrive_to
+          if (shouldTransferFiles && transferRecipient && targetUserId) {
             const odStart = new Date()
             try {
-              const result = await graph.grantOneDriveAccess(targetUserId, a.transfer_onedrive_to as string)
-              oneDriveTransferredTo = a.transfer_onedrive_to as string
+              const result = await graph.grantOneDriveAccess(targetUserId, transferRecipient)
+              oneDriveTransferredTo = transferRecipient
               oneDriveWebUrl = result.webUrl
               provisioningResults.push(`OneDrive Transferred To: ${oneDriveTransferredTo}`)
               await logStep(client, hrRequest.id, 'transfer_onedrive', 'Transfer OneDrive Access', 'completed', odStart,
@@ -1179,16 +1220,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             } catch (err) {
               const msg = err instanceof Error ? err.message : String(err)
               await logStep(client, hrRequest.id, 'transfer_onedrive', 'Transfer OneDrive Access', 'failed', odStart,
-                { targetUserId, recipientEmail: a.transfer_onedrive_to }, undefined, msg)
+                { targetUserId, recipientEmail: transferRecipient }, undefined, msg)
               failedSteps.push('transfer_onedrive')
-              await addTicketNote('OneDrive Transfer Failed', `Recipient: ${a.transfer_onedrive_to}\nError: ${msg}`)
+              await addTicketNote('OneDrive Transfer Failed', `Recipient: ${transferRecipient}\nError: ${msg}`)
             }
           }
 
           // OneDrive archive — move files to HR SharePoint site
           let archiveFolderUrl: string | null = null
           let archivedFileCount = 0
-          if (a.onedrive_archive === 'yes' && targetUserId) {
+          const shouldArchive = a.file_handling === 'archive_to_sharepoint' || a.onedrive_archive === 'yes'
+          if (shouldArchive && targetUserId) {
             const archiveStart = new Date()
             try {
               const hrSite = await graph.getOrCreateHRSharePointSite()

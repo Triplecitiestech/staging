@@ -18,8 +18,8 @@ export interface MergedQuestion {
   defaultValue?: string | null
   sortOrder: number
   validation?: { minLength?: number; maxLength?: number; pattern?: string } | null
-  staticOptions?: { value: string; label: string }[] | null
-  resolvedOptions?: { value: string; label: string }[] | null
+  staticOptions?: { value: string; label: string; helpText?: string }[] | null
+  resolvedOptions?: { value: string; label: string; helpText?: string }[] | null
   visibilityRules?: Record<string, unknown> | null
   automationKey?: string | null
   dataSource?: Record<string, unknown> | null

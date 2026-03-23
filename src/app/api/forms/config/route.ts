@@ -312,6 +312,153 @@ async function migrateOffboardingUserSelect(client: PoolClient): Promise<void> {
   console.log('[forms/config] Migration complete: offboarding user_select')
 }
 
+/** Idempotent migration: redesign offboarding Steps 3-4 for better UX flow */
+async function migrateOffboardingSteps34(client: PoolClient): Promise<void> {
+  const schemaRes = await client.query<{ id: string }>(
+    `SELECT id FROM form_schemas WHERE type = 'offboarding' AND status = 'published' LIMIT 1`
+  )
+  if (schemaRes.rows.length === 0) return
+  const schemaId = schemaRes.rows[0].id
+
+  // Check if migration already ran (shared_mailbox_access question exists)
+  const alreadyDone = await client.query(
+    `SELECT id FROM form_questions WHERE schema_id = $1 AND key = 'shared_mailbox_access' LIMIT 1`,
+    [schemaId]
+  )
+  if (alreadyDone.rows.length > 0) return
+
+  console.log('[forms/config] Running migration: offboarding Steps 3-4 redesign')
+
+  // --- Step 3: data_handling section ---
+  const dataHandlingSectionRes = await client.query<{ id: string }>(
+    `SELECT id FROM form_sections WHERE schema_id = $1 AND key = 'data_handling' LIMIT 1`,
+    [schemaId]
+  )
+  if (dataHandlingSectionRes.rows.length === 0) return
+  const dataHandlingSectionId = dataHandlingSectionRes.rows[0].id
+
+  // Update data_handling options (keep original labels, no price details)
+  await client.query(
+    `UPDATE form_questions
+     SET static_options = $2::jsonb
+     WHERE schema_id = $1 AND key = 'data_handling'`,
+    [
+      schemaId,
+      JSON.stringify([
+        { value: 'keep_accessible', label: 'Convert to shared mailbox — keep accessible' },
+        { value: 'forward_to_manager', label: 'Forward email to their manager' },
+        { value: 'forward_to_specific', label: 'Forward email to a specific person' },
+        { value: 'delete_after_30', label: 'Delete account after 30-day hold' },
+      ]),
+    ]
+  )
+
+  // Add shared_mailbox_access (multi-select of users, visible when keep_accessible)
+  await client.query(
+    `INSERT INTO form_questions (section_id, schema_id, key, type, label, help_text, is_required, sort_order, data_source, visibility_rules)
+     VALUES ($1, $2, 'shared_mailbox_access', 'multi_select', 'Who should have access to the shared mailbox?',
+       'Select one or more people who will be able to read and send from this mailbox.',
+       false, 2, $3::jsonb, $4::jsonb)
+     ON CONFLICT (schema_id, key) DO NOTHING`,
+    [
+      dataHandlingSectionId,
+      schemaId,
+      JSON.stringify({
+        endpoint: 'users',
+        valueField: 'userPrincipalName',
+        labelField: 'displayName',
+        cacheTtl: 300,
+      }),
+      JSON.stringify({
+        operator: 'and',
+        conditions: [{ field: 'data_handling', op: 'eq', value: 'keep_accessible' }],
+      }),
+    ]
+  )
+
+  // --- Step 4: access_transfer section — restructure ---
+  const accessTransferSectionRes = await client.query<{ id: string }>(
+    `SELECT id FROM form_sections WHERE schema_id = $1 AND key = 'access_transfer' LIMIT 1`,
+    [schemaId]
+  )
+  if (accessTransferSectionRes.rows.length === 0) return
+  const accessTransferSectionId = accessTransferSectionRes.rows[0].id
+
+  // Remove delegate_access_to (redundant — shared mailbox access covers it)
+  await client.query(
+    `DELETE FROM form_questions WHERE schema_id = $1 AND key = 'delegate_access_to'`,
+    [schemaId]
+  )
+
+  // Remove onedrive_archive (being merged into file_handling)
+  await client.query(
+    `DELETE FROM form_questions WHERE schema_id = $1 AND key = 'onedrive_archive'`,
+    [schemaId]
+  )
+
+  // Replace transfer_onedrive_to with file_handling radio
+  await client.query(
+    `DELETE FROM form_questions WHERE schema_id = $1 AND key = 'transfer_onedrive_to'`,
+    [schemaId]
+  )
+
+  // Add file_handling radio (exclusive choice)
+  await client.query(
+    `INSERT INTO form_questions (section_id, schema_id, key, type, label, help_text, is_required, sort_order, static_options)
+     VALUES ($1, $2, 'file_handling', 'radio', 'OneDrive File Handling',
+       'Choose what happens to the departing employee''s OneDrive files.',
+       true, 0, $3::jsonb)
+     ON CONFLICT (schema_id, key) DO NOTHING`,
+    [
+      accessTransferSectionId,
+      schemaId,
+      JSON.stringify([
+        { value: 'transfer_to_user', label: 'Transfer files to another employee' },
+        { value: 'archive_to_sharepoint', label: 'Archive files to SharePoint' },
+        { value: 'no_action', label: 'No file transfer needed' },
+      ]),
+    ]
+  )
+
+  // Add transfer_files_to user select (visible when transfer_to_user)
+  await client.query(
+    `INSERT INTO form_questions (section_id, schema_id, key, type, label, help_text, sort_order, data_source, visibility_rules)
+     VALUES ($1, $2, 'transfer_files_to', 'select', 'Transfer files to',
+       'This person will be notified by email with instructions to access the files.',
+       1, $3::jsonb, $4::jsonb)
+     ON CONFLICT (schema_id, key) DO NOTHING`,
+    [
+      accessTransferSectionId,
+      schemaId,
+      JSON.stringify({
+        endpoint: 'users',
+        valueField: 'userPrincipalName',
+        labelField: 'displayName',
+        cacheTtl: 300,
+      }),
+      JSON.stringify({
+        operator: 'and',
+        conditions: [{ field: 'file_handling', op: 'eq', value: 'transfer_to_user' }],
+      }),
+    ]
+  )
+
+  // Move remove_from_groups to sort_order 2
+  await client.query(
+    `UPDATE form_questions SET sort_order = 2 WHERE schema_id = $1 AND key = 'remove_from_groups'`,
+    [schemaId]
+  )
+
+  // Update section description
+  await client.query(
+    `UPDATE form_sections SET title = 'Files & Group Access', description = 'Handle the employee''s files and group memberships'
+     WHERE id = $1`,
+    [accessTransferSectionId]
+  )
+
+  console.log('[forms/config] Migration complete: offboarding Steps 3-4 redesign')
+}
+
 /** Idempotent migration: add credential_delivery, work_country, desired_username, billing_ack, merge sections, help text */
 async function migrateOnboardingQuestions(client: PoolClient): Promise<void> {
   const schemaRes = await client.query<{ id: string }>(
@@ -708,6 +855,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     // Run idempotent migrations on every request
     await migrateOffboardingUserSelect(client)
+    await migrateOffboardingSteps34(client)
     await migrateOnboardingQuestions(client)
 
     // 1. Find company by slug

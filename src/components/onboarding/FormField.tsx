@@ -27,7 +27,7 @@ export interface FormFieldQuestion {
   isRequired: boolean
   defaultValue?: string | null
   validation?: { minLength?: number; maxLength?: number; pattern?: string } | null
-  options?: { value: string; label: string }[]
+  options?: { value: string; label: string; helpText?: string }[]
   userOptions?: UserOption[]
   autoFillMap?: Record<string, string>
 }
@@ -197,7 +197,7 @@ export function FormField({ question, value, onChange, error }: FormFieldProps) 
           {(options ?? []).map((opt) => (
             <label
               key={opt.value}
-              className={`flex items-center gap-2.5 p-3 rounded-lg border cursor-pointer transition-all ${
+              className={`flex items-start gap-2.5 p-3 rounded-lg border cursor-pointer transition-all ${
                 value === opt.value
                   ? 'bg-cyan-500/10 border-cyan-500/30 text-white'
                   : 'bg-gray-800/30 border-white/5 hover:border-white/10 text-gray-300'
@@ -209,9 +209,14 @@ export function FormField({ question, value, onChange, error }: FormFieldProps) 
                 value={opt.value}
                 checked={value === opt.value}
                 onChange={() => onChange(key, opt.value)}
-                className="w-4 h-4 border-white/20 bg-gray-700 text-cyan-500 focus:ring-cyan-500/30 focus:ring-offset-0"
+                className="w-4 h-4 mt-0.5 border-white/20 bg-gray-700 text-cyan-500 focus:ring-cyan-500/30 focus:ring-offset-0"
               />
-              <span className="text-sm">{opt.label}</span>
+              <div>
+                <span className="text-sm">{opt.label}</span>
+                {opt.helpText && (
+                  <p className="text-xs text-gray-500 mt-0.5">{opt.helpText}</p>
+                )}
+              </div>
             </label>
           ))}
         </div>

@@ -29,6 +29,13 @@ export function HrRequestCards({
   const [wizardType, setWizardType] = useState<'onboarding' | 'offboarding' | null>(null)
   const [successRequestId, setSuccessRequestId] = useState<string | null>(null)
 
+  // Auto-dismiss success toast after 5 seconds
+  useEffect(() => {
+    if (!successRequestId) return
+    const timer = setTimeout(() => setSuccessRequestId(null), 5000)
+    return () => clearTimeout(timer)
+  }, [successRequestId])
+
   // Only CLIENT_MANAGER contacts see this section
   if (contactRole !== 'CLIENT_MANAGER') return null
 
@@ -50,16 +57,18 @@ export function HrRequestCards({
         </div>
       </div>
 
-      {/* Success banner */}
+      {/* Success toast — fixed position so it doesn't shift layout */}
       {successRequestId && (
-        <div className="mb-4 bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-4 py-3 flex items-center justify-between">
+        <div className="fixed bottom-6 right-6 z-50 bg-emerald-500/15 border border-emerald-500/30 backdrop-blur-sm rounded-lg px-4 py-3 flex items-center gap-3 shadow-lg shadow-black/30 animate-in slide-in-from-bottom-4">
+          <svg className="w-5 h-5 text-emerald-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
           <p className="text-sm text-emerald-400">
-            Request submitted successfully.{' '}
-            <span className="font-mono text-xs text-emerald-300">ID: {successRequestId}</span>
+            Request submitted successfully.
           </p>
           <button
             onClick={() => setSuccessRequestId(null)}
-            className="text-emerald-400/60 hover:text-emerald-400 text-lg leading-none ml-4"
+            className="text-emerald-400/60 hover:text-emerald-400 text-lg leading-none ml-2"
             aria-label="Dismiss"
           >
             ×
@@ -68,56 +77,44 @@ export function HrRequestCards({
       )}
 
       {/* Action cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+      <div className="grid grid-cols-2 gap-3 mb-6">
         {/* Onboarding card */}
-        <div className="bg-gray-800/50 border border-white/10 rounded-lg p-5 flex flex-col gap-4 hover:border-cyan-500/30 transition-colors duration-200">
-          <div className="flex items-start gap-3">
-            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-xl">
-              ➕
-            </div>
-            <div>
-              <h3 className="text-base font-semibold text-white mb-1">Add Employee</h3>
-              <p className="text-sm text-gray-400 leading-relaxed">
-                Onboard a new employee to your Microsoft 365 environment — account creation,
-                license assignment, and group memberships.
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={() => setWizardType('onboarding')}
-            className="mt-auto w-full bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-600 hover:to-cyan-700 text-white font-semibold rounded-lg px-4 py-2.5 text-sm transition-all duration-200 flex items-center justify-center gap-2"
-          >
-            Start Request
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+        <button
+          onClick={() => setWizardType('onboarding')}
+          className="group bg-gray-800/50 border border-white/10 rounded-lg p-4 flex items-center gap-3 hover:border-cyan-500/40 hover:bg-gray-800/70 transition-all duration-200 text-left"
+        >
+          <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center">
+            <svg className="w-4.5 h-4.5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
             </svg>
-          </button>
-        </div>
+          </div>
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold text-white">Add Employee</h3>
+            <p className="text-xs text-gray-500 truncate">Onboard to Microsoft 365</p>
+          </div>
+          <svg className="w-4 h-4 text-gray-600 group-hover:text-cyan-400 ml-auto flex-shrink-0 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
 
         {/* Offboarding card */}
-        <div className="bg-gray-800/50 border border-white/10 rounded-lg p-5 flex flex-col gap-4 hover:border-orange-500/30 transition-colors duration-200">
-          <div className="flex items-start gap-3">
-            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-orange-500/10 border border-orange-500/20 flex items-center justify-center text-xl">
-              ➖
-            </div>
-            <div>
-              <h3 className="text-base font-semibold text-white mb-1">Remove Employee</h3>
-              <p className="text-sm text-gray-400 leading-relaxed">
-                Offboard an employee and secure their Microsoft 365 account — block sign-in,
-                handle mailbox, remove group memberships, and wipe devices.
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={() => setWizardType('offboarding')}
-            className="mt-auto w-full bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-semibold rounded-lg px-4 py-2.5 text-sm transition-all duration-200 flex items-center justify-center gap-2"
-          >
-            Start Request
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+        <button
+          onClick={() => setWizardType('offboarding')}
+          className="group bg-gray-800/50 border border-white/10 rounded-lg p-4 flex items-center gap-3 hover:border-rose-500/40 hover:bg-gray-800/70 transition-all duration-200 text-left"
+        >
+          <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-rose-500/10 border border-rose-500/20 flex items-center justify-center">
+            <svg className="w-4.5 h-4.5 text-rose-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13 7a4 4 0 11-8 0 4 4 0 018 0zM9 14a6 6 0 00-6 6v1h12v-1a6 6 0 00-6-6zM21 12h-6" />
             </svg>
-          </button>
-        </div>
+          </div>
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold text-white">Remove Employee</h3>
+            <p className="text-xs text-gray-500 truncate">Offboard & secure account</p>
+          </div>
+          <svg className="w-4 h-4 text-gray-600 group-hover:text-rose-400 ml-auto flex-shrink-0 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
       </div>
 
       {/* Form renderer overlay — loads config from question engine API */}
