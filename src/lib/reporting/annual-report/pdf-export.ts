@@ -350,9 +350,119 @@ ${isInternal ? '<div class="internal-banner">&#9888; INTERNAL DOCUMENT — NOT F
   `}
 </div>
 
+<!-- DATTO EDR -->
+<div class="section page-break avoid-break">
+  <div class="section-title">4. Endpoint Detection &amp; Response (Datto EDR)</div>
+  ${!data.dattoEdr.available ? `
+  <div class="data-notice">
+    <strong>Data Not Available</strong><br/>
+    ${esc(data.dattoEdr.note || 'Datto EDR integration not configured.')}
+  </div>` : `
+  <div class="stat-grid">
+    ${statCard('Security Events', data.dattoEdr.totalEvents)}
+    ${statCard('Event Types', data.dattoEdr.eventsByType.length)}
+    ${statCard('Severity Levels', data.dattoEdr.eventsBySeverity.length)}
+  </div>
+
+  ${data.dattoEdr.eventsBySeverity.length > 0 ? `
+  <h3 style="font-size:11pt;font-weight:700;color:#334155;margin:16px 0 8px;">Events by Severity</h3>
+  <table>
+    <thead><tr><th>Severity</th><th style="text-align:right">Count</th></tr></thead>
+    <tbody>
+    ${data.dattoEdr.eventsBySeverity.map(s =>
+      '<tr><td>' + esc(s.severity) + '</td><td style="text-align:right">' + s.count + '</td></tr>'
+    ).join('')}
+    </tbody>
+  </table>` : ''}
+
+  ${data.dattoEdr.topThreats.length > 0 ? `
+  <h3 style="font-size:11pt;font-weight:700;color:#334155;margin:16px 0 8px;">Top Threats</h3>
+  <table>
+    <thead><tr><th>Threat</th><th style="text-align:right">Count</th></tr></thead>
+    <tbody>
+    ${data.dattoEdr.topThreats.slice(0, 10).map(t =>
+      '<tr><td>' + esc(t.threat) + '</td><td style="text-align:right">' + t.count + '</td></tr>'
+    ).join('')}
+    </tbody>
+  </table>` : ''}
+
+  ${data.dattoEdr.monthlyTrends.length > 0 ? `
+  <h3 style="font-size:11pt;font-weight:700;color:#334155;margin:16px 0 8px;">Monthly EDR Trends</h3>
+  ${renderTrendChart(data.dattoEdr.monthlyTrends.map(m => ({ label: m.label.split(' ')[0].substring(0, 3), value: m.events })), '#dc2626')}
+  ` : ''}
+  `}
+</div>
+
+<!-- DNSFILTER -->
+<div class="section avoid-break">
+  <div class="section-title">5. DNS Security (DNSFilter)</div>
+  ${!data.dnsFilter.available ? `
+  <div class="data-notice">
+    <strong>Data Not Available</strong><br/>
+    ${esc(data.dnsFilter.note || 'DNSFilter integration not configured.')}
+  </div>` : `
+  <div class="stat-grid">
+    ${statCard('Total Queries', data.dnsFilter.totalQueries.toLocaleString())}
+    ${statCard('Blocked', data.dnsFilter.blockedQueries.toLocaleString())}
+    ${statCard('Block Rate', data.dnsFilter.totalQueries > 0 ? (data.dnsFilter.blockedQueries / data.dnsFilter.totalQueries * 100).toFixed(2) + '%' : '—')}
+  </div>
+
+  ${data.dnsFilter.threatsByCategory.length > 0 ? `
+  <h3 style="font-size:11pt;font-weight:700;color:#334155;margin:16px 0 8px;">Threats by Category</h3>
+  <table>
+    <thead><tr><th>Category</th><th style="text-align:right">Blocked</th></tr></thead>
+    <tbody>
+    ${data.dnsFilter.threatsByCategory.slice(0, 10).map(c =>
+      '<tr><td>' + esc(c.category) + '</td><td style="text-align:right">' + c.count + '</td></tr>'
+    ).join('')}
+    </tbody>
+  </table>` : ''}
+
+  ${data.dnsFilter.topBlockedDomains.length > 0 ? `
+  <h3 style="font-size:11pt;font-weight:700;color:#334155;margin:16px 0 8px;">Top Blocked Domains</h3>
+  <table>
+    <thead><tr><th>Domain</th><th style="text-align:right">Count</th></tr></thead>
+    <tbody>
+    ${data.dnsFilter.topBlockedDomains.slice(0, 10).map(d =>
+      '<tr><td>' + esc(d.domain) + '</td><td style="text-align:right">' + d.count + '</td></tr>'
+    ).join('')}
+    </tbody>
+  </table>` : ''}
+  `}
+</div>
+
+<!-- DATTO BCDR (BACKUPS) -->
+<div class="section avoid-break">
+  <div class="section-title">6. Backup &amp; Disaster Recovery (Datto BCDR)</div>
+  ${!data.dattoBcdr.available ? `
+  <div class="data-notice">
+    <strong>Data Not Available</strong><br/>
+    ${esc(data.dattoBcdr.note || 'Datto BCDR integration not configured.')}
+  </div>` : `
+  <div class="stat-grid">
+    ${statCard('Backup Devices', data.dattoBcdr.totalDevices)}
+    ${statCard('Protected Systems', data.dattoBcdr.totalAgents)}
+    ${statCard('Active Alerts', data.dattoBcdr.totalAlerts)}
+  </div>
+
+  ${data.dattoBcdr.deviceDetails.length > 0 ? `
+  <h3 style="font-size:11pt;font-weight:700;color:#334155;margin:16px 0 8px;">Device Details</h3>
+  <table>
+    <thead><tr><th>Device</th><th>Client</th><th style="text-align:right">Agents</th><th style="text-align:right">Alerts</th><th>Last Seen</th></tr></thead>
+    <tbody>
+    ${data.dattoBcdr.deviceDetails.map(d =>
+      '<tr><td>' + esc(d.name) + '</td><td>' + esc(d.clientCompanyName) + '</td><td style="text-align:right">' + d.agentCount + '</td><td style="text-align:right">' + d.alertCount + '</td><td>' + (d.lastSeen ? new Date(d.lastSeen).toLocaleDateString() : '—') + '</td></tr>'
+    ).join('')}
+    </tbody>
+  </table>` : ''}
+
+  ${data.dattoBcdr.note ? `<div class="data-notice">${esc(data.dattoBcdr.note)}</div>` : ''}
+  `}
+</div>
+
 <!-- SECURITY OPERATIONS -->
 <div class="section page-break avoid-break">
-  <div class="section-title">4. Security Operations</div>
+  <div class="section-title">7. Security Operations</div>
 
   <h3 style="font-size:11pt;font-weight:700;color:#334155;margin:0 0 8px;">Security Source Status</h3>
   <table>
@@ -400,7 +510,7 @@ ${isInternal ? '<div class="internal-banner">&#9888; INTERNAL DOCUMENT — NOT F
 
 <!-- EMAIL SECURITY -->
 <div class="section avoid-break">
-  <div class="section-title">5. Email Security (Inky)</div>
+  <div class="section-title">8. Email Security (Inky)</div>
   <div class="data-notice">
     <strong>Integration Not Yet Connected</strong><br/>
     ${esc(data.emailSecurity.note)}

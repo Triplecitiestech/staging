@@ -7,12 +7,18 @@
 import { prisma } from '@/lib/prisma';
 import { PRIORITY_LABELS, getResolvedStatuses } from '../types';
 import { DattoRmmClient } from '@/lib/datto-rmm';
+import { DattoEdrClient } from '@/lib/datto-edr';
+import { DnsFilterClient } from '@/lib/dnsfilter';
+import { DattoBcdrClient } from '@/lib/datto-bcdr';
 import {
   AnnualReportData,
   DataSourceCoverage,
   ExecutiveSummary,
   TicketingAnalysis,
   DattoRmmAnalysis,
+  DattoEdrAnalysis,
+  DnsFilterAnalysis,
+  DattoBcdrAnalysis,
   SecurityAnalysis,
   EmailSecurityAnalysis,
   MonthlyTrend,
@@ -41,16 +47,19 @@ export async function buildAnnualReportData(
   console.log(`[annualReport] Building for ${company.displayName}, ${periodStart.toISOString()} to ${periodEnd.toISOString()}`);
 
   // Collect all sections in parallel where possible
-  const [ticketing, dattoRmm, security, healthSnapshot] = await Promise.all([
+  const [ticketing, dattoRmm, dattoEdr, dnsFilter, dattoBcdr, security, healthSnapshot] = await Promise.all([
     buildTicketingAnalysis(companyId, periodStart, periodEnd),
     buildDattoRmmAnalysis(company.displayName, periodStart, periodEnd),
+    buildDattoEdrAnalysis(periodStart, periodEnd),
+    buildDnsFilterAnalysis(periodStart, periodEnd),
+    buildDattoBcdrAnalysis(company.displayName),
     buildSecurityAnalysis(companyId, periodStart, periodEnd),
     buildHealthSnapshot(companyId),
   ]);
 
   const emailSecurity = buildEmailSecurityPlaceholder();
-  const dataSources = buildDataSourceCoverage(ticketing, dattoRmm, security, emailSecurity, periodStart, periodEnd);
-  const executiveSummary = buildExecutiveSummary(ticketing, dattoRmm, security, emailSecurity, dataSources);
+  const dataSources = buildDataSourceCoverage(ticketing, dattoRmm, dattoEdr, dnsFilter, dattoBcdr, security, emailSecurity, periodStart, periodEnd);
+  const executiveSummary = buildExecutiveSummary(ticketing, dattoRmm, dattoEdr, dnsFilter, dattoBcdr, security, emailSecurity, dataSources);
 
   const periodLabel = `Annual Service Report — ${formatMonthYear(periodStart)} to ${formatMonthYear(periodEnd)}`;
 
@@ -69,6 +78,9 @@ export async function buildAnnualReportData(
     executiveSummary,
     ticketing,
     dattoRmm,
+    dattoEdr,
+    dnsFilter,
+    dattoBcdr,
     security,
     emailSecurity,
     healthSnapshot,
@@ -571,7 +583,7 @@ async function buildSecurityAnalysis(
   ];
 
   // Try to query SOC incidents for this company
-  let socIncidents = {
+  const socIncidents = {
     available: false,
     totalIncidents: 0,
     bySeverity: [] as Array<{ severity: string; count: number }>,
@@ -680,6 +692,41 @@ function buildMonthlySocTrends(
 }
 
 // ============================================
+// DATTO EDR ANALYSIS
+// ============================================
+
+async function buildDattoEdrAnalysis(
+  periodStart: Date,
+  periodEnd: Date,
+): Promise<DattoEdrAnalysis> {
+  const client = new DattoEdrClient();
+  return client.buildSummary(periodStart, periodEnd);
+}
+
+// ============================================
+// DNSFILTER ANALYSIS
+// ============================================
+
+async function buildDnsFilterAnalysis(
+  periodStart: Date,
+  periodEnd: Date,
+): Promise<DnsFilterAnalysis> {
+  const client = new DnsFilterClient();
+  return client.buildSummary(periodStart, periodEnd);
+}
+
+// ============================================
+// DATTO BCDR (BACKUPS) ANALYSIS
+// ============================================
+
+async function buildDattoBcdrAnalysis(
+  companyName: string,
+): Promise<DattoBcdrAnalysis> {
+  const client = new DattoBcdrClient();
+  return client.buildSummary(companyName);
+}
+
+// ============================================
 // EMAIL SECURITY (Inky — NOT INTEGRATED)
 // ============================================
 
@@ -726,6 +773,9 @@ async function buildHealthSnapshot(companyId: string) {
 function buildDataSourceCoverage(
   ticketing: TicketingAnalysis,
   dattoRmm: DattoRmmAnalysis,
+  dattoEdr: DattoEdrAnalysis,
+  dnsFilter: DnsFilterAnalysis,
+  dattoBcdr: DattoBcdrAnalysis,
   security: SecurityAnalysis,
   emailSecurity: EmailSecurityAnalysis,
   periodStart: Date,
@@ -752,6 +802,30 @@ function buildDataSourceCoverage(
       note: dattoRmm.note,
     },
     {
+      source: 'Datto EDR (Endpoint Detection & Response)',
+      available: dattoEdr.available,
+      coverageStart: dattoEdr.available ? start : null,
+      coverageEnd: dattoEdr.available ? end : null,
+      isPartial: !dattoEdr.available,
+      note: dattoEdr.note,
+    },
+    {
+      source: 'DNSFilter (DNS Security)',
+      available: dnsFilter.available,
+      coverageStart: dnsFilter.available ? start : null,
+      coverageEnd: dnsFilter.available ? end : null,
+      isPartial: !dnsFilter.available,
+      note: dnsFilter.note,
+    },
+    {
+      source: 'Datto BCDR (Backups)',
+      available: dattoBcdr.available,
+      coverageStart: dattoBcdr.available ? start : null,
+      coverageEnd: dattoBcdr.available ? end : null,
+      isPartial: !dattoBcdr.available,
+      note: dattoBcdr.note,
+    },
+    {
       source: 'SOC Analyst Agent (Security)',
       available: security.socIncidents.available,
       coverageStart: security.socIncidents.available ? start : null,
@@ -765,15 +839,7 @@ function buildDataSourceCoverage(
       coverageStart: null,
       coverageEnd: null,
       isPartial: true,
-      note: 'Integration not yet implemented.',
-    },
-    {
-      source: 'DNSFilter',
-      available: false,
-      coverageStart: null,
-      coverageEnd: null,
-      isPartial: true,
-      note: 'Integration not yet implemented.',
+      note: 'Integration not yet implemented. No API credentials provided.',
     },
     {
       source: 'Inky (Email Security)',
@@ -793,18 +859,21 @@ function buildDataSourceCoverage(
 function buildExecutiveSummary(
   ticketing: TicketingAnalysis,
   dattoRmm: DattoRmmAnalysis,
+  dattoEdr: DattoEdrAnalysis,
+  dnsFilter: DnsFilterAnalysis,
+  dattoBcdr: DattoBcdrAnalysis,
   security: SecurityAnalysis,
   _emailSecurity: EmailSecurityAnalysis,
   dataSources: DataSourceCoverage[],
 ): ExecutiveSummary {
-  const topCategories = ticketing.ticketsByCategory.slice(0, 5).map(c => c.category);
+  const topCategories = ticketing.ticketsByCategory.slice(0, 5).map((c: { category: string }) => c.category);
 
   const keyTrends: string[] = [];
   if (ticketing.monthlyTrends.length >= 3) {
     const firstHalf = ticketing.monthlyTrends.slice(0, Math.floor(ticketing.monthlyTrends.length / 2));
     const secondHalf = ticketing.monthlyTrends.slice(Math.floor(ticketing.monthlyTrends.length / 2));
-    const firstAvg = firstHalf.reduce((s, m) => s + m.ticketsCreated, 0) / (firstHalf.length || 1);
-    const secondAvg = secondHalf.reduce((s, m) => s + m.ticketsCreated, 0) / (secondHalf.length || 1);
+    const firstAvg = firstHalf.reduce((s: number, m: MonthlyTrend) => s + m.ticketsCreated, 0) / (firstHalf.length || 1);
+    const secondAvg = secondHalf.reduce((s: number, m: MonthlyTrend) => s + m.ticketsCreated, 0) / (secondHalf.length || 1);
     if (secondAvg > firstAvg * 1.2) {
       keyTrends.push('Ticket volume has increased in the second half of the reporting period.');
     } else if (secondAvg < firstAvg * 0.8) {
@@ -830,15 +899,30 @@ function buildExecutiveSummary(
     keyTrends.push(`${dattoRmm.totalAlerts} RMM alerts processed with ${resolveRate}% resolution rate.`);
   }
 
+  if (dattoEdr.available && dattoEdr.totalEvents > 0) {
+    keyTrends.push(`${dattoEdr.totalEvents} endpoint security events detected and analyzed by Datto EDR.`);
+  }
+
+  if (dnsFilter.available && dnsFilter.blockedQueries > 0) {
+    keyTrends.push(`DNSFilter blocked ${dnsFilter.blockedQueries.toLocaleString()} malicious or policy-violating DNS queries.`);
+  }
+
+  if (dattoBcdr.available && dattoBcdr.totalDevices > 0) {
+    keyTrends.push(`${dattoBcdr.totalDevices} backup devices protecting ${dattoBcdr.totalAgents} systems via Datto BCDR.`);
+  }
+
+  // Total alerts = RMM + EDR + security incidents
+  const totalAlerts = dattoRmm.totalAlerts + dattoEdr.totalEvents + security.socIncidents.totalIncidents;
+
   const dataCoverageNotes = dataSources
-    .filter(ds => !ds.available || ds.isPartial)
-    .map(ds => `${ds.source}: ${ds.note || 'Data not available'}`);
+    .filter((ds: DataSourceCoverage) => !ds.available || ds.isPartial)
+    .map((ds: DataSourceCoverage) => `${ds.source}: ${ds.note || 'Data not available'}`);
 
   return {
     totalTickets: ticketing.totalTickets,
     topIssueCategories: topCategories,
-    totalAlerts: dattoRmm.totalAlerts,
-    totalSecurityIncidents: security.socIncidents.totalIncidents,
+    totalAlerts,
+    totalSecurityIncidents: security.socIncidents.totalIncidents + dattoEdr.totalEvents,
     keyTrends,
     dataCoverageNotes,
   };

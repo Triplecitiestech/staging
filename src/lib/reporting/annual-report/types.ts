@@ -107,6 +107,55 @@ export interface SecurityAnalysis {
 }
 
 // ============================================
+// DATTO EDR SECTION
+// ============================================
+
+export interface DattoEdrAnalysis {
+  available: boolean;
+  totalEvents: number;
+  eventsBySeverity: Array<{ severity: string; count: number }>;
+  eventsByType: Array<{ type: string; count: number }>;
+  monthlyTrends: Array<{ month: string; label: string; events: number }>;
+  topThreats: Array<{ threat: string; count: number }>;
+  note: string | null;
+}
+
+// ============================================
+// DNSFILTER SECTION
+// ============================================
+
+export interface DnsFilterAnalysis {
+  available: boolean;
+  totalQueries: number;
+  blockedQueries: number;
+  threatsByCategory: Array<{ category: string; count: number }>;
+  topBlockedDomains: Array<{ domain: string; count: number }>;
+  monthlyTrends: Array<{ month: string; label: string; blocked: number; total: number }>;
+  note: string | null;
+}
+
+// ============================================
+// DATTO BCDR (BACKUPS) SECTION
+// ============================================
+
+export interface DattoBcdrAnalysis {
+  available: boolean;
+  totalDevices: number;
+  totalAgents: number;
+  totalAlerts: number;
+  devicesWithAlerts: number;
+  deviceDetails: Array<{
+    name: string;
+    clientCompanyName: string;
+    agentCount: number;
+    alertCount: number;
+    lastSeen: string;
+  }>;
+  alertsByType: Array<{ type: string; count: number }>;
+  note: string | null;
+}
+
+// ============================================
 // EMAIL SECURITY SECTION (INKY)
 // ============================================
 
@@ -147,6 +196,9 @@ export interface AnnualReportData {
   executiveSummary: ExecutiveSummary;
   ticketing: TicketingAnalysis;
   dattoRmm: DattoRmmAnalysis;
+  dattoEdr: DattoEdrAnalysis;
+  dnsFilter: DnsFilterAnalysis;
+  dattoBcdr: DattoBcdrAnalysis;
   security: SecurityAnalysis;
   emailSecurity: EmailSecurityAnalysis;
   healthSnapshot: {
