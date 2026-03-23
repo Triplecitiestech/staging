@@ -123,13 +123,18 @@ export default function TicketDetail({
       )}
 
       {/* Timeline */}
-      <div className="space-y-0 relative">
-        {/* Vertical line — stops short of the last dot */}
-        <div className="absolute left-4 top-3 bottom-3 w-px bg-gray-700/60" />
+      <div className="relative">
+        {/* Vertical line — drawn behind all items, from first dot to last dot center.
+            Each non-last row draws a line segment from its dot center down through the gap. */}
 
         {/* Created marker */}
         <div className="relative pl-10 pb-4">
-          <div className="absolute left-2.5 w-3 h-3 bg-gray-600 rounded-full border-2 border-gray-800" />
+          {/* Line segment: from this dot center down to bottom of row (connects to next item) */}
+          <div className="absolute left-[15px] top-1/2 bottom-0 w-px bg-gray-700/60" />
+          {/* Dot centered vertically */}
+          <div className="absolute left-0 top-0 bottom-0 flex items-center" style={{ width: '2rem' }}>
+            <div className="mx-auto w-3 h-3 bg-gray-600 rounded-full border-2 border-gray-800 relative z-10" />
+          </div>
           <div className="bg-slate-700/40 border border-white/5 rounded-lg px-4 py-2.5">
             <div className="flex items-center justify-between flex-wrap gap-1">
               <span className="text-xs font-medium text-gray-400">Ticket Created</span>
@@ -149,15 +154,21 @@ export default function TicketDetail({
         {/* Loading */}
         {loading && (
           <div className="relative pl-10 pb-4">
-            <div className="absolute left-2.5 w-3 h-3 bg-gray-600 rounded-full border-2 border-gray-800 animate-pulse" />
-            <p className="text-sm text-gray-500">Loading communications...</p>
+            <div className="absolute left-[15px] top-0 bottom-0 w-px bg-gray-700/60" />
+            <div className="absolute left-0 top-0 bottom-0 flex items-center" style={{ width: '2rem' }}>
+              <div className="mx-auto w-3 h-3 bg-gray-600 rounded-full border-2 border-gray-800 animate-pulse relative z-10" />
+            </div>
+            <p className="text-sm text-gray-500 py-2">Loading communications...</p>
           </div>
         )}
 
         {/* Error */}
         {!loading && notesError && (
           <div className="relative pl-10 pb-4">
-            <div className="absolute left-2.5 w-3 h-3 bg-rose-500 rounded-full border-2 border-gray-800" />
+            <div className="absolute left-[15px] top-0 bottom-0 w-px bg-gray-700/60" />
+            <div className="absolute left-0 top-0 bottom-0 flex items-center" style={{ width: '2rem' }}>
+              <div className="mx-auto w-3 h-3 bg-rose-500 rounded-full border-2 border-gray-800 relative z-10" />
+            </div>
             <div className="bg-rose-500/10 border border-rose-500/20 rounded-lg px-4 py-3">
               <p className="text-sm text-rose-400">Failed to load notes: {notesError}</p>
               <p className="text-xs text-rose-300/60 mt-1">The ticket notes sync may need to be run. Check reporting sync status.</p>
@@ -170,10 +181,13 @@ export default function TicketDetail({
           <>
             <TimelineEntry entry={displayedEntries[0]} perspective={perspective} />
             <div className="relative pl-10 pb-4">
-              <div className="absolute left-2.5 w-3 h-3 bg-gray-600 rounded-full border-2 border-gray-800" />
+              <div className="absolute left-[15px] top-0 bottom-0 w-px bg-gray-700/60" />
+              <div className="absolute left-0 top-0 bottom-0 flex items-center" style={{ width: '2rem' }}>
+                <div className="mx-auto w-3 h-3 bg-gray-600 rounded-full border-2 border-gray-800 relative z-10" />
+              </div>
               <button
                 onClick={() => setShowAllEntries(true)}
-                className="text-sm text-cyan-400 hover:text-cyan-300 transition-colors"
+                className="text-sm text-cyan-400 hover:text-cyan-300 transition-colors py-2"
               >
                 Show conversation history ({visibleNotes.length - 2} more{' '}
                 {visibleNotes.length - 2 === 1 ? 'entry' : 'entries'})
@@ -195,26 +209,36 @@ export default function TicketDetail({
 
         {!loading && visibleNotes.length === 0 && !ticket.completedDate && (
           <div className="relative pl-10 pb-4">
-            <div className="absolute left-2.5 w-3 h-3 bg-cyan-500 rounded-full border-2 border-gray-800" />
-            <p className="text-sm text-gray-400">
-              Your request is being processed. Updates from our team will appear here.
+            <div className="absolute left-[15px] top-0 bottom-0 w-px bg-gray-700/60" />
+            <div className="absolute left-0 top-0 bottom-0 flex items-center" style={{ width: '2rem' }}>
+              <div className="mx-auto w-3 h-3 bg-gray-600 rounded-full border-2 border-gray-800 relative z-10" />
+            </div>
+            <p className="text-sm text-gray-400 py-2">
+              Updates from our team will appear here.
             </p>
           </div>
         )}
 
         {!loading && visibleNotes.length === 0 && ticket.completedDate && (
           <div className="relative pl-10 pb-4">
-            <div className="absolute left-2.5 w-3 h-3 bg-gray-600 rounded-full border-2 border-gray-800" />
-            <p className="text-sm text-gray-400">
+            <div className="absolute left-[15px] top-0 bottom-0 w-px bg-gray-700/60" />
+            <div className="absolute left-0 top-0 bottom-0 flex items-center" style={{ width: '2rem' }}>
+              <div className="mx-auto w-3 h-3 bg-gray-600 rounded-full border-2 border-gray-800 relative z-10" />
+            </div>
+            <p className="text-sm text-gray-400 py-2">
               This request was completed automatically. No additional communication was needed.
             </p>
           </div>
         )}
 
-        {/* Resolved / Status marker — always the last item */}
+        {/* Last item — NO line below the dot */}
         {ticket.completedDate ? (
           <div className="relative pl-10">
-            <div className="absolute left-2.5 w-3 h-3 bg-green-500 rounded-full border-2 border-gray-800 ring-2 ring-green-500/20" />
+            {/* Line segment: only from top to dot center (no trailing line below) */}
+            <div className="absolute left-[15px] top-0 bottom-1/2 w-px bg-gray-700/60" />
+            <div className="absolute left-0 top-0 bottom-0 flex items-center" style={{ width: '2rem' }}>
+              <div className="mx-auto w-3 h-3 bg-green-500 rounded-full border-2 border-gray-800 ring-2 ring-green-500/20 relative z-10" />
+            </div>
             <div className="bg-green-500/10 border border-green-500/20 rounded-lg px-4 py-2.5">
               <div className="flex items-center justify-between flex-wrap gap-1">
                 <span className="text-xs font-semibold text-green-400">Ticket Resolved</span>
@@ -232,7 +256,11 @@ export default function TicketDetail({
           </div>
         ) : (
           <div className="relative pl-10">
-            <div className="absolute left-2.5 w-3 h-3 bg-cyan-500 rounded-full border-2 border-gray-800 ring-2 ring-cyan-500/20" />
+            {/* Line segment: only from top to dot center (no trailing line below) */}
+            <div className="absolute left-[15px] top-0 bottom-1/2 w-px bg-gray-700/60" />
+            <div className="absolute left-0 top-0 bottom-0 flex items-center" style={{ width: '2rem' }}>
+              <div className="mx-auto w-3 h-3 bg-cyan-500 rounded-full border-2 border-gray-800 ring-2 ring-cyan-500/20 relative z-10" />
+            </div>
             <div className="bg-cyan-500/5 border border-cyan-500/10 rounded-lg px-4 py-2.5">
               <span className="text-xs font-medium text-cyan-400">In Progress — awaiting update</span>
             </div>
