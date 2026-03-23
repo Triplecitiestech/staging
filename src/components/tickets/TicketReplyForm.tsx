@@ -14,10 +14,12 @@ export default function TicketReplyForm({
   const [replyText, setReplyText] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleReply = async () => {
     if (!replyText.trim() || submitting) return;
     setSubmitting(true);
+    setError(null);
     try {
       const res = await fetch('/api/customer/tickets/reply', {
         method: 'POST',
@@ -33,9 +35,12 @@ export default function TicketReplyForm({
         setSuccess(true);
         setTimeout(() => setSuccess(false), 3000);
         onReplySent();
+      } else {
+        const data = await res.json().catch(() => ({ error: 'Unknown error' }));
+        setError(data.error || `Failed to send reply (${res.status})`);
       }
     } catch {
-      // silent
+      setError('Network error — please try again');
     } finally {
       setSubmitting(false);
     }
@@ -56,6 +61,7 @@ export default function TicketReplyForm({
       <div className="flex items-center justify-between mt-2">
         <div>
           {success && <p className="text-xs text-green-400">Reply sent successfully!</p>}
+          {error && <p className="text-xs text-red-400">{error}</p>}
         </div>
         <button
           onClick={handleReply}
