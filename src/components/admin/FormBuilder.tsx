@@ -113,6 +113,38 @@ export function FormBuilder() {
     }
   }
 
+  // Clone a schema
+  const handleClone = async (schema: FormSchema) => {
+    const res = await fetch('/api/admin/forms/schemas', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: schema.type,
+        name: `${schema.name} (Copy)`,
+        cloneFromId: schema.id,
+      }),
+    })
+    if (res.ok) {
+      const data = await res.json()
+      await loadSchemas()
+      await loadSchemaDetail(data.id)
+    }
+  }
+
+  // Delete draft from list
+  const handleDeleteFromList = async (schema: FormSchema) => {
+    if (schema.status !== 'draft') return
+    if (!confirm(`Delete draft "${schema.name}"? This cannot be undone.`)) return
+    const res = await fetch(`/api/admin/forms/schemas/${schema.id}`, { method: 'DELETE' })
+    if (res.ok) {
+      if (selectedSchema?.id === schema.id) {
+        setSelectedSchema(null)
+        setEditingSchema(null)
+      }
+      await loadSchemas()
+    }
+  }
+
   // Publish draft
   const handlePublish = async () => {
     if (!selectedSchema || selectedSchema.status !== 'draft') return
@@ -354,21 +386,45 @@ export function FormBuilder() {
           {/* Schema list */}
           <div className="mb-6 space-y-2">
             {schemas.map((s) => (
-              <button
+              <div
                 key={s.id}
-                onClick={() => loadSchemaDetail(s.id)}
-                className={`w-full flex items-center justify-between px-4 py-3 rounded-lg border text-left transition-colors ${
+                className={`flex items-center justify-between px-4 py-3 rounded-lg border transition-colors ${
                   selectedSchema?.id === s.id
                     ? 'bg-cyan-500/10 border-cyan-500/30 text-white'
                     : 'bg-gray-800/50 border-white/10 text-gray-300 hover:border-white/20'
                 }`}
               >
-                <div>
-                  <span className="text-sm font-medium">{s.name}</span>
-                  <span className="text-xs text-gray-500 ml-2">v{s.version}</span>
+                <button
+                  onClick={() => loadSchemaDetail(s.id)}
+                  className="flex-1 flex items-center text-left min-w-0"
+                >
+                  <span className="text-sm font-medium truncate">{s.name}</span>
+                  <span className="text-xs text-gray-500 ml-2 flex-shrink-0">v{s.version}</span>
+                </button>
+                <div className="flex items-center gap-2 ml-3 flex-shrink-0">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleClone(s) }}
+                    title="Clone this form"
+                    className="text-gray-500 hover:text-cyan-400 transition-colors p-1"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                  </button>
+                  {s.status === 'draft' && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDeleteFromList(s) }}
+                      title="Delete draft"
+                      className="text-gray-500 hover:text-red-400 transition-colors p-1"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  )}
+                  <StatusBadge status={s.status} />
                 </div>
-                <StatusBadge status={s.status} />
-              </button>
+              </div>
             ))}
             <button
               onClick={handleCreateDraft}
@@ -558,6 +614,7 @@ export function FormBuilder() {
           companySlug="preview"
           submitterEmail="admin@preview.com"
           submitterName="Preview"
+          isPreview
           onSubmit={() => setPreviewOpen(false)}
           onClose={() => setPreviewOpen(false)}
         />
@@ -573,7 +630,7 @@ export function FormBuilder() {
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
     published: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
-    draft: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/30',
+    draft: 'bg-violet-500/10 text-violet-400 border-violet-500/30',
     archived: 'bg-gray-500/10 text-gray-400 border-gray-500/30',
   }
   return (
