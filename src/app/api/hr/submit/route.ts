@@ -216,8 +216,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     console.error('[hr/submit] DB error:', msg)
+    // Surface enough detail to help debugging while remaining professional
+    const userMessage = msg.includes('duplicate key')
+      ? 'A duplicate request was detected. Please wait a few minutes before trying again.'
+      : msg.includes('column') || msg.includes('relation')
+        ? 'A database configuration issue occurred. Please contact support.'
+        : `Submission failed: ${msg}`
     return NextResponse.json(
-      { error: 'Submission failed. Please try again.', detail: msg },
+      { error: userMessage, detail: msg },
       { status: 500 }
     )
   } finally {

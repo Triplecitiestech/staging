@@ -707,8 +707,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             }
           }
 
-          // --- Clone permissions from another user ---
+          // --- Clone permissions + licenses from another user ---
           const clonedGroups: GraphGroup[] = []
+          const clonedLicenseNames: string[] = []
           if (newUserId && a.clone_permissions === 'yes' && a.clone_from_user) {
             const cloneStart = new Date()
             try {
@@ -716,8 +717,34 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               if (!sourceUser) {
                 throw new Error(`Source user not found: ${a.clone_from_user}`)
               }
+
+              // Clone licenses from source user
+              try {
+                const sourceLicenses = await graph.getUserAssignedLicenses(sourceUser.id)
+                const allSkus = await graph.getLicenseSkus()
+                for (const srcLic of sourceLicenses) {
+                  try {
+                    await graph.assignLicense(newUserId, srcLic.skuId)
+                    const skuInfo = allSkus.find(s => s.skuId === srcLic.skuId)
+                    const licName = skuInfo?.displayName ?? skuInfo?.skuPartNumber ?? srcLic.skuId
+                    clonedLicenseNames.push(licName)
+                    provisioningResults.push(`License (cloned): ${licName}`)
+                  } catch {
+                    // License may not have available units — non-fatal
+                  }
+                }
+                if (clonedLicenseNames.length > 0) {
+                  await addTicketNote('Licenses Cloned', `Cloned ${clonedLicenseNames.length} license(s) from ${a.clone_from_user}:\n${clonedLicenseNames.map(n => `  - ${n}`).join('\n')}`)
+                  stepsCompleted.push('clone_licenses')
+                }
+              } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err)
+                console.warn('[hr/process] License clone failed (non-fatal):', msg)
+                await addTicketNote('License Clone Failed', `Source: ${a.clone_from_user}\nError: ${msg}`)
+              }
+
+              // Clone groups from source user
               const sourceGroups = await graph.getUserGroups(sourceUser.id)
-              // Filter to actual groups (not roles)
               const addableGroups = sourceGroups.filter(
                 (g) => g.displayName && (g.securityEnabled || g.mailEnabled || (g.groupTypes && g.groupTypes.length > 0))
               )
@@ -735,7 +762,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
               provisioningResults.push(`Clone Source: ${a.clone_from_user} (${cloneSuccessCount} groups cloned)`)
               await logStep(client, hrRequest.id, 'clone_permissions', 'Clone User Permissions', 'completed', cloneStart,
-                { sourceUser: a.clone_from_user }, { groupsCloned: cloneSuccessCount, total: addableGroups.length })
+                { sourceUser: a.clone_from_user }, { groupsCloned: cloneSuccessCount, total: addableGroups.length, licensesCloned: clonedLicenseNames.length })
               stepsCompleted.push('clone_permissions')
               await addTicketNote('Permissions Cloned', `Source: ${a.clone_from_user}\nGroups cloned: ${cloneSuccessCount}/${addableGroups.length}`)
             } catch (err) {

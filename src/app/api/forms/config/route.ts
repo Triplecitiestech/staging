@@ -639,13 +639,19 @@ async function migrateOnboardingQuestions(client: PoolClient): Promise<void> {
     )
 
     // Move the license_type question into this section if it isn't already,
-    // and make it sort_order 0 (primary question)
+    // and make it sort_order 0 (primary question).
+    // Hide it when clone_permissions === 'yes' — license will be copied from the source user.
     await client.query(
       `UPDATE form_questions SET section_id = $1, sort_order = 0,
        label = 'License Type',
-       help_text = 'Select the Microsoft 365 license for this employee. Only licenses available in your tenant are shown. Available counts are displayed next to each option.'
+       help_text = 'Select the Microsoft 365 license for this employee. Only licenses available in your tenant are shown. Available counts are displayed next to each option.',
+       is_required = false,
+       visibility_rules = $3::jsonb
        WHERE schema_id = $2 AND key = 'license_type'`,
-      [licSectionId, schemaId]
+      [licSectionId, schemaId, JSON.stringify({
+        operator: 'and',
+        conditions: [{ field: 'clone_permissions', op: 'neq', value: 'yes' }],
+      })]
     )
 
     // Move clone_permissions and clone_from_user into this section (Step 2)

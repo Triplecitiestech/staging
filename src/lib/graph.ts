@@ -462,6 +462,16 @@ export function createGraphClient(creds: TenantCredentials) {
       })
     },
 
+    /** Get a user's assigned license SKU IDs */
+    async getUserAssignedLicenses(userId: string): Promise<{ skuId: string }[]> {
+      const t = await token()
+      const data = await graphRequest<{ value: { skuId: string; skuPartNumber?: string }[] }>(
+        t,
+        `/users/${userId}/licenseDetails?$select=skuId,skuPartNumber`
+      )
+      return data?.value ?? []
+    },
+
     /** Assign a license to a user by SKU ID */
     async assignLicense(userId: string, skuId: string): Promise<void> {
       const t = await token()
