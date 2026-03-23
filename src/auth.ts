@@ -20,8 +20,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       if (!user.email) return false
 
       try {
-        let staffUser = await prisma.staffUser.findUnique({
-          where: { email: user.email }
+        // Use explicit select to avoid crashes from missing columns
+        const staffUser = await prisma.staffUser.findUnique({
+          where: { email: user.email },
+          select: { id: true, email: true, name: true, role: true, isActive: true },
         })
 
         if (staffUser && !staffUser.isActive) {
@@ -31,7 +33,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         if (!staffUser) {
           // Auto-provision new team members from Azure AD as TECHNICIAN
-          staffUser = await prisma.staffUser.create({
+          await prisma.staffUser.create({
             data: {
               email: user.email,
               name: user.name || user.email.split('@')[0],
@@ -44,7 +46,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         } else {
           // Update last login timestamp
           await prisma.staffUser.update({
-            where: { email: user.email },
+            where: { id: staffUser.id },
             data: { lastLogin: new Date() }
           })
         }
@@ -59,8 +61,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       // Add staff role and details to session
       if (session.user?.email) {
         try {
+          // Use explicit select to avoid crashes from missing columns
           const staffUser = await prisma.staffUser.findUnique({
-            where: { email: session.user.email }
+            where: { email: session.user.email },
+            select: {
+              id: true,
+              role: true,
+              lastLogin: true,
+              permissionOverrides: true,
+            },
           })
 
           if (staffUser) {

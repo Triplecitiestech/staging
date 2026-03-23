@@ -248,6 +248,23 @@ export async function POST(request: Request) {
     // MISSING COLUMNS & DATA FIXES (2026-03-23)
     // ============================================
 
+    // Ensure staff_users has all required columns
+    try {
+      await client.query('ALTER TABLE "staff_users" ADD COLUMN IF NOT EXISTS "permissionOverrides" jsonb')
+      results.push('✅ Ensured permissionOverrides column on staff_users')
+    } catch (error) {
+      const err = error as Error
+      results.push(`⚠️ staff_users.permissionOverrides: ${err.message}`)
+    }
+
+    try {
+      await client.query('ALTER TABLE "staff_users" ADD COLUMN IF NOT EXISTS "autotaskResourceId" TEXT')
+      results.push('✅ Ensured autotaskResourceId column on staff_users')
+    } catch (error) {
+      const err = error as Error
+      results.push(`⚠️ staff_users.autotaskResourceId: ${err.message}`)
+    }
+
     // Add onboarding_completed_at to companies (fixes /admin/projects/new crash)
     try {
       await client.query('ALTER TABLE "companies" ADD COLUMN IF NOT EXISTS "onboarding_completed_at" TIMESTAMP(3)')
