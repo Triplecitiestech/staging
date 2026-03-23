@@ -51,7 +51,7 @@ export class DnsFilterClient {
     const url = `${this.baseUrl}${path}`;
     const res = await fetch(url, {
       headers: {
-        'Authorization': `Token ${this.apiToken}`,
+        'Authorization': `Bearer ${this.apiToken}`,
         'Content-Type': 'application/json',
         'Accept': 'application/json',
       },
