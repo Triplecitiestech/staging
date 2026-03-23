@@ -276,6 +276,65 @@ export default function AnnualReportDetail({ reportId }: Props) {
         )}
       </Section>
 
+      {/* Datto EDR */}
+      <Section title="Endpoint Detection & Response (Datto EDR)">
+        {!data.dattoEdr?.available ? (
+          <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-2 text-sm text-blue-400">
+            {data.dattoEdr?.note || 'Datto EDR data not available.'}
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+              <StatCard label="Security Events" value={data.dattoEdr.totalEvents} />
+              <StatCard label="Event Types" value={data.dattoEdr.eventsByType.length} />
+              <StatCard label="Severity Levels" value={data.dattoEdr.eventsBySeverity.length} />
+            </div>
+            {data.dattoEdr.topThreats.length > 0 && (
+              <div className="mb-3">
+                <h4 className="text-sm font-semibold text-slate-300 mb-2">Top Threats</h4>
+                <div className="flex flex-wrap gap-2">
+                  {data.dattoEdr.topThreats.slice(0, 5).map((t, i) => (
+                    <span key={i} className="bg-red-500/10 border border-red-500/20 px-2 py-1 rounded text-xs text-red-400">
+                      {t.threat}: {t.count}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </Section>
+
+      {/* DNSFilter */}
+      <Section title="DNS Security (DNSFilter)">
+        {!data.dnsFilter?.available ? (
+          <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-2 text-sm text-blue-400">
+            {data.dnsFilter?.note || 'DNSFilter data not available.'}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+            <StatCard label="Total Queries" value={data.dnsFilter.totalQueries.toLocaleString()} />
+            <StatCard label="Blocked" value={data.dnsFilter.blockedQueries.toLocaleString()} />
+            <StatCard label="Block Rate" value={data.dnsFilter.totalQueries > 0 ? `${(data.dnsFilter.blockedQueries / data.dnsFilter.totalQueries * 100).toFixed(2)}%` : '—'} />
+          </div>
+        )}
+      </Section>
+
+      {/* Datto BCDR */}
+      <Section title="Backup & Disaster Recovery (Datto BCDR)">
+        {!data.dattoBcdr?.available ? (
+          <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-2 text-sm text-blue-400">
+            {data.dattoBcdr?.note || 'Datto BCDR data not available.'}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+            <StatCard label="Backup Devices" value={data.dattoBcdr.totalDevices} />
+            <StatCard label="Protected Systems" value={data.dattoBcdr.totalAgents} />
+            <StatCard label="Active Alerts" value={data.dattoBcdr.totalAlerts} />
+          </div>
+        )}
+      </Section>
+
       {/* Security */}
       <Section title="Security Operations">
         <h4 className="text-sm font-semibold text-slate-300 mb-2">Source Status</h4>
