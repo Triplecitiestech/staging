@@ -175,13 +175,11 @@ VALUES (
   'Standard employee onboarding form', NOW()
 ) ON CONFLICT DO NOTHING;
 
--- Sections for onboarding
+-- Sections for onboarding (3 steps: Employee Details → Account Setup → Additional Notes)
 INSERT INTO form_sections (id, schema_id, key, title, description, sort_order) VALUES
   ('00000000-0000-4000-8001-000000000001', '00000000-0000-4000-8000-000000000001', 'employee_details', 'Employee Details', 'Basic information about the new employee', 0),
-  ('00000000-0000-4000-8001-000000000002', '00000000-0000-4000-8000-000000000001', 'access_profile', 'Role & Access Profile', 'What kind of access does this employee need?', 1),
-  ('00000000-0000-4000-8001-000000000003', '00000000-0000-4000-8000-000000000001', 'm365_license', 'Microsoft 365 License', NULL, 2),
-  ('00000000-0000-4000-8001-000000000004', '00000000-0000-4000-8000-000000000001', 'access_permissions', 'Access & Permissions', 'Select the groups, teams, and sites this employee needs access to', 3),
-  ('00000000-0000-4000-8001-000000000005', '00000000-0000-4000-8000-000000000001', 'special_instructions', 'Special Instructions', NULL, 4)
+  ('00000000-0000-4000-8001-000000000002', '00000000-0000-4000-8000-000000000001', 'account_setup', 'Account Setup', 'We''ll set up their email, Teams, and permissions based on your answers', 1),
+  ('00000000-0000-4000-8001-000000000005', '00000000-0000-4000-8000-000000000001', 'special_instructions', 'Additional Notes', NULL, 2)
 ON CONFLICT DO NOTHING;
 
 -- Questions for onboarding employee_details
@@ -196,44 +194,27 @@ INSERT INTO form_questions (schema_id, section_id, key, type, label, help_text, 
   ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8001-000000000001', 'phone', 'phone', 'Phone Number', NULL, NULL, false, 7)
 ON CONFLICT DO NOTHING;
 
--- Questions for onboarding access_profile
+-- Questions for onboarding account_setup (simplified from 3 separate steps)
 INSERT INTO form_questions (schema_id, section_id, key, type, label, help_text, is_required, sort_order, static_options) VALUES
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8001-000000000002', 'access_profile', 'radio', 'Access Profile', 'This determines the default set of groups and permissions', true, 0,
-   '[{"value":"standard_office","label":"Standard Office Worker (Email, Teams, SharePoint)"},{"value":"power_user","label":"Power User (Full M365 suite)"},{"value":"field_worker","label":"Field Worker (Mobile-only, limited access)"},{"value":"executive","label":"Executive (Full access + additional security)"},{"value":"custom","label":"Custom (I''ll specify below)"}]')
-ON CONFLICT DO NOTHING;
-
--- Questions for onboarding m365_license
-INSERT INTO form_questions (schema_id, section_id, key, type, label, is_required, sort_order, data_source) VALUES
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8001-000000000003', 'license_type', 'select', 'License Type', true, 0,
-   '{"endpoint":"licenses","valueField":"skuPartNumber","labelField":"displayName","labelSuffix":"({available} available)","cacheTtl":300}')
-ON CONFLICT DO NOTHING;
-
--- Questions for onboarding access_permissions
-INSERT INTO form_questions (schema_id, section_id, key, type, label, sort_order, data_source) VALUES
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8001-000000000004', 'security_groups', 'multi_select', 'Security Groups', 0,
-   '{"endpoint":"securityGroups","valueField":"id","labelField":"displayName","cacheTtl":300}'),
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8001-000000000004', 'distribution_lists', 'multi_select', 'Distribution Lists', 1,
-   '{"endpoint":"distributionLists","valueField":"id","labelField":"displayName","cacheTtl":300}'),
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8001-000000000004', 'teams_groups', 'multi_select', 'Microsoft Teams', 2,
-   '{"endpoint":"m365Groups","valueField":"id","labelField":"displayName","cacheTtl":300}'),
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8001-000000000004', 'sharepoint_sites', 'multi_select', 'SharePoint Sites', 3,
-   '{"endpoint":"sharepointSites","valueField":"id","labelField":"displayName","cacheTtl":300}')
-ON CONFLICT DO NOTHING;
-
-INSERT INTO form_questions (schema_id, section_id, key, type, label, sort_order, static_options) VALUES
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8001-000000000004', 'clone_permissions', 'radio', 'Clone permissions from an existing user?', 4,
-   '[{"value":"yes","label":"Yes — clone another user''s groups and permissions"},{"value":"no","label":"No — set up fresh"}]')
+  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8001-000000000002', 'clone_permissions', 'radio', 'Should this employee have the same access as an existing team member?', 'If yes, we''ll copy their email groups, Teams, and permissions', true, 0,
+   '[{"value":"yes","label":"Yes — set them up like someone else"},{"value":"no","label":"No — I''ll describe what they need"}]')
 ON CONFLICT DO NOTHING;
 
 INSERT INTO form_questions (schema_id, section_id, key, type, label, sort_order, data_source, visibility_rules) VALUES
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8001-000000000004', 'clone_from_user', 'select', 'Clone from user', 5,
+  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8001-000000000002', 'clone_from_user', 'select', 'Which team member?', 1,
    '{"endpoint":"users","valueField":"userPrincipalName","labelField":"displayName","labelSuffix":"({userPrincipalName})","cacheTtl":300}',
    '{"operator":"and","conditions":[{"field":"clone_permissions","op":"eq","value":"yes"}]}')
 ON CONFLICT DO NOTHING;
 
+INSERT INTO form_questions (schema_id, section_id, key, type, label, help_text, is_required, sort_order, static_options, visibility_rules) VALUES
+  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8001-000000000002', 'access_profile', 'radio', 'What best describes their role?', 'We''ll assign the right email plan and permissions based on this', false, 2,
+   '[{"value":"standard_office","label":"Office worker — needs email, Teams, and shared files"},{"value":"field_worker","label":"Field / mobile worker — email and Teams on their phone"},{"value":"executive","label":"Executive — full access with extra security"}]',
+   '{"operator":"and","conditions":[{"field":"clone_permissions","op":"eq","value":"no"}]}')
+ON CONFLICT DO NOTHING;
+
 -- Questions for onboarding special_instructions
 INSERT INTO form_questions (schema_id, section_id, key, type, label, help_text, placeholder, sort_order) VALUES
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8001-000000000005', 'additional_notes', 'textarea', 'Additional Notes', 'Anything else we should know about this onboarding?', 'e.g. Special software needs, VPN access, building access badge...', 0)
+  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8001-000000000005', 'additional_notes', 'textarea', 'Anything else we should know?', NULL, 'e.g. They need access to a specific shared drive, software, or VPN...', 0)
 ON CONFLICT DO NOTHING;
 
 -- ============================================================
@@ -333,6 +314,84 @@ ON CONFLICT DO NOTHING;
 `
 
 // ---------------------------------------------------------------------------
+// Update SQL — restructures onboarding from 5 steps to 3 steps
+// Runs after seed to update existing data that ON CONFLICT DO NOTHING skipped
+// ---------------------------------------------------------------------------
+
+const UPDATE_SQL = `
+-- Remove old sections that were replaced (m365_license, access_permissions, old access_profile)
+DELETE FROM form_questions WHERE section_id IN (
+  '00000000-0000-4000-8001-000000000003',
+  '00000000-0000-4000-8001-000000000004'
+);
+DELETE FROM form_sections WHERE id IN (
+  '00000000-0000-4000-8001-000000000003',
+  '00000000-0000-4000-8001-000000000004'
+);
+
+-- Update section 2 from 'Role & Access Profile' to 'Account Setup'
+UPDATE form_sections
+SET key = 'account_setup',
+    title = 'Account Setup',
+    description = 'We''ll set up their email, Teams, and permissions based on your answers',
+    sort_order = 1
+WHERE id = '00000000-0000-4000-8001-000000000002';
+
+-- Update section 5 (special_instructions) to sort_order 2
+UPDATE form_sections
+SET title = 'Additional Notes',
+    sort_order = 2
+WHERE id = '00000000-0000-4000-8001-000000000005';
+
+-- Remove old access_profile question from section 2 (will be re-inserted with new config)
+DELETE FROM form_questions
+WHERE section_id = '00000000-0000-4000-8001-000000000002'
+  AND key = 'access_profile';
+
+-- Insert simplified questions into account_setup section (idempotent)
+INSERT INTO form_questions (schema_id, section_id, key, type, label, help_text, is_required, sort_order, static_options)
+VALUES (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8001-000000000002',
+  'clone_permissions', 'radio',
+  'Should this employee have the same access as an existing team member?',
+  'If yes, we''ll copy their email groups, Teams, and permissions',
+  true, 0,
+  '[{"value":"yes","label":"Yes — set them up like someone else"},{"value":"no","label":"No — I''ll describe what they need"}]'
+) ON CONFLICT DO NOTHING;
+
+INSERT INTO form_questions (schema_id, section_id, key, type, label, sort_order, data_source, visibility_rules)
+VALUES (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8001-000000000002',
+  'clone_from_user', 'select',
+  'Which team member?', 1,
+  '{"endpoint":"users","valueField":"userPrincipalName","labelField":"displayName","labelSuffix":"({userPrincipalName})","cacheTtl":300}',
+  '{"operator":"and","conditions":[{"field":"clone_permissions","op":"eq","value":"yes"}]}'
+) ON CONFLICT DO NOTHING;
+
+INSERT INTO form_questions (schema_id, section_id, key, type, label, help_text, is_required, sort_order, static_options, visibility_rules)
+VALUES (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8001-000000000002',
+  'access_profile', 'radio',
+  'What best describes their role?',
+  'We''ll assign the right email plan and permissions based on this',
+  false, 2,
+  '[{"value":"standard_office","label":"Office worker — needs email, Teams, and shared files"},{"value":"field_worker","label":"Field / mobile worker — email and Teams on their phone"},{"value":"executive","label":"Executive — full access with extra security"}]',
+  '{"operator":"and","conditions":[{"field":"clone_permissions","op":"eq","value":"no"}]}'
+) ON CONFLICT DO NOTHING;
+
+-- Update special instructions question text
+UPDATE form_questions
+SET label = 'Anything else we should know?',
+    help_text = NULL,
+    placeholder = 'e.g. They need access to a specific shared drive, software, or VPN...'
+WHERE section_id = '00000000-0000-4000-8001-000000000005'
+  AND key = 'additional_notes';
+`
+
+// ---------------------------------------------------------------------------
 // GET /api/migrations/question-engine?secret=XXX
 // ---------------------------------------------------------------------------
 
@@ -355,6 +414,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     // Run seed
     await client.query(SEED_SQL)
+
+    // Run updates (restructure onboarding form)
+    await client.query(UPDATE_SQL)
 
     return NextResponse.json({
       success: true,

@@ -817,16 +817,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               if (recipientEmail) {
                 const isPersonalEmail = credentialDelivery === 'personal_email' && a.personal_email
                 try {
+                  const companyName = hrRequest.displayName || 'your organization'
                   await resend.emails.send({
                     from: FROM_EMAIL,
                     to: [recipientEmail],
                     subject: `Employee Onboarding Complete — ${fullName}`,
                     text: [
-                      isPersonalEmail
-                        ? `Hi ${a.first_name || 'there'},`
-                        : `Hi ${hrRequest.submitted_by_name || 'there'},`,
+                      'Hi,',
                       '',
-                      `The onboarding for ${fullName} has been completed.`,
+                      `A Microsoft 365 account has been created for ${fullName} for use with ${companyName}.`,
                       '',
                       `New Email: ${upn}`,
                       `Temporary Password: ${tempPassword}`,
@@ -839,7 +838,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                       `Autotask Ticket: ${ticketNumber}`,
                       '',
                       '—',
-                      'Triple Cities Technology',
+                      'Triple Cities Tech',
                     ].filter((l) => l !== null).join('\n'),
                   })
                 } catch (err) {
@@ -1061,7 +1060,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                     to: [recipientEmail],
                     subject: `Employee Offboarding Complete — ${fullName}`,
                     text: [
-                      `Hi ${hrRequest.submitted_by_name || 'there'},`,
+                      'Hi,',
                       '',
                       `The offboarding for ${fullName} has been completed.`,
                       '',
@@ -1072,7 +1071,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                       `Autotask Ticket: ${ticketNumber}`,
                       '',
                       '—',
-                      'Triple Cities Technology',
+                      'Triple Cities Tech',
                     ].join('\n'),
                   })
                 } catch (err) {
