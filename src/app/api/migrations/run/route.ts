@@ -244,6 +244,32 @@ export async function POST(request: Request) {
       results.push(`⚠️ notifications table: ${err.message}`)
     }
 
+    // ============================================
+    // MISSING COLUMNS & DATA FIXES (2026-03-23)
+    // ============================================
+
+    // Add onboarding_completed_at to companies (fixes /admin/projects/new crash)
+    try {
+      await client.query('ALTER TABLE "companies" ADD COLUMN IF NOT EXISTS "onboarding_completed_at" TIMESTAMP(3)')
+      results.push('✅ Added onboarding_completed_at column to companies')
+    } catch (error) {
+      const err = error as Error
+      results.push(`⚠️ companies.onboarding_completed_at: ${err.message}`)
+    }
+
+    // Promote Kurtis to SUPER_ADMIN
+    try {
+      const res = await client.query(
+        `UPDATE staff_users SET role = 'SUPER_ADMIN', "updatedAt" = NOW() WHERE email = 'kurtis@triplecitiestech.com' AND role != 'SUPER_ADMIN'`
+      )
+      results.push(res.rowCount && res.rowCount > 0
+        ? '✅ Promoted kurtis@triplecitiestech.com to SUPER_ADMIN'
+        : '✅ kurtis@triplecitiestech.com already SUPER_ADMIN')
+    } catch (error) {
+      const err = error as Error
+      results.push(`⚠️ SUPER_ADMIN promotion: ${err.message}`)
+    }
+
     await client.end()
 
     return NextResponse.json({
