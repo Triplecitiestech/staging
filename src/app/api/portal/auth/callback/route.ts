@@ -209,8 +209,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const token = createPortalSession(sessionData)
     await setPortalSessionCookie(token)
 
-    // 7. Redirect to the portal
-    return NextResponse.redirect(`${baseUrl}/onboarding/${companySlug}`)
+    // 7. Redirect to returnTo (if provided in state) or portal
+    const returnTo = typeof stateObj.returnTo === 'string' && stateObj.returnTo.startsWith('/') && !stateObj.returnTo.startsWith('//')
+      ? stateObj.returnTo
+      : `/onboarding/${companySlug}`
+    return NextResponse.redirect(`${baseUrl}${returnTo}`)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     console.error('[portal/auth/callback] Error:', msg)

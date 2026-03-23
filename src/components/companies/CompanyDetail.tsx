@@ -30,6 +30,7 @@ interface Company {
   primaryContact: string | null
   contactTitle: string | null
   contactEmail: string | null
+  m365SetupStatus: string | null
   createdAt: string
   updatedAt: string
 }
@@ -43,6 +44,7 @@ interface CompanyDetailProps {
 export default function CompanyDetail({ company, contacts: initialContacts, projects }: CompanyDetailProps) {
   const router = useRouter()
   const [contacts, setContacts] = useState(initialContacts)
+  const [copiedLink, setCopiedLink] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
   const [editForm, setEditForm] = useState({
     displayName: company.displayName,
@@ -375,6 +377,47 @@ export default function CompanyDetail({ company, contacts: initialContacts, proj
               </a>
             </div>
           </div>
+
+          {/* Form Links — shown when M365 is configured */}
+          {company.m365SetupStatus === 'verified' && (
+            <div className="bg-slate-800/50 border border-white/10 rounded-lg p-6">
+              <h3 className="text-sm font-semibold text-white mb-3">HR Form Links</h3>
+              <p className="text-xs text-slate-400 mb-3">
+                Share these links with authorized managers. M365 sign-in required.
+              </p>
+              <div className="space-y-2">
+                {(['onboarding', 'offboarding'] as const).map((type) => {
+                  const url = `https://www.triplecitiestech.com/forms/${company.slug}/${type}`
+                  const isCopied = copiedLink === type
+                  return (
+                    <div key={type} className="flex items-center gap-2 p-3 bg-slate-900/40 border border-white/5 rounded-lg">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-white capitalize mb-0.5">
+                          Employee {type}
+                        </p>
+                        <p className="text-[10px] text-slate-400 truncate font-mono">{url}</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(url)
+                          setCopiedLink(type)
+                          setTimeout(() => setCopiedLink(null), 2000)
+                        }}
+                        className="shrink-0 px-2.5 py-1.5 text-[10px] font-semibold rounded-md border transition-colors"
+                        title={`Copy ${type} form link`}
+                      >
+                        {isCopied ? (
+                          <span className="text-emerald-400 border-emerald-500/30">Copied!</span>
+                        ) : (
+                          <span className="text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/10">Copy</span>
+                        )}
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Documents - company-specific */}
           {company.slug === 'olujo' && (
