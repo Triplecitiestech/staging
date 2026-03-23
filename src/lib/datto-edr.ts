@@ -102,32 +102,39 @@ export class DattoEdrClient {
 
       const items = await this.request<Array<{
         id?: string;
-        alertType?: string;
         type?: string;
-        severity?: string;
-        threatName?: string;
+        threatName?: string;  // "Good" | "Unknown" | "Suspicious" | "Bad"
+        threatScore?: number; // 0-10, higher = worse
         name?: string;
-        description?: string;
-        createdOn?: string;
+        path?: string;
         hostname?: string;
         hostId?: string;
-        status?: string;
         flagName?: string;
-        category?: string;
+        flagColor?: string;
+        compromised?: boolean;
+        malicious?: boolean;
+        suspicious?: boolean;
+        md5?: string;
+        sha256?: string;
+        createdOn?: string;
+        scannedOn?: string;
+        avPositives?: number;
+        avTotal?: number;
+        synapse?: number; // ML score, negative = malicious
       }>>(`/Alerts?filter=${encodeURIComponent(filter)}`);
 
       // LoopBack returns arrays directly (not wrapped in {data:} or {items:})
       const list = Array.isArray(items) ? items : [];
       return list.map((e) => ({
         id: e.id || '',
-        type: e.alertType || e.type || e.flagName || 'unknown',
-        severity: e.severity || 'medium',
-        description: e.threatName || e.name || e.description || '',
-        timestamp: e.createdOn || '',
+        type: e.type || e.flagName || 'unknown',
+        severity: mapThreatNameToSeverity(e.threatName, e.threatScore),
+        description: e.name || e.path || '',
+        timestamp: e.createdOn || e.scannedOn || '',
         hostname: e.hostname || '',
         deviceId: e.hostId || '',
-        status: e.status || 'unknown',
-        category: e.category || e.alertType || e.type || 'unknown',
+        status: e.compromised ? 'compromised' : (e.malicious ? 'malicious' : 'active'),
+        category: e.flagName || e.type || 'unknown',
       }));
     } catch (error) {
       console.error('[DattoEDR] getEvents error:', error);
@@ -208,6 +215,28 @@ export class DattoEdrClient {
       };
     }
   }
+}
+
+/**
+ * Map Infocyte threatName/threatScore to a normalized severity level.
+ * Infocyte uses: Good, Unknown, Suspicious, Bad
+ */
+function mapThreatNameToSeverity(threatName?: string, threatScore?: number): string {
+  if (threatName) {
+    switch (threatName.toLowerCase()) {
+      case 'bad': return 'critical';
+      case 'suspicious': return 'high';
+      case 'unknown': return 'medium';
+      case 'good': return 'low';
+    }
+  }
+  if (threatScore !== undefined) {
+    if (threatScore >= 8) return 'critical';
+    if (threatScore >= 5) return 'high';
+    if (threatScore >= 3) return 'medium';
+    return 'low';
+  }
+  return 'medium';
 }
 
 function buildMonthlyTrends(
