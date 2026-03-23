@@ -387,6 +387,8 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
                       <li>Directory.ReadWrite.All</li>
                       <li>Sites.ReadWrite.All</li>
                       <li>Organization.Read.All</li>
+                      <li>DeviceManagementManagedDevices.Read.All</li>
+                      <li>Device.Read.All</li>
                     </ul>
                   </li>
                   <li>

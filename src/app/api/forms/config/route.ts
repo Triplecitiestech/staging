@@ -601,6 +601,47 @@ async function migrateOnboardingQuestions(client: PoolClient): Promise<void> {
     `UPDATE form_questions SET sort_order = 8 WHERE schema_id = $1 AND key = 'phone'`,
     [schemaId]
   )
+
+  // --- Phase I: Remove static access_profile, make dynamic license picker primary ---
+  // The static "Access Profile" radio (Standard Office Worker, Power User, etc.) doesn't
+  // reflect the tenant's actual licenses. Replace with the dynamic license_type picker
+  // which fetches real SKUs from the tenant's Graph API.
+  const accessProfileExists = await client.query(
+    `SELECT id FROM form_questions WHERE schema_id = $1 AND key = 'access_profile' LIMIT 1`,
+    [schemaId]
+  )
+  if (accessProfileExists.rows.length > 0) {
+    console.log('[forms/config] Running migration: remove static access_profile, promote dynamic license_type')
+
+    // Delete the static access_profile question
+    await client.query(
+      `DELETE FROM form_questions WHERE schema_id = $1 AND key = 'access_profile'`,
+      [schemaId]
+    )
+
+    // If the role_and_license section exists, update its description and ensure
+    // license_type is sort_order 0 (now the primary/only question in this section)
+    const rlSectionRes = await client.query<{ id: string }>(
+      `SELECT id FROM form_sections WHERE schema_id = $1 AND key = 'role_and_license' LIMIT 1`,
+      [schemaId]
+    )
+    if (rlSectionRes.rows.length > 0) {
+      const rlSectionId = rlSectionRes.rows[0].id
+      await client.query(
+        `UPDATE form_sections SET title = 'Microsoft 365 License',
+         description = 'Which Microsoft 365 license should this employee receive?'
+         WHERE id = $1`,
+        [rlSectionId]
+      )
+      await client.query(
+        `UPDATE form_questions SET sort_order = 0,
+         label = 'License Type',
+         help_text = 'Select the Microsoft 365 license for this employee. Only licenses available in your tenant are shown. Available counts are displayed next to each option.'
+         WHERE schema_id = $1 AND key = 'license_type' AND section_id = $2`,
+        [schemaId, rlSectionId]
+      )
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
