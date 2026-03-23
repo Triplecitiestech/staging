@@ -27,6 +27,7 @@ export default async function CompanyDetailPage({
       contactEmail: true,
       createdAt: true,
       updatedAt: true,
+      m365SetupStatus: true,
       projects: {
         select: { id: true, title: true, status: true, projectType: true, createdAt: true },
         orderBy: { createdAt: 'desc' }
@@ -74,6 +75,7 @@ export default async function CompanyDetailPage({
         <CompanyDetail
           company={{
             ...company,
+            m365SetupStatus: company.m365SetupStatus,
             createdAt: company.createdAt.toISOString(),
             updatedAt: company.updatedAt.toISOString(),
           }}

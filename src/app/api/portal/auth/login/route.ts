@@ -19,6 +19,7 @@ const pool = new Pool({
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const companySlug = request.nextUrl.searchParams.get('company')?.toLowerCase().trim()
+  const returnTo = request.nextUrl.searchParams.get('returnTo')
 
   if (!companySlug) {
     return new NextResponse(errorPage('Missing company parameter.'), {
@@ -61,7 +62,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     // Build OAuth state with HMAC signature
     const nonce = crypto.randomBytes(16).toString('hex')
-    const state = signState({ companySlug, nonce })
+    // Include returnTo in state if it's a valid relative path (prevent open redirect)
+    const safeReturnTo = returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : null
+    const state = signState({ companySlug, nonce, ...(safeReturnTo ? { returnTo: safeReturnTo } : {}) })
 
     // Build Azure AD authorize URL
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.triplecitiestech.com'
