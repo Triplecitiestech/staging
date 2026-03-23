@@ -124,10 +124,39 @@ const ROLE_PERMISSIONS: Record<StaffRole, Permission[]> = {
 }
 
 /**
- * Check if a role has a specific permission
+ * Per-user permission overrides stored as JSON on StaffUser
  */
-export function hasPermission(role: StaffRole | string | undefined | null, permission: Permission): boolean {
+export interface PermissionOverrides {
+  granted?: Permission[]
+  revoked?: Permission[]
+}
+
+/**
+ * Parse permission overrides from JSON (safe for unknown DB data)
+ */
+export function parseOverrides(raw: unknown): PermissionOverrides {
+  if (!raw || typeof raw !== 'object') return {}
+  const obj = raw as Record<string, unknown>
+  return {
+    granted: Array.isArray(obj.granted) ? obj.granted.filter((p): p is Permission => typeof p === 'string') : [],
+    revoked: Array.isArray(obj.revoked) ? obj.revoked.filter((p): p is Permission => typeof p === 'string') : [],
+  }
+}
+
+/**
+ * Check if a role has a specific permission, with optional per-user overrides
+ */
+export function hasPermission(
+  role: StaffRole | string | undefined | null,
+  permission: Permission,
+  overrides?: PermissionOverrides | null,
+): boolean {
   if (!role) return false
+
+  // Per-user overrides take priority
+  if (overrides?.granted?.includes(permission)) return true
+  if (overrides?.revoked?.includes(permission)) return false
+
   const perms = ROLE_PERMISSIONS[role as StaffRole]
   if (!perms) return false
   return perms.includes(permission)
@@ -136,23 +165,106 @@ export function hasPermission(role: StaffRole | string | undefined | null, permi
 /**
  * Check if a role has ANY of the given permissions
  */
-export function hasAnyPermission(role: StaffRole | string | undefined | null, permissions: Permission[]): boolean {
-  return permissions.some(p => hasPermission(role, p))
+export function hasAnyPermission(
+  role: StaffRole | string | undefined | null,
+  permissions: Permission[],
+  overrides?: PermissionOverrides | null,
+): boolean {
+  return permissions.some(p => hasPermission(role, p, overrides))
 }
 
 /**
  * Check if a role has ALL of the given permissions
  */
-export function hasAllPermissions(role: StaffRole | string | undefined | null, permissions: Permission[]): boolean {
-  return permissions.every(p => hasPermission(role, p))
+export function hasAllPermissions(
+  role: StaffRole | string | undefined | null,
+  permissions: Permission[],
+  overrides?: PermissionOverrides | null,
+): boolean {
+  return permissions.every(p => hasPermission(role, p, overrides))
 }
 
 /**
- * Get all permissions for a role
+ * Get effective permissions for a role + overrides
  */
-export function getPermissions(role: StaffRole | string | undefined | null): Permission[] {
+export function getPermissions(role: StaffRole | string | undefined | null, overrides?: PermissionOverrides | null): Permission[] {
   if (!role) return []
-  return ROLE_PERMISSIONS[role as StaffRole] || []
+  const base = ROLE_PERMISSIONS[role as StaffRole] || []
+  if (!overrides) return base
+
+  const result = new Set<Permission>(base)
+  if (overrides.granted) overrides.granted.forEach(p => result.add(p))
+  if (overrides.revoked) overrides.revoked.forEach(p => result.delete(p))
+  return Array.from(result)
+}
+
+/**
+ * Get all possible permissions (for admin UI)
+ */
+export function getAllPermissions(): Permission[] {
+  return ALL_PERMISSIONS
+}
+
+/**
+ * All permission keys (for UI rendering)
+ */
+export const ALL_PERMISSIONS: Permission[] = [
+  'manage_staff_roles', 'view_staff', 'deactivate_staff',
+  'manage_companies', 'delete_companies', 'view_companies',
+  'manage_projects', 'view_projects',
+  'invite_customers', 'manage_customer_roles', 'impersonate_customer', 'view_contacts',
+  'manage_blog', 'approve_blog',
+  'manage_soc', 'view_soc',
+  'manage_marketing',
+  'view_reports', 'view_billing', 'manage_billing',
+  'system_settings', 'run_migrations', 'view_audit_log', 'autotask_sync',
+  'update_task_status', 'add_notes', 'view_assigned_tasks',
+]
+
+/**
+ * Human-readable labels and categories for permissions (admin UI)
+ */
+export const PERMISSION_META: Record<Permission, { label: string; category: string; description: string }> = {
+  manage_staff_roles: { label: 'Manage Staff Roles', category: 'Staff', description: 'Change staff roles and permissions' },
+  view_staff: { label: 'View Staff', category: 'Staff', description: 'View staff list and details' },
+  deactivate_staff: { label: 'Deactivate Staff', category: 'Staff', description: 'Enable/disable staff accounts' },
+  manage_companies: { label: 'Manage Companies', category: 'Companies', description: 'Create and edit companies' },
+  delete_companies: { label: 'Delete Companies', category: 'Companies', description: 'Delete companies permanently' },
+  view_companies: { label: 'View Companies', category: 'Companies', description: 'View company details' },
+  manage_projects: { label: 'Manage Projects', category: 'Projects', description: 'Create and edit projects' },
+  view_projects: { label: 'View Projects', category: 'Projects', description: 'View project details' },
+  invite_customers: { label: 'Invite Customers', category: 'Customer Portal', description: 'Send portal invites to contacts' },
+  manage_customer_roles: { label: 'Manage Customer Roles', category: 'Customer Portal', description: 'Change customer portal roles' },
+  impersonate_customer: { label: 'Impersonate Customer', category: 'Customer Portal', description: 'View portal as a customer' },
+  view_contacts: { label: 'View Contacts', category: 'Customer Portal', description: 'View contact list' },
+  manage_blog: { label: 'Manage Blog', category: 'Content', description: 'Create and edit blog posts' },
+  approve_blog: { label: 'Approve Blog', category: 'Content', description: 'Approve blog posts for publishing' },
+  manage_soc: { label: 'Manage SOC', category: 'Security', description: 'Configure SOC rules and incidents' },
+  view_soc: { label: 'View SOC', category: 'Security', description: 'View SOC dashboard and alerts' },
+  manage_marketing: { label: 'Manage Marketing', category: 'Marketing', description: 'Create and send campaigns' },
+  view_reports: { label: 'View Reports', category: 'Reporting', description: 'Access reports and analytics' },
+  view_billing: { label: 'View Billing', category: 'Reporting', description: 'View billing information' },
+  manage_billing: { label: 'Manage Billing', category: 'Reporting', description: 'Manage billing and invoices' },
+  system_settings: { label: 'System Settings', category: 'System', description: 'Manage platform settings' },
+  run_migrations: { label: 'Run Migrations', category: 'System', description: 'Execute database migrations' },
+  view_audit_log: { label: 'View Audit Log', category: 'System', description: 'View system audit trail' },
+  autotask_sync: { label: 'Autotask Sync', category: 'System', description: 'Trigger Autotask data sync' },
+  update_task_status: { label: 'Update Tasks', category: 'Tasks', description: 'Change task status' },
+  add_notes: { label: 'Add Notes', category: 'Tasks', description: 'Add notes to tasks and projects' },
+  view_assigned_tasks: { label: 'View Assigned Tasks', category: 'Tasks', description: 'View tasks assigned to you' },
+}
+
+/**
+ * Get permissions grouped by category (for admin UI)
+ */
+export function getPermissionsByCategory(): Record<string, { permission: Permission; label: string; description: string }[]> {
+  const groups: Record<string, { permission: Permission; label: string; description: string }[]> = {}
+  for (const perm of ALL_PERMISSIONS) {
+    const meta = PERMISSION_META[perm]
+    if (!groups[meta.category]) groups[meta.category] = []
+    groups[meta.category].push({ permission: perm, label: meta.label, description: meta.description })
+  }
+  return groups
 }
 
 /**

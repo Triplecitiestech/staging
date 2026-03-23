@@ -27,6 +27,7 @@ interface StaffUser {
   role: string
   isActive: boolean
   lastLogin: string | null
+  permissionOverrides?: { granted?: string[]; revoked?: string[] } | null
 }
 
 interface ContactsListProps {
@@ -85,6 +86,87 @@ const STAFF_ROLES: Record<string, {
   },
 }
 
+// All permissions with their base role assignments (for the permission editor)
+const PERMISSION_CATEGORIES: { category: string; permissions: { key: string; label: string; description: string; roles: string[] }[] }[] = [
+  {
+    category: 'Staff',
+    permissions: [
+      { key: 'manage_staff_roles', label: 'Manage Staff Roles', description: 'Change staff roles and permissions', roles: ['SUPER_ADMIN'] },
+      { key: 'view_staff', label: 'View Staff', description: 'View staff list and details', roles: ['SUPER_ADMIN', 'ADMIN', 'BILLING_ADMIN'] },
+      { key: 'deactivate_staff', label: 'Deactivate Staff', description: 'Enable/disable staff accounts', roles: ['SUPER_ADMIN'] },
+    ],
+  },
+  {
+    category: 'Companies',
+    permissions: [
+      { key: 'manage_companies', label: 'Manage Companies', description: 'Create and edit companies', roles: ['SUPER_ADMIN', 'ADMIN'] },
+      { key: 'delete_companies', label: 'Delete Companies', description: 'Delete companies permanently', roles: ['SUPER_ADMIN'] },
+      { key: 'view_companies', label: 'View Companies', description: 'View company details', roles: ['SUPER_ADMIN', 'ADMIN', 'BILLING_ADMIN', 'TECHNICIAN'] },
+    ],
+  },
+  {
+    category: 'Projects',
+    permissions: [
+      { key: 'manage_projects', label: 'Manage Projects', description: 'Create and edit projects', roles: ['SUPER_ADMIN', 'ADMIN'] },
+      { key: 'view_projects', label: 'View Projects', description: 'View project details', roles: ['SUPER_ADMIN', 'ADMIN', 'BILLING_ADMIN', 'TECHNICIAN'] },
+    ],
+  },
+  {
+    category: 'Customer Portal',
+    permissions: [
+      { key: 'invite_customers', label: 'Invite Customers', description: 'Send portal invites to contacts', roles: ['SUPER_ADMIN', 'ADMIN'] },
+      { key: 'manage_customer_roles', label: 'Manage Customer Roles', description: 'Change customer portal roles', roles: ['SUPER_ADMIN', 'ADMIN'] },
+      { key: 'impersonate_customer', label: 'Impersonate Customer', description: 'View portal as a customer', roles: ['SUPER_ADMIN', 'ADMIN'] },
+      { key: 'view_contacts', label: 'View Contacts', description: 'View contact list', roles: ['SUPER_ADMIN', 'ADMIN', 'BILLING_ADMIN', 'TECHNICIAN'] },
+    ],
+  },
+  {
+    category: 'Content',
+    permissions: [
+      { key: 'manage_blog', label: 'Manage Blog', description: 'Create and edit blog posts', roles: ['SUPER_ADMIN', 'ADMIN'] },
+      { key: 'approve_blog', label: 'Approve Blog', description: 'Approve blog posts for publishing', roles: ['SUPER_ADMIN', 'ADMIN'] },
+    ],
+  },
+  {
+    category: 'Security',
+    permissions: [
+      { key: 'manage_soc', label: 'Manage SOC', description: 'Configure SOC rules and incidents', roles: ['SUPER_ADMIN', 'ADMIN'] },
+      { key: 'view_soc', label: 'View SOC', description: 'View SOC dashboard and alerts', roles: ['SUPER_ADMIN', 'ADMIN'] },
+    ],
+  },
+  {
+    category: 'Marketing',
+    permissions: [
+      { key: 'manage_marketing', label: 'Manage Marketing', description: 'Create and send campaigns', roles: ['SUPER_ADMIN', 'ADMIN'] },
+    ],
+  },
+  {
+    category: 'Reporting',
+    permissions: [
+      { key: 'view_reports', label: 'View Reports', description: 'Access reports and analytics', roles: ['SUPER_ADMIN', 'ADMIN', 'BILLING_ADMIN'] },
+      { key: 'view_billing', label: 'View Billing', description: 'View billing information', roles: ['SUPER_ADMIN', 'ADMIN', 'BILLING_ADMIN'] },
+      { key: 'manage_billing', label: 'Manage Billing', description: 'Manage billing and invoices', roles: ['SUPER_ADMIN', 'BILLING_ADMIN'] },
+    ],
+  },
+  {
+    category: 'System',
+    permissions: [
+      { key: 'system_settings', label: 'System Settings', description: 'Manage platform settings', roles: ['SUPER_ADMIN'] },
+      { key: 'run_migrations', label: 'Run Migrations', description: 'Execute database migrations', roles: ['SUPER_ADMIN'] },
+      { key: 'view_audit_log', label: 'View Audit Log', description: 'View system audit trail', roles: ['SUPER_ADMIN', 'ADMIN'] },
+      { key: 'autotask_sync', label: 'Autotask Sync', description: 'Trigger Autotask data sync', roles: ['SUPER_ADMIN', 'ADMIN'] },
+    ],
+  },
+  {
+    category: 'Tasks',
+    permissions: [
+      { key: 'update_task_status', label: 'Update Tasks', description: 'Change task status', roles: ['SUPER_ADMIN', 'ADMIN', 'TECHNICIAN'] },
+      { key: 'add_notes', label: 'Add Notes', description: 'Add notes to tasks and projects', roles: ['SUPER_ADMIN', 'ADMIN', 'TECHNICIAN'] },
+      { key: 'view_assigned_tasks', label: 'View Assigned Tasks', description: 'View tasks assigned to you', roles: ['SUPER_ADMIN', 'ADMIN', 'BILLING_ADMIN', 'TECHNICIAN'] },
+    ],
+  },
+]
+
 // Customer role display config
 const CUSTOMER_ROLES: Record<string, { label: string; color: string; permissions: string[] }> = {
   CLIENT_MANAGER: {
@@ -126,6 +208,8 @@ export default function ContactsList({ contacts, staffUsers: initialStaff, curre
   const [impersonating, setImpersonating] = useState<string | null>(null)
   const [staffUsers, setStaffUsers] = useState(initialStaff)
   const [permissionsOpen, setPermissionsOpen] = useState<string | null>(null)
+  const [permEditorOpen, setPermEditorOpen] = useState<string | null>(null)
+  const [permSaving, setPermSaving] = useState(false)
 
   useEffect(() => { setStaffUsers(initialStaff) }, [initialStaff])
 
@@ -251,6 +335,52 @@ export default function ContactsList({ contacts, staffUsers: initialStaff, curre
     } catch {
       setActionResult({ type: 'error', message: 'Failed to update status' })
     }
+  }
+
+  const togglePermissionOverride = async (staffId: string, permission: string, action: 'grant' | 'revoke' | 'reset') => {
+    const staff = staffUsers.find(s => s.id === staffId)
+    if (!staff) return
+
+    const current = staff.permissionOverrides || { granted: [], revoked: [] }
+    const granted = new Set(current.granted || [])
+    const revoked = new Set(current.revoked || [])
+
+    // Remove from both sets first
+    granted.delete(permission)
+    revoked.delete(permission)
+
+    // Then apply the new action
+    if (action === 'grant') granted.add(permission)
+    else if (action === 'revoke') revoked.add(permission)
+    // 'reset' just removes from both (uses role default)
+
+    const newOverrides = {
+      granted: Array.from(granted),
+      revoked: Array.from(revoked),
+    }
+
+    // Clean up empty overrides
+    const isClean = newOverrides.granted.length === 0 && newOverrides.revoked.length === 0
+
+    setPermSaving(true)
+    try {
+      const res = await fetch('/api/admin/staff', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ staffId, permissionOverrides: isClean ? null : newOverrides }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setStaffUsers(prev => prev.map(s =>
+          s.id === staffId ? { ...s, permissionOverrides: isClean ? null : newOverrides } : s
+        ))
+      } else {
+        setActionResult({ type: 'error', message: data.error || 'Failed to update permissions' })
+      }
+    } catch {
+      setActionResult({ type: 'error', message: 'Failed to update permissions' })
+    }
+    setPermSaving(false)
   }
 
   const impersonateCustomer = async (companySlug: string) => {
@@ -621,15 +751,44 @@ export default function ContactsList({ contacts, staffUsers: initialStaff, curre
                           )}
                         </td>
                         <td className="px-4 py-3">
-                          <button
-                            onClick={() => setPermissionsOpen(permissionsOpen === staff.id ? null : staff.id)}
-                            className="text-[11px] text-slate-400 hover:text-white transition-colors flex items-center gap-1"
-                          >
-                            {roleInfo.permissions.length} permissions
-                            <svg className={`w-3 h-3 transition-transform ${permissionsOpen === staff.id ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                            </svg>
-                          </button>
+                          {(() => {
+                            const overrides = staff.permissionOverrides || { granted: [], revoked: [] }
+                            const grantedCount = (overrides.granted || []).length
+                            const revokedCount = (overrides.revoked || []).length
+                            const hasOverrides = grantedCount > 0 || revokedCount > 0
+                            return (
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => setPermissionsOpen(permissionsOpen === staff.id ? null : staff.id)}
+                                  className="text-[11px] text-slate-400 hover:text-white transition-colors flex items-center gap-1"
+                                >
+                                  {roleInfo.permissions.length} base
+                                  <svg className={`w-3 h-3 transition-transform ${permissionsOpen === staff.id ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                  </svg>
+                                </button>
+                                {hasOverrides && (
+                                  <span className="flex items-center gap-1">
+                                    {grantedCount > 0 && (
+                                      <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">+{grantedCount}</span>
+                                    )}
+                                    {revokedCount > 0 && (
+                                      <span className="text-[10px] text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded">-{revokedCount}</span>
+                                    )}
+                                  </span>
+                                )}
+                                {isSuperAdmin && !isCurrentUser && (
+                                  <button
+                                    onClick={() => setPermEditorOpen(permEditorOpen === staff.id ? null : staff.id)}
+                                    title="Manage permissions"
+                                    className="text-[10px] text-cyan-400 hover:text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/20 px-1.5 py-0.5 rounded transition-colors"
+                                  >
+                                    Edit
+                                  </button>
+                                )}
+                              </div>
+                            )
+                          })()}
                           {permissionsOpen === staff.id && (
                             <ul className="mt-1 space-y-0.5">
                               {roleInfo.permissions.map(p => (
@@ -689,6 +848,140 @@ export default function ContactsList({ contacts, staffUsers: initialStaff, curre
           </div>
         </div>
       )}
+
+      {/* Permission Editor Modal */}
+      {permEditorOpen && (() => {
+        const staff = staffUsers.find(s => s.id === permEditorOpen)
+        if (!staff) return null
+        const overrides = staff.permissionOverrides || { granted: [], revoked: [] }
+        const grantedSet = new Set(overrides.granted || [])
+        const revokedSet = new Set(overrides.revoked || [])
+        const roleInfo = STAFF_ROLES[staff.role] || STAFF_ROLES.TECHNICIAN
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setPermEditorOpen(null)}>
+            <div className="bg-slate-900 border border-white/10 rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
+                <div>
+                  <h3 className="text-lg font-bold text-white">Manage Permissions</h3>
+                  <p className="text-sm text-slate-400 mt-0.5">
+                    {staff.name} &middot; <span className={`${roleInfo.color.split(' ').find(c => c.startsWith('text-'))}`}>{roleInfo.label}</span>
+                  </p>
+                </div>
+                <button
+                  onClick={() => setPermEditorOpen(null)}
+                  className="p-1 text-slate-400 hover:text-white rounded transition-colors"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+                <div className="bg-slate-800/50 border border-white/5 rounded-lg px-4 py-3 text-xs text-slate-400">
+                  <span className="text-cyan-400 font-medium">Base role:</span> {roleInfo.label} &mdash; permissions from the role are shown as defaults.
+                  Click to grant (+) or revoke (-) individual permissions beyond the base role.
+                </div>
+
+                {PERMISSION_CATEGORIES.map(cat => (
+                  <div key={cat.category}>
+                    <h4 className="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">{cat.category}</h4>
+                    <div className="space-y-1">
+                      {cat.permissions.map(perm => {
+                        const fromRole = perm.roles.includes(staff.role)
+                        const isGranted = grantedSet.has(perm.key)
+                        const isRevoked = revokedSet.has(perm.key)
+                        const effective = isGranted || (fromRole && !isRevoked)
+
+                        return (
+                          <div key={perm.key} className={`flex items-center justify-between rounded-lg px-3 py-2 border transition-colors ${
+                            isGranted ? 'bg-emerald-500/10 border-emerald-500/20' :
+                            isRevoked ? 'bg-rose-500/10 border-rose-500/20' :
+                            'bg-slate-800/30 border-white/5'
+                          }`}>
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className={`w-5 h-5 rounded flex items-center justify-center flex-shrink-0 ${
+                                effective ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-700/50 text-slate-600'
+                              }`}>
+                                {effective ? (
+                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                ) : (
+                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                  </svg>
+                                )}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="text-sm text-white flex items-center gap-2">
+                                  {perm.label}
+                                  {isGranted && <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/20 px-1 rounded">GRANTED</span>}
+                                  {isRevoked && <span className="text-[9px] font-bold text-rose-400 bg-rose-500/20 px-1 rounded">REVOKED</span>}
+                                  {!isGranted && !isRevoked && fromRole && <span className="text-[9px] text-slate-500">from role</span>}
+                                </div>
+                                <div className="text-[11px] text-slate-500">{perm.description}</div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+                              {/* Grant button — show if not already effectively granted via role */}
+                              {(!fromRole || isRevoked) && !isGranted && (
+                                <button
+                                  onClick={() => togglePermissionOverride(staff.id, perm.key, 'grant')}
+                                  disabled={permSaving}
+                                  title="Grant this permission"
+                                  className="text-[10px] text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-2 py-1 rounded transition-colors disabled:opacity-50"
+                                >
+                                  +Grant
+                                </button>
+                              )}
+                              {/* Revoke button — show if currently effective */}
+                              {effective && !isRevoked && (
+                                <button
+                                  onClick={() => togglePermissionOverride(staff.id, perm.key, 'revoke')}
+                                  disabled={permSaving}
+                                  title="Revoke this permission"
+                                  className="text-[10px] text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 px-2 py-1 rounded transition-colors disabled:opacity-50"
+                                >
+                                  -Revoke
+                                </button>
+                              )}
+                              {/* Reset button — show if overridden */}
+                              {(isGranted || isRevoked) && (
+                                <button
+                                  onClick={() => togglePermissionOverride(staff.id, perm.key, 'reset')}
+                                  disabled={permSaving}
+                                  title="Reset to role default"
+                                  className="text-[10px] text-slate-400 hover:text-white bg-slate-700/50 hover:bg-slate-700 px-2 py-1 rounded transition-colors disabled:opacity-50"
+                                >
+                                  Reset
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="px-6 py-3 border-t border-white/10 flex items-center justify-between">
+                <p className="text-[11px] text-slate-500">
+                  Changes are saved automatically
+                </p>
+                <button
+                  onClick={() => setPermEditorOpen(null)}
+                  className="text-sm text-white bg-cyan-600 hover:bg-cyan-500 px-4 py-1.5 rounded-lg transition-colors"
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Email Preview Modal */}
       {previewContact && (

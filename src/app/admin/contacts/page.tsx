@@ -64,11 +64,12 @@ export default async function ContactsPage() {
     role: string
     isActive: boolean
     lastLogin: Date | null
+    permissionOverrides: unknown
   }> = []
 
   try {
     const rawStaff = await prisma.staffUser.findMany({
-      select: { id: true, name: true, email: true, role: true, isActive: true, lastLogin: true },
+      select: { id: true, name: true, email: true, role: true, isActive: true, lastLogin: true, permissionOverrides: true },
       orderBy: { name: 'asc' },
     })
     staffUsers = rawStaff.map(s => ({ ...s, role: s.role as string }))
@@ -76,7 +77,7 @@ export default async function ContactsPage() {
     // StaffRole enum may have changed — fall back to raw query
     try {
       staffUsers = await prisma.$queryRaw<typeof staffUsers>`
-        SELECT id, name, email, role::text, "isActive", "lastLogin"
+        SELECT id, name, email, role::text, "isActive", "lastLogin", "permissionOverrides"
         FROM staff_users ORDER BY name ASC
       `
     } catch {
@@ -111,6 +112,7 @@ export default async function ContactsPage() {
           staffUsers={staffUsers.map(s => ({
             ...s,
             lastLogin: s.lastLogin?.toISOString() || null,
+            permissionOverrides: s.permissionOverrides || null,
           }))}
           currentUserRole={currentStaff?.role || 'TECHNICIAN'}
           currentUserId={currentStaff?.id || ''}
