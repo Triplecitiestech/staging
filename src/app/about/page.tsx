@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import Header from '@/components/layout/Header'
 import Footer from '@/components/layout/Footer'
 import Link from 'next/link'
@@ -18,7 +19,21 @@ import {
   CalendarIcon
 } from '@/components/icons/TechIcons'
 
+interface TeamMember {
+  name: string
+  title: string
+  initials: string
+}
+
 export default function About() {
+  const [team, setTeam] = useState<TeamMember[]>([])
+
+  useEffect(() => {
+    fetch('/api/team')
+      .then((r) => r.json())
+      .then((data) => setTeam(data.team ?? []))
+      .catch(() => {})
+  }, [])
 
   const values = [
     {
@@ -226,6 +241,52 @@ export default function About() {
           </div>
         </div>
       </div>
+
+      {/* Our Team */}
+      {team.length > 0 && (
+        <div className="relative bg-gradient-to-br from-black via-gray-900 to-cyan-900 py-24">
+          <div className="max-w-7xl mx-auto px-6">
+            <div className="text-center mb-16">
+              <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">
+                Our Team
+              </h2>
+              <p className="text-xl text-white/90 max-w-3xl mx-auto leading-relaxed">
+                The people behind the technology — dedicated professionals committed to keeping your business running.
+              </p>
+            </div>
+
+            <div className={`grid grid-cols-1 ${team.length === 1 ? 'max-w-sm' : team.length === 2 ? 'sm:grid-cols-2 max-w-2xl' : 'sm:grid-cols-2 lg:grid-cols-3 max-w-5xl'} gap-8 mx-auto`}>
+              {team.map((member, index) => {
+                const gradients = [
+                  'from-cyan-500 to-blue-500',
+                  'from-purple-500 to-pink-500',
+                  'from-emerald-500 to-teal-500',
+                  'from-rose-500 to-red-500',
+                  'from-blue-500 to-indigo-500',
+                  'from-teal-500 to-cyan-500',
+                ]
+                const gradient = gradients[index % gradients.length]
+
+                return (
+                  <div key={member.name} className="group">
+                    <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-3xl p-8 shadow-xl hover:shadow-2xl transition-all duration-500 hover:scale-105 text-center">
+                      <div className={`w-20 h-20 bg-gradient-to-br ${gradient} rounded-full flex items-center justify-center mb-6 mx-auto shadow-lg group-hover:scale-110 transition-transform duration-300`}>
+                        <span className="text-2xl font-bold text-white">{member.initials}</span>
+                      </div>
+                      <h3 className="text-xl font-bold text-white mb-2 group-hover:text-cyan-200 transition-colors duration-300">
+                        {member.name}
+                      </h3>
+                      <p className="text-cyan-400 text-sm font-medium">
+                        {member.title}
+                      </p>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* CTA Section */}
       <div className="relative bg-black py-32">
