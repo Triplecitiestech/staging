@@ -563,6 +563,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     let primaryActionSucceeded = false
     const provisioningResults: string[] = []
     const failedSteps: string[] = []
+    const manualSteps: string[] = []
 
     // Convenience to add an Autotask note (non-fatal if it fails)
     const addTicketNote = async (title: string, description: string, publish: 1 | 2 = 2) => {
@@ -852,11 +853,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               resultLines.push(`Clone Source: ${a.clone_from_user} (${clonedGroups.length} groups cloned)`)
             }
 
+            // Build manual steps for TCT staff
             if (failedSteps.length > 0) {
+              for (const step of failedSteps) {
+                manualSteps.push(`Retry failed step: ${step}`)
+              }
               resultLines.push(`\nFailed Steps: ${failedSteps.join(', ')}`)
-              resultLines.push('Status: Completed with errors')
+              resultLines.push('Status: Completed with errors — manual steps required')
             } else {
               resultLines.push('Status: All actions completed successfully')
+            }
+
+            // Add "Next Steps for TCT Staff" section
+            resultLines.push('')
+            resultLines.push('=== NEXT STEPS FOR TCT STAFF ===')
+            if (manualSteps.length > 0) {
+              for (const step of manualSteps) {
+                resultLines.push(`  [ ] ${step}`)
+              }
+            } else {
+              resultLines.push('  None — all steps completed automatically.')
             }
 
             const provisioningResultsText = resultLines.join('\n')
@@ -873,6 +889,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               })
             } catch (err) {
               console.warn('[hr/process] Failed to update ticket description:', err instanceof Error ? err.message : err)
+            }
+
+            // Internal note for manual steps
+            if (manualSteps.length > 0) {
+              await addTicketNote('Manual Steps Required',
+                'The following actions require manual intervention by TCT staff:\n\n' +
+                manualSteps.map(s => `• ${s}`).join('\n'), 2)
             }
 
             // Final customer-visible note (publish=1)
@@ -952,12 +975,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                       '     c. Scan the QR code shown on screen',
                       '     d. You can also choose to receive a text or phone call instead',
                       '',
-                      '3. INSTALL DESKTOP APPS (OPTIONAL)',
-                      '   From the Microsoft 365 portal, click "Install Microsoft 365" to download',
-                      '   Word, Excel, Outlook, and Teams on your computer.',
                     ]),
                     '',
-                    `${isCompanyComputer ? '4' : '4'}. ACCESS YOUR APPS`,
+                    '3. ACCESS YOUR APPS',
                     '   • Outlook (email): https://outlook.office.com',
                     '   • Microsoft Teams: https://teams.microsoft.com',
                     '   • OneDrive (files): https://onedrive.live.com',
@@ -1004,15 +1024,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               console.warn('[hr/process] RESEND_API_KEY not set — skipping email notification')
             }
 
-            // Close ticket (status=5)
-            try {
-              await fetch(`${baseUrl}/V1.0/Tickets`, {
-                method: 'PATCH',
-                headers: autotaskHeaders,
-                body: JSON.stringify({ id: ticketId, status: 5 }),
-              })
-            } catch (err) {
-              console.warn('[hr/process] Failed to close ticket:', err instanceof Error ? err.message : err)
+            // Close ticket only if no manual steps remain (status=5)
+            if (manualSteps.length === 0) {
+              try {
+                await fetch(`${baseUrl}/V1.0/Tickets`, {
+                  method: 'PATCH',
+                  headers: autotaskHeaders,
+                  body: JSON.stringify({ id: ticketId, status: 5 }),
+                })
+              } catch (err) {
+                console.warn('[hr/process] Failed to close ticket:', err instanceof Error ? err.message : err)
+              }
             }
           }
         }
@@ -1260,6 +1282,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
           // Build provisioning results for ticket
           if (primaryActionSucceeded) {
+            // Determine manual steps for TCT staff
+            // Shared mailbox access requires manual configuration via Exchange Admin
+            const sharedMailboxUsers = Array.isArray(answers.shared_mailbox_access)
+              ? (answers.shared_mailbox_access as string[])
+              : []
+            if (a.data_handling === 'keep_accessible' && sharedMailboxUsers.length > 0) {
+              manualSteps.push(
+                `Grant shared mailbox access for ${targetUpn} to: ${sharedMailboxUsers.join(', ')} (Exchange Admin Center → Shared Mailboxes)`
+              )
+            }
+            if (a.data_handling === 'forward_to_manager' || a.data_handling === 'forward_to_specific') {
+              if (a.forward_email_to) {
+                manualSteps.push(`Verify email forwarding is active: ${targetUpn} → ${a.forward_email_to}`)
+              }
+            }
+            for (const step of failedSteps) {
+              manualSteps.push(`Retry failed step: ${step}`)
+            }
+
             const resultLines = [
               '',
               '=== PROVISIONING RESULTS ===',
@@ -1276,7 +1317,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               oneDriveTransferredTo ? `OneDrive Shared With: ${oneDriveTransferredTo}` : null,
               archiveFolderUrl ? `OneDrive Archived: ${archivedFileCount} items to HR SharePoint` : null,
               failedSteps.length > 0 ? `\nFailed Steps: ${failedSteps.join(', ')}` : null,
-              failedSteps.length > 0 ? 'Status: Completed with errors' : 'Status: All actions completed successfully',
+              failedSteps.length > 0
+                ? 'Status: Completed with errors — manual steps required'
+                : manualSteps.length > 0
+                  ? 'Status: Automated steps complete — manual steps required'
+                  : 'Status: All actions completed successfully',
+              '',
+              '=== NEXT STEPS FOR TCT STAFF ===',
+              ...(manualSteps.length > 0
+                ? manualSteps.map(s => `  [ ] ${s}`)
+                : ['  None — all steps completed automatically.']),
             ].filter(Boolean).join('\n')
 
             // PATCH ticket description
@@ -1293,6 +1343,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               console.warn('[hr/process] Failed to update ticket description:', err instanceof Error ? err.message : err)
             }
 
+            // Internal note for manual steps
+            if (manualSteps.length > 0) {
+              await addTicketNote('Manual Steps Required',
+                'The following actions require manual intervention by TCT staff:\n\n' +
+                manualSteps.map(s => `• ${s}`).join('\n'), 2)
+            }
+
             // Final customer-visible note
             const completionNote = [
               `Employee ${fullName} has been offboarded:`,
@@ -1303,10 +1360,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               oneDriveTransferredTo ? `OneDrive files shared with ${oneDriveTransferredTo}.` : null,
               archiveFolderUrl ? `OneDrive files archived to HR SharePoint (${archivedFileCount} items).` : null,
               '',
-              'All access has been revoked.',
+              manualSteps.length > 0
+                ? 'Some steps require manual action by our team. We will follow up shortly.'
+                : 'All access has been revoked.',
             ].filter(Boolean).join('\n')
 
-            await addTicketNote('Offboarding Complete', completionNote, 1)
+            await addTicketNote(
+              manualSteps.length > 0 ? 'Offboarding In Progress' : 'Offboarding Complete',
+              completionNote, 1)
 
             // Email notification to submitter
             if (resend) {
@@ -1317,17 +1378,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                   await resend.emails.send({
                     from: FROM_EMAIL,
                     to: [recipientEmail],
-                    subject: `Employee Offboarding Complete — ${fullName}`,
+                    subject: manualSteps.length > 0
+                      ? `Employee Offboarding In Progress — ${fullName}`
+                      : `Employee Offboarding Complete — ${fullName}`,
                     text: [
                       'Hi,',
                       '',
-                      `The offboarding for ${fullName} at ${companyName} has been completed.`,
+                      `The offboarding for ${fullName} at ${companyName} has been ${manualSteps.length > 0 ? 'partially completed' : 'completed'}.`,
                       '',
                       `Account ${targetUpn} has been disabled.`,
                       `Removed from ${removedGroupCount} group(s).`,
                       `${removedLicenseCount} license(s) removed.`,
                       oneDriveTransferredTo ? `OneDrive files shared with ${oneDriveTransferredTo}.` : null,
                       archiveFolderUrl ? `OneDrive files archived to HR SharePoint (${archivedFileCount} items).` : null,
+                      '',
+                      manualSteps.length > 0
+                        ? 'Some steps require manual action by our team. We will follow up when everything is complete.'
+                        : null,
                       '',
                       `Triple Cities Tech | Support Ticket Number: ${ticketNumber}`,
                       '',
@@ -1343,15 +1410,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               console.warn('[hr/process] RESEND_API_KEY not set — skipping email notification')
             }
 
-            // Close ticket
-            try {
-              await fetch(`${baseUrl}/V1.0/Tickets`, {
-                method: 'PATCH',
-                headers: autotaskHeaders,
-                body: JSON.stringify({ id: ticketId, status: 5 }),
-              })
-            } catch (err) {
-              console.warn('[hr/process] Failed to close ticket:', err instanceof Error ? err.message : err)
+            // Close ticket only if no manual steps remain
+            if (manualSteps.length === 0) {
+              try {
+                await fetch(`${baseUrl}/V1.0/Tickets`, {
+                  method: 'PATCH',
+                  headers: autotaskHeaders,
+                  body: JSON.stringify({ id: ticketId, status: 5 }),
+                })
+              } catch (err) {
+                console.warn('[hr/process] Failed to close ticket:', err instanceof Error ? err.message : err)
+              }
             }
           }
         }
