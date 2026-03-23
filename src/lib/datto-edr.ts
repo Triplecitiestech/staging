@@ -4,8 +4,9 @@
  * Uses API token authentication.
  * Fetches security events, threats, and endpoint status.
  *
- * Datto EDR API docs: https://portal.dattobackup.com/integrations/api
- * (Formerly known as Infocyte / Datto EDR)
+ * Instance URL pattern: https://<instance>.infocyte.com/api
+ * API Explorer: https://<instance>.infocyte.com/explorer/#/
+ * (Powered by Infocyte / Datto EDR)
  */
 
 export interface DattoEdrEvent {
@@ -41,11 +42,11 @@ export class DattoEdrClient {
 
   constructor() {
     this.apiToken = process.env.DATTO_EDR_API_TOKEN || '';
-    // Datto EDR uses instance-specific LoopBack API:
-    // https://<instance>.edr.datto.com/api
-    // Set DATTO_EDR_API_URL to your instance URL (e.g. https://mycompany.edr.datto.com/api)
-    // Visit https://<instance>.edr.datto.com/explorer/#/ while logged in to see available endpoints
-    this.baseUrl = process.env.DATTO_EDR_API_URL || 'https://edr.datto.com/api';
+    // Datto EDR uses instance-specific Infocyte LoopBack API:
+    // https://<instance>.infocyte.com/api
+    // Set DATTO_EDR_API_URL to your instance base (e.g. https://triple5695.infocyte.com/api)
+    // Visit https://<instance>.infocyte.com/explorer/#/ while logged in to see available endpoints
+    this.baseUrl = process.env.DATTO_EDR_API_URL || 'https://triple5695.infocyte.com/api';
   }
 
   isConfigured(): boolean {
