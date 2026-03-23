@@ -470,6 +470,137 @@ export function createGraphClient(creds: TenantCredentials) {
       }
     },
 
+    // -----------------------------------------------------------------
+    // OneDrive & SharePoint — offboarding file handling
+    // -----------------------------------------------------------------
+
+    /** Grant a user read access to another user's OneDrive via sharing link */
+    async grantOneDriveAccess(
+      ownerUserId: string,
+      recipientEmail: string
+    ): Promise<{ webUrl: string }> {
+      const t = await token()
+      // Get the OneDrive root
+      const drive = await graphRequest<{ id: string; webUrl: string }>(
+        t,
+        `/users/${ownerUserId}/drive/root`
+      )
+      // Create a sharing invitation for the recipient
+      await graphRequest(t, `/users/${ownerUserId}/drive/root/invite`, {
+        method: 'POST',
+        body: JSON.stringify({
+          requireSignIn: true,
+          sendInvitation: false, // We send our own email
+          roles: ['read'],
+          recipients: [{ email: recipientEmail }],
+          message: 'OneDrive files shared as part of employee offboarding',
+        }),
+      })
+      return { webUrl: drive.webUrl }
+    },
+
+    /** Find or create an HR SharePoint site for archiving offboarded employee files */
+    async getOrCreateHRSharePointSite(): Promise<{ siteId: string; webUrl: string; driveId: string }> {
+      const t = await token()
+
+      // Search for an existing HR site
+      try {
+        const search = await graphRequest<{ value: Array<{ id: string; webUrl: string; displayName: string }> }>(
+          t,
+          "/sites?search=Human Resources&$select=id,webUrl,displayName&$top=10"
+        )
+        const hrSite = search.value?.find(
+          (s) => /^(hr|human\s*resources)$/i.test(s.displayName)
+        )
+        if (hrSite) {
+          // Get the default drive
+          const drive = await graphRequest<{ id: string }>(t, `/sites/${hrSite.id}/drive`)
+          return { siteId: hrSite.id, webUrl: hrSite.webUrl, driveId: drive.id }
+        }
+      } catch {
+        // Search failed — proceed to create
+      }
+
+      // Create a new team site (group-connected) for HR
+      const group = await graphRequest<{ id: string }>(t, '/groups', {
+        method: 'POST',
+        body: JSON.stringify({
+          displayName: 'Human Resources',
+          description: 'HR document archive for offboarded employee files',
+          groupTypes: ['Unified'],
+          mailEnabled: true,
+          mailNickname: 'humanresources',
+          securityEnabled: false,
+          visibility: 'Private',
+        }),
+      })
+
+      // Wait briefly for SharePoint site provisioning
+      await new Promise((r) => setTimeout(r, 5000))
+
+      // Get the group's SharePoint site
+      const site = await graphRequest<{ id: string; webUrl: string }>(
+        t,
+        `/groups/${group.id}/sites/root`
+      )
+      const drive = await graphRequest<{ id: string }>(t, `/sites/${site.id}/drive`)
+
+      return { siteId: site.id, webUrl: site.webUrl, driveId: drive.id }
+    },
+
+    /** Copy a user's OneDrive files to a folder on a SharePoint site */
+    async archiveOneDriveToSharePoint(
+      ownerUserId: string,
+      targetDriveId: string,
+      folderName: string
+    ): Promise<{ folderWebUrl: string; fileCount: number }> {
+      const t = await token()
+
+      // Create the archive folder on the target drive
+      const folder = await graphRequest<{ id: string; webUrl: string }>(
+        t,
+        `/drives/${targetDriveId}/root/children`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            name: folderName,
+            folder: {},
+            '@microsoft.graph.conflictBehavior': 'rename',
+          }),
+        }
+      )
+
+      // List top-level items in the user's OneDrive
+      const items = await graphGetAll<{
+        id: string
+        name: string
+        size: number
+        folder?: Record<string, unknown>
+      }>(t, `/users/${ownerUserId}/drive/root/children?$select=id,name,size,folder`)
+
+      let fileCount = 0
+      for (const item of items) {
+        try {
+          // Copy each item to the archive folder
+          await graphRequest(t, `/users/${ownerUserId}/drive/items/${item.id}/copy`, {
+            method: 'POST',
+            body: JSON.stringify({
+              parentReference: {
+                driveId: targetDriveId,
+                id: folder.id,
+              },
+              name: item.name,
+            }),
+          })
+          fileCount++
+        } catch {
+          // Non-fatal per item — some may be too large or locked
+        }
+      }
+
+      return { folderWebUrl: folder.webUrl, fileCount }
+    },
+
     /** Find a license SKU by its part number (e.g. EXCHANGESTANDARD) */
     async getLicenseSkuByPartNumber(partNumber: string): Promise<GraphLicenseSku | null> {
       const t = await token()
