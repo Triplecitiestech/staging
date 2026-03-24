@@ -84,13 +84,28 @@ export function processReport(
       return !sectionKey || show(sectionKey);
     });
 
-  // Step 5: Filter key trends for customer variant
-  const keyTrends = isInternal
+  // Step 5: Filter key trends by hidden sections and customer variant
+  const trendSectionMap: Array<[RegExp, string]> = [
+    [/ticket volume|first response|incident acknowledgment/i, 'ticketing'],
+    [/endpoint management alerts/i, 'rmm'],
+    [/endpoint security events|EDR/i, 'edr'],
+    [/DNS security filtering/i, 'dns'],
+    [/backup appliances|BCDR/i, 'bcdr'],
+    [/cloud seats.*backed up|SaaS/i, 'saas'],
+  ];
+  const keyTrends = (isInternal
     ? d.executiveSummary.keyTrends
     : d.executiveSummary.keyTrends.filter(t => {
         const lower = t.toLowerCase();
         return !lower.includes('not available') && !lower.includes('error') && !lower.includes('failed') && !lower.includes('not yet');
-      });
+      })
+  ).filter(t => {
+    // Remove trends for hidden sections
+    for (const [pattern, sectionKey] of trendSectionMap) {
+      if (pattern.test(t) && !show(sectionKey)) return false;
+    }
+    return true;
+  });
 
   // Step 6: Build summary stat cards based on visible sections
   const summaryCards: StatCardData[] = [];
