@@ -64,7 +64,7 @@ export async function buildAnnualReportData(
 
   const emailSecurity = buildEmailSecurityPlaceholder();
   const userProtection = buildUserProtectionAnalysis();
-  const dataSources = buildDataSourceCoverage(ticketing, dattoRmm, dattoEdr, dnsFilter, dattoBcdr, dattoSaas, security, emailSecurity, periodStart, periodEnd);
+  const dataSources = buildDataSourceCoverage(ticketing, dattoRmm, dattoEdr, dnsFilter, dattoBcdr, dattoSaas, security, emailSecurity, userProtection, periodStart, periodEnd);
   const executiveSummary = buildExecutiveSummary(ticketing, dattoRmm, dattoEdr, dnsFilter, dattoBcdr, dattoSaas, security, emailSecurity, dataSources);
 
   const periodLabel = `Annual Service Report — ${formatMonthYear(periodStart)} to ${formatMonthYear(periodEnd)}`;
@@ -584,7 +584,8 @@ async function buildDattoRmmAnalysis(
         : null,
     };
   } catch (error) {
-    console.error('[annualReport] Datto RMM fetch error:', error);
+    const errMsg = error instanceof Error ? error.message : String(error);
+    console.error(`[annualReport] Datto RMM fetch error: ${errMsg}`);
     return {
       available: false,
       totalAlerts: 0,
@@ -864,6 +865,7 @@ function buildDataSourceCoverage(
   dattoSaas: DattoSaasAnalysis,
   security: SecurityAnalysis,
   emailSecurity: EmailSecurityAnalysis,
+  userProtection: UserProtectionAnalysis,
   periodStart: Date,
   periodEnd: Date,
 ): DataSourceCoverage[] {
@@ -951,6 +953,15 @@ function buildDataSourceCoverage(
       coverageEnd: null,
       isPartial: true,
       note: emailSecurity.note,
+    },
+    {
+      source: 'User Protection Services',
+      internalSource: 'Identity & Access Monitoring',
+      available: userProtection.available,
+      coverageStart: userProtection.available ? start : null,
+      coverageEnd: userProtection.available ? end : null,
+      isPartial: false,
+      note: userProtection.note,
     },
   ];
 }
