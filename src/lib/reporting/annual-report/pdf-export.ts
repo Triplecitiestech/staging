@@ -460,9 +460,49 @@ ${isInternal ? '<div class="internal-banner">&#9888; INTERNAL DOCUMENT — NOT F
   `}
 </div>
 
+<!-- DATTO SAAS PROTECTION -->
+<div class="section avoid-break">
+  <div class="section-title">7. Cloud Backup (Datto SaaS Protection)</div>
+  ${!data.dattoSaas?.available ? `
+  <div class="data-notice">
+    <strong>Data Not Available</strong><br/>
+    ${esc(data.dattoSaas?.note || 'Datto SaaS Protection integration not configured.')}
+  </div>` : `
+  <div class="stat-grid">
+    ${statCard('Protected Seats', data.dattoSaas.activeSeats)}
+    ${statCard('Domains', data.dattoSaas.totalDomains)}
+    ${statCard('Total Seats', data.dattoSaas.totalSeats)}
+  </div>
+
+  ${data.dattoSaas.seatsByType.length > 0 ? `
+  <h3 style="font-size:11pt;font-weight:700;color:#334155;margin:16px 0 8px;">Protected Services</h3>
+  <table>
+    <thead><tr><th>Service Type</th><th style="text-align:right">Count</th></tr></thead>
+    <tbody>
+    ${data.dattoSaas.seatsByType.map(s =>
+      '<tr><td>' + esc(s.type) + '</td><td style="text-align:right">' + s.count + '</td></tr>'
+    ).join('')}
+    </tbody>
+  </table>` : ''}
+
+  ${data.dattoSaas.customerDetails.length > 0 ? `
+  <h3 style="font-size:11pt;font-weight:700;color:#334155;margin:16px 0 8px;">Organization Details</h3>
+  <table>
+    <thead><tr><th>Organization</th><th>Domain</th><th>Platform</th><th style="text-align:right">Seats</th></tr></thead>
+    <tbody>
+    ${data.dattoSaas.customerDetails.map(c =>
+      '<tr><td>' + esc(c.name) + '</td><td>' + esc(c.domain) + '</td><td>' + esc(c.productType) + '</td><td style="text-align:right">' + c.seatCount + '</td></tr>'
+    ).join('')}
+    </tbody>
+  </table>` : ''}
+
+  ${data.dattoSaas.note ? `<div class="data-notice">${esc(data.dattoSaas.note)}</div>` : ''}
+  `}
+</div>
+
 <!-- SECURITY OPERATIONS -->
 <div class="section page-break avoid-break">
-  <div class="section-title">7. Security Operations</div>
+  <div class="section-title">8. Security Operations</div>
 
   <h3 style="font-size:11pt;font-weight:700;color:#334155;margin:0 0 8px;">Security Source Status</h3>
   <table>
@@ -510,7 +550,7 @@ ${isInternal ? '<div class="internal-banner">&#9888; INTERNAL DOCUMENT — NOT F
 
 <!-- EMAIL SECURITY -->
 <div class="section avoid-break">
-  <div class="section-title">8. Email Security (Inky)</div>
+  <div class="section-title">9. Email Security (Inky)</div>
   <div class="data-notice">
     <strong>Integration Not Yet Connected</strong><br/>
     ${esc(data.emailSecurity.note)}

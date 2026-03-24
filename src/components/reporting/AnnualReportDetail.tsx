@@ -328,10 +328,65 @@ export default function AnnualReportDetail({ reportId }: Props) {
           </div>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
-            <StatCard label="Backup Devices" value={data.dattoBcdr.totalDevices} />
-            <StatCard label="Protected Systems" value={data.dattoBcdr.totalAgents} />
-            <StatCard label="Active Alerts" value={data.dattoBcdr.totalAlerts} />
+            <StatCard label="Backup Appliances" value={data.dattoBcdr.totalDevices} />
+            <StatCard label="Protected Servers" value={data.dattoBcdr.totalAgents} />
+            {data.dattoBcdr.totalAlerts === 0 && (
+              <StatCard label="Alert Status" value="All Clear" />
+            )}
           </div>
+        )}
+      </Section>
+
+      {/* Datto SaaS Protection */}
+      <Section title="Cloud Backup (Datto SaaS Protection)">
+        {!data.dattoSaas?.available ? (
+          <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-2 text-sm text-blue-400">
+            {data.dattoSaas?.note || 'Datto SaaS Protection data not available.'}
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+              <StatCard label="Protected Seats" value={data.dattoSaas.activeSeats} />
+              <StatCard label="Domains" value={data.dattoSaas.totalDomains} />
+              <StatCard label="Total Seats" value={data.dattoSaas.totalSeats} />
+            </div>
+            {data.dattoSaas.seatsByType.length > 0 && (
+              <div className="mb-3">
+                <h4 className="text-sm font-semibold text-slate-300 mb-2">Protected Services</h4>
+                <div className="flex flex-wrap gap-2">
+                  {data.dattoSaas.seatsByType.map((s, i) => (
+                    <span key={i} className="bg-cyan-500/10 border border-cyan-500/20 px-2 py-1 rounded text-xs text-cyan-400">
+                      {s.type}: {s.count}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {data.dattoSaas.customerDetails.length > 0 && (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-700">
+                      <th className="text-left text-slate-400 py-2 px-3">Organization</th>
+                      <th className="text-left text-slate-400 py-2 px-3">Domain</th>
+                      <th className="text-left text-slate-400 py-2 px-3">Platform</th>
+                      <th className="text-right text-slate-400 py-2 px-3">Seats</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.dattoSaas.customerDetails.map((c, i) => (
+                      <tr key={i} className="border-b border-slate-700/50">
+                        <td className="py-2 px-3 text-slate-300">{c.name}</td>
+                        <td className="py-2 px-3 text-slate-400">{c.domain}</td>
+                        <td className="py-2 px-3 text-slate-400">{c.productType}</td>
+                        <td className="py-2 px-3 text-right text-slate-300">{c.seatCount}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
         )}
       </Section>
 
