@@ -63,7 +63,7 @@ export default function AnnualReportDetail({ reportId }: Props) {
 
   // For customer variant: determine which sections have real data
   const hasTickets = data.ticketing.totalTickets > 0
-  const hasRmm = data.dattoRmm.available && data.dattoRmm.totalAlerts > 0
+  const hasRmm = data.dattoRmm.available && (data.dattoRmm.totalAlerts > 0 || (data.dattoRmm.endpointCount ?? 0) > 0 || data.dattoRmm.devicesManaged > 0)
   const hasEdr = data.dattoEdr?.available && data.dattoEdr.totalEvents > 0
   const hasDns = data.dnsFilter?.available && data.dnsFilter.totalQueries > 0
   const hasBcdr = data.dattoBcdr?.available && data.dattoBcdr.totalDevices > 0
@@ -149,7 +149,7 @@ export default function AnnualReportDetail({ reportId }: Props) {
       {visibleDataSources.length > 0 && (
         <Section title={isCustomer ? 'Services Covered' : 'Data Source Coverage'}>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm [&_td]:tabular-nums">
               <thead>
                 <tr className="border-b border-slate-700">
                   <th className="text-left text-slate-400 py-2 px-3">Service</th>
@@ -238,7 +238,7 @@ export default function AnnualReportDetail({ reportId }: Props) {
                 <>
                   <h4 className="text-sm font-semibold text-slate-300 mb-2">By Priority</h4>
                   <div className="overflow-x-auto mb-4">
-                    <table className="w-full text-sm">
+                    <table className="w-full text-sm [&_td]:tabular-nums">
                       <thead>
                         <tr className="border-b border-slate-700">
                           <th className="text-left text-slate-400 py-2 px-3">Priority</th>
@@ -266,7 +266,7 @@ export default function AnnualReportDetail({ reportId }: Props) {
                 <>
                   <h4 className="text-sm font-semibold text-slate-300 mb-2">Monthly Trends</h4>
                   <div className="overflow-x-auto mb-4">
-                    <table className="w-full text-sm">
+                    <table className="w-full text-sm [&_td]:tabular-nums">
                       <thead>
                         <tr className="border-b border-slate-700">
                           <th className="text-left text-slate-400 py-2 px-3">Month</th>
@@ -296,7 +296,7 @@ export default function AnnualReportDetail({ reportId }: Props) {
                 <>
                   <h4 className="text-sm font-semibold text-slate-300 mb-2">By Category</h4>
                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+                    <table className="w-full text-sm [&_td]:tabular-nums">
                       <thead>
                         <tr className="border-b border-slate-700">
                           <th className="text-left text-slate-400 py-2 px-3">Category</th>
@@ -322,28 +322,58 @@ export default function AnnualReportDetail({ reportId }: Props) {
         </Section>
       )}
 
-      {/* RMM — hide entirely for customer if no data */}
-      {show('rmm') && (!isCustomer || hasRmm) && (
+      {/* RMM — show if section enabled AND (internal or has data) */}
+      {show('rmm') && (!isCustomer || (data.dattoRmm.available && data.dattoRmm.endpointCount > 0)) && (
         <Section title={isCustomer ? 'Endpoint Management' : 'Endpoint Operations (Datto RMM)'}>
-          {!data.dattoRmm.available || data.dattoRmm.totalAlerts === 0 ? (
+          {!data.dattoRmm.available ? (
             !isCustomer ? (
               <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-2 text-sm text-blue-400">
-                {data.dattoRmm.note || 'Datto RMM data not available.'}
+                {data.dattoRmm.note || 'RMM data not available.'}
               </div>
             ) : null
           ) : (
             <>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
-                <StatCard label="Total Alerts" value={data.dattoRmm.totalAlerts} />
-                <StatCard label="Resolved" value={data.dattoRmm.alertsResolved} />
-                <StatCard label="Devices Managed" value={data.dattoRmm.devicesManaged} />
-                <StatCard
-                  label="Resolution Rate"
-                  value={data.dattoRmm.totalAlerts > 0
-                    ? `${Math.round((data.dattoRmm.alertsResolved / data.dattoRmm.totalAlerts) * 100)}%`
-                    : '—'}
-                />
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                <StatCard label="Endpoints Managed" value={data.dattoRmm.endpointCount || data.dattoRmm.devicesManaged} />
+                {(data.dattoRmm.serverCount ?? 0) > 0 && <StatCard label="Servers" value={data.dattoRmm.serverCount} />}
+                {(data.dattoRmm.workstationCount ?? 0) > 0 && <StatCard label="Workstations" value={data.dattoRmm.workstationCount} />}
+                {data.dattoRmm.totalAlerts > 0 && <StatCard label="Alerts Processed" value={data.dattoRmm.totalAlerts} />}
+                {data.dattoRmm.totalAlerts > 0 && (
+                  <StatCard
+                    label="Alert Resolution Rate"
+                    value={`${Math.round((data.dattoRmm.alertsResolved / data.dattoRmm.totalAlerts) * 100)}%`}
+                  />
+                )}
+                {(data.dattoRmm.patchAlertsCount ?? 0) > 0 && (
+                  <StatCard label="Patch/Update Alerts" value={data.dattoRmm.patchAlertsCount} />
+                )}
               </div>
+
+              {data.dattoRmm.devicesByOS && data.dattoRmm.devicesByOS.length > 0 && (
+                <>
+                  <h4 className="text-sm font-semibold text-slate-300 mb-2">Operating Systems</h4>
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    {data.dattoRmm.devicesByOS.map((d, i) => (
+                      <span key={i} className="bg-cyan-500/10 border border-cyan-500/20 px-3 py-1 rounded text-xs text-cyan-400">
+                        {d.os}: {d.count}
+                      </span>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {data.dattoRmm.devicesByType && data.dattoRmm.devicesByType.length > 0 && !isCustomer && (
+                <>
+                  <h4 className="text-sm font-semibold text-slate-300 mb-2">Device Types</h4>
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    {data.dattoRmm.devicesByType.map((d, i) => (
+                      <span key={i} className="bg-slate-700/50 px-3 py-1 rounded text-xs text-slate-300">
+                        {d.type}: {d.count}
+                      </span>
+                    ))}
+                  </div>
+                </>
+              )}
             </>
           )}
         </Section>
@@ -488,7 +518,7 @@ export default function AnnualReportDetail({ reportId }: Props) {
             <>
               <h4 className="text-sm font-semibold text-slate-300 mb-2">Source Status</h4>
               <div className="overflow-x-auto mb-4">
-                <table className="w-full text-sm">
+                <table className="w-full text-sm [&_td]:tabular-nums">
                   <thead>
                     <tr className="border-b border-slate-700">
                       <th className="text-left text-slate-400 py-2 px-3">Source</th>

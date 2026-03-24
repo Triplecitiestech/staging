@@ -91,14 +91,20 @@ export class DattoEdrClient {
     const untilStr = until.toISOString();
 
     try {
-      // Infocyte LoopBack /Alerts endpoint with where filter
-      const filter = JSON.stringify({
-        where: {
-          createdOn: { gte: sinceStr, lte: untilStr },
-        },
-        limit: 1000,
-        order: 'createdOn DESC',
-      });
+      // Paginate through all alerts in the date range (LoopBack API)
+      const allEvents: DattoEdrEvent[] = [];
+      const PAGE_SIZE = 500;
+      let skip = 0;
+
+      for (let page = 0; page < 20; page++) { // Safety cap at 10,000 events
+        const filter = JSON.stringify({
+          where: {
+            createdOn: { gte: sinceStr, lte: untilStr },
+          },
+          limit: PAGE_SIZE,
+          skip,
+          order: 'createdOn DESC',
+        });
 
       const items = await this.request<Array<{
         id?: string;
@@ -123,19 +129,28 @@ export class DattoEdrClient {
         synapse?: number; // ML score, negative = malicious
       }>>(`/Alerts?filter=${encodeURIComponent(filter)}`);
 
-      // LoopBack returns arrays directly (not wrapped in {data:} or {items:})
-      const list = Array.isArray(items) ? items : [];
-      return list.map((e) => ({
-        id: e.id || '',
-        type: e.type || e.flagName || 'unknown',
-        severity: mapThreatNameToSeverity(e.threatName, e.threatScore),
-        description: e.name || e.path || '',
-        timestamp: e.createdOn || e.scannedOn || '',
-        hostname: e.hostname || '',
-        deviceId: e.hostId || '',
-        status: e.compromised ? 'compromised' : (e.malicious ? 'malicious' : 'active'),
-        category: e.flagName || e.type || 'unknown',
-      }));
+        // LoopBack returns arrays directly (not wrapped in {data:} or {items:})
+        const list = Array.isArray(items) ? items : [];
+        const mapped = list.map((e) => ({
+          id: e.id || '',
+          type: e.type || e.flagName || 'unknown',
+          severity: mapThreatNameToSeverity(e.threatName, e.threatScore),
+          description: e.name || e.path || '',
+          timestamp: e.createdOn || e.scannedOn || '',
+          hostname: e.hostname || '',
+          deviceId: e.hostId || '',
+          status: e.compromised ? 'compromised' : (e.malicious ? 'malicious' : 'active'),
+          category: e.flagName || e.type || 'unknown',
+        }));
+        allEvents.push(...mapped);
+
+        // If we got fewer than PAGE_SIZE, we've reached the end
+        if (list.length < PAGE_SIZE) break;
+        skip += PAGE_SIZE;
+      }
+
+      console.log(`[DattoEDR] Fetched ${allEvents.length} events for period ${sinceStr} to ${untilStr}`);
+      return allEvents;
     } catch (error) {
       console.error('[DattoEDR] getEvents error:', error);
       throw error;
