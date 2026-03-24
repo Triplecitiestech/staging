@@ -87,7 +87,7 @@ export class DattoRmmClient {
       body: `grant_type=password&username=${encodeURIComponent(this.apiKey)}&password=${encodeURIComponent(this.apiSecret)}`,
     });
 
-    let text = await res.text();
+    const text = await res.text();
     console.log(`[DattoRMM] Auth response: ${res.status}`);
 
     // Detect HTML response (wrong URL or redirect to login page)
