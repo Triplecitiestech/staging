@@ -114,22 +114,18 @@ export class DnsFilterClient {
     threats: Array<{ category: string; count: number }>;
     top_blocked: Array<{ domain: string; count: number }>;
   }> {
-    const sinceStr = since.toISOString().split('T')[0];
-    const untilStr = until.toISOString().split('T')[0];
+    // DNSFilter uses ISO datetime with from/to params on /traffic_reports/query_logs
+    const sinceStr = since.toISOString();
+    const untilStr = until.toISOString();
+    const sinceDateOnly = since.toISOString().split('T')[0];
+    const untilDateOnly = until.toISOString().split('T')[0];
 
-    // Try the traffic_reports endpoint first
+    // Try endpoints in order of specificity
     const endpoints = [
-      `/traffic_reports?start_date=${sinceStr}&end_date=${untilStr}`,
+      `/traffic_reports/query_logs?from=${sinceStr}&to=${untilStr}`,
+      `/traffic_reports?from=${sinceStr}&to=${untilStr}`,
+      `/traffic_reports?start_date=${sinceDateOnly}&end_date=${untilDateOnly}`,
     ];
-
-    // If we can get org ID, try org-specific endpoints too
-    const orgId = await this.getOrganizationId();
-    if (orgId) {
-      endpoints.unshift(
-        `/organizations/${orgId}/traffic_reports?start_date=${sinceStr}&end_date=${untilStr}`,
-        `/organizations/${orgId}/stats?start_date=${sinceStr}&end_date=${untilStr}`,
-      );
-    }
 
     let lastError: Error | null = null;
 
