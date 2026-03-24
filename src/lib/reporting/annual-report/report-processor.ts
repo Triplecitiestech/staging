@@ -33,7 +33,7 @@ export function processReport(
       totalTickets: 0, ticketsByStatus: [], ticketsByPriority: [], ticketsByCategory: [],
       mostCommonIssues: [], monthlyTrends: [],
       responseMetrics: { avgFirstResponseMinutes: null, medianFirstResponseMinutes: null, avgResolutionMinutes: null, medianResolutionMinutes: null, firstTouchResolutionRate: null, reopenRate: null, slaResponseCompliance: null, slaResolutionCompliance: null },
-      workBreakdown: { reactive: 0, proactive: 0, project: 0 },
+      workBreakdown: { reactive: 0, maintenance: 0, project: 0, other: 0 },
     } as AnnualReportData['ticketing'];
   }
   if (!d.dattoRmm) {
