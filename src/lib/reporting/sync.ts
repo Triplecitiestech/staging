@@ -38,7 +38,7 @@ interface TicketSyncResult {
  * If no previous sync, fetches last `defaultDays` days.
  * Processes companies in batches to stay within Vercel's 60s timeout.
  */
-export async function syncTickets(defaultDays: number = 90, batchSize: number = 2, force: boolean = false): Promise<TicketSyncResult> {
+export async function syncTickets(defaultDays: number = 90, batchSize: number = 2, force: boolean = false, companyFilter?: string): Promise<TicketSyncResult> {
   const finish = createJobTracker(JOB_NAMES.SYNC_TICKETS);
   const result: TicketSyncResult = { created: 0, updated: 0, statusChanges: 0, errors: [] };
 
@@ -53,16 +53,26 @@ export async function syncTickets(defaultDays: number = 90, batchSize: number = 
     // Use full window for first sync or force re-sync.
     // The 30-day limit was too small for quarterly reports, causing empty data.
     const sinceDate = lastSync || new Date(Date.now() - defaultDays * 24 * 60 * 60 * 1000);
-    console.log(`[ReportingSync] Syncing tickets since ${sinceDate.toISOString()} (force=${force}, days=${defaultDays})`);
+    console.log(`[ReportingSync] Syncing tickets since ${sinceDate.toISOString()} (force=${force}, days=${defaultDays}, company=${companyFilter || 'all'})`);
 
     // Resolve picklist labels (cached for the batch)
     const picklistCache = await resolvePicklists(client);
 
-    // Get all companies with Autotask IDs
+    // Get companies with Autotask IDs, optionally filtered
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const where: any = { autotaskCompanyId: { not: null } };
+    if (companyFilter) {
+      // Filter by company name (case-insensitive contains) or by company ID
+      where.OR = [
+        { displayName: { contains: companyFilter, mode: 'insensitive' } },
+        { id: companyFilter },
+      ];
+    }
     const companies = await prisma.company.findMany({
-      where: { autotaskCompanyId: { not: null } },
-      select: { id: true, autotaskCompanyId: true },
+      where,
+      select: { id: true, displayName: true, autotaskCompanyId: true },
     });
+    console.log(`[ReportingSync] Found ${companies.length} companies to sync${companyFilter ? ` (filter: "${companyFilter}")` : ''}`);
 
     const companyMap = new Map<number, string>();
     for (const c of companies) {
