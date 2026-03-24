@@ -117,6 +117,19 @@ export default function AnnualReportGenerator() {
     setGenerating(false)
   }
 
+  const handleDelete = async (id: string, companyName: string) => {
+    if (!confirm(`Delete the annual report for ${companyName}? This cannot be undone.`)) return
+
+    try {
+      const res = await fetch(`/api/reports/annual-report/${id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Delete failed')
+      setSuccess('Report deleted.')
+      fetchReports()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Delete failed')
+    }
+  }
+
   const selectedCompanyName = companies.find(c => c.id === selectedCompany)?.displayName || ''
 
   return (
@@ -264,6 +277,12 @@ export default function AnnualReportGenerator() {
                       >
                         PDF
                       </a>
+                      <button
+                        onClick={() => handleDelete(r.id, r.company.displayName)}
+                        className="text-red-400 hover:text-red-300 text-xs font-medium"
+                      >
+                        Delete
+                      </button>
                     </td>
                   </tr>
                 ))}

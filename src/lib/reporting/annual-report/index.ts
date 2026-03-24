@@ -128,6 +128,10 @@ export async function listAnnualReports(filters?: {
   });
 }
 
+export async function deleteAnnualReport(id: string) {
+  return prisma.businessReview.delete({ where: { id } });
+}
+
 // ============================================
 // PDF GENERATION
 // ============================================
