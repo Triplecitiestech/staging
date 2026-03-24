@@ -6,9 +6,11 @@
 import { prisma } from '@/lib/prisma';
 import { buildAnnualReportData } from './data-builder';
 import { generateAnnualReportHTML } from './pdf-export';
-import { AnnualReportParams, AnnualReportData, AnnualReportVariant } from './types';
+import { AnnualReportParams, AnnualReportData, AnnualReportVariant, StoredReportData } from './types';
+import { processReport, parseStoredReport } from './report-processor';
 
 export { generateAnnualReportHTML } from './pdf-export';
+export { processReport, parseStoredReport } from './report-processor';
 export * from './types';
 
 // ============================================
@@ -23,43 +25,14 @@ export async function generateAnnualReport(params: AnnualReportParams) {
   // Build report data from all available sources
   const data = await buildAnnualReportData(companyId, periodStart, periodEnd);
 
-  // Store hidden sections in the report data so rendering knows what to skip
+  // Store hidden sections in the report data for backward compatibility
   data.hiddenSections = hiddenSections;
 
-  // Customer variant: filter out anything that reflects negatively
-  if (variant === 'customer') {
-    // Hide SLA if below 95%
-    const respSla = data.ticketing.responseMetrics.slaResponseCompliance;
-    const resSla = data.ticketing.responseMetrics.slaResolutionCompliance;
-    const bestSla = Math.max(respSla ?? 0, resSla ?? 0);
-    if (bestSla > 0 && bestSla < 95) {
-      data.ticketing.responseMetrics.slaResponseCompliance = null;
-      data.ticketing.responseMetrics.slaResolutionCompliance = null;
-    }
-
-    // Hide reopen rate if above 5%
-    if (data.ticketing.responseMetrics.reopenRate !== null && data.ticketing.responseMetrics.reopenRate > 5) {
-      data.ticketing.responseMetrics.reopenRate = null;
-    }
-
-    // Only show data sources that ARE available (hide "Not Available" entries)
-    data.dataSources = data.dataSources.filter(ds => ds.available);
-
-    // Remove dataCoverageNotes (these highlight missing integrations)
-    data.executiveSummary.dataCoverageNotes = [];
-
-    // Hide unprotected/paused seat counts in SaaS (only show active)
-    if (data.dattoSaas?.available) {
-      data.dattoSaas.unprotectedSeats = 0;
-      data.dattoSaas.pausedSeats = 0;
-      data.dattoSaas.archivedSeats = 0;
-    }
-
-    // Hide BCDR alert counts (only show protected systems count)
-    if (data.dattoBcdr?.available) {
-      data.dattoBcdr.alertsByType = [];
-    }
-  }
+  // Store raw data + config so we can reprocess later with consistent results
+  const storedData: StoredReportData = {
+    raw: JSON.parse(JSON.stringify(data)),
+    config: { variant, hiddenSections },
+  };
 
   // Save to DB using BusinessReview model with reportType='annual'
   const review = await prisma.businessReview.upsert({
@@ -78,7 +51,7 @@ export async function generateAnnualReport(params: AnnualReportParams) {
       periodStart,
       periodEnd,
       status: 'draft',
-      reportData: JSON.parse(JSON.stringify(data)),
+      reportData: JSON.parse(JSON.stringify(storedData)),
       recommendations: [],
       narrative: JSON.parse(JSON.stringify({
         executiveSummary: buildNarrativeSummary(data),
@@ -93,12 +66,15 @@ export async function generateAnnualReport(params: AnnualReportParams) {
     },
     update: {
       periodEnd,
-      reportData: JSON.parse(JSON.stringify(data)),
+      reportData: JSON.parse(JSON.stringify(storedData)),
       status: 'draft',
     },
   });
 
-  return { id: review.id, data };
+  // Process report for return value
+  const processed = processReport(data, { variant, hiddenSections });
+
+  return { id: review.id, data: processed };
 }
 
 // ============================================
@@ -145,34 +121,11 @@ export async function getAnnualReportPrintableHTML(id: string) {
   const review = await prisma.businessReview.findUnique({ where: { id } });
   if (!review) throw new Error('Annual report not found');
 
-  const data = review.reportData as unknown as AnnualReportData;
   const variant = review.variant as AnnualReportVariant;
+  const { raw, config } = parseStoredReport(review.reportData, variant);
+  const processed = processReport(raw, config);
 
-  // Customer variant PDF: same positive-only filtering
-  if (variant === 'customer') {
-    const respSla = data.ticketing.responseMetrics.slaResponseCompliance;
-    const resSla = data.ticketing.responseMetrics.slaResolutionCompliance;
-    const bestSla = Math.max(respSla ?? 0, resSla ?? 0);
-    if (bestSla > 0 && bestSla < 95) {
-      data.ticketing.responseMetrics.slaResponseCompliance = null;
-      data.ticketing.responseMetrics.slaResolutionCompliance = null;
-    }
-    if (data.ticketing.responseMetrics.reopenRate !== null && data.ticketing.responseMetrics.reopenRate > 5) {
-      data.ticketing.responseMetrics.reopenRate = null;
-    }
-    data.dataSources = data.dataSources.filter(ds => ds.available);
-    data.executiveSummary.dataCoverageNotes = [];
-    if (data.dattoSaas) {
-      data.dattoSaas.unprotectedSeats = 0;
-      data.dattoSaas.pausedSeats = 0;
-      data.dattoSaas.archivedSeats = 0;
-    }
-    if (data.dattoBcdr) {
-      data.dattoBcdr.alertsByType = [];
-    }
-  }
-
-  return generateAnnualReportHTML(data, variant);
+  return generateAnnualReportHTML(processed);
 }
 
 // ============================================

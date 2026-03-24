@@ -259,3 +259,107 @@ export interface AnnualReportData {
   generatedAt: string;
   version: number;
 }
+
+// ============================================
+// REPORT PROCESSING CONFIG
+// ============================================
+
+export interface ReportProcessingConfig {
+  variant: AnnualReportVariant;
+  hiddenSections: string[];
+}
+
+export interface StatCardData {
+  label: string;
+  value: string | number;
+}
+
+export interface ProcessedSection {
+  key: string;
+  title: string;
+  visible: boolean;
+  hasData: boolean;
+}
+
+export interface ProcessedReportMetadata {
+  companyName: string;
+  companyId: string;
+  periodStart: string;
+  periodEnd: string;
+  periodLabel: string;
+  variant: AnnualReportVariant;
+  generatedAt: string;
+  isInternal: boolean;
+}
+
+export interface ProcessedReport {
+  metadata: ProcessedReportMetadata;
+  sections: ProcessedSection[];
+  // Pre-computed render-ready data
+  dataSources: DataSourceCoverage[];
+  summaryCards: StatCardData[];
+  keyTrends: string[];
+  topIssueCategories: string[];
+  dataCoverageNotes: string[];
+  // Section data (only populated for visible sections)
+  ticketing: TicketingAnalysis;
+  dattoRmm: DattoRmmAnalysis;
+  dattoEdr: DattoEdrAnalysis;
+  dnsFilter: DnsFilterAnalysis;
+  dattoBcdr: DattoBcdrAnalysis;
+  dattoSaas: DattoSaasAnalysis;
+  security: SecurityAnalysis;
+  userProtection: UserProtectionAnalysis;
+  emailSecurity: EmailSecurityAnalysis;
+  healthSnapshot: AnnualReportData['healthSnapshot'];
+  // Display flags
+  showInternalColumns: boolean;
+}
+
+// Section definitions shared between generator UI and processor
+export const REPORT_SECTION_DEFS = [
+  { key: 'ticketing', label: 'Ticketing Analysis', desc: 'Ticket volume, categories, monthly trends' },
+  { key: 'ticketingPriority', label: 'Priority Breakdown', desc: 'Tickets by priority level' },
+  { key: 'ticketingTrends', label: 'Monthly Trends Table', desc: 'Month-by-month created/closed counts' },
+  { key: 'ticketingCategories', label: 'Ticket Categories', desc: 'Top ticket categories by volume' },
+  { key: 'edr', label: 'Endpoint Detection & Response (EDR)', desc: 'Security events, threat detection' },
+  { key: 'rmm', label: 'Endpoint Management (RMM)', desc: 'RMM alerts, devices managed' },
+  { key: 'dns', label: 'DNS Security Filtering', desc: 'Blocked queries, threat categories' },
+  { key: 'bcdr', label: 'Backup & Disaster Recovery', desc: 'BCDR appliances and protected systems' },
+  { key: 'saas', label: 'SaaS Backups (M365/Google)', desc: 'Cloud seat backup coverage' },
+  { key: 'security', label: 'Security Operations', desc: 'SOC monitoring capabilities' },
+  { key: 'userProtection', label: 'User Protection Services', desc: 'Login monitoring, MFA, impossible travel, security posture' },
+  { key: 'health', label: 'Customer Health Snapshot', desc: 'Overall health score and trend' },
+] as const;
+
+// Maps data source names to section keys
+export const SOURCE_TO_SECTION: Record<string, string> = {
+  'Managed IT Support': 'ticketing',
+  'Endpoint Management': 'rmm',
+  'Endpoint Detection & Response (EDR)': 'edr',
+  'DNS Security Filtering': 'dns',
+  'Backup & Disaster Recovery (BCDR)': 'bcdr',
+  'SaaS Backups (M365/Google)': 'saas',
+  'Security Operations Center (SOC)': 'security',
+};
+
+// Section titles by variant
+export const SECTION_TITLES: Record<string, { customer: string; internal: string }> = {
+  dataSources: { customer: 'Services Covered', internal: 'Data Source Coverage' },
+  ticketing: { customer: 'Ticketing Analysis', internal: 'Ticketing Analysis' },
+  rmm: { customer: 'Endpoint Management', internal: 'Endpoint Operations (Datto RMM)' },
+  edr: { customer: 'Endpoint Detection & Response (EDR)', internal: 'Endpoint Detection & Response (Datto EDR)' },
+  dns: { customer: 'DNS Security Filtering', internal: 'DNS Security (DNSFilter)' },
+  bcdr: { customer: 'Backup & Disaster Recovery (BCDR)', internal: 'Backup & Disaster Recovery (Datto BCDR)' },
+  saas: { customer: 'SaaS Backups', internal: 'Cloud Backup (Datto SaaS Protection)' },
+  security: { customer: 'Security Operations', internal: 'Security Operations' },
+  userProtection: { customer: 'User Protection Services', internal: 'User Protection Services' },
+  health: { customer: 'Customer Health Snapshot', internal: 'Customer Health Snapshot' },
+  emailSecurity: { customer: 'Email Security', internal: 'Email Security (Inky)' },
+};
+
+// Stored report format (raw data + config for reprocessing)
+export interface StoredReportData {
+  raw: AnnualReportData;
+  config: ReportProcessingConfig;
+}
