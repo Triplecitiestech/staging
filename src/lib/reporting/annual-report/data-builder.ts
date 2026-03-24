@@ -121,13 +121,14 @@ async function buildTicketingAnalysis(
     dueDateTime: Date | null;
   }
 
-  // Get all tickets active in the period
+  // Get all tickets active in the period (created, completed, or had activity)
   const tickets: TicketRow[] = await prisma.ticket.findMany({
     where: {
       companyId,
       OR: [
         { createDate: { gte: periodStart, lte: periodEnd } },
         { completedDate: { gte: periodStart, lte: periodEnd } },
+        { lastActivityDate: { gte: periodStart, lte: periodEnd } },
       ],
     },
     select: {
@@ -146,6 +147,8 @@ async function buildTicketingAnalysis(
       dueDateTime: true,
     },
   });
+
+  console.log(`[annualReport] Found ${tickets.length} tickets for company ${companyId} in period ${periodStart.toISOString()} to ${periodEnd.toISOString()}`);
 
   const createdInPeriod = tickets.filter((t: TicketRow) => t.createDate >= periodStart && t.createDate <= periodEnd);
   const closedInPeriod = tickets.filter((t: TicketRow) =>
