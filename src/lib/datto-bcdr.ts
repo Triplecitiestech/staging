@@ -57,15 +57,31 @@ export interface DattoBcdrSummary {
   totalAlerts: number;
   devicesWithAlerts: number;
   backupSuccessRate: number | null;
+  applianceCount: number;       // SIRIS/ALTO on-prem devices
+  endpointBackupCount: number;  // EBDR/cloud endpoint backup devices
+  cloudDeviceCount: number;     // Azure cloud SIRIS
   deviceDetails: Array<{
     name: string;
+    model: string;
     clientCompanyName: string;
     agentCount: number;
     alertCount: number;
     lastSeen: string;
+    deviceType: 'appliance' | 'endpoint' | 'cloud';
   }>;
   alertsByType: Array<{ type: string; count: number }>;
   note: string | null;
+}
+
+/**
+ * Classify a Datto device by its model string.
+ * SIRIS/ALTO = on-prem appliance, EBDR = endpoint backup, CLDSIRIS = Azure cloud.
+ */
+function classifyDevice(model: string): 'appliance' | 'endpoint' | 'cloud' {
+  const m = model.toUpperCase();
+  if (m.includes('EBDR') || m.includes('ENDPOINT') || m.includes('DEBPC')) return 'endpoint';
+  if (m.includes('CLD') || m.includes('AZURE')) return 'cloud';
+  return 'appliance'; // SIRIS, ALTO, NAS, etc.
 }
 
 export class DattoBcdrClient {
@@ -236,6 +252,9 @@ export class DattoBcdrClient {
         totalAlerts: 0,
         devicesWithAlerts: 0,
         backupSuccessRate: null,
+        applianceCount: 0,
+        endpointBackupCount: 0,
+        cloudDeviceCount: 0,
         deviceDetails: [],
         alertsByType: [],
         note: 'Datto BCDR integration not configured. Set DATTO_BCDR_PUBLIC_KEY and DATTO_BCDR_PRIVATE_KEY environment variables.',
@@ -274,19 +293,29 @@ export class DattoBcdrClient {
         }
       }
 
+      // Classify devices by model type
+      const applianceCount = filtered.filter((d) => classifyDevice(d.model) === 'appliance').length;
+      const endpointBackupCount = filtered.filter((d) => classifyDevice(d.model) === 'endpoint').length;
+      const cloudDeviceCount = filtered.filter((d) => classifyDevice(d.model) === 'cloud').length;
+
       return {
         available: true,
         totalDevices: filtered.length,
         totalAgents,
         totalAlerts,
         devicesWithAlerts,
-        backupSuccessRate: null, // Would need agent-level backup status analysis
+        backupSuccessRate: null,
+        applianceCount,
+        endpointBackupCount,
+        cloudDeviceCount,
         deviceDetails: filtered.map((d) => ({
           name: d.name,
+          model: d.model,
           clientCompanyName: d.clientCompanyName,
           agentCount: d.agentCount,
           alertCount: d.alertCount,
           lastSeen: d.lastSeenDate,
+          deviceType: classifyDevice(d.model),
         })),
         alertsByType: Array.from(alertTypeCounts.entries())
           .sort((a, b) => b[1] - a[1])
@@ -304,6 +333,9 @@ export class DattoBcdrClient {
         totalAlerts: 0,
         devicesWithAlerts: 0,
         backupSuccessRate: null,
+        applianceCount: 0,
+        endpointBackupCount: 0,
+        cloudDeviceCount: 0,
         deviceDetails: [],
         alertsByType: [],
         note: `Datto BCDR data fetch failed: ${error instanceof Error ? error.message : 'Unknown error'}`,

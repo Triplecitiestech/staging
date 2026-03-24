@@ -327,13 +327,24 @@ export default function AnnualReportDetail({ reportId }: Props) {
             {data.dattoBcdr?.note || 'Datto BCDR data not available.'}
           </div>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
-            <StatCard label="Backup Appliances" value={data.dattoBcdr.totalDevices} />
-            <StatCard label="Protected Servers" value={data.dattoBcdr.totalAgents} />
-            {data.dattoBcdr.totalAlerts === 0 && (
-              <StatCard label="Alert Status" value="All Clear" />
-            )}
-          </div>
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+              <StatCard label="Total Devices" value={data.dattoBcdr.totalDevices} />
+              <StatCard label="Protected Systems" value={data.dattoBcdr.totalAgents} />
+              {(data.dattoBcdr.applianceCount ?? 0) > 0 && (
+                <StatCard label="Server Appliances" value={data.dattoBcdr.applianceCount} />
+              )}
+              {(data.dattoBcdr.endpointBackupCount ?? 0) > 0 && (
+                <StatCard label="PC/Laptop Backups" value={data.dattoBcdr.endpointBackupCount} />
+              )}
+              {(data.dattoBcdr.cloudDeviceCount ?? 0) > 0 && (
+                <StatCard label="Cloud Devices" value={data.dattoBcdr.cloudDeviceCount} />
+              )}
+              {data.dattoBcdr.totalAlerts === 0 && (
+                <StatCard label="Alert Status" value="All Clear" />
+              )}
+            </div>
+          </>
         )}
       </Section>
 
