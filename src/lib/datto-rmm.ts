@@ -69,17 +69,34 @@ export class DattoRmmClient {
       return this.accessToken;
     }
 
-    // Datto RMM uses password grant: API Key = username, API Secret = password
+    // Datto RMM OAuth2 — try multiple grant types since different instances accept different methods
     const tokenUrl = `${this.apiUrl}/auth/oauth/token`;
-    const res = await fetch(tokenUrl, {
+    const basicAuth = Buffer.from(`${this.apiKey}:${this.apiSecret}`).toString('base64');
+
+    // Attempt 1: client_credentials with Basic Auth header (newer Datto RMM API)
+    let res = await fetch(tokenUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': `Basic ${basicAuth}`,
       },
-      body: `grant_type=password&username=${encodeURIComponent(this.apiKey)}&password=${encodeURIComponent(this.apiSecret)}`,
+      body: 'grant_type=client_credentials',
     });
 
-    const text = await res.text();
+    let text = await res.text();
+
+    // If client_credentials fails, try password grant
+    if (!res.ok) {
+      console.log(`[DattoRMM] client_credentials failed (${res.status}), trying password grant...`);
+      res = await fetch(tokenUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `grant_type=password&username=${encodeURIComponent(this.apiKey)}&password=${encodeURIComponent(this.apiSecret)}`,
+      });
+      text = await res.text();
+    }
 
     // Detect HTML response (wrong URL or redirect to login page)
     if (text.trimStart().startsWith('<') || text.includes('<!DOCTYPE')) {

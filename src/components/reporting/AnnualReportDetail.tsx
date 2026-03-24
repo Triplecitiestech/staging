@@ -111,7 +111,7 @@ export default function AnnualReportDetail({ reportId }: Props) {
   const summaryCards: Array<{ label: string; value: string | number }> = []
   if (show('ticketing') && hasTickets) summaryCards.push({ label: 'Support Tickets Resolved', value: data.ticketing.totalTickets })
   if (show('edr') && hasEdr) summaryCards.push({ label: 'Security Events Monitored', value: data.dattoEdr.totalEvents })
-  if (show('rmm') && hasRmm) summaryCards.push({ label: 'Endpoint Alerts Processed', value: data.dattoRmm.totalAlerts })
+  if (show('rmm') && hasRmm) summaryCards.push({ label: 'Endpoints Managed', value: data.dattoRmm.endpointCount || data.dattoRmm.devicesManaged })
   if (show('dns') && hasDns) summaryCards.push({ label: 'DNS Threats Blocked', value: data.dnsFilter!.blockedQueries.toLocaleString() })
   if (show('bcdr') && hasBcdr) summaryCards.push({ label: 'Systems Protected', value: data.dattoBcdr!.totalAgents })
   if (show('saas') && hasSaas) summaryCards.push({ label: 'Cloud Seats Backed Up', value: data.dattoSaas!.activeSeats })
@@ -145,15 +145,15 @@ export default function AnnualReportDetail({ reportId }: Props) {
         </div>
       </div>
 
-      {/* Data Coverage — customer variant: only show available sources */}
+      {/* Data Coverage */}
       {visibleDataSources.length > 0 && (
         <Section title={isCustomer ? 'Services Covered' : 'Data Source Coverage'}>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm [&_td]:tabular-nums">
+            <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-700">
                   <th className="text-left text-slate-400 py-2 px-3">Service</th>
-                  <th className="text-center text-slate-400 py-2 px-3">Status</th>
+                  <th className="text-center text-slate-400 py-2 px-3 w-28">Status</th>
                   <th className="text-left text-slate-400 py-2 px-3">Coverage Period</th>
                   {!isCustomer && <th className="text-left text-slate-400 py-2 px-3">Notes</th>}
                 </tr>
@@ -184,7 +184,7 @@ export default function AnnualReportDetail({ reportId }: Props) {
       {/* Executive Summary */}
       {summaryCards.length > 0 && (
         <Section title="Executive Summary">
-          <div className={`grid grid-cols-1 md:grid-cols-${Math.min(summaryCards.length, 3)} gap-4 mb-4`}>
+          <div className="flex flex-wrap justify-center gap-4 mb-4">
             {summaryCards.map((c, i) => (
               <StatCard key={i} label={c.label} value={c.value} />
             ))}
@@ -198,7 +198,6 @@ export default function AnnualReportDetail({ reportId }: Props) {
           {visibleTrends.map((t, i) => (
             <p key={i} className="text-sm text-slate-400 mb-1">{t}</p>
           ))}
-          {/* Data coverage notes: internal only */}
           {!isCustomer && data.executiveSummary.dataCoverageNotes.length > 0 && (
             <div className="mt-3 bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-2">
               <p className="text-xs text-blue-400 font-medium mb-1">Data Coverage Notes:</p>
@@ -210,7 +209,7 @@ export default function AnnualReportDetail({ reportId }: Props) {
         </Section>
       )}
 
-      {/* Ticketing Analysis — only show if there are tickets and section enabled */}
+      {/* Ticketing Analysis */}
       {show('ticketing') && (!isCustomer || hasTickets) && (
         <Section title="Ticketing Analysis">
           {!hasTickets ? (
@@ -219,7 +218,7 @@ export default function AnnualReportDetail({ reportId }: Props) {
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-4">
+              <div className="flex flex-wrap justify-center gap-3 mb-4">
                 <StatCard label="Tickets Created" value={data.ticketing.totalTickets} />
                 <StatCard label="First Touch Rate" value={data.ticketing.responseMetrics.firstTouchResolutionRate !== null ? `${data.ticketing.responseMetrics.firstTouchResolutionRate}%` : '—'} />
                 {!isCustomer && (
@@ -238,22 +237,22 @@ export default function AnnualReportDetail({ reportId }: Props) {
                 <>
                   <h4 className="text-sm font-semibold text-slate-300 mb-2">By Priority</h4>
                   <div className="overflow-x-auto mb-4">
-                    <table className="w-full text-sm [&_td]:tabular-nums">
+                    <table className="w-full text-sm table-fixed">
                       <thead>
                         <tr className="border-b border-slate-700">
                           <th className="text-left text-slate-400 py-2 px-3">Priority</th>
-                          <th className="text-right text-slate-400 py-2 px-3">Count</th>
-                          <th className="text-right text-slate-400 py-2 px-3">Share</th>
-                          {!isCustomer && <th className="text-right text-slate-400 py-2 px-3">Avg Resolution</th>}
+                          <th className="text-right text-slate-400 py-2 px-3 w-24">Count</th>
+                          <th className="text-right text-slate-400 py-2 px-3 w-24">Share</th>
+                          {!isCustomer && <th className="text-right text-slate-400 py-2 px-3 w-32">Avg Resolution</th>}
                         </tr>
                       </thead>
                       <tbody>
                         {data.ticketing.ticketsByPriority.map((p, i) => (
                           <tr key={i} className="border-b border-slate-700/50">
                             <td className="py-2 px-3 text-slate-300">{p.priority}</td>
-                            <td className="py-2 px-3 text-right text-slate-300">{p.count}</td>
-                            <td className="py-2 px-3 text-right text-slate-400">{p.percentage}%</td>
-                            {!isCustomer && <td className="py-2 px-3 text-right text-slate-400">{fmtMin(p.avgResolutionMinutes)}</td>}
+                            <td className="py-2 px-3 text-right text-slate-300 tabular-nums">{p.count}</td>
+                            <td className="py-2 px-3 text-right text-slate-400 tabular-nums">{p.percentage}%</td>
+                            {!isCustomer && <td className="py-2 px-3 text-right text-slate-400 tabular-nums">{fmtMin(p.avgResolutionMinutes)}</td>}
                           </tr>
                         ))}
                       </tbody>
@@ -266,24 +265,24 @@ export default function AnnualReportDetail({ reportId }: Props) {
                 <>
                   <h4 className="text-sm font-semibold text-slate-300 mb-2">Monthly Trends</h4>
                   <div className="overflow-x-auto mb-4">
-                    <table className="w-full text-sm [&_td]:tabular-nums">
+                    <table className="w-full text-sm table-fixed">
                       <thead>
                         <tr className="border-b border-slate-700">
                           <th className="text-left text-slate-400 py-2 px-3">Month</th>
-                          <th className="text-right text-slate-400 py-2 px-3">Created</th>
-                          <th className="text-right text-slate-400 py-2 px-3">Closed</th>
-                          {!isCustomer && <th className="text-right text-slate-400 py-2 px-3">Hours</th>}
-                          {!isCustomer && <th className="text-right text-slate-400 py-2 px-3">Avg Resolution</th>}
+                          <th className="text-right text-slate-400 py-2 px-3 w-24">Created</th>
+                          <th className="text-right text-slate-400 py-2 px-3 w-24">Closed</th>
+                          {!isCustomer && <th className="text-right text-slate-400 py-2 px-3 w-24">Hours</th>}
+                          {!isCustomer && <th className="text-right text-slate-400 py-2 px-3 w-32">Avg Resolution</th>}
                         </tr>
                       </thead>
                       <tbody>
                         {data.ticketing.monthlyTrends.map((m, i) => (
                           <tr key={i} className="border-b border-slate-700/50">
                             <td className="py-2 px-3 text-slate-300">{m.label}</td>
-                            <td className="py-2 px-3 text-right text-slate-300">{m.ticketsCreated}</td>
-                            <td className="py-2 px-3 text-right text-slate-300">{m.ticketsClosed}</td>
-                            {!isCustomer && <td className="py-2 px-3 text-right text-slate-400">{m.supportHours}h</td>}
-                            {!isCustomer && <td className="py-2 px-3 text-right text-slate-400">{fmtMin(m.avgResolutionMinutes)}</td>}
+                            <td className="py-2 px-3 text-right text-slate-300 tabular-nums">{m.ticketsCreated}</td>
+                            <td className="py-2 px-3 text-right text-slate-300 tabular-nums">{m.ticketsClosed}</td>
+                            {!isCustomer && <td className="py-2 px-3 text-right text-slate-400 tabular-nums">{m.supportHours}h</td>}
+                            {!isCustomer && <td className="py-2 px-3 text-right text-slate-400 tabular-nums">{fmtMin(m.avgResolutionMinutes)}</td>}
                           </tr>
                         ))}
                       </tbody>
@@ -296,20 +295,20 @@ export default function AnnualReportDetail({ reportId }: Props) {
                 <>
                   <h4 className="text-sm font-semibold text-slate-300 mb-2">By Category</h4>
                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm [&_td]:tabular-nums">
+                    <table className="w-full text-sm table-fixed">
                       <thead>
                         <tr className="border-b border-slate-700">
                           <th className="text-left text-slate-400 py-2 px-3">Category</th>
-                          <th className="text-right text-slate-400 py-2 px-3">Tickets</th>
-                          <th className="text-right text-slate-400 py-2 px-3">Share</th>
+                          <th className="text-right text-slate-400 py-2 px-3 w-24">Tickets</th>
+                          <th className="text-right text-slate-400 py-2 px-3 w-24">Share</th>
                         </tr>
                       </thead>
                       <tbody>
                         {data.ticketing.ticketsByCategory.slice(0, 10).map((c, i) => (
                           <tr key={i} className="border-b border-slate-700/50">
                             <td className="py-2 px-3 text-slate-300">{c.category}</td>
-                            <td className="py-2 px-3 text-right text-slate-300">{c.count}</td>
-                            <td className="py-2 px-3 text-right text-slate-400">{c.percentage}%</td>
+                            <td className="py-2 px-3 text-right text-slate-300 tabular-nums">{c.count}</td>
+                            <td className="py-2 px-3 text-right text-slate-400 tabular-nums">{c.percentage}%</td>
                           </tr>
                         ))}
                       </tbody>
@@ -322,8 +321,8 @@ export default function AnnualReportDetail({ reportId }: Props) {
         </Section>
       )}
 
-      {/* RMM — show if section enabled AND (internal or has data) */}
-      {show('rmm') && (!isCustomer || (data.dattoRmm.available && data.dattoRmm.endpointCount > 0)) && (
+      {/* RMM / Endpoint Management */}
+      {show('rmm') && (!isCustomer || hasRmm) && (
         <Section title={isCustomer ? 'Endpoint Management' : 'Endpoint Operations (Datto RMM)'}>
           {!data.dattoRmm.available ? (
             !isCustomer ? (
@@ -333,7 +332,7 @@ export default function AnnualReportDetail({ reportId }: Props) {
             ) : null
           ) : (
             <>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+              <div className="flex flex-wrap justify-center gap-3 mb-4">
                 <StatCard label="Endpoints Managed" value={data.dattoRmm.endpointCount || data.dattoRmm.devicesManaged} />
                 {(data.dattoRmm.serverCount ?? 0) > 0 && <StatCard label="Servers" value={data.dattoRmm.serverCount} />}
                 {(data.dattoRmm.workstationCount ?? 0) > 0 && <StatCard label="Workstations" value={data.dattoRmm.workstationCount} />}
@@ -379,22 +378,49 @@ export default function AnnualReportDetail({ reportId }: Props) {
         </Section>
       )}
 
-      {/* EDR — hide entirely for customer if no data */}
+      {/* EDR */}
       {show('edr') && (!isCustomer || hasEdr) && (
         <Section title={isCustomer ? 'Endpoint Detection & Response (EDR)' : 'Endpoint Detection & Response (Datto EDR)'}>
           {!hasEdr ? (
             !isCustomer ? (
               <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-2 text-sm text-blue-400">
-                {data.dattoEdr?.note || 'Datto EDR data not available.'}
+                {data.dattoEdr?.note || 'EDR data not available.'}
               </div>
             ) : null
           ) : (
             <>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
-                <StatCard label="Security Events Monitored" value={data.dattoEdr.totalEvents} />
-                <StatCard label="Threat Categories" value={data.dattoEdr.eventsByType.length} />
-                <StatCard label="Severity Levels" value={data.dattoEdr.eventsBySeverity.length} />
+              <div className="flex flex-wrap justify-center gap-3 mb-4">
+                <StatCard label="Security Events Analyzed" value={data.dattoEdr.totalEvents.toLocaleString()} />
+                {data.dattoEdr.eventsBySeverity.filter(s => s.severity === 'critical' || s.severity === 'high').length > 0 && (
+                  <StatCard
+                    label="Critical/High Severity"
+                    value={data.dattoEdr.eventsBySeverity
+                      .filter(s => s.severity === 'critical' || s.severity === 'high')
+                      .reduce((sum, s) => sum + s.count, 0)
+                      .toLocaleString()}
+                  />
+                )}
+                {data.dattoEdr.topThreats.length > 0 && (
+                  <StatCard label="Unique Threats Detected" value={data.dattoEdr.topThreats.length} />
+                )}
               </div>
+              {data.dattoEdr.eventsBySeverity.length > 0 && (
+                <>
+                  <h4 className="text-sm font-semibold text-slate-300 mb-2">Events by Severity</h4>
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {data.dattoEdr.eventsBySeverity.map((s, i) => (
+                      <span key={i} className={`px-3 py-1 rounded text-xs font-medium ${
+                        s.severity === 'critical' ? 'bg-red-500/20 text-red-400' :
+                        s.severity === 'high' ? 'bg-rose-500/20 text-rose-400' :
+                        s.severity === 'medium' ? 'bg-cyan-500/20 text-cyan-400' :
+                        'bg-slate-700/50 text-slate-300'
+                      }`}>
+                        {s.severity}: {s.count.toLocaleString()}
+                      </span>
+                    ))}
+                  </div>
+                </>
+              )}
               {data.dattoEdr.topThreats.length > 0 && !isCustomer && (
                 <div className="mb-3">
                   <h4 className="text-sm font-semibold text-slate-300 mb-2">Top Threats Detected</h4>
@@ -412,17 +438,17 @@ export default function AnnualReportDetail({ reportId }: Props) {
         </Section>
       )}
 
-      {/* DNS — hide entirely for customer if no data */}
+      {/* DNS */}
       {show('dns') && (!isCustomer || hasDns) && (
         <Section title={isCustomer ? 'DNS Security Filtering' : 'DNS Security (DNSFilter)'}>
           {!hasDns ? (
             !isCustomer ? (
               <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-2 text-sm text-blue-400">
-                {data.dnsFilter?.note || 'DNSFilter data not available.'}
+                {data.dnsFilter?.note || 'DNS data not available.'}
               </div>
             ) : null
           ) : (
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+            <div className="flex flex-wrap justify-center gap-3 mb-4">
               <StatCard label="Total Queries" value={data.dnsFilter!.totalQueries.toLocaleString()} />
               <StatCard label="Threats Blocked" value={data.dnsFilter!.blockedQueries.toLocaleString()} />
               <StatCard label="Block Rate" value={data.dnsFilter!.totalQueries > 0 ? `${(data.dnsFilter!.blockedQueries / data.dnsFilter!.totalQueries * 100).toFixed(2)}%` : '—'} />
@@ -431,27 +457,21 @@ export default function AnnualReportDetail({ reportId }: Props) {
         </Section>
       )}
 
-      {/* BCDR — hide entirely for customer if no devices */}
+      {/* BCDR */}
       {show('bcdr') && (!isCustomer || hasBcdr) && (
         <Section title={isCustomer ? 'Backup & Disaster Recovery (BCDR)' : 'Backup & Disaster Recovery (Datto BCDR)'}>
           {!hasBcdr ? (
             !isCustomer ? (
               <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-2 text-sm text-blue-400">
-                {data.dattoBcdr?.note || 'Datto BCDR data not available.'}
+                {data.dattoBcdr?.note || 'BCDR data not available.'}
               </div>
             ) : null
           ) : (
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+            <div className="flex flex-wrap justify-center gap-3 mb-4">
               <StatCard label="Total Devices" value={data.dattoBcdr!.totalDevices} />
               <StatCard label="Protected Systems" value={data.dattoBcdr!.totalAgents} />
               {(data.dattoBcdr!.applianceCount ?? 0) > 0 && (
                 <StatCard label="Server Appliances" value={data.dattoBcdr!.applianceCount} />
-              )}
-              {(data.dattoBcdr!.endpointBackupCount ?? 0) > 0 && (
-                <StatCard label="PC/Laptop Backups" value={data.dattoBcdr!.endpointBackupCount} />
-              )}
-              {(data.dattoBcdr!.cloudDeviceCount ?? 0) > 0 && (
-                <StatCard label="Cloud Devices" value={data.dattoBcdr!.cloudDeviceCount} />
               )}
               {data.dattoBcdr!.totalAlerts === 0 && (
                 <StatCard label="Alert Status" value="All Clear" />
@@ -461,21 +481,20 @@ export default function AnnualReportDetail({ reportId }: Props) {
         </Section>
       )}
 
-      {/* SaaS backups — hide entirely for customer if no data */}
+      {/* SaaS Backups */}
       {show('saas') && (!isCustomer || hasSaas) && (
-        <Section title={isCustomer ? 'SaaS Backups (M365/Google)' : 'Cloud Backup (Datto SaaS Protection)'}>
+        <Section title={isCustomer ? 'SaaS Backups' : 'Cloud Backup (Datto SaaS Protection)'}>
           {!hasSaas ? (
             !isCustomer ? (
               <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-2 text-sm text-blue-400">
-                {data.dattoSaas?.note || 'Datto SaaS Protection data not available.'}
+                {data.dattoSaas?.note || 'SaaS backup data not available.'}
               </div>
             ) : null
           ) : (
             <>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+              <div className="flex flex-wrap justify-center gap-3 mb-4">
                 <StatCard label="Protected Seats" value={data.dattoSaas!.activeSeats} />
                 <StatCard label="Domains" value={data.dattoSaas!.totalDomains} />
-                <StatCard label="Total Seats" value={data.dattoSaas!.totalSeats} />
               </div>
               {data.dattoSaas!.seatsByType.length > 0 && (
                 <div className="mb-3">
@@ -494,7 +513,7 @@ export default function AnnualReportDetail({ reportId }: Props) {
         </Section>
       )}
 
-      {/* Security Operations — customer: show what we monitor, not product names */}
+      {/* Security Operations */}
       {show('security') && (!isCustomer || visibleSecSources.length > 0 || hasSoc) && (
         <Section title="Security Operations">
           {isCustomer ? (
@@ -518,11 +537,11 @@ export default function AnnualReportDetail({ reportId }: Props) {
             <>
               <h4 className="text-sm font-semibold text-slate-300 mb-2">Source Status</h4>
               <div className="overflow-x-auto mb-4">
-                <table className="w-full text-sm [&_td]:tabular-nums">
+                <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-slate-700">
                       <th className="text-left text-slate-400 py-2 px-3">Source</th>
-                      <th className="text-center text-slate-400 py-2 px-3">Status</th>
+                      <th className="text-center text-slate-400 py-2 px-3 w-28">Status</th>
                       <th className="text-left text-slate-400 py-2 px-3">Notes</th>
                     </tr>
                   </thead>
@@ -561,7 +580,6 @@ export default function AnnualReportDetail({ reportId }: Props) {
             </div>
           )}
 
-          {/* Internal-only notes */}
           {!isCustomer && data.security.note && (
             <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-2 text-sm text-blue-400">
               {data.security.note}
@@ -570,7 +588,7 @@ export default function AnnualReportDetail({ reportId }: Props) {
         </Section>
       )}
 
-      {/* Email Security — internal only (never show for customer since it says "not implemented") */}
+      {/* Email Security — internal only */}
       {!isCustomer && (
         <Section title="Email Security (Inky)">
           <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-2 text-sm text-blue-400">
@@ -599,7 +617,7 @@ export default function AnnualReportDetail({ reportId }: Props) {
         </Section>
       )}
 
-      {/* Health — customer: only show if healthy or watch */}
+      {/* Health */}
       {show('health') && data.healthSnapshot && (!isCustomer || hasHealth) && (
         <Section title="Customer Health Snapshot">
           <div className="flex items-center gap-4">
@@ -642,9 +660,9 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function StatCard({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="bg-slate-900/50 border border-slate-700/50 rounded-lg px-3 py-3 text-center">
+    <div className="bg-slate-900/50 border border-slate-700/50 rounded-lg px-4 py-3 text-center min-w-[140px]">
       <div className="text-xs text-slate-500 uppercase font-medium">{label}</div>
-      <div className="text-xl font-bold text-white mt-1">{value}</div>
+      <div className="text-xl font-bold text-white mt-1 tabular-nums">{value}</div>
     </div>
   )
 }
