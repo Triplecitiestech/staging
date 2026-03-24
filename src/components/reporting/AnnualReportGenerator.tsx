@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
+import { REPORT_SECTION_DEFS } from '@/lib/reporting/annual-report/types'
 
 interface CompanyOption {
   id: string
@@ -22,23 +23,10 @@ interface ReportSummary {
   company: { displayName: string }
 }
 
-// All toggleable sections for the report
-const REPORT_SECTIONS = [
-  { key: 'ticketing', label: 'Ticketing Analysis', desc: 'Ticket volume, categories, monthly trends' },
-  { key: 'ticketingPriority', label: 'Priority Breakdown', desc: 'Tickets by priority level' },
-  { key: 'ticketingTrends', label: 'Monthly Trends Table', desc: 'Month-by-month created/closed counts' },
-  { key: 'ticketingCategories', label: 'Ticket Categories', desc: 'Top ticket categories by volume' },
-  { key: 'edr', label: 'Endpoint Detection & Response (EDR)', desc: 'Security events, threat detection' },
-  { key: 'rmm', label: 'Endpoint Management (RMM)', desc: 'RMM alerts, devices managed' },
-  { key: 'dns', label: 'DNS Security Filtering', desc: 'Blocked queries, threat categories' },
-  { key: 'bcdr', label: 'Backup & Disaster Recovery', desc: 'BCDR appliances and protected systems' },
-  { key: 'saas', label: 'SaaS Backups (M365/Google)', desc: 'Cloud seat backup coverage' },
-  { key: 'security', label: 'Security Operations', desc: 'SOC monitoring capabilities' },
-  { key: 'userProtection', label: 'User Protection Services', desc: 'Login monitoring, MFA, impossible travel, security posture' },
-  { key: 'health', label: 'Customer Health Snapshot', desc: 'Overall health score and trend' },
-] as const
+// Section definitions from shared types — single source of truth
+const REPORT_SECTIONS = REPORT_SECTION_DEFS
 
-type SectionKey = typeof REPORT_SECTIONS[number]['key']
+type SectionKey = typeof REPORT_SECTION_DEFS[number]['key']
 
 const DEFAULT_SECTIONS: Record<SectionKey, boolean> = {
   ticketing: true,
