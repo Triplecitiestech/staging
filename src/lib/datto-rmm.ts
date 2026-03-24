@@ -70,14 +70,14 @@ export class DattoRmmClient {
     }
 
     const tokenUrl = `${this.apiUrl}/auth/oauth/token`;
+    const credentials = Buffer.from(`${this.apiKey}:${this.apiSecret}`).toString('base64');
     const res = await fetch(tokenUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'client_credentials',
-        client_id: this.apiKey,
-        client_secret: this.apiSecret,
-      }).toString(),
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': `Basic ${credentials}`,
+      },
+      body: 'grant_type=client_credentials',
     });
 
     if (!res.ok) {
