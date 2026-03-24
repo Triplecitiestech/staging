@@ -341,6 +341,8 @@ export const SOURCE_TO_SECTION: Record<string, string> = {
   'Backup & Disaster Recovery (BCDR)': 'bcdr',
   'SaaS Backups (M365/Google)': 'saas',
   'Security Operations Center (SOC)': 'security',
+  'User Protection Services': 'userProtection',
+  'Email Security': 'emailSecurity',
 };
 
 // Section titles by variant
