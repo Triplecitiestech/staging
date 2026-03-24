@@ -29,6 +29,17 @@ export interface AnnualReportParams {
   periodStart: Date;
   periodEnd: Date;
   createdBy: string;
+  hiddenSections?: string[];
+}
+
+export interface UserProtectionAnalysis {
+  available: boolean;
+  services: Array<{
+    name: string;
+    description: string;
+    active: boolean;
+  }>;
+  note: string | null;
 }
 
 // ============================================
@@ -230,7 +241,9 @@ export interface AnnualReportData {
   dattoBcdr: DattoBcdrAnalysis;
   dattoSaas: DattoSaasAnalysis;
   security: SecurityAnalysis;
+  userProtection: UserProtectionAnalysis;
   emailSecurity: EmailSecurityAnalysis;
+  hiddenSections?: string[];
   healthSnapshot: {
     overallScore: number;
     tier: string;

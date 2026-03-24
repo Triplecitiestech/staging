@@ -58,6 +58,8 @@ export default function AnnualReportDetail({ reportId }: Props) {
 
   const data = report.reportData as AnnualReportData
   const isCustomer = report.variant === 'customer'
+  const hidden = new Set(data.hiddenSections || [])
+  const show = (key: string) => !hidden.has(key)
 
   // For customer variant: determine which sections have real data
   const hasTickets = data.ticketing.totalTickets > 0
@@ -68,11 +70,27 @@ export default function AnnualReportDetail({ reportId }: Props) {
   const hasSaas = data.dattoSaas?.available && data.dattoSaas.totalSeats > 0
   const hasSoc = data.security.socIncidents.available && data.security.socIncidents.totalIncidents > 0
   const hasHealth = !!data.healthSnapshot && data.healthSnapshot.overallScore >= 60
+  const hasUserProtection = !!data.userProtection?.available
 
-  // Customer variant: only show data sources that are available
-  const visibleDataSources = isCustomer
+  // Map data source names to section keys for filtering
+  const sourceToSection: Record<string, string> = {
+    'Managed IT Support': 'ticketing',
+    'Endpoint Management': 'rmm',
+    'Endpoint Detection & Response (EDR)': 'edr',
+    'DNS Security Filtering': 'dns',
+    'Backup & Disaster Recovery (BCDR)': 'bcdr',
+    'SaaS Backups (M365/Google)': 'saas',
+    'Security Operations Center (SOC)': 'security',
+  }
+
+  // Customer variant: only show data sources that are available AND not hidden
+  const visibleDataSources = (isCustomer
     ? data.dataSources.filter(ds => ds.available)
     : data.dataSources
+  ).filter(ds => {
+    const sectionKey = sourceToSection[ds.source]
+    return !sectionKey || show(sectionKey)
+  })
 
   // Customer variant: filter key trends to remove error-related text
   const visibleTrends = isCustomer
@@ -89,15 +107,15 @@ export default function AnnualReportDetail({ reportId }: Props) {
     ? data.security.sources.filter(s => s.available)
     : data.security.sources
 
-  // Build summary stat cards — only show ones with real data
+  // Build summary stat cards — only show ones with real data AND enabled sections
   const summaryCards: Array<{ label: string; value: string | number }> = []
-  if (hasTickets) summaryCards.push({ label: 'Support Tickets Resolved', value: data.ticketing.totalTickets })
-  if (hasEdr) summaryCards.push({ label: 'Security Events Monitored', value: data.dattoEdr.totalEvents })
-  if (hasRmm) summaryCards.push({ label: 'RMM Alerts Processed', value: data.dattoRmm.totalAlerts })
-  if (hasDns) summaryCards.push({ label: 'DNS Threats Blocked', value: data.dnsFilter!.blockedQueries.toLocaleString() })
-  if (hasBcdr) summaryCards.push({ label: 'Systems Protected', value: data.dattoBcdr!.totalAgents })
-  if (hasSaas) summaryCards.push({ label: 'Cloud Seats Backed Up', value: data.dattoSaas!.activeSeats })
-  if (hasSoc) summaryCards.push({ label: 'Security Incidents Handled', value: data.security.socIncidents.totalIncidents })
+  if (show('ticketing') && hasTickets) summaryCards.push({ label: 'Support Tickets Resolved', value: data.ticketing.totalTickets })
+  if (show('edr') && hasEdr) summaryCards.push({ label: 'Security Events Monitored', value: data.dattoEdr.totalEvents })
+  if (show('rmm') && hasRmm) summaryCards.push({ label: 'Endpoint Alerts Processed', value: data.dattoRmm.totalAlerts })
+  if (show('dns') && hasDns) summaryCards.push({ label: 'DNS Threats Blocked', value: data.dnsFilter!.blockedQueries.toLocaleString() })
+  if (show('bcdr') && hasBcdr) summaryCards.push({ label: 'Systems Protected', value: data.dattoBcdr!.totalAgents })
+  if (show('saas') && hasSaas) summaryCards.push({ label: 'Cloud Seats Backed Up', value: data.dattoSaas!.activeSeats })
+  if (show('security') && hasSoc) summaryCards.push({ label: 'Security Incidents Handled', value: data.security.socIncidents.totalIncidents })
 
   return (
     <div className="space-y-6">
@@ -192,8 +210,8 @@ export default function AnnualReportDetail({ reportId }: Props) {
         </Section>
       )}
 
-      {/* Ticketing Analysis — only show if there are tickets */}
-      {(!isCustomer || hasTickets) && (
+      {/* Ticketing Analysis — only show if there are tickets and section enabled */}
+      {show('ticketing') && (!isCustomer || hasTickets) && (
         <Section title="Ticketing Analysis">
           {!hasTickets ? (
             <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-2 text-sm text-blue-400">
@@ -216,7 +234,7 @@ export default function AnnualReportDetail({ reportId }: Props) {
                 )}
               </div>
 
-              {data.ticketing.ticketsByPriority.length > 0 && (
+              {show('ticketingPriority') && data.ticketing.ticketsByPriority.length > 0 && (
                 <>
                   <h4 className="text-sm font-semibold text-slate-300 mb-2">By Priority</h4>
                   <div className="overflow-x-auto mb-4">
@@ -244,7 +262,7 @@ export default function AnnualReportDetail({ reportId }: Props) {
                 </>
               )}
 
-              {data.ticketing.monthlyTrends.length > 0 && hasTickets && (
+              {show('ticketingTrends') && data.ticketing.monthlyTrends.length > 0 && hasTickets && (
                 <>
                   <h4 className="text-sm font-semibold text-slate-300 mb-2">Monthly Trends</h4>
                   <div className="overflow-x-auto mb-4">
@@ -274,7 +292,7 @@ export default function AnnualReportDetail({ reportId }: Props) {
                 </>
               )}
 
-              {data.ticketing.ticketsByCategory.length > 0 && (
+              {show('ticketingCategories') && data.ticketing.ticketsByCategory.length > 0 && (
                 <>
                   <h4 className="text-sm font-semibold text-slate-300 mb-2">By Category</h4>
                   <div className="overflow-x-auto">
@@ -305,7 +323,7 @@ export default function AnnualReportDetail({ reportId }: Props) {
       )}
 
       {/* RMM — hide entirely for customer if no data */}
-      {(!isCustomer || hasRmm) && (
+      {show('rmm') && (!isCustomer || hasRmm) && (
         <Section title={isCustomer ? 'Endpoint Management' : 'Endpoint Operations (Datto RMM)'}>
           {!data.dattoRmm.available || data.dattoRmm.totalAlerts === 0 ? (
             !isCustomer ? (
@@ -332,7 +350,7 @@ export default function AnnualReportDetail({ reportId }: Props) {
       )}
 
       {/* EDR — hide entirely for customer if no data */}
-      {(!isCustomer || hasEdr) && (
+      {show('edr') && (!isCustomer || hasEdr) && (
         <Section title={isCustomer ? 'Endpoint Detection & Response (EDR)' : 'Endpoint Detection & Response (Datto EDR)'}>
           {!hasEdr ? (
             !isCustomer ? (
@@ -365,7 +383,7 @@ export default function AnnualReportDetail({ reportId }: Props) {
       )}
 
       {/* DNS — hide entirely for customer if no data */}
-      {(!isCustomer || hasDns) && (
+      {show('dns') && (!isCustomer || hasDns) && (
         <Section title={isCustomer ? 'DNS Security Filtering' : 'DNS Security (DNSFilter)'}>
           {!hasDns ? (
             !isCustomer ? (
@@ -384,7 +402,7 @@ export default function AnnualReportDetail({ reportId }: Props) {
       )}
 
       {/* BCDR — hide entirely for customer if no devices */}
-      {(!isCustomer || hasBcdr) && (
+      {show('bcdr') && (!isCustomer || hasBcdr) && (
         <Section title={isCustomer ? 'Backup & Disaster Recovery (BCDR)' : 'Backup & Disaster Recovery (Datto BCDR)'}>
           {!hasBcdr ? (
             !isCustomer ? (
@@ -414,7 +432,7 @@ export default function AnnualReportDetail({ reportId }: Props) {
       )}
 
       {/* SaaS backups — hide entirely for customer if no data */}
-      {(!isCustomer || hasSaas) && (
+      {show('saas') && (!isCustomer || hasSaas) && (
         <Section title={isCustomer ? 'SaaS Backups (M365/Google)' : 'Cloud Backup (Datto SaaS Protection)'}>
           {!hasSaas ? (
             !isCustomer ? (
@@ -447,7 +465,7 @@ export default function AnnualReportDetail({ reportId }: Props) {
       )}
 
       {/* Security Operations — customer: show what we monitor, not product names */}
-      {(!isCustomer || visibleSecSources.length > 0 || hasSoc) && (
+      {show('security') && (!isCustomer || visibleSecSources.length > 0 || hasSoc) && (
         <Section title="Security Operations">
           {isCustomer ? (
             <>
@@ -531,8 +549,28 @@ export default function AnnualReportDetail({ reportId }: Props) {
         </Section>
       )}
 
+      {/* User Protection Services */}
+      {show('userProtection') && hasUserProtection && (
+        <Section title="User Protection Services">
+          <p className="text-sm text-slate-400 mb-4">
+            We actively protect your users and their identities across the following areas:
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            {data.userProtection.services.filter(s => s.active).map((s, i) => (
+              <div key={i} className="bg-slate-900/50 border border-slate-700/50 rounded-lg px-4 py-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0"></span>
+                  <span className="text-sm font-medium text-slate-200">{s.name}</span>
+                </div>
+                <p className="text-xs text-slate-400 ml-4">{s.description}</p>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
       {/* Health — customer: only show if healthy or watch */}
-      {data.healthSnapshot && (!isCustomer || hasHealth) && (
+      {show('health') && data.healthSnapshot && (!isCustomer || hasHealth) && (
         <Section title="Customer Health Snapshot">
           <div className="flex items-center gap-4">
             <div className={`w-16 h-16 rounded-full flex items-center justify-center text-white font-bold text-xl ${

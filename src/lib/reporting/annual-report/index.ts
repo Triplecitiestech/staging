@@ -18,8 +18,13 @@ export * from './types';
 export async function generateAnnualReport(params: AnnualReportParams) {
   const { companyId, variant, periodStart, periodEnd, createdBy } = params;
 
+  const hiddenSections = params.hiddenSections || [];
+
   // Build report data from all available sources
   const data = await buildAnnualReportData(companyId, periodStart, periodEnd);
+
+  // Store hidden sections in the report data so rendering knows what to skip
+  data.hiddenSections = hiddenSections;
 
   // Customer variant: filter out anything that reflects negatively
   if (variant === 'customer') {
