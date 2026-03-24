@@ -1,11 +1,19 @@
 /**
  * DNSFilter API Client
  *
- * API token authentication via Authorization header.
- * Fetches DNS filtering events, blocked queries, and threat reports.
+ * API token authentication via Authorization header (Token prefix).
+ * Fetches DNS filtering stats, blocked queries, and threat reports.
  *
- * DNSFilter API docs: https://app.dnsfilter.com/api/docs
+ * DNSFilter API docs: https://api.dnsfilter.com/docs
+ * SwaggerHub: https://app.swaggerhub.com/apis-docs/DNSFilter/dns-filter_api/1.0.13
  * Base URL: https://api.dnsfilter.com/v1
+ *
+ * Key endpoints:
+ *   GET /v1/msp/organizations        — list MSP sub-organizations
+ *   GET /v1/organizations             — get current organization
+ *   GET /v1/organizations/{id}/stats  — get org-level query stats
+ *   GET /v1/networks                  — list networks
+ *   GET /v1/traffic_reports           — traffic report data
  */
 
 export interface DnsFilterEvent {
@@ -49,9 +57,10 @@ export class DnsFilterClient {
 
   private async request<T>(path: string): Promise<T> {
     const url = `${this.baseUrl}${path}`;
+    // DNSFilter uses "Token" prefix (not "Bearer") for JWT auth
     const res = await fetch(url, {
       headers: {
-        'Authorization': `Bearer ${this.apiToken}`,
+        'Authorization': `Token ${this.apiToken}`,
         'Content-Type': 'application/json',
         'Accept': 'application/json',
       },
@@ -67,7 +76,37 @@ export class DnsFilterClient {
   }
 
   /**
+   * Get the current organization info to find org ID.
+   */
+  private async getOrganizationId(): Promise<number | null> {
+    try {
+      // Try MSP organizations first
+      const mspData = await this.request<{
+        data?: Array<{ id?: number; name?: string }>;
+      }>('/msp/organizations');
+
+      if (mspData.data && mspData.data.length > 0 && mspData.data[0].id) {
+        return mspData.data[0].id;
+      }
+    } catch {
+      // Not an MSP account, try regular org endpoint
+    }
+
+    try {
+      const orgData = await this.request<{
+        data?: { id?: number; name?: string };
+        id?: number;
+      }>('/organizations');
+
+      return orgData.data?.id || orgData.id || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Fetch traffic/threat reports for a date range.
+   * Tries multiple endpoint patterns since DNSFilter API docs aren't fully public.
    */
   async getTrafficReport(since: Date, until: Date): Promise<{
     total_queries: number;
@@ -78,35 +117,69 @@ export class DnsFilterClient {
     const sinceStr = since.toISOString().split('T')[0];
     const untilStr = until.toISOString().split('T')[0];
 
-    try {
-      const data = await this.request<{
-        data?: {
+    // Try the traffic_reports endpoint first
+    const endpoints = [
+      `/traffic_reports?start_date=${sinceStr}&end_date=${untilStr}`,
+    ];
+
+    // If we can get org ID, try org-specific endpoints too
+    const orgId = await this.getOrganizationId();
+    if (orgId) {
+      endpoints.unshift(
+        `/organizations/${orgId}/traffic_reports?start_date=${sinceStr}&end_date=${untilStr}`,
+        `/organizations/${orgId}/stats?start_date=${sinceStr}&end_date=${untilStr}`,
+      );
+    }
+
+    let lastError: Error | null = null;
+
+    for (const endpoint of endpoints) {
+      try {
+        const data = await this.request<{
+          data?: {
+            total_queries?: number;
+            blocked_queries?: number;
+            allowed_queries?: number;
+            categories?: Array<{ name?: string; count?: number }>;
+            top_blocked_domains?: Array<{ domain?: string; count?: number }>;
+          };
           total_queries?: number;
           blocked_queries?: number;
-          categories?: Array<{ name?: string; count?: number }>;
-          top_blocked_domains?: Array<{ domain?: string; count?: number }>;
-        };
-        total_queries?: number;
-        blocked_queries?: number;
-      }>(`/traffic_reports?start_date=${sinceStr}&end_date=${untilStr}`);
+          allowed_queries?: number;
+        }>(endpoint);
 
-      const inner = data.data || data;
-      return {
-        total_queries: inner.total_queries || 0,
-        blocked_queries: inner.blocked_queries || 0,
-        threats: ((data.data?.categories) || []).map((c) => ({
-          category: c.name || 'Unknown',
-          count: c.count || 0,
-        })),
-        top_blocked: ((data.data?.top_blocked_domains) || []).map((d) => ({
-          domain: d.domain || '',
-          count: d.count || 0,
-        })),
-      };
-    } catch (error) {
-      console.error('[DNSFilter] getTrafficReport error:', error);
-      throw error;
+        const inner = data.data || data;
+        const totalQ = inner.total_queries || 0;
+        const blockedQ = inner.blocked_queries || 0;
+
+        // If we got data, return it
+        if (totalQ > 0 || blockedQ > 0) {
+          return {
+            total_queries: totalQ,
+            blocked_queries: blockedQ,
+            threats: ((data.data?.categories) || []).map((c) => ({
+              category: c.name || 'Unknown',
+              count: c.count || 0,
+            })),
+            top_blocked: ((data.data?.top_blocked_domains) || []).map((d) => ({
+              domain: d.domain || '',
+              count: d.count || 0,
+            })),
+          };
+        }
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        // Try next endpoint
+        continue;
+      }
     }
+
+    // If all endpoints returned 0 but no error, return zeros
+    if (!lastError) {
+      return { total_queries: 0, blocked_queries: 0, threats: [], top_blocked: [] };
+    }
+
+    throw lastError;
   }
 
   /**
