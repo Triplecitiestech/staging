@@ -11,6 +11,8 @@
  *   GET /v1/saas/{saasCustomerId}/applications — backup status per application (daysUntil param)
  */
 
+import { matchesCompanyName } from '@/utils';
+
 // ============================================
 // TYPES
 // ============================================
@@ -201,11 +203,9 @@ export class DattoSaasClient {
       // Filter by company name if provided
       let customerIds = Array.from(customerMap.keys());
       if (companyName) {
-        const companyWords = companyName.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
         customerIds = customerIds.filter((id) => {
           const c = customerMap.get(id)!;
-          const name = c.name.toLowerCase();
-          return companyWords.some((w) => name.includes(w));
+          return matchesCompanyName(companyName, c.name);
         });
       }
 

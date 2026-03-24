@@ -16,6 +16,7 @@ import { prisma } from '@/lib/prisma';
 import { DattoRmmClient, DattoAlert } from '@/lib/datto-rmm';
 import { getResolvedStatuses, PRIORITY_LABELS } from '@/lib/reporting/types';
 import { generateExecutiveSummaryHTML } from './html-generator';
+import { matchesCompanyName } from '@/utils';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -332,17 +333,11 @@ async function fetchDattoAlerts(companyName: string, periodStart: Date): Promise
   const allAlerts = [...openAlerts, ...resolvedAlerts];
 
   // Match alerts to this company's site(s) by name
-  // Datto sites often match or contain the company name
   const companyLower = companyName.toLowerCase();
-  const companyWords = companyLower.split(/\s+/).filter(w => w.length > 2);
 
   const matchedAlerts = allAlerts.filter(a => {
     if (!a.siteName) return false;
-    const siteLower = a.siteName.toLowerCase();
-    // Match if site name contains company name or vice versa
-    return siteLower.includes(companyLower) ||
-      companyLower.includes(siteLower) ||
-      companyWords.some(w => siteLower.includes(w));
+    return matchesCompanyName(companyName, a.siteName);
   });
 
   // Also try matching via cached datto_devices table

@@ -9,6 +9,8 @@
  * Base URL: https://api.datto.com/v1
  */
 
+import { matchesCompanyName } from '@/utils';
+
 // Note: Using HTTP Basic Auth (publicKey:privateKey base64-encoded)
 // HMAC signature auth may be needed for certain endpoints in the future
 
@@ -267,10 +269,8 @@ export class DattoBcdrClient {
       // Filter by company name if provided
       let filtered = devices;
       if (companyName) {
-        const companyWords = companyName.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
         filtered = devices.filter((d) => {
-          const name = d.clientCompanyName.toLowerCase();
-          return companyWords.some((w) => name.includes(w));
+          return matchesCompanyName(companyName, d.clientCompanyName);
         });
       }
 

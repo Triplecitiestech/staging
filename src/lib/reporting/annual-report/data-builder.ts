@@ -11,6 +11,7 @@ import { DattoEdrClient } from '@/lib/datto-edr';
 import { DnsFilterClient } from '@/lib/dnsfilter';
 import { DattoBcdrClient } from '@/lib/datto-bcdr';
 import { DattoSaasClient } from '@/lib/datto-saas';
+import { matchesCompanyName } from '@/utils';
 import {
   AnnualReportData,
   DataSourceCoverage,
@@ -454,16 +455,12 @@ async function buildDattoRmmAnalysis(
 
     // Filter to period and match by site name containing company name
     // Datto RMM doesn't have a company ID mapping — match by site name
-    const companyWords = companyName.toLowerCase().split(/\s+/).filter(w => w.length > 2);
-    const matchingSites = sites.filter(s => {
-      const siteLower = s.name.toLowerCase();
-      return companyWords.some(w => siteLower.includes(w));
-    });
+    const matchingSites = sites.filter(s => matchesCompanyName(companyName, s.name));
     const matchingSiteIds = new Set(matchingSites.map(s => s.id));
 
     // Filter alerts by matching sites and date range
     const periodAlerts = combinedAlerts.filter(a => {
-      if (!matchingSiteIds.has(a.siteUid) && !companyWords.some(w => a.siteName.toLowerCase().includes(w))) {
+      if (!matchingSiteIds.has(a.siteUid) && !matchesCompanyName(companyName, a.siteName)) {
         return false;
       }
       const alertDate = new Date(a.timestamp);
