@@ -31,7 +31,7 @@ export default function AnnualReportDetail({ reportId }: Props) {
     async function load() {
       try {
         // Use business-review endpoint since annual reports are stored as BusinessReview records
-        const res = await fetch(`/api/reports/business-review/${reportId}`)
+        const res = await fetch(`/api/reports/annual-report/${reportId}`)
         if (!res.ok) throw new Error('Failed to load report')
         const data = await res.json()
         setReport(data.review)
