@@ -441,6 +441,12 @@ async function buildDattoRmmAnalysis(
       alertsResolved: 0,
       alertsOpen: 0,
       devicesManaged: 0,
+      endpointCount: 0,
+      serverCount: 0,
+      workstationCount: 0,
+      devicesByOS: [],
+      devicesByType: [],
+      patchAlertsCount: 0,
       alertsByType: [],
       alertsByPriority: [],
       monthlyAlertTrends: [],
@@ -450,11 +456,12 @@ async function buildDattoRmmAnalysis(
   }
 
   try {
-    // Fetch alerts and devices
-    const [allAlerts, resolvedAlerts, sites] = await Promise.all([
+    // Fetch alerts, sites, and devices in parallel
+    const [allAlerts, resolvedAlerts, sites, allDevices] = await Promise.all([
       client.getOpenAlerts(10),
       client.getResolvedAlerts(20),
       client.getSites(),
+      client.getDevices(10),
     ]);
 
     const combinedAlerts = [...allAlerts, ...resolvedAlerts];
@@ -463,6 +470,43 @@ async function buildDattoRmmAnalysis(
     // Datto RMM doesn't have a company ID mapping — match by site name
     const matchingSites = sites.filter(s => matchesCompanyName(companyName, s.name));
     const matchingSiteIds = new Set(matchingSites.map(s => s.id));
+    console.log(`[RMM] Company "${companyName}" matched ${matchingSites.length} sites: ${matchingSites.map(s => s.name).join(', ')}`);
+
+    // Filter devices to matching sites
+    const companyDevices = allDevices.filter(d =>
+      matchingSiteIds.has(d.siteId) || matchesCompanyName(companyName, d.siteName)
+    );
+    console.log(`[RMM] Found ${companyDevices.length} devices for "${companyName}" (from ${allDevices.length} total)`);
+
+    // OS breakdown
+    const osCounts = new Map<string, number>();
+    for (const d of companyDevices) {
+      const os = d.operatingSystem?.includes('Windows Server') ? 'Windows Server'
+        : d.operatingSystem?.includes('Windows') ? 'Windows'
+        : d.operatingSystem?.includes('Mac') ? 'macOS'
+        : d.operatingSystem?.includes('Linux') ? 'Linux'
+        : d.operatingSystem || 'Unknown';
+      osCounts.set(os, (osCounts.get(os) || 0) + 1);
+    }
+    const devicesByOS = Array.from(osCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([os, count]) => ({ os, count }));
+
+    // Device type breakdown
+    const typeCounts2 = new Map<string, number>();
+    for (const d of companyDevices) {
+      const type = (d.deviceType || 'unknown').toLowerCase().includes('server') ? 'Server'
+        : (d.deviceType || 'unknown').toLowerCase().includes('laptop') ? 'Laptop'
+        : (d.deviceType || 'unknown').toLowerCase().includes('desktop') ? 'Desktop'
+        : d.deviceType || 'Unknown';
+      typeCounts2.set(type, (typeCounts2.get(type) || 0) + 1);
+    }
+    const devicesByType = Array.from(typeCounts2.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([type, count]) => ({ type, count }));
+
+    // Count patch-related alerts (Windows updates, patch management, etc.)
+    const patchAlertKeywords = ['patch', 'update', 'windows update', 'reboot', 'restart pending'];
 
     // Filter alerts by matching sites and date range
     const periodAlerts = combinedAlerts.filter(a => {
@@ -472,6 +516,14 @@ async function buildDattoRmmAnalysis(
       const alertDate = new Date(a.timestamp);
       return alertDate >= periodStart && alertDate <= periodEnd;
     });
+
+    const patchAlerts = periodAlerts.filter(a =>
+      patchAlertKeywords.some(kw =>
+        (a.alertMessage || '').toLowerCase().includes(kw) ||
+        (a.alertType || '').toLowerCase().includes(kw) ||
+        (a.alertContext || '').toLowerCase().includes(kw)
+      )
+    );
 
     const resolved = periodAlerts.filter(a => a.resolved);
     const open = periodAlerts.filter(a => !a.resolved);
@@ -516,7 +568,13 @@ async function buildDattoRmmAnalysis(
       totalAlerts: periodAlerts.length,
       alertsResolved: resolved.length,
       alertsOpen: open.length,
-      devicesManaged,
+      devicesManaged: companyDevices.length,
+      endpointCount: companyDevices.length,
+      serverCount: devicesByType.find(d => d.type === 'Server')?.count || 0,
+      workstationCount: companyDevices.length - (devicesByType.find(d => d.type === 'Server')?.count || 0),
+      devicesByOS,
+      devicesByType,
+      patchAlertsCount: patchAlerts.length,
       alertsByType,
       alertsByPriority,
       monthlyAlertTrends,
@@ -533,6 +591,12 @@ async function buildDattoRmmAnalysis(
       alertsResolved: 0,
       alertsOpen: 0,
       devicesManaged: 0,
+      endpointCount: 0,
+      serverCount: 0,
+      workstationCount: 0,
+      devicesByOS: [],
+      devicesByType: [],
+      patchAlertsCount: 0,
       alertsByType: [],
       alertsByPriority: [],
       monthlyAlertTrends: [],

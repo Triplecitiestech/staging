@@ -94,6 +94,12 @@ export interface DattoRmmAnalysis {
   alertsResolved: number;
   alertsOpen: number;
   devicesManaged: number;
+  endpointCount: number;
+  serverCount: number;
+  workstationCount: number;
+  devicesByOS: Array<{ os: string; count: number }>;
+  devicesByType: Array<{ type: string; count: number }>;
+  patchAlertsCount: number;
   alertsByType: Array<{ type: string; count: number }>;
   alertsByPriority: Array<{ priority: string; count: number }>;
   monthlyAlertTrends: Array<{ month: string; label: string; alerts: number; resolved: number }>;
