@@ -102,43 +102,29 @@ export class DattoSaasClient {
    */
   async getCustomerDomains(): Promise<DattoSaasCustomerDomain[]> {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const rawData = await this.request<any>('/saas/domains');
-
-      // Log raw response shape for debugging (field names only, no sensitive data)
-      const topKeys = Object.keys(rawData || {});
-      console.log(`[DattoSaaS] /saas/domains response keys: ${topKeys.join(', ')}`);
-      if (rawData.items) {
-        console.log(`[DattoSaaS] items count: ${rawData.items.length}`);
-        if (rawData.items.length > 0) {
-          console.log(`[DattoSaaS] first item keys: ${Object.keys(rawData.items[0]).join(', ')}`);
-        }
-      } else {
-        // API might return data at top level or under a different key
-        console.log(`[DattoSaaS] No "items" key found. Full keys: ${topKeys.join(', ')}. Checking alternatives...`);
-        for (const key of topKeys) {
-          if (Array.isArray(rawData[key])) {
-            console.log(`[DattoSaaS] Found array at key "${key}" with ${rawData[key].length} entries`);
-            if (rawData[key].length > 0) {
-              console.log(`[DattoSaaS] first entry keys: ${Object.keys(rawData[key][0]).join(', ')}`);
-            }
-          }
-        }
+      interface SaasDomainEntry {
+        saasCustomerId?: number;
+        saasCustomerName?: string;
+        organizationName?: string;
+        domain?: string;
+        productType?: string;
+        externalSubscriptionId?: string;
+        backupStats?: { activeServicesCount?: number };
+        seatsUsed?: number;
+        organizationId?: number;
       }
 
-      const data = rawData as {
-        items?: Array<{
-          saasCustomerId?: number;
-          saasCustomerName?: string;
-          organizationName?: string;
-          domain?: string;
-          productType?: string;
-          externalSubscriptionId?: string;
-        }>;
-        pagination?: { page?: number; perPage?: number; totalPages?: number };
-      };
+      // API returns either a flat array or { items: [...] }
+      const rawData = await this.request<SaasDomainEntry[] | { items?: SaasDomainEntry[]; pagination?: unknown }>('/saas/domains');
 
-      return (data.items || []).map((c) => ({
+      // Handle both response formats
+      const entries: SaasDomainEntry[] = Array.isArray(rawData)
+        ? rawData
+        : (rawData.items || []);
+
+      console.log(`[DattoSaaS] /saas/domains returned ${entries.length} entries`);
+
+      return entries.map((c) => ({
         saasCustomerId: c.saasCustomerId || 0,
         saasCustomerName: c.saasCustomerName || '',
         organizationName: c.organizationName || '',
@@ -157,20 +143,21 @@ export class DattoSaasClient {
    */
   async getSeats(saasCustomerId: number): Promise<DattoSaasSeat[]> {
     try {
-      const data = await this.request<{
-        items?: Array<{
-          mainId?: string;
-          name?: string;
-          seatType?: string;
-          seatState?: string;
-          billable?: boolean;
-          dateAdded?: string;
-          remoteId?: string;
-        }>;
-        pagination?: { page?: number; perPage?: number; totalPages?: number };
-      }>(`/saas/${saasCustomerId}/seats`);
+      interface SaasSeatEntry {
+        mainId?: string;
+        name?: string;
+        seatType?: string;
+        seatState?: string;
+        billable?: boolean;
+        dateAdded?: string;
+        remoteId?: string;
+      }
 
-      return (data.items || []).map((s) => ({
+      // API returns either a flat array or { items: [...] }
+      const rawData = await this.request<SaasSeatEntry[] | { items?: SaasSeatEntry[] }>(`/saas/${saasCustomerId}/seats`);
+      const entries: SaasSeatEntry[] = Array.isArray(rawData) ? rawData : (rawData.items || []);
+
+      return entries.map((s) => ({
         mainId: s.mainId || '',
         name: s.name || '',
         seatType: s.seatType || 'User',
