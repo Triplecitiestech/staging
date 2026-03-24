@@ -69,15 +69,14 @@ export class DattoRmmClient {
       return this.accessToken;
     }
 
+    // Datto RMM uses password grant: API Key = username, API Secret = password
     const tokenUrl = `${this.apiUrl}/auth/oauth/token`;
-    const credentials = Buffer.from(`${this.apiKey}:${this.apiSecret}`).toString('base64');
     const res = await fetch(tokenUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': `Basic ${credentials}`,
       },
-      body: 'grant_type=client_credentials',
+      body: `grant_type=password&username=${encodeURIComponent(this.apiKey)}&password=${encodeURIComponent(this.apiSecret)}`,
     });
 
     const text = await res.text();
