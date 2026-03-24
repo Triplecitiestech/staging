@@ -22,6 +22,39 @@ interface ReportSummary {
   company: { displayName: string }
 }
 
+// All toggleable sections for the report
+const REPORT_SECTIONS = [
+  { key: 'ticketing', label: 'Ticketing Analysis', desc: 'Ticket volume, categories, monthly trends' },
+  { key: 'ticketingPriority', label: 'Priority Breakdown', desc: 'Tickets by priority level' },
+  { key: 'ticketingTrends', label: 'Monthly Trends Table', desc: 'Month-by-month created/closed counts' },
+  { key: 'ticketingCategories', label: 'Ticket Categories', desc: 'Top ticket categories by volume' },
+  { key: 'edr', label: 'Endpoint Detection & Response (EDR)', desc: 'Security events, threat detection' },
+  { key: 'rmm', label: 'Endpoint Management (RMM)', desc: 'RMM alerts, devices managed' },
+  { key: 'dns', label: 'DNS Security Filtering', desc: 'Blocked queries, threat categories' },
+  { key: 'bcdr', label: 'Backup & Disaster Recovery', desc: 'BCDR appliances and protected systems' },
+  { key: 'saas', label: 'SaaS Backups (M365/Google)', desc: 'Cloud seat backup coverage' },
+  { key: 'security', label: 'Security Operations', desc: 'SOC monitoring capabilities' },
+  { key: 'userProtection', label: 'User Protection Services', desc: 'Login monitoring, MFA, impossible travel, security posture' },
+  { key: 'health', label: 'Customer Health Snapshot', desc: 'Overall health score and trend' },
+] as const
+
+type SectionKey = typeof REPORT_SECTIONS[number]['key']
+
+const DEFAULT_SECTIONS: Record<SectionKey, boolean> = {
+  ticketing: true,
+  ticketingPriority: true,
+  ticketingTrends: true,
+  ticketingCategories: true,
+  edr: true,
+  rmm: true,
+  dns: true,
+  bcdr: true,
+  saas: true,
+  security: true,
+  userProtection: true,
+  health: true,
+}
+
 export default function AnnualReportGenerator() {
   const [companies, setCompanies] = useState<CompanyOption[]>([])
   const [reports, setReports] = useState<ReportSummary[]>([])
@@ -34,6 +67,8 @@ export default function AnnualReportGenerator() {
   const [selectedCompany, setSelectedCompany] = useState('')
   const [variant, setVariant] = useState<'customer' | 'internal'>('customer')
   const [periodMonths, setPeriodMonths] = useState(12)
+  const [sections, setSections] = useState<Record<SectionKey, boolean>>({ ...DEFAULT_SECTIONS })
+  const [showSections, setShowSections] = useState(false)
 
   const fetchCompanies = useCallback(async () => {
     try {
@@ -73,6 +108,17 @@ export default function AnnualReportGenerator() {
     fetchReports()
   }, [fetchCompanies, fetchReports])
 
+  const toggleSection = (key: SectionKey) => {
+    setSections(prev => ({ ...prev, [key]: !prev[key] }))
+  }
+
+  const selectAll = () => setSections({ ...DEFAULT_SECTIONS })
+  const selectNone = () => {
+    const none: Record<string, boolean> = {}
+    for (const s of REPORT_SECTIONS) none[s.key] = false
+    setSections(none as Record<SectionKey, boolean>)
+  }
+
   const handleGenerate = async () => {
     if (!selectedCompany) {
       setError('Please select a company')
@@ -90,6 +136,11 @@ export default function AnnualReportGenerator() {
     periodStart.setDate(1)
     periodStart.setHours(0, 0, 0, 0)
 
+    // Build hidden sections list (sections that are toggled OFF)
+    const hiddenSections = Object.entries(sections)
+      .filter(([, enabled]) => !enabled)
+      .map(([key]) => key)
+
     try {
       const res = await fetch('/api/reports/annual-report', {
         method: 'POST',
@@ -99,6 +150,7 @@ export default function AnnualReportGenerator() {
           variant,
           periodStart: periodStart.toISOString(),
           periodEnd: periodEnd.toISOString(),
+          hiddenSections,
         }),
       })
 
@@ -131,6 +183,7 @@ export default function AnnualReportGenerator() {
   }
 
   const selectedCompanyName = companies.find(c => c.id === selectedCompany)?.displayName || ''
+  const enabledCount = Object.values(sections).filter(Boolean).length
 
   return (
     <div className="space-y-8">
@@ -138,7 +191,7 @@ export default function AnnualReportGenerator() {
       <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
         <h2 className="text-xl font-bold text-white mb-4">Generate Annual Service Report</h2>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
           {/* Company selector */}
           <div>
             <label className="block text-sm font-medium text-slate-400 mb-1">Company</label>
@@ -196,8 +249,53 @@ export default function AnnualReportGenerator() {
           </div>
         </div>
 
+        {/* Section toggles */}
+        <div className="mt-4">
+          <button
+            onClick={() => setShowSections(!showSections)}
+            className="text-sm text-slate-400 hover:text-slate-300 flex items-center gap-1"
+          >
+            <span className={`transition-transform ${showSections ? 'rotate-90' : ''}`}>&#9654;</span>
+            Customize Sections ({enabledCount}/{REPORT_SECTIONS.length} enabled)
+          </button>
+
+          {showSections && (
+            <div className="mt-3 bg-slate-900/50 border border-slate-700/50 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs text-slate-500">Choose which sections appear in the report</p>
+                <div className="flex gap-2">
+                  <button onClick={selectAll} className="text-xs text-cyan-400 hover:text-cyan-300">Select All</button>
+                  <span className="text-slate-600">|</span>
+                  <button onClick={selectNone} className="text-xs text-slate-400 hover:text-slate-300">Deselect All</button>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                {REPORT_SECTIONS.map(s => (
+                  <label
+                    key={s.key}
+                    className={`flex items-start gap-2 p-2 rounded-lg cursor-pointer transition-colors ${
+                      sections[s.key] ? 'bg-cyan-500/10 border border-cyan-500/20' : 'bg-slate-800/50 border border-slate-700/30'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={sections[s.key]}
+                      onChange={() => toggleSection(s.key)}
+                      className="mt-0.5 accent-cyan-500"
+                    />
+                    <div>
+                      <div className="text-sm text-slate-200 font-medium">{s.label}</div>
+                      <div className="text-xs text-slate-500">{s.desc}</div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
         {selectedCompanyName && (
-          <p className="text-sm text-slate-400">
+          <p className="text-sm text-slate-400 mt-3">
             Will generate a {periodMonths}-month annual service report for <span className="text-white font-medium">{selectedCompanyName}</span> ({variant} variant).
           </p>
         )}

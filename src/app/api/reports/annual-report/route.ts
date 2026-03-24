@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { companyId, variant, periodStart, periodEnd } = body;
+    const { companyId, variant, periodStart, periodEnd, hiddenSections } = body;
 
     if (!companyId || !periodStart || !periodEnd) {
       return NextResponse.json(
@@ -34,6 +34,7 @@ export async function POST(request: NextRequest) {
       periodStart: new Date(periodStart),
       periodEnd: new Date(periodEnd),
       createdBy: session.user.email,
+      hiddenSections: hiddenSections || [],
     });
 
     return NextResponse.json({

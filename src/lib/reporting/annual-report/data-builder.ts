@@ -24,6 +24,7 @@ import {
   DattoSaasAnalysis,
   SecurityAnalysis,
   EmailSecurityAnalysis,
+  UserProtectionAnalysis,
   MonthlyTrend,
 } from './types';
 
@@ -62,6 +63,7 @@ export async function buildAnnualReportData(
   ]);
 
   const emailSecurity = buildEmailSecurityPlaceholder();
+  const userProtection = buildUserProtectionAnalysis();
   const dataSources = buildDataSourceCoverage(ticketing, dattoRmm, dattoEdr, dnsFilter, dattoBcdr, dattoSaas, security, emailSecurity, periodStart, periodEnd);
   const executiveSummary = buildExecutiveSummary(ticketing, dattoRmm, dattoEdr, dnsFilter, dattoBcdr, dattoSaas, security, emailSecurity, dataSources);
 
@@ -87,6 +89,7 @@ export async function buildAnnualReportData(
     dattoBcdr,
     dattoSaas,
     security,
+    userProtection,
     emailSecurity,
     healthSnapshot,
     generatedAt: new Date().toISOString(),
@@ -969,6 +972,29 @@ function buildExecutiveSummary(
     totalSecurityIncidents: security.socIncidents.totalIncidents + dattoEdr.totalEvents,
     keyTrends,
     dataCoverageNotes,
+  };
+}
+
+// ============================================
+// USER PROTECTION SERVICES
+// ============================================
+
+function buildUserProtectionAnalysis(): UserProtectionAnalysis {
+  return {
+    available: true,
+    services: [
+      { name: 'Login & Authentication Monitoring', description: 'Continuous monitoring of user sign-in activity, failed login attempts, and suspicious authentication patterns.', active: true },
+      { name: 'Impossible Travel Detection', description: 'Automated detection of logins from geographically impossible locations, indicating potential credential compromise.', active: true },
+      { name: 'Token & Session Theft Protection', description: 'Monitoring for session hijacking, token replay attacks, and unauthorized session activity.', active: true },
+      { name: 'MFA Deployment & Enforcement', description: 'Multi-factor authentication rollout tracking, enforcement policies, and gap identification across all user accounts.', active: true },
+      { name: 'Microsoft 365 Security Posture', description: 'Ongoing review of Microsoft Secure Score, security defaults, conditional access policies, and tenant configuration.', active: true },
+      { name: 'Microsoft Secure Score Monitoring', description: 'Tracking and improving your organization\'s Microsoft Secure Score with actionable recommendations.', active: true },
+      { name: 'External File Sharing Monitoring', description: 'Detection and alerting on files shared externally via SharePoint, OneDrive, and Teams to prevent data leakage.', active: true },
+      { name: 'Mailbox Forwarding & Delegation Audit', description: 'Monitoring for unauthorized mailbox forwarding rules and delegation changes that could indicate compromise.', active: true },
+      { name: 'Phishing & Spam Protection', description: 'Email security filtering, phishing simulation awareness, and suspicious email pattern detection.', active: true },
+      { name: 'Dark Web Credential Monitoring', description: 'Scanning for compromised credentials appearing on the dark web and alerting for immediate password resets.', active: true },
+    ],
+    note: null,
   };
 }
 
