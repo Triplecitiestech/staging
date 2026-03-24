@@ -6,42 +6,32 @@
  * (same publicKey:privateKey pair as BCDR).
  *
  * API paths:
- *   GET /v1/saas                             — list SaaS customers
- *   GET /v1/saas/{saasCustomerId}/domains     — list protected domains
- *   GET /v1/saas/{saasCustomerId}/domains/{domainId}/seats — list seats (users)
- *   GET /v1/saas/{saasCustomerId}/bulkSeatAssignment — seat assignment overview
+ *   GET /v1/saas/domains                      — list all SaaS-protected customers/domains
+ *   GET /v1/saas/{saasCustomerId}/seats        — list seats (users/mailboxes/sites)
+ *   GET /v1/saas/{saasCustomerId}/applications — backup status per application (daysUntil param)
  */
 
 // ============================================
 // TYPES
 // ============================================
 
-export interface DattoSaasCustomer {
-  id: number;
-  name: string;
-  seatCount: number;
-  domainCount: number;
-  backupsEnabled: boolean;
-  saasType: string; // "ms365" | "google" | etc.
-}
-
-export interface DattoSaasDomain {
-  id: number;
-  domain: string;
+export interface DattoSaasCustomerDomain {
   saasCustomerId: number;
-  seatCount: number;
+  saasCustomerName: string;
+  organizationName: string;
+  domain: string;
+  productType: string; // "Office365" | "Google"
+  externalSubscriptionId: string;
 }
 
 export interface DattoSaasSeat {
-  id: number;
-  seatType: string;      // "user", "sharedMailbox", "site", "team"
-  displayName: string;
-  email: string;
-  enabled: boolean;
-  lastBackupTimestamp: string | null;
-  lastBackupStatus: string | null;
-  storageUsedBytes: number;
+  mainId: string;
+  name: string;         // email or site name
+  seatType: string;     // "User" | "SharedMailbox" | "Site" | "TeamSite" | "Team" (M365) or "User" | "SharedDrive" (Google)
+  seatState: string;    // "Active" | "Paused" | "Archived" | "Unprotected"
   billable: boolean;
+  dateAdded: string;
+  remoteId: string;
 }
 
 export interface DattoSaasSummary {
@@ -49,18 +39,16 @@ export interface DattoSaasSummary {
   totalCustomers: number;
   totalSeats: number;
   totalDomains: number;
-  protectedUsers: number;
-  protectedSharedMailboxes: number;
-  protectedSites: number;
-  protectedTeams: number;
-  backupSuccessRate: number | null;
-  lastBackupDate: string | null;
+  activeSeats: number;
+  pausedSeats: number;
+  archivedSeats: number;
+  unprotectedSeats: number;
   seatsByType: Array<{ type: string; count: number }>;
   customerDetails: Array<{
     name: string;
-    saasType: string;
+    domain: string;
+    productType: string;
     seatCount: number;
-    domainCount: number;
   }>;
   note: string | null;
 }
@@ -107,94 +95,66 @@ export class DattoSaasClient {
   }
 
   /**
-   * List all SaaS Protection customers.
+   * List all SaaS-protected customers/domains.
+   * Returns one entry per domain — a customer with multiple domains appears multiple times.
    */
-  async getCustomers(): Promise<DattoSaasCustomer[]> {
+  async getCustomerDomains(): Promise<DattoSaasCustomerDomain[]> {
     try {
       const data = await this.request<{
         items?: Array<{
-          id?: number;
-          name?: string;
-          seatsInUse?: number;
-          numberOfDomains?: number;
-          backupStatus?: string;
-          applicationType?: string;
+          saasCustomerId?: number;
+          saasCustomerName?: string;
+          organizationName?: string;
+          domain?: string;
+          productType?: string;
+          externalSubscriptionId?: string;
         }>;
-        pagination?: { totalItems?: number };
-      }>('/saas');
+        pagination?: { page?: number; perPage?: number; totalPages?: number };
+      }>('/saas/domains');
 
       return (data.items || []).map((c) => ({
-        id: c.id || 0,
-        name: c.name || '',
-        seatCount: c.seatsInUse || 0,
-        domainCount: c.numberOfDomains || 0,
-        backupsEnabled: c.backupStatus !== 'disabled',
-        saasType: c.applicationType || 'ms365',
+        saasCustomerId: c.saasCustomerId || 0,
+        saasCustomerName: c.saasCustomerName || '',
+        organizationName: c.organizationName || '',
+        domain: c.domain || '',
+        productType: c.productType || 'Office365',
+        externalSubscriptionId: c.externalSubscriptionId || '',
       }));
     } catch (error) {
-      console.error('[DattoSaaS] getCustomers error:', error);
+      console.error('[DattoSaaS] getCustomerDomains error:', error);
       throw error;
     }
   }
 
   /**
-   * List domains for a SaaS customer.
+   * List seats (protected users/mailboxes/sites) for a SaaS customer.
    */
-  async getDomains(saasCustomerId: number): Promise<DattoSaasDomain[]> {
+  async getSeats(saasCustomerId: number): Promise<DattoSaasSeat[]> {
     try {
       const data = await this.request<{
         items?: Array<{
-          id?: number;
-          domain?: string;
-          saasCustomerId?: number;
-          seatsInUse?: number;
-        }>;
-      }>(`/saas/${saasCustomerId}/domains`);
-
-      return (data.items || []).map((d) => ({
-        id: d.id || 0,
-        domain: d.domain || '',
-        saasCustomerId: d.saasCustomerId || saasCustomerId,
-        seatCount: d.seatsInUse || 0,
-      }));
-    } catch (error) {
-      console.error(`[DattoSaaS] getDomains(${saasCustomerId}) error:`, error);
-      return [];
-    }
-  }
-
-  /**
-   * List seats (protected users/mailboxes/sites) for a domain.
-   */
-  async getSeats(saasCustomerId: number, domainId: number): Promise<DattoSaasSeat[]> {
-    try {
-      const data = await this.request<{
-        items?: Array<{
-          id?: number;
+          mainId?: string;
+          name?: string;
           seatType?: string;
-          displayName?: string;
-          email?: string;
-          enabled?: boolean;
-          lastBackupTimestamp?: string;
-          lastBackupStatus?: string;
-          storageInBytes?: number;
+          seatState?: string;
           billable?: boolean;
+          dateAdded?: string;
+          remoteId?: string;
         }>;
-      }>(`/saas/${saasCustomerId}/domains/${domainId}/seats`);
+        pagination?: { page?: number; perPage?: number; totalPages?: number };
+      }>(`/saas/${saasCustomerId}/seats`);
 
       return (data.items || []).map((s) => ({
-        id: s.id || 0,
-        seatType: s.seatType || 'user',
-        displayName: s.displayName || '',
-        email: s.email || '',
-        enabled: s.enabled !== false,
-        lastBackupTimestamp: s.lastBackupTimestamp || null,
-        lastBackupStatus: s.lastBackupStatus || null,
-        storageUsedBytes: s.storageInBytes || 0,
+        mainId: s.mainId || '',
+        name: s.name || '',
+        seatType: s.seatType || 'User',
+        seatState: s.seatState || 'Unprotected',
         billable: s.billable !== false,
+        dateAdded: s.dateAdded || '',
+        remoteId: s.remoteId || '',
       }));
     } catch (error) {
-      console.error(`[DattoSaaS] getSeats(${saasCustomerId}, ${domainId}) error:`, error);
+      console.error(`[DattoSaaS] getSeats(${saasCustomerId}) error:`, error);
       return [];
     }
   }
@@ -210,12 +170,10 @@ export class DattoSaasClient {
         totalCustomers: 0,
         totalSeats: 0,
         totalDomains: 0,
-        protectedUsers: 0,
-        protectedSharedMailboxes: 0,
-        protectedSites: 0,
-        protectedTeams: 0,
-        backupSuccessRate: null,
-        lastBackupDate: null,
+        activeSeats: 0,
+        pausedSeats: 0,
+        archivedSeats: 0,
+        unprotectedSeats: 0,
         seatsByType: [],
         customerDetails: [],
         note: 'Datto SaaS Protection integration not configured. Uses the same DATTO_BCDR_PUBLIC_KEY and DATTO_BCDR_PRIVATE_KEY environment variables.',
@@ -223,96 +181,115 @@ export class DattoSaasClient {
     }
 
     try {
-      const customers = await this.getCustomers();
+      const allDomains = await this.getCustomerDomains();
+
+      // Deduplicate customers (one customer can have multiple domains)
+      const customerMap = new Map<number, { name: string; domains: string[]; productType: string }>();
+      for (const d of allDomains) {
+        const existing = customerMap.get(d.saasCustomerId);
+        if (existing) {
+          existing.domains.push(d.domain);
+        } else {
+          customerMap.set(d.saasCustomerId, {
+            name: d.saasCustomerName || d.organizationName,
+            domains: [d.domain],
+            productType: d.productType,
+          });
+        }
+      }
 
       // Filter by company name if provided
-      let filtered = customers;
+      let customerIds = Array.from(customerMap.keys());
       if (companyName) {
         const companyWords = companyName.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
-        filtered = customers.filter((c) => {
+        customerIds = customerIds.filter((id) => {
+          const c = customerMap.get(id)!;
           const name = c.name.toLowerCase();
           return companyWords.some((w) => name.includes(w));
         });
       }
 
-      if (filtered.length === 0 && companyName) {
+      if (customerIds.length === 0 && companyName) {
         return {
           available: true,
           totalCustomers: 0,
           totalSeats: 0,
           totalDomains: 0,
-          protectedUsers: 0,
-          protectedSharedMailboxes: 0,
-          protectedSites: 0,
-          protectedTeams: 0,
-          backupSuccessRate: null,
-          lastBackupDate: null,
+          activeSeats: 0,
+          pausedSeats: 0,
+          archivedSeats: 0,
+          unprotectedSeats: 0,
           seatsByType: [],
           customerDetails: [],
-          note: `No Datto SaaS Protection customers found matching "${companyName}". There are ${customers.length} total SaaS customers. Customer-to-company mapping may need manual configuration.`,
+          note: `No Datto SaaS Protection customers found matching "${companyName}". There are ${customerMap.size} total SaaS customers. Customer-to-company mapping may need manual configuration.`,
         };
       }
 
-      // Get seat-level detail for each customer (limited to first 5 to avoid timeout)
+      // Get seat-level detail for each customer (limit to 10 to avoid timeout)
       const seatTypeCounts = new Map<string, number>();
-      let totalSeatsDetail = 0;
-      let successCount = 0;
-      let totalBackupCount = 0;
-      let latestBackup: string | null = null;
+      let totalSeats = 0;
+      let activeSeats = 0;
+      let pausedSeats = 0;
+      let archivedSeats = 0;
+      let unprotectedSeats = 0;
+      const customerDetails: DattoSaasSummary['customerDetails'] = [];
 
-      for (const customer of filtered.slice(0, 5)) {
+      for (const customerId of customerIds.slice(0, 10)) {
+        const customer = customerMap.get(customerId)!;
         try {
-          const domains = await this.getDomains(customer.id);
-          for (const domain of domains) {
-            const seats = await this.getSeats(customer.id, domain.id);
-            for (const seat of seats) {
-              if (!seat.enabled) continue;
-              totalSeatsDetail++;
-              const type = seat.seatType || 'user';
-              seatTypeCounts.set(type, (seatTypeCounts.get(type) || 0) + 1);
+          const seats = await this.getSeats(customerId);
+          const customerSeatCount = seats.length;
+          totalSeats += customerSeatCount;
 
-              if (seat.lastBackupStatus) {
-                totalBackupCount++;
-                if (seat.lastBackupStatus === 'success' || seat.lastBackupStatus === 'completed') {
-                  successCount++;
-                }
-              }
+          for (const seat of seats) {
+            // Count by type
+            seatTypeCounts.set(seat.seatType, (seatTypeCounts.get(seat.seatType) || 0) + 1);
 
-              if (seat.lastBackupTimestamp) {
-                if (!latestBackup || seat.lastBackupTimestamp > latestBackup) {
-                  latestBackup = seat.lastBackupTimestamp;
-                }
-              }
+            // Count by state
+            switch (seat.seatState) {
+              case 'Active': activeSeats++; break;
+              case 'Paused': pausedSeats++; break;
+              case 'Archived': archivedSeats++; break;
+              case 'Unprotected': unprotectedSeats++; break;
+              default: unprotectedSeats++; break;
             }
           }
+
+          customerDetails.push({
+            name: customer.name,
+            domain: customer.domains[0] || '',
+            productType: customer.productType,
+            seatCount: customerSeatCount,
+          });
         } catch {
           // Continue if individual customer fetch fails
+          customerDetails.push({
+            name: customer.name,
+            domain: customer.domains[0] || '',
+            productType: customer.productType,
+            seatCount: 0,
+          });
         }
       }
 
-      const totalSeats = filtered.reduce((s, c) => s + c.seatCount, 0);
-      const totalDomains = filtered.reduce((s, c) => s + c.domainCount, 0);
+      const totalDomains = customerIds.reduce((s, id) => {
+        const c = customerMap.get(id);
+        return s + (c?.domains.length || 0);
+      }, 0);
 
       return {
         available: true,
-        totalCustomers: filtered.length,
-        totalSeats: totalSeats || totalSeatsDetail,
+        totalCustomers: customerIds.length,
+        totalSeats,
         totalDomains,
-        protectedUsers: seatTypeCounts.get('user') || 0,
-        protectedSharedMailboxes: seatTypeCounts.get('sharedMailbox') || 0,
-        protectedSites: seatTypeCounts.get('site') || 0,
-        protectedTeams: seatTypeCounts.get('team') || 0,
-        backupSuccessRate: totalBackupCount > 0 ? Math.round((successCount / totalBackupCount) * 100) : null,
-        lastBackupDate: latestBackup,
+        activeSeats,
+        pausedSeats,
+        archivedSeats,
+        unprotectedSeats,
         seatsByType: Array.from(seatTypeCounts.entries())
           .sort((a, b) => b[1] - a[1])
           .map(([type, count]) => ({ type, count })),
-        customerDetails: filtered.map((c) => ({
-          name: c.name,
-          saasType: c.saasType,
-          seatCount: c.seatCount,
-          domainCount: c.domainCount,
-        })),
+        customerDetails,
         note: null,
       };
     } catch (error) {
@@ -322,12 +299,10 @@ export class DattoSaasClient {
         totalCustomers: 0,
         totalSeats: 0,
         totalDomains: 0,
-        protectedUsers: 0,
-        protectedSharedMailboxes: 0,
-        protectedSites: 0,
-        protectedTeams: 0,
-        backupSuccessRate: null,
-        lastBackupDate: null,
+        activeSeats: 0,
+        pausedSeats: 0,
+        archivedSeats: 0,
+        unprotectedSeats: 0,
         seatsByType: [],
         customerDetails: [],
         note: `Datto SaaS Protection data fetch failed: ${error instanceof Error ? error.message : 'Unknown error'}`,

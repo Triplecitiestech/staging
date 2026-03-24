@@ -156,6 +156,29 @@ export interface DattoBcdrAnalysis {
 }
 
 // ============================================
+// DATTO SAAS PROTECTION SECTION
+// ============================================
+
+export interface DattoSaasAnalysis {
+  available: boolean;
+  totalCustomers: number;
+  totalSeats: number;
+  totalDomains: number;
+  activeSeats: number;
+  pausedSeats: number;
+  archivedSeats: number;
+  unprotectedSeats: number;
+  seatsByType: Array<{ type: string; count: number }>;
+  customerDetails: Array<{
+    name: string;
+    domain: string;
+    productType: string;
+    seatCount: number;
+  }>;
+  note: string | null;
+}
+
+// ============================================
 // EMAIL SECURITY SECTION (INKY)
 // ============================================
 
@@ -199,6 +222,7 @@ export interface AnnualReportData {
   dattoEdr: DattoEdrAnalysis;
   dnsFilter: DnsFilterAnalysis;
   dattoBcdr: DattoBcdrAnalysis;
+  dattoSaas: DattoSaasAnalysis;
   security: SecurityAnalysis;
   emailSecurity: EmailSecurityAnalysis;
   healthSnapshot: {

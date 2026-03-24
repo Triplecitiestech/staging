@@ -21,14 +21,38 @@ export async function generateAnnualReport(params: AnnualReportParams) {
   // Build report data from all available sources
   const data = await buildAnnualReportData(companyId, periodStart, periodEnd);
 
-  // SLA exclusion rule for customer variant: hide SLA if below 95%
+  // Customer variant: filter out anything that reflects negatively
   if (variant === 'customer') {
+    // Hide SLA if below 95%
     const respSla = data.ticketing.responseMetrics.slaResponseCompliance;
     const resSla = data.ticketing.responseMetrics.slaResolutionCompliance;
     const bestSla = Math.max(respSla ?? 0, resSla ?? 0);
     if (bestSla > 0 && bestSla < 95) {
       data.ticketing.responseMetrics.slaResponseCompliance = null;
       data.ticketing.responseMetrics.slaResolutionCompliance = null;
+    }
+
+    // Hide reopen rate if above 5%
+    if (data.ticketing.responseMetrics.reopenRate !== null && data.ticketing.responseMetrics.reopenRate > 5) {
+      data.ticketing.responseMetrics.reopenRate = null;
+    }
+
+    // Only show data sources that ARE available (hide "Not Available" entries)
+    data.dataSources = data.dataSources.filter(ds => ds.available);
+
+    // Remove dataCoverageNotes (these highlight missing integrations)
+    data.executiveSummary.dataCoverageNotes = [];
+
+    // Hide unprotected/paused seat counts in SaaS (only show active)
+    if (data.dattoSaas?.available) {
+      data.dattoSaas.unprotectedSeats = 0;
+      data.dattoSaas.pausedSeats = 0;
+      data.dattoSaas.archivedSeats = 0;
+    }
+
+    // Hide BCDR alert counts (only show protected systems count)
+    if (data.dattoBcdr?.available) {
+      data.dattoBcdr.alertsByType = [];
     }
   }
 
@@ -115,7 +139,7 @@ export async function getAnnualReportPrintableHTML(id: string) {
   const data = review.reportData as unknown as AnnualReportData;
   const variant = review.variant as AnnualReportVariant;
 
-  // SLA exclusion for customer variant PDF
+  // Customer variant PDF: same positive-only filtering
   if (variant === 'customer') {
     const respSla = data.ticketing.responseMetrics.slaResponseCompliance;
     const resSla = data.ticketing.responseMetrics.slaResolutionCompliance;
@@ -123,6 +147,19 @@ export async function getAnnualReportPrintableHTML(id: string) {
     if (bestSla > 0 && bestSla < 95) {
       data.ticketing.responseMetrics.slaResponseCompliance = null;
       data.ticketing.responseMetrics.slaResolutionCompliance = null;
+    }
+    if (data.ticketing.responseMetrics.reopenRate !== null && data.ticketing.responseMetrics.reopenRate > 5) {
+      data.ticketing.responseMetrics.reopenRate = null;
+    }
+    data.dataSources = data.dataSources.filter(ds => ds.available);
+    data.executiveSummary.dataCoverageNotes = [];
+    if (data.dattoSaas) {
+      data.dattoSaas.unprotectedSeats = 0;
+      data.dattoSaas.pausedSeats = 0;
+      data.dattoSaas.archivedSeats = 0;
+    }
+    if (data.dattoBcdr) {
+      data.dattoBcdr.alertsByType = [];
     }
   }
 
@@ -163,6 +200,13 @@ function buildNarrativeSummary(data: AnnualReportData): string {
     parts.push(
       `Endpoint monitoring via Datto RMM processed ${data.dattoRmm.totalAlerts} alerts ` +
       `across ${data.dattoRmm.devicesManaged} managed devices.`
+    );
+  }
+
+  if (data.dattoSaas?.available && data.dattoSaas.activeSeats > 0) {
+    parts.push(
+      `Datto SaaS Protection actively backed up ${data.dattoSaas.activeSeats} cloud seats ` +
+      `across ${data.dattoSaas.totalDomains} domain${data.dattoSaas.totalDomains !== 1 ? 's' : ''}.`
     );
   }
 

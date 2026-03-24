@@ -10,6 +10,7 @@ import { DattoRmmClient } from '@/lib/datto-rmm';
 import { DattoEdrClient } from '@/lib/datto-edr';
 import { DnsFilterClient } from '@/lib/dnsfilter';
 import { DattoBcdrClient } from '@/lib/datto-bcdr';
+import { DattoSaasClient } from '@/lib/datto-saas';
 import {
   AnnualReportData,
   DataSourceCoverage,
@@ -19,6 +20,7 @@ import {
   DattoEdrAnalysis,
   DnsFilterAnalysis,
   DattoBcdrAnalysis,
+  DattoSaasAnalysis,
   SecurityAnalysis,
   EmailSecurityAnalysis,
   MonthlyTrend,
@@ -47,19 +49,20 @@ export async function buildAnnualReportData(
   console.log(`[annualReport] Building for ${company.displayName}, ${periodStart.toISOString()} to ${periodEnd.toISOString()}`);
 
   // Collect all sections in parallel where possible
-  const [ticketing, dattoRmm, dattoEdr, dnsFilter, dattoBcdr, security, healthSnapshot] = await Promise.all([
+  const [ticketing, dattoRmm, dattoEdr, dnsFilter, dattoBcdr, dattoSaas, security, healthSnapshot] = await Promise.all([
     buildTicketingAnalysis(companyId, periodStart, periodEnd),
     buildDattoRmmAnalysis(company.displayName, periodStart, periodEnd),
     buildDattoEdrAnalysis(periodStart, periodEnd),
     buildDnsFilterAnalysis(periodStart, periodEnd),
     buildDattoBcdrAnalysis(company.displayName),
+    buildDattoSaasAnalysis(company.displayName),
     buildSecurityAnalysis(companyId, periodStart, periodEnd),
     buildHealthSnapshot(companyId),
   ]);
 
   const emailSecurity = buildEmailSecurityPlaceholder();
-  const dataSources = buildDataSourceCoverage(ticketing, dattoRmm, dattoEdr, dnsFilter, dattoBcdr, security, emailSecurity, periodStart, periodEnd);
-  const executiveSummary = buildExecutiveSummary(ticketing, dattoRmm, dattoEdr, dnsFilter, dattoBcdr, security, emailSecurity, dataSources);
+  const dataSources = buildDataSourceCoverage(ticketing, dattoRmm, dattoEdr, dnsFilter, dattoBcdr, dattoSaas, security, emailSecurity, periodStart, periodEnd);
+  const executiveSummary = buildExecutiveSummary(ticketing, dattoRmm, dattoEdr, dnsFilter, dattoBcdr, dattoSaas, security, emailSecurity, dataSources);
 
   const periodLabel = `Annual Service Report — ${formatMonthYear(periodStart)} to ${formatMonthYear(periodEnd)}`;
 
@@ -81,6 +84,7 @@ export async function buildAnnualReportData(
     dattoEdr,
     dnsFilter,
     dattoBcdr,
+    dattoSaas,
     security,
     emailSecurity,
     healthSnapshot,
@@ -727,6 +731,17 @@ async function buildDattoBcdrAnalysis(
 }
 
 // ============================================
+// DATTO SAAS PROTECTION (M365/Google backups)
+// ============================================
+
+async function buildDattoSaasAnalysis(
+  companyName: string,
+): Promise<DattoSaasAnalysis> {
+  const client = new DattoSaasClient();
+  return client.buildSummary(companyName);
+}
+
+// ============================================
 // EMAIL SECURITY (Inky — NOT INTEGRATED)
 // ============================================
 
@@ -776,6 +791,7 @@ function buildDataSourceCoverage(
   dattoEdr: DattoEdrAnalysis,
   dnsFilter: DnsFilterAnalysis,
   dattoBcdr: DattoBcdrAnalysis,
+  dattoSaas: DattoSaasAnalysis,
   security: SecurityAnalysis,
   emailSecurity: EmailSecurityAnalysis,
   periodStart: Date,
@@ -826,6 +842,14 @@ function buildDataSourceCoverage(
       note: dattoBcdr.note,
     },
     {
+      source: 'Datto SaaS Protection (M365/Google Backups)',
+      available: dattoSaas.available,
+      coverageStart: dattoSaas.available ? start : null,
+      coverageEnd: dattoSaas.available ? end : null,
+      isPartial: !dattoSaas.available,
+      note: dattoSaas.note,
+    },
+    {
       source: 'SOC Analyst Agent (Security)',
       available: security.socIncidents.available,
       coverageStart: security.socIncidents.available ? start : null,
@@ -862,6 +886,7 @@ function buildExecutiveSummary(
   dattoEdr: DattoEdrAnalysis,
   dnsFilter: DnsFilterAnalysis,
   dattoBcdr: DattoBcdrAnalysis,
+  dattoSaas: DattoSaasAnalysis,
   security: SecurityAnalysis,
   _emailSecurity: EmailSecurityAnalysis,
   dataSources: DataSourceCoverage[],
@@ -908,7 +933,11 @@ function buildExecutiveSummary(
   }
 
   if (dattoBcdr.available && dattoBcdr.totalDevices > 0) {
-    keyTrends.push(`${dattoBcdr.totalDevices} backup devices protecting ${dattoBcdr.totalAgents} systems via Datto BCDR.`);
+    keyTrends.push(`${dattoBcdr.totalDevices} backup appliances protecting ${dattoBcdr.totalAgents} servers via Datto BCDR.`);
+  }
+
+  if (dattoSaas.available && dattoSaas.activeSeats > 0) {
+    keyTrends.push(`${dattoSaas.activeSeats} cloud seats actively protected via Datto SaaS Protection (M365/Google Workspace).`);
   }
 
   // Total alerts = RMM + EDR + security incidents
