@@ -144,12 +144,17 @@ export interface DattoBcdrAnalysis {
   totalAgents: number;
   totalAlerts: number;
   devicesWithAlerts: number;
+  applianceCount: number;
+  endpointBackupCount: number;
+  cloudDeviceCount: number;
   deviceDetails: Array<{
     name: string;
+    model: string;
     clientCompanyName: string;
     agentCount: number;
     alertCount: number;
     lastSeen: string;
+    deviceType: 'appliance' | 'endpoint' | 'cloud';
   }>;
   alertsByType: Array<{ type: string; count: number }>;
   note: string | null;

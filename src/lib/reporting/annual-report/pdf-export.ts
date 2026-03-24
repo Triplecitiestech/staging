@@ -440,19 +440,23 @@ ${isInternal ? '<div class="internal-banner">&#9888; INTERNAL DOCUMENT — NOT F
     ${esc(data.dattoBcdr.note || 'Datto BCDR integration not configured.')}
   </div>` : `
   <div class="stat-grid">
-    ${statCard('Backup Devices', data.dattoBcdr.totalDevices)}
+    ${statCard('Total Devices', data.dattoBcdr.totalDevices)}
     ${statCard('Protected Systems', data.dattoBcdr.totalAgents)}
-    ${statCard('Active Alerts', data.dattoBcdr.totalAlerts)}
+    ${(data.dattoBcdr.applianceCount ?? 0) > 0 ? statCard('Server Appliances', data.dattoBcdr.applianceCount) : ''}
+    ${(data.dattoBcdr.endpointBackupCount ?? 0) > 0 ? statCard('PC/Laptop Backups', data.dattoBcdr.endpointBackupCount) : ''}
+    ${(data.dattoBcdr.cloudDeviceCount ?? 0) > 0 ? statCard('Cloud Devices', data.dattoBcdr.cloudDeviceCount) : ''}
+    ${data.dattoBcdr.totalAlerts === 0 ? statCard('Alert Status', 'All Clear') : ''}
   </div>
 
   ${data.dattoBcdr.deviceDetails.length > 0 ? `
   <h3 style="font-size:11pt;font-weight:700;color:#334155;margin:16px 0 8px;">Device Details</h3>
   <table>
-    <thead><tr><th>Device</th><th>Client</th><th style="text-align:right">Agents</th><th style="text-align:right">Alerts</th><th>Last Seen</th></tr></thead>
+    <thead><tr><th>Device</th><th>Type</th><th>Client</th><th style="text-align:right">Protected</th><th>Last Seen</th></tr></thead>
     <tbody>
-    ${data.dattoBcdr.deviceDetails.map(d =>
-      '<tr><td>' + esc(d.name) + '</td><td>' + esc(d.clientCompanyName) + '</td><td style="text-align:right">' + d.agentCount + '</td><td style="text-align:right">' + d.alertCount + '</td><td>' + (d.lastSeen ? new Date(d.lastSeen).toLocaleDateString() : '—') + '</td></tr>'
-    ).join('')}
+    ${data.dattoBcdr.deviceDetails.map(d => {
+      const typeLabel = d.deviceType === 'endpoint' ? 'PC Backup' : d.deviceType === 'cloud' ? 'Cloud' : 'Appliance';
+      return '<tr><td>' + esc(d.name) + '</td><td>' + typeLabel + '</td><td>' + esc(d.clientCompanyName) + '</td><td style="text-align:right">' + d.agentCount + '</td><td>' + (d.lastSeen ? new Date(d.lastSeen).toLocaleDateString() : '—') + '</td></tr>';
+    }).join('')}
     </tbody>
   </table>` : ''}
 
