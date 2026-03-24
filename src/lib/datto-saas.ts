@@ -102,7 +102,31 @@ export class DattoSaasClient {
    */
   async getCustomerDomains(): Promise<DattoSaasCustomerDomain[]> {
     try {
-      const data = await this.request<{
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rawData = await this.request<any>('/saas/domains');
+
+      // Log raw response shape for debugging (field names only, no sensitive data)
+      const topKeys = Object.keys(rawData || {});
+      console.log(`[DattoSaaS] /saas/domains response keys: ${topKeys.join(', ')}`);
+      if (rawData.items) {
+        console.log(`[DattoSaaS] items count: ${rawData.items.length}`);
+        if (rawData.items.length > 0) {
+          console.log(`[DattoSaaS] first item keys: ${Object.keys(rawData.items[0]).join(', ')}`);
+        }
+      } else {
+        // API might return data at top level or under a different key
+        console.log(`[DattoSaaS] No "items" key found. Full keys: ${topKeys.join(', ')}. Checking alternatives...`);
+        for (const key of topKeys) {
+          if (Array.isArray(rawData[key])) {
+            console.log(`[DattoSaaS] Found array at key "${key}" with ${rawData[key].length} entries`);
+            if (rawData[key].length > 0) {
+              console.log(`[DattoSaaS] first entry keys: ${Object.keys(rawData[key][0]).join(', ')}`);
+            }
+          }
+        }
+      }
+
+      const data = rawData as {
         items?: Array<{
           saasCustomerId?: number;
           saasCustomerName?: string;
@@ -112,7 +136,7 @@ export class DattoSaasClient {
           externalSubscriptionId?: string;
         }>;
         pagination?: { page?: number; perPage?: number; totalPages?: number };
-      }>('/saas/domains');
+      };
 
       return (data.items || []).map((c) => ({
         saasCustomerId: c.saasCustomerId || 0,
