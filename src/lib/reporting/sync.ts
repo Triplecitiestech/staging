@@ -38,7 +38,7 @@ interface TicketSyncResult {
  * If no previous sync, fetches last `defaultDays` days.
  * Processes companies in batches to stay within Vercel's 60s timeout.
  */
-export async function syncTickets(defaultDays: number = 90, batchSize: number = 2): Promise<TicketSyncResult> {
+export async function syncTickets(defaultDays: number = 90, batchSize: number = 2, force: boolean = false): Promise<TicketSyncResult> {
   const finish = createJobTracker(JOB_NAMES.SYNC_TICKETS);
   const result: TicketSyncResult = { created: 0, updated: 0, statusChanges: 0, errors: [] };
 
@@ -48,11 +48,12 @@ export async function syncTickets(defaultDays: number = 90, batchSize: number = 
     await assertTableExists('ticket_status_history');
 
     const client = new AutotaskClient();
-    const lastSync = await getLastSuccessfulRun(JOB_NAMES.SYNC_TICKETS);
+    const lastSync = force ? null : await getLastSuccessfulRun(JOB_NAMES.SYNC_TICKETS);
 
-    // Use full window for first sync too — batch processing handles timeout.
+    // Use full window for first sync or force re-sync.
     // The 30-day limit was too small for quarterly reports, causing empty data.
     const sinceDate = lastSync || new Date(Date.now() - defaultDays * 24 * 60 * 60 * 1000);
+    console.log(`[ReportingSync] Syncing tickets since ${sinceDate.toISOString()} (force=${force}, days=${defaultDays})`);
 
     // Resolve picklist labels (cached for the batch)
     const picklistCache = await resolvePicklists(client);
