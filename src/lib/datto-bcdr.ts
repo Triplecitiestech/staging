@@ -142,11 +142,11 @@ export class DattoBcdrClient {
           clientCompanyName?: string;
           lastSeenDate?: string;
           registrationDate?: string;
-          localStorageUsed?: { size?: number };
-          localStorageAvailable?: { size?: number };
-          offsiteStorageUsed?: { size?: number };
-          numberOfAgents?: number;
-          numberOfAlerts?: number;
+          localStorageUsed?: number;
+          localStorageAvailable?: number;
+          offsiteStorageUsed?: number;
+          agentCount?: number;
+          alertCount?: number;
         }>;
         pagination?: { totalItems?: number };
       }>('/bcdr/device');
@@ -159,11 +159,11 @@ export class DattoBcdrClient {
         clientCompanyName: d.clientCompanyName || '',
         lastSeenDate: d.lastSeenDate || '',
         registrationDate: d.registrationDate || '',
-        localStorageUsedBytes: d.localStorageUsed?.size || 0,
-        localStorageAvailableBytes: d.localStorageAvailable?.size || 0,
-        offsiteStorageUsedBytes: d.offsiteStorageUsed?.size || 0,
-        agentCount: d.numberOfAgents || 0,
-        alertCount: d.numberOfAlerts || 0,
+        localStorageUsedBytes: d.localStorageUsed || 0,
+        localStorageAvailableBytes: d.localStorageAvailable || 0,
+        offsiteStorageUsedBytes: d.offsiteStorageUsed || 0,
+        agentCount: d.agentCount || 0,
+        alertCount: d.alertCount || 0,
       }));
     } catch (error) {
       console.error('[DattoBCDR] getDevices error:', error);
