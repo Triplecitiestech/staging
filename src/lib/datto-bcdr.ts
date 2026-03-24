@@ -270,8 +270,13 @@ export class DattoBcdrClient {
       let filtered = devices;
       if (companyName) {
         filtered = devices.filter((d) => {
-          return matchesCompanyName(companyName, d.clientCompanyName);
+          const matches = matchesCompanyName(companyName, d.clientCompanyName);
+          if (matches) {
+            console.log(`[DattoBCDR] Company "${companyName}" matched device "${d.name}" (client: "${d.clientCompanyName}")`);
+          }
+          return matches;
         });
+        console.log(`[DattoBCDR] Filtered ${devices.length} total devices → ${filtered.length} matching "${companyName}"`);
       }
 
       const totalAgents = filtered.reduce((s, d) => s + d.agentCount, 0);
