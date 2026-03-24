@@ -28,26 +28,15 @@ export function processReport(
   const d = JSON.parse(JSON.stringify(data)) as AnnualReportData;
 
   // Defensive defaults for missing top-level sections (older stored reports)
-  if (!d.ticketing) {
-    d.ticketing = {
-      totalTickets: 0, ticketsByStatus: [], ticketsByPriority: [], ticketsByCategory: [],
-      mostCommonIssues: [], monthlyTrends: [],
-      responseMetrics: { avgFirstResponseMinutes: null, medianFirstResponseMinutes: null, avgResolutionMinutes: null, medianResolutionMinutes: null, firstTouchResolutionRate: null, reopenRate: null, slaResponseCompliance: null, slaResolutionCompliance: null },
-      workBreakdown: { reactive: 0, maintenance: 0, project: 0, other: 0 },
-    } as AnnualReportData['ticketing'];
-  }
-  if (!d.dattoRmm) {
-    d.dattoRmm = { available: false, totalAlerts: 0, endpointCount: 0, devicesManaged: 0, alertsByCategory: [], alertsByPriority: [], osBreakdown: [], deviceTypeBreakdown: [] } as AnnualReportData['dattoRmm'];
-  }
-  if (!d.security) {
-    d.security = { sources: [], socIncidents: { available: false, totalIncidents: 0, resolvedIncidents: 0, avgResolutionMinutes: null, bySeverity: [] } } as AnnualReportData['security'];
-  }
+  // Defensive defaults for missing top-level sections use unknown cast
+  // because partial objects are intentional for empty/legacy reports
+  if (!d.ticketing) d.ticketing = emptyTicketing() as AnnualReportData['ticketing'];
+  if (!d.dattoRmm) d.dattoRmm = { available: false } as unknown as AnnualReportData['dattoRmm'];
+  if (!d.security) d.security = { sources: [], socIncidents: { available: false, totalIncidents: 0, resolvedIncidents: 0, avgResolutionMinutes: null, bySeverity: [] } } as unknown as AnnualReportData['security'];
   if (!d.dataSources) d.dataSources = [];
-  if (!d.executiveSummary) {
-    d.executiveSummary = { keyTrends: [], topIssueCategories: [], dataCoverageNotes: [] } as AnnualReportData['executiveSummary'];
-  }
-  if (!d.company) d.company = { id: '', name: 'Unknown' } as AnnualReportData['company'];
-  if (!d.period) d.period = { start: '', end: '', label: '' } as AnnualReportData['period'];
+  if (!d.executiveSummary) d.executiveSummary = { keyTrends: [], topIssueCategories: [], dataCoverageNotes: [] } as unknown as AnnualReportData['executiveSummary'];
+  if (!d.company) d.company = { id: '', name: 'Unknown' } as unknown as AnnualReportData['company'];
+  if (!d.period) d.period = { start: '', end: '', label: '' } as unknown as AnnualReportData['period'];
 
   if (!isInternal) {
     applyCustomerFiltering(d);
@@ -182,6 +171,15 @@ function applyCustomerFiltering(d: AnnualReportData): void {
   if (d.dattoBcdr?.available) {
     d.dattoBcdr.alertsByType = [];
   }
+}
+
+function emptyTicketing(): unknown {
+  return {
+    totalTickets: 0, ticketsByStatus: [], ticketsByPriority: [], ticketsByCategory: [],
+    mostCommonIssues: [], monthlyTrends: [],
+    responseMetrics: { avgFirstResponseMinutes: null, medianFirstResponseMinutes: null, avgResolutionMinutes: null, medianResolutionMinutes: null, firstTouchResolutionRate: null, reopenRate: null, slaResponseCompliance: null, slaResolutionCompliance: null },
+    workBreakdown: { reactive: 0, maintenance: 0, project: 0, other: 0 },
+  };
 }
 
 /**
