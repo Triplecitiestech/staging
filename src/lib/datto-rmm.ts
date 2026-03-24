@@ -80,12 +80,28 @@ export class DattoRmmClient {
       body: 'grant_type=client_credentials',
     });
 
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Datto RMM auth failed (${res.status}): ${text}`);
+    const text = await res.text();
+
+    // Detect HTML response (wrong URL or redirect to login page)
+    if (text.trimStart().startsWith('<') || text.includes('<!DOCTYPE')) {
+      throw new Error(
+        `Datto RMM auth endpoint returned HTML instead of JSON. ` +
+        `Token URL: ${tokenUrl} — this usually means DATTO_RMM_API_URL is set to the wrong region. ` +
+        `Valid regions: concord-api, pinotage-api, merlot-api, zinfandel-api, syrah-api (.centrastage.net)`
+      );
     }
 
-    const data = (await res.json()) as TokenResponse;
+    if (!res.ok) {
+      throw new Error(`Datto RMM auth failed (${res.status}): ${text.slice(0, 500)}`);
+    }
+
+    let data: TokenResponse;
+    try {
+      data = JSON.parse(text) as TokenResponse;
+    } catch {
+      throw new Error(`Datto RMM auth returned invalid JSON (${res.status}): ${text.slice(0, 200)}`);
+    }
+
     this.accessToken = data.access_token;
     this.tokenExpiresAt = Date.now() + data.expires_in * 1000;
     return this.accessToken;

@@ -127,6 +127,16 @@ export class DnsFilterClient {
       `/traffic_reports?start_date=${sinceDateOnly}&end_date=${untilDateOnly}`,
     ];
 
+    // If we can get org ID, add org-scoped endpoints (higher priority)
+    const orgId = await this.getOrganizationId();
+    if (orgId) {
+      endpoints.unshift(
+        `/organizations/${orgId}/traffic_reports/query_logs?from=${sinceStr}&to=${untilStr}`,
+        `/organizations/${orgId}/traffic_reports?from=${sinceStr}&to=${untilStr}`,
+        `/organizations/${orgId}/traffic_reports?start_date=${sinceDateOnly}&end_date=${untilDateOnly}`,
+      );
+    }
+
     let lastError: Error | null = null;
 
     for (const endpoint of endpoints) {
@@ -175,7 +185,11 @@ export class DnsFilterClient {
       return { total_queries: 0, blocked_queries: 0, threats: [], top_blocked: [] };
     }
 
-    throw lastError;
+    throw new Error(
+      `DNSFilter data fetch failed after trying ${endpoints.length} endpoints. ` +
+      `Last error: ${lastError.message}. ` +
+      `Base URL: ${this.baseUrl}. Verify DNSFILTER_API_TOKEN and DNSFILTER_API_URL are correct.`
+    );
   }
 
   /**
