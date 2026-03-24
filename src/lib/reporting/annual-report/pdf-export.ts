@@ -173,20 +173,21 @@ ${isInternal ? '<div class="internal-banner">&#9888; INTERNAL DOCUMENT — NOT F
 
 <!-- DATA COVERAGE -->
 <div class="section avoid-break">
-  <div class="section-title">Data Source Coverage</div>
-  <div class="narrative">This report aggregates data from multiple systems. The table below shows what data is available for the reporting period.</div>
+  <div class="section-title">${isInternal ? 'Data Source Coverage' : 'Services Covered'}</div>
+  ${isInternal ? '<div class="narrative">This report aggregates data from multiple systems. The table below shows what data is available for the reporting period.</div>' : '<div class="narrative">The following managed services are active for your organization during this reporting period.</div>'}
   <table>
-    <thead><tr><th>Data Source</th><th style="text-align:center">Status</th><th>Coverage</th><th>Notes</th></tr></thead>
+    <thead><tr><th>${isInternal ? 'Data Source' : 'Service'}</th><th style="text-align:center">Status</th><th>Coverage</th>${isInternal ? '<th>Notes</th>' : ''}</tr></thead>
     <tbody>
-    ${data.dataSources.map(ds => {
+    ${(isInternal ? data.dataSources : data.dataSources.filter(ds => ds.available)).map(ds => {
       const statusClass = ds.available ? 'coverage-available' : ds.isPartial ? 'coverage-partial' : 'coverage-missing';
-      const statusLabel = ds.available ? 'Available' : 'Not Available';
+      const statusLabel = ds.available ? (isInternal ? 'Available' : 'Active') : 'Not Available';
       const coverage = ds.coverageStart && ds.coverageEnd ? `${ds.coverageStart} to ${ds.coverageEnd}` : '—';
+      const label = isInternal ? (ds.internalSource || ds.source) : ds.source;
       return `<tr>
-        <td>${ds.source}</td>
+        <td>${label}</td>
         <td style="text-align:center" class="${statusClass}">${statusLabel}</td>
         <td>${coverage}</td>
-        <td style="font-size:9pt;color:#64748b">${ds.note || '—'}</td>
+        ${isInternal ? `<td style="font-size:9pt;color:#64748b">${ds.note || '—'}</td>` : ''}
       </tr>`;
     }).join('')}
     </tbody>
@@ -216,11 +217,11 @@ ${isInternal ? '<div class="internal-banner">&#9888; INTERNAL DOCUMENT — NOT F
   <div class="section-title">2. Ticketing Analysis</div>
   <div class="stat-grid">
     ${statCard('Tickets Created', data.ticketing.totalTickets)}
-    ${statCard('Avg Response', data.ticketing.responseMetrics.avgFirstResponseMinutes !== null ? fmtMin(data.ticketing.responseMetrics.avgFirstResponseMinutes) : '—')}
-    ${statCard('Avg Resolution', data.ticketing.responseMetrics.avgResolutionMinutes !== null ? fmtMin(data.ticketing.responseMetrics.avgResolutionMinutes) : '—')}
     ${statCard('First Touch Rate', data.ticketing.responseMetrics.firstTouchResolutionRate !== null ? `${data.ticketing.responseMetrics.firstTouchResolutionRate}%` : '—')}
-    ${statCard('SLA Compliance', data.ticketing.responseMetrics.slaResponseCompliance !== null ? `${data.ticketing.responseMetrics.slaResponseCompliance}%` : '—')}
-    ${statCard('Median Resolution', data.ticketing.responseMetrics.medianResolutionMinutes !== null ? fmtMin(data.ticketing.responseMetrics.medianResolutionMinutes) : '—')}
+    ${isInternal ? statCard('Avg Response', data.ticketing.responseMetrics.avgFirstResponseMinutes !== null ? fmtMin(data.ticketing.responseMetrics.avgFirstResponseMinutes) : '—') : ''}
+    ${isInternal ? statCard('Avg Resolution', data.ticketing.responseMetrics.avgResolutionMinutes !== null ? fmtMin(data.ticketing.responseMetrics.avgResolutionMinutes) : '—') : ''}
+    ${isInternal && data.ticketing.responseMetrics.slaResponseCompliance !== null ? statCard('SLA Compliance', `${data.ticketing.responseMetrics.slaResponseCompliance}%`) : ''}
+    ${isInternal ? statCard('Median Resolution', data.ticketing.responseMetrics.medianResolutionMinutes !== null ? fmtMin(data.ticketing.responseMetrics.medianResolutionMinutes) : '—') : ''}
   </div>
 
   ${data.ticketing.ticketsByPriority.length > 0 ? `
@@ -232,10 +233,10 @@ ${isInternal ? '<div class="internal-banner">&#9888; INTERNAL DOCUMENT — NOT F
     }).join('')}
   </div>
   <table>
-    <thead><tr><th>Priority</th><th style="text-align:right">Count</th><th style="text-align:right">Share</th><th style="text-align:right">Avg Resolution</th></tr></thead>
+    <thead><tr><th>Priority</th><th style="text-align:right">Count</th><th style="text-align:right">Share</th>${isInternal ? '<th style="text-align:right">Avg Resolution</th>' : ''}</tr></thead>
     <tbody>
     ${data.ticketing.ticketsByPriority.map(p =>
-      `<tr><td>${p.priority}</td><td style="text-align:right">${p.count}</td><td style="text-align:right">${p.percentage}%</td><td style="text-align:right">${p.avgResolutionMinutes !== null ? fmtMin(p.avgResolutionMinutes) : '<span style="color:#94a3b8">—</span>'}</td></tr>`
+      `<tr><td>${p.priority}</td><td style="text-align:right">${p.count}</td><td style="text-align:right">${p.percentage}%</td>${isInternal ? `<td style="text-align:right">${p.avgResolutionMinutes !== null ? fmtMin(p.avgResolutionMinutes) : '<span style="color:#94a3b8">—</span>'}</td>` : ''}</tr>`
     ).join('')}
     </tbody>
   </table>` : ''}
@@ -266,10 +267,10 @@ ${isInternal ? '<div class="internal-banner">&#9888; INTERNAL DOCUMENT — NOT F
   <h3 style="font-size:11pt;font-weight:700;color:#334155;margin:16px 0 8px;">Monthly Ticket Trends</h3>
   ${renderTrendChart(data.ticketing.monthlyTrends.map(m => ({ label: m.label.split(' ')[0].substring(0, 3), value: m.ticketsCreated })), '#0891b2')}
   <table>
-    <thead><tr><th>Month</th><th style="text-align:right">Created</th><th style="text-align:right">Closed</th><th style="text-align:right">Hours</th><th style="text-align:right">Avg Resolution</th></tr></thead>
+    <thead><tr><th>Month</th><th style="text-align:right">Created</th><th style="text-align:right">Closed</th>${isInternal ? '<th style="text-align:right">Hours</th><th style="text-align:right">Avg Resolution</th>' : ''}</tr></thead>
     <tbody>
     ${data.ticketing.monthlyTrends.map(m =>
-      `<tr><td>${m.label}</td><td style="text-align:right">${m.ticketsCreated}</td><td style="text-align:right">${m.ticketsClosed}</td><td style="text-align:right">${m.supportHours}h</td><td style="text-align:right">${m.avgResolutionMinutes !== null ? fmtMin(m.avgResolutionMinutes) : '—'}</td></tr>`
+      `<tr><td>${m.label}</td><td style="text-align:right">${m.ticketsCreated}</td><td style="text-align:right">${m.ticketsClosed}</td>${isInternal ? `<td style="text-align:right">${m.supportHours}h</td><td style="text-align:right">${m.avgResolutionMinutes !== null ? fmtMin(m.avgResolutionMinutes) : '—'}</td>` : ''}</tr>`
     ).join('')}
     </tbody>
   </table>` : ''}
@@ -286,7 +287,7 @@ ${isInternal ? '<div class="internal-banner">&#9888; INTERNAL DOCUMENT — NOT F
 
 <!-- DATTO RMM -->
 <div class="section page-break avoid-break">
-  <div class="section-title">3. Endpoint Operations (Datto RMM)</div>
+  <div class="section-title">3. ${isInternal ? 'Endpoint Operations (Datto RMM)' : 'Endpoint Management'}</div>
   ${!data.dattoRmm.available ? `
   <div class="data-notice">
     <strong>Data Not Available</strong><br/>
@@ -352,7 +353,7 @@ ${isInternal ? '<div class="internal-banner">&#9888; INTERNAL DOCUMENT — NOT F
 
 <!-- DATTO EDR -->
 <div class="section page-break avoid-break">
-  <div class="section-title">4. Endpoint Detection &amp; Response (Datto EDR)</div>
+  <div class="section-title">4. ${isInternal ? 'Endpoint Detection &amp; Response (Datto EDR)' : 'Endpoint Detection &amp; Response (EDR)'}</div>
   ${!data.dattoEdr.available ? `
   <div class="data-notice">
     <strong>Data Not Available</strong><br/>
@@ -395,7 +396,7 @@ ${isInternal ? '<div class="internal-banner">&#9888; INTERNAL DOCUMENT — NOT F
 
 <!-- DNSFILTER -->
 <div class="section avoid-break">
-  <div class="section-title">5. DNS Security (DNSFilter)</div>
+  <div class="section-title">5. ${isInternal ? 'DNS Security (DNSFilter)' : 'DNS Security Filtering'}</div>
   ${!data.dnsFilter.available ? `
   <div class="data-notice">
     <strong>Data Not Available</strong><br/>
@@ -433,7 +434,7 @@ ${isInternal ? '<div class="internal-banner">&#9888; INTERNAL DOCUMENT — NOT F
 
 <!-- DATTO BCDR (BACKUPS) -->
 <div class="section avoid-break">
-  <div class="section-title">6. Backup &amp; Disaster Recovery (Datto BCDR)</div>
+  <div class="section-title">6. ${isInternal ? 'Backup &amp; Disaster Recovery (Datto BCDR)' : 'Backup &amp; Disaster Recovery (BCDR)'}</div>
   ${!data.dattoBcdr.available ? `
   <div class="data-notice">
     <strong>Data Not Available</strong><br/>
@@ -466,7 +467,7 @@ ${isInternal ? '<div class="internal-banner">&#9888; INTERNAL DOCUMENT — NOT F
 
 <!-- DATTO SAAS PROTECTION -->
 <div class="section avoid-break">
-  <div class="section-title">7. Cloud Backup (Datto SaaS Protection)</div>
+  <div class="section-title">7. ${isInternal ? 'Cloud Backup (Datto SaaS Protection)' : 'SaaS Backups (M365/Google)'}</div>
   ${!data.dattoSaas?.available ? `
   <div class="data-notice">
     <strong>Data Not Available</strong><br/>
@@ -508,17 +509,27 @@ ${isInternal ? '<div class="internal-banner">&#9888; INTERNAL DOCUMENT — NOT F
 <div class="section page-break avoid-break">
   <div class="section-title">8. Security Operations</div>
 
+  ${isInternal ? `
   <h3 style="font-size:11pt;font-weight:700;color:#334155;margin:0 0 8px;">Security Source Status</h3>
   <table>
     <thead><tr><th>Source</th><th style="text-align:center">Status</th><th>Notes</th></tr></thead>
     <tbody>
     ${data.security.sources.map(s => {
       const statusClass = s.available ? 'coverage-available' : 'coverage-missing';
-      const label = s.available ? 'Active' : 'Not Connected';
-      return `<tr><td>${s.name}</td><td style="text-align:center" class="${statusClass}">${label}</td><td style="font-size:9pt;color:#64748b">${s.note || '—'}</td></tr>`;
+      const statusLabel = s.available ? 'Active' : 'Not Connected';
+      return `<tr><td>${s.internalName || s.name}</td><td style="text-align:center" class="${statusClass}">${statusLabel}</td><td style="font-size:9pt;color:#64748b">${s.note || '—'}</td></tr>`;
     }).join('')}
     </tbody>
-  </table>
+  </table>` : `
+  <div class="narrative">Our Security Operations Center continuously monitors your environment for threats and anomalies across the following areas:</div>
+  <table>
+    <thead><tr><th>Security Capability</th><th style="text-align:center">Status</th><th>Description</th></tr></thead>
+    <tbody>
+    ${data.security.sources.filter(s => s.available).map(s =>
+      `<tr><td>${s.name}</td><td style="text-align:center" class="coverage-available">Active</td><td style="font-size:9pt;color:#64748b">${s.note || '—'}</td></tr>`
+    ).join('')}
+    </tbody>
+  </table>`}
 
   ${data.security.socIncidents.available ? `
   <h3 style="font-size:11pt;font-weight:700;color:#334155;margin:16px 0 8px;">SOC Incidents</h3>
@@ -552,14 +563,14 @@ ${isInternal ? '<div class="internal-banner">&#9888; INTERNAL DOCUMENT — NOT F
   </div>`}
 </div>
 
-<!-- EMAIL SECURITY -->
+${isInternal ? `<!-- EMAIL SECURITY -->
 <div class="section avoid-break">
   <div class="section-title">9. Email Security (Inky)</div>
   <div class="data-notice">
     <strong>Integration Not Yet Connected</strong><br/>
     ${esc(data.emailSecurity.note)}
   </div>
-</div>
+</div>` : ''}
 
 <!-- HEALTH SNAPSHOT -->
 <div class="section avoid-break">
@@ -570,7 +581,7 @@ ${isInternal ? '<div class="internal-banner">&#9888; INTERNAL DOCUMENT — NOT F
     <div>
       <div style="font-size:14pt;font-weight:700;color:#0f172a;">${data.healthSnapshot.tier}</div>
       ${data.healthSnapshot.trend ? `<div style="font-size:9pt;color:#64748b;">Trend: ${data.healthSnapshot.trend}</div>` : ''}
-      ${data.healthSnapshot.previousScore !== null ? `<div style="font-size:9pt;color:#64748b;">Previous: ${Math.round(data.healthSnapshot.previousScore)}</div>` : ''}
+      ${data.healthSnapshot.previousScore !== null && isInternal ? `<div style="font-size:9pt;color:#64748b;">Previous: ${Math.round(data.healthSnapshot.previousScore)}</div>` : ''}
     </div>
   </div>` : `
   <div style="text-align:center;padding:20px;color:#94a3b8;font-style:italic;">

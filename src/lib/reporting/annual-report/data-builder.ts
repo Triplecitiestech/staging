@@ -583,10 +583,10 @@ async function buildSecurityAnalysis(
   const edrClient = new DattoEdrClient();
   const dnsClient = new DnsFilterClient();
   const sources = [
-    { name: 'SOC Analyst Agent (Autotask Tickets)', available: true, note: null as string | null },
-    { name: 'RocketCyber', available: false, note: 'Not yet integrated.' },
-    { name: 'Datto EDR', available: edrClient.isConfigured(), note: edrClient.isConfigured() ? 'Active — monitoring endpoint security events.' : 'Not configured.' },
-    { name: 'DNSFilter', available: dnsClient.isConfigured(), note: dnsClient.isConfigured() ? 'Active — monitoring DNS queries and blocking threats.' : 'Not configured.' },
+    { name: 'Threat Monitoring & Triage', internalName: 'SOC Analyst Agent', available: true, note: 'Continuous monitoring of security alerts, suspicious activity, and potential threats.' as string | null },
+    { name: 'Endpoint Security (EDR)', internalName: 'Datto EDR', available: edrClient.isConfigured(), note: edrClient.isConfigured() ? 'Malware detection, ransomware prevention, and endpoint threat response.' : 'Not configured.' },
+    { name: 'DNS Threat Filtering', internalName: 'DNSFilter', available: dnsClient.isConfigured(), note: dnsClient.isConfigured() ? 'Blocking malicious domains, phishing sites, and policy-violating web traffic.' : 'Not configured.' },
+    { name: 'Phishing & Email Security', internalName: 'RocketCyber / Inky', available: false, note: 'Not yet integrated.' },
   ];
 
   // Try to query SOC incidents for this company
@@ -805,7 +805,8 @@ function buildDataSourceCoverage(
 
   return [
     {
-      source: 'Autotask PSA (Ticketing)',
+      source: 'Managed IT Support',
+      internalSource: 'Autotask PSA (Ticketing)',
       available: ticketing.totalTickets > 0,
       coverageStart: ticketing.totalTickets > 0 ? start : null,
       coverageEnd: ticketing.totalTickets > 0 ? end : null,
@@ -813,7 +814,8 @@ function buildDataSourceCoverage(
       note: ticketing.totalTickets === 0 ? 'No tickets found for this company in the specified period.' : null,
     },
     {
-      source: 'Datto RMM (Endpoint Operations)',
+      source: 'Endpoint Management',
+      internalSource: 'Datto RMM (Endpoint Operations)',
       available: dattoRmm.available,
       coverageStart: dattoRmm.available ? start : null,
       coverageEnd: dattoRmm.available ? end : null,
@@ -821,7 +823,8 @@ function buildDataSourceCoverage(
       note: dattoRmm.note,
     },
     {
-      source: 'Datto EDR (Endpoint Detection & Response)',
+      source: 'Endpoint Detection & Response (EDR)',
+      internalSource: 'Datto EDR',
       available: dattoEdr.available,
       coverageStart: dattoEdr.available ? start : null,
       coverageEnd: dattoEdr.available ? end : null,
@@ -829,7 +832,8 @@ function buildDataSourceCoverage(
       note: dattoEdr.note,
     },
     {
-      source: 'DNSFilter (DNS Security)',
+      source: 'DNS Security Filtering',
+      internalSource: 'DNSFilter',
       available: dnsFilter.available,
       coverageStart: dnsFilter.available ? start : null,
       coverageEnd: dnsFilter.available ? end : null,
@@ -837,7 +841,8 @@ function buildDataSourceCoverage(
       note: dnsFilter.note,
     },
     {
-      source: 'Datto BCDR (Backups)',
+      source: 'Backup & Disaster Recovery (BCDR)',
+      internalSource: 'Datto BCDR',
       available: dattoBcdr.available,
       coverageStart: dattoBcdr.available ? start : null,
       coverageEnd: dattoBcdr.available ? end : null,
@@ -845,7 +850,8 @@ function buildDataSourceCoverage(
       note: dattoBcdr.note,
     },
     {
-      source: 'Datto SaaS Protection (M365/Google Backups)',
+      source: 'SaaS Backups (M365/Google)',
+      internalSource: 'Datto SaaS Protection',
       available: dattoSaas.available,
       coverageStart: dattoSaas.available ? start : null,
       coverageEnd: dattoSaas.available ? end : null,
@@ -853,7 +859,8 @@ function buildDataSourceCoverage(
       note: dattoSaas.note,
     },
     {
-      source: 'SOC Analyst Agent (Security)',
+      source: 'Security Operations Center (SOC)',
+      internalSource: 'SOC Analyst Agent',
       available: security.socIncidents.available,
       coverageStart: security.socIncidents.available ? start : null,
       coverageEnd: security.socIncidents.available ? end : null,
@@ -862,6 +869,7 @@ function buildDataSourceCoverage(
     },
     {
       source: 'RocketCyber',
+      internalSource: 'RocketCyber',
       available: false,
       coverageStart: null,
       coverageEnd: null,
@@ -869,7 +877,8 @@ function buildDataSourceCoverage(
       note: 'Integration not yet implemented. No API credentials provided.',
     },
     {
-      source: 'Inky (Email Security)',
+      source: 'Email Security',
+      internalSource: 'Inky',
       available: emailSecurity.available,
       coverageStart: null,
       coverageEnd: null,
@@ -911,12 +920,15 @@ function buildExecutiveSummary(
     }
   }
 
+  // Only highlight positive response metrics (under 2 hours)
   if (ticketing.responseMetrics.avgFirstResponseMinutes !== null) {
     const frt = ticketing.responseMetrics.avgFirstResponseMinutes;
-    if (frt < 60) {
-      keyTrends.push(`Average first response time of ${Math.round(frt)} minutes demonstrates rapid incident acknowledgment.`);
-    } else {
-      keyTrends.push(`Average first response time of ${(frt / 60).toFixed(1)} hours.`);
+    if (frt < 120) {
+      if (frt < 60) {
+        keyTrends.push(`Average first response time of ${Math.round(frt)} minutes demonstrates rapid incident acknowledgment.`);
+      } else {
+        keyTrends.push(`Average first response time of ${(frt / 60).toFixed(1)} hours.`);
+      }
     }
   }
 
@@ -924,23 +936,23 @@ function buildExecutiveSummary(
     const resolveRate = dattoRmm.alertsResolved > 0
       ? round1((dattoRmm.alertsResolved / dattoRmm.totalAlerts) * 100)
       : 0;
-    keyTrends.push(`${dattoRmm.totalAlerts} RMM alerts processed with ${resolveRate}% resolution rate.`);
+    keyTrends.push(`${dattoRmm.totalAlerts} endpoint management alerts processed with ${resolveRate}% resolution rate.`);
   }
 
   if (dattoEdr.available && dattoEdr.totalEvents > 0) {
-    keyTrends.push(`${dattoEdr.totalEvents} endpoint security events detected and analyzed by Datto EDR.`);
+    keyTrends.push(`${dattoEdr.totalEvents} endpoint security events detected and analyzed by our EDR platform.`);
   }
 
   if (dnsFilter.available && dnsFilter.blockedQueries > 0) {
-    keyTrends.push(`DNSFilter blocked ${dnsFilter.blockedQueries.toLocaleString()} malicious or policy-violating DNS queries.`);
+    keyTrends.push(`DNS security filtering blocked ${dnsFilter.blockedQueries.toLocaleString()} malicious or policy-violating queries.`);
   }
 
   if (dattoBcdr.available && dattoBcdr.totalDevices > 0) {
-    keyTrends.push(`${dattoBcdr.totalDevices} backup appliances protecting ${dattoBcdr.totalAgents} servers via Datto BCDR.`);
+    keyTrends.push(`${dattoBcdr.totalDevices} backup appliances protecting ${dattoBcdr.totalAgents} servers via BCDR.`);
   }
 
   if (dattoSaas.available && dattoSaas.activeSeats > 0) {
-    keyTrends.push(`${dattoSaas.activeSeats} cloud seats actively protected via Datto SaaS Protection (M365/Google Workspace).`);
+    keyTrends.push(`${dattoSaas.activeSeats} cloud seats actively backed up (M365/Google Workspace).`);
   }
 
   // Total alerts = RMM + EDR + security incidents

@@ -143,7 +143,7 @@ export default function AnnualReportDetail({ reportId }: Props) {
               <tbody>
                 {visibleDataSources.map((ds, i) => (
                   <tr key={i} className="border-b border-slate-700/50">
-                    <td className="py-2 px-3 text-slate-300">{ds.source}</td>
+                    <td className="py-2 px-3 text-slate-300">{!isCustomer && ds.internalSource ? ds.internalSource : ds.source}</td>
                     <td className="py-2 px-3 text-center">
                       <span className={`px-2 py-0.5 rounded text-xs font-medium ${
                         ds.available ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
@@ -201,15 +201,19 @@ export default function AnnualReportDetail({ reportId }: Props) {
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-4">
                 <StatCard label="Tickets Created" value={data.ticketing.totalTickets} />
-                <StatCard label="Avg Response" value={fmtMin(data.ticketing.responseMetrics.avgFirstResponseMinutes)} />
-                <StatCard label="Avg Resolution" value={fmtMin(data.ticketing.responseMetrics.avgResolutionMinutes)} />
                 <StatCard label="First Touch Rate" value={data.ticketing.responseMetrics.firstTouchResolutionRate !== null ? `${data.ticketing.responseMetrics.firstTouchResolutionRate}%` : '—'} />
-                {data.ticketing.responseMetrics.slaResponseCompliance !== null && (
+                {!isCustomer && (
+                  <>
+                    <StatCard label="Avg Response" value={fmtMin(data.ticketing.responseMetrics.avgFirstResponseMinutes)} />
+                    <StatCard label="Avg Resolution" value={fmtMin(data.ticketing.responseMetrics.avgResolutionMinutes)} />
+                    <StatCard label="Median Resolution" value={fmtMin(data.ticketing.responseMetrics.medianResolutionMinutes)} />
+                  </>
+                )}
+                {data.ticketing.responseMetrics.slaResponseCompliance !== null && !isCustomer && (
                   <StatCard label="SLA Compliance" value={`${data.ticketing.responseMetrics.slaResponseCompliance}%`} />
                 )}
-                <StatCard label="Median Resolution" value={fmtMin(data.ticketing.responseMetrics.medianResolutionMinutes)} />
               </div>
 
               {data.ticketing.ticketsByPriority.length > 0 && (
@@ -222,7 +226,7 @@ export default function AnnualReportDetail({ reportId }: Props) {
                           <th className="text-left text-slate-400 py-2 px-3">Priority</th>
                           <th className="text-right text-slate-400 py-2 px-3">Count</th>
                           <th className="text-right text-slate-400 py-2 px-3">Share</th>
-                          <th className="text-right text-slate-400 py-2 px-3">Avg Resolution</th>
+                          {!isCustomer && <th className="text-right text-slate-400 py-2 px-3">Avg Resolution</th>}
                         </tr>
                       </thead>
                       <tbody>
@@ -231,7 +235,7 @@ export default function AnnualReportDetail({ reportId }: Props) {
                             <td className="py-2 px-3 text-slate-300">{p.priority}</td>
                             <td className="py-2 px-3 text-right text-slate-300">{p.count}</td>
                             <td className="py-2 px-3 text-right text-slate-400">{p.percentage}%</td>
-                            <td className="py-2 px-3 text-right text-slate-400">{fmtMin(p.avgResolutionMinutes)}</td>
+                            {!isCustomer && <td className="py-2 px-3 text-right text-slate-400">{fmtMin(p.avgResolutionMinutes)}</td>}
                           </tr>
                         ))}
                       </tbody>
@@ -250,8 +254,8 @@ export default function AnnualReportDetail({ reportId }: Props) {
                           <th className="text-left text-slate-400 py-2 px-3">Month</th>
                           <th className="text-right text-slate-400 py-2 px-3">Created</th>
                           <th className="text-right text-slate-400 py-2 px-3">Closed</th>
-                          <th className="text-right text-slate-400 py-2 px-3">Hours</th>
-                          <th className="text-right text-slate-400 py-2 px-3">Avg Resolution</th>
+                          {!isCustomer && <th className="text-right text-slate-400 py-2 px-3">Hours</th>}
+                          {!isCustomer && <th className="text-right text-slate-400 py-2 px-3">Avg Resolution</th>}
                         </tr>
                       </thead>
                       <tbody>
@@ -260,8 +264,8 @@ export default function AnnualReportDetail({ reportId }: Props) {
                             <td className="py-2 px-3 text-slate-300">{m.label}</td>
                             <td className="py-2 px-3 text-right text-slate-300">{m.ticketsCreated}</td>
                             <td className="py-2 px-3 text-right text-slate-300">{m.ticketsClosed}</td>
-                            <td className="py-2 px-3 text-right text-slate-400">{m.supportHours}h</td>
-                            <td className="py-2 px-3 text-right text-slate-400">{fmtMin(m.avgResolutionMinutes)}</td>
+                            {!isCustomer && <td className="py-2 px-3 text-right text-slate-400">{m.supportHours}h</td>}
+                            {!isCustomer && <td className="py-2 px-3 text-right text-slate-400">{fmtMin(m.avgResolutionMinutes)}</td>}
                           </tr>
                         ))}
                       </tbody>
@@ -300,9 +304,9 @@ export default function AnnualReportDetail({ reportId }: Props) {
         </Section>
       )}
 
-      {/* Datto RMM — hide entirely for customer if no data */}
+      {/* RMM — hide entirely for customer if no data */}
       {(!isCustomer || hasRmm) && (
-        <Section title="Endpoint Operations (Datto RMM)">
+        <Section title={isCustomer ? 'Endpoint Management' : 'Endpoint Operations (Datto RMM)'}>
           {!data.dattoRmm.available || data.dattoRmm.totalAlerts === 0 ? (
             !isCustomer ? (
               <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-2 text-sm text-blue-400">
@@ -327,9 +331,9 @@ export default function AnnualReportDetail({ reportId }: Props) {
         </Section>
       )}
 
-      {/* Datto EDR — hide entirely for customer if no data */}
+      {/* EDR — hide entirely for customer if no data */}
       {(!isCustomer || hasEdr) && (
-        <Section title="Endpoint Detection & Response (Datto EDR)">
+        <Section title={isCustomer ? 'Endpoint Detection & Response (EDR)' : 'Endpoint Detection & Response (Datto EDR)'}>
           {!hasEdr ? (
             !isCustomer ? (
               <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-2 text-sm text-blue-400">
@@ -360,9 +364,9 @@ export default function AnnualReportDetail({ reportId }: Props) {
         </Section>
       )}
 
-      {/* DNSFilter — hide entirely for customer if no data */}
+      {/* DNS — hide entirely for customer if no data */}
       {(!isCustomer || hasDns) && (
-        <Section title="DNS Security (DNSFilter)">
+        <Section title={isCustomer ? 'DNS Security Filtering' : 'DNS Security (DNSFilter)'}>
           {!hasDns ? (
             !isCustomer ? (
               <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-2 text-sm text-blue-400">
@@ -379,9 +383,9 @@ export default function AnnualReportDetail({ reportId }: Props) {
         </Section>
       )}
 
-      {/* Datto BCDR — hide entirely for customer if no devices */}
+      {/* BCDR — hide entirely for customer if no devices */}
       {(!isCustomer || hasBcdr) && (
-        <Section title="Backup & Disaster Recovery (Datto BCDR)">
+        <Section title={isCustomer ? 'Backup & Disaster Recovery (BCDR)' : 'Backup & Disaster Recovery (Datto BCDR)'}>
           {!hasBcdr ? (
             !isCustomer ? (
               <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-2 text-sm text-blue-400">
@@ -409,9 +413,9 @@ export default function AnnualReportDetail({ reportId }: Props) {
         </Section>
       )}
 
-      {/* Datto SaaS Protection — hide entirely for customer if no data */}
+      {/* SaaS backups — hide entirely for customer if no data */}
       {(!isCustomer || hasSaas) && (
-        <Section title="Cloud Backup (Datto SaaS Protection)">
+        <Section title={isCustomer ? 'SaaS Backups (M365/Google)' : 'Cloud Backup (Datto SaaS Protection)'}>
           {!hasSaas ? (
             !isCustomer ? (
               <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-2 text-sm text-blue-400">
@@ -442,25 +446,42 @@ export default function AnnualReportDetail({ reportId }: Props) {
         </Section>
       )}
 
-      {/* Security Operations — customer: only show if there are active sources with real data */}
+      {/* Security Operations — customer: show what we monitor, not product names */}
       {(!isCustomer || visibleSecSources.length > 0 || hasSoc) && (
         <Section title="Security Operations">
-          {visibleSecSources.length > 0 && (
+          {isCustomer ? (
             <>
-              <h4 className="text-sm font-semibold text-slate-300 mb-2">{isCustomer ? 'Active Security Services' : 'Source Status'}</h4>
+              <p className="text-sm text-slate-400 mb-3">
+                Our Security Operations Center continuously monitors your environment for threats and anomalies across the following areas:
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                {visibleSecSources.map((s, i) => (
+                  <div key={i} className="bg-slate-900/50 border border-slate-700/50 rounded-lg px-4 py-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                      <span className="text-sm font-medium text-slate-200">{s.name}</span>
+                    </div>
+                    {s.note && <p className="text-xs text-slate-400 ml-4">{s.note}</p>}
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <>
+              <h4 className="text-sm font-semibold text-slate-300 mb-2">Source Status</h4>
               <div className="overflow-x-auto mb-4">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-slate-700">
                       <th className="text-left text-slate-400 py-2 px-3">Source</th>
                       <th className="text-center text-slate-400 py-2 px-3">Status</th>
-                      {!isCustomer && <th className="text-left text-slate-400 py-2 px-3">Notes</th>}
+                      <th className="text-left text-slate-400 py-2 px-3">Notes</th>
                     </tr>
                   </thead>
                   <tbody>
                     {visibleSecSources.map((s, i) => (
                       <tr key={i} className="border-b border-slate-700/50">
-                        <td className="py-2 px-3 text-slate-300">{s.name}</td>
+                        <td className="py-2 px-3 text-slate-300">{s.internalName || s.name}</td>
                         <td className="py-2 px-3 text-center">
                           <span className={`px-2 py-0.5 rounded text-xs font-medium ${
                             s.available ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
@@ -468,7 +489,7 @@ export default function AnnualReportDetail({ reportId }: Props) {
                             {s.available ? 'Active' : 'Not Connected'}
                           </span>
                         </td>
-                        {!isCustomer && <td className="py-2 px-3 text-slate-500 text-xs">{s.note || '—'}</td>}
+                        <td className="py-2 px-3 text-slate-500 text-xs">{s.note || '—'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -477,7 +498,7 @@ export default function AnnualReportDetail({ reportId }: Props) {
             </>
           )}
 
-          {hasSoc && (
+          {hasSoc && !isCustomer && (
             <div>
               <h4 className="text-sm font-semibold text-slate-300 mb-2">SOC Incidents: {data.security.socIncidents.totalIncidents}</h4>
               {data.security.socIncidents.bySeverity.length > 0 && (

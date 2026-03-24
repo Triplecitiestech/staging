@@ -9,6 +9,7 @@
 
 export interface DataSourceCoverage {
   source: string;
+  internalSource?: string; // Product name for internal variant
   available: boolean;
   coverageStart: string | null;
   coverageEnd: string | null;
@@ -95,7 +96,7 @@ export interface DattoRmmAnalysis {
 
 export interface SecurityAnalysis {
   available: boolean;
-  sources: Array<{ name: string; available: boolean; note: string | null }>;
+  sources: Array<{ name: string; internalName?: string; available: boolean; note: string | null }>;
   socIncidents: {
     available: boolean;
     totalIncidents: number;
