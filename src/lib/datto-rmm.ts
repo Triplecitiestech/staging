@@ -1,7 +1,8 @@
 /**
  * Datto RMM API Client
  *
- * OAuth2 client credentials grant for server-to-server auth.
+ * OAuth2 password grant with public-client credentials.
+ * API Key = username, API Secret = password, client_id = public-client.
  * Provides device lookup for SOC technician verification.
  */
 
@@ -69,46 +70,32 @@ export class DattoRmmClient {
       return this.accessToken;
     }
 
-    // Datto RMM OAuth2 — try multiple grant types since different instances accept different methods
+    // Datto RMM OAuth2 — password grant with public-client credentials
+    // Client ID: public-client, Client Secret: public (fixed values for all Datto RMM instances)
+    // Username: API Key, Password: API Secret
     const tokenUrl = `${this.apiUrl}/auth/oauth/token`;
-    const keyPreview = this.apiKey ? `${this.apiKey.slice(0, 6)}...` : '(empty)';
-    const secretPreview = this.apiSecret ? `${this.apiSecret.length} chars` : '(empty)';
-    console.log(`[DattoRMM] Auth attempt — URL: ${tokenUrl}, key: ${keyPreview}, secret: ${secretPreview}`);
+    console.log(`[DattoRMM] Auth attempt — URL: ${tokenUrl}`);
 
-    const basicAuth = Buffer.from(`${this.apiKey}:${this.apiSecret}`).toString('base64');
+    const publicAuth = Buffer.from('public-client:public').toString('base64');
 
-    // Attempt 1: client_credentials with Basic Auth header (newer Datto RMM API)
-    let res = await fetch(tokenUrl, {
+    const res = await fetch(tokenUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': `Basic ${basicAuth}`,
+        'Authorization': `Basic ${publicAuth}`,
       },
-      body: 'grant_type=client_credentials',
+      body: `grant_type=password&username=${encodeURIComponent(this.apiKey)}&password=${encodeURIComponent(this.apiSecret)}`,
     });
 
     let text = await res.text();
-    console.log(`[DattoRMM] client_credentials response: ${res.status} — ${text.slice(0, 200)}`);
-
-    // If client_credentials fails, try password grant
-    if (!res.ok) {
-      res = await fetch(tokenUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: `grant_type=password&username=${encodeURIComponent(this.apiKey)}&password=${encodeURIComponent(this.apiSecret)}`,
-      });
-      text = await res.text();
-      console.log(`[DattoRMM] password grant response: ${res.status} — ${text.slice(0, 200)}`);
-    }
+    console.log(`[DattoRMM] Auth response: ${res.status}`);
 
     // Detect HTML response (wrong URL or redirect to login page)
     if (text.trimStart().startsWith('<') || text.includes('<!DOCTYPE')) {
       throw new Error(
         `Datto RMM auth endpoint returned HTML instead of JSON. ` +
         `Token URL: ${tokenUrl} — this usually means DATTO_RMM_API_URL is set to the wrong region. ` +
-        `Valid regions: concord-api, pinotage-api, merlot-api, zinfandel-api, syrah-api (.centrastage.net)`
+        `Valid regions: concord-api, pinotage-api, merlot-api, vidal-api, zinfandel-api, syrah-api (.centrastage.net)`
       );
     }
 
