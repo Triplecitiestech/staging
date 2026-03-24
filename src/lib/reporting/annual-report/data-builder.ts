@@ -579,11 +579,14 @@ async function buildSecurityAnalysis(
   periodStart: Date,
   periodEnd: Date,
 ): Promise<SecurityAnalysis> {
+  // Dynamically determine which security sources are actually connected
+  const edrClient = new DattoEdrClient();
+  const dnsClient = new DnsFilterClient();
   const sources = [
-    { name: 'SOC Analyst Agent (Autotask Tickets)', available: true, note: null },
-    { name: 'RocketCyber', available: false, note: 'Integration not yet implemented. Requires RocketCyber API credentials.' },
-    { name: 'Datto EDR', available: false, note: 'Integration not yet implemented. Requires Datto EDR API access.' },
-    { name: 'DNSFilter', available: false, note: 'Integration not yet implemented. Requires DNSFilter API credentials.' },
+    { name: 'SOC Analyst Agent (Autotask Tickets)', available: true, note: null as string | null },
+    { name: 'RocketCyber', available: false, note: 'Not yet integrated.' },
+    { name: 'Datto EDR', available: edrClient.isConfigured(), note: edrClient.isConfigured() ? 'Active — monitoring endpoint security events.' : 'Not configured.' },
+    { name: 'DNSFilter', available: dnsClient.isConfigured(), note: dnsClient.isConfigured() ? 'Active — monitoring DNS queries and blocking threats.' : 'Not configured.' },
   ];
 
   // Try to query SOC incidents for this company
