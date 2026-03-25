@@ -17,6 +17,15 @@ export interface DattoDevice {
   siteName: string;
   operatingSystem: string;
   deviceType: string;
+  online: boolean;
+  rebootRequired: boolean;
+  patchStatus: string;
+  patchesInstalled: number;
+  patchesApprovedPending: number;
+  patchesNotApproved: number;
+  antivirusProduct: string;
+  antivirusStatus: string;
+  lastAuditDate: string;
 }
 
 export interface DattoSite {
@@ -282,13 +291,26 @@ interface RawDevice {
   hostname?: string;
   intIpAddress?: string;
   extIpAddress?: string;
-  lastSeen?: string;
+  lastSeen?: string | number;
   lastLoggedInUser?: string;
   siteId?: number;
   siteUid?: string;
   siteName?: string;
   operatingSystem?: string;
   deviceType?: { category?: string };
+  online?: boolean;
+  rebootRequired?: boolean;
+  lastAuditDate?: string | number;
+  patchManagement?: {
+    patchStatus?: string;
+    patchesInstalled?: number;
+    patchesApprovedPending?: number;
+    patchesNotApproved?: number;
+  };
+  antivirus?: {
+    antivirusProduct?: string;
+    antivirusStatus?: string;
+  };
 }
 
 interface RawSite {
@@ -339,11 +361,20 @@ function mapDevice(d: RawDevice): DattoDevice {
     hostname: d.hostname || '',
     intIpAddress: d.intIpAddress || '',
     extIpAddress: d.extIpAddress || '',
-    lastSeen: d.lastSeen || '',
+    lastSeen: typeof d.lastSeen === 'number' ? new Date(d.lastSeen).toISOString() : (d.lastSeen || ''),
     lastUser: d.lastLoggedInUser || '',
     siteId: String(d.siteUid || d.siteId || ''),
     siteName: d.siteName || '',
     operatingSystem: d.operatingSystem || '',
     deviceType: d.deviceType?.category || 'unknown',
+    online: d.online ?? false,
+    rebootRequired: d.rebootRequired ?? false,
+    patchStatus: d.patchManagement?.patchStatus || 'Unknown',
+    patchesInstalled: d.patchManagement?.patchesInstalled || 0,
+    patchesApprovedPending: d.patchManagement?.patchesApprovedPending || 0,
+    patchesNotApproved: d.patchManagement?.patchesNotApproved || 0,
+    antivirusProduct: d.antivirus?.antivirusProduct || '',
+    antivirusStatus: d.antivirus?.antivirusStatus || '',
+    lastAuditDate: typeof d.lastAuditDate === 'number' ? new Date(d.lastAuditDate).toISOString() : (d.lastAuditDate || ''),
   };
 }

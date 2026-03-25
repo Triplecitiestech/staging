@@ -452,6 +452,11 @@ async function buildDattoRmmAnalysis(
       alertsByPriority: [],
       monthlyAlertTrends: [],
       topAlertingSites: [],
+      patchFullyPatched: 0,
+      patchPendingCount: 0,
+      patchInstalledTotal: 0,
+      devicesNeedingReboot: 0,
+      devicesOnline: 0,
       note: 'Datto RMM integration not configured. Set DATTO_RMM_API_KEY and DATTO_RMM_API_SECRET environment variables.',
     };
   }
@@ -561,8 +566,12 @@ async function buildDattoRmmAnalysis(
     const resolved = periodAlerts.filter(a => a.resolved);
     const open = periodAlerts.filter(a => !a.resolved);
 
-    // Devices managed — count from matching sites
-    const devicesManaged = matchingSites.reduce((s, site) => s + site.devicesCount, 0);
+    // Patch management metrics (aggregated from device-level data)
+    const patchFullyPatched = companyDevices.filter(d => d.patchStatus === 'FullyPatched').length;
+    const patchPendingCount = companyDevices.reduce((s, d) => s + d.patchesApprovedPending, 0);
+    const patchInstalledTotal = companyDevices.reduce((s, d) => s + d.patchesInstalled, 0);
+    const devicesNeedingReboot = companyDevices.filter(d => d.rebootRequired).length;
+    const devicesOnline = companyDevices.filter(d => d.online).length;
 
     // Alerts by type
     const typeCounts = new Map<string, number>();
@@ -612,6 +621,11 @@ async function buildDattoRmmAnalysis(
       alertsByPriority,
       monthlyAlertTrends,
       topAlertingSites,
+      patchFullyPatched,
+      patchPendingCount,
+      patchInstalledTotal,
+      devicesNeedingReboot,
+      devicesOnline,
       note: matchingSites.length === 0
         ? `No Datto RMM sites found matching "${companyName}". Site-to-company mapping may need manual configuration.`
         : null,
@@ -635,6 +649,11 @@ async function buildDattoRmmAnalysis(
       alertsByPriority: [],
       monthlyAlertTrends: [],
       topAlertingSites: [],
+      patchFullyPatched: 0,
+      patchPendingCount: 0,
+      patchInstalledTotal: 0,
+      devicesNeedingReboot: 0,
+      devicesOnline: 0,
       note: `Datto RMM data fetch failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
     };
   }
