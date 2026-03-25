@@ -21,6 +21,7 @@ export interface DattoDevice {
 
 export interface DattoSite {
   id: string;
+  uid: string;
   name: string;
   description: string;
   devicesCount: number;
@@ -187,15 +188,16 @@ export class DattoRmmClient {
     const data = await this.request<{ sites: RawSite[] }>('/api/v2/account/sites');
     return (data.sites || []).map(s => ({
       id: String(s.id || s.uid),
+      uid: String(s.uid || s.id || ''),
       name: s.name || '',
       description: s.description || '',
       devicesCount: s.devicesStatus?.numberOfDevices || 0,
     }));
   }
 
-  /** Fetch devices for a specific site. */
-  async getSiteDevices(siteId: string): Promise<DattoDevice[]> {
-    const data = await this.request<{ devices: RawDevice[] }>(`/api/v2/site/${siteId}/devices`);
+  /** Fetch devices for a specific site (uses site UID, not numeric ID). */
+  async getSiteDevices(siteUid: string): Promise<DattoDevice[]> {
+    const data = await this.request<{ devices: RawDevice[] }>(`/api/v2/site/${siteUid}/devices`);
     return (data.devices || []).map(mapDevice);
   }
 

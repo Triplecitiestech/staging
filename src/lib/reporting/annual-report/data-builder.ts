@@ -493,19 +493,20 @@ async function buildDattoRmmAnalysis(
     // Match sites by company name
     const matchingSites = sites.filter(s => matchesCompanyName(companyName, s.name));
     const matchingSiteIds = new Set(matchingSites.map(s => s.id));
-    console.log(`[RMM] Company "${companyName}" matched ${matchingSites.length} sites: ${matchingSites.map(s => s.name).join(', ')}`);
+    const matchingSiteUids = new Set(matchingSites.map(s => s.uid));
+    console.log(`[RMM] Company "${companyName}" matched ${matchingSites.length} sites: ${matchingSites.map(s => `${s.name} (id=${s.id}, uid=${s.uid})`).join(', ')}`);
 
-    // Fetch devices per matched site (more reliable than global /account/devices
+    // Fetch devices per matched site using UID (more reliable than global /account/devices
     // which can return incomplete results depending on API user permissions)
     const siteDeviceResults = await Promise.allSettled(
-      matchingSites.map(s => client.getSiteDevices(s.id))
+      matchingSites.map(s => client.getSiteDevices(s.uid))
     );
     const companyDevices: Awaited<ReturnType<typeof client.getDevices>> = [];
     for (let i = 0; i < siteDeviceResults.length; i++) {
       if (siteDeviceResults[i].status === 'fulfilled') {
         companyDevices.push(...(siteDeviceResults[i] as PromiseFulfilledResult<Awaited<ReturnType<typeof client.getDevices>>>).value);
       } else {
-        console.error(`[RMM] getSiteDevices(${matchingSites[i].id} "${matchingSites[i].name}") failed: ${(siteDeviceResults[i] as PromiseRejectedResult).reason}`);
+        console.error(`[RMM] getSiteDevices(uid=${matchingSites[i].uid} "${matchingSites[i].name}") failed: ${(siteDeviceResults[i] as PromiseRejectedResult).reason}`);
       }
     }
     console.log(`[RMM] Found ${companyDevices.length} devices for "${companyName}" across ${matchingSites.length} matched sites`);
@@ -542,7 +543,7 @@ async function buildDattoRmmAnalysis(
 
     // Filter alerts by matching sites and date range
     const periodAlerts = combinedAlerts.filter(a => {
-      if (!matchingSiteIds.has(a.siteUid) && !matchesCompanyName(companyName, a.siteName)) {
+      if (!matchingSiteIds.has(a.siteUid) && !matchingSiteUids.has(a.siteUid) && !matchesCompanyName(companyName, a.siteName)) {
         return false;
       }
       const alertDate = new Date(a.timestamp);
