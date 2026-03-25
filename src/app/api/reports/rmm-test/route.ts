@@ -63,9 +63,18 @@ export async function GET(request: NextRequest) {
       const matched = sites.filter(s => matchesCompanyName(search, s.name));
       results.companyMatch = {
         searchTerm: search,
-        matchedSites: matched.map(s => ({ id: s.id, name: s.name, devices: s.devicesCount })),
+        matchedSites: matched.map(s => ({ id: s.id, uid: s.uid, name: s.name, devices: s.devicesCount })),
         matchCount: matched.length,
       };
+      // Test per-site device fetch using UID
+      if (matched.length > 0) {
+        try {
+          const siteDevices = await client.getSiteDevices(matched[0].uid);
+          results.siteDeviceTest = { siteUid: matched[0].uid, siteName: matched[0].name, deviceCount: siteDevices.length, first3: siteDevices.slice(0, 3).map(d => ({ hostname: d.hostname, deviceType: d.deviceType })) };
+        } catch (err) {
+          results.siteDeviceTest = { error: err instanceof Error ? err.message : String(err), siteUid: matched[0].uid };
+        }
+      }
     }
   } catch (err) {
     results.sites = { error: err instanceof Error ? err.message : String(err) };
