@@ -434,6 +434,7 @@ async function buildDattoRmmAnalysis(
 ): Promise<DattoRmmAnalysis> {
   const client = new DattoRmmClient();
 
+  console.log(`[RMM] isConfigured: ${client.isConfigured()}`);
   if (!client.isConfigured()) {
     return {
       available: false,
@@ -456,13 +457,39 @@ async function buildDattoRmmAnalysis(
   }
 
   try {
-    // Fetch alerts, sites, and devices in parallel
-    const [allAlerts, resolvedAlerts, sites, allDevices] = await Promise.all([
+    // Fetch alerts, sites, and devices — catch each individually to identify failures
+    let allAlerts: Awaited<ReturnType<typeof client.getOpenAlerts>> = [];
+    let resolvedAlerts: Awaited<ReturnType<typeof client.getResolvedAlerts>> = [];
+    let sites: Awaited<ReturnType<typeof client.getSites>> = [];
+    let allDevices: Awaited<ReturnType<typeof client.getDevices>> = [];
+
+    const results = await Promise.allSettled([
       client.getOpenAlerts(10),
       client.getResolvedAlerts(20),
       client.getSites(),
       client.getDevices(10),
     ]);
+
+    const labels = ['openAlerts', 'resolvedAlerts', 'sites', 'devices'];
+    for (let i = 0; i < results.length; i++) {
+      if (results[i].status === 'rejected') {
+        const reason = (results[i] as PromiseRejectedResult).reason;
+        console.error(`[RMM] ${labels[i]} fetch failed: ${reason instanceof Error ? reason.message : String(reason)}`);
+      }
+    }
+
+    if (results[0].status === 'fulfilled') allAlerts = results[0].value;
+    if (results[1].status === 'fulfilled') resolvedAlerts = results[1].value;
+    if (results[2].status === 'fulfilled') sites = results[2].value;
+    if (results[3].status === 'fulfilled') allDevices = results[3].value;
+
+    // If ALL fetches failed, treat as unavailable
+    if (results.every(r => r.status === 'rejected')) {
+      const firstErr = (results[0] as PromiseRejectedResult).reason;
+      throw firstErr instanceof Error ? firstErr : new Error(String(firstErr));
+    }
+
+    console.log(`[RMM] Fetched: ${allAlerts.length} open alerts, ${resolvedAlerts.length} resolved, ${sites.length} sites, ${allDevices.length} devices`);
 
     const combinedAlerts = [...allAlerts, ...resolvedAlerts];
 
