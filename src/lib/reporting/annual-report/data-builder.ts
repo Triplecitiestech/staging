@@ -552,9 +552,9 @@ async function buildDattoRmmAnalysis(
 
     const patchAlerts = periodAlerts.filter(a =>
       patchAlertKeywords.some(kw =>
-        (a.alertMessage || '').toLowerCase().includes(kw) ||
-        (a.alertType || '').toLowerCase().includes(kw) ||
-        (a.alertContext || '').toLowerCase().includes(kw)
+        String(a.alertMessage || '').toLowerCase().includes(kw) ||
+        String(a.alertType || '').toLowerCase().includes(kw) ||
+        String(a.alertContext || '').toLowerCase().includes(kw)
       )
     );
 
