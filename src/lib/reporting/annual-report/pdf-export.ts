@@ -205,16 +205,13 @@ ${isVis('rmm') ? `
   <div class="stat-grid">
     ${statCard('Patch Compliance', `${(r.dattoRmm.endpointCount || r.dattoRmm.devicesManaged) > 0 ? Math.round(((r.dattoRmm.patchFullyPatched ?? 0) / (r.dattoRmm.endpointCount || r.dattoRmm.devicesManaged)) * 100) : 0}%`)}
     ${statCard('Fully Patched', `${r.dattoRmm.patchFullyPatched ?? 0}/${r.dattoRmm.endpointCount || r.dattoRmm.devicesManaged}`)}
-    ${statCard('Patches Installed', r.dattoRmm.patchInstalledTotal ?? 0)}
-    ${(r.dattoRmm.patchPendingCount ?? 0) > 0 ? statCard('Patches Pending', r.dattoRmm.patchPendingCount) : ''}
-    ${(r.dattoRmm.devicesNeedingReboot ?? 0) > 0 ? statCard('Reboot Required', r.dattoRmm.devicesNeedingReboot) : ''}
+    ${statCard('Patches Installed', (r.dattoRmm.patchInstalledTotal ?? 0).toLocaleString())}
   </div>
-  ${r.dattoRmm.totalAlerts > 0 ? `
-  <h3 style="font-size:11pt;font-weight:700;color:#334155;margin:16px 0 8px;">Monitoring Alerts</h3>
+  ${r.dattoRmm.alertsResolved > 0 ? `
+  <h3 style="font-size:11pt;font-weight:700;color:#334155;margin:16px 0 8px;">Alerts Resolved</h3>
   <div class="stat-grid">
-    ${statCard('Total Alerts', r.dattoRmm.totalAlerts.toLocaleString())}
-    ${statCard('Resolution Rate', `${Math.round((r.dattoRmm.alertsResolved / r.dattoRmm.totalAlerts) * 100)}%`)}
-    ${(r.dattoRmm.patchAlertsCount ?? 0) > 0 ? statCard('Patch & Update Alerts', r.dattoRmm.patchAlertsCount) : ''}
+    ${statCard('Alerts Resolved', r.dattoRmm.alertsResolved.toLocaleString())}
+    ${(r.dattoRmm.patchAlertsCount ?? 0) > 0 ? statCard('Patch & Update Alerts Resolved', r.dattoRmm.patchAlertsCount) : ''}
   </div>` : ''}
   `}
 </div>` : ''}

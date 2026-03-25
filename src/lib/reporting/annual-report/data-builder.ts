@@ -453,9 +453,7 @@ async function buildDattoRmmAnalysis(
       monthlyAlertTrends: [],
       topAlertingSites: [],
       patchFullyPatched: 0,
-      patchPendingCount: 0,
       patchInstalledTotal: 0,
-      devicesNeedingReboot: 0,
       devicesOnline: 0,
       note: 'Datto RMM integration not configured. Set DATTO_RMM_API_KEY and DATTO_RMM_API_SECRET environment variables.',
     };
@@ -468,8 +466,8 @@ async function buildDattoRmmAnalysis(
     let sites: Awaited<ReturnType<typeof client.getSites>> = [];
 
     const results = await Promise.allSettled([
-      client.getOpenAlerts(10),
-      client.getResolvedAlerts(20),
+      client.getOpenAlerts(),
+      client.getResolvedAlerts(),
       client.getSites(),
     ]);
 
@@ -555,7 +553,9 @@ async function buildDattoRmmAnalysis(
       return alertDate >= periodStart && alertDate <= periodEnd;
     });
 
-    const patchAlerts = periodAlerts.filter(a =>
+    const resolved = periodAlerts.filter(a => a.resolved);
+
+    const patchAlerts = resolved.filter(a =>
       patchAlertKeywords.some(kw =>
         String(a.alertMessage || '').toLowerCase().includes(kw) ||
         String(a.alertType || '').toLowerCase().includes(kw) ||
@@ -563,28 +563,23 @@ async function buildDattoRmmAnalysis(
       )
     );
 
-    const resolved = periodAlerts.filter(a => a.resolved);
-    const open = periodAlerts.filter(a => !a.resolved);
-
     // Patch management metrics (aggregated from device-level data)
     const patchFullyPatched = companyDevices.filter(d => d.patchStatus === 'FullyPatched').length;
-    const patchPendingCount = companyDevices.reduce((s, d) => s + d.patchesApprovedPending, 0);
     const patchInstalledTotal = companyDevices.reduce((s, d) => s + d.patchesInstalled, 0);
-    const devicesNeedingReboot = companyDevices.filter(d => d.rebootRequired).length;
     const devicesOnline = companyDevices.filter(d => d.online).length;
 
-    // Alerts by type
+    // Alerts by type (resolved only — showing work completed)
     const typeCounts = new Map<string, number>();
-    for (const a of periodAlerts) {
+    for (const a of resolved) {
       typeCounts.set(a.alertType, (typeCounts.get(a.alertType) || 0) + 1);
     }
     const alertsByType = Array.from(typeCounts.entries())
       .sort((a, b) => b[1] - a[1])
       .map(([type, count]) => ({ type, count }));
 
-    // Alerts by priority
+    // Alerts by priority (resolved only)
     const prioCounts = new Map<string, number>();
-    for (const a of periodAlerts) {
+    for (const a of resolved) {
       prioCounts.set(a.priority, (prioCounts.get(a.priority) || 0) + 1);
     }
     const alertsByPriority = Array.from(prioCounts.entries())
@@ -592,11 +587,11 @@ async function buildDattoRmmAnalysis(
       .map(([priority, count]) => ({ priority, count }));
 
     // Monthly trends
-    const monthlyAlertTrends = buildMonthlyAlertTrends(periodAlerts, periodStart, periodEnd);
+    const monthlyAlertTrends = buildMonthlyAlertTrends(resolved, periodStart, periodEnd);
 
-    // Top alerting sites
+    // Top alerting sites (resolved only)
     const siteCounts = new Map<string, number>();
-    for (const a of periodAlerts) {
+    for (const a of resolved) {
       const name = a.siteName || 'Unknown';
       siteCounts.set(name, (siteCounts.get(name) || 0) + 1);
     }
@@ -607,9 +602,9 @@ async function buildDattoRmmAnalysis(
 
     return {
       available: true,
-      totalAlerts: periodAlerts.length,
+      totalAlerts: resolved.length,
       alertsResolved: resolved.length,
-      alertsOpen: open.length,
+      alertsOpen: 0,
       devicesManaged: companyDevices.length,
       endpointCount: companyDevices.length,
       serverCount: devicesByType.find(d => d.type === 'Server')?.count || 0,
@@ -622,9 +617,7 @@ async function buildDattoRmmAnalysis(
       monthlyAlertTrends,
       topAlertingSites,
       patchFullyPatched,
-      patchPendingCount,
       patchInstalledTotal,
-      devicesNeedingReboot,
       devicesOnline,
       note: matchingSites.length === 0
         ? `No Datto RMM sites found matching "${companyName}". Site-to-company mapping may need manual configuration.`
@@ -650,9 +643,7 @@ async function buildDattoRmmAnalysis(
       monthlyAlertTrends: [],
       topAlertingSites: [],
       patchFullyPatched: 0,
-      patchPendingCount: 0,
       patchInstalledTotal: 0,
-      devicesNeedingReboot: 0,
       devicesOnline: 0,
       note: `Datto RMM data fetch failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
     };

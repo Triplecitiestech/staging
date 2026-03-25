@@ -113,6 +113,9 @@ export function processReport(
   if (show('edr') && hasEdr) summaryCards.push({ label: 'Security Events Analyzed', value: d.dattoEdr.totalEvents.toLocaleString() });
   if (show('rmm') && hasRmm) {
     summaryCards.push({ label: 'Endpoints Managed', value: d.dattoRmm.endpointCount || d.dattoRmm.devicesManaged });
+    if (d.dattoRmm.alertsResolved > 0) {
+      summaryCards.push({ label: 'RMM Alerts Resolved', value: d.dattoRmm.alertsResolved.toLocaleString() });
+    }
     const totalEp = d.dattoRmm.endpointCount || d.dattoRmm.devicesManaged;
     if (totalEp > 0 && (d.dattoRmm.patchFullyPatched ?? 0) > 0) {
       summaryCards.push({ label: 'Patch Compliance', value: `${Math.round((d.dattoRmm.patchFullyPatched / totalEp) * 100)}%` });

@@ -106,9 +106,7 @@ export interface DattoRmmAnalysis {
   topAlertingSites: Array<{ siteName: string; alertCount: number }>;
   // Patch management metrics (from device patchManagement field)
   patchFullyPatched: number;
-  patchPendingCount: number;
   patchInstalledTotal: number;
-  devicesNeedingReboot: number;
   devicesOnline: number;
   note: string | null;
 }
