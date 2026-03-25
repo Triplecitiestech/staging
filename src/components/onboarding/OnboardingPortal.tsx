@@ -20,6 +20,7 @@ interface OnboardingPortalProps {
   userName?: string
   userRole?: string
   isManager?: boolean
+  dbDegraded?: boolean
 }
 
 export default function OnboardingPortal({
@@ -31,6 +32,7 @@ export default function OnboardingPortal({
   userEmail,
   userName,
   isManager,
+  dbDegraded,
 }: OnboardingPortalProps) {
   const router = useRouter()
   const { showOnboarding, completeOnboarding } = useOnboardingJourney(
@@ -81,6 +83,22 @@ export default function OnboardingPortal({
       )}
 
       <main className="flex-1">
+        {dbDegraded && (
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4">
+            <div className="bg-slate-800/80 border border-cyan-500/30 rounded-lg px-4 py-3 flex items-center justify-between gap-3">
+              <p className="text-sm text-slate-300">
+                Some data may be temporarily unavailable. Your portal is loading in limited mode.
+              </p>
+              <button
+                onClick={() => router.refresh()}
+                className="flex items-center gap-1.5 text-sm text-cyan-400 hover:text-cyan-300 font-medium whitespace-nowrap"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Retry
+              </button>
+            </div>
+          </div>
+        )}
         {initialData ? (
           // Onboarding timeline view (legacy structured onboarding program)
           <Container className="py-12 mt-4">

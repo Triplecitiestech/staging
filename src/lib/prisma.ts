@@ -15,7 +15,12 @@ let prismaClient: PrismaClient
 
 // During build time, we need to provide an adapter to avoid the error
 if (process.env.DATABASE_URL) {
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL })
+  const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    connectionTimeoutMillis: 10_000,  // 10s max to acquire a connection
+    idleTimeoutMillis: 30_000,        // Close idle connections after 30s
+    max: 10,                          // Limit pool size for serverless
+  })
   const adapter = new PrismaPg(pool)
 
   prismaClient = globalForPrisma.prisma ?? new PrismaClient({

@@ -30,17 +30,24 @@ export default async function OnboardingPage({ params }: PageProps) {
   const { companyName } = await params
   const companySlug = companyName.toLowerCase().trim()
 
-  // Check if company exists (throws on DB error instead of silently returning false)
-  const exists = await companyExists(companySlug)
-
-  if (!exists) {
-    notFound()
+  // Check company existence — if DB is down, don't crash; let session cookie decide
+  let companyCheckFailed = false
+  try {
+    const exists = await companyExists(companySlug)
+    if (!exists) {
+      notFound()
+    }
+  } catch (err) {
+    console.error('[Onboarding Page] companyExists failed (DB may be down):', err instanceof Error ? err.message : err)
+    companyCheckFailed = true
+    // Don't crash — if the user has a valid session cookie, show degraded portal
   }
 
   // Check SSO session cookie — redirect to login if missing/expired
   const session = await getPortalSession()
 
   if (!session || session.companySlug !== companySlug) {
+    // If DB is down AND no session, we can't help — redirect to login
     redirect(`/api/portal/auth/login?company=${encodeURIComponent(companySlug)}`)
   }
 
@@ -52,6 +59,7 @@ export default async function OnboardingPage({ params }: PageProps) {
   // Fetch projects from database if authenticated
   let projects = null
   let companyDisplayName: string | null = null
+  let dbDegraded = companyCheckFailed
   const isDemoCompany = companySlug === 'contoso-industries'
 
   if (isAuthenticated && isDemoCompany) {
@@ -60,17 +68,41 @@ export default async function OnboardingPage({ params }: PageProps) {
     projects = DEMO_PROJECTS
   } else if (isAuthenticated) {
     const { prisma } = await import('@/lib/prisma')
-    try {
-      // First find the company by slug
-      const company = await prisma.company.findUnique({
+
+    // Retry wrapper for transient DB failures
+    const withRetry = async <T,>(fn: () => Promise<T>, retries = 2, delayMs = 1000): Promise<T | null> => {
+      for (let attempt = 0; attempt <= retries; attempt++) {
+        try {
+          return await fn()
+        } catch (err) {
+          const isLast = attempt === retries
+          const msg = err instanceof Error ? err.message : ''
+          const isTransient = msg.includes('timeout') || msg.includes('ECONNREFUSED') ||
+            msg.includes('connection') || msg.includes('pool') || msg.includes('Connection terminated')
+          if (isLast || !isTransient) {
+            console.error(`[Onboarding Page] DB query failed after ${attempt + 1} attempts:`, msg)
+            return null
+          }
+          console.warn(`[Onboarding Page] DB retry ${attempt + 1}/${retries}, waiting ${delayMs * (attempt + 1)}ms...`)
+          await new Promise(r => setTimeout(r, delayMs * (attempt + 1)))
+        }
+      }
+      return null
+    }
+
+    // Fetch company + projects with retry (graceful degradation instead of crash)
+    const company = await withRetry(() =>
+      prisma.company.findUnique({
         where: { slug: companySlug },
         select: { id: true, displayName: true }
       })
-      if (company) companyDisplayName = company.displayName
+    )
 
-      if (company) {
-        // Then fetch projects for this company
-        projects = await prisma.project.findMany({
+    if (company) {
+      companyDisplayName = company.displayName
+
+      projects = await withRetry(() =>
+        prisma.project.findMany({
           where: { companyId: company.id },
           include: {
             phases: {
@@ -104,32 +136,24 @@ export default async function OnboardingPage({ params }: PageProps) {
           },
           orderBy: { createdAt: 'desc' }
         })
-      }
-    } catch (error) {
-      console.error('[Onboarding Page] Error fetching projects (possibly parentTaskId column missing):', error)
-      // If parentTaskId column doesn't exist yet, try without filtering by it
-      try {
-        const company = await prisma.company.findUnique({
-          where: { slug: companySlug },
-          select: { id: true }
-        })
+      )
 
-        if (company) {
-          projects = await prisma.project.findMany({
+      // If projects query failed, try simpler query without parentTaskId filter
+      if (projects === null) {
+        projects = await withRetry(() =>
+          prisma.project.findMany({
             where: { companyId: company.id },
             include: {
               phases: {
                 include: {
                   tasks: {
-                    where: {
-                      isVisibleToCustomer: true
-                    },
+                    where: { isVisibleToCustomer: true },
                     select: {
                       id: true,
                       taskText: true,
                       completed: true,
                       orderIndex: true,
-                      status: true
+                      status: true,
                     },
                     orderBy: { orderIndex: 'asc' }
                   }
@@ -139,10 +163,14 @@ export default async function OnboardingPage({ params }: PageProps) {
             },
             orderBy: { createdAt: 'desc' }
           })
-        }
-      } catch (fallbackError) {
-        console.error('[Onboarding Page] Failed to fetch projects with fallback:', fallbackError)
+        )
       }
+    }
+
+    if (!company && !companyDisplayName) {
+      // DB was unreachable — show degraded portal instead of crashing
+      dbDegraded = true
+      companyDisplayName = companySlug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
     }
   }
 
@@ -157,6 +185,7 @@ export default async function OnboardingPage({ params }: PageProps) {
       userName={session.name}
       userRole={session.role}
       isManager={session.isManager}
+      dbDegraded={dbDegraded}
     />
   )
 }
