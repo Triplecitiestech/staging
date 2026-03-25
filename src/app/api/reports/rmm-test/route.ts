@@ -96,5 +96,43 @@ export async function GET(request: NextRequest) {
     results.openAlerts = { error: err instanceof Error ? err.message : String(err) };
   }
 
+  // Test 5: Raw device response (to see all available fields including patch data)
+  if (search && results.siteDeviceTest && 'deviceCount' in results.siteDeviceTest && (results.siteDeviceTest as { deviceCount: number }).deviceCount > 0) {
+    try {
+      const siteMatch = (results.companyMatch as { matchedSites: Array<{ uid: string }> }).matchedSites[0];
+      const rawRes = await fetch(`${process.env.DATTO_RMM_API_URL || 'https://concord-api.centrastage.net'}/api/v2/site/${siteMatch.uid}/devices`, {
+        headers: { 'Authorization': `Bearer ${(results.auth as { bodyPreview: string }).bodyPreview.match(/"access_token":"([^"]+)"/)?.[1] || ''}`, 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(10_000),
+      });
+      const rawData = await rawRes.json();
+      const firstDevice = rawData?.devices?.[0];
+      results.rawDeviceFields = firstDevice ? Object.keys(firstDevice) : [];
+      results.rawDeviceSample = firstDevice || null;
+    } catch (err) {
+      results.rawDeviceFields = { error: err instanceof Error ? err.message : String(err) };
+    }
+
+    // Test 6: Try patch endpoint for first device
+    try {
+      const siteMatch = (results.companyMatch as { matchedSites: Array<{ uid: string }> }).matchedSites[0];
+      const devRes = await fetch(`${process.env.DATTO_RMM_API_URL || 'https://concord-api.centrastage.net'}/api/v2/site/${siteMatch.uid}/devices`, {
+        headers: { 'Authorization': `Bearer ${(results.auth as { bodyPreview: string }).bodyPreview.match(/"access_token":"([^"]+)"/)?.[1] || ''}`, 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(10_000),
+      });
+      const devData = await devRes.json();
+      const deviceUid = devData?.devices?.[0]?.uid;
+      if (deviceUid) {
+        const patchRes = await fetch(`${process.env.DATTO_RMM_API_URL || 'https://concord-api.centrastage.net'}/api/v2/device/${deviceUid}/patch`, {
+          headers: { 'Authorization': `Bearer ${(results.auth as { bodyPreview: string }).bodyPreview.match(/"access_token":"([^"]+)"/)?.[1] || ''}`, 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(10_000),
+        });
+        const patchText = await patchRes.text();
+        results.patchEndpoint = { status: patchRes.status, bodyPreview: patchText.slice(0, 1000) };
+      }
+    } catch (err) {
+      results.patchEndpoint = { error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
   return NextResponse.json(results);
 }

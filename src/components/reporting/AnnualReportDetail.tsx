@@ -285,24 +285,24 @@ export default function AnnualReportDetail({ reportId }: Props) {
               <div className="flex flex-wrap justify-center gap-3 mb-4">
                 <StatCard label="Endpoints Managed" value={r.dattoRmm.endpointCount || r.dattoRmm.devicesManaged} />
                 {(r.dattoRmm.serverCount ?? 0) > 0 && <StatCard label="Servers" value={r.dattoRmm.serverCount} />}
-                {(r.dattoRmm.workstationCount ?? 0) > 0 && <StatCard label="Workstations" value={r.dattoRmm.workstationCount} />}
-                {r.dattoRmm.totalAlerts > 0 && <StatCard label="Alerts Processed" value={r.dattoRmm.totalAlerts} />}
+                {(r.dattoRmm.serverCount ?? 0) > 0 && (r.dattoRmm.workstationCount ?? 0) > 0 && <StatCard label="Workstations" value={r.dattoRmm.workstationCount} />}
+                {(r.dattoRmm.patchAlertsCount ?? 0) > 0 && (
+                  <StatCard label="Patch & Update Alerts" value={r.dattoRmm.patchAlertsCount} />
+                )}
+                {r.dattoRmm.totalAlerts > 0 && <StatCard label="Monitoring Alerts" value={r.dattoRmm.totalAlerts.toLocaleString()} />}
                 {r.dattoRmm.totalAlerts > 0 && (
                   <StatCard
                     label="Alert Resolution Rate"
                     value={`${Math.round((r.dattoRmm.alertsResolved / r.dattoRmm.totalAlerts) * 100)}%`}
                   />
                 )}
-                {(r.dattoRmm.patchAlertsCount ?? 0) > 0 && (
-                  <StatCard label="Patch/Update Alerts" value={r.dattoRmm.patchAlertsCount} />
-                )}
               </div>
 
-              {r.dattoRmm.devicesByOS && r.dattoRmm.devicesByOS.length > 0 && (
+              {r.dattoRmm.devicesByOS && r.dattoRmm.devicesByOS.filter(d => d.os === 'Windows' || d.os === 'Windows Server').length > 0 && (
                 <>
                   <h4 className="text-sm font-semibold text-slate-300 mb-2">Operating Systems</h4>
                   <div className="flex flex-wrap gap-2 mb-4">
-                    {r.dattoRmm.devicesByOS.map((d, i) => (
+                    {r.dattoRmm.devicesByOS.filter(d => d.os === 'Windows' || d.os === 'Windows Server').map((d, i) => (
                       <span key={i} className="bg-cyan-500/10 border border-cyan-500/20 px-3 py-1 rounded text-xs text-cyan-400">
                         {d.os}: {d.count}
                       </span>
