@@ -199,13 +199,23 @@ ${isVis('rmm') ? `
     ${statCard('Endpoints Managed', r.dattoRmm.endpointCount || r.dattoRmm.devicesManaged)}
     ${(r.dattoRmm.serverCount ?? 0) > 0 ? statCard('Servers', r.dattoRmm.serverCount) : ''}
     ${(r.dattoRmm.serverCount ?? 0) > 0 && (r.dattoRmm.workstationCount ?? 0) > 0 ? statCard('Workstations', r.dattoRmm.workstationCount) : ''}
-    ${(r.dattoRmm.patchAlertsCount ?? 0) > 0 ? statCard('Patch & Update Alerts', r.dattoRmm.patchAlertsCount) : ''}
-    ${r.dattoRmm.totalAlerts > 0 ? statCard('Monitoring Alerts', r.dattoRmm.totalAlerts.toLocaleString()) : ''}
-    ${r.dattoRmm.totalAlerts > 0 ? statCard('Resolution Rate', `${Math.round((r.dattoRmm.alertsResolved / r.dattoRmm.totalAlerts) * 100)}%`) : ''}
+    ${statCard('Devices Online', `${r.dattoRmm.devicesOnline ?? 0}/${r.dattoRmm.endpointCount || r.dattoRmm.devicesManaged}`)}
   </div>
-  ${r.dattoRmm.devicesByOS && r.dattoRmm.devicesByOS.filter(d => d.os === 'Windows' || d.os === 'Windows Server').length > 0 ? `
-  <h3 style="font-size:11pt;font-weight:700;color:#334155;margin:16px 0 8px;">Operating Systems</h3>
-  <div style="margin-bottom:12px">${r.dattoRmm.devicesByOS.filter(d => d.os === 'Windows' || d.os === 'Windows Server').map(d => `<span class="badge" style="background:#ecfeff;color:#0891b2">${esc(d.os)}: ${d.count}</span>`).join('')}</div>` : ''}
+  <h3 style="font-size:11pt;font-weight:700;color:#334155;margin:16px 0 8px;">Patch Management</h3>
+  <div class="stat-grid">
+    ${statCard('Patch Compliance', `${(r.dattoRmm.endpointCount || r.dattoRmm.devicesManaged) > 0 ? Math.round(((r.dattoRmm.patchFullyPatched ?? 0) / (r.dattoRmm.endpointCount || r.dattoRmm.devicesManaged)) * 100) : 0}%`)}
+    ${statCard('Fully Patched', `${r.dattoRmm.patchFullyPatched ?? 0}/${r.dattoRmm.endpointCount || r.dattoRmm.devicesManaged}`)}
+    ${statCard('Patches Installed', r.dattoRmm.patchInstalledTotal ?? 0)}
+    ${(r.dattoRmm.patchPendingCount ?? 0) > 0 ? statCard('Patches Pending', r.dattoRmm.patchPendingCount) : ''}
+    ${(r.dattoRmm.devicesNeedingReboot ?? 0) > 0 ? statCard('Reboot Required', r.dattoRmm.devicesNeedingReboot) : ''}
+  </div>
+  ${r.dattoRmm.totalAlerts > 0 ? `
+  <h3 style="font-size:11pt;font-weight:700;color:#334155;margin:16px 0 8px;">Monitoring Alerts</h3>
+  <div class="stat-grid">
+    ${statCard('Total Alerts', r.dattoRmm.totalAlerts.toLocaleString())}
+    ${statCard('Resolution Rate', `${Math.round((r.dattoRmm.alertsResolved / r.dattoRmm.totalAlerts) * 100)}%`)}
+    ${(r.dattoRmm.patchAlertsCount ?? 0) > 0 ? statCard('Patch & Update Alerts', r.dattoRmm.patchAlertsCount) : ''}
+  </div>` : ''}
   `}
 </div>` : ''}
 

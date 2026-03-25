@@ -104,6 +104,12 @@ export interface DattoRmmAnalysis {
   alertsByPriority: Array<{ priority: string; count: number }>;
   monthlyAlertTrends: Array<{ month: string; label: string; alerts: number; resolved: number }>;
   topAlertingSites: Array<{ siteName: string; alertCount: number }>;
+  // Patch management metrics (from device patchManagement field)
+  patchFullyPatched: number;
+  patchPendingCount: number;
+  patchInstalledTotal: number;
+  devicesNeedingReboot: number;
+  devicesOnline: number;
   note: string | null;
 }
 

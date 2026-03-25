@@ -286,27 +286,35 @@ export default function AnnualReportDetail({ reportId }: Props) {
                 <StatCard label="Endpoints Managed" value={r.dattoRmm.endpointCount || r.dattoRmm.devicesManaged} />
                 {(r.dattoRmm.serverCount ?? 0) > 0 && <StatCard label="Servers" value={r.dattoRmm.serverCount} />}
                 {(r.dattoRmm.serverCount ?? 0) > 0 && (r.dattoRmm.workstationCount ?? 0) > 0 && <StatCard label="Workstations" value={r.dattoRmm.workstationCount} />}
-                {(r.dattoRmm.patchAlertsCount ?? 0) > 0 && (
-                  <StatCard label="Patch & Update Alerts" value={r.dattoRmm.patchAlertsCount} />
-                )}
-                {r.dattoRmm.totalAlerts > 0 && <StatCard label="Monitoring Alerts" value={r.dattoRmm.totalAlerts.toLocaleString()} />}
-                {r.dattoRmm.totalAlerts > 0 && (
-                  <StatCard
-                    label="Alert Resolution Rate"
-                    value={`${Math.round((r.dattoRmm.alertsResolved / r.dattoRmm.totalAlerts) * 100)}%`}
-                  />
-                )}
+                <StatCard label="Devices Online" value={`${r.dattoRmm.devicesOnline ?? 0}/${r.dattoRmm.endpointCount || r.dattoRmm.devicesManaged}`} />
               </div>
 
-              {r.dattoRmm.devicesByOS && r.dattoRmm.devicesByOS.filter(d => d.os === 'Windows' || d.os === 'Windows Server').length > 0 && (
+              {/* Patch Management */}
+              <h4 className="text-sm font-semibold text-slate-300 mb-2 mt-4">Patch Management</h4>
+              <div className="flex flex-wrap justify-center gap-3 mb-4">
+                <StatCard
+                  label="Patch Compliance"
+                  value={`${(r.dattoRmm.endpointCount || r.dattoRmm.devicesManaged) > 0 ? Math.round(((r.dattoRmm.patchFullyPatched ?? 0) / (r.dattoRmm.endpointCount || r.dattoRmm.devicesManaged)) * 100) : 0}%`}
+                />
+                <StatCard label="Fully Patched" value={`${r.dattoRmm.patchFullyPatched ?? 0}/${r.dattoRmm.endpointCount || r.dattoRmm.devicesManaged}`} />
+                <StatCard label="Patches Installed" value={r.dattoRmm.patchInstalledTotal ?? 0} />
+                {(r.dattoRmm.patchPendingCount ?? 0) > 0 && <StatCard label="Patches Pending" value={r.dattoRmm.patchPendingCount} />}
+                {(r.dattoRmm.devicesNeedingReboot ?? 0) > 0 && <StatCard label="Reboot Required" value={r.dattoRmm.devicesNeedingReboot} />}
+              </div>
+
+              {/* Monitoring Alerts */}
+              {r.dattoRmm.totalAlerts > 0 && (
                 <>
-                  <h4 className="text-sm font-semibold text-slate-300 mb-2">Operating Systems</h4>
-                  <div className="flex flex-wrap gap-2 mb-4">
-                    {r.dattoRmm.devicesByOS.filter(d => d.os === 'Windows' || d.os === 'Windows Server').map((d, i) => (
-                      <span key={i} className="bg-cyan-500/10 border border-cyan-500/20 px-3 py-1 rounded text-xs text-cyan-400">
-                        {d.os}: {d.count}
-                      </span>
-                    ))}
+                  <h4 className="text-sm font-semibold text-slate-300 mb-2 mt-4">Monitoring Alerts</h4>
+                  <div className="flex flex-wrap justify-center gap-3 mb-4">
+                    <StatCard label="Total Alerts" value={r.dattoRmm.totalAlerts.toLocaleString()} />
+                    <StatCard
+                      label="Resolution Rate"
+                      value={`${Math.round((r.dattoRmm.alertsResolved / r.dattoRmm.totalAlerts) * 100)}%`}
+                    />
+                    {(r.dattoRmm.patchAlertsCount ?? 0) > 0 && (
+                      <StatCard label="Patch & Update Alerts" value={r.dattoRmm.patchAlertsCount} />
+                    )}
                   </div>
                 </>
               )}

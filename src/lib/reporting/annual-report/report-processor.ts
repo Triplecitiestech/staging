@@ -111,7 +111,13 @@ export function processReport(
   const summaryCards: StatCardData[] = [];
   if (show('ticketing') && hasTickets) summaryCards.push({ label: 'Support Tickets Resolved', value: d.ticketing.totalTickets });
   if (show('edr') && hasEdr) summaryCards.push({ label: 'Security Events Analyzed', value: d.dattoEdr.totalEvents.toLocaleString() });
-  if (show('rmm') && hasRmm) summaryCards.push({ label: 'Endpoints Managed', value: d.dattoRmm.endpointCount || d.dattoRmm.devicesManaged });
+  if (show('rmm') && hasRmm) {
+    summaryCards.push({ label: 'Endpoints Managed', value: d.dattoRmm.endpointCount || d.dattoRmm.devicesManaged });
+    const totalEp = d.dattoRmm.endpointCount || d.dattoRmm.devicesManaged;
+    if (totalEp > 0 && (d.dattoRmm.patchFullyPatched ?? 0) > 0) {
+      summaryCards.push({ label: 'Patch Compliance', value: `${Math.round((d.dattoRmm.patchFullyPatched / totalEp) * 100)}%` });
+    }
+  }
   if (show('dns') && hasDns) summaryCards.push({ label: 'DNS Threats Blocked', value: d.dnsFilter!.blockedQueries.toLocaleString() });
   if (show('bcdr') && hasBcdr) summaryCards.push({ label: 'Systems Protected', value: d.dattoBcdr!.totalAgents });
   if (show('saas') && hasSaas) summaryCards.push({ label: 'Cloud Seats Backed Up', value: d.dattoSaas!.activeSeats });
