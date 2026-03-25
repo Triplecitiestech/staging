@@ -293,7 +293,7 @@ interface RawAlert {
   alertUid?: string;
   uid?: string;
   alertType?: string;
-  alertContext?: string;
+  alertContext?: string | Record<string, unknown>;
   alertMessage?: string;
   priority?: string;
   resolved?: boolean;
@@ -310,7 +310,7 @@ function mapAlert(a: RawAlert): DattoAlert {
   return {
     alertUid: a.alertUid || a.uid || '',
     alertType: a.alertType || 'unknown',
-    alertContext: a.alertContext || '',
+    alertContext: typeof a.alertContext === 'string' ? a.alertContext : JSON.stringify(a.alertContext || ''),
     alertMessage: a.alertMessage || '',
     priority: a.priority || 'information',
     resolved: a.resolved ?? false,
