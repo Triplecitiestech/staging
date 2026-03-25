@@ -97,7 +97,7 @@ export async function GET(request: NextRequest) {
   }
 
   // Test 5: Raw device response (to see all available fields including patch data)
-  if (search && results.siteDeviceTest && 'deviceCount' in results.siteDeviceTest && (results.siteDeviceTest as { deviceCount: number }).deviceCount > 0) {
+  if (search && results.siteDeviceTest && typeof results.siteDeviceTest === 'object' && 'deviceCount' in (results.siteDeviceTest as Record<string, unknown>) && (results.siteDeviceTest as { deviceCount: number }).deviceCount > 0) {
     try {
       const siteMatch = (results.companyMatch as { matchedSites: Array<{ uid: string }> }).matchedSites[0];
       const rawRes = await fetch(`${process.env.DATTO_RMM_API_URL || 'https://concord-api.centrastage.net'}/api/v2/site/${siteMatch.uid}/devices`, {
