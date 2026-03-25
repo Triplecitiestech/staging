@@ -97,40 +97,28 @@ export async function GET(request: NextRequest) {
   }
 
   // Test 5: Raw device response (to see all available fields including patch data)
-  if (search && results.siteDeviceTest && typeof results.siteDeviceTest === 'object' && 'deviceCount' in (results.siteDeviceTest as Record<string, unknown>) && (results.siteDeviceTest as { deviceCount: number }).deviceCount > 0) {
-    try {
-      const siteMatch = (results.companyMatch as { matchedSites: Array<{ uid: string }> }).matchedSites[0];
-      const rawRes = await fetch(`${process.env.DATTO_RMM_API_URL || 'https://concord-api.centrastage.net'}/api/v2/site/${siteMatch.uid}/devices`, {
-        headers: { 'Authorization': `Bearer ${(results.auth as { bodyPreview: string }).bodyPreview.match(/"access_token":"([^"]+)"/)?.[1] || ''}`, 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(10_000),
-      });
-      const rawData = await rawRes.json();
-      const firstDevice = rawData?.devices?.[0];
-      results.rawDeviceFields = firstDevice ? Object.keys(firstDevice) : [];
-      results.rawDeviceSample = firstDevice || null;
-    } catch (err) {
-      results.rawDeviceFields = { error: err instanceof Error ? err.message : String(err) };
-    }
+  if (search) {
+    const matched = (results.companyMatch as { matchedSites: Array<{ uid: string }> } | undefined)?.matchedSites;
+    if (matched && matched.length > 0) {
+      try {
+        const rawData = await client.getRawSiteDevices(matched[0].uid) as { devices?: Array<Record<string, unknown>> };
+        const firstDevice = rawData?.devices?.[0];
+        results.rawDeviceFields = firstDevice ? Object.keys(firstDevice) : [];
+        results.rawDeviceSample = firstDevice || null;
 
-    // Test 6: Try patch endpoint for first device
-    try {
-      const siteMatch = (results.companyMatch as { matchedSites: Array<{ uid: string }> }).matchedSites[0];
-      const devRes = await fetch(`${process.env.DATTO_RMM_API_URL || 'https://concord-api.centrastage.net'}/api/v2/site/${siteMatch.uid}/devices`, {
-        headers: { 'Authorization': `Bearer ${(results.auth as { bodyPreview: string }).bodyPreview.match(/"access_token":"([^"]+)"/)?.[1] || ''}`, 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(10_000),
-      });
-      const devData = await devRes.json();
-      const deviceUid = devData?.devices?.[0]?.uid;
-      if (deviceUid) {
-        const patchRes = await fetch(`${process.env.DATTO_RMM_API_URL || 'https://concord-api.centrastage.net'}/api/v2/device/${deviceUid}/patch`, {
-          headers: { 'Authorization': `Bearer ${(results.auth as { bodyPreview: string }).bodyPreview.match(/"access_token":"([^"]+)"/)?.[1] || ''}`, 'Content-Type': 'application/json' },
-          signal: AbortSignal.timeout(10_000),
-        });
-        const patchText = await patchRes.text();
-        results.patchEndpoint = { status: patchRes.status, bodyPreview: patchText.slice(0, 1000) };
+        // Test 6: Try patch endpoint for first device
+        const deviceUid = firstDevice?.uid as string | undefined;
+        if (deviceUid) {
+          try {
+            const patchData = await client.getDevicePatch(deviceUid);
+            results.patchEndpoint = patchData;
+          } catch (err) {
+            results.patchEndpoint = { error: err instanceof Error ? err.message : String(err) };
+          }
+        }
+      } catch (err) {
+        results.rawDeviceFields = { error: err instanceof Error ? err.message : String(err) };
       }
-    } catch (err) {
-      results.patchEndpoint = { error: err instanceof Error ? err.message : String(err) };
     }
   }
 
