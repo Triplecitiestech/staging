@@ -136,6 +136,29 @@ export async function getOnboardingData(companySlug: string): Promise<Onboarding
   return data || null
 }
 
+// Retry helper for transient DB failures (connection timeouts, pool exhaustion)
+async function withRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 1000): Promise<T> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn()
+    } catch (err) {
+      const isLastAttempt = attempt === retries
+      const isTransient = err instanceof Error && (
+        err.message.includes('timeout') ||
+        err.message.includes('ECONNREFUSED') ||
+        err.message.includes('connection') ||
+        err.message.includes('pool') ||
+        err.message.includes('ETIMEDOUT') ||
+        err.message.includes('Connection terminated')
+      )
+      if (isLastAttempt || !isTransient) throw err
+      console.warn(`[DB Retry] Attempt ${attempt + 1} failed, retrying in ${delayMs}ms...`, err.message)
+      await new Promise(r => setTimeout(r, delayMs * (attempt + 1)))
+    }
+  }
+  throw new Error('Retry exhausted') // unreachable
+}
+
 // Check if a company exists
 // Throws on DB errors so the caller can handle them (instead of silently returning false → 404)
 export async function companyExists(companySlug: string): Promise<boolean> {
@@ -149,13 +172,15 @@ export async function companyExists(companySlug: string): Promise<boolean> {
     return true
   }
 
-  // Then check the database for dynamically created companies
+  // Then check the database for dynamically created companies (with retry for transient failures)
   const { prisma } = await import('@/lib/prisma')
 
-  const company = await prisma.company.findUnique({
-    where: { slug: companySlug },
-    select: { id: true }
-  })
+  const company = await withRetry(() =>
+    prisma.company.findUnique({
+      where: { slug: companySlug },
+      select: { id: true }
+    })
+  )
 
   return !!company
 }
