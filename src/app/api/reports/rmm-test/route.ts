@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { DattoRmmClient } from '@/lib/datto-rmm';
+import { matchesCompanyName } from '@/utils';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -52,10 +53,20 @@ export async function GET(request: NextRequest) {
     results.auth = { error: err instanceof Error ? err.message : String(err) };
   }
 
-  // Test 2: Sites (simplest call)
+  // Test 2: Sites — list all names + test company matching
+  const search = request.nextUrl.searchParams.get('company');
   try {
     const sites = await client.getSites();
-    results.sites = { count: sites.length, first3: sites.slice(0, 3).map(s => ({ id: s.id, name: s.name, devices: s.devicesCount })) };
+    const allSiteNames = sites.map(s => s.name).sort();
+    results.sites = { count: sites.length, allNames: allSiteNames };
+    if (search) {
+      const matched = sites.filter(s => matchesCompanyName(search, s.name));
+      results.companyMatch = {
+        searchTerm: search,
+        matchedSites: matched.map(s => ({ id: s.id, name: s.name, devices: s.devicesCount })),
+        matchCount: matched.length,
+      };
+    }
   } catch (err) {
     results.sites = { error: err instanceof Error ? err.message : String(err) };
   }
