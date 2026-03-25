@@ -5,10 +5,10 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
-import { getAnnualReport, deleteAnnualReport } from '@/lib/reporting/annual-report';
+import { getAnnualReport, deleteAnnualReport, parseStoredReport, processReport } from '@/lib/reporting/annual-report';
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
@@ -22,6 +22,26 @@ export async function GET(
 
     if (!review) {
       return NextResponse.json({ error: 'Report not found' }, { status: 404 });
+    }
+
+    // Debug mode: show raw stored data + processing decisions
+    if (request.nextUrl.searchParams.get('debug') === 'true') {
+      const { raw, config } = parseStoredReport(review.reportData, review.variant);
+      const processed = processReport(raw, config);
+      const rmmSection = processed.sections.find(s => s.key === 'rmm');
+      return NextResponse.json({
+        variant: review.variant,
+        config,
+        rmmRaw: {
+          available: raw.dattoRmm?.available,
+          devicesManaged: raw.dattoRmm?.devicesManaged,
+          endpointCount: raw.dattoRmm?.endpointCount,
+          totalAlerts: raw.dattoRmm?.totalAlerts,
+          note: raw.dattoRmm?.note,
+        },
+        rmmSection,
+        allSectionVisibility: processed.sections.map(s => ({ key: s.key, visible: s.visible, hasData: s.hasData })),
+      });
     }
 
     return NextResponse.json({ review });
