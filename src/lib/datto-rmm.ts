@@ -201,6 +201,16 @@ export class DattoRmmClient {
     return (data.devices || []).map(mapDevice);
   }
 
+  /** Fetch raw device response (for diagnostics — returns unprocessed API data). */
+  async getRawSiteDevices(siteUid: string): Promise<unknown> {
+    return this.request<unknown>(`/api/v2/site/${siteUid}/devices`);
+  }
+
+  /** Fetch patch status for a specific device. */
+  async getDevicePatch(deviceUid: string): Promise<unknown> {
+    return this.request<unknown>(`/api/v2/device/${deviceUid}/patch`);
+  }
+
   /** Fetch all alerts (paginated). Returns up to maxPages * 250 alerts. */
   async getAlerts(maxPages = 20): Promise<DattoAlert[]> {
     const alerts: DattoAlert[] = [];
