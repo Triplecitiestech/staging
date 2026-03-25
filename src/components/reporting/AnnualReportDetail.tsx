@@ -297,23 +297,17 @@ export default function AnnualReportDetail({ reportId }: Props) {
                   value={`${(r.dattoRmm.endpointCount || r.dattoRmm.devicesManaged) > 0 ? Math.round(((r.dattoRmm.patchFullyPatched ?? 0) / (r.dattoRmm.endpointCount || r.dattoRmm.devicesManaged)) * 100) : 0}%`}
                 />
                 <StatCard label="Fully Patched" value={`${r.dattoRmm.patchFullyPatched ?? 0}/${r.dattoRmm.endpointCount || r.dattoRmm.devicesManaged}`} />
-                <StatCard label="Patches Installed" value={r.dattoRmm.patchInstalledTotal ?? 0} />
-                {(r.dattoRmm.patchPendingCount ?? 0) > 0 && <StatCard label="Patches Pending" value={r.dattoRmm.patchPendingCount} />}
-                {(r.dattoRmm.devicesNeedingReboot ?? 0) > 0 && <StatCard label="Reboot Required" value={r.dattoRmm.devicesNeedingReboot} />}
+                <StatCard label="Patches Installed" value={(r.dattoRmm.patchInstalledTotal ?? 0).toLocaleString()} />
               </div>
 
-              {/* Monitoring Alerts */}
-              {r.dattoRmm.totalAlerts > 0 && (
+              {/* Alerts Resolved */}
+              {r.dattoRmm.alertsResolved > 0 && (
                 <>
-                  <h4 className="text-sm font-semibold text-slate-300 mb-2 mt-4">Monitoring Alerts</h4>
+                  <h4 className="text-sm font-semibold text-slate-300 mb-2 mt-4">Alerts Resolved</h4>
                   <div className="flex flex-wrap justify-center gap-3 mb-4">
-                    <StatCard label="Total Alerts" value={r.dattoRmm.totalAlerts.toLocaleString()} />
-                    <StatCard
-                      label="Resolution Rate"
-                      value={`${Math.round((r.dattoRmm.alertsResolved / r.dattoRmm.totalAlerts) * 100)}%`}
-                    />
+                    <StatCard label="Alerts Resolved" value={r.dattoRmm.alertsResolved.toLocaleString()} />
                     {(r.dattoRmm.patchAlertsCount ?? 0) > 0 && (
-                      <StatCard label="Patch & Update Alerts" value={r.dattoRmm.patchAlertsCount} />
+                      <StatCard label="Patch & Update Alerts Resolved" value={r.dattoRmm.patchAlertsCount} />
                     )}
                   </div>
                 </>

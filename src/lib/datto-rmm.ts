@@ -220,8 +220,8 @@ export class DattoRmmClient {
     return this.request<unknown>(`/api/v2/device/${deviceUid}/patch`);
   }
 
-  /** Fetch all alerts (paginated). Returns up to maxPages * 250 alerts. */
-  async getAlerts(maxPages = 20): Promise<DattoAlert[]> {
+  /** Fetch all alerts (paginated). Returns up to maxPages * 250 alerts. Default 200 pages = 50,000 alerts. */
+  async getAlerts(maxPages = 200): Promise<DattoAlert[]> {
     const alerts: DattoAlert[] = [];
     let page = 1;
 
@@ -241,8 +241,8 @@ export class DattoRmmClient {
     return alerts;
   }
 
-  /** Fetch resolved alerts (paginated). */
-  async getResolvedAlerts(maxPages = 20): Promise<DattoAlert[]> {
+  /** Fetch resolved alerts (paginated). Default 200 pages = 50,000 alerts. */
+  async getResolvedAlerts(maxPages = 200): Promise<DattoAlert[]> {
     const alerts: DattoAlert[] = [];
     let page = 1;
 
@@ -262,8 +262,8 @@ export class DattoRmmClient {
     return alerts;
   }
 
-  /** Fetch open (active) alerts (paginated). */
-  async getOpenAlerts(maxPages = 20): Promise<DattoAlert[]> {
+  /** Fetch open (active) alerts (paginated). Default 200 pages = 50,000 alerts. */
+  async getOpenAlerts(maxPages = 200): Promise<DattoAlert[]> {
     const alerts: DattoAlert[] = [];
     let page = 1;
 
