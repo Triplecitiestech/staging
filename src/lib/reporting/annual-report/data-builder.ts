@@ -457,20 +457,18 @@ async function buildDattoRmmAnalysis(
   }
 
   try {
-    // Fetch alerts, sites, and devices — catch each individually to identify failures
+    // Fetch alerts and sites first (devices fetched per-site below)
     let allAlerts: Awaited<ReturnType<typeof client.getOpenAlerts>> = [];
     let resolvedAlerts: Awaited<ReturnType<typeof client.getResolvedAlerts>> = [];
     let sites: Awaited<ReturnType<typeof client.getSites>> = [];
-    let allDevices: Awaited<ReturnType<typeof client.getDevices>> = [];
 
     const results = await Promise.allSettled([
       client.getOpenAlerts(10),
       client.getResolvedAlerts(20),
       client.getSites(),
-      client.getDevices(10),
     ]);
 
-    const labels = ['openAlerts', 'resolvedAlerts', 'sites', 'devices'];
+    const labels = ['openAlerts', 'resolvedAlerts', 'sites'];
     for (let i = 0; i < results.length; i++) {
       if (results[i].status === 'rejected') {
         const reason = (results[i] as PromiseRejectedResult).reason;
@@ -481,7 +479,6 @@ async function buildDattoRmmAnalysis(
     if (results[0].status === 'fulfilled') allAlerts = results[0].value;
     if (results[1].status === 'fulfilled') resolvedAlerts = results[1].value;
     if (results[2].status === 'fulfilled') sites = results[2].value;
-    if (results[3].status === 'fulfilled') allDevices = results[3].value;
 
     // If ALL fetches failed, treat as unavailable
     if (results.every(r => r.status === 'rejected')) {
@@ -489,21 +486,29 @@ async function buildDattoRmmAnalysis(
       throw firstErr instanceof Error ? firstErr : new Error(String(firstErr));
     }
 
-    console.log(`[RMM] Fetched: ${allAlerts.length} open alerts, ${resolvedAlerts.length} resolved, ${sites.length} sites, ${allDevices.length} devices`);
+    console.log(`[RMM] Fetched: ${allAlerts.length} open alerts, ${resolvedAlerts.length} resolved, ${sites.length} sites`);
 
     const combinedAlerts = [...allAlerts, ...resolvedAlerts];
 
-    // Filter to period and match by site name containing company name
-    // Datto RMM doesn't have a company ID mapping — match by site name
+    // Match sites by company name
     const matchingSites = sites.filter(s => matchesCompanyName(companyName, s.name));
     const matchingSiteIds = new Set(matchingSites.map(s => s.id));
     console.log(`[RMM] Company "${companyName}" matched ${matchingSites.length} sites: ${matchingSites.map(s => s.name).join(', ')}`);
 
-    // Filter devices to matching sites
-    const companyDevices = allDevices.filter(d =>
-      matchingSiteIds.has(d.siteId) || matchesCompanyName(companyName, d.siteName)
+    // Fetch devices per matched site (more reliable than global /account/devices
+    // which can return incomplete results depending on API user permissions)
+    const siteDeviceResults = await Promise.allSettled(
+      matchingSites.map(s => client.getSiteDevices(s.id))
     );
-    console.log(`[RMM] Found ${companyDevices.length} devices for "${companyName}" (from ${allDevices.length} total)`);
+    const companyDevices: Awaited<ReturnType<typeof client.getDevices>> = [];
+    for (let i = 0; i < siteDeviceResults.length; i++) {
+      if (siteDeviceResults[i].status === 'fulfilled') {
+        companyDevices.push(...(siteDeviceResults[i] as PromiseFulfilledResult<Awaited<ReturnType<typeof client.getDevices>>>).value);
+      } else {
+        console.error(`[RMM] getSiteDevices(${matchingSites[i].id} "${matchingSites[i].name}") failed: ${(siteDeviceResults[i] as PromiseRejectedResult).reason}`);
+      }
+    }
+    console.log(`[RMM] Found ${companyDevices.length} devices for "${companyName}" across ${matchingSites.length} matched sites`);
 
     // OS breakdown
     const osCounts = new Map<string, number>();
