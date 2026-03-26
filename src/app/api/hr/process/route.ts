@@ -833,7 +833,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       resourceID: resourceId,
       dateWorked: todayIsoDate(),
       hoursWorked,
-      summaryNotes: `Automated HR ${hrRequest.type} processing - setup and documentation`,
+      summaryNotes: `HR ${hrRequest.type} for ${fullName || 'employee'} - setup and documentation`,
     }
 
     try {
