@@ -235,16 +235,23 @@ export function FormRenderer({
         }),
       })
 
-      const data = await res.json()
-
-      if (!res.ok) {
-        setSubmitError(data.error ?? 'Submission failed')
+      let data: Record<string, unknown>
+      try {
+        data = await res.json()
+      } catch {
+        setSubmitError(`Server error (${res.status}) — please try again`)
         return
       }
 
-      onSubmit(data.requestId)
-    } catch {
-      setSubmitError('Network error — please try again')
+      if (!res.ok) {
+        setSubmitError((data.error as string) ?? 'Submission failed')
+        return
+      }
+
+      onSubmit(data.requestId as string)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error'
+      setSubmitError(`Network error — ${msg}`)
     } finally {
       setSubmitting(false)
     }

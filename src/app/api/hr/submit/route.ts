@@ -64,6 +64,49 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   // 3. DB work — all in one try/catch so any error returns a clean JSON response
   const client = await pool.connect()
+
+  // Ensure HR tables exist (idempotent)
+  try {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hr_requests (
+        id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        company_id TEXT NOT NULL,
+        company_slug TEXT NOT NULL,
+        type TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        submitted_by_email TEXT NOT NULL,
+        submitted_by_name TEXT,
+        answers JSONB NOT NULL DEFAULT '{}',
+        resolved_action_plan JSONB,
+        autotask_ticket_id INTEGER,
+        autotask_ticket_number TEXT,
+        target_upn TEXT,
+        target_user_id TEXT,
+        idempotency_key TEXT UNIQUE NOT NULL,
+        error_message TEXT,
+        retry_count INTEGER DEFAULT 0,
+        started_at TIMESTAMPTZ,
+        completed_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hr_audit_logs (
+        id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        company_id TEXT NOT NULL,
+        request_id TEXT,
+        actor TEXT NOT NULL,
+        action TEXT NOT NULL,
+        resource TEXT,
+        details JSONB,
+        severity TEXT DEFAULT 'info',
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `)
+  } catch (migErr) {
+    console.error('[hr/submit] Table ensure failed (non-fatal):', migErr)
+  }
   try {
     // 3a. Look up company by slug
     const companyRes = await client.query<{ id: string; name: string }>(

@@ -152,6 +152,7 @@ export function FormField({ question, value, onChange, error }: FormFieldProps) 
 
   if (type === 'multi_select') {
     const selected = Array.isArray(value) ? (value as string[]) : []
+    const availableOptions = options ?? []
     return (
       <div>
         <label className={labelClass}>
@@ -159,27 +160,31 @@ export function FormField({ question, value, onChange, error }: FormFieldProps) 
           {isRequired && <span className="text-red-400 ml-1">*</span>}
         </label>
         {helpText && <p className={helpClass + ' mb-2'}>{helpText}</p>}
-        <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
-          {(options ?? []).map((opt) => (
-            <label
-              key={opt.value}
-              className="flex items-center gap-2.5 p-2.5 rounded-lg bg-gray-800/30 border border-white/5 hover:border-white/10 cursor-pointer transition-colors"
-            >
-              <input
-                type="checkbox"
-                checked={selected.includes(opt.value)}
-                onChange={(e) => {
-                  const next = e.target.checked
-                    ? [...selected, opt.value]
-                    : selected.filter((v) => v !== opt.value)
-                  onChange(key, next)
-                }}
-                className="w-4 h-4 rounded border-white/20 bg-gray-700 text-cyan-500 focus:ring-cyan-500/30 focus:ring-offset-0"
-              />
-              <span className="text-sm text-gray-300">{opt.label}</span>
-            </label>
-          ))}
-        </div>
+        {availableOptions.length === 0 ? (
+          <p className="text-sm text-gray-500 italic py-2">None available for this tenant.</p>
+        ) : (
+          <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+            {availableOptions.map((opt) => (
+              <label
+                key={opt.value}
+                className="flex items-center gap-2.5 p-2.5 rounded-lg bg-gray-800/30 border border-white/5 hover:border-white/10 cursor-pointer transition-colors"
+              >
+                <input
+                  type="checkbox"
+                  checked={selected.includes(opt.value)}
+                  onChange={(e) => {
+                    const next = e.target.checked
+                      ? [...selected, opt.value]
+                      : selected.filter((v) => v !== opt.value)
+                    onChange(key, next)
+                  }}
+                  className="w-4 h-4 rounded border-white/20 bg-gray-700 text-cyan-500 focus:ring-cyan-500/30 focus:ring-offset-0"
+                />
+                <span className="text-sm text-gray-300">{opt.label}</span>
+              </label>
+            ))}
+          </div>
+        )}
         {error && <p className={errorClass}>{error}</p>}
       </div>
     )

@@ -27,7 +27,7 @@ export default function PortalRootPage() {
       const data = await res.json()
 
       if (data.redirect) {
-        // Redirect to M365 login
+        // Redirect to M365 login (login_hint pre-fills the email)
         window.location.href = data.redirect
         return
       }
@@ -66,30 +66,10 @@ export default function PortalRootPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
               </svg>
             </div>
-            <h1 className="text-3xl font-bold text-white mb-2">Customer Support Portal</h1>
+            <h1 className="text-3xl font-bold text-white mb-2">Triple Cities Tech Support Portal</h1>
             <p className="text-slate-400 text-base leading-relaxed">
-              Your secure portal for managing IT services, tracking support requests, and staying connected with Triple Cities Tech.
+              Sign in with your work email to access your company&apos;s support portal.
             </p>
-          </div>
-
-          {/* What you can do */}
-          <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-6 mb-8 text-left">
-            <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4">What you can do</h2>
-            <ul className="space-y-3">
-              {[
-                'Track your projects and milestones',
-                'View and respond to support tickets',
-                'Submit employee onboarding and offboarding requests',
-                'Access company-specific resources and updates',
-              ].map((item) => (
-                <li key={item} className="flex items-start gap-3 text-sm text-slate-300">
-                  <svg className="w-4 h-4 text-cyan-400 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  {item}
-                </li>
-              ))}
-            </ul>
           </div>
 
           {/* Error message */}
@@ -137,7 +117,7 @@ export default function PortalRootPage() {
           </form>
 
           <p className="mt-4 text-xs text-slate-500">
-            Enter your company email and we&apos;ll redirect you to Microsoft 365 to sign in.
+            We use your email to find your company portal. Microsoft 365 will be pre-filled with your address.
           </p>
         </div>
       </main>

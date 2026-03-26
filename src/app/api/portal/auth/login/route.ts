@@ -20,6 +20,7 @@ const pool = new Pool({
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const companySlug = request.nextUrl.searchParams.get('company')?.toLowerCase().trim()
   const returnTo = request.nextUrl.searchParams.get('returnTo')
+  const loginHint = request.nextUrl.searchParams.get('login_hint')?.trim()
 
   if (!companySlug) {
     return new NextResponse(errorPage('Missing company parameter.'), {
@@ -77,6 +78,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       response_mode: 'query',
       scope: 'openid profile email',
       state,
+      ...(loginHint ? { login_hint: loginHint } : {}),
     })
 
     const authorizeUrl = `https://login.microsoftonline.com/${m365_tenant_id}/oauth2/v2.0/authorize?${params.toString()}`
