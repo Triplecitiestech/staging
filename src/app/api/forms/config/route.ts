@@ -348,8 +348,24 @@ async function migrateOffboardingUserSelect(client: PoolClient): Promise<void> {
   )
 
   await client.query(
-    `UPDATE form_questions SET sort_order = 1, help_text = 'The last day this employee will have access. For immediate terminations, set to today.' WHERE schema_id = $1 AND key = 'last_day'`,
+    `UPDATE form_questions SET sort_order = 1, help_text = 'If today or in the past, all offboarding actions will execute immediately. If set to a future date, a ticket will be created now but all access removal actions will execute automatically at 12:01 AM EST on this date.' WHERE schema_id = $1 AND key = 'last_day'`,
     [schemaId]
+  )
+
+  // Update urgency_type options and help text to explain scheduling behavior
+  await client.query(
+    `UPDATE form_questions
+     SET help_text = 'Immediate termination executes all actions right now regardless of last working day. Other options follow the scheduled date.',
+         static_options = $2::jsonb
+     WHERE schema_id = $1 AND key = 'urgency_type'`,
+    [
+      schemaId,
+      JSON.stringify([
+        { value: 'immediate_termination', label: 'Immediate Termination — block access and remove everything now' },
+        { value: 'standard', label: 'Standard — actions will execute on the last working day at 12:01 AM EST' },
+        { value: 'planned_departure', label: 'Planned Departure — employee is aware, actions execute on last working day' },
+      ]),
+    ]
   )
 
   console.log('[forms/config] Migration complete: offboarding user_select')
