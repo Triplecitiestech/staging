@@ -910,12 +910,35 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             }
           }
 
-          // Handle SharePoint sites — these need site permissions, not group membership
+          // Handle SharePoint sites — use site permissions API (not group membership)
           if (newUserId && sharePointSiteIds.length > 0) {
-            const siteNames = sharePointSiteIds.map(id => displayNames[id] ?? id)
-            manualSteps.push(`Grant SharePoint site access to ${siteNames.join(', ')}`)
-            await addTicketNote('SharePoint Access Required (Manual)',
-              `The following SharePoint sites were requested but require manual configuration:\n${siteNames.map(n => `  - ${n}`).join('\n')}\n\nUse SharePoint admin center to grant site-level permissions.`)
+            for (const siteId of sharePointSiteIds) {
+              const siteName = displayNames[siteId] ?? siteId
+              const gStart = new Date()
+              try {
+                await graph.addUserToSharePointSite(siteId, newUserId, 'write')
+                groupsAdded.push(siteId)
+                await logStep(client, hrRequest.id, `add_to_site_${siteId}`, `Add to SharePoint: ${siteName}`, 'completed', gStart,
+                  { siteId, siteName, userId: newUserId }, { added: true })
+                stepsCompleted.push(`add_to_site_${siteId}`)
+                await addTicketNote('Added to SharePoint Site', `Site: ${siteName}`)
+              } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err)
+                // "already exist" = already has access
+                if (msg.includes('already exist') || msg.includes('Permission already exists')) {
+                  groupsAdded.push(siteId)
+                  await logStep(client, hrRequest.id, `add_to_site_${siteId}`, `Add to SharePoint: ${siteName}`, 'completed', gStart,
+                    { siteId, siteName, userId: newUserId }, { added: true, alreadyMember: true })
+                  stepsCompleted.push(`add_to_site_${siteId}`)
+                  await addTicketNote('Added to SharePoint Site', `Site: ${siteName} (already has access)`)
+                } else {
+                  await logStep(client, hrRequest.id, `add_to_site_${siteId}`, `Add to SharePoint: ${siteName}`, 'failed', gStart,
+                    { siteId, siteName, userId: newUserId }, undefined, msg)
+                  failedSteps.push(`add_to_site_${siteId}`)
+                  await addTicketNote('SharePoint Site Access Failed', `Site: ${siteName}\nError: ${msg}`)
+                }
+              }
+            }
           }
 
           if (groupsAdded.length > 0) {
@@ -1021,12 +1044,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             for (const cg of clonedGroups) {
               allGroupDescriptions.push(`  - ${describeGroup(cg)}`)
             }
-            // SharePoint sites (manual)
-            if (sharePointSiteIds.length > 0) {
-              for (const sId of sharePointSiteIds) {
-                allGroupDescriptions.push(`  - ${displayNames[sId] ?? sId} (SharePoint — manual access required)`)
-              }
-            }
+            // SharePoint sites (already included in groupsAdded if successful)
             if (allGroupDescriptions.length > 0) {
               resultLines.push('Groups Added:')
               resultLines.push(...allGroupDescriptions)
