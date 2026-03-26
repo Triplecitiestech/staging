@@ -26,6 +26,7 @@ export async function GET(): Promise<NextResponse> {
 export async function POST(request: NextRequest): Promise<NextResponse> {
   let email = ''
   const contentType = request.headers.get('content-type') || ''
+  const isJsonRequest = contentType.includes('application/json')
 
   if (contentType.includes('application/x-www-form-urlencoded') || contentType.includes('multipart/form-data')) {
     const formData = await request.formData()
@@ -40,6 +41,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   if (!email || !email.includes('@')) {
+    if (isJsonRequest) {
+      return NextResponse.json({ error: 'Please enter a valid email address.' }, { status: 400 })
+    }
     return new NextResponse(discoverPage('Please enter a valid email address.'), {
       status: 200,
       headers: { 'Content-Type': 'text/html' },
@@ -63,10 +67,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       ['%@' + domain]
     )
 
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.triplecitiestech.com'
+
     if (res.rows.length > 0) {
-      return NextResponse.redirect(
-        `${process.env.NEXT_PUBLIC_BASE_URL || 'https://www.triplecitiestech.com'}/api/portal/auth/login?company=${res.rows[0].slug}`
-      )
+      const loginUrl = `${baseUrl}/api/portal/auth/login?company=${res.rows[0].slug}`
+      if (isJsonRequest) {
+        return NextResponse.json({ redirect: loginUrl })
+      }
+      return NextResponse.redirect(loginUrl)
     }
 
     // Fallback: try matching by exact contact email
@@ -82,19 +90,29 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     )
 
     if (exactRes.rows.length > 0) {
-      return NextResponse.redirect(
-        `${process.env.NEXT_PUBLIC_BASE_URL || 'https://www.triplecitiestech.com'}/api/portal/auth/login?company=${exactRes.rows[0].slug}`
-      )
+      const loginUrl = `${baseUrl}/api/portal/auth/login?company=${exactRes.rows[0].slug}`
+      if (isJsonRequest) {
+        return NextResponse.json({ redirect: loginUrl })
+      }
+      return NextResponse.redirect(loginUrl)
     }
 
+    const notFoundMsg = 'We could not find a company associated with that email address. Please contact Triple Cities Tech for access.'
+    if (isJsonRequest) {
+      return NextResponse.json({ error: notFoundMsg }, { status: 404 })
+    }
     return new NextResponse(
-      discoverPage('We could not find a company associated with that email address. Please contact Triple Cities Tech for access.'),
+      discoverPage(notFoundMsg),
       { status: 200, headers: { 'Content-Type': 'text/html' } }
     )
   } catch (err) {
     console.error('[portal/auth/discover] Error:', err instanceof Error ? err.message : err)
+    const errMsg = 'Something went wrong. Please try again.'
+    if (isJsonRequest) {
+      return NextResponse.json({ error: errMsg }, { status: 500 })
+    }
     return new NextResponse(
-      discoverPage('Something went wrong. Please try again.'),
+      discoverPage(errMsg),
       { status: 500, headers: { 'Content-Type': 'text/html' } }
     )
   } finally {

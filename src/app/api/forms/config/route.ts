@@ -743,7 +743,7 @@ async function migrateOnboardingQuestions(client: PoolClient): Promise<void> {
     await client.query(
       `INSERT INTO form_questions (section_id, schema_id, key, type, label, help_text, is_required, sort_order)
        VALUES ($1, $2, 'billing_acknowledgment', 'checkbox',
-         'I understand that adding a Microsoft 365 license will result in additional monthly charges on our next invoice.',
+         'I understand that adding a Microsoft 365 license may result in additional monthly charges on our next invoice.',
          'The selected license will be billed at Microsoft''s current rate. You can view current pricing in your Microsoft 365 admin center.',
          true, 1)
        ON CONFLICT (schema_id, key) DO NOTHING`,
@@ -1035,6 +1035,32 @@ async function migrateFormRefinementsV2(client: PoolClient): Promise<void> {
         [schemaId]
       )
     }
+
+    // --- Always-run cleanup: remove legacy work_location if it still exists ---
+    await client.query(
+      `DELETE FROM form_questions WHERE schema_id = $1 AND key = 'work_location'`,
+      [schemaId]
+    )
+
+    // --- Convert work_location_detail from text to select with Home/Office options ---
+    await client.query(
+      `UPDATE form_questions SET
+         type = 'select',
+         label = 'Work Location',
+         help_text = 'Where will this employee primarily work?',
+         placeholder = 'Select a work location...',
+         static_options = $2::jsonb
+       WHERE schema_id = $1 AND key = 'work_location_detail'`,
+      [
+        schemaId,
+        JSON.stringify([
+          { value: 'office', label: 'Office' },
+          { value: 'home', label: 'Home (Remote)' },
+          { value: 'hybrid', label: 'Hybrid (Office + Home)' },
+          { value: 'field', label: 'Field / On-site at client locations' },
+        ]),
+      ]
+    )
   }
 
   // --- OFFBOARDING REFINEMENTS ---
