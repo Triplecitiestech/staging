@@ -78,19 +78,67 @@ function getAutotaskBaseUrl(): string {
   return (process.env.AUTOTASK_API_BASE_URL ?? '').replace(/\/$/, '')
 }
 
+/** Map raw option values to human-readable labels */
+const VALUE_LABELS: Record<string, Record<string, string>> = {
+  work_location_detail: {
+    office: 'Office',
+    home: 'Home (Remote)',
+    hybrid: 'Hybrid (Office + Home)',
+    field: 'Field / On-site at client locations',
+  },
+  credential_delivery: {
+    submitter: "Send to me (I'll share with the employee)",
+    personal_email: "Send directly to the employee's personal email",
+  },
+  computer_situation: {
+    existing_company: 'Use an existing company computer',
+    new_computer: 'New computer required',
+    personal_byod: 'BYOD / personal computer (work from home)',
+    dont_know: "I don't know",
+    none: 'No computer needed',
+  },
+}
+
+/** Country code to full name */
+const COUNTRY_NAMES: Record<string, string> = {
+  US: 'United States', CA: 'Canada', GB: 'United Kingdom', AU: 'Australia',
+  DE: 'Germany', FR: 'France', JP: 'Japan', IN: 'India', BR: 'Brazil',
+  MX: 'Mexico', NZ: 'New Zealand', IE: 'Ireland', NL: 'Netherlands',
+  SG: 'Singapore', ZA: 'South Africa', SE: 'Sweden', NO: 'Norway',
+  DK: 'Denmark', FI: 'Finland', CH: 'Switzerland', AT: 'Austria',
+  BE: 'Belgium', ES: 'Spain', IT: 'Italy', PT: 'Portugal', PL: 'Poland',
+}
+
+/** Resolve a raw value to its display label */
+function resolveLabel(field: string, raw: string): string {
+  return VALUE_LABELS[field]?.[raw] ?? raw
+}
+
+/** Resolve country codes to names */
+function resolveCountries(val: unknown): string {
+  if (Array.isArray(val)) return val.map(c => COUNTRY_NAMES[c as string] ?? c).join(', ')
+  if (typeof val === 'string') return COUNTRY_NAMES[val] ?? val
+  return ''
+}
+
+/** Lookup table: group/list/site ID → display name. Populated before description is built. */
+type DisplayNameMap = Record<string, string>
+
 function formatAnswersAsDescription(
   type: string,
   answers: Record<string, unknown>,
   submitterName?: string | null,
   submitterEmail?: string | null,
+  displayNames?: DisplayNameMap,
 ): string {
   const lines: string[] = []
   const a = answers as Record<string, string>
 
-  // Helper to display array or string values
+  // Helper to display array or string values, resolving IDs to display names
+  const dn = displayNames ?? {}
   const fmtArray = (val: unknown): string => {
-    if (Array.isArray(val)) return val.join(', ')
-    if (typeof val === 'string') return val
+    if (Array.isArray(val)) return val.map(v => dn[v as string] ?? v).join(', ')
+    if (typeof val === 'string') return dn[val] ?? val
     return ''
   }
 
@@ -104,16 +152,22 @@ function formatAnswersAsDescription(
     if (a.start_date)      lines.push(`  Start Date:     ${a.start_date}`)
     if (a.job_title)       lines.push(`  Job Title:      ${a.job_title}`)
     if (a.department)      lines.push(`  Department:     ${a.department}`)
-    const countries = fmtArray(answers.work_country)
+    const countries = resolveCountries(answers.work_country)
     if (countries)         lines.push(`  Work Countries: ${countries}`)
-    if (a.work_location_detail || a.work_location) lines.push(`  Work Location:  ${a.work_location_detail || a.work_location}`)
+    if (a.work_location_detail || a.work_location) {
+      const locLabel = resolveLabel('work_location_detail', a.work_location_detail || a.work_location)
+      lines.push(`  Work Location:  ${locLabel}`)
+    }
     if (a.desired_username) lines.push(`  Desired User:   ${a.desired_username}`)
     if (a.personal_email)  lines.push(`  Personal Email: ${a.personal_email}`)
     if (a.phone)           lines.push(`  Phone:          ${a.phone}`)
 
     lines.push('', 'MICROSOFT 365 SETUP')
     if (a.access_profile)  lines.push(`  Access Profile: ${a.access_profile}`)
-    if (a.license_type)    lines.push(`  License Type:   ${a.license_type}`)
+    if (a.license_type) {
+      const licLabel = dn[a.license_type] ?? a.license_type
+      lines.push(`  License Type:   ${licLabel}`)
+    }
     // New schema uses separate multi_select fields for groups
     const secGroups = fmtArray(answers.security_groups)
     const distLists = fmtArray(answers.distribution_lists)
@@ -128,7 +182,10 @@ function formatAnswersAsDescription(
     if (a.clone_permissions === 'yes') {
       lines.push(`  Clone From:     ${a.clone_from_user ?? 'Not specified'}`)
     }
-    if (a.credential_delivery) lines.push(`  Credential Delivery: ${a.credential_delivery}`)
+    if (a.credential_delivery) {
+      const cdLabel = resolveLabel('credential_delivery', a.credential_delivery)
+      lines.push(`  Credential Delivery: ${cdLabel}`)
+    }
 
     // Computer & device setup
     if (a.computer_situation) {
@@ -150,6 +207,8 @@ function formatAnswersAsDescription(
         lines.push(`  Setup Type:     BYOD / personal computer (work from home)`)
       } else if (a.computer_situation === 'dont_know') {
         lines.push(`  Setup Type:     Unknown — manager needs to confirm computer situation`)
+      } else if (a.computer_situation === 'none') {
+        lines.push(`  Setup Type:     No computer needed`)
       }
     }
 
@@ -406,12 +465,69 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     // -----------------------------------------------------------------
+    // PRE-STEP: Resolve display names for group IDs and license SKUs
+    // -----------------------------------------------------------------
+    const displayNames: DisplayNameMap = {}
+    try {
+      const creds = hrRequest.company_slug
+        ? await getTenantCredentialsBySlug(hrRequest.company_slug)
+        : null
+      if (creds) {
+        const graph = createGraphClient(creds)
+
+        // Resolve license SKU display name
+        if (a.license_type) {
+          try {
+            const sku = await graph.getLicenseSkuByPartNumber(a.license_type)
+            if (sku?.displayName) displayNames[a.license_type] = sku.displayName
+          } catch { /* use raw name */ }
+        }
+
+        // Resolve group/list/team/site IDs to display names
+        const allIds: string[] = []
+        for (const field of ['security_groups', 'distribution_lists', 'teams_groups', 'sharepoint_sites']) {
+          const val = answers[field]
+          if (Array.isArray(val)) allIds.push(...(val as string[]))
+        }
+        if (allIds.length > 0) {
+          // Fetch all groups to build an ID→name map
+          try {
+            const [securityGroups, distLists, m365Groups, spSites] = await Promise.allSettled([
+              graph.getSecurityGroups(),
+              graph.getDistributionLists(),
+              graph.getM365Groups(),
+              graph.getSharePointSites(),
+            ])
+            const allItems: Array<{ id?: string; displayName?: string }> = []
+            if (securityGroups.status === 'fulfilled') allItems.push(...(securityGroups.value as Array<{ id?: string; displayName?: string }>))
+            if (distLists.status === 'fulfilled') allItems.push(...(distLists.value as Array<{ id?: string; displayName?: string }>))
+            if (m365Groups.status === 'fulfilled') allItems.push(...(m365Groups.value as Array<{ id?: string; displayName?: string }>))
+            if (spSites.status === 'fulfilled') {
+              for (const site of spSites.value as Array<{ id?: string; displayName?: string }>) {
+                if (site.id && site.displayName) allItems.push(site)
+              }
+            }
+            for (const item of allItems) {
+              if (item.id && item.displayName) {
+                displayNames[item.id] = item.displayName
+              }
+            }
+          } catch (err) {
+            console.warn('[hr/process] Could not resolve group display names:', err instanceof Error ? err.message : err)
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[hr/process] Display name resolution failed (non-fatal):', err instanceof Error ? err.message : err)
+    }
+
+    // -----------------------------------------------------------------
     // STEP 1: Create Autotask Ticket
     // -----------------------------------------------------------------
 
     const ticketStepStart = new Date()
     const originalDescription = formatAnswersAsDescription(
-      hrRequest.type, answers, hrRequest.submitted_by_name, hrRequest.submitted_by_email
+      hrRequest.type, answers, hrRequest.submitted_by_name, hrRequest.submitted_by_email, displayNames
     )
 
     // Determine if ticket needs Sales queue (new computer required)
@@ -737,19 +853,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           // --- Add to groups (from schema multi_select fields OR legacy groups_to_add) ---
           const groupsAdded: string[] = []
 
-          // Collect all group IDs from the new schema fields + legacy field
+          // Collect group IDs (not SharePoint sites — those need different handling)
           const allGroupIds: string[] = []
+          const sharePointSiteIds: string[] = []
 
           // New schema: separate multi_select fields
-          for (const field of ['security_groups', 'distribution_lists', 'teams_groups', 'sharepoint_sites']) {
+          for (const field of ['security_groups', 'distribution_lists', 'teams_groups']) {
             const fieldVal = answers[field]
             if (Array.isArray(fieldVal)) {
               allGroupIds.push(...(fieldVal as string[]))
             }
           }
+          // SharePoint sites are NOT groups — can't be added via /groups/{id}/members
+          const spVal = answers.sharepoint_sites
+          if (Array.isArray(spVal)) {
+            sharePointSiteIds.push(...(spVal as string[]))
+          }
 
           // Legacy: groups_to_add (JSON array or comma-separated)
-          if (allGroupIds.length === 0 && a.groups_to_add) {
+          if (allGroupIds.length === 0 && !sharePointSiteIds.length && a.groups_to_add) {
             try {
               const parsed = JSON.parse(a.groups_to_add) as string[]
               allGroupIds.push(...parsed)
@@ -760,25 +882,45 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
           if (newUserId && allGroupIds.length > 0) {
             for (const groupId of allGroupIds) {
+              const groupName = displayNames[groupId] ?? groupId
               const gStart = new Date()
               try {
                 await graph.addUserToGroup(groupId, newUserId)
                 groupsAdded.push(groupId)
-                await logStep(client, hrRequest.id, `add_to_group_${groupId}`, `Add to Group ${groupId}`, 'completed', gStart,
-                  { groupId, userId: newUserId }, { added: true })
+                await logStep(client, hrRequest.id, `add_to_group_${groupId}`, `Add to Group: ${groupName}`, 'completed', gStart,
+                  { groupId, groupName, userId: newUserId }, { added: true })
                 stepsCompleted.push(`add_to_group_${groupId}`)
-                await addTicketNote('Added to Group', `Group ID: ${groupId}`)
+                await addTicketNote('Added to Group', `Group: ${groupName}`)
               } catch (err) {
                 const msg = err instanceof Error ? err.message : String(err)
-                await logStep(client, hrRequest.id, `add_to_group_${groupId}`, `Add to Group ${groupId}`, 'failed', gStart,
-                  { groupId, userId: newUserId }, undefined, msg)
-                failedSteps.push(`add_to_group_${groupId}`)
-                await addTicketNote('Group Add Failed', `Group ID: ${groupId}\nError: ${msg}`)
+                // "already exist" means user is already a member — treat as success
+                if (msg.includes('already exist')) {
+                  groupsAdded.push(groupId)
+                  await logStep(client, hrRequest.id, `add_to_group_${groupId}`, `Add to Group: ${groupName}`, 'completed', gStart,
+                    { groupId, groupName, userId: newUserId }, { added: true, alreadyMember: true })
+                  stepsCompleted.push(`add_to_group_${groupId}`)
+                  await addTicketNote('Added to Group', `Group: ${groupName} (already a member)`)
+                } else {
+                  await logStep(client, hrRequest.id, `add_to_group_${groupId}`, `Add to Group: ${groupName}`, 'failed', gStart,
+                    { groupId, groupName, userId: newUserId }, undefined, msg)
+                  failedSteps.push(`add_to_group_${groupId}`)
+                  await addTicketNote('Group Add Failed', `Group: ${groupName}\nError: ${msg}`)
+                }
               }
             }
-            if (groupsAdded.length > 0) {
-              provisioningResults.push(`Groups Added: ${groupsAdded.length} group(s)`)
-            }
+          }
+
+          // Handle SharePoint sites — these need site permissions, not group membership
+          if (newUserId && sharePointSiteIds.length > 0) {
+            const siteNames = sharePointSiteIds.map(id => displayNames[id] ?? id)
+            manualSteps.push(`Grant SharePoint site access to ${siteNames.join(', ')}`)
+            await addTicketNote('SharePoint Access Required (Manual)',
+              `The following SharePoint sites were requested but require manual configuration:\n${siteNames.map(n => `  - ${n}`).join('\n')}\n\nUse SharePoint admin center to grant site-level permissions.`)
+          }
+
+          if (groupsAdded.length > 0) {
+            const groupNameList = groupsAdded.map(id => displayNames[id] ?? id)
+            provisioningResults.push(`Groups Added:\n${groupNameList.map(n => `  - ${n}`).join('\n')}`)
           }
 
           // --- Clone permissions + licenses from another user ---
@@ -867,17 +1009,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               resultLines.push(`License: ${licDisplayName}`)
             }
 
-            // Groups added
+            // Groups added — use display names
             const allGroupDescriptions: string[] = []
-            // Resolve group names for groups_to_add
             if (groupsAdded.length > 0) {
               for (const gId of groupsAdded) {
-                allGroupDescriptions.push(`  - Group ${gId}`)
+                const gName = displayNames[gId] ?? gId
+                allGroupDescriptions.push(`  - ${gName}`)
               }
             }
             // Cloned groups
             for (const cg of clonedGroups) {
               allGroupDescriptions.push(`  - ${describeGroup(cg)}`)
+            }
+            // SharePoint sites (manual)
+            if (sharePointSiteIds.length > 0) {
+              for (const sId of sharePointSiteIds) {
+                allGroupDescriptions.push(`  - ${displayNames[sId] ?? sId} (SharePoint — manual access required)`)
+              }
             }
             if (allGroupDescriptions.length > 0) {
               resultLines.push('Groups Added:')
@@ -897,9 +1045,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             }
             if (failedSteps.length > 0) {
               for (const step of failedSteps) {
-                manualSteps.push(`Retry failed step: ${step}`)
+                // Resolve group IDs in step names to display names
+                const humanStep = step.startsWith('add_to_group_')
+                  ? `Add to group: ${displayNames[step.replace('add_to_group_', '')] ?? step.replace('add_to_group_', '')}`
+                  : step
+                manualSteps.push(`Retry failed step: ${humanStep}`)
               }
-              resultLines.push(`\nFailed Steps: ${failedSteps.join(', ')}`)
+              const humanFailedSteps = failedSteps.map(s =>
+                s.startsWith('add_to_group_')
+                  ? `Add to ${displayNames[s.replace('add_to_group_', '')] ?? s.replace('add_to_group_', '')}`
+                  : s
+              )
+              resultLines.push(`\nFailed Steps: ${humanFailedSteps.join(', ')}`)
               resultLines.push('Status: Completed with errors — manual steps required')
             } else if (manualSteps.length > 0) {
               resultLines.push('Status: Automated steps complete — manual steps required')
@@ -942,11 +1099,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             }
 
             // Final customer-visible note (publish=1)
+            const licDisplayForNote = a.license_type ? (displayNames[a.license_type] ?? a.license_type) : null
             const completionNote = [
               `Employee ${fullName} has been fully provisioned:`,
               '',
               `New Email: ${upn}`,
-              a.license_type ? `License: ${a.license_type}` : null,
+              licDisplayForNote ? `License: ${licDisplayForNote}` : null,
               allGroupDescriptions.length > 0 ? `Groups/Lists/Sites: ${allGroupDescriptions.length} added` : null,
               '',
               'Temporary password will be shared securely by your TCT technician.',
