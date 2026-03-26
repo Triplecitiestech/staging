@@ -147,6 +147,14 @@ function resolveCountries(val: unknown): string {
   return ''
 }
 
+/** Metadata for a custom question — loaded from DB to render in ticket description */
+interface CustomQuestionMeta {
+  label: string
+  sectionTitle: string
+  type: string
+  staticOptions?: Array<{ value: string; label: string }>
+}
+
 /** Lookup table: group/list/site ID → display name. Populated before description is built. */
 type DisplayNameMap = Record<string, string>
 
@@ -156,6 +164,7 @@ function formatAnswersAsDescription(
   submitterName?: string | null,
   submitterEmail?: string | null,
   displayNames?: DisplayNameMap,
+  customQuestionsMeta?: Record<string, CustomQuestionMeta>,
 ): string {
   const lines: string[] = []
   const a = answers as Record<string, string>
@@ -277,6 +286,94 @@ function formatAnswersAsDescription(
     if (a.device_handling) lines.push(`  Device:         ${resolveLabel('device_handling', a.device_handling)}`)
 
     if (a.additional_notes) lines.push('', `ADDITIONAL NOTES & OTHER SYSTEMS\n  ${a.additional_notes}`)
+  }
+
+  // Render custom question answers that weren't handled by the hardcoded sections above
+  const knownKeys = new Set([
+    // Onboarding
+    'first_name', 'last_name', 'start_date', 'job_title', 'department',
+    'work_country', 'work_location', 'work_location_detail', 'desired_username',
+    'personal_email', 'phone', 'access_profile', 'license_type',
+    'security_groups', 'distribution_lists', 'teams_groups', 'sharepoint_sites',
+    'groups_to_add', 'clone_permissions', 'clone_from_user', 'credential_delivery',
+    'computer_situation', 'existing_device', 'new_computer_type', 'computer_spec',
+    'additional_notes', 'billing_acknowledgment',
+    // Offboarding
+    'work_email', 'employee_to_offboard', 'last_day', 'urgency_type',
+    'data_handling', 'forward_email_to', 'shared_mailbox_access', 'delegate_access_to',
+    'account_action', 'forward_email', 'delegate_access',
+    'file_handling', 'transfer_files_to', 'transfer_onedrive_to', 'onedrive_archive',
+    'device_handling',
+    // Internal / meta
+    'submitted_by_email', 'submitted_by_name',
+  ])
+
+  const customAnswers = Object.entries(answers).filter(
+    ([key, val]) => !knownKeys.has(key) && val !== undefined && val !== null && val !== ''
+  )
+
+  if (customAnswers.length > 0 && customQuestionsMeta) {
+    // Group by section title
+    const sectionGroups: Record<string, Array<{ key: string; label: string; value: unknown }>> = {}
+    const ungrouped: Array<{ key: string; label: string; value: unknown }> = []
+
+    for (const [key, value] of customAnswers) {
+      const meta = customQuestionsMeta[key]
+      if (meta) {
+        const section = meta.sectionTitle || 'Other'
+        if (!sectionGroups[section]) sectionGroups[section] = []
+        sectionGroups[section].push({ key, label: meta.label, value })
+      } else {
+        // Unknown custom key — still include with humanized label
+        const label = key.replace(/^custom_q_/, '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+        ungrouped.push({ key, label, value })
+      }
+    }
+
+    const formatValue = (meta: CustomQuestionMeta | undefined, val: unknown): string => {
+      // Resolve static option values to labels
+      if (meta?.staticOptions && typeof val === 'string') {
+        const opt = meta.staticOptions.find(o => o.value === val)
+        if (opt) return opt.label
+      }
+      if (meta?.staticOptions && Array.isArray(val)) {
+        return (val as string[]).map(v => {
+          const opt = meta.staticOptions!.find(o => o.value === v)
+          return opt ? opt.label : v
+        }).join(', ')
+      }
+      if (Array.isArray(val)) return val.map(v => dn[v as string] ?? v).join(', ')
+      if (typeof val === 'boolean') return val ? 'Yes' : 'No'
+      if (typeof val === 'string') return dn[val] ?? val
+      return String(val)
+    }
+
+    for (const [sectionTitle, items] of Object.entries(sectionGroups)) {
+      lines.push('', sectionTitle.toUpperCase())
+      for (const item of items) {
+        const displayVal = formatValue(customQuestionsMeta[item.key], item.value)
+        lines.push(`  ${item.label}: ${displayVal}`)
+      }
+    }
+
+    if (ungrouped.length > 0) {
+      lines.push('', 'ADDITIONAL INFORMATION')
+      for (const item of ungrouped) {
+        const displayVal = formatValue(undefined, item.value)
+        lines.push(`  ${item.label}: ${displayVal}`)
+      }
+    }
+  } else if (customAnswers.length > 0) {
+    // No metadata available — still render custom answers with humanized keys
+    lines.push('', 'ADDITIONAL INFORMATION')
+    for (const [key, value] of customAnswers) {
+      const label = key.replace(/^custom_q_/, '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+      const displayVal = Array.isArray(value)
+        ? (value as string[]).map(v => dn[v as string] ?? v).join(', ')
+        : typeof value === 'boolean' ? (value ? 'Yes' : 'No')
+        : String(value)
+      lines.push(`  ${label}: ${displayVal}`)
+    }
   }
 
   return lines.join('\n')
@@ -551,12 +648,54 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     // -----------------------------------------------------------------
+    // PRE-STEP: Load custom question metadata for ticket description
+    // -----------------------------------------------------------------
+    let customQuestionsMeta: Record<string, CustomQuestionMeta> = {}
+    try {
+      const configResult = await client.query(
+        `SELECT id FROM customer_form_configs WHERE company_id = $1 AND type = $2 LIMIT 1`,
+        [hrRequest.company_id, hrRequest.type]
+      )
+      if (configResult.rows.length > 0) {
+        const configId = configResult.rows[0].id
+        // Load custom sections for title lookup
+        const sectionsResult = await client.query(
+          `SELECT key, title FROM customer_custom_sections WHERE config_id = $1 AND is_enabled = true`,
+          [configId]
+        )
+        const sectionTitles: Record<string, string> = {}
+        for (const row of sectionsResult.rows) {
+          sectionTitles[row.key] = row.title
+        }
+        // Load custom questions with their labels and section assignments
+        const questionsResult = await client.query(
+          `SELECT key, label, type, section_key, static_options FROM customer_custom_questions WHERE config_id = $1 AND is_enabled = true`,
+          [configId]
+        )
+        for (const row of questionsResult.rows) {
+          const sectionTitle = sectionTitles[row.section_key] ?? row.section_key
+          const staticOpts = row.static_options
+            ? (typeof row.static_options === 'string' ? JSON.parse(row.static_options) : row.static_options)
+            : undefined
+          customQuestionsMeta[row.key] = {
+            label: row.label,
+            sectionTitle,
+            type: row.type,
+            staticOptions: staticOpts,
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[hr/process] Failed to load custom question metadata (non-fatal):', err instanceof Error ? err.message : err)
+    }
+
+    // -----------------------------------------------------------------
     // STEP 1: Create Autotask Ticket
     // -----------------------------------------------------------------
 
     const ticketStepStart = new Date()
     const originalDescription = formatAnswersAsDescription(
-      hrRequest.type, answers, hrRequest.submitted_by_name, hrRequest.submitted_by_email, displayNames
+      hrRequest.type, answers, hrRequest.submitted_by_name, hrRequest.submitted_by_email, displayNames, customQuestionsMeta
     )
 
     // Determine if ticket needs Sales queue (new computer required)
