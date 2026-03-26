@@ -527,6 +527,15 @@ export function createGraphClient(creds: TenantCredentials) {
       })
     },
 
+    /** Enable a user account (unlock sign-in) */
+    async enableAccount(userId: string): Promise<void> {
+      const t = await token()
+      await graphRequest(t, `/users/${userId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ accountEnabled: true }),
+      })
+    },
+
     /** Remove a license from a user */
     async removeLicense(userId: string, skuId: string): Promise<void> {
       const t = await token()

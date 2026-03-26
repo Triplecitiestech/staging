@@ -636,7 +636,7 @@ async function migrateOnboardingQuestions(client: PoolClient): Promise<void> {
     [schemaId]
   )
   await client.query(
-    `UPDATE form_questions SET help_text = 'When should the employee''s account be ready? We recommend 1-2 business days before their first day.'
+    `UPDATE form_questions SET help_text = 'If set to today or a past date, the account will be created and ready immediately. If set to a future date, the account will be created now but LOCKED — it will be automatically unlocked at 12:01 AM EST on this date. Login credentials will be shared in advance so the employee is ready on day one.'
      WHERE schema_id = $1 AND key = 'start_date'`,
     [schemaId]
   )

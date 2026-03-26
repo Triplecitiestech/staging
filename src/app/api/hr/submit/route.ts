@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createHash } from 'crypto'
-import { Pool } from 'pg'
+import { Pool, PoolClient } from 'pg'
 
 // ---------------------------------------------------------------------------
 // Raw pg pool — bypasses Prisma entirely so schema mismatches can't cause 500s
@@ -63,7 +63,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const normalizedSlug  = companySlug.toLowerCase().trim()
 
   // 3. DB work — all in one try/catch so any error returns a clean JSON response
-  const client = await pool.connect()
+  let client: PoolClient
+  try {
+    client = await pool.connect()
+  } catch (connErr) {
+    const msg = connErr instanceof Error ? connErr.message : String(connErr)
+    console.error('[hr/submit] Database connection failed:', msg)
+    return NextResponse.json(
+      { error: 'Unable to connect to the database. Please try again in a moment.' },
+      { status: 503 }
+    )
+  }
 
   // Ensure HR tables exist (idempotent)
   try {
