@@ -495,6 +495,21 @@ export function createGraphClient(creds: TenantCredentials) {
       })
     },
 
+    /** Grant a user member access to a SharePoint site */
+    async addUserToSharePointSite(siteId: string, userId: string, role: 'read' | 'write' | 'owner' = 'write'): Promise<void> {
+      const t = await token()
+      await graphRequest(t, `/sites/${siteId}/permissions`, {
+        method: 'POST',
+        body: JSON.stringify({
+          roles: [role],
+          grantedToIdentities: [{
+            application: null,
+            user: { id: userId },
+          }],
+        }),
+      })
+    },
+
     /** Revoke all sign-in sessions for a user */
     async revokeSignInSessions(userId: string): Promise<void> {
       const t = await token()
