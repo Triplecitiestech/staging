@@ -1381,7 +1381,93 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             }
           }
 
-          // Disable account
+          // OneDrive transfer — MUST happen before account is disabled
+          // Supports both new (file_handling + transfer_files_to) and legacy (transfer_onedrive_to) answer keys
+          let oneDriveTransferredTo: string | null = null
+          let oneDriveWebUrl: string | null = null
+          const transferRecipient = a.transfer_files_to || a.transfer_onedrive_to
+          const shouldTransferFiles = (a.file_handling === 'transfer_to_user' && a.transfer_files_to) || a.transfer_onedrive_to
+          if (shouldTransferFiles && transferRecipient && targetUserId) {
+            const odStart = new Date()
+            try {
+              const result = await graph.grantOneDriveAccess(targetUserId, transferRecipient)
+              oneDriveTransferredTo = transferRecipient
+              oneDriveWebUrl = result.webUrl
+              provisioningResults.push(`OneDrive Transferred To: ${oneDriveTransferredTo}`)
+              await logStep(client, hrRequest.id, 'transfer_onedrive', 'Transfer OneDrive Access', 'completed', odStart,
+                { targetUserId, recipientEmail: oneDriveTransferredTo }, { webUrl: oneDriveWebUrl })
+              stepsCompleted.push('transfer_onedrive')
+              await addTicketNote('OneDrive Access Granted', `Shared with: ${oneDriveTransferredTo}\nOneDrive URL: ${oneDriveWebUrl}`)
+
+              // Notify the recipient about their new OneDrive access
+              if (resend) {
+                try {
+                  await resend.emails.send({
+                    from: FROM_EMAIL,
+                    to: [oneDriveTransferredTo],
+                    subject: `OneDrive files shared with you — ${fullName || targetUpn || 'Employee'}`,
+                    text: [
+                      'Hello,',
+                      '',
+                      `As part of the offboarding process for ${fullName || targetUpn || 'the employee'}, their OneDrive files have been shared with you.`,
+                      '',
+                      `You can access the files here:`,
+                      oneDriveWebUrl,
+                      '',
+                      'If you have any questions about these files, please contact your IT administrator.',
+                      '',
+                      'Triple Cities Tech',
+                    ].join('\n'),
+                  })
+                } catch (err) {
+                  console.warn('[hr/process] OneDrive notification email failed (non-fatal):', err instanceof Error ? err.message : err)
+                }
+              }
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err)
+              await logStep(client, hrRequest.id, 'transfer_onedrive', 'Transfer OneDrive Access', 'failed', odStart,
+                { targetUserId, recipientEmail: transferRecipient }, undefined, msg)
+              failedSteps.push('transfer_onedrive')
+              await addTicketNote('OneDrive Transfer Failed', `Recipient: ${transferRecipient}\nError: ${msg}`)
+            }
+          }
+
+          // OneDrive archive — MUST happen before account is disabled
+          let archiveFolderUrl: string | null = null
+          let archivedFileCount = 0
+          const shouldArchive = a.file_handling === 'archive_to_sharepoint' || a.onedrive_archive === 'yes'
+          if (shouldArchive && targetUserId) {
+            const archiveStart = new Date()
+            try {
+              const hrSite = await graph.getOrCreateHRSharePointSite()
+              const folderName = `${fullName} — Offboarding ${new Date().toISOString().slice(0, 10)}`.trim()
+              const archiveResult = await graph.archiveOneDriveToSharePoint(
+                targetUserId,
+                hrSite.driveId,
+                folderName
+              )
+              archiveFolderUrl = archiveResult.folderWebUrl
+              archivedFileCount = archiveResult.fileCount
+              provisioningResults.push(`OneDrive Archived: ${archivedFileCount} items to HR SharePoint`)
+              await logStep(client, hrRequest.id, 'archive_onedrive', 'Archive OneDrive to SharePoint', 'completed', archiveStart,
+                { targetUserId, driveId: hrSite.driveId },
+                { folderUrl: archiveFolderUrl, fileCount: archivedFileCount, siteUrl: hrSite.webUrl })
+              stepsCompleted.push('archive_onedrive')
+              await addTicketNote('OneDrive Files Archived — Awaiting Review',
+                `${archivedFileCount} items copied to HR SharePoint\nFolder: ${archiveFolderUrl}\nSite: ${hrSite.webUrl}\n\n` +
+                'ACTION REQUIRED: Please review the archived files to confirm everything transferred correctly, then close this ticket.')
+              // Always require human review after archive
+              manualSteps.push(`Review SharePoint archive for ${fullName} (${archivedFileCount} items) and confirm completeness — then close this ticket`)
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err)
+              await logStep(client, hrRequest.id, 'archive_onedrive', 'Archive OneDrive to SharePoint', 'failed', archiveStart,
+                { targetUserId }, undefined, msg)
+              failedSteps.push('archive_onedrive')
+              await addTicketNote('OneDrive Archive Failed', `Error: ${msg}`)
+            }
+          }
+
+          // Disable account — after OneDrive operations since Graph can't access a disabled user's drive
           const disableStart = new Date()
           try {
             await graph.disableAccount(targetUserId)
@@ -1470,92 +1556,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               { userId: targetUserId }, undefined, msg)
             failedSteps.push('remove_licenses')
             await addTicketNote('License Removal Failed', `Error: ${msg}`)
-          }
-
-          // OneDrive transfer — grant access to designated user
-          // Supports both new (file_handling + transfer_files_to) and legacy (transfer_onedrive_to) answer keys
-          let oneDriveTransferredTo: string | null = null
-          let oneDriveWebUrl: string | null = null
-          const transferRecipient = a.transfer_files_to || a.transfer_onedrive_to
-          const shouldTransferFiles = (a.file_handling === 'transfer_to_user' && a.transfer_files_to) || a.transfer_onedrive_to
-          if (shouldTransferFiles && transferRecipient && targetUserId) {
-            const odStart = new Date()
-            try {
-              const result = await graph.grantOneDriveAccess(targetUserId, transferRecipient)
-              oneDriveTransferredTo = transferRecipient
-              oneDriveWebUrl = result.webUrl
-              provisioningResults.push(`OneDrive Transferred To: ${oneDriveTransferredTo}`)
-              await logStep(client, hrRequest.id, 'transfer_onedrive', 'Transfer OneDrive Access', 'completed', odStart,
-                { targetUserId, recipientEmail: oneDriveTransferredTo }, { webUrl: oneDriveWebUrl })
-              stepsCompleted.push('transfer_onedrive')
-              await addTicketNote('OneDrive Access Granted', `Shared with: ${oneDriveTransferredTo}\nOneDrive URL: ${oneDriveWebUrl}`)
-
-              // Notify the recipient about their new OneDrive access
-              if (resend) {
-                try {
-                  await resend.emails.send({
-                    from: FROM_EMAIL,
-                    to: [oneDriveTransferredTo],
-                    subject: `OneDrive files shared with you — ${fullName || targetUpn || 'Employee'}`,
-                    text: [
-                      'Hello,',
-                      '',
-                      `As part of the offboarding process for ${fullName || targetUpn || 'the employee'}, their OneDrive files have been shared with you.`,
-                      '',
-                      `You can access the files here:`,
-                      oneDriveWebUrl,
-                      '',
-                      'If you have any questions about these files, please contact your IT administrator.',
-                      '',
-                      'Triple Cities Tech',
-                    ].join('\n'),
-                  })
-                } catch (err) {
-                  console.warn('[hr/process] OneDrive notification email failed (non-fatal):', err instanceof Error ? err.message : err)
-                }
-              }
-            } catch (err) {
-              const msg = err instanceof Error ? err.message : String(err)
-              await logStep(client, hrRequest.id, 'transfer_onedrive', 'Transfer OneDrive Access', 'failed', odStart,
-                { targetUserId, recipientEmail: transferRecipient }, undefined, msg)
-              failedSteps.push('transfer_onedrive')
-              await addTicketNote('OneDrive Transfer Failed', `Recipient: ${transferRecipient}\nError: ${msg}`)
-            }
-          }
-
-          // OneDrive archive — move files to HR SharePoint site
-          let archiveFolderUrl: string | null = null
-          let archivedFileCount = 0
-          const shouldArchive = a.file_handling === 'archive_to_sharepoint' || a.onedrive_archive === 'yes'
-          if (shouldArchive && targetUserId) {
-            const archiveStart = new Date()
-            try {
-              const hrSite = await graph.getOrCreateHRSharePointSite()
-              const folderName = `${fullName} — Offboarding ${new Date().toISOString().slice(0, 10)}`.trim()
-              const archiveResult = await graph.archiveOneDriveToSharePoint(
-                targetUserId,
-                hrSite.driveId,
-                folderName
-              )
-              archiveFolderUrl = archiveResult.folderWebUrl
-              archivedFileCount = archiveResult.fileCount
-              provisioningResults.push(`OneDrive Archived: ${archivedFileCount} items to HR SharePoint`)
-              await logStep(client, hrRequest.id, 'archive_onedrive', 'Archive OneDrive to SharePoint', 'completed', archiveStart,
-                { targetUserId, driveId: hrSite.driveId },
-                { folderUrl: archiveFolderUrl, fileCount: archivedFileCount, siteUrl: hrSite.webUrl })
-              stepsCompleted.push('archive_onedrive')
-              await addTicketNote('OneDrive Files Archived — Awaiting Review',
-                `${archivedFileCount} items copied to HR SharePoint\nFolder: ${archiveFolderUrl}\nSite: ${hrSite.webUrl}\n\n` +
-                'ACTION REQUIRED: Please review the archived files to confirm everything transferred correctly, then close this ticket.')
-              // Always require human review after archive
-              manualSteps.push(`Review SharePoint archive for ${fullName} (${archivedFileCount} items) and confirm completeness — then close this ticket`)
-            } catch (err) {
-              const msg = err instanceof Error ? err.message : String(err)
-              await logStep(client, hrRequest.id, 'archive_onedrive', 'Archive OneDrive to SharePoint', 'failed', archiveStart,
-                { targetUserId }, undefined, msg)
-              failedSteps.push('archive_onedrive')
-              await addTicketNote('OneDrive Archive Failed', `Error: ${msg}`)
-            }
           }
 
           // Build provisioning results for ticket
