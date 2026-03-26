@@ -37,8 +37,8 @@ export function HrRequestSection({
             </svg>
           </div>
           <div>
-            <p className="text-sm font-medium text-white">Employee Management</p>
-            <p className="text-xs text-gray-500">Contact your company manager for employee change access.</p>
+            <p className="text-sm font-medium text-white">Employee Changes</p>
+            <p className="text-xs text-gray-500">Only managers can add or remove employees. Ask your manager if you need access.</p>
           </div>
         </div>
       </div>

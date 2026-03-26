@@ -209,10 +209,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const token = createPortalSession(sessionData)
     await setPortalSessionCookie(token)
 
-    // 7. Redirect to returnTo (if provided in state) or portal
+    // 7. Redirect to returnTo (if provided in state) or new portal URL
     const returnTo = typeof stateObj.returnTo === 'string' && stateObj.returnTo.startsWith('/') && !stateObj.returnTo.startsWith('//')
       ? stateObj.returnTo
-      : `/onboarding/${companySlug}`
+      : `/portal/${companySlug}/dashboard`
     return NextResponse.redirect(`${baseUrl}${returnTo}`)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)

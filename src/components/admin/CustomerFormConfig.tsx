@@ -71,6 +71,131 @@ interface SchemaSection {
 }
 
 // ---------------------------------------------------------------------------
+// Custom Question Editor (inline)
+// ---------------------------------------------------------------------------
+
+const QUESTION_TYPES = [
+  { value: 'text', label: 'Text' },
+  { value: 'textarea', label: 'Long Text' },
+  { value: 'select', label: 'Dropdown' },
+  { value: 'multi_select', label: 'Multi-Select' },
+  { value: 'email', label: 'Email' },
+  { value: 'date', label: 'Date' },
+  { value: 'radio', label: 'Radio' },
+]
+
+function CustomQuestionEditor({
+  question,
+  onChange,
+  onRemove,
+}: {
+  question: CustomQuestion
+  onChange: (q: CustomQuestion) => void
+  onRemove: () => void
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const hasOptions = ['select', 'multi_select', 'radio'].includes(question.type)
+
+  const addOption = () => {
+    const options = question.staticOptions ?? []
+    const newOpt = { value: `option_${options.length + 1}`, label: '' }
+    onChange({ ...question, staticOptions: [...options, newOpt] })
+  }
+
+  return (
+    <div className="px-3 py-2 rounded-md bg-cyan-500/5 border border-cyan-500/10 space-y-2">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <button onClick={() => setExpanded(!expanded)} className="text-gray-500 hover:text-gray-300 text-xs">
+            {expanded ? '▼' : '▶'}
+          </button>
+          <input
+            value={question.label}
+            onChange={(e) => onChange({ ...question, label: e.target.value })}
+            className="bg-transparent text-sm text-white border-b border-white/10 focus:outline-none focus:border-cyan-500/50 flex-1 min-w-0"
+            placeholder="Question label..."
+          />
+          <select
+            value={question.type}
+            onChange={(e) => onChange({ ...question, type: e.target.value })}
+            className="bg-gray-800 text-[10px] text-gray-300 rounded px-1.5 py-0.5 border border-white/10"
+          >
+            {QUESTION_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>{t.label}</option>
+            ))}
+          </select>
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 shrink-0">Custom</span>
+        </div>
+        <button onClick={onRemove} className="text-red-400/60 hover:text-red-400 text-xs ml-2 shrink-0">
+          Remove
+        </button>
+      </div>
+
+      {expanded && (
+        <div className="pl-6 space-y-2">
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={question.isRequired}
+                onChange={(e) => onChange({ ...question, isRequired: e.target.checked })}
+                className="rounded border-gray-600 bg-gray-800 text-cyan-500"
+              />
+              <span className="text-xs text-gray-400">Required</span>
+            </label>
+          </div>
+          <input
+            value={question.helpText ?? ''}
+            onChange={(e) => onChange({ ...question, helpText: e.target.value || null })}
+            placeholder="Help text (shown below the field)..."
+            className="w-full bg-gray-800/50 text-xs text-gray-300 rounded px-2 py-1 border border-white/10 focus:outline-none focus:border-cyan-500/30"
+          />
+          <input
+            value={question.placeholder ?? ''}
+            onChange={(e) => onChange({ ...question, placeholder: e.target.value || null })}
+            placeholder="Placeholder text..."
+            className="w-full bg-gray-800/50 text-xs text-gray-300 rounded px-2 py-1 border border-white/10 focus:outline-none focus:border-cyan-500/30"
+          />
+
+          {hasOptions && (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-gray-500 uppercase tracking-wide">Options</span>
+                <button onClick={addOption} className="text-[10px] text-cyan-400 hover:text-cyan-300">+ Add Option</button>
+              </div>
+              {(question.staticOptions ?? []).map((opt, i) => (
+                <div key={i} className="flex items-center gap-1.5">
+                  <input
+                    value={opt.label}
+                    onChange={(e) => {
+                      const updated = [...(question.staticOptions ?? [])]
+                      const autoValue = e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
+                      updated[i] = { ...updated[i], label: e.target.value, value: autoValue || updated[i].value }
+                      onChange({ ...question, staticOptions: updated })
+                    }}
+                    placeholder={`Option ${i + 1}...`}
+                    className="flex-1 bg-gray-800/50 text-xs text-gray-300 rounded px-2 py-1 border border-white/10 focus:outline-none focus:border-cyan-500/30"
+                  />
+                  <button
+                    onClick={() => {
+                      const updated = (question.staticOptions ?? []).filter((_, j) => j !== i)
+                      onChange({ ...question, staticOptions: updated })
+                    }}
+                    className="text-red-400/50 hover:text-red-400 text-xs"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // CustomerFormConfig
 // ---------------------------------------------------------------------------
 
@@ -410,27 +535,12 @@ export function CustomerFormConfig({
                       {customQuestions
                         .filter((cq) => cq.sectionKey === section.key)
                         .map((cq, i) => (
-                          <div key={cq.key} className="flex items-center justify-between px-3 py-2 rounded-md bg-cyan-500/5 border border-cyan-500/10">
-                            <div className="flex items-center gap-2">
-                              <input
-                                value={cq.label}
-                                onChange={(e) => {
-                                  const updated = [...customQuestions]
-                                  const idx = updated.findIndex((q) => q.key === cq.key)
-                                  updated[idx] = { ...updated[idx], label: e.target.value }
-                                  setCustomQuestions(updated)
-                                }}
-                                className="bg-transparent text-sm text-white border-b border-white/10 focus:outline-none focus:border-cyan-500/50 w-40"
-                              />
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">Custom</span>
-                            </div>
-                            <button
-                              onClick={() => setCustomQuestions((prev) => prev.filter((q) => q.key !== cq.key))}
-                              className="text-red-400/60 hover:text-red-400 text-xs"
-                            >
-                              Remove
-                            </button>
-                          </div>
+                          <CustomQuestionEditor
+                            key={cq.key}
+                            question={cq}
+                            onChange={(updated) => setCustomQuestions((prev) => prev.map((q) => q.key === cq.key ? updated : q))}
+                            onRemove={() => setCustomQuestions((prev) => prev.filter((q) => q.key !== cq.key))}
+                          />
                         ))}
                     </div>
                   )}
@@ -459,24 +569,12 @@ export function CustomerFormConfig({
                   {customQuestions
                     .filter((cq) => cq.sectionKey === cs.key)
                     .map((cq) => (
-                      <div key={cq.key} className="flex items-center justify-between px-3 py-2 rounded-md bg-gray-900/30">
-                        <input
-                          value={cq.label}
-                          onChange={(e) => {
-                            const updated = [...customQuestions]
-                            const idx = updated.findIndex((q) => q.key === cq.key)
-                            updated[idx] = { ...updated[idx], label: e.target.value }
-                            setCustomQuestions(updated)
-                          }}
-                          className="bg-transparent text-sm text-gray-300 border-b border-white/10 focus:outline-none focus:border-cyan-500/50 w-48"
-                        />
-                        <button
-                          onClick={() => setCustomQuestions((prev) => prev.filter((q) => q.key !== cq.key))}
-                          className="text-red-400/60 hover:text-red-400 text-xs"
-                        >
-                          Remove
-                        </button>
-                      </div>
+                      <CustomQuestionEditor
+                        key={cq.key}
+                        question={cq}
+                        onChange={(updated) => setCustomQuestions((prev) => prev.map((q) => q.key === cq.key ? updated : q))}
+                        onRemove={() => setCustomQuestions((prev) => prev.filter((q) => q.key !== cq.key))}
+                      />
                     ))}
                 </div>
               </div>

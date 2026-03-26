@@ -21,6 +21,7 @@ interface OnboardingPortalProps {
   userRole?: string
   isManager?: boolean
   dbDegraded?: boolean
+  portalFunction?: string
 }
 
 export default function OnboardingPortal({
@@ -42,11 +43,10 @@ export default function OnboardingPortal({
   const displayName = companyDisplayName || companySlug
 
   const handleLogout = () => {
-    // Clear cookie via POST, then redirect immediately
+    // Clear cookie via POST, then redirect to portal splash
     fetch('/api/portal/auth/logout', { method: 'POST' })
       .finally(() => {
-        // Always redirect regardless of fetch outcome
-        window.location.replace(`/api/portal/auth/login?company=${companySlug}`)
+        window.location.replace('/portal')
       })
   }
 

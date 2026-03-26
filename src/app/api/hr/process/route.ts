@@ -137,7 +137,9 @@ function formatAnswersAsDescription(
         lines.push(`  Setup Type:     Existing company computer`)
         if (a.existing_device) lines.push(`  Device:         ${a.existing_device}`)
       } else if (a.computer_situation === 'new_computer') {
-        lines.push(`  Setup Type:     New computer needed`)
+        lines.push(`  Setup Type:     *** NEW COMPUTER REQUIRED ***`)
+        lines.push(`  Action:         Sales quote needed — routed to Sales queue`)
+        // Legacy fields (may still be present from older submissions)
         if (a.new_computer_type === 'custom_quote') {
           lines.push(`  Quote Type:     Custom — sales team to create quote`)
         } else if (a.new_computer_type === 'standard') {
@@ -146,6 +148,8 @@ function formatAnswersAsDescription(
         }
       } else if (a.computer_situation === 'personal_byod') {
         lines.push(`  Setup Type:     BYOD / personal computer (work from home)`)
+      } else if (a.computer_situation === 'dont_know') {
+        lines.push(`  Setup Type:     Unknown — manager needs to confirm computer situation`)
       }
     }
 
@@ -410,6 +414,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       hrRequest.type, answers, hrRequest.submitted_by_name, hrRequest.submitted_by_email
     )
 
+    // Determine if ticket needs Sales queue (new computer required)
+    const needsNewComputer = hrRequest.type === 'onboarding' && a.computer_situation === 'new_computer'
+    const salesQueueId = process.env.AUTOTASK_SALES_QUEUE_ID
+      ? parseInt(process.env.AUTOTASK_SALES_QUEUE_ID, 10)
+      : undefined
+
     const ticketPayload: AutotaskTicketPayload = {
       CompanyID: autotaskCompanyId,
       Title: buildTicketTitle(hrRequest.type, answers),
@@ -417,6 +427,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       Status: 1,   // New
       Priority: 2, // Medium
       ...(requesterContactId ? { ContactID: requesterContactId } : {}),
+      ...(needsNewComputer && salesQueueId ? { QueueID: salesQueueId } : {}),
     }
 
     let ticketId: number | null = null
@@ -513,6 +524,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
        WHERE id = $1`,
       [hrRequest.id, ticketId, ticketNumber]
     )
+
+    // Add internal note if ticket was routed to Sales queue
+    if (needsNewComputer) {
+      const queueNote = salesQueueId
+        ? 'This ticket has been routed to the Sales queue because a new computer is required. Please create a quote and coordinate hardware procurement.'
+        : 'NOTE: New computer required but AUTOTASK_SALES_QUEUE_ID is not configured — ticket was created in the default queue. Please move to the Sales queue manually.'
+      if (autotask && ticketId) {
+        try {
+          await autotask.createTicketNote(ticketId, {
+            title: 'New Computer Required — Sales Queue',
+            description: queueNote,
+            noteType: 1,
+            publish: 2, // internal only
+          })
+        } catch (err) {
+          console.warn('[hr/process] Failed to add sales queue note:', err instanceof Error ? err.message : err)
+        }
+      }
+    }
 
     // -----------------------------------------------------------------
     // STEP 2: Add 30-minute time entry to the ticket
@@ -859,12 +889,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             }
 
             // Build manual steps for TCT staff
+            if (needsNewComputer) {
+              manualSteps.push('New computer required — create sales quote and coordinate hardware procurement')
+            }
+            if (a.additional_notes && a.additional_notes.trim()) {
+              manualSteps.push(`Review additional notes/software requirements — see "NOTES" section above`)
+            }
             if (failedSteps.length > 0) {
               for (const step of failedSteps) {
                 manualSteps.push(`Retry failed step: ${step}`)
               }
               resultLines.push(`\nFailed Steps: ${failedSteps.join(', ')}`)
               resultLines.push('Status: Completed with errors — manual steps required')
+            } else if (manualSteps.length > 0) {
+              resultLines.push('Status: Automated steps complete — manual steps required')
             } else {
               resultLines.push('Status: All actions completed successfully')
             }
@@ -1306,6 +1344,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               if (a.forward_email_to) {
                 manualSteps.push(`Verify email forwarding is active: ${targetUpn} → ${a.forward_email_to}`)
               }
+            }
+            if (a.additional_notes && a.additional_notes.trim()) {
+              manualSteps.push(`Review additional notes/other systems access — see "ADDITIONAL NOTES" section above`)
             }
             for (const step of failedSteps) {
               manualSteps.push(`Retry failed step: ${step}`)

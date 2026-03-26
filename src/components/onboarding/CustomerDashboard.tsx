@@ -272,7 +272,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
       case 'open': return `Open Tickets (${openTickets.length})`
       case 'closed': return `Closed Tickets (${closedTickets.length})`
       case 'closed-this-month': return `Closed This Month (${closedThisMonth.length})`
-      case 'awaiting': return `Awaiting Your Team (${openTickets.filter(t => isWaitingOnCustomer(t.status)).length})`
+      case 'awaiting': return `Needs Your Action (${openTickets.filter(t => isWaitingOnCustomer(t.status)).length})`
       default: return 'Tickets'
     }
   })()
@@ -344,7 +344,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
                 </svg>
-                Vertical
+                List View
               </button>
               <button
                 onClick={() => setProjectViewMode('horizontal')}
@@ -355,7 +355,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7" />
                 </svg>
-                Horizontal
+                Timeline
               </button>
             </div>
           </div>
@@ -390,7 +390,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
             <div className="text-2xl font-bold text-red-400">
               {project.phases.reduce((sum, ph) => sum + ph.tasks.filter(t => t.status === 'WAITING_ON_CLIENT' || t.status === 'CUSTOMER_NOTE_ADDED').length, 0)}
             </div>
-            <div className="text-xs text-gray-400 mt-1">Awaiting Your Team</div>
+            <div className="text-xs text-gray-400 mt-1">Needs Your Action</div>
           </div>
         </div>
 
@@ -722,7 +722,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
           }`}
         >
           <div className="text-3xl font-bold text-red-400">{openTickets.filter(t => isWaitingOnCustomer(t.status)).length}</div>
-          <div className="text-sm text-gray-400 mt-1">Awaiting Your Team</div>
+          <div className="text-sm text-gray-400 mt-1">Needs Your Action</div>
         </button>
         <button
           onClick={() => document.getElementById('projects-section')?.scrollIntoView({ behavior: 'smooth' })}
@@ -812,7 +812,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
                     <span>-</span>
                     <span>{totalTasks} tasks</span>
                     {waiting > 0 && (
-                      <span className="text-red-400 font-medium">{waiting} awaiting your team</span>
+                      <span className="text-red-400 font-medium">{waiting} need your action</span>
                     )}
                   </div>
                   <div className="bg-gray-700 rounded-full h-2 overflow-hidden mb-2">

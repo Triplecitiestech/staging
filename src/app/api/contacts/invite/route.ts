@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
     contactName: contact.name,
     companyName: contact.company.displayName,
     companySlug: contact.company.slug,
-    portalUrl: `${process.env.NEXT_PUBLIC_BASE_URL || 'https://www.triplecitiestech.com'}/onboarding/${contact.company.slug}`,
+    portalUrl: `${process.env.NEXT_PUBLIC_BASE_URL || 'https://www.triplecitiestech.com'}/portal/${contact.company.slug}/dashboard`,
   })
 
   return NextResponse.json({ html, contact: { id: contact.id, name: contact.name, email: contact.email, companyName: contact.company.displayName } })
@@ -107,7 +107,7 @@ export async function POST(request: NextRequest) {
         continue
       }
 
-      const portalUrl = `${baseUrl}/onboarding/${contact.company.slug}`
+      const portalUrl = `${baseUrl}/portal/${contact.company.slug}/dashboard`
 
       const html = generateInviteEmailHtml({
         contactName: contact.name,
@@ -212,12 +212,6 @@ function generateInviteEmailHtml(params: InviteEmailParams): string {
     .feature-list li::before { content: '\\2713'; color: #06b6d4; font-weight: 700; font-size: 14px; }
     .cta-section { text-align: center; margin: 32px 0; }
     .cta-button { display: inline-block; background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%); color: white !important; padding: 14px 40px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px; }
-    .how-to { background: #f0fdfa; border: 1px solid #99f6e4; border-radius: 8px; padding: 20px; margin-bottom: 24px; }
-    .how-to h3 { margin: 0 0 12px 0; font-size: 15px; font-weight: 600; color: #0f172a; }
-    .steps { list-style: none; padding: 0; margin: 0; counter-reset: steps; }
-    .steps li { padding: 6px 0; font-size: 14px; color: #475569; counter-increment: steps; display: flex; gap: 10px; }
-    .steps li::before { content: counter(steps); background: #06b6d4; color: white; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; }
-    .notice { font-size: 13px; color: #64748b; background: #f8fafc; border-left: 3px solid #06b6d4; padding: 12px 16px; margin-bottom: 24px; border-radius: 0 8px 8px 0; }
     .footer { padding: 24px 32px; background: #f8fafc; border-top: 1px solid #e2e8f0; text-align: center; font-size: 13px; color: #94a3b8; }
     .footer a { color: #64748b; text-decoration: none; }
   </style>
@@ -226,46 +220,31 @@ function generateInviteEmailHtml(params: InviteEmailParams): string {
   <div class="container">
     <div class="header">
       <h1>Triple Cities Tech</h1>
-      <p>Customer Portal Invitation</p>
+      <p>Customer Support Portal</p>
     </div>
     <div class="content">
       <p class="greeting">Hi <strong>${contactName}</strong>,</p>
       <p class="intro">
-        You have been invited to join the <strong>${companyName}</strong> customer portal on Triple Cities Tech. This secure portal gives you direct access to your company's IT services, projects, and support.
+        Your customer portal is ready. This is your primary interface with Triple Cities Tech for managing IT services, tracking support requests, and staying connected with our team. Please log in and set up your account.
       </p>
+
+      <div class="cta-section">
+        <a href="${portalUrl}" class="cta-button">Log In to Your Portal</a>
+      </div>
 
       <div class="features">
         <h3>What You Can Do</h3>
         <ul class="feature-list">
-          <li>View the status of your company's active projects and phases</li>
-          <li>Track and submit support tickets</li>
-          <li>View ticket history and communication timeline</li>
-          <li>Access customer-specific announcements and updates</li>
-          <li>Review project milestones and deliverables</li>
+          <li>Track your company's active projects and milestones</li>
+          <li>View and respond to support tickets</li>
+          <li>Submit employee onboarding and offboarding requests</li>
+          <li>Access company-specific resources and updates</li>
         </ul>
-      </div>
-
-      <div class="cta-section">
-        <a href="${portalUrl}" class="cta-button">Access Your Portal</a>
-      </div>
-
-      <div class="how-to">
-        <h3>How to Get Started</h3>
-        <ol class="steps">
-          <li>Click the &quot;Access Your Portal&quot; button above</li>
-          <li>Enter the company password provided by your IT administrator or Triple Cities Tech</li>
-          <li>You'll see your dashboard with all projects, tickets, and updates</li>
-        </ol>
-      </div>
-
-      <div class="notice">
-        <strong>Security Note:</strong> Your portal access is limited to ${companyName}'s data only. You will never see information belonging to other organizations. Internal team notes and administrative data are not visible to portal users.
       </div>
     </div>
     <div class="footer">
       <p>Triple Cities Tech &bull; Managed IT Services</p>
       <p><a href="https://www.triplecitiestech.com">triplecitiestech.com</a> &bull; <a href="mailto:support@triplecitiestech.com">support@triplecitiestech.com</a></p>
-      <p style="margin-top: 8px; font-size: 11px; color: #cbd5e1;">If you did not expect this invitation, please ignore this email or contact our support team.</p>
     </div>
   </div>
 </body>
