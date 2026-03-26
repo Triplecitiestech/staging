@@ -104,10 +104,28 @@ export function FormRenderer({
   const getOptions = (q: MergedQuestion) =>
     q.resolvedOptions ?? q.staticOptions ?? []
 
-  // Handle answer change
+  // Handle answer change — also clears dependent fields that become hidden
   const handleChange = useCallback(
     (key: string, value: unknown) => {
-      setAnswers((prev) => ({ ...prev, [key]: value }))
+      setAnswers((prev) => {
+        const next = { ...prev, [key]: value }
+        // Find all questions across all sections that have visibility rules
+        // referencing the changed field, and clear their values if they become hidden
+        for (const section of config.sections) {
+          for (const q of section.questions) {
+            if (q.key === key) continue
+            if (!q.visibilityRules) continue
+            const rules = q.visibilityRules as { conditions?: { field: string }[] }
+            const dependsOnChangedField = rules.conditions?.some(
+              (c) => c.field === key
+            )
+            if (dependsOnChangedField && !evaluateVisibility(q.visibilityRules, next)) {
+              delete next[q.key]
+            }
+          }
+        }
+        return next
+      })
       // Clear field error when user changes value
       setErrors((prev) => {
         if (prev[key]) {
@@ -118,7 +136,7 @@ export function FormRenderer({
         return prev
       })
     },
-    []
+    [config.sections]
   )
 
   // Validate current step
@@ -187,10 +205,22 @@ export function FormRenderer({
     setCurrentStep((s) => Math.max(s - 1, 0))
   }
 
-  // Submit
+  // Submit — strip out answers for hidden fields before sending
   const handleSubmit = async () => {
     setSubmitting(true)
     setSubmitError(null)
+
+    // Build clean answers: only include values for currently visible questions
+    const cleanAnswers: Record<string, unknown> = {}
+    for (const section of config.sections) {
+      const visible = getVisibleQuestions(section)
+      for (const q of visible) {
+        if (q.type === 'heading' || q.type === 'info') continue
+        if (answers[q.key] !== undefined && answers[q.key] !== null && answers[q.key] !== '') {
+          cleanAnswers[q.key] = answers[q.key]
+        }
+      }
+    }
 
     try {
       const res = await fetch('/api/hr/submit', {
@@ -198,7 +228,7 @@ export function FormRenderer({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           type: config.type,
-          answers,
+          answers: cleanAnswers,
           submittedByEmail: submitterEmail,
           submittedByName: submitterName,
           companySlug,

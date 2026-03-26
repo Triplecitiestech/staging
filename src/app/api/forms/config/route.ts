@@ -930,6 +930,201 @@ async function migrateOffboardingUXImprovements(client: PoolClient): Promise<voi
   console.log('[forms/config] Migration complete: offboarding UX improvements')
 }
 
+/** Idempotent migration: V2 form refinements
+ *  ONBOARDING:
+ *  - Rename work_location_detail to "Work Location (Home / Office)"
+ *  - Update license help text for non-technical users
+ *  - Rename distribution_lists label to "Email Distribution Lists"
+ *  - Simplify computer section: remove hardware specs, add "New computer required" simple option
+ *  - Fix computer_situation conditional cleanup
+ *  OFFBOARDING:
+ *  - Clarify OneDrive: "Provide access to another employee" (not transfer)
+ *  - Add 30-day deletion note to file handling
+ *  - Clarify SharePoint: files are copied, not moved
+ *  - Fix grammar on hold period text
+ */
+async function migrateFormRefinementsV2(client: PoolClient): Promise<void> {
+  // --- ONBOARDING REFINEMENTS ---
+  const onSchemaRes = await client.query<{ id: string }>(
+    `SELECT id FROM form_schemas WHERE type = 'onboarding' AND status = 'published' LIMIT 1`
+  )
+  if (onSchemaRes.rows.length > 0) {
+    const schemaId = onSchemaRes.rows[0].id
+
+    // Sentinel: check if already ran
+    const sentinel = await client.query(
+      `SELECT id FROM form_questions WHERE schema_id = $1 AND key = 'work_location_detail' AND label = 'Work Location (Home / Office)' LIMIT 1`,
+      [schemaId]
+    )
+    if (sentinel.rows.length === 0) {
+      console.log('[forms/config] Running migration: form refinements V2')
+
+      // 1. Rename work_location_detail
+      await client.query(
+        `UPDATE form_questions SET
+           label = 'Work Location (Home / Office)',
+           help_text = 'Where will this employee primarily work? This helps us configure their setup appropriately.',
+           placeholder = 'e.g. Home / Main Office / Binghamton, NY'
+         WHERE schema_id = $1 AND key = 'work_location_detail'`,
+        [schemaId]
+      )
+
+      // 2. Update license help text for non-technical users
+      await client.query(
+        `UPDATE form_questions SET
+           help_text = 'Choose the license that best fits this employee''s role. If you''re unsure, select the option closest to their needs and our team will confirm.'
+         WHERE schema_id = $1 AND key = 'license_type'`,
+        [schemaId]
+      )
+
+      // 3. Rename distribution_lists label
+      await client.query(
+        `UPDATE form_questions SET
+           label = 'Email Distribution Lists',
+           help_text = 'Email distribution lists send messages to all members. Select any lists this employee should receive emails from.'
+         WHERE schema_id = $1 AND key = 'distribution_lists'`,
+        [schemaId]
+      )
+
+      // 4. Update security_groups help text (simpler)
+      await client.query(
+        `UPDATE form_questions SET
+           help_text = 'Security groups control access to shared files, folders, and applications. Select any groups this employee needs.'
+         WHERE schema_id = $1 AND key = 'security_groups'`,
+        [schemaId]
+      )
+
+      // 5. Update teams_groups help text (simpler)
+      await client.query(
+        `UPDATE form_questions SET
+           help_text = 'Microsoft Teams channels for group messaging and collaboration.'
+         WHERE schema_id = $1 AND key = 'teams_groups'`,
+        [schemaId]
+      )
+
+      // 6. Simplify computer section: update computer_situation options
+      await client.query(
+        `UPDATE form_questions SET
+           label = 'Computer Setup',
+           help_text = 'Does this employee need a new computer, or will they use an existing one?',
+           static_options = $2::jsonb
+         WHERE schema_id = $1 AND key = 'computer_situation'`,
+        [
+          schemaId,
+          JSON.stringify([
+            { value: 'existing_company', label: 'Use an existing company computer' },
+            { value: 'new_computer', label: 'New computer required' },
+            { value: 'personal_byod', label: 'Employee will use their own computer (work from home)' },
+            { value: 'none', label: 'No computer needed' },
+          ]),
+        ]
+      )
+
+      // 7. Update existing_device: prefer hostname, add "I don't know" option, add help text
+      await client.query(
+        `UPDATE form_questions SET
+           label = 'Which computer will they use?',
+           help_text = 'Select the computer by its name. You can find the computer name in Settings > System > About on the device. If you''re unsure, select "I don''t know" and we''ll help identify it.'
+         WHERE schema_id = $1 AND key = 'existing_device'`,
+        [schemaId]
+      )
+
+      // 8. Remove detailed hardware selection (new_computer_type, computer_spec)
+      await client.query(
+        `DELETE FROM form_questions WHERE schema_id = $1 AND key IN ('new_computer_type', 'computer_spec')`,
+        [schemaId]
+      )
+    }
+  }
+
+  // --- OFFBOARDING REFINEMENTS ---
+  const offSchemaRes = await client.query<{ id: string }>(
+    `SELECT id FROM form_schemas WHERE type = 'offboarding' AND status = 'published' LIMIT 1`
+  )
+  if (offSchemaRes.rows.length > 0) {
+    const schemaId = offSchemaRes.rows[0].id
+
+    // Sentinel
+    const sentinel = await client.query(
+      `SELECT id FROM form_questions WHERE schema_id = $1 AND key = 'file_handling' AND static_options::text LIKE '%Provide access to another employee%' LIMIT 1`,
+      [schemaId]
+    )
+    if (sentinel.rows.length === 0) {
+      console.log('[forms/config] Running migration: offboarding refinements V2')
+
+      // 1. Update file_handling options with correct wording
+      await client.query(
+        `UPDATE form_questions SET static_options = $2::jsonb
+         WHERE schema_id = $1 AND key = 'file_handling'`,
+        [
+          schemaId,
+          JSON.stringify([
+            {
+              value: 'transfer_to_user',
+              label: 'Provide access to another employee',
+              helpText: 'The selected person will receive an email with a link to access the departing employee\'s OneDrive files. Files are not transferred or moved — access is granted via a sharing link. The data remains in the original account.',
+            },
+            {
+              value: 'archive_to_sharepoint',
+              label: 'Copy files to SharePoint for safekeeping',
+              helpText: 'Files will be copied (not moved) to your company\'s HR SharePoint site. The original files remain in the user\'s OneDrive during the retention period.',
+            },
+            {
+              value: 'no_action',
+              label: 'No file action needed',
+              helpText: 'Files remain in the account during a 30-day hold period and will then be deleted.',
+            },
+          ]),
+        ]
+      )
+
+      // 2. Update shared_mailbox_access label for clarity
+      await client.query(
+        `UPDATE form_questions SET
+           label = 'Who should have access to the shared mailbox?',
+           help_text = 'Select one or more people who will be able to read and send from this mailbox after conversion.'
+         WHERE schema_id = $1 AND key = 'shared_mailbox_access'`,
+        [schemaId]
+      )
+
+      // 3. Update data_handling options for clearer language
+      await client.query(
+        `UPDATE form_questions SET
+           label = 'Email Account Handling',
+           help_text = 'Choose what happens to the departing employee''s email account.',
+           static_options = $2::jsonb
+         WHERE schema_id = $1 AND key = 'data_handling'`,
+        [
+          schemaId,
+          JSON.stringify([
+            { value: 'keep_accessible', label: 'Convert to shared mailbox (keep accessible)' },
+            { value: 'forward_to_manager', label: 'Forward email to their manager' },
+            { value: 'forward_to_specific', label: 'Forward email to a specific person' },
+            { value: 'delete_after_30', label: 'Delete account after 30-day hold' },
+          ]),
+        ]
+      )
+
+      // 4. Update device_handling options
+      await client.query(
+        `UPDATE form_questions SET
+           label = 'Company Device Return',
+           help_text = 'How will the departing employee return company-owned devices?',
+           static_options = $2::jsonb
+         WHERE schema_id = $1 AND key = 'device_handling'`,
+        [
+          schemaId,
+          JSON.stringify([
+            { value: 'return_to_office', label: 'Employee will return devices to the office' },
+            { value: 'ship_to_tct', label: 'Ship devices to Triple Cities Tech' },
+            { value: 'no_company_devices', label: 'No company devices to return' },
+          ]),
+        ]
+      )
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/forms/config?companySlug=X&type=onboarding&email=Y
 // ---------------------------------------------------------------------------
@@ -964,6 +1159,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     await migrateOffboardingSteps34(client)
     await migrateOnboardingQuestions(client)
     await migrateOffboardingUXImprovements(client)
+    await migrateFormRefinementsV2(client)
 
     // 1. Find company by slug
     const companyRes = await client.query<{ id: string }>(
