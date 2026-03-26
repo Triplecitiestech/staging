@@ -7,7 +7,7 @@ import AdminHeader from '@/components/admin/AdminHeader'
 interface FlowStep {
   id: string
   label: string
-  system: 'portal' | 'platform' | 'autotask' | 'graph' | 'email' | 'cron'
+  system: 'portal' | 'platform' | 'autotask' | 'graph' | 'email' | 'cron' | 'pax8'
   description: string
   condition?: string
 }
@@ -27,6 +27,7 @@ const SYSTEM_COLORS: Record<string, { bg: string; border: string; text: string; 
   graph:    { bg: 'bg-violet-950/50',  border: 'border-violet-500/40', text: 'text-violet-300', badge: 'bg-violet-500/20 text-violet-300' },
   email:    { bg: 'bg-emerald-950/50', border: 'border-emerald-500/40', text: 'text-emerald-300', badge: 'bg-emerald-500/20 text-emerald-300' },
   cron:     { bg: 'bg-rose-950/50',    border: 'border-rose-500/40',  text: 'text-rose-300',  badge: 'bg-rose-500/20 text-rose-300' },
+  pax8:     { bg: 'bg-green-950/50',   border: 'border-green-500/40', text: 'text-green-300', badge: 'bg-green-500/20 text-green-300' },
 }
 
 const SYSTEM_LABELS: Record<string, string> = {
@@ -36,6 +37,7 @@ const SYSTEM_LABELS: Record<string, string> = {
   graph: 'Microsoft Graph',
   email: 'Email (Resend)',
   cron: 'Scheduled Cron',
+  pax8: 'Pax8 Marketplace',
 }
 
 // ─── Onboarding flow ─────────────────────────────────────────────────────────
@@ -48,7 +50,9 @@ const ONBOARDING_STEPS: FlowStep[] = [
   { id: 'ob-5',  label: 'Create Autotask ticket',                  system: 'autotask', description: 'POST to Autotask Tickets API. Routes to Sales queue if new computer required. Includes full formatted description.' },
   { id: 'ob-6',  label: 'Log time entry (0.5 hours)',              system: 'autotask', description: 'POST to Autotask TimeEntries API with resource ID and summary.' },
   { id: 'ob-7',  label: 'Create M365 user account',               system: 'graph',    description: 'POST /users with displayName, UPN, temp password, job title, department, usage location. If start_date is in the future, account is created LOCKED (accountEnabled=false).' },
-  { id: 'ob-8',  label: 'Assign license',                         system: 'graph',    description: 'POST /users/{id}/assignLicense with selected SKU ID.' },
+  { id: 'ob-8',  label: 'Check license availability',              system: 'graph',    description: 'Query /subscribedSkus to check prepaidUnits.enabled - consumedUnits. If seats available, proceed directly to assignment.' },
+  { id: 'ob-8a', label: 'Auto-procure license via Pax8',          system: 'pax8',     description: 'If no seats available: find matching Pax8 company by name, locate subscription for SKU, increase quantity by 1 seat, wait 15s for provisioning propagation.', condition: 'No available seats for the selected license SKU' },
+  { id: 'ob-8b', label: 'Assign license',                         system: 'graph',    description: 'POST /users/{id}/assignLicense with selected SKU ID. If Pax8 procurement succeeded, the new seat should now be available.' },
   { id: 'ob-9',  label: 'Add to security groups',                 system: 'graph',    description: 'POST /groups/{id}/members/$ref for each selected security group.' },
   { id: 'ob-10', label: 'Add to distribution lists',              system: 'graph',    description: 'POST /groups/{id}/members/$ref for each selected distribution list.' },
   { id: 'ob-11', label: 'Add to Teams groups',                    system: 'graph',    description: 'POST /groups/{id}/members/$ref for each selected Teams group.' },
@@ -267,13 +271,16 @@ export default function HRFlowPage() {
                 </ul>
               </div>
               <div className="rounded-lg border border-slate-700/50 bg-slate-800/30 p-4">
-                <h4 className="text-sm font-semibold text-white mb-2">License Availability</h4>
+                <h4 className="text-sm font-semibold text-white mb-2">License Availability &amp; Pax8 Auto-Procurement</h4>
                 <ul className="text-xs text-slate-400 space-y-1">
-                  <li>Available licenses are fetched live from the tenant via Graph API</li>
+                  <li>Available licenses are fetched live from the tenant via Graph API (<code className="text-cyan-400">prepaidUnits.enabled - consumedUnits</code>)</li>
                   <li>Only licenses with available seats (&gt; 0) are shown in the form</li>
-                  <li>If license assignment fails &rarr; becomes a manual step on the ticket</li>
-                  <li>License procurement happens through <span className="text-violet-400">Pax8</span> (cloud marketplace for MSPs)</li>
-                  <li>Pax8 integration not yet automated &mdash; TCT staff manually procure licenses when needed</li>
+                  <li>If no seats available at assignment time &rarr; <span className="text-green-400">auto-procure via Pax8</span></li>
+                  <li>Pax8 auto-procurement: find company by name match, find subscription by SKU mapping, increase by 1 seat</li>
+                  <li>SKU-to-Pax8 product mapping in <code className="text-cyan-400">SKU_TO_PAX8_PRODUCT</code> (supports 25+ M365 license types)</li>
+                  <li>15-second wait after Pax8 order for Microsoft provisioning propagation</li>
+                  <li>If Pax8 fails or is not configured &rarr; falls back to manual step on the ticket</li>
+                  <li>Also works for cloned licenses: each cloned SKU is checked and auto-procured if needed</li>
                 </ul>
               </div>
               <div className="rounded-lg border border-slate-700/50 bg-slate-800/30 p-4">
@@ -283,15 +290,55 @@ export default function HRFlowPage() {
                   <li>Email forwarding verification &rarr; manual check needed</li>
                   <li>SharePoint archive review &rarr; human confirms completeness</li>
                   <li>GDAP automation planned for future (eliminates per-tenant cert setup)</li>
-                  <li>Pax8 license procurement &rarr; manual when no seats available</li>
+                  <li>Pax8 license procurement &rarr; <span className="text-green-400">automated</span> (falls back to manual if Pax8 API fails or company not found)</li>
                 </ul>
               </div>
             </div>
           </div>
 
+          {/* Ticket Status Map */}
+          <div className="border-t border-slate-700/50 pt-8">
+            <h3 className="text-lg font-semibold text-white mb-2">Ticket Status Map</h3>
+            <p className="text-sm text-slate-400 mb-4">
+              How Autotask ticket statuses map to labels across the platform.
+            </p>
+            <div className="overflow-x-auto rounded-lg border border-slate-700/50">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-slate-800/60">
+                    <th className="px-3 py-2.5 text-left font-semibold text-slate-300 border-b border-slate-700/50">Status ID</th>
+                    <th className="px-3 py-2.5 text-left font-semibold text-slate-300 border-b border-slate-700/50">Autotask Label</th>
+                    <th className="px-3 py-2.5 text-left font-semibold text-cyan-400 border-b border-slate-700/50">Customer Portal</th>
+                    <th className="px-3 py-2.5 text-left font-semibold text-violet-400 border-b border-slate-700/50">SOC Dashboard</th>
+                    <th className="px-3 py-2.5 text-left font-semibold text-emerald-400 border-b border-slate-700/50">Reporting</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-700/30">
+                  {[
+                    { id: 1,  at: 'New',                      portal: 'Open',                    soc: 'New',              report: 'New' },
+                    { id: 4,  at: 'In Progress',               portal: 'Open',                    soc: 'In Progress',      report: 'In Progress' },
+                    { id: 5,  at: 'Complete',                  portal: 'Resolved',                soc: 'Resolved',         report: 'Complete' },
+                    { id: 7,  at: 'Waiting Customer',          portal: 'Awaiting Your Response',  soc: 'Waiting Customer', report: 'Waiting Customer' },
+                    { id: 12, at: 'Waiting Client Response',   portal: 'Awaiting Your Response',  soc: 'Waiting Client',   report: 'Waiting Client' },
+                    { id: 13, at: 'Resolved',                  portal: 'Resolved',                soc: 'Resolved',         report: 'Resolved' },
+                    { id: 29, at: 'Cancelled',                 portal: 'Resolved',                soc: 'Cancelled',        report: 'Cancelled' },
+                  ].map((row) => (
+                    <tr key={row.id} className="bg-slate-800/20 hover:bg-slate-800/40 transition-colors">
+                      <td className="px-3 py-2 font-mono text-slate-400">{row.id}</td>
+                      <td className="px-3 py-2 text-slate-300">{row.at}</td>
+                      <td className="px-3 py-2 text-cyan-300">{row.portal}</td>
+                      <td className="px-3 py-2 text-violet-300">{row.soc}</td>
+                      <td className="px-3 py-2 text-emerald-300">{row.report}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           {/* Last updated */}
           <div className="text-center text-xs text-slate-600 pt-4">
-            Last updated: 2026-03-26 &mdash; Added scheduled onboarding (locked accounts), scheduled offboarding, license availability, Pax8 reference
+            Last updated: 2026-03-26 &mdash; Added Pax8 auto-procurement flow, license availability check step, scheduled onboarding/offboarding, ticket status map
           </div>
         </div>
       </div>

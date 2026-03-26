@@ -404,7 +404,7 @@ export async function getCustomerTicketList(params: CustomerTicketListParams): P
     title: t.title,
     description: t.description || null,
     status: t.status,
-    statusLabel: isResolvedStatus(t.status) ? 'Resolved' : isWaitingCustomerStatus(t.status) ? 'Awaiting Your Team' : 'Open',
+    statusLabel: isResolvedStatus(t.status) ? 'Resolved' : isWaitingCustomerStatus(t.status) ? 'Awaiting Your Response' : 'Open',
     isResolved: isResolvedStatus(t.status),
     priority: t.priority,
     priorityLabel: PRIORITY_LABELS[t.priority] || `P${t.priority}`,

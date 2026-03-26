@@ -262,7 +262,7 @@ export default function TicketDetail({
               <div className="mx-auto w-3 h-3 bg-cyan-500 rounded-full border-2 border-gray-800 ring-2 ring-cyan-500/20 relative z-10" />
             </div>
             <div className="bg-cyan-500/5 border border-cyan-500/10 rounded-lg px-4 py-2.5">
-              <span className="text-xs font-medium text-cyan-400">In Progress — awaiting update</span>
+              <span className="text-xs font-medium text-cyan-400">Open</span>
             </div>
           </div>
         )}
