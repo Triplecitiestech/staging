@@ -650,7 +650,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // -----------------------------------------------------------------
     // PRE-STEP: Load custom question metadata for ticket description
     // -----------------------------------------------------------------
-    let customQuestionsMeta: Record<string, CustomQuestionMeta> = {}
+    const customQuestionsMeta: Record<string, CustomQuestionMeta> = {}
     try {
       const configResult = await client.query(
         `SELECT id FROM customer_form_configs WHERE company_id = $1 AND type = $2 LIMIT 1`,
@@ -837,7 +837,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     let timeStepError: string | null = null
 
     const nowIso = new Date().toISOString()
-    const endIso = new Date(Date.now() + 30 * 60 * 1000).toISOString()
+    const isOffboarding = hrRequest.type === 'offboarding'
+    const hoursWorked = isOffboarding ? 1.0 : 0.5
+    const endIso = new Date(Date.now() + hoursWorked * 60 * 60 * 1000).toISOString()
 
     const timeEntryPayload: AutotaskTimeEntryPayload = {
       TicketID: ticketId,
@@ -845,8 +847,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       DateWorked: todayIsoDate(),
       StartDateTime: nowIso,
       EndDateTime: endIso,
-      HoursWorked: 0.5,
-      SummaryNotes: 'Automated HR request processing - setup and documentation',
+      HoursWorked: hoursWorked,
+      SummaryNotes: `Automated HR ${hrRequest.type} processing - setup and documentation`,
     }
 
     try {
@@ -865,10 +867,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       console.error('[hr/process] Time entry failed (non-fatal):', timeStepError)
     }
 
-    await logStep(client, hrRequest.id, 'add_time_entry', 'Add Time Entry (30 min)',
+    await logStep(client, hrRequest.id, 'add_time_entry', `Add Time Entry (${isOffboarding ? '1 hr' : '30 min'})`,
       timeStepError ? 'failed' : 'completed', timeStepStart,
       { payload: timeEntryPayload },
-      timeStepError ? undefined : { hoursWorked: 0.5 },
+      timeStepError ? undefined : { hoursWorked },
       timeStepError ?? undefined)
 
     // -----------------------------------------------------------------
