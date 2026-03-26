@@ -97,6 +97,32 @@ const VALUE_LABELS: Record<string, Record<string, string>> = {
     dont_know: "I don't know",
     none: 'No computer needed',
   },
+  urgency_type: {
+    immediate_termination: 'Immediate Termination — revoke access now',
+    end_of_day: 'End of Business Day',
+    scheduled: 'Scheduled Date (see Last Day field)',
+    already_gone: 'Employee Has Already Left',
+  },
+  data_handling: {
+    keep_accessible: 'Convert to Shared Mailbox — Keep Accessible',
+    forward_to_manager: 'Forward Email to Manager',
+    forward_to_specific: 'Forward Email to Specific Person',
+    delete_after_backup: 'Delete After Backup',
+    no_action: 'No Action Needed',
+  },
+  device_handling: {
+    return_to_office: 'Return Device to Office',
+    ship_to_office: 'Ship Device to Office',
+    wipe_remote: 'Remote Wipe',
+    keep_device: 'Employee Keeps Device (BYOD)',
+    no_device: 'No Company Device',
+  },
+  file_handling: {
+    transfer_to_user: 'Transfer Files to Another User',
+    archive_to_sharepoint: 'Archive to SharePoint',
+    delete_files: 'Delete All Files',
+    no_action: 'No Action Needed',
+  },
 }
 
 /** Country code to full name */
@@ -224,10 +250,10 @@ function formatAnswersAsDescription(
     if (a.last_day)        lines.push(`  Last Day:       ${a.last_day}`)
 
     lines.push('', 'URGENCY & TIMELINE')
-    if (a.urgency_type)    lines.push(`  Urgency:        ${a.urgency_type}`)
+    if (a.urgency_type)    lines.push(`  Urgency:        ${resolveLabel('urgency_type', a.urgency_type)}`)
 
     lines.push('', 'DATA & EMAIL HANDLING')
-    if (a.data_handling)      lines.push(`  Data Handling:  ${a.data_handling}`)
+    if (a.data_handling)      lines.push(`  Data Handling:  ${resolveLabel('data_handling', a.data_handling)}`)
     if (a.forward_email_to)   lines.push(`  Forward To:     ${a.forward_email_to}`)
     const sharedAccess = fmtArray(answers.shared_mailbox_access)
     if (sharedAccess)         lines.push(`  Shared Mailbox Access: ${sharedAccess}`)
@@ -238,7 +264,7 @@ function formatAnswersAsDescription(
     if (a.delegate_access) lines.push(`  Delegate To:    ${a.delegate_access}`)
 
     lines.push('', 'FILE HANDLING')
-    if (a.file_handling)      lines.push(`  File Action:    ${a.file_handling}`)
+    if (a.file_handling)      lines.push(`  File Action:    ${resolveLabel('file_handling', a.file_handling)}`)
     if (a.transfer_files_to)  lines.push(`  Transfer To:    ${a.transfer_files_to}`)
     // Legacy fields
     if (a.transfer_onedrive_to) lines.push(`  Transfer OneDrive To: ${a.transfer_onedrive_to}`)
@@ -248,7 +274,7 @@ function formatAnswersAsDescription(
     lines.push('  Remove from all groups/distro lists: Yes (automatic)')
 
     lines.push('', 'DEVICE HANDLING')
-    if (a.device_handling) lines.push(`  Device:         ${a.device_handling}`)
+    if (a.device_handling) lines.push(`  Device:         ${resolveLabel('device_handling', a.device_handling)}`)
 
     if (a.additional_notes) lines.push('', `ADDITIONAL NOTES & OTHER SYSTEMS\n  ${a.additional_notes}`)
   }
@@ -261,9 +287,12 @@ function buildTicketTitle(type: string, answers: Record<string, unknown>): strin
   const firstName = (a.first_name ?? '').trim()
   const lastName = (a.last_name ?? '').trim()
   const fullName = [firstName, lastName].filter(Boolean).join(' ')
-  return type === 'onboarding'
-    ? `[ONBOARDING] New Employee: ${fullName}`
-    : `[OFFBOARDING] Employee Termination: ${fullName}`
+  if (type === 'onboarding') {
+    return `[ONBOARDING] New Employee: ${fullName}`
+  }
+  // Offboarding: use fullName if available, fall back to work email / UPN
+  const displayName = fullName || a.work_email || a.employee_to_offboard || 'Unknown'
+  return `[OFFBOARDING] Employee Termination: ${displayName}`
 }
 
 function todayIsoDate(): string {
@@ -1062,18 +1091,31 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               manualSteps.push(`Review additional notes/software requirements — see "NOTES" section above`)
             }
             if (failedSteps.length > 0) {
-              for (const step of failedSteps) {
-                // Resolve group IDs in step names to display names
-                const humanStep = step.startsWith('add_to_group_')
-                  ? `Add to group: ${displayNames[step.replace('add_to_group_', '')] ?? step.replace('add_to_group_', '')}`
-                  : step
-                manualSteps.push(`Retry failed step: ${humanStep}`)
+              // Map failed step keys to clear manual action descriptions
+              const onboardFailedDescriptions: Record<string, string> = {
+                load_m365_creds: 'Configure M365 credentials for this company in the admin portal',
+                create_user: `Manually create M365 user account for ${fullName} in Azure AD`,
+                assign_license: `Manually assign license "${displayNames[a.license_type] ?? a.license_type}" to ${upn} in Microsoft 365 Admin Center`,
+                clone_permissions: `Manually clone permissions from ${a.clone_from_user} to ${upn}`,
               }
-              const humanFailedSteps = failedSteps.map(s =>
-                s.startsWith('add_to_group_')
-                  ? `Add to ${displayNames[s.replace('add_to_group_', '')] ?? s.replace('add_to_group_', '')}`
-                  : s
-              )
+              for (const step of failedSteps) {
+                let desc: string
+                if (step.startsWith('add_to_group_')) {
+                  const gId = step.replace('add_to_group_', '')
+                  desc = `Manually add ${upn} to group: ${displayNames[gId] ?? gId}`
+                } else if (step.startsWith('add_to_site_')) {
+                  const sId = step.replace('add_to_site_', '')
+                  desc = `Manually grant ${upn} access to SharePoint site: ${displayNames[sId] ?? sId}`
+                } else {
+                  desc = onboardFailedDescriptions[step] ?? `Retry failed step: ${step}`
+                }
+                manualSteps.push(desc)
+              }
+              const humanFailedSteps = failedSteps.map(s => {
+                if (s.startsWith('add_to_group_')) return `Add to ${displayNames[s.replace('add_to_group_', '')] ?? s.replace('add_to_group_', '')}`
+                if (s.startsWith('add_to_site_')) return `Add to SharePoint: ${displayNames[s.replace('add_to_site_', '')] ?? s.replace('add_to_site_', '')}`
+                return s
+              })
               resultLines.push(`\nFailed Steps: ${humanFailedSteps.join(', ')}`)
               resultLines.push('Status: Completed with errors — manual steps required')
             } else if (manualSteps.length > 0) {
@@ -1229,10 +1271,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                       `Temporary Password: ${tempPassword}`,
                       ...loginInstructions,
                       '',
-                      `Triple Cities Tech | Support Ticket Number: ${ticketNumber}`,
-                      '',
-                      '—',
-                      'Triple Cities Tech',
+                      `Triple Cities Tech | Support Ticket: ${ticketNumber}`,
                     ].filter((l) => l !== null).join('\n'),
                   })
                 } catch (err) {
@@ -1293,6 +1332,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           await logStep(client, hrRequest.id, 'find_user', 'Find User', 'completed', findStart,
             { email: workEmail }, { userId: targetUserId, upn: targetUpn })
           stepsCompleted.push('find_user')
+
+          // Update ticket title now that we have the real name
+          if (fullName && ticketId) {
+            try {
+              await fetch(`${baseUrl}/V1.0/Tickets`, {
+                method: 'PATCH',
+                headers: autotaskHeaders,
+                body: JSON.stringify({
+                  id: ticketId,
+                  Title: `[OFFBOARDING] Employee Termination: ${fullName}`,
+                }),
+              })
+            } catch {
+              // Non-fatal — title was already set with UPN fallback
+            }
+          }
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           await logStep(client, hrRequest.id, 'find_user', 'Find User', 'failed', findStart,
@@ -1452,7 +1507,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                       '',
                       'If you have any questions about these files, please contact your IT administrator.',
                       '',
-                      '—',
                       'Triple Cities Tech',
                     ].join('\n'),
                   })
@@ -1524,8 +1578,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             if (a.additional_notes && a.additional_notes.trim()) {
               manualSteps.push(`Review additional notes/other systems access — see "ADDITIONAL NOTES" section above`)
             }
+            // Map failed step keys to clear manual action descriptions
+            const failedStepDescriptions: Record<string, string> = {
+              find_user: `Manually locate user account for ${workEmail} in Azure AD`,
+              revoke_sessions: `Manually revoke active sessions for ${targetUpn || workEmail} via Azure AD → Users → Revoke Sessions`,
+              disable_account: `Manually disable account ${targetUpn || workEmail} in Azure AD → Users → Block Sign-in`,
+              remove_groups: `Manually remove ${targetUpn || workEmail} from all groups/distribution lists in Azure AD`,
+              remove_licenses: `Manually remove all licenses from ${targetUpn || workEmail} in Microsoft 365 Admin Center → Licenses`,
+              transfer_onedrive: `Manually share OneDrive files from ${targetUpn || workEmail} to ${a.transfer_files_to || a.transfer_onedrive_to || 'designated recipient'} via OneDrive Admin`,
+              archive_onedrive: `Manually archive OneDrive files from ${targetUpn || workEmail} to HR SharePoint site`,
+              load_m365_creds: 'Configure M365 credentials for this company in the admin portal before retrying',
+            }
             for (const step of failedSteps) {
-              manualSteps.push(`Retry failed step: ${step}`)
+              const desc = failedStepDescriptions[step] ?? `Retry failed step: ${step}`
+              manualSteps.push(desc)
             }
 
             const resultLines = [
@@ -1544,7 +1610,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               oneDriveTransferredTo ? `OneDrive Shared With: ${oneDriveTransferredTo}` : null,
               archiveFolderUrl ? `OneDrive Archived: ${archivedFileCount} items copied to HR SharePoint` : null,
               archiveFolderUrl ? `Archive Folder: ${archiveFolderUrl}` : null,
-              failedSteps.length > 0 ? `\nFailed Steps: ${failedSteps.join(', ')}` : null,
+              failedSteps.length > 0 ? `\nFailed Steps:\n${failedSteps.map(s => {
+                const humanNames: Record<string, string> = {
+                  find_user: 'Find User',
+                  revoke_sessions: 'Revoke Sessions',
+                  disable_account: 'Disable Account',
+                  remove_groups: 'Remove from Groups',
+                  remove_licenses: 'Remove Licenses',
+                  transfer_onedrive: 'Transfer OneDrive Files',
+                  archive_onedrive: 'Archive OneDrive to SharePoint',
+                  load_m365_creds: 'Load M365 Credentials',
+                }
+                return `  - ${humanNames[s] ?? s}`
+              }).join('\n')}` : null,
               failedSteps.length > 0
                 ? 'Status: Completed with errors — manual steps required'
                 : manualSteps.length > 0
@@ -1578,21 +1656,42 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                 manualSteps.map(s => `• ${s}`).join('\n'), 2)
             }
 
-            // Final customer-visible note
-            const completionNote = [
+            // Final customer-visible note — list specifics
+            const noteLines: (string | null)[] = [
               `Employee ${fullName} has been offboarded:`,
               '',
               `Account ${targetUpn} has been disabled.`,
-              `Removed from ${removedGroupCount} group(s) and distribution lists.`,
-              `${removedLicenseCount} license(s) removed.`,
-              oneDriveTransferredTo ? `OneDrive files shared with ${oneDriveTransferredTo}.` : null,
+            ]
+            // List removed groups by name
+            if (removedGroupNames.length > 0) {
+              noteLines.push('', `Removed from ${removedGroupCount} group(s):`)
+              for (const gn of removedGroupNames) {
+                noteLines.push(`  - ${gn}`)
+              }
+              if (skippedGroupNames.length > 0) {
+                noteLines.push(`  (${skippedGroupNames.length} dynamic/protected group(s) could not be removed automatically)`)
+              }
+            } else {
+              noteLines.push(`No removable group memberships found.`)
+            }
+            // List removed licenses by name
+            if (removedLicenseNames.length > 0) {
+              noteLines.push('', `${removedLicenseCount} license(s) removed:`)
+              for (const ln of removedLicenseNames) {
+                noteLines.push(`  - ${ln}`)
+              }
+            } else {
+              noteLines.push(`No licenses were assigned.`)
+            }
+            noteLines.push(
+              oneDriveTransferredTo ? `\nOneDrive files shared with ${oneDriveTransferredTo}.` : null,
               archiveFolderUrl ? `OneDrive files copied to HR SharePoint (${archivedFileCount} items).` : null,
-              archiveFolderUrl ? `Archive location: ${archiveFolderUrl}` : null,
               '',
               manualSteps.length > 0
                 ? 'Some steps require manual action by our team. We will follow up shortly.'
                 : 'All access has been revoked.',
-            ].filter(Boolean).join('\n')
+            )
+            const completionNote = noteLines.filter(Boolean).join('\n')
 
             await addTicketNote(
               manualSteps.length > 0 ? 'Offboarding In Progress' : 'Offboarding Complete',
@@ -1606,33 +1705,50 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                   const companyName = hrRequest.displayName || 'your organization'
                   // Final fallback: use targetUpn (email) if fullName is still empty
                   const employeeName = fullName || targetUpn || 'the employee'
+                  // Build detailed email body
+                  const emailLines: (string | null)[] = [
+                    'Hello,',
+                    '',
+                    `The offboarding for ${employeeName} at ${companyName} has been ${manualSteps.length > 0 ? 'partially completed' : 'completed'}.`,
+                    '',
+                    `Account ${targetUpn} has been disabled.`,
+                  ]
+                  // List removed groups by name
+                  if (removedGroupNames.length > 0) {
+                    emailLines.push('', `Removed from ${removedGroupCount} group(s):`)
+                    for (const gn of removedGroupNames) emailLines.push(`  - ${gn}`)
+                    if (skippedGroupNames.length > 0) {
+                      emailLines.push(`  (${skippedGroupNames.length} dynamic/protected group(s) skipped)`)
+                    }
+                  }
+                  // List removed licenses by name
+                  if (removedLicenseNames.length > 0) {
+                    emailLines.push('', `${removedLicenseCount} license(s) removed:`)
+                    for (const ln of removedLicenseNames) emailLines.push(`  - ${ln}`)
+                  }
+                  emailLines.push(
+                    oneDriveTransferredTo ? `\nOneDrive files shared with ${oneDriveTransferredTo}.` : null,
+                    archiveFolderUrl ? `OneDrive files copied to HR SharePoint (${archivedFileCount} items).` : null,
+                    archiveFolderUrl ? `Archive location: ${archiveFolderUrl}` : null,
+                  )
+                  // List manual steps that are still pending
+                  if (manualSteps.length > 0) {
+                    emailLines.push('', 'The following steps still require action by our team:')
+                    for (const ms of manualSteps) emailLines.push(`  - ${ms}`)
+                    emailLines.push('', 'We will follow up when everything is complete.')
+                  }
+                  emailLines.push(
+                    '',
+                    `Triple Cities Tech | Support Ticket: ${ticketNumber}`,
+                  )
+
                   await resend.emails.send({
                     from: FROM_EMAIL,
                     to: [recipientEmail],
                     subject: manualSteps.length > 0
                       ? `Employee Offboarding In Progress — ${employeeName}`
                       : `Employee Offboarding Complete — ${employeeName}`,
-                    text: [
-                      'Hello,',
-                      '',
-                      `The offboarding for ${employeeName} at ${companyName} has been ${manualSteps.length > 0 ? 'partially completed' : 'completed'}.`,
-                      '',
-                      `Account ${targetUpn} has been disabled.`,
-                      `Removed from ${removedGroupCount} group(s) and distribution lists.`,
-                      `${removedLicenseCount} license(s) removed.`,
-                      oneDriveTransferredTo ? `OneDrive files shared with ${oneDriveTransferredTo}.` : null,
-                      archiveFolderUrl ? `OneDrive files copied to HR SharePoint (${archivedFileCount} items).` : null,
-                      archiveFolderUrl ? `Archive location: ${archiveFolderUrl}` : null,
-                      '',
-                      manualSteps.length > 0
-                        ? 'Some steps require manual action by our team. We will follow up when everything is complete.'
-                        : null,
-                      '',
-                      `Triple Cities Tech | Support Ticket Number: ${ticketNumber}`,
-                      '',
-                      '—',
-                      'Triple Cities Tech',
-                    ].filter((l) => l !== null).join('\n'),
+                    text: emailLines.filter((l) => l !== null).join('\n'),
                   })
                 } catch (err) {
                   console.warn('[hr/process] Email notification failed (non-fatal):', err instanceof Error ? err.message : err)
