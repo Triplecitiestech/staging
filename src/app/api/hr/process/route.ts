@@ -41,17 +41,6 @@ interface AutotaskTicketPayload {
   ContactID?: number
 }
 
-interface AutotaskTimeEntryPayload {
-  TicketID: number
-  ResourceID: number
-  DateWorked: string
-  StartDateTime: string
-  EndDateTime: string
-  HoursWorked: number
-  SummaryNotes: string
-  BillingCodeID?: number
-}
-
 interface AutotaskTicketResponse {
   itemId?: number
   item?: {
@@ -836,23 +825,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const resourceId = parseInt(process.env.AUTOTASK_DEFAULT_RESOURCE_ID ?? '0', 10)
     let timeStepError: string | null = null
 
-    const nowIso = new Date().toISOString()
     const isOffboarding = hrRequest.type === 'offboarding'
     const hoursWorked = isOffboarding ? 1.0 : 0.5
-    const endIso = new Date(Date.now() + hoursWorked * 60 * 60 * 1000).toISOString()
 
-    const timeEntryPayload: AutotaskTimeEntryPayload = {
-      TicketID: ticketId,
-      ResourceID: resourceId,
-      DateWorked: todayIsoDate(),
-      StartDateTime: nowIso,
-      EndDateTime: endIso,
-      HoursWorked: hoursWorked,
-      SummaryNotes: `Automated HR ${hrRequest.type} processing - setup and documentation`,
+    const timeEntryPayload = {
+      ticketID: ticketId,
+      resourceID: resourceId,
+      dateWorked: todayIsoDate(),
+      hoursWorked,
+      summaryNotes: `Automated HR ${hrRequest.type} processing - setup and documentation`,
     }
 
     try {
-      const timeRes = await fetch(`${baseUrl}/V1.0/TicketTimeEntries`, {
+      const timeRes = await fetch(`${baseUrl}/V1.0/TimeEntries`, {
         method: 'POST',
         headers: autotaskHeaders,
         body: JSON.stringify(timeEntryPayload),
