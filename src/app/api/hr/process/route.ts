@@ -918,6 +918,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // ONBOARDING PIPELINE
       // =============================================================
 
+      // Check if this is a future-dated onboarding
+      const startDate = a.start_date
+      const isFutureStart = startDate ? isDateInFuture(startDate) : false
+      const isScheduledOnboardingRun = body.executeScheduled === true
+
       // Load M365 credentials
       const creds = hrRequest.company_slug
         ? await getTenantCredentialsBySlug(hrRequest.company_slug)
@@ -964,6 +969,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           const upn = `${mailNickname}@${domain}`
           const tempPassword = generateTempPassword()
 
+          // Future-dated onboardings: create account locked (accountEnabled=false)
+          // Account will be unlocked by cron on the start date
+          const accountLocked = isFutureStart && !isScheduledOnboardingRun
+
           // --- Create M365 User ---
           const createStart = new Date()
           let newUserId: string | null = null
@@ -985,13 +994,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               jobTitle: a.job_title ?? undefined,
               department: a.department ?? undefined,
               usageLocation,
+              accountEnabled: !accountLocked,
             })
             newUserId = newUser.id
             primaryActionSucceeded = true
             provisioningResults.push(`Work Email: ${upn}`)
+            if (accountLocked) {
+              provisioningResults.push(`Account Status: LOCKED — will be unlocked on ${formatDateDisplay(startDate)}`)
+            }
 
             await logStep(client, hrRequest.id, 'create_user', 'Create M365 User', 'completed', createStart,
-              { upn, displayName: fullName }, { userId: newUserId, upn })
+              { upn, displayName: fullName, accountLocked }, { userId: newUserId, upn, accountLocked })
             stepsCompleted.push('create_user')
 
             // Persist the UPN
@@ -1313,17 +1326,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
             // Final customer-visible note (publish=1)
             const licDisplayForNote = a.license_type ? (displayNames[a.license_type] ?? a.license_type) : null
+            const startDateDisplay = startDate ? formatDateDisplay(startDate) : null
             const completionNote = [
-              `Employee ${fullName} has been fully provisioned:`,
+              accountLocked
+                ? `Employee ${fullName} has been provisioned (account locked until ${startDateDisplay}):`
+                : `Employee ${fullName} has been fully provisioned:`,
               '',
               `New Email: ${upn}`,
               licDisplayForNote ? `License: ${licDisplayForNote}` : null,
               allGroupDescriptions.length > 0 ? `Groups/Lists/Sites: ${allGroupDescriptions.length} added` : null,
               '',
-              'Temporary password will be shared securely by your TCT technician.',
+              accountLocked
+                ? `The account is currently LOCKED and will be automatically unlocked on ${startDateDisplay} at 12:01 AM EST.\nLogin credentials will be shared closer to the start date.`
+                : 'Temporary password will be shared securely by your TCT technician.',
             ].filter(Boolean).join('\n')
 
-            await addTicketNote('Onboarding Complete', completionNote, 1)
+            await addTicketNote(
+              accountLocked ? 'Onboarding Provisioned — Account Locked' : 'Onboarding Complete',
+              completionNote, 1)
 
             // Internal-only note with temp password (publish=2)
             await addTicketNote('Temporary Password (INTERNAL)', `UPN: ${upn}\nTemporary Password: ${tempPassword}`, 2)
@@ -1407,22 +1427,35 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                     'They will be prompted to change their password and set up MFA on first sign-in.',
                   ]
 
+                  const emailSubject = accountLocked
+                    ? (isPersonalEmail
+                      ? `Welcome to ${companyName} — Your Account Will Be Ready on ${startDateDisplay}`
+                      : `Employee Onboarding Scheduled — ${fullName} (starts ${startDateDisplay})`)
+                    : (isPersonalEmail
+                      ? `Welcome to ${companyName} — Your Microsoft 365 Account`
+                      : `Employee Onboarding Complete — ${fullName}`)
+
+                  const emailIntro = accountLocked
+                    ? (isPersonalEmail
+                      ? [`Welcome to ${companyName}!`, '', `Your Microsoft 365 account has been created but is currently locked until your start date (${startDateDisplay}).`, `Your account will be automatically unlocked on ${startDateDisplay} and you will be able to sign in at that time.`]
+                      : ['Hello,', '', `A Microsoft 365 account has been created for ${fullName} for use with ${companyName}.`, '', `⏳ SCHEDULED START: The account is currently LOCKED and will be automatically unlocked on ${startDateDisplay} at 12:01 AM EST.`, 'Credentials are included below — please share them with the employee closer to their start date.'])
+                    : (isPersonalEmail
+                      ? [`Welcome to ${companyName}!`, '', `Your Microsoft 365 account has been created and is ready to use.`]
+                      : ['Hello,', '', `A Microsoft 365 account has been created for ${fullName} for use with ${companyName}.`])
+
                   await resend.emails.send({
                     from: FROM_EMAIL,
                     to: [recipientEmail],
-                    subject: isPersonalEmail
-                      ? `Welcome to ${companyName} — Your Microsoft 365 Account`
-                      : `Employee Onboarding Complete — ${fullName}`,
+                    subject: emailSubject,
                     text: [
-                      isPersonalEmail ? `Welcome to ${companyName}!` : 'Hello,',
-                      '',
-                      isPersonalEmail
-                        ? `Your Microsoft 365 account has been created and is ready to use.`
-                        : `A Microsoft 365 account has been created for ${fullName} for use with ${companyName}.`,
+                      ...emailIntro,
                       '',
                       `Email Address: ${upn}`,
                       `Temporary Password: ${tempPassword}`,
-                      ...loginInstructions,
+                      ...(accountLocked ? [
+                        '',
+                        `⚠️ Do NOT attempt to sign in before ${startDateDisplay} — the account will be locked.`,
+                      ] : loginInstructions),
                       '',
                       `Triple Cities Tech | Support Ticket: ${ticketNumber}`,
                     ].filter((l) => l !== null).join('\n'),
@@ -1435,16 +1468,34 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               console.warn('[hr/process] RESEND_API_KEY not set — skipping email notification')
             }
 
-            // Close ticket only if no manual steps remain (status=5)
-            if (manualSteps.length === 0) {
-              try {
-                await fetch(`${baseUrl}/V1.0/Tickets`, {
-                  method: 'PATCH',
-                  headers: autotaskHeaders,
-                  body: JSON.stringify({ id: ticketId, status: 5 }),
-                })
-              } catch (err) {
-                console.warn('[hr/process] Failed to close ticket:', err instanceof Error ? err.message : err)
+            // Future-dated onboarding: set request status to 'scheduled' so cron will unlock on start date
+            if (accountLocked && primaryActionSucceeded) {
+              await client.query(
+                `UPDATE hr_requests
+                 SET status = 'scheduled',
+                     updated_at = NOW()
+                 WHERE id = $1`,
+                [hrRequest.id]
+              )
+
+              // Add internal note about scheduled unlock
+              await addTicketNote('Onboarding Scheduled',
+                `Account for ${fullName} (${upn}) is provisioned but LOCKED.\n\n` +
+                `The account will be automatically unlocked on ${startDateDisplay} at 12:01 AM EST.\n` +
+                `All groups, licenses, and SharePoint access have been configured.\n\n` +
+                `Status: Scheduled — awaiting start date`, 2)
+            } else {
+              // Close ticket only if no manual steps remain (status=5)
+              if (manualSteps.length === 0) {
+                try {
+                  await fetch(`${baseUrl}/V1.0/Tickets`, {
+                    method: 'PATCH',
+                    headers: autotaskHeaders,
+                    body: JSON.stringify({ id: ticketId, status: 5 }),
+                  })
+                } catch (err) {
+                  console.warn('[hr/process] Failed to close ticket:', err instanceof Error ? err.message : err)
+                }
               }
             }
           }

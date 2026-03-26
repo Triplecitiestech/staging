@@ -47,7 +47,7 @@ const ONBOARDING_STEPS: FlowStep[] = [
   { id: 'ob-4',  label: 'Load custom question metadata',           system: 'platform', description: 'Load per-client custom sections and question labels from customer_custom_sections/questions tables.' },
   { id: 'ob-5',  label: 'Create Autotask ticket',                  system: 'autotask', description: 'POST to Autotask Tickets API. Routes to Sales queue if new computer required. Includes full formatted description.' },
   { id: 'ob-6',  label: 'Log time entry (0.5 hours)',              system: 'autotask', description: 'POST to Autotask TimeEntries API with resource ID and summary.' },
-  { id: 'ob-7',  label: 'Create M365 user account',               system: 'graph',    description: 'POST /users with displayName, UPN, temp password, job title, department, usage location.' },
+  { id: 'ob-7',  label: 'Create M365 user account',               system: 'graph',    description: 'POST /users with displayName, UPN, temp password, job title, department, usage location. If start_date is in the future, account is created LOCKED (accountEnabled=false).' },
   { id: 'ob-8',  label: 'Assign license',                         system: 'graph',    description: 'POST /users/{id}/assignLicense with selected SKU ID.' },
   { id: 'ob-9',  label: 'Add to security groups',                 system: 'graph',    description: 'POST /groups/{id}/members/$ref for each selected security group.' },
   { id: 'ob-10', label: 'Add to distribution lists',              system: 'graph',    description: 'POST /groups/{id}/members/$ref for each selected distribution list.' },
@@ -56,9 +56,31 @@ const ONBOARDING_STEPS: FlowStep[] = [
   { id: 'ob-13', label: 'Clone permissions (if requested)',        system: 'graph',    description: 'Copy groups and licenses from source user to new user.', condition: 'clone_permissions = yes' },
   { id: 'ob-14', label: 'Update ticket with provisioning results', system: 'autotask', description: 'PATCH ticket description with results, groups added, failed steps, and manual action checklist.' },
   { id: 'ob-15', label: 'Add customer-visible completion note',    system: 'autotask', description: 'Ticket note (publish=1) visible to customer: email, license, groups added.' },
-  { id: 'ob-16', label: 'Send credential email',                  system: 'email',    description: 'Email with new UPN + temp password. Sent to submitter or directly to employee personal email based on credential_delivery setting.' },
-  { id: 'ob-17', label: 'Close ticket or leave open for manual steps', system: 'autotask', description: 'Status 5 (Complete) if all automated. Left open if new computer needed or steps failed.' },
+  { id: 'ob-16', label: 'Send credential email',                  system: 'email',    description: 'Email with new UPN + temp password. If account is locked for future start date, email notes the account is locked and when it will be unlocked.' },
+  { id: 'ob-17', label: 'Close, schedule, or leave open',         system: 'autotask', description: 'Close (status 5) if all automated and start_date is today/past. Set to "scheduled" if future start date. Left open if steps failed.' },
 ]
+
+// ─── Scheduled Onboarding flow ──────────────────────────────────────────────
+
+const ONBOARDING_SCHEDULED: FlowBranch = {
+  label: 'Scheduled Onboarding (Future Start Date)',
+  condition: 'start_date is in the future — account is provisioned but locked until start date',
+  steps: [
+    { id: 'so-1',  label: 'Manager submits onboarding form',          system: 'portal',   description: 'Same form — start date is set to a future date.' },
+    { id: 'so-2',  label: 'Validate requester & create HR request',   system: 'platform', description: 'Same validation and storage.' },
+    { id: 'so-3',  label: 'Create Autotask ticket',                   system: 'autotask', description: 'Ticket created immediately with full description.' },
+    { id: 'so-4',  label: 'Log time entry (0.5 hours)',               system: 'autotask', description: 'Time logged immediately.' },
+    { id: 'so-5',  label: 'Create M365 user (LOCKED)',                system: 'graph',    description: 'Account created with accountEnabled=false. User cannot sign in yet.' },
+    { id: 'so-6',  label: 'Assign license, groups, sites',            system: 'graph',    description: 'All permissions configured immediately so everything is ready on day one.' },
+    { id: 'so-7',  label: 'Send credential email with locked notice', system: 'email',    description: 'Credentials sent now with warning: "Do NOT sign in before start date — account is locked."' },
+    { id: 'so-8',  label: 'Add scheduled note to ticket',             system: 'autotask', description: 'Internal note: account provisioned but locked, will unlock on start date at 12:01 AM EST.' },
+    { id: 'so-9',  label: 'Set request status to "scheduled"',        system: 'platform', description: 'HR request saved with status=scheduled. Cron will unlock on start date.' },
+    { id: 'so-10', label: 'Cron runs at 12:01 AM EST daily',          system: 'cron',     description: 'Checks for scheduled onboarding requests where start_date <= today.' },
+    { id: 'so-11', label: 'Enable account (unlock sign-in)',          system: 'graph',    description: 'PATCH /users/{id} accountEnabled=true. Employee can now sign in.' },
+    { id: 'so-12', label: 'Add unlock note to ticket',                system: 'autotask', description: 'Customer-visible note: "Account unlocked — employee can now sign in."' },
+    { id: 'so-13', label: 'Close ticket',                             system: 'autotask', description: 'Status 5 (Complete) — onboarding is fully done.' },
+  ],
+}
 
 // ─── Offboarding flow ────────────────────────────────────────────────────────
 
@@ -178,10 +200,18 @@ export default function HRFlowPage() {
 
         <div className="space-y-12">
           <FlowSection
-            title="Employee Onboarding"
-            subtitle="Triggered immediately when form is submitted. All actions execute in sequence."
+            title="Employee Onboarding (Immediate)"
+            subtitle="When start_date is today or in the past. All actions execute in sequence and account is ready immediately."
             steps={ONBOARDING_STEPS}
           />
+
+          <div className="border-t border-slate-700/50 pt-8">
+            <FlowSection
+              title={ONBOARDING_SCHEDULED.label}
+              subtitle={ONBOARDING_SCHEDULED.condition}
+              steps={ONBOARDING_SCHEDULED.steps}
+            />
+          </div>
 
           <div className="border-t border-slate-700/50 pt-8">
             <FlowSection
@@ -204,11 +234,20 @@ export default function HRFlowPage() {
             <h3 className="text-lg font-semibold text-white mb-4">Key Decision Points</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="rounded-lg border border-slate-700/50 bg-slate-800/30 p-4">
-                <h4 className="text-sm font-semibold text-white mb-2">Immediate vs Scheduled</h4>
+                <h4 className="text-sm font-semibold text-white mb-2">Immediate vs Scheduled (Offboarding)</h4>
                 <ul className="text-xs text-slate-400 space-y-1">
                   <li>If <code className="text-cyan-400">last_day</code> is today or in the past &rarr; execute immediately</li>
                   <li>If <code className="text-cyan-400">last_day</code> is in the future &rarr; schedule for 12:01 AM EST on that date</li>
                   <li>If <code className="text-cyan-400">urgency_type</code> = immediate_termination &rarr; always execute immediately</li>
+                </ul>
+              </div>
+              <div className="rounded-lg border border-slate-700/50 bg-slate-800/30 p-4">
+                <h4 className="text-sm font-semibold text-white mb-2">Immediate vs Scheduled (Onboarding)</h4>
+                <ul className="text-xs text-slate-400 space-y-1">
+                  <li>If <code className="text-cyan-400">start_date</code> is today or in the past &rarr; account created and unlocked immediately</li>
+                  <li>If <code className="text-cyan-400">start_date</code> is in the future &rarr; account created LOCKED, unlocked at 12:01 AM EST on start date</li>
+                  <li>All groups, licenses, and SharePoint access configured immediately in both cases</li>
+                  <li>Credentials shared in advance so employee is ready on day one</li>
                 </ul>
               </div>
               <div className="rounded-lg border border-slate-700/50 bg-slate-800/30 p-4">
@@ -228,12 +267,23 @@ export default function HRFlowPage() {
                 </ul>
               </div>
               <div className="rounded-lg border border-slate-700/50 bg-slate-800/30 p-4">
+                <h4 className="text-sm font-semibold text-white mb-2">License Availability</h4>
+                <ul className="text-xs text-slate-400 space-y-1">
+                  <li>Available licenses are fetched live from the tenant via Graph API</li>
+                  <li>Only licenses with available seats (&gt; 0) are shown in the form</li>
+                  <li>If license assignment fails &rarr; becomes a manual step on the ticket</li>
+                  <li>License procurement happens through <span className="text-violet-400">Pax8</span> (cloud marketplace for MSPs)</li>
+                  <li>Pax8 integration not yet automated &mdash; TCT staff manually procure licenses when needed</li>
+                </ul>
+              </div>
+              <div className="rounded-lg border border-slate-700/50 bg-slate-800/30 p-4">
                 <h4 className="text-sm font-semibold text-white mb-2">Manual Steps (Not Yet Automated)</h4>
                 <ul className="text-xs text-slate-400 space-y-1">
                   <li>Shared mailbox conversion &rarr; requires Exchange Admin Center</li>
                   <li>Email forwarding verification &rarr; manual check needed</li>
                   <li>SharePoint archive review &rarr; human confirms completeness</li>
                   <li>GDAP automation planned for future (eliminates per-tenant cert setup)</li>
+                  <li>Pax8 license procurement &rarr; manual when no seats available</li>
                 </ul>
               </div>
             </div>
@@ -241,7 +291,7 @@ export default function HRFlowPage() {
 
           {/* Last updated */}
           <div className="text-center text-xs text-slate-600 pt-4">
-            Last updated: 2026-03-26 &mdash; Added scheduled offboarding, escalation logic, OneDrive-before-disable fix
+            Last updated: 2026-03-26 &mdash; Added scheduled onboarding (locked accounts), scheduled offboarding, license availability, Pax8 reference
           </div>
         </div>
       </div>
