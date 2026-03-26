@@ -72,6 +72,36 @@ interface FormConfig {
 
 type GraphClient = ReturnType<typeof createGraphClient>
 
+/** Map M365 SKU part numbers to user-friendly descriptions */
+function getLicenseDescription(partNumber: string): string {
+  const pn = partNumber.toUpperCase()
+  if (pn.includes('BUSINESS_PREMIUM') || pn.includes('SPB')) {
+    return 'Full Office apps, email, Teams, advanced security, and device management. Best for: most employees. This is the standard we recommend for almost all customers.'
+  }
+  if (pn.includes('BUSINESS_STANDARD') || pn === 'O365_BUSINESS_PREMIUM') {
+    return 'Desktop Office apps, email, Teams, and webinar hosting. Best for: office workers who need desktop apps but not advanced security.'
+  }
+  if (pn.includes('BUSINESS_BASIC') || pn === 'O365_BUSINESS_ESSENTIALS') {
+    return 'Web-only Office apps, email, Teams, and 1TB OneDrive. Best for: frontline workers, part-time staff, or users who only need web access.'
+  }
+  if (pn.includes('EXCHANGESTANDARD') || pn.includes('EXCHANGE_S_STANDARD')) {
+    return 'Business email only — no Office apps or Teams. Best for: shared mailboxes or users who only need email.'
+  }
+  if (pn.includes('EXCHANGEENTERPRISE') || pn.includes('EXCHANGE_S_ENTERPRISE')) {
+    return 'Business email with advanced compliance, archiving, and legal hold. Best for: compliance-heavy roles.'
+  }
+  if (pn.includes('ENTERPRISEPACK') || pn === 'SPE_E3') {
+    return 'Enterprise-grade Office apps, email, Teams, unlimited OneDrive, and advanced compliance. Best for: larger organizations.'
+  }
+  if (pn.includes('ENTERPRISEPREMIUM') || pn === 'SPE_E5') {
+    return 'Everything in E3 plus advanced analytics, security, and voice capabilities. Best for: executives, security-focused roles.'
+  }
+  if (pn.includes('FLOW_FREE') || pn.includes('POWER_BI') || pn.includes('TEAMS_EXPLORATORY')) {
+    return 'Free add-on license.'
+  }
+  return 'Contact your account manager at Triple Cities Tech for details on this license.'
+}
+
 async function resolveDataSource(
   dataSource: Record<string, unknown>,
   graphClient: GraphClient
@@ -87,14 +117,27 @@ async function resolveDataSource(
     switch (endpoint) {
       case 'licenses': {
         const skus = await graphClient.getLicenseSkus()
-        return skus.map((sku) => {
-          const available = sku.prepaidUnits.enabled - sku.consumedUnits
-          let label = sku.displayName ?? sku.skuPartNumber
-          if (labelSuffix) {
-            label += ' ' + labelSuffix.replace('{available}', String(Math.max(0, available)))
-          }
-          return { value: sku[valueField as keyof typeof sku] as string, label }
-        })
+        // Filter to only licenses with available seats
+        return skus
+          .filter((sku) => {
+            const available = sku.prepaidUnits.enabled - sku.consumedUnits
+            return available > 0
+          })
+          .map((sku) => {
+            const available = sku.prepaidUnits.enabled - sku.consumedUnits
+            const partNumber = (sku.skuPartNumber ?? '').toUpperCase()
+            let label = sku.displayName ?? sku.skuPartNumber
+            if (labelSuffix) {
+              label += ' ' + labelSuffix.replace('{available}', String(Math.max(0, available)))
+            }
+            // Add Recommended badge for Business Premium
+            if (partNumber.includes('BUSINESS_PREMIUM') || partNumber.includes('SPB')) {
+              label += ' — Recommended'
+            }
+            // License descriptions and role alignment
+            const helpText = getLicenseDescription(partNumber)
+            return { value: sku[valueField as keyof typeof sku] as string, label, helpText }
+          })
       }
       case 'securityGroups':
         items = (await graphClient.getSecurityGroups()) as unknown as Array<Record<string, unknown>>
@@ -744,12 +787,20 @@ async function migrateOnboardingQuestions(client: PoolClient): Promise<void> {
       `INSERT INTO form_questions (section_id, schema_id, key, type, label, help_text, is_required, sort_order)
        VALUES ($1, $2, 'billing_acknowledgment', 'checkbox',
          'I understand that adding a Microsoft 365 license may result in additional monthly charges on our next invoice.',
-         'The selected license will be billed at Microsoft''s current rate. You can view current pricing in your Microsoft 365 admin center.',
+         'Reach out to your account manager at Triple Cities Tech for more details on licensing costs.',
          true, 1)
        ON CONFLICT (schema_id, key) DO NOTHING`,
       [specialSectionId, schemaId]
     )
   }
+  // Always update billing text to latest wording
+  await client.query(
+    `UPDATE form_questions SET
+       label = 'I understand that adding a Microsoft 365 license may result in additional monthly charges on our next invoice.',
+       help_text = 'Reach out to your account manager at Triple Cities Tech for more details on licensing costs.'
+     WHERE schema_id = $1 AND key = 'billing_acknowledgment'`,
+    [schemaId]
+  )
 
   // Ensure additional_notes is last in special_instructions
   await client.query(
@@ -800,12 +851,13 @@ async function migrateOnboardingQuestions(client: PoolClient): Promise<void> {
     )
 
     // Move the license_type question into this section if it isn't already,
-    // and make it sort_order 0 (primary question).
+    // and make it sort_order 0 (primary question). Use radio type for descriptions.
     // Hide it when clone_permissions === 'yes' — license will be copied from the source user.
     await client.query(
       `UPDATE form_questions SET section_id = $1, sort_order = 0,
+       type = 'radio',
        label = 'License Type',
-       help_text = 'Select the Microsoft 365 license for this employee. Only licenses available in your tenant are shown. Available counts are displayed next to each option.',
+       help_text = 'Only licenses with available seats on your tenant are shown.',
        is_required = false,
        visibility_rules = $3::jsonb
        WHERE schema_id = $2 AND key = 'license_type'`,
@@ -1013,7 +1065,7 @@ async function migrateFormRefinementsV2(client: PoolClient): Promise<void> {
           schemaId,
           JSON.stringify([
             { value: 'existing_company', label: 'Use an existing company computer' },
-            { value: 'new_computer', label: 'New computer required' },
+            { value: 'new_computer', label: 'New computer required', helpText: 'A member from our Sales team will be notified and will reach out to collect more details.' },
             { value: 'personal_byod', label: 'Employee will use their own computer (work from home)' },
             { value: 'none', label: 'No computer needed' },
           ]),
@@ -1035,6 +1087,22 @@ async function migrateFormRefinementsV2(client: PoolClient): Promise<void> {
         [schemaId]
       )
     }
+
+    // --- Always-run: update computer_situation to include Sales team note ---
+    await client.query(
+      `UPDATE form_questions SET
+         static_options = $2::jsonb
+       WHERE schema_id = $1 AND key = 'computer_situation'`,
+      [
+        schemaId,
+        JSON.stringify([
+          { value: 'existing_company', label: 'Use an existing company computer' },
+          { value: 'new_computer', label: 'New computer required', helpText: 'A member from our Sales team will be notified and will reach out to collect more details.' },
+          { value: 'personal_byod', label: 'Employee will use their own computer (work from home)' },
+          { value: 'none', label: 'No computer needed' },
+        ]),
+      ]
+    )
 
     // --- Always-run cleanup: remove legacy work_location if it still exists ---
     await client.query(

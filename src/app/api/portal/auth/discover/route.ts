@@ -70,7 +70,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.triplecitiestech.com'
 
     if (res.rows.length > 0) {
-      const loginUrl = `${baseUrl}/api/portal/auth/login?company=${res.rows[0].slug}`
+      const loginUrl = `${baseUrl}/api/portal/auth/login?company=${res.rows[0].slug}&login_hint=${encodeURIComponent(email)}`
       if (isJsonRequest) {
         return NextResponse.json({ redirect: loginUrl })
       }
@@ -90,7 +90,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     )
 
     if (exactRes.rows.length > 0) {
-      const loginUrl = `${baseUrl}/api/portal/auth/login?company=${exactRes.rows[0].slug}`
+      const loginUrl = `${baseUrl}/api/portal/auth/login?company=${exactRes.rows[0].slug}&login_hint=${encodeURIComponent(email)}`
       if (isJsonRequest) {
         return NextResponse.json({ redirect: loginUrl })
       }
