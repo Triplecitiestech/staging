@@ -27,6 +27,7 @@ const FROM_EMAIL = process.env.EMAIL_FROM || 'Triple Cities Tech <noreply@triple
 
 interface ProcessRequestBody {
   requestId: string
+  executeScheduled?: boolean  // Set by cron to force-execute a scheduled request
 }
 
 interface AutotaskTicketPayload {
@@ -385,6 +386,25 @@ function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
+/** Check if a date string (YYYY-MM-DD) is in the future relative to today in EST */
+function isDateInFuture(dateStr: string): boolean {
+  if (!dateStr) return false
+  // Get today's date in EST/EDT
+  const estNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }))
+  const todayEst = estNow.toISOString().slice(0, 10)
+  return dateStr > todayEst
+}
+
+/** Format a date for display: "Wednesday, March 25, 2026" */
+function formatDateDisplay(dateStr: string): string {
+  try {
+    const d = new Date(dateStr + 'T12:00:00')
+    return d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'America/New_York' })
+  } catch {
+    return dateStr
+  }
+}
+
 /** Generate a 16-character temporary password: mixed case + digits + specials */
 function generateTempPassword(): string {
   const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
@@ -517,6 +537,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (hrRequest.status === 'completed' || hrRequest.status === 'running') {
       return NextResponse.json(
         { message: `Request already in state: ${hrRequest.status}` },
+        { status: 200 }
+      )
+    }
+    // Allow scheduled requests to be re-processed only when cron triggers them
+    if (hrRequest.status === 'scheduled' && !body.executeScheduled) {
+      return NextResponse.json(
+        { message: 'Request is scheduled — will be processed on the last working day' },
         { status: 200 }
       )
     }
@@ -1428,6 +1455,64 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // OFFBOARDING PIPELINE
       // =============================================================
 
+      // Check if this offboarding should be scheduled for a future date
+      const lastDay = a.last_day
+      const isScheduledRun = body.executeScheduled === true
+      const isImmediateTermination = a.urgency_type === 'immediate_termination' || a.account_action === 'immediate_termination'
+      const shouldSchedule = lastDay && isDateInFuture(lastDay) && !isScheduledRun && !isImmediateTermination
+
+      if (shouldSchedule) {
+        // Future-dated offboarding: create ticket with "Scheduled" note, skip M365 actions
+        const scheduledDateDisplay = formatDateDisplay(lastDay)
+
+        // Add scheduled note to the ticket
+        await addTicketNote('Offboarding Scheduled',
+          `This offboarding is scheduled to execute automatically on ${scheduledDateDisplay} at 12:01 AM EST.\n\n` +
+          `Employee: ${fullName || a.work_email || a.employee_to_offboard || 'Unknown'}\n` +
+          `Last Working Day: ${scheduledDateDisplay}\n\n` +
+          'All automated actions (disable account, remove groups, remove licenses, OneDrive handling) ' +
+          'will be executed at the scheduled time. The ticket will be updated with results.', 2)
+
+        // Also add a customer-visible note
+        await addTicketNote('Offboarding Scheduled',
+          `The offboarding for ${fullName || a.work_email || a.employee_to_offboard || 'the employee'} ` +
+          `is scheduled to take effect on ${scheduledDateDisplay}.\n\n` +
+          'You will receive an email confirmation once all actions have been completed.', 1)
+
+        // Set request status to scheduled
+        await client.query(
+          `UPDATE hr_requests
+           SET status = 'scheduled',
+               updated_at = NOW()
+           WHERE id = $1`,
+          [hrRequest.id]
+        )
+
+        await client.query(
+          `INSERT INTO hr_audit_logs
+             (company_id, request_id, actor, action, resource, details, severity, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, NOW())`,
+          [
+            hrRequest.company_id,
+            hrRequest.id,
+            'system',
+            'request_scheduled',
+            `hr_request:${hrRequest.id}`,
+            JSON.stringify({ scheduledDate: lastDay, ticketId, ticketNumber }),
+            'info',
+          ]
+        )
+
+        return NextResponse.json({
+          message: `Offboarding scheduled for ${lastDay} at 12:01 AM EST`,
+          requestId: hrRequest.id,
+          ticketId,
+          ticketNumber,
+          scheduledDate: lastDay,
+          status: 'scheduled',
+        })
+      }
+
       const creds = hrRequest.company_slug
         ? await getTenantCredentialsBySlug(hrRequest.company_slug)
         : null
@@ -1884,7 +1969,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               console.warn('[hr/process] RESEND_API_KEY not set — skipping email notification')
             }
 
-            // Close ticket only if no manual steps remain
+            // Close ticket if all automated, escalate if manual steps remain
             if (manualSteps.length === 0) {
               try {
                 await fetch(`${baseUrl}/V1.0/Tickets`, {
@@ -1894,6 +1979,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                 })
               } catch (err) {
                 console.warn('[hr/process] Failed to close ticket:', err instanceof Error ? err.message : err)
+              }
+            } else {
+              // Escalate ticket so a human reviews the manual steps
+              try {
+                await fetch(`${baseUrl}/V1.0/Tickets`, {
+                  method: 'PATCH',
+                  headers: autotaskHeaders,
+                  body: JSON.stringify({ id: ticketId, priority: 3 }), // High priority
+                })
+              } catch (err) {
+                console.warn('[hr/process] Failed to escalate ticket:', err instanceof Error ? err.message : err)
               }
             }
           }
