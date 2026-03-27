@@ -334,7 +334,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
             <p className="text-sm text-cyan-400 mb-1">{demo.company(companyName || '')}</p>
           )}
           <div className="flex items-center justify-between flex-wrap gap-3 mb-2">
-            <h2 className="text-3xl font-bold text-white">{project.title}</h2>
+            <h2 className="text-3xl font-bold text-white">{demo.title(project.title)}</h2>
             {/* View Toggle */}
             <div className="flex bg-gray-800/50 border border-white/10 rounded-lg p-1">
               <button
@@ -430,7 +430,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
                           )}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <h3 className="text-sm font-bold text-white truncate">{phase.title}</h3>
+                          <h3 className="text-sm font-bold text-white truncate">{demo.title(phase.title)}</h3>
                           <span className={`inline-block px-2 py-0.5 text-xs font-medium rounded-full border mt-1 ${phaseBadge.color}`}>
                             {phaseBadge.label}
                           </span>
@@ -459,7 +459,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
                               }`} />
                               <span className={`flex-1 text-xs truncate ${
                                 DONE_STATUSES.includes(task.status) ? 'text-gray-500 line-through' : 'text-gray-300 group-hover:text-white'
-                              }`}>{task.taskText}</span>
+                              }`}>{demo.title(task.taskText)}</span>
                               <span className={`text-xs px-1.5 py-0.5 rounded-full border flex-shrink-0 ${badge.color}`}>{badge.label}</span>
                             </button>
                           )
@@ -513,7 +513,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-3 mb-1">
-                        <h3 className="text-lg font-bold text-white truncate">{phase.title}</h3>
+                        <h3 className="text-lg font-bold text-white truncate">{demo.title(phase.title)}</h3>
                         <span className={`px-2.5 py-0.5 text-xs font-medium rounded-full border whitespace-nowrap ml-auto ${phaseBadge.color}`}>
                           Status: {phaseBadge.label}
                         </span>
@@ -588,7 +588,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
                                 <span className={`flex-1 text-sm ${
                                   DONE_STATUSES.includes(task.status) ? 'text-gray-500 line-through' : 'text-white'
                                 }`}>
-                                  {task.taskText}
+                                  {demo.title(task.taskText)}
                                 </span>
                                 <span className={`px-2 py-0.5 text-xs font-medium rounded-full border whitespace-nowrap ${badge.color}`}>
                                   Status: {badge.label}
@@ -829,7 +829,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
                 >
                   <div className="flex items-center gap-3 mb-2">
                     <h3 className="text-lg font-bold text-white group-hover:text-cyan-400 transition-colors">
-                      {project.title}
+                      {demo.title(project.title)}
                     </h3>
                     <span className={`px-2 py-0.5 text-xs font-medium rounded-full border whitespace-nowrap ${statusBadge.color}`}>
                       {statusBadge.label}
