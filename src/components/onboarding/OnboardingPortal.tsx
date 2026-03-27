@@ -9,6 +9,7 @@ import OnboardingTimeline from './OnboardingTimeline'
 import CustomerDashboard from './CustomerDashboard'
 import OnboardingJourney, { useOnboardingJourney } from './OnboardingJourney'
 import type { OnboardingData } from '@/types/onboarding'
+import { useDemoMode } from '@/components/admin/DemoModeProvider'
 
 interface OnboardingPortalProps {
   companySlug: string
@@ -36,11 +37,12 @@ export default function OnboardingPortal({
   dbDegraded,
 }: OnboardingPortalProps) {
   const router = useRouter()
+  const demo = useDemoMode()
   const { showOnboarding, completeOnboarding } = useOnboardingJourney(
     isAuthenticated ? companySlug : undefined
   )
 
-  const displayName = companyDisplayName || companySlug
+  const displayName = demo.company(companyDisplayName || companySlug)
 
   const handleLogout = () => {
     // Clear cookie via POST, then redirect to portal splash
@@ -51,14 +53,16 @@ export default function OnboardingPortal({
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-br from-gray-900 via-black to-gray-900">
+    <div className="min-h-screen flex flex-col bg-gradient-to-br from-slate-950 via-gray-900 to-slate-950 relative">
+      {/* Ambient grid overlay */}
+      <div className="pointer-events-none fixed inset-0 z-0 opacity-[0.03]" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)', backgroundSize: '60px 60px' }} />
       {/* Portal header bar */}
-      <header className="sticky top-0 z-50 bg-gray-950/90 backdrop-blur-sm border-b border-white/10">
+      <header className="sticky top-0 z-50 bg-slate-950/90 backdrop-blur-sm border-b border-white/10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-14">
           <div className="flex items-center gap-3">
             <span className="text-lg font-bold text-white tracking-tight">TCT</span>
             {isAuthenticated && userEmail && (
-              <span className="text-sm text-gray-400">Logged in as: {userName || userEmail}</span>
+              <span className="text-sm text-gray-400">Logged in as: {demo.person(userName || userEmail)}</span>
             )}
           </div>
           {isAuthenticated && (
@@ -100,7 +104,7 @@ export default function OnboardingPortal({
           // Onboarding timeline view (legacy structured onboarding program)
           <Container className="py-12 mt-4">
             <div className="mb-8 text-center">
-              <h1 className="text-5xl font-bold text-white mb-2">{initialData.companyDisplayName}</h1>
+              <h1 className="text-5xl font-bold text-white mb-2">{demo.company(initialData.companyDisplayName)}</h1>
               <p className="text-2xl text-cyan-400 font-semibold">
                 {projects && (projects as unknown[]).length === 1
                   ? (projects[0] as { title: string }).title

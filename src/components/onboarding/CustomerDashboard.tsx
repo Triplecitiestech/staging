@@ -5,6 +5,7 @@ import { TicketTable, TicketDetail } from '@/components/tickets'
 import type { UnifiedTicketRow, UnifiedTicketNote, TicketListResponse } from '@/types/tickets'
 import { CUSTOMER_VISIBILITY } from '@/types/tickets'
 import { HrRequestSection } from './HrRequestSection'
+import { useDemoMode } from '@/components/admin/DemoModeProvider'
 
 interface Comment {
   id: string
@@ -117,6 +118,7 @@ function getProjectStatusLabel(status: string) {
 type TicketFilter = 'all' | 'open' | 'closed' | 'closed-this-month' | 'awaiting'
 
 export default function CustomerDashboard({ projects, companyName, companySlug, userEmail, userName, isManager }: CustomerDashboardProps) {
+  const demo = useDemoMode()
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
   const [projectViewMode, setProjectViewMode] = useState<'vertical' | 'horizontal'>('vertical')
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
@@ -289,7 +291,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
         {/* Company Header */}
         {companyName && (
           <div className="mb-8 text-center">
-            <h1 className="text-4xl font-bold text-white mb-1">{companyName}</h1>
+            <h1 className="text-4xl font-bold text-white mb-1">{demo.company(companyName || '')}</h1>
           </div>
         )}
         <TicketDetail
@@ -329,7 +331,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
         {/* Project Header with company name */}
         <div className="mb-6">
           {companyName && (
-            <p className="text-sm text-cyan-400 mb-1">{companyName}</p>
+            <p className="text-sm text-cyan-400 mb-1">{demo.company(companyName || '')}</p>
           )}
           <div className="flex items-center justify-between flex-wrap gap-3 mb-2">
             <h2 className="text-3xl font-bold text-white">{project.title}</h2>
@@ -615,7 +617,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
                                       {task.comments!.map(comment => (
                                         <div key={comment.id} className="bg-gray-700/50 rounded-lg px-3 py-2">
                                           <div className="flex items-center justify-between mb-1">
-                                            <span className="text-xs font-medium text-cyan-400">{comment.authorName}</span>
+                                            <span className="text-xs font-medium text-cyan-400">{demo.person(comment.authorName)}</span>
                                             <span className="text-xs text-gray-500">
                                               {new Date(comment.createdAt).toLocaleDateString()}
                                             </span>
@@ -671,7 +673,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
       {/* Company Header */}
       {companyName && (
         <div className="mb-8 text-center">
-          <h1 className="text-4xl font-bold text-white">{companyName}</h1>
+          <h1 className="text-4xl font-bold text-white">{demo.company(companyName || '')}</h1>
         </div>
       )}
 
