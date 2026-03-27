@@ -677,7 +677,36 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
       )}
 
       {/* Summary Cards - click to filter tickets below, click again to reset */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+        <button
+          onClick={() => {
+            // Try to open the Thread/ChatGenie chat widget
+            const chatButton = document.querySelector('[data-testid="messenger-button"]') as HTMLElement ||
+              document.querySelector('.chatgenie-button') as HTMLElement ||
+              document.querySelector('[id*="chatgenie"]') as HTMLElement
+            if (chatButton) {
+              chatButton.click()
+              return
+            }
+            const win = window as unknown as { chatgenie?: { default: { messenger: () => { show?: () => void } } } }
+            if (win.chatgenie) {
+              try {
+                const messenger = win.chatgenie.default.messenger()
+                if (messenger?.show) { messenger.show(); return }
+              } catch { /* fallback below */ }
+            }
+            // Fallback: open livechat page
+            window.open('/livechat', '_blank')
+          }}
+          className="bg-gradient-to-br from-violet-600/30 to-violet-500/10 border border-violet-500/40 hover:border-violet-400/70 hover:shadow-lg hover:shadow-violet-500/20 rounded-lg p-4 text-center transition-all cursor-pointer"
+        >
+          <div className="text-3xl font-bold text-violet-400">
+            <svg className="w-8 h-8 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+            </svg>
+          </div>
+          <div className="text-sm text-gray-400 mt-1">Get Support</div>
+        </button>
         <button
           onClick={() => { toggleFilter('open'); document.getElementById('tickets-section')?.scrollIntoView({ behavior: 'smooth' }) }}
           className={`bg-gray-800/50 border rounded-lg p-4 text-center transition-all cursor-pointer ${
