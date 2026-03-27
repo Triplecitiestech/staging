@@ -149,14 +149,14 @@ const TICKET_TITLE_TEMPLATES = [
 
 /** Map a real company name to a deterministic fake company name */
 export function anonCompany(realName: string): string {
-  if (!realName) return realName
+  if (!realName) return ''
   const idx = simpleHash(realName.toLowerCase().trim()) % FAKE_COMPANIES.length
   return FAKE_COMPANIES[idx]
 }
 
 /** Map a real person name to a deterministic fake person name */
 export function anonPerson(realName: string): string {
-  if (!realName) return realName
+  if (!realName) return ''
   const h = simpleHash(realName.toLowerCase().trim())
   const first = FAKE_FIRST_NAMES[h % FAKE_FIRST_NAMES.length]
   const last = FAKE_LAST_NAMES[(h * 7) % FAKE_LAST_NAMES.length]
@@ -165,7 +165,7 @@ export function anonPerson(realName: string): string {
 
 /** Map a real email to a deterministic fake email */
 export function anonEmail(realEmail: string): string {
-  if (!realEmail || !realEmail.includes('@')) return realEmail
+  if (!realEmail || !realEmail.includes('@')) return ''
   const [localPart] = realEmail.split('@')
   const h = simpleHash(localPart.toLowerCase().trim())
   const first = FAKE_FIRST_NAMES[h % FAKE_FIRST_NAMES.length].toLowerCase()
@@ -176,7 +176,7 @@ export function anonEmail(realEmail: string): string {
 
 /** Map a real ticket title to a deterministic fake ticket title */
 export function anonTicketTitle(realTitle: string): string {
-  if (!realTitle) return realTitle
+  if (!realTitle) return ''
   const h = simpleHash(realTitle.toLowerCase().trim())
   const template = TICKET_TITLE_TEMPLATES[h % TICKET_TITLE_TEMPLATES.length]
   // Fill in {person} and {company} placeholders deterministically

@@ -82,7 +82,7 @@ export default function DemoModeProvider({ children }: { children: React.ReactNo
     [active]
   )
   const title = useCallback(
-    (t: string) => (active ? anonTicketTitle(t) : t),
+    (t: string) => (active ? anonTicketTitle(t || '') : t),
     [active]
   )
   const num = useCallback(
