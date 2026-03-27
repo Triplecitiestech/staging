@@ -85,11 +85,6 @@ export function FormRenderer({
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
 
-  // Total steps = sections + review step
-  const totalSteps = config.sections.length + 1
-  const isReviewStep = currentStep === config.sections.length
-  const currentSection = config.sections[currentStep] ?? null
-
   // Get visible questions for a section
   const getVisibleQuestions = useCallback(
     (section: MergedSection) =>
@@ -99,6 +94,20 @@ export function FormRenderer({
       }),
     [answers]
   )
+
+  // Filter out sections where all interactive questions are hidden
+  const visibleSections = useMemo(() => {
+    return config.sections.filter((section) => {
+      const visible = getVisibleQuestions(section)
+      // Keep section if it has at least one interactive (non-heading/info) visible question
+      return visible.some((q) => q.type !== 'heading' && q.type !== 'info')
+    })
+  }, [config.sections, getVisibleQuestions])
+
+  // Total steps = visible sections + review step
+  const totalSteps = visibleSections.length + 1
+  const isReviewStep = currentStep === visibleSections.length
+  const currentSection = visibleSections[currentStep] ?? null
 
   // Resolve options for a question (resolvedOptions take priority)
   const getOptions = (q: MergedQuestion) =>
@@ -212,7 +221,7 @@ export function FormRenderer({
 
     // Build clean answers: only include values for currently visible questions
     const cleanAnswers: Record<string, unknown> = {}
-    for (const section of config.sections) {
+    for (const section of visibleSections) {
       const visible = getVisibleQuestions(section)
       for (const q of visible) {
         if (q.type === 'heading' || q.type === 'info') continue
@@ -259,7 +268,7 @@ export function FormRenderer({
 
   // Review step: collect all visible answered questions grouped by section
   const reviewData = useMemo(() => {
-    return config.sections.map((section) => ({
+    return visibleSections.map((section) => ({
       title: section.title,
       questions: getVisibleQuestions(section)
         .filter((q) => q.type !== 'heading' && q.type !== 'info')
@@ -269,7 +278,7 @@ export function FormRenderer({
         }))
         .filter((q) => q.value),
     }))
-  }, [config.sections, getVisibleQuestions, answers])
+  }, [visibleSections, getVisibleQuestions, answers])
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">

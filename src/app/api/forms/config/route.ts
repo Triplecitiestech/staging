@@ -1233,6 +1233,50 @@ async function migrateFormRefinementsV2(client: PoolClient): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Migration: Hide access_permissions questions when cloning a user
+// When clone_permissions = 'yes', all group/team/site pickers should be hidden
+// because those will be copied from the source user automatically.
+// ---------------------------------------------------------------------------
+
+async function migrateCloneSkipsAccessPermissions(client: PoolClient): Promise<void> {
+  const schemaRes = await client.query<{ id: string }>(
+    `SELECT id FROM form_schemas WHERE type = 'onboarding' AND status = 'published' LIMIT 1`
+  )
+  if (schemaRes.rows.length === 0) return
+  const schemaId = schemaRes.rows[0].id
+
+  // Sentinel: check if security_groups already has clone visibility rule
+  const sentinel = await client.query(
+    `SELECT visibility_rules FROM form_questions WHERE schema_id = $1 AND key = 'security_groups' LIMIT 1`,
+    [schemaId]
+  )
+  if (sentinel.rows.length > 0 && sentinel.rows[0].visibility_rules) {
+    const rules = typeof sentinel.rows[0].visibility_rules === 'string'
+      ? JSON.parse(sentinel.rows[0].visibility_rules)
+      : sentinel.rows[0].visibility_rules
+    if (rules?.conditions?.some((c: { field: string }) => c.field === 'clone_permissions')) {
+      return // Already migrated
+    }
+  }
+
+  console.log('[forms/config] Running migration: hide access_permissions questions when cloning')
+
+  const cloneVisibility = JSON.stringify({
+    operator: 'and',
+    conditions: [{ field: 'clone_permissions', op: 'neq', value: 'yes' }],
+  })
+
+  // Add visibility rules to all group/team/site picker questions
+  for (const key of ['security_groups', 'distribution_lists', 'teams_groups', 'sharepoint_sites']) {
+    await client.query(
+      `UPDATE form_questions SET visibility_rules = $1::jsonb
+       WHERE schema_id = $2 AND key = $3`,
+      [cloneVisibility, schemaId, key]
+    )
+  }
+}
+
+// ---------------------------------------------------------------------------
 // GET /api/forms/config?companySlug=X&type=onboarding&email=Y
 // ---------------------------------------------------------------------------
 
@@ -1267,6 +1311,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     await migrateOnboardingQuestions(client)
     await migrateOffboardingUXImprovements(client)
     await migrateFormRefinementsV2(client)
+    await migrateCloneSkipsAccessPermissions(client)
 
     // 1. Find company by slug
     const companyRes = await client.query<{ id: string }>(
