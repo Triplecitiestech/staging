@@ -8,6 +8,7 @@ import StatCard from './StatCard'
 import TrendChart from './TrendChart'
 import ComparisonBarChart from './ComparisonBarChart'
 import type { ComparisonMetric } from './ComparisonBarChart'
+import { useDemoMode } from '@/components/admin/DemoModeProvider'
 import ReportAIAssistant from './ReportAIAssistant'
 
 interface TechnicianSummary {
@@ -65,6 +66,7 @@ interface TechReport {
 export default function TechnicianReport() {
   const searchParams = useSearchParams()
   const router = useRouter()
+  const demo = useDemoMode()
   const highlightedResourceId = searchParams.get('resource') ? Number(searchParams.get('resource')) : null
   const [data, setData] = useState<TechReport | null>(null)
   const [loading, setLoading] = useState(true)
@@ -173,10 +175,10 @@ export default function TechnicianReport() {
 
   if (!data) return <p className="text-slate-500">No data available</p>
 
-  const totalClosed = data.summary.reduce((s, t) => s + t.ticketsClosed, 0)
-  const totalHours = data.summary.reduce((s, t) => s + t.hoursLogged, 0)
-  const totalBillable = data.summary.reduce((s, t) => s + t.billableHoursLogged, 0)
-  const totalOpen = data.summary.reduce((s, t) => s + t.openTicketCount, 0)
+  const totalClosed = demo.num(data.summary.reduce((s, t) => s + t.ticketsClosed, 0), 'tr-closed')
+  const totalHours = demo.num(data.summary.reduce((s, t) => s + t.hoursLogged, 0), 'tr-hours')
+  const totalBillable = demo.num(data.summary.reduce((s, t) => s + t.billableHoursLogged, 0), 'tr-billable')
+  const totalOpen = demo.num(data.summary.reduce((s, t) => s + t.openTicketCount, 0), 'tr-open')
 
   // Team-level FTR and FRT averages
   const techsWithFTR = data.summary.filter(t => t.firstTouchResolutionRate !== null)
@@ -247,8 +249,8 @@ export default function TechnicianReport() {
               {atResults.map((r) => (
                 <div key={r.autotaskId} className="flex items-center justify-between px-3 py-2 rounded-md hover:bg-slate-700/30">
                   <div>
-                    <span className="text-sm text-white">{r.name}</span>
-                    <span className="text-xs text-slate-500 ml-2">{r.email}</span>
+                    <span className="text-sm text-white">{demo.person(r.name)}</span>
+                    <span className="text-xs text-slate-500 ml-2">{demo.email(r.email)}</span>
                   </div>
                   {r.isImported ? (
                     <span className="text-xs text-emerald-400 px-2 py-0.5 bg-emerald-400/10 rounded-full">Imported</span>
@@ -370,7 +372,7 @@ export default function TechnicianReport() {
               }))
 
         const chartTitle = isSingleTech
-          ? `${data.techComparison![0].name} — Current vs Previous Period`
+          ? `${demo.person(data.techComparison![0].name)} — Current vs Previous Period`
           : 'Tickets Closed — Current vs Previous Period (Top Techs)'
 
         return <ComparisonBarChart data={chartData} title={chartTitle} />
@@ -448,12 +450,12 @@ export default function TechnicianReport() {
                   }`}
                 >
                   <td className="px-4 py-3">
-                    <div className="text-sm text-white">{tech.firstName} {tech.lastName}</div>
-                    <div className="text-xs text-slate-500 hidden sm:block">{tech.email}</div>
+                    <div className="text-sm text-white">{demo.person(`${tech.firstName} ${tech.lastName}`)}</div>
+                    <div className="text-xs text-slate-500 hidden sm:block">{demo.email(tech.email)}</div>
                   </td>
-                  <td className="text-right px-4 py-3 text-sm text-white">{tech.ticketsClosed}</td>
-                  <td className="text-right px-4 py-3 text-sm text-white">{tech.hoursLogged}h</td>
-                  <td className="text-right px-4 py-3 text-sm text-white hidden md:table-cell">{tech.billableHoursLogged}h</td>
+                  <td className="text-right px-4 py-3 text-sm text-white">{demo.num(tech.ticketsClosed, `tr-${tech.resourceId}-tc`)}</td>
+                  <td className="text-right px-4 py-3 text-sm text-white">{demo.num(tech.hoursLogged, `tr-${tech.resourceId}-hrs`)}h</td>
+                  <td className="text-right px-4 py-3 text-sm text-white hidden md:table-cell">{demo.num(tech.billableHoursLogged, `tr-${tech.resourceId}-bhr`)}h</td>
                   <td className="text-right px-4 py-3 text-sm text-slate-300 hidden lg:table-cell">
                     {tech.avgFirstResponseMinutes !== null ? formatMinutes(tech.avgFirstResponseMinutes) : '-'}
                   </td>

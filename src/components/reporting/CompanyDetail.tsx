@@ -8,6 +8,7 @@ import ReportAIAssistant from './ReportAIAssistant'
 import { TicketTable, TicketDetail } from '@/components/tickets'
 import type { UnifiedTicketRow, UnifiedTicketNote, NoteVisibilityFilters, TicketListResponse } from '@/types/tickets'
 import { DEFAULT_STAFF_VISIBILITY } from '@/types/tickets'
+import { useDemoMode } from '@/components/admin/DemoModeProvider'
 
 interface CompanyDetailProps {
   companyId: string
@@ -16,6 +17,7 @@ interface CompanyDetailProps {
 export default function CompanyDetail({ companyId }: CompanyDetailProps) {
   const searchParams = useSearchParams()
   const router = useRouter()
+  const demo = useDemoMode()
   const [data, setData] = useState<TicketListResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [selectedTicket, setSelectedTicket] = useState<UnifiedTicketRow | null>(null)
@@ -109,7 +111,7 @@ export default function CompanyDetail({ companyId }: CompanyDetailProps) {
           {'\u2190'} Back to Companies
         </button>
         <h1 className="text-2xl font-bold text-white">
-          {loading ? 'Loading...' : data?.companyName || 'Company Detail'}
+          {loading ? 'Loading...' : demo.company(data?.companyName || '') || 'Company Detail'}
         </h1>
       </div>
 

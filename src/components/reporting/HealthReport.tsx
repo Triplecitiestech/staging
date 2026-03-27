@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import ReportFilterBar from './ReportFilters'
 import HealthDistribution from './HealthDistribution'
 import ReportAIAssistant from './ReportAIAssistant'
+import { useDemoMode } from '@/components/admin/DemoModeProvider'
 
 interface HealthScore {
   companyId: string
@@ -55,6 +56,7 @@ const FACTOR_TOOLTIPS: Record<string, string> = {
 export default function HealthReport() {
   const searchParams = useSearchParams()
   const router = useRouter()
+  const demo = useDemoMode()
   const [data, setData] = useState<HealthReportData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -155,10 +157,10 @@ export default function HealthReport() {
                       className="border-b border-slate-700/30 hover:bg-slate-700/20 cursor-pointer"
                     >
                       <td className="px-4 py-3">
-                        <span className="text-sm text-white">{score.displayName}</span>
+                        <span className="text-sm text-white">{demo.company(score.displayName)}</span>
                       </td>
                       <td className="text-center px-4 py-3">
-                        <ScoreBadge score={score.overallScore} />
+                        <ScoreBadge score={demo.num(score.overallScore, `hs-${score.companyId}`)} />
                       </td>
                       <td className="text-center px-4 py-3">
                         <TierBadge tier={score.tier} />

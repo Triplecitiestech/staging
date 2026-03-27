@@ -8,6 +8,7 @@ import ComparisonBarChart from './ComparisonBarChart'
 import type { ComparisonMetric } from './ComparisonBarChart'
 import { TicketTable, TicketDetail } from '@/components/tickets'
 import type { UnifiedTicketRow, UnifiedTicketNote, NoteVisibilityFilters, TicketListResponse } from '@/types/tickets'
+import { useDemoMode } from '@/components/admin/DemoModeProvider'
 import { DEFAULT_STAFF_VISIBILITY } from '@/types/tickets'
 
 interface TechnicianDetailProps {
@@ -49,6 +50,7 @@ interface TechComparisonDetail {
 export default function TechnicianDetail({ resourceId }: TechnicianDetailProps) {
   const searchParams = useSearchParams()
   const router = useRouter()
+  const demo = useDemoMode()
   const [techData, setTechData] = useState<TechSummary | null>(null)
   const [techComparison, setTechComparison] = useState<TechComparisonDetail | null>(null)
   const [ticketData, setTicketData] = useState<TicketListResponse | null>(null)
@@ -150,7 +152,7 @@ export default function TechnicianDetail({ resourceId }: TechnicianDetailProps) 
   }
 
   const loading = loadingTech || loadingTickets
-  const techName = techData ? `${techData.firstName} ${techData.lastName}` : 'Technician'
+  const techName = techData ? demo.person(`${techData.firstName} ${techData.lastName}`) : 'Technician'
 
   // Build comparison chart data
   const comparisonChartData: ComparisonMetric[] = techComparison ? [

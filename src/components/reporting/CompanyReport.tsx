@@ -8,6 +8,7 @@ import StatCard from './StatCard'
 import TrendChart from './TrendChart'
 import PriorityBreakdownChart from './PriorityBreakdownChart'
 import ReportAIAssistant from './ReportAIAssistant'
+import { useDemoMode } from '@/components/admin/DemoModeProvider'
 
 interface CompanySummary {
   companyId: string
@@ -60,6 +61,7 @@ interface AutotaskCompanyResult {
 export default function CompanyReport() {
   const searchParams = useSearchParams()
   const router = useRouter()
+  const demo = useDemoMode()
   const [data, setData] = useState<CompanyReportData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -162,9 +164,9 @@ export default function CompanyReport() {
 
   if (!data) return <p className="text-slate-500">No data available</p>
 
-  const totalCreated = data.summary.reduce((s, c) => s + c.ticketsCreated, 0)
-  const totalClosed = data.summary.reduce((s, c) => s + c.ticketsClosed, 0)
-  const totalHours = data.summary.reduce((s, c) => s + c.supportHoursConsumed, 0)
+  const totalCreated = demo.num(data.summary.reduce((s, c) => s + c.ticketsCreated, 0), 'cr-total-created')
+  const totalClosed = demo.num(data.summary.reduce((s, c) => s + c.ticketsClosed, 0), 'cr-total-closed')
+  const totalHours = demo.num(data.summary.reduce((s, c) => s + c.supportHoursConsumed, 0), 'cr-total-hours')
 
   return (
     <div className="space-y-6">
@@ -370,25 +372,25 @@ export default function CompanyReport() {
                   className="border-b border-slate-700/30 hover:bg-slate-700/20 cursor-pointer"
                 >
                   <td className="px-4 py-3">
-                    <div className="text-sm text-white truncate max-w-[200px]">{company.displayName}</div>
+                    <div className="text-sm text-white truncate max-w-[200px]">{demo.company(company.displayName)}</div>
                   </td>
-                  <td className="text-right px-4 py-3 text-sm text-white">{company.ticketsCreated}</td>
-                  <td className="text-right px-4 py-3 text-sm text-white">{company.ticketsClosed}</td>
-                  <td className="text-right px-4 py-3 text-sm text-white hidden md:table-cell">{company.supportHoursConsumed}h</td>
+                  <td className="text-right px-4 py-3 text-sm text-white">{demo.num(company.ticketsCreated, `cr-${company.companyId}-tc`)}</td>
+                  <td className="text-right px-4 py-3 text-sm text-white">{demo.num(company.ticketsClosed, `cr-${company.companyId}-tcl`)}</td>
+                  <td className="text-right px-4 py-3 text-sm text-white hidden md:table-cell">{demo.num(company.supportHoursConsumed, `cr-${company.companyId}-hrs`)}h</td>
                   <td className="text-right px-4 py-3 text-sm text-slate-300 hidden lg:table-cell">
-                    {company.avgResolutionMinutes !== null ? formatMinutes(company.avgResolutionMinutes) : '-'}
+                    {company.avgResolutionMinutes !== null ? formatMinutes(demo.num(company.avgResolutionMinutes, `cr-${company.companyId}-res`)) : '-'}
                   </td>
                   <td className="text-right px-4 py-3 text-sm hidden lg:table-cell">
                     {company.slaCompliance !== null ? (
                       <span className={company.slaCompliance >= 90 ? 'text-emerald-400' : company.slaCompliance >= 70 ? 'text-cyan-400' : 'text-rose-400'}>
-                        {company.slaCompliance}%
+                        {demo.pct(company.slaCompliance, `cr-${company.companyId}-sla`)}%
                       </span>
                     ) : '-'}
                   </td>
                   <td className="text-right px-4 py-3 text-sm text-slate-300 hidden md:table-cell">
-                    {company.reopenRate !== null ? `${company.reopenRate}%` : '-'}
+                    {company.reopenRate !== null ? `${demo.pct(company.reopenRate, `cr-${company.companyId}-rr`)}%` : '-'}
                   </td>
-                  <td className="text-right px-4 py-3 text-sm text-white">{company.backlogCount}</td>
+                  <td className="text-right px-4 py-3 text-sm text-white">{demo.num(company.backlogCount, `cr-${company.companyId}-bl`)}</td>
                   <td className="text-right px-4 py-3 hidden md:table-cell">
                     {company.healthScore !== null ? (
                       <HealthBadge score={company.healthScore} trend={company.healthTrend} />
