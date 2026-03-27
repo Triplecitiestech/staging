@@ -9,6 +9,7 @@ import { Resend } from 'resend'
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null
 const ALERT_EMAIL = 'support@triplecitiestech.com'
+const ADMIN_ALERT_EMAIL = 'kurtis@triplecitiestech.com'
 const FROM_EMAIL = process.env.EMAIL_FROM || 'Triple Cities Tech <notifications@triplecitiestech.com>'
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.triplecitiestech.com'
 const ALERT_THRESHOLD = 0.80 // 80%
@@ -254,7 +255,7 @@ async function sendThresholdAlertEmail(alerts: ThresholdAlert[]): Promise<void> 
   try {
     await resend.emails.send({
       from: FROM_EMAIL,
-      to: [ALERT_EMAIL],
+      to: [ALERT_EMAIL, ADMIN_ALERT_EMAIL],
       subject,
       html,
       text,

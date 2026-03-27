@@ -24,9 +24,45 @@ export interface Pax8Company {
 export interface Pax8Subscription {
   id: string
   productId: string
+  productName?: string
   quantity: number
   status: string
   companyId: string
+}
+
+/**
+ * Maps M365 SKU part numbers to known Pax8 product name substrings.
+ * Used for fuzzy matching when looking up Pax8 subscriptions by M365 license type.
+ * Add entries as new license types are encountered.
+ */
+export const SKU_TO_PAX8_PRODUCT: Record<string, string[]> = {
+  'O365_BUSINESS_ESSENTIALS':      ['Business Basic'],
+  'SMB_BUSINESS':                  ['Apps for Business'],
+  'O365_BUSINESS_PREMIUM':         ['Business Premium'],
+  'SMB_BUSINESS_PREMIUM':          ['Business Premium'],
+  'SPB':                           ['Business Premium'],
+  'EXCHANGESTANDARD':              ['Exchange Online (Plan 1)', 'Exchange Online Plan 1'],
+  'EXCHANGEENTERPRISE':            ['Exchange Online (Plan 2)', 'Exchange Online Plan 2'],
+  'ENTERPRISEPACK':                ['Office 365 E3', 'Microsoft 365 E3'],
+  'ENTERPRISEPREMIUM':             ['Office 365 E5', 'Microsoft 365 E5'],
+  'SPE_E3':                        ['Microsoft 365 E3'],
+  'SPE_E5':                        ['Microsoft 365 E5'],
+  'SPE_F1':                        ['Microsoft 365 F1'],
+  'DESKLESSPACK':                  ['Microsoft 365 F1', 'Office 365 F3'],
+  'PROJECTPREMIUM':                ['Project Plan 5', 'Project Online Premium'],
+  'PROJECTPROFESSIONAL':           ['Project Plan 3', 'Project Online Professional'],
+  'VISIOCLIENT':                   ['Visio Plan 2'],
+  'POWER_BI_PRO':                  ['Power BI Pro'],
+  'ATP_ENTERPRISE':                ['Defender for Office 365'],
+  'THREAT_INTELLIGENCE':           ['Defender for Office 365 Plan 2'],
+  'EMSPREMIUM':                    ['Enterprise Mobility + Security E5', 'EMS E5'],
+  'EMS':                           ['Enterprise Mobility + Security E3', 'EMS E3'],
+  'STREAM':                        ['Microsoft Stream'],
+  'FLOW_FREE':                     ['Power Automate'],
+  'POWERAPPS_VIRAL':               ['Power Apps'],
+  'WIN_DEF_ATP':                   ['Defender for Endpoint'],
+  'IDENTITY_THREAT_PROTECTION':    ['Defender for Identity'],
+  'M365_F1':                       ['Microsoft 365 F1'],
 }
 
 export interface Pax8Product {
@@ -221,6 +257,52 @@ class Pax8Client {
       method: 'PATCH',
       body: JSON.stringify({ quantity: newQuantity }),
     })
+  }
+
+  /**
+   * Find the active Pax8 subscription that corresponds to an M365 SKU part number.
+   * Uses the SKU_TO_PAX8_PRODUCT map for fuzzy name matching.
+   * Returns the first matching active subscription, or null.
+   */
+  async findSubscriptionForSku(
+    companyId: string,
+    skuPartNumber: string
+  ): Promise<Pax8Subscription | null> {
+    const productPatterns = SKU_TO_PAX8_PRODUCT[skuPartNumber.toUpperCase()]
+    if (!productPatterns || productPatterns.length === 0) return null
+
+    const subscriptions = await this.getSubscriptions(companyId)
+    const active = subscriptions.filter((s) => s.status === 'Active')
+
+    for (const sub of active) {
+      const name = (sub.productName ?? '').toLowerCase()
+      for (const pattern of productPatterns) {
+        if (name.includes(pattern.toLowerCase())) {
+          return sub
+        }
+      }
+    }
+
+    return null
+  }
+
+  /**
+   * Increase a subscription by a given number of seats.
+   * Returns the new total quantity.
+   *
+   * Note: After calling this, the caller should poll Microsoft Graph's
+   * /subscribedSkus endpoint to confirm the license is actually available
+   * before attempting to assign it. Pax8 → Microsoft propagation can take
+   * several minutes.
+   */
+  async addSeats(
+    subscriptionId: string,
+    currentQuantity: number,
+    seatsToAdd: number,
+  ): Promise<number> {
+    const newQuantity = currentQuantity + seatsToAdd
+    await this.increaseSubscriptionQuantity(subscriptionId, newQuantity)
+    return newQuantity
   }
 
   // -------------------------------------------------------------------------

@@ -16,11 +16,10 @@ const pool = new Pool({
  * Accepts { email } and redirects to the correct company's M365 login.
  */
 
-export async function GET(): Promise<NextResponse> {
-  return new NextResponse(discoverPage(), {
-    status: 200,
-    headers: { 'Content-Type': 'text/html' },
-  })
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  // Redirect to the portal page which has the email form
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || request.nextUrl.origin
+  return NextResponse.redirect(`${baseUrl}/portal`)
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {

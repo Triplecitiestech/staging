@@ -47,54 +47,95 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   // 1. Validate state
   const stateObj = verifyState(stateParam)
-  if (!stateObj || typeof stateObj.companySlug !== 'string') {
+  if (!stateObj) {
     return new NextResponse(errorPage('Invalid or tampered state parameter.'), {
       status: 400,
       headers: { 'Content-Type': 'text/html' },
     })
   }
 
-  const companySlug = (stateObj.companySlug as string).toLowerCase().trim()
+  const isCommonFlow = stateObj.flow === 'common'
+  const companySlug = typeof stateObj.companySlug === 'string'
+    ? (stateObj.companySlug as string).toLowerCase().trim()
+    : null
+
+  // For the per-company flow, companySlug must be present
+  if (!isCommonFlow && !companySlug) {
+    return new NextResponse(errorPage('Invalid state: missing company information.'), {
+      status: 400,
+      headers: { 'Content-Type': 'text/html' },
+    })
+  }
 
   const client = await pool.connect()
   try {
-    // 2. Look up company M365 credentials
-    const companyRes = await client.query<{
-      id: string
-      m365_tenant_id: string
-      m365_client_id: string
-      m365_client_secret: string
-    }>(
-      `SELECT id, m365_tenant_id, m365_client_id, m365_client_secret
-       FROM companies
-       WHERE slug = $1
-       LIMIT 1`,
-      [companySlug]
-    )
+    let tokenClientId: string
+    let tokenClientSecret: string
+    let tokenTenantId: string
+    let companyId: string
+    let finalSlug: string
 
-    if (companyRes.rows.length === 0) {
-      return new NextResponse(errorPage('Company not found.'), {
-        status: 404,
-        headers: { 'Content-Type': 'text/html' },
-      })
-    }
+    if (isCommonFlow) {
+      // Common SSO flow — use TCT's own Azure AD app credentials + tenant
+      tokenClientId = process.env.AZURE_AD_CLIENT_ID || ''
+      tokenClientSecret = process.env.AZURE_AD_CLIENT_SECRET || ''
+      tokenTenantId = process.env.AZURE_AD_TENANT_ID || 'common'
 
-    const company = companyRes.rows[0]
+      if (!tokenClientId || !tokenClientSecret) {
+        return new NextResponse(errorPage('SSO is not configured. Please contact Triple Cities Tech.'), {
+          status: 500,
+          headers: { 'Content-Type': 'text/html' },
+        })
+      }
 
-    if (!company.m365_tenant_id || !company.m365_client_id || !company.m365_client_secret) {
-      return new NextResponse(errorPage('SSO is not fully configured for this company.'), {
-        status: 200,
-        headers: { 'Content-Type': 'text/html' },
-      })
+      // companyId and finalSlug will be determined after we decode the token
+      companyId = ''
+      finalSlug = ''
+    } else {
+      // Per-company flow — use company's own M365 app credentials
+      const companyRes = await client.query<{
+        id: string
+        m365_tenant_id: string
+        m365_client_id: string
+        m365_client_secret: string
+      }>(
+        `SELECT id, m365_tenant_id, m365_client_id, m365_client_secret
+         FROM companies
+         WHERE slug = $1
+         LIMIT 1`,
+        [companySlug]
+      )
+
+      if (companyRes.rows.length === 0) {
+        return new NextResponse(errorPage('Company not found.'), {
+          status: 404,
+          headers: { 'Content-Type': 'text/html' },
+        })
+      }
+
+      const company = companyRes.rows[0]
+
+      if (!company.m365_tenant_id || !company.m365_client_id || !company.m365_client_secret) {
+        return new NextResponse(errorPage('SSO is not fully configured for this company.'), {
+          status: 200,
+          headers: { 'Content-Type': 'text/html' },
+        })
+      }
+
+      tokenClientId = company.m365_client_id
+      tokenClientSecret = company.m365_client_secret
+      tokenTenantId = company.m365_tenant_id
+      companyId = company.id
+      finalSlug = companySlug!
     }
 
     // 3. Exchange code for tokens
     const redirectUri = `${baseUrl}/api/portal/auth/callback`
-    const tokenUrl = `https://login.microsoftonline.com/${company.m365_tenant_id}/oauth2/v2.0/token`
+    const tokenUrl = `https://login.microsoftonline.com/${tokenTenantId}/oauth2/v2.0/token`
 
     const tokenBody = new URLSearchParams({
-      client_id: company.m365_client_id,
-      client_secret: company.m365_client_secret,
+      client_id: tokenClientId,
+      client_secret: tokenClientSecret,
       code,
       redirect_uri: redirectUri,
       grant_type: 'authorization_code',
@@ -146,6 +187,49 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       )
     }
 
+    // 4b. For common flow, discover company from email domain
+    if (isCommonFlow) {
+      const domain = userEmail.split('@')[1]
+
+      // Try matching by contact email domain
+      const domainRes = await client.query<{ id: string; slug: string }>(
+        `SELECT DISTINCT c.id, c.slug
+         FROM companies c
+         JOIN company_contacts cc ON cc."companyId" = c.id
+         WHERE LOWER(cc.email) LIKE $1
+           AND cc."isActive" = true
+         LIMIT 1`,
+        ['%@' + domain]
+      )
+
+      if (domainRes.rows.length > 0) {
+        companyId = domainRes.rows[0].id
+        finalSlug = domainRes.rows[0].slug
+      } else {
+        // Try matching by m365_tenant_id from the token
+        const tenantIdFromToken = claims.tid
+        if (tenantIdFromToken) {
+          const tenantRes = await client.query<{ id: string; slug: string }>(
+            `SELECT id, slug FROM companies WHERE m365_tenant_id = $1 LIMIT 1`,
+            [tenantIdFromToken]
+          )
+          if (tenantRes.rows.length > 0) {
+            companyId = tenantRes.rows[0].id
+            finalSlug = tenantRes.rows[0].slug
+          }
+        }
+      }
+
+      if (!companyId || !finalSlug) {
+        return new NextResponse(
+          errorPage(
+            'We could not find a company associated with your Microsoft account. Please contact Triple Cities Tech for portal access.'
+          ),
+          { status: 200, headers: { 'Content-Type': 'text/html' } }
+        )
+      }
+    }
+
     // 5. Verify user exists in company_contacts
     const contactRes = await client.query<{
       customerRole: string
@@ -158,7 +242,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
          AND LOWER(email) = $2
          AND "isActive" = true
        LIMIT 1`,
-      [company.id, userEmail]
+      [companyId, userEmail]
     )
 
     let contact = contactRes.rows[0] ?? null
@@ -178,7 +262,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
              AND LOWER(email) LIKE $2
              AND "isActive" = true
            LIMIT 1`,
-          [company.id, usernamePart + '@%']
+          [companyId, usernamePart + '@%']
         )
         contact = fallbackRes.rows[0] ?? null
       }
@@ -200,7 +284,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const sessionData: PortalSessionData = {
       email: userEmail,
       name: userName || contact.name || userEmail,
-      companySlug,
+      companySlug: finalSlug,
       role,
       isManager,
       exp: Date.now() + 8 * 60 * 60 * 1000, // 8 hours
@@ -209,10 +293,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const token = createPortalSession(sessionData)
     await setPortalSessionCookie(token)
 
-    // 7. Redirect to returnTo (if provided in state) or new portal URL
+    // 7. Redirect to returnTo (if provided in state) or portal dashboard
     const returnTo = typeof stateObj.returnTo === 'string' && stateObj.returnTo.startsWith('/') && !stateObj.returnTo.startsWith('//')
       ? stateObj.returnTo
-      : `/portal/${companySlug}/dashboard`
+      : `/portal/${finalSlug}/dashboard`
     return NextResponse.redirect(`${baseUrl}${returnTo}`)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)

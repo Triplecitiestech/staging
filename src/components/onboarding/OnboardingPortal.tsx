@@ -57,15 +57,12 @@ export default function OnboardingPortal({
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-14">
           <div className="flex items-center gap-3">
             <span className="text-lg font-bold text-white tracking-tight">TCT</span>
-            <span className="text-sm text-gray-400">Customer Portal</span>
+            {isAuthenticated && userEmail && (
+              <span className="text-sm text-gray-400">Logged in as: {userName || userEmail}</span>
+            )}
           </div>
           {isAuthenticated && (
             <div className="flex items-center gap-2">
-              {userEmail && (
-                <span className="text-sm text-gray-400 mr-2">
-                  {userName || userEmail}
-                </span>
-              )}
               <Button onClick={() => router.refresh()} leftIcon={<RefreshCw size={16} />} className="bg-gray-700/50 hover:bg-gray-700 text-gray-300">
                 Refresh
               </Button>
