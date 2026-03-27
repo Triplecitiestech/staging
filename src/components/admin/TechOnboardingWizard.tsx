@@ -384,7 +384,6 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
                       <li>User.ReadWrite.All</li>
                       <li>Group.ReadWrite.All</li>
                       <li>GroupMember.ReadWrite.All</li>
-                      <li>Directory.ReadWrite.All</li>
                       <li>Sites.ReadWrite.All</li>
                       <li>Organization.Read.All</li>
                       <li>DeviceManagementManagedDevices.Read.All</li>

@@ -318,8 +318,8 @@ export default function HRFlowPage() {
                     { id: 1,  at: 'New',                      portal: 'Open',                    soc: 'New',              report: 'New' },
                     { id: 4,  at: 'In Progress',               portal: 'Open',                    soc: 'In Progress',      report: 'In Progress' },
                     { id: 5,  at: 'Complete',                  portal: 'Resolved',                soc: 'Resolved',         report: 'Complete' },
-                    { id: 7,  at: 'Waiting Customer',          portal: 'Awaiting Your Response',  soc: 'Waiting Customer', report: 'Waiting Customer' },
-                    { id: 12, at: 'Waiting Client Response',   portal: 'Awaiting Your Response',  soc: 'Waiting Client',   report: 'Waiting Client' },
+                    { id: 7,  at: 'Waiting Customer',          portal: 'Awaiting Your Team',  soc: 'Waiting Customer', report: 'Waiting Customer' },
+                    { id: 12, at: 'Waiting Client Response',   portal: 'Awaiting Your Team',  soc: 'Waiting Client',   report: 'Waiting Client' },
                     { id: 13, at: 'Resolved',                  portal: 'Resolved',                soc: 'Resolved',         report: 'Resolved' },
                     { id: 29, at: 'Cancelled',                 portal: 'Resolved',                soc: 'Cancelled',        report: 'Cancelled' },
                   ].map((row) => (

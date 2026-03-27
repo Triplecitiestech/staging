@@ -10,6 +10,9 @@ import {
 import { pax8, type Pax8Subscription, type Pax8Company, SKU_TO_PAX8_PRODUCT } from '@/lib/pax8'
 import type { GraphLicenseSku } from '@/lib/graph'
 
+// Pax8 license procurement can poll for up to 5 minutes
+export const maxDuration = 300
+
 // ---------------------------------------------------------------------------
 // Raw pg pool — bypasses Prisma entirely so schema mismatches can't cause 500s
 // ---------------------------------------------------------------------------
@@ -153,14 +156,52 @@ interface Pax8AutoProcureResult {
 }
 
 /**
+ * Poll Microsoft Graph to confirm that a license SKU has available seats.
+ * Uses exponential backoff: 15s, 30s, 45s, 60s, 60s, 60s... up to maxWaitMs.
+ * Returns true if seats become available within the timeout.
+ */
+async function pollForLicenseAvailability(
+  checkAvailability: () => Promise<{ available: number } | null>,
+  maxWaitMs: number = 300_000, // 5 minutes
+): Promise<boolean> {
+  const startTime = Date.now()
+  const intervals = [15_000, 30_000, 45_000, 60_000] // escalating intervals, then 60s repeating
+  let attempt = 0
+
+  while (Date.now() - startTime < maxWaitMs) {
+    const waitMs = intervals[Math.min(attempt, intervals.length - 1)]
+    await new Promise((resolve) => setTimeout(resolve, waitMs))
+    attempt++
+
+    try {
+      const result = await checkAvailability()
+      if (result && result.available > 0) {
+        console.log(`[hr/process] License available after ${attempt} poll(s) (${Math.round((Date.now() - startTime) / 1000)}s)`)
+        return true
+      }
+    } catch (err) {
+      console.warn(`[hr/process] License poll attempt ${attempt} failed:`, err)
+    }
+  }
+
+  console.warn(`[hr/process] License availability polling timed out after ${Math.round(maxWaitMs / 1000)}s (${attempt} attempts)`)
+  return false
+}
+
+/**
  * Attempt to auto-procure a license seat via Pax8 when no seats are available.
  * Finds the Pax8 company by name match, looks up the matching subscription for
  * the M365 SKU, and increments it by 1 seat.
- * Returns a result object indicating success or failure with details.
+ *
+ * After Pax8 confirms the seat increase, polls Microsoft Graph for up to 5 minutes
+ * to confirm the license is actually available before returning success.
+ *
+ * @param checkLicenseAvailability - callback that checks Graph API for available seats
  */
 async function tryPax8AutoProcure(
   companyName: string,
   skuPartNumber: string,
+  checkLicenseAvailability?: () => Promise<{ available: number } | null>,
 ): Promise<Pax8AutoProcureResult> {
   // Check if Pax8 is configured
   if (!process.env.PAX8_CLIENT_ID || !process.env.PAX8_CLIENT_SECRET) {
@@ -201,14 +242,34 @@ async function tryPax8AutoProcure(
       }
     }
 
-    // Add 1 seat and wait for provisioning
+    // Add 1 seat via Pax8
     const previousQuantity = subscription.quantity
-    const newQuantity = await pax8.addSeatsAndWait(
+    const newQuantity = await pax8.addSeats(
       subscription.id,
       previousQuantity,
       1,
-      15000 // 15s wait for Pax8 -> Microsoft provisioning
     )
+
+    // Poll Microsoft Graph to confirm the license is actually available
+    // Pax8 → Microsoft provisioning can take several minutes
+    if (checkLicenseAvailability) {
+      console.log(`[hr/process] Pax8 seat added for ${skuPartNumber}. Polling Graph API for license availability...`)
+      const licenseReady = await pollForLicenseAvailability(checkLicenseAvailability)
+
+      if (!licenseReady) {
+        return {
+          success: false,
+          pax8CompanyId: pax8Company.id,
+          subscriptionId: subscription.id,
+          previousQuantity,
+          newQuantity,
+          error: `Pax8 seat added (${previousQuantity} → ${newQuantity}) but Microsoft license not available after 5 min polling. License assignment may still succeed if retried later.`,
+        }
+      }
+    } else {
+      // No Graph client available — fall back to a 30s static wait
+      await new Promise((resolve) => setTimeout(resolve, 30_000))
+    }
 
     return {
       success: true,
@@ -1123,7 +1184,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               if (availableSeats <= 0) {
                 // No seats available — try Pax8 auto-procurement
                 const companyName = hrRequest.displayName || ''
-                const procureResult = await tryPax8AutoProcure(companyName, sku.skuPartNumber)
+                // Pass a Graph API callback so Pax8 procurement polls until the license is confirmed available
+                const checkAvailability = async () => {
+                  const freshSku = await graph.getLicenseSkuByPartNumber(sku.skuPartNumber)
+                  if (!freshSku) return null
+                  return { available: freshSku.prepaidUnits.enabled - freshSku.consumedUnits }
+                }
+                const procureResult = await tryPax8AutoProcure(companyName, sku.skuPartNumber, checkAvailability)
 
                 if (procureResult.success) {
                   pax8Procured = true
@@ -1133,7 +1200,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                   await addTicketNote('License Auto-Procured via Pax8',
                     `No available seats for ${sku.displayName ?? sku.skuPartNumber}.\n` +
                     `Pax8 subscription ${procureResult.subscriptionId} increased from ${procureResult.previousQuantity} to ${procureResult.newQuantity} seat(s).\n` +
-                    `Proceeding with license assignment.`)
+                    `License confirmed available via Microsoft Graph. Proceeding with assignment.`)
                 } else {
                   // Pax8 procurement failed — log but still attempt assignment (it may fail)
                   console.warn(`[hr/process] Pax8 auto-procure failed for ${sku.skuPartNumber}: ${procureResult.error}`)
@@ -1281,11 +1348,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                       if (availSeats <= 0) {
                         // Try Pax8 auto-procurement for this cloned license
                         const companyName = hrRequest.displayName || ''
-                        const procResult = await tryPax8AutoProcure(companyName, skuInfo.skuPartNumber)
+                        const checkAvail = async () => {
+                          const freshSku = await graph.getLicenseSkuByPartNumber(skuInfo.skuPartNumber)
+                          if (!freshSku) return null
+                          return { available: freshSku.prepaidUnits.enabled - freshSku.consumedUnits }
+                        }
+                        const procResult = await tryPax8AutoProcure(companyName, skuInfo.skuPartNumber, checkAvail)
                         if (procResult.success) {
                           await addTicketNote('License Auto-Procured via Pax8 (Clone)',
                             `No seats for ${skuInfo.displayName ?? skuInfo.skuPartNumber}. ` +
-                            `Pax8 subscription increased from ${procResult.previousQuantity} to ${procResult.newQuantity} seat(s).`)
+                            `Pax8 subscription increased from ${procResult.previousQuantity} to ${procResult.newQuantity} seat(s). License confirmed available.`)
                         }
                         // If Pax8 fails, still try assignment — it will fail and be caught below
                       }

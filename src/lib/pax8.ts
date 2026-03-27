@@ -287,24 +287,21 @@ class Pax8Client {
   }
 
   /**
-   * Increase a subscription by a given number of seats and wait briefly
-   * for Pax8/Microsoft provisioning to propagate.
+   * Increase a subscription by a given number of seats.
    * Returns the new total quantity.
+   *
+   * Note: After calling this, the caller should poll Microsoft Graph's
+   * /subscribedSkus endpoint to confirm the license is actually available
+   * before attempting to assign it. Pax8 → Microsoft propagation can take
+   * several minutes.
    */
-  async addSeatsAndWait(
+  async addSeats(
     subscriptionId: string,
     currentQuantity: number,
     seatsToAdd: number,
-    waitMs: number = 10000
   ): Promise<number> {
     const newQuantity = currentQuantity + seatsToAdd
     await this.increaseSubscriptionQuantity(subscriptionId, newQuantity)
-
-    // Brief wait for Pax8 → Microsoft provisioning propagation
-    if (waitMs > 0) {
-      await new Promise((resolve) => setTimeout(resolve, waitMs))
-    }
-
     return newQuantity
   }
 
