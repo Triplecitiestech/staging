@@ -18,6 +18,7 @@ const globalForPrisma = globalThis as unknown as {
 function createPool(): Pool {
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
     connectionTimeoutMillis: 10_000,  // 10s max to acquire a connection
     idleTimeoutMillis: 20_000,        // Close idle connections after 20s (serverless-friendly)
     max: 5,                           // Lower pool size — each serverless function gets its own
