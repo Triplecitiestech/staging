@@ -186,6 +186,18 @@ async function checkDatabaseConnectivity(): Promise<HealthCheck> {
 
 async function checkErrorRate(): Promise<HealthCheck> {
   try {
+    // Check if error_logs table exists first (migration may not have been applied)
+    const tableCheck = await prisma.$queryRawUnsafe<{ exists: boolean }[]>(
+      `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'error_logs') as exists`
+    );
+    if (!tableCheck[0]?.exists) {
+      return {
+        system: 'Error Rate',
+        status: 'healthy',
+        details: 'Error logging table not yet created (migration pending) — no errors tracked',
+      };
+    }
+
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     const recentErrors = await prisma.errorLog.findMany({
       where: { lastSeen: { gte: oneHourAgo } },
@@ -227,14 +239,27 @@ async function checkCronJobHealth(): Promise<HealthCheck[]> {
   const checks: HealthCheck[] = [];
 
   // Critical cron jobs and their expected max age in minutes
-  const criticalJobs: { name: string; maxAgeMinutes: number; retriggerPath?: string }[] = [
-    { name: 'sync-tickets', maxAgeMinutes: 360, retriggerPath: '/api/reports/jobs/sync-tickets' },
-    { name: 'sync-time-entries', maxAgeMinutes: 360, retriggerPath: '/api/reports/jobs/sync-time-entries' },
-    { name: 'aggregate-company', maxAgeMinutes: 2880, retriggerPath: '/api/reports/jobs/aggregate-company' },
-    { name: 'aggregate-technician', maxAgeMinutes: 2880, retriggerPath: '/api/reports/jobs/aggregate-technician' },
+  const criticalJobs: { name: string; displayName: string; maxAgeMinutes: number; retriggerPath?: string }[] = [
+    { name: 'sync_tickets', displayName: 'sync-tickets', maxAgeMinutes: 360, retriggerPath: '/api/reports/jobs/sync-tickets' },
+    { name: 'sync_time_entries', displayName: 'sync-time-entries', maxAgeMinutes: 360, retriggerPath: '/api/reports/jobs/sync-time-entries' },
+    { name: 'aggregate_company', displayName: 'aggregate-company', maxAgeMinutes: 2880, retriggerPath: '/api/reports/jobs/aggregate-company' },
+    { name: 'aggregate_technician', displayName: 'aggregate-technician', maxAgeMinutes: 2880, retriggerPath: '/api/reports/jobs/aggregate-technician' },
   ];
 
   try {
+    // Check if reporting_job_status table exists first
+    const tableCheck = await prisma.$queryRawUnsafe<{ exists: boolean }[]>(
+      `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'reporting_job_status') as exists`
+    );
+    if (!tableCheck[0]?.exists) {
+      checks.push({
+        system: 'Cron Jobs',
+        status: 'healthy',
+        details: 'Job status table not yet created (migration pending) — jobs may still be running but status is not tracked',
+      });
+      return checks;
+    }
+
     const jobs = await prisma.reportingJobStatus.findMany({
       where: { jobName: { in: criticalJobs.map(j => j.name) } },
     });
@@ -246,9 +271,9 @@ async function checkCronJobHealth(): Promise<HealthCheck[]> {
 
       if (!job || !job.lastRunAt) {
         checks.push({
-          system: `Cron: ${expected.name}`,
+          system: `Cron: ${expected.displayName}`,
           status: 'degraded',
-          details: `Job "${expected.name}" has never run or is missing from job status table`,
+          details: `Job "${expected.displayName}" has never run or is missing from job status table`,
         });
         continue;
       }
@@ -271,17 +296,17 @@ async function checkCronJobHealth(): Promise<HealthCheck[]> {
         }
 
         checks.push({
-          system: `Cron: ${expected.name}`,
+          system: `Cron: ${expected.displayName}`,
           status: 'degraded',
           details: isStale
-            ? `Job "${expected.name}" is stale (last ran ${Math.round(ageMinutes)} min ago, max ${expected.maxAgeMinutes} min). Status: ${job.lastRunStatus ?? 'unknown'}`
-            : `Job "${expected.name}" last status: ${job.lastRunStatus}`,
+            ? `Job "${expected.displayName}" is stale (last ran ${Math.round(ageMinutes)} min ago, max ${expected.maxAgeMinutes} min). Status: ${job.lastRunStatus ?? 'unknown'}`
+            : `Job "${expected.displayName}" last status: ${job.lastRunStatus}`,
           selfHealAction,
           selfHealResult,
         });
       } else {
         checks.push({
-          system: `Cron: ${expected.name}`,
+          system: `Cron: ${expected.displayName}`,
           status: 'healthy',
           details: `Last ran ${Math.round(ageMinutes)} min ago, status: ${job.lastRunStatus}`,
         });
