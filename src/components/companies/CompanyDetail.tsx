@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { useDemoMode } from '@/components/admin/DemoModeProvider'
 
 interface Contact {
   id: string
@@ -43,6 +44,7 @@ interface CompanyDetailProps {
 
 export default function CompanyDetail({ company, contacts: initialContacts, projects }: CompanyDetailProps) {
   const router = useRouter()
+  const demo = useDemoMode()
   const [contacts, setContacts] = useState(initialContacts)
   const [copiedLink, setCopiedLink] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
@@ -170,7 +172,7 @@ export default function CompanyDetail({ company, contacts: initialContacts, proj
         <div className="flex items-center gap-2 text-sm text-slate-400">
           <Link href="/admin/companies" className="hover:text-cyan-400 transition-colors">Companies</Link>
           <span>/</span>
-          <span className="text-white">{company.displayName}</span>
+          <span className="text-white">{demo.company(company.displayName)}</span>
         </div>
         <Link
           href={`/admin/companies/${company.id}/onboard`}
@@ -235,19 +237,19 @@ export default function CompanyDetail({ company, contacts: initialContacts, proj
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <p className="text-xs text-slate-400 mb-0.5">Company Name</p>
-                    <p className="text-sm text-white font-medium">{company.displayName}</p>
+                    <p className="text-sm text-white font-medium">{demo.company(company.displayName)}</p>
                   </div>
                   <div>
                     <p className="text-xs text-slate-400 mb-0.5">Portal Slug</p>
-                    <p className="text-sm text-slate-300 font-mono">{company.slug}</p>
+                    <p className="text-sm text-slate-300 font-mono">{demo.active ? 'demo-company' : company.slug}</p>
                   </div>
                   <div>
                     <p className="text-xs text-slate-400 mb-0.5">Primary Contact</p>
-                    <p className="text-sm text-white">{company.primaryContact || '-'}</p>
+                    <p className="text-sm text-white">{company.primaryContact ? demo.person(company.primaryContact) : '-'}</p>
                   </div>
                   <div>
                     <p className="text-xs text-slate-400 mb-0.5">Contact Email</p>
-                    <p className="text-sm text-white">{company.contactEmail || '-'}</p>
+                    <p className="text-sm text-white">{company.contactEmail ? demo.email(company.contactEmail) : '-'}</p>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4 pt-2 border-t border-white/5">
@@ -324,19 +326,19 @@ export default function CompanyDetail({ company, contacts: initialContacts, proj
                 {contacts.map(contact => (
                   <div key={contact.id} className="flex items-center gap-3 p-3 bg-slate-900/40 border border-white/5 rounded-lg hover:bg-slate-900/60 transition-colors">
                     <div className="w-9 h-9 rounded-full bg-violet-500/20 text-violet-300 flex items-center justify-center text-sm font-bold shrink-0">
-                      {contact.name[0]?.toUpperCase()}
+                      {demo.person(contact.name)[0]?.toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-white truncate">{contact.name}</span>
+                        <span className="text-sm font-medium text-white truncate">{demo.person(contact.name)}</span>
                         {contact.isPrimary && (
                           <span className="px-1.5 py-0.5 text-[9px] font-bold bg-cyan-500/20 text-cyan-300 rounded-full border border-cyan-500/30">PRIMARY</span>
                         )}
                       </div>
                       <div className="flex items-center gap-3 text-xs text-slate-400">
-                        <span>{contact.email}</span>
-                        {contact.title && <span>• {contact.title}</span>}
-                        {contact.phone && <span>• {contact.phone} ({contact.phoneType})</span>}
+                        <span>{demo.email(contact.email)}</span>
+                        {contact.title && <span>• {demo.active ? 'Staff' : contact.title}</span>}
+                        {contact.phone && <span>• {demo.active ? '(555) 000-0000' : contact.phone} ({contact.phoneType})</span>}
                       </div>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
@@ -368,7 +370,7 @@ export default function CompanyDetail({ company, contacts: initialContacts, proj
           <div className="bg-slate-800/50 border border-white/10 rounded-lg p-6">
             <h3 className="text-sm font-semibold text-white mb-3">Quick Actions</h3>
             <div className="space-y-2">
-              <a href={`/api/admin/portal-access?company=${company.slug}`} target="_blank" rel="noopener noreferrer"
+              <a href={demo.active ? '#' : `/api/admin/portal-access?company=${company.slug}`} target="_blank" rel="noopener noreferrer"
                 className="flex items-center gap-2 px-3 py-2 text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors w-full">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
@@ -502,7 +504,7 @@ export default function CompanyDetail({ company, contacts: initialContacts, proj
                   <Link key={project.id} href={`/admin/projects/${project.id}`}
                     className="block p-3 bg-slate-900/40 border border-white/5 rounded-lg hover:bg-slate-900/60 transition-colors">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-medium text-white truncate">{project.title}</span>
+                      <span className="text-sm font-medium text-white truncate">{demo.title(project.title)}</span>
                       <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full border ${getStatusColor(project.status)}`}>
                         {getStatusLabel(project.status)}
                       </span>
