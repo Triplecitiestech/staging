@@ -2,6 +2,7 @@ import Image from 'next/image'
 import { auth } from '@/auth'
 import { SignInButton } from '@/components/auth/AuthButtons'
 import AdminHeader from '@/components/admin/AdminHeader'
+import AdminShell from '@/components/admin/AdminShell'
 import SystemHealthDashboard from '@/components/admin/SystemHealthDashboard'
 import DashboardStatusCards from '@/components/admin/DashboardStatusCards'
 import DbLatencyGraph from '@/components/admin/DbLatencyGraph'
@@ -38,7 +39,7 @@ export default async function AdminPage() {
   }
 
   return (
-    <>
+    <AdminShell>
       <AdminHeader />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -64,6 +65,6 @@ export default async function AdminPage() {
           <DashboardStatusCards />
         </div>
       </main>
-    </>
+    </AdminShell>
   )
 }
