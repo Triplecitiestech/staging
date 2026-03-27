@@ -26,9 +26,10 @@ export function getPool(): Pool {
 
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
     connectionTimeoutMillis: 10_000,
     idleTimeoutMillis: 20_000,
-    max: 3,                           // Low limit — most routes only need 1 connection
+    max: 5,
     allowExitOnIdle: true,
     keepAlive: true,
     keepAliveInitialDelayMillis: 10_000,
