@@ -327,7 +327,7 @@ export default function SocTicketDetail({ ticketId, onBack }: SocTicketDetailPro
                 <span className="text-xs text-slate-400">{ticket.priorityLabel}</span>
               )}
             </div>
-            <h2 className="text-lg font-semibold text-white mb-2">{ticket.title}</h2>
+            <h2 className="text-lg font-semibold text-white mb-2">{demo.title(ticket.title)}</h2>
             <div className="flex items-center gap-4 text-sm text-slate-400 flex-wrap">
               {ticket.companyName && <span className="text-cyan-400">{demo.company(ticket.companyName)}</span>}
               <span>Assigned: <span className="text-white">{demo.person(ticket.assignedTo)}</span></span>

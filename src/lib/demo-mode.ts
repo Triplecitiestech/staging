@@ -97,6 +97,53 @@ function getSessionSeed(): number {
 }
 
 // ---------------------------------------------------------------------------
+// Fake ticket title templates — realistic IT support titles
+// ---------------------------------------------------------------------------
+
+const TICKET_TITLE_TEMPLATES = [
+  'Password reset request for {person}',
+  'Unable to connect to VPN from remote office',
+  'Outlook freezing when opening attachments',
+  'New employee onboarding - {person}',
+  'Printer not responding on 2nd floor',
+  'MFA enrollment issue for {person}',
+  'File share permissions update needed',
+  'Laptop replacement request - {person}',
+  'Network slowness reported at {company}',
+  'Email delivery delay to external recipients',
+  'Microsoft Teams call quality issues',
+  'Software installation request - Adobe Acrobat',
+  'Shared mailbox access request for {person}',
+  'Monitor not detected after docking station update',
+  'OneDrive sync errors on multiple devices',
+  'Conference room display not connecting',
+  'Firewall rule change request for {company}',
+  'Antivirus quarantine false positive',
+  'Scheduled server maintenance - patch Tuesday',
+  'Backup job failure on file server',
+  'SSL certificate renewal for web portal',
+  'User account lockout - {person}',
+  'Offboarding request - {person}',
+  'SharePoint site permissions review',
+  'Azure AD conditional access policy update',
+  'Internal DNS resolution issue',
+  'Endpoint detection alert - workstation review',
+  'Phishing email reported by {person}',
+  'QuickBooks database connectivity issue',
+  'Wireless access point offline at {company}',
+  'Intune device compliance remediation',
+  'Email signature template update',
+  'Remote desktop connection timeout',
+  'Security awareness training enrollment',
+  'Vendor VPN tunnel configuration',
+  'Distribution list modification request',
+  'Windows Update stuck on reboot loop',
+  'Power outage follow-up - {company}',
+  'Mobile device enrollment - {person}',
+  'Weekly maintenance - routine system checks',
+]
+
+// ---------------------------------------------------------------------------
 // Anonymization functions
 // ---------------------------------------------------------------------------
 
@@ -125,6 +172,17 @@ export function anonEmail(realEmail: string): string {
   const last = FAKE_LAST_NAMES[(h * 7) % FAKE_LAST_NAMES.length].toLowerCase()
   const domainIdx = (h * 13) % FAKE_DOMAINS.length
   return `${first}.${last}@${FAKE_DOMAINS[domainIdx]}`
+}
+
+/** Map a real ticket title to a deterministic fake ticket title */
+export function anonTicketTitle(realTitle: string): string {
+  if (!realTitle) return realTitle
+  const h = simpleHash(realTitle.toLowerCase().trim())
+  const template = TICKET_TITLE_TEMPLATES[h % TICKET_TITLE_TEMPLATES.length]
+  // Fill in {person} and {company} placeholders deterministically
+  const fakePerson = `${FAKE_FIRST_NAMES[(h * 3) % FAKE_FIRST_NAMES.length]} ${FAKE_LAST_NAMES[(h * 11) % FAKE_LAST_NAMES.length]}`
+  const fakeCompany = FAKE_COMPANIES[(h * 7) % FAKE_COMPANIES.length]
+  return template.replace('{person}', fakePerson).replace('{company}', fakeCompany)
 }
 
 /**

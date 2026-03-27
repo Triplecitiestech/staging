@@ -163,7 +163,7 @@ export default function PriorityBreakdownChart({ data }: PriorityBreakdownChartP
                       <div key={t.ticketId} className="flex items-center justify-between text-xs py-1 px-2 rounded hover:bg-slate-800/50">
                         <div className="flex items-center gap-2 min-w-0">
                           <span className="text-cyan-400 font-mono shrink-0">{t.ticketNumber}</span>
-                          <span className="text-slate-300 truncate">{t.title}</span>
+                          <span className="text-slate-300 truncate">{demo.title(t.title)}</span>
                         </div>
                         <div className="flex items-center gap-2 shrink-0 ml-2">
                           <span className={t.isResolved ? 'text-emerald-400' : 'text-slate-400'}>{t.isResolved ? 'Resolved' : 'Open'}</span>

@@ -495,7 +495,7 @@ export default function SocDashboardClient() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-mono text-slate-500">#{ticket.ticketNumber}</span>
-                        <span className="text-sm text-white truncate">{ticket.title}</span>
+                        <span className="text-sm text-white truncate">{demo.title(ticket.title)}</span>
                       </div>
                       <div className="flex items-center gap-3 mt-0.5 text-xs text-slate-500">
                         {ticket.companyName && <span className="text-cyan-400/70">{demo.company(ticket.companyName)}</span>}
@@ -549,7 +549,7 @@ export default function SocDashboardClient() {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-mono text-slate-500 flex-shrink-0">#{ticket.ticketNumber}</span>
-                          <span className="text-sm text-white line-clamp-2">{ticket.title}</span>
+                          <span className="text-sm text-white line-clamp-2">{demo.title(ticket.title)}</span>
                         </div>
                         <div className="flex items-center gap-2 mt-1 text-xs text-slate-500 flex-wrap">
                           {ticket.companyName && <span className="text-cyan-400/70">{demo.company(ticket.companyName)}</span>}
