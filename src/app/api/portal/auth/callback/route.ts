@@ -76,10 +76,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     let finalSlug: string
 
     if (isCommonFlow) {
-      // Common SSO flow — use TCT's own Azure AD app credentials
+      // Common SSO flow — use TCT's own Azure AD app credentials + tenant
       tokenClientId = process.env.AZURE_AD_CLIENT_ID || ''
       tokenClientSecret = process.env.AZURE_AD_CLIENT_SECRET || ''
-      tokenTenantId = 'common'
+      tokenTenantId = process.env.AZURE_AD_TENANT_ID || 'common'
 
       if (!tokenClientId || !tokenClientSecret) {
         return new NextResponse(errorPage('SSO is not configured. Please contact Triple Cities Tech.'), {

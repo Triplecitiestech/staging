@@ -6,15 +6,13 @@ import { signState } from '@/lib/portal-session'
  * GET /api/portal/auth/sso
  *
  * Initiates Microsoft 365 SSO without requiring the user to enter their email first.
- * Uses Azure AD "common" endpoint so any M365 account can sign in.
+ * Uses TCT's Azure AD tenant endpoint so the app is always found in the correct directory.
  * The company is discovered from the user's email AFTER authentication (in the callback).
- *
- * Uses TCT's own Azure AD app (AZURE_AD_CLIENT_ID) configured as multi-tenant,
- * or falls back to the "common" endpoint which prompts the user for their credentials.
  */
 export async function GET(): Promise<NextResponse> {
   const clientId = process.env.AZURE_AD_CLIENT_ID
-  if (!clientId) {
+  const tenantId = process.env.AZURE_AD_TENANT_ID
+  if (!clientId || !tenantId) {
     return new NextResponse('Azure AD not configured', { status: 500 })
   }
 
@@ -34,8 +32,8 @@ export async function GET(): Promise<NextResponse> {
     state,
   })
 
-  // "common" endpoint allows any Azure AD or personal Microsoft account
-  const authorizeUrl = `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?${params.toString()}`
+  // Use TCT's tenant endpoint — the app registration lives in this tenant
+  const authorizeUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?${params.toString()}`
 
   return NextResponse.redirect(authorizeUrl)
 }
