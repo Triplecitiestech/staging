@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useDemoMode } from '@/components/admin/DemoModeProvider';
 
 // ── Types ──
 
@@ -209,6 +210,7 @@ function riskColor(risk: string | undefined): string {
 // ── Component ──
 
 export default function SocTicketDetail({ ticketId, onBack }: SocTicketDetailProps) {
+  const demo = useDemoMode();
   const [data, setData] = useState<AnalysisData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -327,8 +329,8 @@ export default function SocTicketDetail({ ticketId, onBack }: SocTicketDetailPro
             </div>
             <h2 className="text-lg font-semibold text-white mb-2">{ticket.title}</h2>
             <div className="flex items-center gap-4 text-sm text-slate-400 flex-wrap">
-              {ticket.companyName && <span className="text-cyan-400">{ticket.companyName}</span>}
-              <span>Assigned: <span className="text-white">{ticket.assignedTo}</span></span>
+              {ticket.companyName && <span className="text-cyan-400">{demo.company(ticket.companyName)}</span>}
+              <span>Assigned: <span className="text-white">{demo.person(ticket.assignedTo)}</span></span>
               <span>{new Date(ticket.createDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
               {ticket.queueLabel && <span className="text-slate-500">Queue: {ticket.queueLabel}</span>}
             </div>

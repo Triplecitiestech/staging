@@ -6,6 +6,7 @@ import { formatMinutes } from '@/lib/tickets/utils';
 import TimelineEntry from './TimelineEntry';
 import TicketNoteToggle from './TicketNoteToggle';
 import TicketReplyForm from './TicketReplyForm';
+import { useDemoMode } from '@/components/admin/DemoModeProvider';
 
 export default function TicketDetail({
   ticket,
@@ -21,6 +22,7 @@ export default function TicketDetail({
 }: TicketDetailProps) {
   const isStaff = perspective === 'staff';
   const isCustomer = perspective === 'customer';
+  const demo = useDemoMode();
   const [showAllEntries, setShowAllEntries] = useState(false);
 
   // Filter notes client-side based on visibility (for staff toggle)
@@ -67,7 +69,7 @@ export default function TicketDetail({
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm mt-3">
             <div>
               <span className="text-slate-500">Assigned:</span>{' '}
-              <span className="text-white">{ticket.assignedTo}</span>
+              <span className="text-white">{demo.person(ticket.assignedTo)}</span>
             </div>
             {ticket.autotaskUrl && (
               <div>

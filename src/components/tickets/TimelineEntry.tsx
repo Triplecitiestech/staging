@@ -1,6 +1,7 @@
 'use client';
 
 import type { UnifiedTicketNote, TicketPerspective } from '@/types/tickets';
+import { useDemoMode } from '@/components/admin/DemoModeProvider';
 
 export default function TimelineEntry({
   entry,
@@ -9,12 +10,15 @@ export default function TimelineEntry({
   entry: UnifiedTicketNote;
   perspective: TicketPerspective;
 }) {
+  const demo = useDemoMode();
+
   const getAuthorLabel = () => {
-    if (entry.authorType === 'customer') return perspective === 'customer' ? entry.author : `${entry.author} (Customer)`;
+    const anonAuthor = demo.person(entry.author);
+    if (entry.authorType === 'customer') return perspective === 'customer' ? anonAuthor : `${anonAuthor} (Customer)`;
     if (entry.authorType === 'technician') {
-      return perspective === 'customer' ? `Triple Cities Tech - ${entry.author}` : entry.author;
+      return perspective === 'customer' ? `Triple Cities Tech - ${anonAuthor}` : anonAuthor;
     }
-    return entry.author;
+    return anonAuthor;
   };
 
   const dotColor =
