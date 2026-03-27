@@ -679,30 +679,20 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
         <button
           onClick={() => {
-            // Try to open the Thread/ChatGenie chat messenger
-            const win = window as unknown as { chatgenie?: { default: { messenger: () => { show?: () => void; open?: () => void } } } }
+            // Open the Thread/ChatGenie messenger via JS API only (not DOM click, which toggles)
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const win = window as any
             if (win.chatgenie) {
               try {
                 const messenger = win.chatgenie.default.messenger()
-                if (messenger?.show) { messenger.show(); return }
-                if (messenger?.open) { messenger.open(); return }
+                // Try every known method name to open the messenger
+                const methods = ['show', 'open', 'toggle', 'showMessages', 'openChat']
+                for (const m of methods) {
+                  if (typeof messenger[m] === 'function') { messenger[m](); return }
+                }
               } catch { /* fallback below */ }
             }
-            // Try clicking any chat widget button on the page
-            const selectors = [
-              '[data-testid="messenger-button"]',
-              '.chatgenie-button',
-              '[id*="chatgenie"]',
-              'iframe[src*="chatgenie"]',
-              '[class*="messenger"]',
-              '[aria-label*="chat"]',
-              '[aria-label*="Chat"]',
-            ]
-            for (const sel of selectors) {
-              const el = document.querySelector(sel) as HTMLElement
-              if (el) { el.click(); return }
-            }
-            // Last resort: open livechat page which instructs user to click the bubble
+            // Fallback: open livechat page which shows the chat bubble
             window.open('/livechat', '_blank')
           }}
           className="bg-gradient-to-br from-violet-600/30 to-violet-500/10 border border-violet-500/40 hover:border-violet-400/70 hover:shadow-lg hover:shadow-violet-500/20 rounded-lg p-4 text-center transition-all cursor-pointer"
