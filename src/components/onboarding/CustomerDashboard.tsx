@@ -671,8 +671,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
       {/* Company Header */}
       {companyName && (
         <div className="mb-8 text-center">
-          <h1 className="text-4xl font-bold text-white mb-1">{companyName}</h1>
-          <p className="text-lg text-cyan-400">Triple Cities Tech Support Portal</p>
+          <h1 className="text-4xl font-bold text-white">{companyName}</h1>
         </div>
       )}
 
@@ -680,22 +679,30 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
         <button
           onClick={() => {
-            // Try to open the Thread/ChatGenie chat widget
-            const chatButton = document.querySelector('[data-testid="messenger-button"]') as HTMLElement ||
-              document.querySelector('.chatgenie-button') as HTMLElement ||
-              document.querySelector('[id*="chatgenie"]') as HTMLElement
-            if (chatButton) {
-              chatButton.click()
-              return
-            }
-            const win = window as unknown as { chatgenie?: { default: { messenger: () => { show?: () => void } } } }
+            // Try to open the Thread/ChatGenie chat messenger
+            const win = window as unknown as { chatgenie?: { default: { messenger: () => { show?: () => void; open?: () => void } } } }
             if (win.chatgenie) {
               try {
                 const messenger = win.chatgenie.default.messenger()
                 if (messenger?.show) { messenger.show(); return }
+                if (messenger?.open) { messenger.open(); return }
               } catch { /* fallback below */ }
             }
-            // Fallback: open livechat page
+            // Try clicking any chat widget button on the page
+            const selectors = [
+              '[data-testid="messenger-button"]',
+              '.chatgenie-button',
+              '[id*="chatgenie"]',
+              'iframe[src*="chatgenie"]',
+              '[class*="messenger"]',
+              '[aria-label*="chat"]',
+              '[aria-label*="Chat"]',
+            ]
+            for (const sel of selectors) {
+              const el = document.querySelector(sel) as HTMLElement
+              if (el) { el.click(); return }
+            }
+            // Last resort: open livechat page which instructs user to click the bubble
             window.open('/livechat', '_blank')
           }}
           className="bg-gradient-to-br from-violet-600/30 to-violet-500/10 border border-violet-500/40 hover:border-violet-400/70 hover:shadow-lg hover:shadow-violet-500/20 rounded-lg p-4 text-center transition-all cursor-pointer"
