@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { Pool } from 'pg'
+import { getPool } from '@/lib/db-pool'
 import crypto from 'crypto'
 import { signState } from '@/lib/portal-session'
 
@@ -7,11 +7,7 @@ import { signState } from '@/lib/portal-session'
 // Raw pg pool — same pattern as /api/hr/submit
 // ---------------------------------------------------------------------------
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  max: 3,
-})
+const pool = getPool()
 
 // ---------------------------------------------------------------------------
 // GET /api/portal/auth/login?company=<slug>

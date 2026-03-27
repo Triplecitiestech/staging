@@ -19,17 +19,13 @@
  *   - Device.Read.All                               (Azure AD devices fallback)
  */
 
-import { Pool } from 'pg'
+import { getPool } from '@/lib/db-pool'
 
 // ---------------------------------------------------------------------------
 // Pool (shared with other raw-pg routes)
 // ---------------------------------------------------------------------------
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-  max: 5,
-})
+const pool = getPool()
 
 // ---------------------------------------------------------------------------
 // Token cache — keyed by tenantId, expires 5 min before actual expiry

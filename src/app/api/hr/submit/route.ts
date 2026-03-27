@@ -1,16 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createHash } from 'crypto'
-import { Pool, PoolClient } from 'pg'
+import { PoolClient } from 'pg'
+import { getPool } from '@/lib/db-pool'
 
 // ---------------------------------------------------------------------------
 // Raw pg pool — bypasses Prisma entirely so schema mismatches can't cause 500s
 // ---------------------------------------------------------------------------
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  max: 5,
-})
+const pool = getPool()
 
 // ---------------------------------------------------------------------------
 // Types

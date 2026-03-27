@@ -1,16 +1,12 @@
 import { auth } from '@/auth'
 import { redirect, notFound } from 'next/navigation'
-import { Pool } from 'pg'
+import { getPool } from '@/lib/db-pool'
 import AdminHeader from '@/components/admin/AdminHeader'
 import TechOnboardingWizard from '@/components/admin/TechOnboardingWizard'
 
 export const dynamic = 'force-dynamic'
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-  max: 3,
-})
+const pool = getPool()
 
 export default async function TechOnboardingPage({
   params,

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { Pool } from 'pg'
+import { getPool } from '@/lib/db-pool'
 import {
   verifyState,
   createPortalSession,
@@ -11,11 +11,7 @@ import {
 // Raw pg pool
 // ---------------------------------------------------------------------------
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  max: 5,
-})
+const pool = getPool()
 
 // ---------------------------------------------------------------------------
 // GET /api/portal/auth/callback?code=...&state=...

@@ -2,14 +2,10 @@ import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { hasPermission } from '@/lib/permissions'
-import { Pool } from 'pg'
+import { getPool } from '@/lib/db-pool'
 import { CustomerFormConfig } from '@/components/admin/CustomerFormConfig'
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  max: 3,
-})
+const pool = getPool()
 
 export default async function CustomerFormConfigPage({
   params,
