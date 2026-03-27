@@ -51,7 +51,7 @@ export default function TicketDetail({
       {/* Ticket header */}
       <div className="mb-6">
         <div className="flex items-center gap-3 mb-2 flex-wrap">
-          <h3 className="text-xl font-bold text-white">{ticket.title}</h3>
+          <h3 className="text-xl font-bold text-white">{demo.title(ticket.title)}</h3>
           <span
             className={`px-2.5 py-0.5 text-xs font-medium rounded-full whitespace-nowrap ${
               ticket.isResolved

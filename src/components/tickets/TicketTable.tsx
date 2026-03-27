@@ -133,7 +133,7 @@ export default function TicketTable({
             className="w-full flex items-center justify-between bg-gray-700/30 hover:bg-gray-700/50 rounded-lg px-4 py-3 transition-colors text-left group cursor-pointer"
           >
             <div className="min-w-0 flex-1">
-              <p className="text-sm text-white truncate group-hover:text-cyan-300 transition-colors">{ticket.title}</p>
+              <p className="text-sm text-white truncate group-hover:text-cyan-300 transition-colors">{demo.title(ticket.title)}</p>
               <p className="text-xs text-gray-500 mt-0.5">#{ticket.ticketNumber} - {new Date(ticket.createDate).toLocaleDateString()}</p>
             </div>
             <div className="flex items-center gap-2 ml-3">
@@ -282,12 +282,12 @@ function TicketRow({
             ) : (
               <span className="text-sm text-cyan-400 font-mono">{ticket.ticketNumber}</span>
             )}
-            <div className="text-xs text-slate-400 md:hidden truncate max-w-[200px]">{ticket.title}</div>
+            <div className="text-xs text-slate-400 md:hidden truncate max-w-[200px]">{demo.title(ticket.title)}</div>
           </div>
         </div>
       </td>
       <td className="px-4 py-3 hidden md:table-cell">
-        <span className="text-sm text-white truncate block max-w-[300px]">{ticket.title}</span>
+        <span className="text-sm text-white truncate block max-w-[300px]">{demo.title(ticket.title)}</span>
       </td>
       <td className="text-center px-4 py-3">
         <PriorityBadge priority={ticket.priority} label={ticket.priorityLabel} />

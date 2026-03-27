@@ -7,6 +7,7 @@ import {
   anonCompany,
   anonPerson,
   anonEmail,
+  anonTicketTitle,
   skewNumber,
   skewPercent,
 } from '@/lib/demo-mode'
@@ -27,6 +28,8 @@ interface DemoCtx {
   person: (name: string) => string
   /** Anonymize an email address */
   email: (addr: string) => string
+  /** Anonymize a ticket title */
+  title: (t: string) => string
   /** Skew an integer/float metric. Pass a stable key for consistency. */
   num: (value: number, key: string) => number
   /** Skew a percentage (0–100). */
@@ -39,6 +42,7 @@ const DemoContext = createContext<DemoCtx>({
   company: (n) => n,
   person: (n) => n,
   email: (e) => e,
+  title: (t) => t,
   num: (v) => v,
   pct: (v) => v,
 })
@@ -77,6 +81,10 @@ export default function DemoModeProvider({ children }: { children: React.ReactNo
     (addr: string) => (active ? anonEmail(addr) : addr),
     [active]
   )
+  const title = useCallback(
+    (t: string) => (active ? anonTicketTitle(t) : t),
+    [active]
+  )
   const num = useCallback(
     (value: number, key: string) => (active ? skewNumber(value, key) : value),
     [active]
@@ -87,7 +95,7 @@ export default function DemoModeProvider({ children }: { children: React.ReactNo
   )
 
   return (
-    <DemoContext.Provider value={{ active, toggle, company, person, email, num, pct }}>
+    <DemoContext.Provider value={{ active, toggle, company, person, email, title, num, pct }}>
       {children}
     </DemoContext.Provider>
   )
