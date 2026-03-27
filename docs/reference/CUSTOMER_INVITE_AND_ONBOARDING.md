@@ -10,11 +10,13 @@
 2. [Staff Roles & Permissions](#staff-roles--permissions)
 3. [Customer Portal Roles](#customer-portal-roles)
 4. [Step-by-Step: Adding a Company](#step-by-step-adding-a-company)
-5. [Step-by-Step: Inviting a Customer](#step-by-step-inviting-a-customer)
-6. [The Customer Experience](#the-customer-experience)
-7. [Managing Access](#managing-access)
-8. [Viewing the Portal as a Customer](#viewing-the-portal-as-a-customer)
-9. [Troubleshooting](#troubleshooting)
+5. [Step-by-Step: M365 Onboarding](#step-by-step-m365-onboarding)
+6. [Step-by-Step: Inviting a Customer](#step-by-step-inviting-a-customer)
+7. [The Customer Experience](#the-customer-experience)
+8. [Managing Access](#managing-access)
+9. [Viewing the Portal as a Customer](#viewing-the-portal-as-a-customer)
+10. [HR Automation](#hr-automation)
+11. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -24,11 +26,13 @@ Triple Cities Tech provides a **Customer Portal** where clients can:
 - View their company's active projects, phases, and tasks
 - Submit and track support tickets
 - View ticket history and communication timelines
-- See announcements and project milestones
+- Submit employee onboarding/offboarding requests (HR automation)
+- Chat with support via Thread/ChatGenie
 
-Access is managed through two systems:
-1. **Company credentials** — A shared password for the company portal (`/onboarding/{company-slug}`)
+Access is managed through:
+1. **Microsoft 365 SSO** — Customers sign in at `/portal` with their M365 account
 2. **Contact invitations** — Individual email invitations sent to specific contacts with role-based access
+3. **Portal roles** — CLIENT_MANAGER, CLIENT_USER, CLIENT_VIEWER
 
 ---
 
@@ -47,13 +51,6 @@ TCT staff have one of four permission levels. Only **Super Admin** can change st
 - **Super Admin** and **Admin** can send portal invitations and manage customer roles
 - **Billing Admin** and **Technician** can view contacts but cannot send invites
 
-### How to change a staff member's role
-1. Go to **Admin > Contacts** (User Management page)
-2. Click the **TCT Staff** tab
-3. Only a Super Admin will see the role as a clickable badge
-4. Click the role badge → select new role from dropdown
-5. The change takes effect immediately
-
 ---
 
 ## Customer Portal Roles
@@ -62,7 +59,7 @@ Each customer contact has a portal role that controls what they can see and do:
 
 | Role | Label | Access |
 |------|-------|--------|
-| `CLIENT_MANAGER` | **Manager** | Full access: view all company projects, submit & manage tickets, manage other contacts for their company |
+| `CLIENT_MANAGER` | **Manager** | Full access: view all company projects, submit & manage tickets, submit HR requests (onboarding/offboarding), manage contacts |
 | `CLIENT_USER` | **User** | Standard: view company projects, submit & view tickets, view ticket timelines |
 | `CLIENT_VIEWER` | **Viewer** | Read-only: view company projects, view tickets (cannot submit new ones) |
 
@@ -75,13 +72,12 @@ Companies are automatically synced from Autotask PSA:
 1. Go to **Admin > Autotask Sync** or trigger via API: `GET /api/autotask/trigger?secret=MIGRATION_SECRET&step=companies`
 2. Companies with active projects in Autotask are imported with their contacts
 3. The company gets a URL-friendly slug (e.g., `acme-manufacturing`)
-4. A portal password is auto-generated
 
 ### Manually
 1. Go to **Admin > Companies**
 2. Click **New Company**
 3. Fill in: Company Name, Primary Contact, Contact Email
-4. A slug and portal password are generated automatically
+4. A slug is generated automatically
 5. Save the company
 
 ### Adding Contacts to a Company
@@ -91,9 +87,31 @@ Companies are automatically synced from Autotask PSA:
 
 ---
 
-## Step-by-Step: Inviting a Customer
+## Step-by-Step: M365 Onboarding
 
-There are two ways to invite customers:
+Before a customer can use SSO login or HR automation, their M365 tenant must be configured:
+
+1. Go to **Admin > Companies > [Company] > Onboard** (Tech Onboarding Wizard)
+2. **Step 1: Autotask Sync** — Ensure the company data is synced
+3. **Step 2: M365 App Registration** — In the customer's Azure AD:
+   - Create an app registration named "TCT Portal Integration" (single tenant)
+   - Add **Application permissions** (Microsoft Graph):
+     - `User.ReadWrite.All`
+     - `Group.ReadWrite.All`
+     - `GroupMember.ReadWrite.All`
+     - `Sites.ReadWrite.All`
+     - `Organization.Read.All`
+     - `DeviceManagementManagedDevices.Read.All`
+     - `Device.Read.All`
+   - Grant admin consent
+   - Create a client secret
+   - Enter tenant ID, client ID, and client secret into the wizard
+4. **Step 3: Test Connection** — Verify the credentials work
+5. **Step 4: Mark Complete** — Share the portal URL with the customer
+
+---
+
+## Step-by-Step: Inviting a Customer
 
 ### Method 1: Individual Contact Invite (Recommended)
 Best for: Inviting specific people with specific roles.
@@ -108,17 +126,9 @@ Best for: Inviting specific people with specific roles.
 6. **Preview first (optional):** Click the **eye icon** to preview the email before sending
 7. The contact receives a branded email with:
    - Their name and company name
-   - A link to the company portal
-   - Instructions to log in with the company password
+   - A link to sign in at the portal
+   - Instructions to use their Microsoft 365 account
    - A list of what they can access
-
-### Method 2: Company Credentials Email
-Best for: Sending the company portal password to the primary contact.
-
-1. Go to **Admin > Companies**
-2. Find the company → click **Send Credentials**
-3. This generates a new portal password and emails it to the company's primary contact email
-4. The contact receives the portal URL and password
 
 ### Invite Statuses
 | Status | Meaning |
@@ -138,19 +148,14 @@ The customer gets a professionally branded email that includes:
 - Their company name and what they can access
 - A prominent "Access Your Portal" button
 - Step-by-step instructions
-- Security notice (they can only see their company's data)
 
-### Step 2: Visits the Portal URL
-The portal URL is: `https://www.triplecitiestech.com/onboarding/{company-slug}`
+### Step 2: Signs In with Microsoft 365
+- Customer visits `/portal` (or clicks invite link)
+- Clicks **"Sign in with Microsoft 365"**
+- Redirected to Microsoft login (their email may be pre-filled from invite link)
+- After M365 authentication, the system discovers their company automatically
 
-Example: `https://www.triplecitiestech.com/onboarding/acme-manufacturing`
-
-### Step 3: Enters Company Password
-- The login page shows the company name
-- Customer enters the shared company password
-- Password was provided in the credentials email or by their IT contact at TCT
-
-### Step 4: Views the Customer Dashboard
+### Step 3: Views the Customer Dashboard
 After authentication, the customer sees:
 
 **For first-time visitors:**
@@ -158,11 +163,13 @@ After authentication, the customer sees:
 - Quick overview of available features
 
 **Dashboard includes:**
-- **Project overview** — All company projects with phases and task status
-- **Support tickets** — Active and historical tickets
-- **Ticket timeline** — Click any ticket to see full communication history (only external/customer-visible notes)
-- **Submit tickets** — Create new support requests (Manager and User roles only)
-- **Company stats** — Project completion, open tickets, etc.
+- **Get Support** — Opens live chat with TCT
+- **Open Tickets** — Active support tickets with status indicators
+- **Closed Tickets** — Historical ticket view
+- **Needs Your Action** — Tickets waiting on customer response ("Awaiting Your Team")
+- **Active Projects** — Company projects with phases and tasks
+- **Employee Management** — Submit onboarding/offboarding requests (Manager role only)
+- **Ticket Timeline** — Click any ticket to see full communication history (only external notes visible)
 
 ### What Customers CANNOT See
 - Internal TCT notes (only external notes are visible)
@@ -170,10 +177,10 @@ After authentication, the customer sees:
 - Staff-only administrative sections
 - Internal task assignments or billing details
 
-### Step 5: Ongoing Access
-- Session lasts 12 hours
-- Customer can return anytime to the same URL
-- No account creation required — just company password
+### Step 4: Ongoing Access
+- Session lasts 8 hours
+- Customer can return anytime to `/portal` and sign in
+- No passwords to remember — uses existing M365 credentials
 
 ---
 
@@ -187,8 +194,8 @@ After authentication, the customer sees:
 
 ### Revoking Access
 - **Deactivate a contact:** Mark them as inactive on the company detail page
-- **Change company password:** Send new credentials via Companies page → Send Credentials (old password stops working)
 - **Remove from portal:** Change role to `CLIENT_VIEWER` for minimum access
+- **Remove M365 credentials:** Delete the company's M365 app registration
 
 ### Checking Portal Activity
 The contacts page shows:
@@ -211,14 +218,49 @@ TCT staff can impersonate the customer experience to see exactly what a customer
 2. Click **View Portal** on any company
 3. Opens the customer portal in a new tab
 
-### From Direct URL
-1. Go to: `https://www.triplecitiestech.com/api/admin/portal-access?company={slug}`
-2. Must be logged in as Admin or Super Admin
-3. Redirects to the customer portal with an admin session
+---
+
+## HR Automation
+
+Customers with **Manager** access can submit employee change requests through the portal:
+
+### Employee Onboarding
+- Creates M365 account (with temporary password, force change on first login)
+- Assigns selected license (e.g., Microsoft 365 Business Premium)
+- Adds to security groups, distribution lists
+- Sets up SharePoint/OneDrive permissions
+- **Scheduled onboarding**: If start date is in the future, account is created but locked. A cron job automatically unlocks the account on the start date.
+- **Pax8 auto-procurement**: If no license seats are available, the system automatically orders a seat from Pax8 and polls Microsoft Graph for up to 5 minutes to confirm availability before assigning.
+
+### Employee Offboarding
+- Disables M365 account
+- Removes licenses
+- Removes group memberships
+- Transfers data ownership (if configured)
+- Creates Autotask ticket for tracking
+
+### How It Works
+1. Manager clicks "Employee Management" on their dashboard
+2. Verifies their email (checked against company_contacts)
+3. Fills out the step-by-step form (schema-driven wizard)
+4. System processes the request:
+   - Creates Autotask ticket
+   - Executes M365 changes via Graph API
+   - Sends confirmation email with results
+5. Any steps requiring manual intervention are noted in the ticket
 
 ---
 
 ## Troubleshooting
+
+### "Authentication failed" on portal login
+- Verify company has M365 credentials configured (Admin > Companies > [Company] > Onboard)
+- Check that the user's email domain matches a company contact
+- For common SSO: ensure TCT's Azure AD app supports multi-tenant accounts
+
+### "Could not find a company associated with your Microsoft account"
+- The user's email domain doesn't match any company_contacts
+- Add the contact: Admin > Companies > [Company] > Contacts > Add
 
 ### "Contact didn't receive the invite email"
 - Check the contact's email address for typos
@@ -226,21 +268,24 @@ TCT staff can impersonate the customer experience to see exactly what a customer
 - Check the invite status — if it shows "Pending", the email was sent
 - Try resending by clicking the email icon again
 
-### "Customer can't log in"
-- Verify the company has a password set (all companies should)
-- Send new credentials via Companies page → Send Credentials
-- Check the company slug matches the URL they're using
-
 ### "Customer can see too much / too little"
 - Check their `customerRole` on the Contacts page
 - Manager = full access, User = standard, Viewer = read-only
 - Changes take effect on next page load
 
+### "HR forms not showing"
+- Only CLIENT_MANAGER and isPrimary contacts see Employee Management
+- Manager must verify their email first
+- Check that the company has M365 credentials configured
+
 ### "I can't change a staff member's role"
 - Only **Super Admin** can change staff roles
 - You cannot change your own role
-- You cannot deactivate your own account
 
 ### "New staff member got Technician by default"
 - All new staff who sign in via Azure AD are auto-provisioned as **Technician**
 - A Super Admin must upgrade their role if they need more access
+
+---
+
+**Last Updated**: March 2026
