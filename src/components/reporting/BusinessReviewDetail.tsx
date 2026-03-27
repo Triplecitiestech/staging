@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { useDemoMode } from '@/components/admin/DemoModeProvider'
 
 interface ReviewData {
   id: string
@@ -82,6 +83,7 @@ interface Props {
 
 export default function BusinessReviewDetail({ reviewId }: Props) {
   const router = useRouter()
+  const demo = useDemoMode()
   const [review, setReview] = useState<ReviewData | null>(null)
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState(false)
@@ -140,7 +142,7 @@ export default function BusinessReviewDetail({ reviewId }: Props) {
           <Link href="/admin/reporting/business-review" className="text-xs text-cyan-400 hover:underline mb-2 block">
             &larr; Back to reviews
           </Link>
-          <h1 className="text-2xl font-bold text-white">{rd.company.name}</h1>
+          <h1 className="text-2xl font-bold text-white">{demo.company(rd.company.name)}</h1>
           <p className="text-slate-400 mt-1">
             {rd.period.type === 'monthly' ? 'Monthly' : 'Quarterly'} Business Review &mdash; {rd.period.label}
           </p>
@@ -305,10 +307,10 @@ export default function BusinessReviewDetail({ reviewId }: Props) {
 
       {/* Meta */}
       <div className="text-xs text-slate-600 flex flex-wrap gap-4 pt-4 border-t border-slate-800">
-        <span>Created by: {review.createdBy}</span>
-        {review.reviewedBy && <span>Reviewed by: {review.reviewedBy}</span>}
+        <span>Created by: {demo.person(review.createdBy)}</span>
+        {review.reviewedBy && <span>Reviewed by: {demo.person(review.reviewedBy)}</span>}
         {review.sentAt && <span>Sent: {new Date(review.sentAt).toLocaleString()}</span>}
-        {review.sentTo.length > 0 && <span>Sent to: {review.sentTo.join(', ')}</span>}
+        {review.sentTo.length > 0 && <span>Sent to: {review.sentTo.map(e => demo.email(e)).join(', ')}</span>}
       </div>
     </div>
   )

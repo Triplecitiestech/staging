@@ -5,6 +5,7 @@ import Link from 'next/link'
 import type { UnifiedTicketRow } from '@/types/tickets'
 import StatCard from '@/components/reporting/StatCard'
 import SocTicketDetail from './SocTicketDetail'
+import { useDemoMode } from '@/components/admin/DemoModeProvider'
 
 // ── Interfaces ──
 
@@ -78,6 +79,7 @@ interface ChatMessage {
 // ── Component ──
 
 export default function SocDashboardClient() {
+  const demo = useDemoMode()
   const [status, setStatus] = useState<StatusData | null>(null)
   const [ticketsData, setTicketsData] = useState<TicketsData | null>(null)
   const [activity, setActivity] = useState<ActivityEntry[]>([])
@@ -496,9 +498,9 @@ export default function SocDashboardClient() {
                         <span className="text-sm text-white truncate">{ticket.title}</span>
                       </div>
                       <div className="flex items-center gap-3 mt-0.5 text-xs text-slate-500">
-                        {ticket.companyName && <span className="text-cyan-400/70">{ticket.companyName}</span>}
+                        {ticket.companyName && <span className="text-cyan-400/70">{demo.company(ticket.companyName)}</span>}
                         <span>{ticket.priorityLabel}</span>
-                        <span>{ticket.assignedTo}</span>
+                        <span>{demo.person(ticket.assignedTo)}</span>
                       </div>
                     </div>
 
@@ -550,9 +552,9 @@ export default function SocDashboardClient() {
                           <span className="text-sm text-white line-clamp-2">{ticket.title}</span>
                         </div>
                         <div className="flex items-center gap-2 mt-1 text-xs text-slate-500 flex-wrap">
-                          {ticket.companyName && <span className="text-cyan-400/70">{ticket.companyName}</span>}
+                          {ticket.companyName && <span className="text-cyan-400/70">{demo.company(ticket.companyName)}</span>}
                           <span>{ticket.priorityLabel}</span>
-                          <span>{ticket.assignedTo}</span>
+                          <span>{demo.person(ticket.assignedTo)}</span>
                           {ticket.socVerdict && (
                             <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded-full border ${
                               ticket.socVerdict === 'false_positive' ? 'bg-green-500/20 text-green-400 border-green-500/30'

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { ProcessedReport } from '@/lib/reporting/annual-report/types'
 import { processReport, parseStoredReport } from '@/lib/reporting/annual-report/report-processor'
+import { useDemoMode } from '@/components/admin/DemoModeProvider'
 
 interface Props {
   reportId: string
@@ -24,6 +25,7 @@ interface ReportRecord {
 }
 
 export default function AnnualReportDetail({ reportId }: Props) {
+  const demo = useDemoMode()
   const [report, setReport] = useState<ReportRecord | null>(null)
   const [processed, setProcessed] = useState<ProcessedReport | null>(null)
   const [loading, setLoading] = useState(true)
@@ -72,7 +74,7 @@ export default function AnnualReportDetail({ reportId }: Props) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-white">{r.metadata.companyName}</h2>
+          <h2 className="text-2xl font-bold text-white">{demo.company(r.metadata.companyName)}</h2>
           <p className="text-slate-400 text-sm">
             {r.metadata.periodStart} to {r.metadata.periodEnd} &middot; {r.metadata.variant} variant
           </p>

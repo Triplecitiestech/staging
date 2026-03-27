@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
+import { useDemoMode } from '@/components/admin/DemoModeProvider'
 
 interface PriorityBreakdown {
   priority: string
@@ -52,6 +53,7 @@ interface DrilldownData {
 export default function PriorityBreakdownChart({ data }: PriorityBreakdownChartProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const demo = useDemoMode()
   const [expandedPriority, setExpandedPriority] = useState<string | null>(null)
   const [drilldownData, setDrilldownData] = useState<DrilldownData | null>(null)
   const [drilldownLoading, setDrilldownLoading] = useState(false)
@@ -147,7 +149,7 @@ export default function PriorityBreakdownChart({ data }: PriorityBreakdownChartP
                       }}
                       className="text-sm font-medium text-cyan-400 hover:text-cyan-300"
                     >
-                      {company.companyName}
+                      {demo.company(company.companyName)}
                     </button>
                     <div className="flex items-center gap-3 text-xs">
                       <span className="text-white">{company.totalTickets} tickets</span>
@@ -165,7 +167,7 @@ export default function PriorityBreakdownChart({ data }: PriorityBreakdownChartP
                         </div>
                         <div className="flex items-center gap-2 shrink-0 ml-2">
                           <span className={t.isResolved ? 'text-emerald-400' : 'text-slate-400'}>{t.isResolved ? 'Resolved' : 'Open'}</span>
-                          <span className="text-slate-500">{t.assignedTo}</span>
+                          <span className="text-slate-500">{demo.person(t.assignedTo)}</span>
                         </div>
                       </div>
                     ))}

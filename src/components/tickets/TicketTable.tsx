@@ -5,6 +5,7 @@ import type { UnifiedTicketRow, TicketTableProps, SortField, SortDir } from '@/t
 import PriorityBadge from './PriorityBadge';
 import SlaIndicator from './SlaIndicator';
 import { formatMinutes } from '@/lib/tickets/utils';
+import { useDemoMode } from '@/components/admin/DemoModeProvider';
 
 /** Autotask "waiting on customer" ticket statuses (7=Waiting Customer, 12=Customer Note Added) */
 const WAITING_ON_CUSTOMER_STATUSES = new Set([7, 12]);
@@ -28,6 +29,7 @@ export default function TicketTable({
   autotaskWebUrl,
 }: TicketTableProps) {
   const isStaff = perspective === 'staff';
+  const demo = useDemoMode();
 
   // Internal state (used when no external control provided)
   const [internalSearch, setInternalSearch] = useState('');
@@ -224,6 +226,7 @@ export default function TicketTable({
                   perspective={perspective}
                   onClick={() => onTicketClick(ticket.ticketId)}
                   autotaskWebUrl={autotaskWebUrl}
+                  demo={demo}
                 />
               ))}
               {filteredTickets.length === 0 && (
@@ -246,11 +249,13 @@ function TicketRow({
   perspective,
   onClick,
   autotaskWebUrl,
+  demo,
 }: {
   ticket: UnifiedTicketRow;
   perspective: 'staff' | 'customer';
   onClick: () => void;
   autotaskWebUrl?: string | null;
+  demo: ReturnType<typeof useDemoMode>;
 }) {
   const isStaff = perspective === 'staff';
 
@@ -302,7 +307,7 @@ function TicketRow({
       </td>
       {isStaff && (
         <>
-          <td className="px-4 py-3 text-sm text-slate-300 hidden lg:table-cell">{ticket.assignedTo}</td>
+          <td className="px-4 py-3 text-sm text-slate-300 hidden lg:table-cell">{demo.person(ticket.assignedTo)}</td>
           <td className="text-right px-4 py-3 text-sm text-slate-300 hidden lg:table-cell">
             {ticket.resolutionMinutes !== null ? formatMinutes(ticket.resolutionMinutes) : '-'}
           </td>
