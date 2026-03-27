@@ -1,7 +1,8 @@
 /**
  * Datto RMM API Client
  *
- * OAuth2 client credentials grant for server-to-server auth.
+ * OAuth2 password grant with public-client credentials.
+ * API Key = username, API Secret = password, client_id = public-client.
  * Provides device lookup for SOC technician verification.
  */
 
@@ -16,10 +17,20 @@ export interface DattoDevice {
   siteName: string;
   operatingSystem: string;
   deviceType: string;
+  online: boolean;
+  rebootRequired: boolean;
+  patchStatus: string;
+  patchesInstalled: number;
+  patchesApprovedPending: number;
+  patchesNotApproved: number;
+  antivirusProduct: string;
+  antivirusStatus: string;
+  lastAuditDate: string;
 }
 
 export interface DattoSite {
   id: string;
+  uid: string;
   name: string;
   description: string;
   devicesCount: number;
@@ -69,23 +80,46 @@ export class DattoRmmClient {
       return this.accessToken;
     }
 
+    // Datto RMM OAuth2 — password grant with public-client credentials
+    // Client ID: public-client, Client Secret: public (fixed values for all Datto RMM instances)
+    // Username: API Key, Password: API Secret
     const tokenUrl = `${this.apiUrl}/auth/oauth/token`;
+    console.log(`[DattoRMM] Auth attempt — URL: ${tokenUrl}`);
+
+    const publicAuth = Buffer.from('public-client:public').toString('base64');
+
     const res = await fetch(tokenUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'client_credentials',
-        client_id: this.apiKey,
-        client_secret: this.apiSecret,
-      }).toString(),
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': `Basic ${publicAuth}`,
+      },
+      body: `grant_type=password&username=${encodeURIComponent(this.apiKey)}&password=${encodeURIComponent(this.apiSecret)}`,
     });
 
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Datto RMM auth failed (${res.status}): ${text}`);
+    const text = await res.text();
+    console.log(`[DattoRMM] Auth response: ${res.status}`);
+
+    // Detect HTML response (wrong URL or redirect to login page)
+    if (text.trimStart().startsWith('<') || text.includes('<!DOCTYPE')) {
+      throw new Error(
+        `Datto RMM auth endpoint returned HTML instead of JSON. ` +
+        `Token URL: ${tokenUrl} — this usually means DATTO_RMM_API_URL is set to the wrong region. ` +
+        `Valid regions: concord-api, pinotage-api, merlot-api, vidal-api, zinfandel-api, syrah-api (.centrastage.net)`
+      );
     }
 
-    const data = (await res.json()) as TokenResponse;
+    if (!res.ok) {
+      throw new Error(`Datto RMM auth failed (${res.status}): ${text.slice(0, 500)}`);
+    }
+
+    let data: TokenResponse;
+    try {
+      data = JSON.parse(text) as TokenResponse;
+    } catch {
+      throw new Error(`Datto RMM auth returned invalid JSON (${res.status}): ${text.slice(0, 200)}`);
+    }
+
     this.accessToken = data.access_token;
     this.tokenExpiresAt = Date.now() + data.expires_in * 1000;
     return this.accessToken;
@@ -163,20 +197,31 @@ export class DattoRmmClient {
     const data = await this.request<{ sites: RawSite[] }>('/api/v2/account/sites');
     return (data.sites || []).map(s => ({
       id: String(s.id || s.uid),
+      uid: String(s.uid || s.id || ''),
       name: s.name || '',
       description: s.description || '',
       devicesCount: s.devicesStatus?.numberOfDevices || 0,
     }));
   }
 
-  /** Fetch devices for a specific site. */
-  async getSiteDevices(siteId: string): Promise<DattoDevice[]> {
-    const data = await this.request<{ devices: RawDevice[] }>(`/api/v2/site/${siteId}/devices`);
+  /** Fetch devices for a specific site (uses site UID, not numeric ID). */
+  async getSiteDevices(siteUid: string): Promise<DattoDevice[]> {
+    const data = await this.request<{ devices: RawDevice[] }>(`/api/v2/site/${siteUid}/devices`);
     return (data.devices || []).map(mapDevice);
   }
 
-  /** Fetch all alerts (paginated). Returns up to maxPages * 250 alerts. */
-  async getAlerts(maxPages = 20): Promise<DattoAlert[]> {
+  /** Fetch raw device response (for diagnostics — returns unprocessed API data). */
+  async getRawSiteDevices(siteUid: string): Promise<unknown> {
+    return this.request<unknown>(`/api/v2/site/${siteUid}/devices`);
+  }
+
+  /** Fetch patch status for a specific device. */
+  async getDevicePatch(deviceUid: string): Promise<unknown> {
+    return this.request<unknown>(`/api/v2/device/${deviceUid}/patch`);
+  }
+
+  /** Fetch all alerts (paginated). Returns up to maxPages * 250 alerts. Default 200 pages = 50,000 alerts. */
+  async getAlerts(maxPages = 200): Promise<DattoAlert[]> {
     const alerts: DattoAlert[] = [];
     let page = 1;
 
@@ -196,8 +241,8 @@ export class DattoRmmClient {
     return alerts;
   }
 
-  /** Fetch resolved alerts (paginated). */
-  async getResolvedAlerts(maxPages = 20): Promise<DattoAlert[]> {
+  /** Fetch resolved alerts (paginated). Default 200 pages = 50,000 alerts. */
+  async getResolvedAlerts(maxPages = 200): Promise<DattoAlert[]> {
     const alerts: DattoAlert[] = [];
     let page = 1;
 
@@ -217,8 +262,8 @@ export class DattoRmmClient {
     return alerts;
   }
 
-  /** Fetch open (active) alerts (paginated). */
-  async getOpenAlerts(maxPages = 20): Promise<DattoAlert[]> {
+  /** Fetch open (active) alerts (paginated). Default 200 pages = 50,000 alerts. */
+  async getOpenAlerts(maxPages = 200): Promise<DattoAlert[]> {
     const alerts: DattoAlert[] = [];
     let page = 1;
 
@@ -246,13 +291,26 @@ interface RawDevice {
   hostname?: string;
   intIpAddress?: string;
   extIpAddress?: string;
-  lastSeen?: string;
+  lastSeen?: string | number;
   lastLoggedInUser?: string;
   siteId?: number;
   siteUid?: string;
   siteName?: string;
   operatingSystem?: string;
   deviceType?: { category?: string };
+  online?: boolean;
+  rebootRequired?: boolean;
+  lastAuditDate?: string | number;
+  patchManagement?: {
+    patchStatus?: string;
+    patchesInstalled?: number;
+    patchesApprovedPending?: number;
+    patchesNotApproved?: number;
+  };
+  antivirus?: {
+    antivirusProduct?: string;
+    antivirusStatus?: string;
+  };
 }
 
 interface RawSite {
@@ -267,7 +325,7 @@ interface RawAlert {
   alertUid?: string;
   uid?: string;
   alertType?: string;
-  alertContext?: string;
+  alertContext?: string | Record<string, unknown>;
   alertMessage?: string;
   priority?: string;
   resolved?: boolean;
@@ -284,7 +342,7 @@ function mapAlert(a: RawAlert): DattoAlert {
   return {
     alertUid: a.alertUid || a.uid || '',
     alertType: a.alertType || 'unknown',
-    alertContext: a.alertContext || '',
+    alertContext: typeof a.alertContext === 'string' ? a.alertContext : JSON.stringify(a.alertContext || ''),
     alertMessage: a.alertMessage || '',
     priority: a.priority || 'information',
     resolved: a.resolved ?? false,
@@ -303,11 +361,20 @@ function mapDevice(d: RawDevice): DattoDevice {
     hostname: d.hostname || '',
     intIpAddress: d.intIpAddress || '',
     extIpAddress: d.extIpAddress || '',
-    lastSeen: d.lastSeen || '',
+    lastSeen: typeof d.lastSeen === 'number' ? new Date(d.lastSeen).toISOString() : (d.lastSeen || ''),
     lastUser: d.lastLoggedInUser || '',
     siteId: String(d.siteUid || d.siteId || ''),
     siteName: d.siteName || '',
     operatingSystem: d.operatingSystem || '',
     deviceType: d.deviceType?.category || 'unknown',
+    online: d.online ?? false,
+    rebootRequired: d.rebootRequired ?? false,
+    patchStatus: d.patchManagement?.patchStatus || 'Unknown',
+    patchesInstalled: d.patchManagement?.patchesInstalled || 0,
+    patchesApprovedPending: d.patchManagement?.patchesApprovedPending || 0,
+    patchesNotApproved: d.patchManagement?.patchesNotApproved || 0,
+    antivirusProduct: d.antivirus?.antivirusProduct || '',
+    antivirusStatus: d.antivirus?.antivirusStatus || '',
+    lastAuditDate: typeof d.lastAuditDate === 'number' ? new Date(d.lastAuditDate).toISOString() : (d.lastAuditDate || ''),
   };
 }
