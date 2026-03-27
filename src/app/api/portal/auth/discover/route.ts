@@ -17,9 +17,9 @@ const pool = new Pool({
  */
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  // Redirect to the common SSO flow (no email needed)
+  // Redirect to the portal page which has the email form
   const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || request.nextUrl.origin
-  return NextResponse.redirect(`${baseUrl}/api/portal/auth/sso`)
+  return NextResponse.redirect(`${baseUrl}/portal`)
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
