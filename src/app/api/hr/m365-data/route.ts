@@ -1,16 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { Pool } from 'pg'
+import { getPool } from '@/lib/db-pool'
 import { getTenantCredentialsBySlug, createGraphClient } from '@/lib/graph'
 
 // ---------------------------------------------------------------------------
 // Raw pg pool — for manager auth check
 // ---------------------------------------------------------------------------
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-  max: 3,
-})
+const pool = getPool()
 
 // ---------------------------------------------------------------------------
 // GET /api/hr/m365-data?companySlug=<slug>&email=<email>

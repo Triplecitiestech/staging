@@ -1,13 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
-import { Pool } from 'pg'
+import { getPool } from '@/lib/db-pool'
 import { createGraphClient } from '@/lib/graph'
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-  max: 3,
-})
+const pool = getPool()
 
 // ---------------------------------------------------------------------------
 // GET /api/admin/companies/[id]/m365

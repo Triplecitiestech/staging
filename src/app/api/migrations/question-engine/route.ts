@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { Pool } from 'pg'
+import { getPool } from '@/lib/db-pool'
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  max: 3,
-})
+const pool = getPool()
 
 // ---------------------------------------------------------------------------
 // Migration SQL — idempotent (IF NOT EXISTS / ON CONFLICT DO NOTHING)

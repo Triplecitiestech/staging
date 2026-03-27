@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { Pool } from 'pg'
+import { getPool } from '@/lib/db-pool'
 import {
   createGraphClient,
   getTenantCredentialsBySlug,
@@ -8,11 +8,7 @@ import {
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  max: 3,
-})
+const pool = getPool()
 
 /**
  * Process Scheduled HR Requests Cron

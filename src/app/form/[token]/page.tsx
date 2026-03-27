@@ -1,12 +1,8 @@
-import { Pool } from 'pg'
+import { getPool } from '@/lib/db-pool'
 import { redirect } from 'next/navigation'
 import { FormLinkPortal } from './FormLinkPortal'
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  max: 3,
-})
+const pool = getPool()
 
 export default async function FormLinkPage({
   params,

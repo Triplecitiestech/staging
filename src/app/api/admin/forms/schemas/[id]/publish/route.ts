@@ -1,13 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { Pool } from 'pg'
+import { getPool } from '@/lib/db-pool'
 import { auth } from '@/auth'
 import { hasPermission } from '@/lib/permissions'
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  max: 3,
-})
+const pool = getPool()
 
 // ---------------------------------------------------------------------------
 // POST /api/admin/forms/schemas/[id]/publish

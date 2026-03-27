@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { Pool } from 'pg'
+import { getPool } from '@/lib/db-pool'
 import { Resend } from 'resend'
 import { AutotaskClient } from '@/lib/autotask'
 import {
@@ -17,11 +17,7 @@ export const maxDuration = 300
 // Raw pg pool — bypasses Prisma entirely so schema mismatches can't cause 500s
 // ---------------------------------------------------------------------------
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  max: 5,
-})
+const pool = getPool()
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null
 const FROM_EMAIL = process.env.EMAIL_FROM || 'Triple Cities Tech <noreply@triplecitiestech.com>'
