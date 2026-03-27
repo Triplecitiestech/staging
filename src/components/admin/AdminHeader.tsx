@@ -5,6 +5,7 @@ import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { SignOutButton } from '@/components/auth/AuthButtons'
 import DemoModeToggle from './DemoModeToggle'
+import { ThemeSelector } from '@/components/ui/BackgroundTheme'
 import { useState, useRef, useEffect } from 'react'
 
 export default function AdminHeader() {
@@ -214,8 +215,9 @@ export default function AdminHeader() {
             </div>
           </nav>
 
-          {/* Desktop Right — Demo toggle only */}
+          {/* Desktop Right — Theme + Demo */}
           <div className="hidden md:flex items-center gap-1 flex-shrink-0 ml-auto">
+            <ThemeSelector />
             <DemoModeToggle />
           </div>
 
@@ -266,6 +268,7 @@ export default function AdminHeader() {
                 <span>View Site</span>
               </Link>
               <div className="px-4 py-2 flex items-center gap-2">
+                <ThemeSelector />
                 <DemoModeToggle />
                 <SignOutButton />
               </div>
