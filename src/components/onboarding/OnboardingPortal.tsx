@@ -107,7 +107,7 @@ export default function OnboardingPortal({
               <h1 className="text-5xl font-bold text-white mb-2">{demo.company(initialData.companyDisplayName)}</h1>
               <p className="text-2xl text-cyan-400 font-semibold">
                 {projects && (projects as unknown[]).length === 1
-                  ? (projects[0] as { title: string }).title
+                  ? demo.title((projects[0] as { title: string }).title)
                   : projects && (projects as unknown[]).length > 1
                   ? 'Your Projects'
                   : 'Onboarding Program'}
