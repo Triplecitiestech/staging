@@ -161,22 +161,34 @@ function FormRendererLoader({
       type,
       email: contactEmail,
     })
-    fetch(`/api/forms/config?${params.toString()}`)
-      .then(async (res) => {
+    const url = `/api/forms/config?${params.toString()}`
+
+    // Retry up to 2 times on failure (cold-start DB connections can fail intermittently)
+    async function fetchWithRetry(attempt = 0): Promise<void> {
+      try {
+        const res = await fetch(url)
         if (!res.ok) {
+          // Server returned an error — retry on 500s
+          if (res.status >= 500 && attempt < 2) {
+            await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)))
+            return fetchWithRetry(attempt + 1)
+          }
           const data = await res.json()
           setError(data.error ?? 'Failed to load form configuration')
           return
         }
         const data = await res.json()
         setConfig(data)
-      })
-      .catch(() => {
+      } catch {
+        if (attempt < 2) {
+          await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)))
+          return fetchWithRetry(attempt + 1)
+        }
         setError('Network error — please try again')
-      })
-      .finally(() => {
-        setLoading(false)
-      })
+      }
+    }
+
+    fetchWithRetry().finally(() => setLoading(false))
   }, [companySlug, type, contactEmail])
 
   if (loading) {
