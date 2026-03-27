@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { useDemoMode } from '@/components/admin/DemoModeProvider'
 
 interface Contact {
   id: string
@@ -195,6 +196,7 @@ const INVITE_STATUS: Record<string, { label: string; color: string; dotColor: st
 
 export default function ContactsList({ contacts, staffUsers: initialStaff, currentUserRole, currentUserId }: ContactsListProps) {
   const router = useRouter()
+  const demo = useDemoMode()
   const [search, setSearch] = useState('')
   const [tab, setTab] = useState<'clients' | 'staff'>('clients')
   const [selectedContacts, setSelectedContacts] = useState<Set<string>>(new Set())
@@ -554,19 +556,19 @@ export default function ContactsList({ contacts, staffUsers: initialStaff, curre
                               onClick={() => router.push(`/admin/companies/${contact.companyId}`)}
                             >
                               <div className="w-8 h-8 rounded-full bg-violet-500/20 text-violet-300 flex items-center justify-center text-xs font-bold flex-shrink-0">
-                                {contact.name[0]?.toUpperCase()}
+                                {demo.person(contact.name)[0]?.toUpperCase()}
                               </div>
                               <div className="min-w-0">
-                                <div className="text-sm font-medium text-white truncate">{contact.name}</div>
+                                <div className="text-sm font-medium text-white truncate">{demo.person(contact.name)}</div>
                                 {contact.title && <div className="text-[11px] text-slate-500 truncate">{contact.title}</div>}
-                                <div className="text-[11px] text-slate-500 md:hidden truncate">{contact.email}</div>
+                                <div className="text-[11px] text-slate-500 md:hidden truncate">{demo.email(contact.email)}</div>
                                 {!contact.isActive && <span className="text-[10px] text-red-400">Inactive</span>}
                               </div>
                             </div>
                           </td>
-                          <td className="px-3 py-3 text-sm text-slate-300 hidden md:table-cell">{contact.email}</td>
+                          <td className="px-3 py-3 text-sm text-slate-300 hidden md:table-cell">{demo.email(contact.email)}</td>
                           <td className="px-3 py-3">
-                            <span className="text-sm text-cyan-400">{contact.company.displayName}</span>
+                            <span className="text-sm text-cyan-400">{demo.company(contact.company.displayName)}</span>
                           </td>
                           <td className="px-3 py-3">
                             {roleEditing === contact.id && canInvite ? (
@@ -638,7 +640,7 @@ export default function ContactsList({ contacts, staffUsers: initialStaff, curre
                                 <button
                                   onClick={(e) => { e.stopPropagation(); impersonateCustomer(contact.company.slug) }}
                                   disabled={impersonating === contact.company.slug}
-                                  title={`View portal as ${contact.company.displayName}`}
+                                  title={`View portal as ${demo.company(contact.company.displayName)}`}
                                   className="p-1.5 text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 rounded transition-colors"
                                 >
                                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -713,18 +715,18 @@ export default function ContactsList({ contacts, staffUsers: initialStaff, curre
                               staff.role === 'BILLING_ADMIN' ? 'bg-emerald-500/20 text-emerald-300' :
                               'bg-cyan-500/20 text-cyan-300'
                             }`}>
-                              {staff.name[0]?.toUpperCase()}
+                              {demo.person(staff.name)[0]?.toUpperCase()}
                             </div>
                             <div className="min-w-0">
                               <div className="text-sm font-medium text-white truncate">
-                                {staff.name}
+                                {demo.person(staff.name)}
                                 {isCurrentUser && <span className="text-[10px] text-slate-500 ml-1">(you)</span>}
                               </div>
-                              <div className="text-[11px] text-slate-500 md:hidden truncate">{staff.email}</div>
+                              <div className="text-[11px] text-slate-500 md:hidden truncate">{demo.email(staff.email)}</div>
                             </div>
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-sm text-slate-300 hidden md:table-cell">{staff.email}</td>
+                        <td className="px-4 py-3 text-sm text-slate-300 hidden md:table-cell">{demo.email(staff.email)}</td>
                         <td className="px-4 py-3">
                           {staffRoleEditing === staff.id && isSuperAdmin && !isCurrentUser ? (
                             <select
@@ -865,7 +867,7 @@ export default function ContactsList({ contacts, staffUsers: initialStaff, curre
                 <div>
                   <h3 className="text-lg font-bold text-white">Manage Permissions</h3>
                   <p className="text-sm text-slate-400 mt-0.5">
-                    {staff.name} &middot; <span className={`${roleInfo.color.split(' ').find(c => c.startsWith('text-'))}`}>{roleInfo.label}</span>
+                    {demo.person(staff.name)} &middot; <span className={`${roleInfo.color.split(' ').find(c => c.startsWith('text-'))}`}>{roleInfo.label}</span>
                   </p>
                 </div>
                 <button

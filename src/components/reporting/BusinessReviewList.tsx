@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import ReportAIAssistant from './ReportAIAssistant'
+import { useDemoMode } from '@/components/admin/DemoModeProvider'
 
 interface ReviewSummary {
   id: string
@@ -24,6 +25,7 @@ interface CompanyOption {
 }
 
 export default function BusinessReviewList() {
+  const demo = useDemoMode()
   const [reviews, setReviews] = useState<ReviewSummary[]>([])
   const [companies, setCompanies] = useState<CompanyOption[]>([])
   const [loading, setLoading] = useState(true)
@@ -210,7 +212,7 @@ export default function BusinessReviewList() {
                 </option>
                 {companies.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.displayName}{c.ticketCount > 0 ? ` (${c.ticketCount} tickets)` : ' (no ticket data)'}
+                    {demo.company(c.displayName)}{c.ticketCount > 0 ? ` (${demo.num(c.ticketCount, `br-${c.id}`)} tickets)` : ' (no ticket data)'}
                   </option>
                 ))}
               </select>
@@ -287,7 +289,7 @@ export default function BusinessReviewList() {
                 {reviews.map((review) => (
                   <tr key={review.id} className="border-b border-slate-700/30 hover:bg-slate-700/20">
                     <td className="px-4 py-3">
-                      <span className="text-sm text-white">{review.company.displayName}</span>
+                      <span className="text-sm text-white">{demo.company(review.company.displayName)}</span>
                     </td>
                     <td className="text-center px-4 py-3">
                       <span className="text-xs text-slate-300 capitalize">{review.reportType}</span>

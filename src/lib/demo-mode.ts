@@ -1,8 +1,189 @@
 /**
- * Demo Mode - Contoso Industries
- * Provides realistic demo data for safe demonstrations
- * without exposing real customer data.
+ * Demo Mode — Anonymization Engine
+ *
+ * When demo mode is active in the admin dashboard, all real company names,
+ * contact names, emails, and metrics are anonymized client-side using
+ * deterministic mappings. The same real name always maps to the same fake name
+ * within a session, and metrics are slightly skewed (±5–15%) so data shapes
+ * stay realistic but values aren't recognizable.
+ *
+ * IMPORTANT: This is purely a client-side display transform. No database data
+ * is modified. Reporting pipelines, sync jobs, and APIs are unaffected.
  */
+
+// ---------------------------------------------------------------------------
+// Name pools — realistic business names and human names
+// ---------------------------------------------------------------------------
+
+const FAKE_COMPANIES = [
+  'Meridian Technologies', 'Pinnacle Systems', 'Northgate Solutions',
+  'Summit Digital', 'Atlas Industries', 'Crescent Networks',
+  'Vanguard IT Group', 'Horizon Manufacturing', 'Apex Partners',
+  'Lakeside Medical Center', 'Bridgeport Engineering', 'Redstone Corp',
+  'Silverline Logistics', 'Copperfield Associates', 'Ironclad Security',
+  'Bluewater Analytics', 'Westbrook Financial', 'Clearview Health',
+  'Stonebridge Academy', 'Oakmont Properties', 'Riverdale Group',
+  'Falcon Industries', 'Ember Creative', 'Aspen Consulting',
+  'Trailblazer Holdings', 'Keystone Partners', 'Beacon Labs',
+  'Magnolia Services', 'Ironwood Construction', 'Crestline Energy',
+  'Pacific Rim Solutions', 'Evergreen Dynamics', 'Cedar Hill Associates',
+  'Granite Peak Systems', 'Harbor Point Capital', 'Windmill Data',
+  'Sapphire Technologies', 'Coral Bay Ventures', 'Snowcap Industries',
+  'Thunderbolt Inc',
+]
+
+const FAKE_FIRST_NAMES = [
+  'James', 'Sarah', 'Michael', 'Emily', 'Robert', 'Jessica',
+  'David', 'Jennifer', 'Daniel', 'Amanda', 'Christopher', 'Ashley',
+  'Matthew', 'Stephanie', 'Andrew', 'Nicole', 'Joshua', 'Michelle',
+  'Ryan', 'Laura', 'Kevin', 'Rachel', 'Brandon', 'Heather',
+  'Tyler', 'Megan', 'Nathan', 'Samantha', 'Aaron', 'Rebecca',
+  'Brian', 'Katherine', 'Patrick', 'Olivia', 'Marcus', 'Hannah',
+  'Derek', 'Grace', 'Trevor', 'Sophia',
+]
+
+const FAKE_LAST_NAMES = [
+  'Anderson', 'Mitchell', 'Thompson', 'Garcia', 'Martinez', 'Robinson',
+  'Clark', 'Lewis', 'Walker', 'Hall', 'Young', 'Allen',
+  'King', 'Wright', 'Scott', 'Torres', 'Hill', 'Green',
+  'Adams', 'Baker', 'Nelson', 'Carter', 'Morgan', 'Cooper',
+  'Reed', 'Bailey', 'Bell', 'Murphy', 'Rivera', 'Sullivan',
+  'Russell', 'Griffin', 'Hayes', 'Foster', 'Bennett', 'Price',
+  'Sanders', 'Powell', 'Patterson', 'Jenkins',
+]
+
+const FAKE_DOMAINS = [
+  'meridiantech.com', 'pinnaclesys.com', 'northgatesol.com',
+  'summitdigital.com', 'atlasindustries.com', 'crescentnet.com',
+  'vanguardit.com', 'horizonmfg.com', 'apexpartners.com',
+  'lakesidemedical.org', 'bridgeporteng.com', 'redstonecorp.com',
+  'silverlinelogistics.com', 'copperfieldassoc.com', 'ironcladsecu.com',
+  'bluewateranalytics.com', 'westbrookfin.com', 'clearviewhealth.org',
+  'stonebridgeacad.edu', 'oakmontprop.com', 'riverdalegroup.com',
+  'falconindustries.com', 'embercreative.com', 'aspenconsulting.com',
+  'trailblazerhold.com', 'keystonepartners.com', 'beaconlabs.com',
+  'magnoliaservices.com', 'ironwoodconst.com', 'crestlineenergy.com',
+  'pacificrimsol.com', 'evergreendyn.com', 'cedarhillassoc.com',
+  'granitepeaksys.com', 'harborpointcap.com', 'windmilldata.com',
+  'sapphiretech.com', 'coralbayventures.com', 'snowcapindustries.com',
+  'thunderboltinc.com',
+]
+
+// ---------------------------------------------------------------------------
+// Deterministic hash — gives stable mapping for the same input string
+// ---------------------------------------------------------------------------
+
+function simpleHash(str: string): number {
+  let hash = 5381
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash + str.charCodeAt(i)) | 0
+  }
+  return Math.abs(hash)
+}
+
+// Session-level seed for metric skewing (stable per browser session)
+let _sessionSeed: number | null = null
+function getSessionSeed(): number {
+  if (_sessionSeed !== null) return _sessionSeed
+  if (typeof window === 'undefined') return 42
+  const stored = sessionStorage.getItem('demo-session-seed')
+  if (stored) {
+    _sessionSeed = parseInt(stored, 10)
+  } else {
+    _sessionSeed = Math.floor(Math.random() * 100000)
+    sessionStorage.setItem('demo-session-seed', String(_sessionSeed))
+  }
+  return _sessionSeed
+}
+
+// ---------------------------------------------------------------------------
+// Anonymization functions
+// ---------------------------------------------------------------------------
+
+/** Map a real company name to a deterministic fake company name */
+export function anonCompany(realName: string): string {
+  if (!realName) return realName
+  const idx = simpleHash(realName.toLowerCase().trim()) % FAKE_COMPANIES.length
+  return FAKE_COMPANIES[idx]
+}
+
+/** Map a real person name to a deterministic fake person name */
+export function anonPerson(realName: string): string {
+  if (!realName) return realName
+  const h = simpleHash(realName.toLowerCase().trim())
+  const first = FAKE_FIRST_NAMES[h % FAKE_FIRST_NAMES.length]
+  const last = FAKE_LAST_NAMES[(h * 7) % FAKE_LAST_NAMES.length]
+  return `${first} ${last}`
+}
+
+/** Map a real email to a deterministic fake email */
+export function anonEmail(realEmail: string): string {
+  if (!realEmail || !realEmail.includes('@')) return realEmail
+  const [localPart] = realEmail.split('@')
+  const h = simpleHash(localPart.toLowerCase().trim())
+  const first = FAKE_FIRST_NAMES[h % FAKE_FIRST_NAMES.length].toLowerCase()
+  const last = FAKE_LAST_NAMES[(h * 7) % FAKE_LAST_NAMES.length].toLowerCase()
+  const domainIdx = (h * 13) % FAKE_DOMAINS.length
+  return `${first}.${last}@${FAKE_DOMAINS[domainIdx]}`
+}
+
+/**
+ * Skew a numeric value by ±5–15%, deterministic per key + session.
+ * Pass a key (e.g. "tickets-created-companyId") so the same metric
+ * always gets the same offset within a session.
+ */
+export function skewNumber(value: number, key: string): number {
+  if (value === 0) return 0
+  const seed = getSessionSeed()
+  const h = simpleHash(`${key}-${seed}`)
+  // Range: 0.85 to 1.15
+  const factor = 0.85 + (h % 3001) / 10000
+  const result = value * factor
+  // Preserve integer vs float behavior
+  return Number.isInteger(value) ? Math.round(result) : Math.round(result * 100) / 100
+}
+
+/**
+ * Skew a percentage value (0–100) by ±3–8 points,
+ * clamped to valid range.
+ */
+export function skewPercent(value: number | null, key: string): number | null {
+  if (value === null || value === undefined) return value
+  const seed = getSessionSeed()
+  const h = simpleHash(`${key}-${seed}`)
+  // Offset: -8 to +8
+  const offset = -8 + (h % 1700) / 100
+  const result = Math.round(Math.min(100, Math.max(0, value + offset)) * 10) / 10
+  return result
+}
+
+// ---------------------------------------------------------------------------
+// Toggle state (localStorage)
+// ---------------------------------------------------------------------------
+
+const STORAGE_KEY = 'admin-demo-mode'
+
+export function isDemoMode(): boolean {
+  if (typeof window === 'undefined') return false
+  return localStorage.getItem(STORAGE_KEY) === 'true'
+}
+
+export function toggleDemoMode(): boolean {
+  if (typeof window === 'undefined') return false
+  const current = isDemoMode()
+  localStorage.setItem(STORAGE_KEY, current ? 'false' : 'true')
+  // Reset session seed when toggling on so each demo session feels fresh
+  if (!current) {
+    const newSeed = Math.floor(Math.random() * 100000)
+    sessionStorage.setItem('demo-session-seed', String(newSeed))
+    _sessionSeed = newSeed
+  }
+  return !current
+}
+
+// ---------------------------------------------------------------------------
+// Legacy demo data (kept for customer portal demo at /onboarding/contoso-industries)
+// ---------------------------------------------------------------------------
 
 export const DEMO_COMPANY = {
   id: 'demo-contoso-001',
@@ -185,22 +366,4 @@ export const DEMO_STATS = {
   publishedBlogPosts: 8,
   onHoldProjects: 0,
   totalPhases: 5,
-}
-
-/**
- * Check if demo mode is enabled
- */
-export function isDemoMode(): boolean {
-  if (typeof window === 'undefined') return false
-  return localStorage.getItem('admin-demo-mode') === 'true'
-}
-
-/**
- * Toggle demo mode
- */
-export function toggleDemoMode(): boolean {
-  if (typeof window === 'undefined') return false
-  const current = isDemoMode()
-  localStorage.setItem('admin-demo-mode', current ? 'false' : 'true')
-  return !current
 }

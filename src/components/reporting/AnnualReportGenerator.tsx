@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { REPORT_SECTION_DEFS } from '@/lib/reporting/annual-report/types'
+import { useDemoMode } from '@/components/admin/DemoModeProvider'
 
 interface CompanyOption {
   id: string
@@ -44,6 +45,7 @@ const DEFAULT_SECTIONS: Record<SectionKey, boolean> = {
 }
 
 export default function AnnualReportGenerator() {
+  const demo = useDemoMode()
   const [companies, setCompanies] = useState<CompanyOption[]>([])
   const [reports, setReports] = useState<ReportSummary[]>([])
   const [loading, setLoading] = useState(true)
@@ -170,7 +172,7 @@ export default function AnnualReportGenerator() {
     }
   }
 
-  const selectedCompanyName = companies.find(c => c.id === selectedCompany)?.displayName || ''
+  const selectedCompanyName = demo.company(companies.find(c => c.id === selectedCompany)?.displayName || '')
   const enabledCount = Object.values(sections).filter(Boolean).length
 
   return (
@@ -191,7 +193,7 @@ export default function AnnualReportGenerator() {
               <option value="">Select a company...</option>
               {companies.map(c => (
                 <option key={c.id} value={c.id}>
-                  {c.displayName} {c.ticketCount > 0 ? `(${c.ticketCount} tickets)` : ''}
+                  {demo.company(c.displayName)} {c.ticketCount > 0 ? `(${demo.num(c.ticketCount, `ar-${c.id}`)} tickets)` : ''}
                 </option>
               ))}
             </select>
@@ -324,7 +326,7 @@ export default function AnnualReportGenerator() {
               <tbody>
                 {reports.map(r => (
                   <tr key={r.id} className="border-b border-slate-700/50 hover:bg-slate-700/30">
-                    <td className="py-3 px-3 text-white font-medium">{r.company.displayName}</td>
+                    <td className="py-3 px-3 text-white font-medium">{demo.company(r.company.displayName)}</td>
                     <td className="py-3 px-3 text-slate-300">
                       {new Date(r.periodStart).toLocaleDateString()} — {new Date(r.periodEnd).toLocaleDateString()}
                     </td>
@@ -364,7 +366,7 @@ export default function AnnualReportGenerator() {
                         PDF
                       </a>
                       <button
-                        onClick={() => handleDelete(r.id, r.company.displayName)}
+                        onClick={() => handleDelete(r.id, demo.company(r.company.displayName))}
                         className="text-red-400 hover:text-red-300 text-xs font-medium"
                       >
                         Delete

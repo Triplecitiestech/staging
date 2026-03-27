@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { RefreshCw, Eye } from 'lucide-react'
+import { useDemoMode } from '@/components/admin/DemoModeProvider'
 
 interface Company {
   id: string
@@ -17,6 +18,7 @@ interface Company {
 
 export default function CompanyList({ companies }: { companies: Company[] }) {
   const router = useRouter()
+  const demo = useDemoMode()
   const [deleting, setDeleting] = useState<string | null>(null)
   const [impersonating, setImpersonating] = useState<string | null>(null)
   const [search, setSearch] = useState('')
@@ -40,7 +42,7 @@ export default function CompanyList({ companies }: { companies: Company[] }) {
   }
 
   const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`Delete ${name}? This will also delete all associated projects.`)) return
+    if (!confirm(`Delete ${demo.company(name)}? This will also delete all associated projects.`)) return
 
     setDeleting(id)
     try {
@@ -107,7 +109,7 @@ export default function CompanyList({ companies }: { companies: Company[] }) {
               >
                 <td className="px-6 py-4">
                   <span className="text-sm font-medium text-white">
-                    {company.displayName}
+                    {demo.company(company.displayName)}
                   </span>
                 </td>
                 <td className="px-6 py-4 text-sm text-slate-300">{company._count?.projects || 0}</td>

@@ -2,6 +2,7 @@
 
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useState } from 'react'
+import { useDemoMode } from '@/components/admin/DemoModeProvider'
 
 const PRESETS = [
   { value: 'last_7_days', label: '7 Days' },
@@ -37,6 +38,7 @@ export default function ReportFilterBar({
 }: ReportFilterBarProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const demoCtx = useDemoMode()
 
   const currentPreset = searchParams.get('preset') || 'last_30_days'
   const compare = searchParams.get('compare') === 'true'
@@ -81,7 +83,7 @@ export default function ReportFilterBar({
           setCompanies(
             data.companies.map((c: { id: string; displayName: string }) => ({
               id: c.id,
-              label: c.displayName,
+              label: demoCtx.company(c.displayName),
               value: c.id,
             }))
           )
@@ -90,7 +92,7 @@ export default function ReportFilterBar({
           setTechnicians(
             data.technicians.map((t: { autotaskResourceId: number; name: string }) => ({
               id: String(t.autotaskResourceId),
-              label: t.name,
+              label: demoCtx.person(t.name),
               value: String(t.autotaskResourceId),
             }))
           )

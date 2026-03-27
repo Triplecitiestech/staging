@@ -9,6 +9,7 @@ import StatCard from './StatCard'
 import TrendChart from './TrendChart'
 import PriorityBreakdownChart from './PriorityBreakdownChart'
 import ReportAIAssistant from './ReportAIAssistant'
+import { useDemoMode } from '@/components/admin/DemoModeProvider'
 
 interface DashboardData {
   summary: {
@@ -68,6 +69,7 @@ const PIPELINE_JOBS = [
 export default function ReportingDashboard() {
   const searchParams = useSearchParams()
   const router = useRouter()
+  const demo = useDemoMode()
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -239,7 +241,7 @@ export default function ReportingDashboard() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
             <StatCard
               label="Tickets Created"
-              value={data.summary.totalTicketsCreated}
+              value={demo.num(data.summary.totalTicketsCreated, 'dash-created')}
               href="/admin/reporting/companies"
               tooltip="Total new tickets opened during the selected period. A rising count may indicate growing support demand. Source: Autotask tickets filtered by createDate."
               invertTrend
@@ -254,7 +256,7 @@ export default function ReportingDashboard() {
             />
             <StatCard
               label="Tickets Closed"
-              value={data.summary.totalTicketsClosed}
+              value={demo.num(data.summary.totalTicketsClosed, 'dash-closed')}
               href="/admin/reporting/technicians"
               tooltip="Total tickets moved to a resolved status during this period. Compared to the previous equal-length period. Source: Autotask tickets filtered by completedDate."
               trend={
@@ -268,13 +270,13 @@ export default function ReportingDashboard() {
             />
             <StatCard
               label="SLA Compliance"
-              value={data.summary.overallSlaCompliance !== null ? `${data.summary.overallSlaCompliance}%` : 'N/A'}
+              value={data.summary.overallSlaCompliance !== null ? `${demo.pct(data.summary.overallSlaCompliance, 'dash-sla') ?? 0}%` : 'N/A'}
               href="/admin/reporting/companies"
               tooltip="Percentage of tickets completed before their due date (dueDateTime). Only includes tickets that have a due date set. Source: Ticket.dueDateTime vs Ticket.completedDate."
             />
             <StatCard
               label="Open Backlog"
-              value={data.summary.totalBacklog}
+              value={demo.num(data.summary.totalBacklog, 'dash-backlog')}
               href="/admin/reporting/companies"
               tooltip="Total count of all tickets currently in a non-resolved status, regardless of when they were created. Source: Autotask tickets where status is not Complete/Approved."
             />
@@ -282,7 +284,7 @@ export default function ReportingDashboard() {
               label="Avg Resolution"
               value={
                 data.summary.avgResolutionMinutes !== null
-                  ? formatMinutes(data.summary.avgResolutionMinutes)
+                  ? formatMinutes(demo.num(data.summary.avgResolutionMinutes, 'dash-avg-res'))
                   : 'N/A'
               }
               href="/admin/reporting/analytics"
@@ -336,9 +338,9 @@ export default function ReportingDashboard() {
                     >
                       <div className="flex items-center gap-3 min-w-0">
                         <span className="text-xs text-slate-500 w-5">{i + 1}.</span>
-                        <span className="text-sm text-white truncate">{c.displayName}</span>
+                        <span className="text-sm text-white truncate">{demo.company(c.displayName)}</span>
                       </div>
-                      <span className="text-sm text-cyan-400 flex-shrink-0">{c.ticketCount} tickets</span>
+                      <span className="text-sm text-cyan-400 flex-shrink-0">{demo.num(c.ticketCount, `tc-${c.companyId}`)} tickets</span>
                     </button>
                   ))}
                 </div>
@@ -365,9 +367,9 @@ export default function ReportingDashboard() {
                     >
                       <div className="flex items-center gap-3 min-w-0">
                         <span className="text-xs text-slate-500 w-5">{i + 1}.</span>
-                        <span className="text-sm text-white truncate">{t.name}</span>
+                        <span className="text-sm text-white truncate">{demo.person(t.name)}</span>
                       </div>
-                      <span className="text-sm text-cyan-400 flex-shrink-0">{t.hoursLogged}h</span>
+                      <span className="text-sm text-cyan-400 flex-shrink-0">{demo.num(t.hoursLogged, `th-${t.resourceId}`)}h</span>
                     </button>
                   ))}
                 </div>
