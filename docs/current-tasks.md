@@ -1,30 +1,46 @@
 # Current Tasks
 
-> Last updated: 2026-03-20
+> Last updated: 2026-03-27
 
 Active development work and outstanding items. Only currently active work belongs here — completed work moves to `docs/session-summary.md`.
 
 ---
 
-## In Progress
+## Critical — Verify After Deploy
 
-(No items currently in progress)
+### 1. Verify SSL Fix Resolved Production Issues
+- **What**: Pool consolidation removed SSL config from both `prisma.ts` and `db-pool.ts`, causing all production DB connections to fail silently
+- **Fixed in**: commits `8984702` (db-pool.ts) and `fb0edd6` (prisma.ts)
+- **Verify**: After deploy, confirm health monitor stops sending false alerts
+- **Verify**: Re-submit kflorance HR onboarding and confirm Autotask ticket is created
+
+### 2. Apply Pending Database Migrations
+- `error_logs` table — needed by health monitor error rate check and `src/lib/error-logger.ts`
+- `reporting_job_status` table — needed by health monitor cron job check
+- These may already exist if reporting migrate endpoint was called; health monitor now gracefully handles missing tables
+- Run via: `POST /api/reports/migrate` with Bearer MIGRATION_SECRET
+
+### 3. Verify Demo Mode Works End-to-End
+- Toggle demo mode on in admin header
+- Navigate to `/admin/companies/[id]` — company name, contacts, projects should be anonymized
+- Navigate to `/admin/preview/[slug]` — portal should load (was crashing), all data anonymized
+- Check reporting pages, SOC dashboard, ticket views — all should show fake data
 
 ---
 
 ## Immediate Backlog (do next)
 
-### 1. kflorance M365 Setup
+### 4. kflorance M365 Setup
 - Go to `/admin/companies/kflorance/onboard` → Step 2
 - Enter Azure AD Tenant ID, Client ID, Client Secret for the kflorance tenant
 - Click Test Connection, then Mark Complete
 - Once done, HR forms will show live groups/licenses/users from Azure AD
 
-### 2. DNS — portal subdomain
+### 5. DNS — portal subdomain
 - Add CNAME record: `portal` → `48fc0e6b423bbc2a.vercel-dns-010.com.`
 - Then add `portal.triplecitiestech.com` as a domain alias in Vercel project settings
 
-### 3. Pax8 Secret Rotation
+### 6. Pax8 Secret Rotation
 - Log into Pax8 portal → rotate `PAX8_CLIENT_SECRET`
 - Update `PAX8_CLIENT_SECRET` env var in Vercel project settings
 
@@ -63,20 +79,18 @@ Active development work and outstanding items. Only currently active work belong
 - **Status**: Built, waiting on M365 creds per company
 - **What it does**: Step 2 of HR wizard shows checkboxes for Azure AD security groups, distro lists, Teams, SharePoint sites; license SKU dropdown; user dropdown (clone-from)
 - **Requirement**: Each company needs M365 credentials entered via tech onboarding wizard first
-- **File**: `src/components/onboarding/HrRequestWizard.tsx`
 
 ### SOC Phase 2
 - **Status**: Not started
 - **Plans**: `docs/plans/SOC_REDESIGN_PLAN.md`
-- OSINT API integrations (AbuseIPDB, VirusTotal, AlienVault OTX, ip-api.com)
+- OSINT API integrations (AbuseIPDB, VirusTotal, AlienVault OTX)
 - Auto-action tiers (Tier 1 full auto, Tier 2 semi-auto, Tier 3/4 human required)
 - Single-pass AI analysis
 
 ### Background Job Architecture
 - **Status**: Researched, not started
-- **Problem**: Long-running HR provisioning (create AD user, assign licenses, add to groups) can't run inside a Vercel function (10s timeout on hobby, 60s on pro)
+- **Problem**: Long-running HR provisioning can't run inside a Vercel function (10s timeout on hobby, 60s on pro)
 - **Options**: BullMQ on Railway, Upstash QStash, or Vercel Cron + DB job queue
-- **User preference**: "reliable background job processing architecture, not simple request/response"
 
 ### Pax8 License Sync
 - **Status**: Not started
@@ -85,15 +99,14 @@ Active development work and outstanding items. Only currently active work belong
 
 ---
 
-## Completed This Session (2026-03-20)
+## Recently Completed (2026-03-27)
 
 | Task | Commit |
 |---|---|
-| Fix `page` implicit any in `graph.ts` pagination | `4170d65` |
-| Fix M365 sync errors: add M365 columns to Prisma schema | `a766b47` |
-| Fix `updated_at` → `"updatedAt"` in M365 raw SQL routes | `93c7945` |
-| Fix Prisma type cascade: add M365 fields to `new/page.tsx` select | `5da471e` |
-| Remove portal password gate | `a7fbd1a` |
-| Improve tech onboarding wizard Step 1 checklist | `a766b47` |
-| Clarify role badge click-to-edit in wizard instructions | `93c7945` |
-| Fix HR submit route: `companies.name` → `"displayName"` as name | `claude/fix-hr-submit-name-column` |
+| Pool consolidation: 24 pools → shared `getPool()` | `b07e7a2` |
+| Demo mode on company detail page + preview banner | `8c819f7` |
+| Demo mode for project/phase/task titles in portal | `ed07663` |
+| Fix demo mode null/undefined crash | `afd47f5` |
+| Fix missing SSL in db-pool.ts (critical) | `8984702` |
+| Fix health monitor job name mismatch + missing tables | `4653052` |
+| Fix missing SSL in prisma.ts (critical) | `fb0edd6` |
