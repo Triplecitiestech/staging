@@ -104,16 +104,25 @@ export async function GET(request: NextRequest) {
   // Systems that were previously alerted but are now healthy => send resolution
   const resolvedSystems = healthy.filter(r => previousAlertSystems.has(r.system));
 
-  // Systems that have issues and were NOT alerted in last 30 min => send alert
+  // Systems that have issues and were NOT alerted in last 2 hours => send alert
+  // Also require 2+ consecutive failures (tracked via failure_count) to avoid transient noise
   const recentlyAlertedSystems = new Set(
     previousAlerts
       .filter(a => {
         const alertedAt = new Date(a.alertedAt).getTime();
-        return Date.now() - alertedAt < 30 * 60 * 1000;
+        return Date.now() - alertedAt < 2 * 60 * 60 * 1000; // 2 hour cooldown
       })
       .map(a => a.system)
   );
-  const newIssues = issues.filter(r => !recentlyAlertedSystems.has(r.system));
+
+  // Increment failure count for current issues, reset for healthy systems
+  await updateFailureCounts(issues.map(i => i.system), healthy.map(h => h.system));
+  const failureCounts = await getFailureCounts(issues.map(i => i.system));
+
+  // Only alert if failure count >= 2 (means it failed on 2+ consecutive checks)
+  const newIssues = issues.filter(r =>
+    !recentlyAlertedSystems.has(r.system) && (failureCounts.get(r.system) ?? 0) >= 2
+  );
 
   // Send alert emails for new issues
   if (newIssues.length > 0) {
@@ -364,11 +373,11 @@ async function checkAutotaskApi(): Promise<HealthCheck> {
       };
     }
 
-    if (ageMinutes > 30) {
+    if (ageMinutes > 60) {
       return {
         system: 'Autotask API',
         status: 'degraded',
-        details: `Autotask sync is stale - last ran ${Math.round(ageMinutes)} min ago (expected every 5 min)`,
+        details: `Autotask sync is stale - last ran ${Math.round(ageMinutes)} min ago (expected every 15 min)`,
       };
     }
 
@@ -476,6 +485,68 @@ async function clearAlerts(systems: string[]): Promise<void> {
   }
 }
 
+// --- Failure Count Tracking (prevents alerting on single transient failures) ---
+
+async function ensureFailureCountColumn(): Promise<void> {
+  try {
+    await prisma.$executeRawUnsafe(`
+      ALTER TABLE health_monitor_alerts ADD COLUMN IF NOT EXISTS failure_count INTEGER DEFAULT 0
+    `);
+  } catch {
+    // Column may already exist or table not created yet
+  }
+}
+
+async function updateFailureCounts(issueSystems: string[], healthySystems: string[]): Promise<void> {
+  await ensureAlertTable();
+  await ensureFailureCountColumn();
+
+  // Increment failure count for systems with issues
+  for (const system of issueSystems) {
+    try {
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO health_monitor_alerts (id, system, status, failure_count, "alertedAt")
+         VALUES (gen_random_uuid()::text, $1, 'tracking', 1, NOW())
+         ON CONFLICT (system) DO UPDATE SET failure_count = COALESCE(health_monitor_alerts.failure_count, 0) + 1`,
+        system
+      );
+    } catch {
+      // Best effort
+    }
+  }
+
+  // Reset failure count for healthy systems
+  for (const system of healthySystems) {
+    try {
+      await prisma.$executeRawUnsafe(
+        `UPDATE health_monitor_alerts SET failure_count = 0 WHERE system = $1`,
+        system
+      );
+    } catch {
+      // Best effort
+    }
+  }
+}
+
+async function getFailureCounts(systems: string[]): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  if (systems.length === 0) return counts;
+
+  try {
+    const rows = await prisma.$queryRawUnsafe<{ system: string; failure_count: number }[]>(
+      `SELECT system, COALESCE(failure_count, 0) as failure_count FROM health_monitor_alerts WHERE system = ANY($1)`,
+      systems
+    );
+    for (const row of rows) {
+      counts.set(row.system, row.failure_count);
+    }
+  } catch {
+    // Return empty map if query fails
+  }
+
+  return counts;
+}
+
 // --- Email Sending ---
 
 async function sendIssueAlertEmail(issues: HealthCheck[]): Promise<void> {
@@ -536,7 +607,7 @@ async function sendIssueAlertEmail(issues: HealthCheck[]): Promise<void> {
       </div>
     </div>
     <div style="padding:16px 32px;background:#f8fafc;border-top:1px solid #e2e8f0;text-align:center;font-size:12px;color:#94a3b8;">
-      Triple Cities Tech Platform \u2022 Automated Health Monitor \u2022 Checks every 15 minutes
+      Triple Cities Tech Platform \u2022 Automated Health Monitor \u2022 Checks every 30 minutes
     </div>
   </div>
 </body>
@@ -614,7 +685,7 @@ async function sendResolutionEmail(resolved: HealthCheck[]): Promise<void> {
       </div>
     </div>
     <div style="padding:16px 32px;background:#f8fafc;border-top:1px solid #e2e8f0;text-align:center;font-size:12px;color:#94a3b8;">
-      Triple Cities Tech Platform \u2022 Automated Health Monitor \u2022 Checks every 15 minutes
+      Triple Cities Tech Platform \u2022 Automated Health Monitor \u2022 Checks every 30 minutes
     </div>
   </div>
 </body>

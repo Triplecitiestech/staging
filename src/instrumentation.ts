@@ -24,7 +24,10 @@ async function runMigrations() {
     }
 
     console.log('🔄 Running database migrations...')
-    const client = new Client({ connectionString: databaseUrl })
+    const client = new Client({
+      connectionString: databaseUrl,
+      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+    })
     await client.connect()
 
     // Add notes column to phase_tasks

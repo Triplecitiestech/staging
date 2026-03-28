@@ -92,7 +92,7 @@
   "crons": [
     {
       "path": "/api/cron/health-monitor",
-      "schedule": "0,15,30,45 * * * *"
+      "schedule": "0,30 * * * *"
     },
     {
       "path": "/api/cron/generate-blog",
@@ -108,7 +108,7 @@
     },
     {
       "path": "/api/cron/autotask-sync",
-      "schedule": "*/5 * * * *"
+      "schedule": "*/15 * * * *"
     },
     {
       "path": "/api/reports/jobs/sync-tickets",
@@ -148,7 +148,7 @@
     },
     {
       "path": "/api/cron/soc-triage",
-      "schedule": "*/5 * * * *"
+      "schedule": "*/15 * * * *"
     },
     {
       "path": "/api/cron/datto-device-sync",

@@ -212,6 +212,11 @@ async function handleSync(request: NextRequest) {
   } catch (err) {
     const duration = Date.now() - startTime;
     const errorMessage = err instanceof Error ? err.message : String(err);
+    const isConnectionError = errorMessage.includes('Failed to conn') ||
+      errorMessage.includes('Connection terminated') ||
+      errorMessage.includes('ECONNREFUSED') ||
+      errorMessage.includes('timeout');
+
     console.error(`[Autotask Sync] Fatal error: ${errorMessage}`);
 
     // Log failed sync
@@ -228,6 +233,17 @@ async function handleSync(request: NextRequest) {
       });
     } catch {
       // Don't fail if logging fails
+    }
+
+    // Return 200 for transient connection errors so Vercel doesn't flag them as failures.
+    // The sync will retry on the next cron invocation.
+    if (isConnectionError) {
+      return NextResponse.json({
+        success: false,
+        transient: true,
+        message: `Transient connection error (will retry next cycle): ${errorMessage}`,
+        durationMs: duration,
+      });
     }
 
     return NextResponse.json(
