@@ -91,9 +91,22 @@ export async function GET(request: NextRequest) {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    const isConnectionError = message.includes('Failed to conn') ||
+      message.includes('Connection terminated') ||
+      message.includes('ECONNREFUSED') ||
+      message.includes('timeout');
+
     console.error('[SOC Cron] Fatal error:', err);
 
     await updateJobStatus('soc-triage', 'failed', Date.now() - startTime, null, message);
+
+    // Return 200 for transient connection errors so Vercel doesn't flag them
+    if (isConnectionError) {
+      return NextResponse.json({
+        status: 'transient_error',
+        message: `Transient connection error (will retry next cycle): ${message}`,
+      });
+    }
 
     return NextResponse.json({ status: 'error', message }, { status: 500 });
   }
