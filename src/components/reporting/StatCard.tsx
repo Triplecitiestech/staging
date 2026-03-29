@@ -75,10 +75,10 @@ export default function StatCard({ label, value, subValue, trend, invertTrend, i
                 </svg>
               </button>
               {showTooltip && (
-                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 pointer-events-none">
+                <div className="absolute bottom-full right-0 mb-2 z-50 pointer-events-none">
                   <div className="bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-xs text-slate-300 shadow-lg w-56">
                     {tooltip}
-                    <div className="absolute top-full left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900 border-r border-b border-slate-600 rotate-45 -mt-1" />
+                    <div className="absolute top-full right-3 w-2 h-2 bg-slate-900 border-r border-b border-slate-600 rotate-45 -mt-1" />
                   </div>
                 </div>
               )}
