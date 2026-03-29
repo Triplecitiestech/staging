@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
+import { classifyError } from '@/lib/resilience';
 import { syncTickets, syncTimeEntries, syncTimeEntriesBulk, syncTicketNotes, syncResources } from '@/lib/reporting/sync';
 import { computeLifecycle } from '@/lib/reporting/lifecycle';
 import { aggregateTechnicianDaily, aggregateCompanyDaily } from '@/lib/reporting/aggregation';
@@ -84,8 +85,12 @@ async function runPipeline(jobName: string, days?: number, date?: Date) {
     const result = await JOB_MAP[jobName](date, days);
     return NextResponse.json({ success: true, job: jobName, result });
   } catch (err) {
+    const classified = classifyError(err);
+    if (classified.isTransient) {
+      return NextResponse.json({ error: classified.message, transient: true }, { status: 200 });
+    }
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Job execution failed' },
+      { error: classified.message },
       { status: 500 },
     );
   }

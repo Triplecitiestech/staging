@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { syncTimeEntries } from '@/lib/reporting/sync';
+import { classifyError, withRetry } from '@/lib/resilience';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -16,11 +17,15 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const result = await syncTimeEntries();
+    const result = await withRetry(() => syncTimeEntries(), { maxRetries: 1, baseDelayMs: 2000 });
     return NextResponse.json({ success: true, result });
   } catch (err) {
+    const classified = classifyError(err);
+    if (classified.isTransient) {
+      return NextResponse.json({ error: classified.message, transient: true }, { status: 200 });
+    }
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Sync failed' },
+      { error: classified.message },
       { status: 500 },
     );
   }

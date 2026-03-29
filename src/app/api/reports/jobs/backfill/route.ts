@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runBackfill, BackfillResult } from '@/lib/reporting/backfill';
+import { classifyError } from '@/lib/resilience';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -62,9 +63,22 @@ export async function GET(request: NextRequest) {
 
       currentStep = result.nextStep || undefined;
     } catch (err) {
+      const classified = classifyError(err);
+      if (classified.isTransient) {
+        return NextResponse.json({
+          success: false,
+          error: classified.message,
+          transient: true,
+          totalChains: chainCount + 1,
+          iterations: iteration,
+          totalDurationMs: Date.now() - overallStart,
+          results: allResults,
+          continueFrom: currentStep,
+        }, { status: 200 });
+      }
       return NextResponse.json({
         success: false,
-        error: err instanceof Error ? err.message : 'Backfill failed',
+        error: classified.message,
         totalChains: chainCount + 1,
         iterations: iteration,
         totalDurationMs: Date.now() - overallStart,
@@ -132,8 +146,12 @@ export async function POST(request: NextRequest) {
     const result = await runBackfill(months, startStep);
     return NextResponse.json({ success: true, result });
   } catch (err) {
+    const classified = classifyError(err);
+    if (classified.isTransient) {
+      return NextResponse.json({ error: classified.message, transient: true }, { status: 200 });
+    }
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Backfill failed' },
+      { error: classified.message },
       { status: 500 },
     );
   }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { processScheduledReports } from '@/lib/reporting/scheduler';
+import { classifyError, withRetry } from '@/lib/resilience';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -21,14 +22,18 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const result = await processScheduledReports();
+    const result = await withRetry(() => processScheduledReports(), { maxRetries: 1, baseDelayMs: 2000 });
     return NextResponse.json({
       status: result.failed > 0 ? 'partial' : 'success',
       ...result,
     });
   } catch (err) {
+    const classified = classifyError(err);
+    if (classified.isTransient) {
+      return NextResponse.json({ error: classified.message, transient: true }, { status: 200 });
+    }
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Delivery processing failed' },
+      { error: classified.message },
       { status: 500 },
     );
   }
