@@ -151,7 +151,7 @@ export default function ReportingDashboard() {
   )
 
   return (
-    <div className="space-y-6 overflow-x-hidden">
+    <div className="space-y-6">
       {/* Filter bar + Sync button */}
       <div className="flex flex-col sm:flex-row sm:items-start gap-4">
         <div className="flex-1">
