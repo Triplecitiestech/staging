@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { aggregateCompanyDaily } from '@/lib/reporting/aggregation';
+import { classifyError, withRetry } from '@/lib/resilience';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -18,11 +19,15 @@ export async function GET(request: NextRequest) {
   try {
     const dateParam = request.nextUrl.searchParams.get('date');
     const date = dateParam ? new Date(dateParam) : undefined;
-    const result = await aggregateCompanyDaily(date);
+    const result = await withRetry(() => aggregateCompanyDaily(date), { maxRetries: 1, baseDelayMs: 2000 });
     return NextResponse.json({ success: true, result });
   } catch (err) {
+    const classified = classifyError(err);
+    if (classified.isTransient) {
+      return NextResponse.json({ error: classified.message, transient: true }, { status: 200 });
+    }
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Aggregation failed' },
+      { error: classified.message },
       { status: 500 },
     );
   }
