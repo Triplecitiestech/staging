@@ -5,6 +5,12 @@
  * use raw pg instead of Prisma. This module provides a shared, resilient
  * pool so they don't each create separate connections.
  *
+ * Hardened for serverless with:
+ * - Global caching (reuses pool across invocations in the same isolate)
+ * - Generous connection timeout for cold starts
+ * - Background error handling
+ * - SSL for production
+ *
  * Usage:
  *   import { getPool } from '@/lib/db-pool'
  *   const pool = getPool()
@@ -20,6 +26,8 @@ const globalForPool = globalThis as unknown as {
 /**
  * Get (or create) the shared raw pg Pool.
  * Safe to call multiple times — returns the same instance.
+ * Cached globally in ALL environments (dev and prod) to prevent
+ * connection pool churn in serverless isolates.
  */
 export function getPool(): Pool {
   if (globalForPool.rawPool) return globalForPool.rawPool
@@ -27,8 +35,8 @@ export function getPool(): Pool {
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-    connectionTimeoutMillis: 10_000,
-    idleTimeoutMillis: 20_000,
+    connectionTimeoutMillis: 15_000,  // 15s — generous for cold starts
+    idleTimeoutMillis: 30_000,        // 30s — matches prisma.ts pool
     max: 5,
     allowExitOnIdle: true,
     keepAlive: true,
@@ -39,10 +47,9 @@ export function getPool(): Pool {
     console.error('Raw pg Pool background error (connection will be recycled):', err.message)
   })
 
-  // Only cache in dev (serverless functions are isolated in prod anyway)
-  if (process.env.NODE_ENV !== 'production') {
-    globalForPool.rawPool = pool
-  }
+  // Cache globally — serverless isolates reuse the same module scope across
+  // invocations, so caching prevents creating a new pool per request.
+  globalForPool.rawPool = pool
 
   return pool
 }

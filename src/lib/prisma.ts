@@ -1,6 +1,13 @@
-// Prisma Client Singleton
-// Prevents multiple instances in development (hot reload)
-// Safe for serverless (Vercel) with connection pooling + resilience
+/**
+ * Prisma Client Singleton
+ *
+ * Hardened for serverless (Vercel) with:
+ * - Connection pooling via pg Pool with keepalive
+ * - Global instance caching (prevents pool churn within the same isolate)
+ * - Generous connection timeout for cold starts
+ * - Background error handling to prevent process crashes
+ * - SSL configuration for production managed databases
+ */
 
 import { PrismaClient } from '@prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
@@ -19,15 +26,25 @@ function createPool(): Pool {
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-    connectionTimeoutMillis: 10_000,  // 10s max to acquire a connection
-    idleTimeoutMillis: 20_000,        // Close idle connections after 20s (serverless-friendly)
-    max: 5,                           // Lower pool size — each serverless function gets its own
-    allowExitOnIdle: true,            // Let the process exit cleanly when idle
-    keepAlive: true,                  // TCP keepalive to detect dead connections
+    // 15s connection timeout — generous for cold starts where the DB may
+    // need to wake up (Neon/Supabase serverless databases have cold starts too)
+    connectionTimeoutMillis: 15_000,
+    // Close idle connections after 30s — balances reuse vs resource cleanup.
+    // Serverless functions can be kept warm for 5-15 min, so idle connections
+    // may be reused across invocations within the same isolate.
+    idleTimeoutMillis: 30_000,
+    // Max 5 connections per isolate. Vercel serverless functions share isolates
+    // across invocations, so this limits total connections per function instance.
+    max: 5,
+    // Let the process exit when all connections are idle (serverless-friendly)
+    allowExitOnIdle: true,
+    // TCP keepalive detects broken connections (e.g., DB failover, network blip)
+    keepAlive: true,
     keepAliveInitialDelayMillis: 10_000,
   })
 
-  // Critical: handle pool-level errors so they don't crash the process
+  // Critical: handle pool-level errors so they don't crash the process.
+  // The pool will automatically remove the failed connection and create a new one.
   pool.on('error', (err) => {
     console.error('pg Pool background error (connection will be recycled):', err.message)
   })
@@ -40,11 +57,12 @@ let prismaClient: PrismaClient
 
 // During build time, we need to provide an adapter to avoid the error
 if (process.env.DATABASE_URL) {
-  // Reuse pool across hot reloads in dev, fresh in production (serverless isolates anyway)
+  // IMPORTANT: Cache pool and client globally. In serverless, the same isolate
+  // handles multiple invocations. Without caching, each invocation creates a
+  // new pool → connection churn → pool exhaustion under load.
+  // In dev, this also prevents hot-reload duplication.
   const pool = globalForPrisma.pgPool ?? createPool()
-  if (process.env.NODE_ENV !== 'production') {
-    globalForPrisma.pgPool = pool
-  }
+  globalForPrisma.pgPool = pool
 
   const adapter = new PrismaPg(pool)
 
@@ -52,6 +70,7 @@ if (process.env.DATABASE_URL) {
     adapter,
     log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
   })
+  globalForPrisma.prisma = prismaClient
 } else {
   // Fallback for build time when DATABASE_URL might not be set
   const mockPool = new Pool({
@@ -63,10 +82,6 @@ if (process.env.DATABASE_URL) {
     adapter,
     log: ['error'],
   })
-}
-
-if (process.env.NODE_ENV !== 'production') {
-  globalForPrisma.prisma = prismaClient
 }
 
 export const prisma = prismaClient
