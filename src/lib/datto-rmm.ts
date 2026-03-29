@@ -95,6 +95,7 @@ export class DattoRmmClient {
         'Authorization': `Basic ${publicAuth}`,
       },
       body: `grant_type=password&username=${encodeURIComponent(this.apiKey)}&password=${encodeURIComponent(this.apiSecret)}`,
+      signal: AbortSignal.timeout(15_000),
     });
 
     const text = await res.text();

@@ -76,6 +76,8 @@ These are the authoritative modules for each subsystem. Claude must use these �
 | Autotask API client | `src/lib/autotask.ts` | All Autotask REST calls go through this client |
 | Prisma / Database | `src/lib/prisma.ts` | Singleton PrismaClient with PrismaPg adapter |
 | Security utilities | `src/lib/security.ts` | Rate limiting, input sanitization, CSRF |
+| Resilience utilities | `src/lib/resilience.ts` | Retry, timeout, circuit breaker, error classification, structured logging |
+| Cron job wrapper | `src/lib/cron-wrapper.ts` | Standardized cron execution with auth, retry, timeout |
 | Staff permissions | `src/lib/permissions.ts` | Role-based access control (SUPER_ADMIN, ADMIN, BILLING_ADMIN, TECHNICIAN) |
 | Unified ticket system | `src/lib/tickets/` | Adapters, types, and utils consumed by all ticket views |
 | SOC engine | `src/lib/soc/` | Engine, correlation, rules, prompts, types |
@@ -342,6 +344,11 @@ This is the **primary external data source** for companies, projects, phases, an
 
 ## Gotchas
 
+- **All external API fetch() calls MUST have timeouts**: Every `fetch()` call to an external service (Autotask, Graph, Pax8, Datto, Resend, Anthropic, Turnstile, social media) MUST include `signal: AbortSignal.timeout(X)`. Without a timeout, a hung external API blocks the entire serverless function indefinitely. Use 15s for auth/token calls, 30s for data requests. The `src/lib/resilience.ts` module provides `withTimeout()` for wrapping non-fetch operations.
+- **Use `src/lib/resilience.ts` for all retry/timeout/circuit-breaker needs**: This module is the single source of truth for: `withRetry()` (exponential backoff), `withTimeout()`, `withCircuitBreaker()`, `withDbRetry()` (optimized for serverless cold starts), `classifyError()`, and `structuredLog`. Do NOT create ad-hoc retry loops elsewhere.
+- **Health monitor uses sliding window, NOT point-in-time checks**: The health monitor (`/api/cron/health-monitor`) requires 3 consecutive failures to alert and 2 consecutive healthy checks to resolve. It uses the `health_monitor_state` DB table (NOT `health_monitor_alerts` which is legacy). Do not reduce these thresholds — they prevent alert oscillation.
+- **DB pools MUST be cached globally (all environments)**: Both `src/lib/prisma.ts` and `src/lib/db-pool.ts` cache their pools on `globalThis`. In serverless, the same isolate handles multiple invocations — without global caching, each invocation creates a new pool, causing connection churn and pool exhaustion. Never change the caching to dev-only.
+- **Cron jobs must NEVER return 500 for transient failures**: All cron jobs should use `classifyError()` from `resilience.ts` and return 200 with `transient: true` for connection/timeout errors. This prevents Vercel from flagging cron invocations as failures and triggering its own alerting.
 - **Datto RMM API: site UID vs numeric ID**: The Datto RMM API has two identifiers for sites — a numeric `id` (e.g. `405222`) and a UUID `uid` (e.g. `380a3e72-...`). Site-specific endpoints like `/api/v2/site/{id}/devices` require the **UID**, not the numeric ID. The `DattoSite` type stores both. Always use `site.uid` for API calls. The global `/api/v2/account/devices` endpoint returns only a subset of devices (5 out of hundreds) — use per-site fetching via `getSiteDevices(uid)` instead.
 - **Don't guess about external APIs**: When integrating with external APIs (Datto RMM, Autotask, etc.), read the actual API documentation before writing code. Trial-and-error wastes deployment cycles. The Datto RMM API docs are at the vendor's developer portal.
 - **Proactive error checking**: After making changes, actively look for potential errors — check browser console output, test API endpoints with edge cases, verify state sync between components (useState must sync with prop changes via useEffect), and confirm that absolute-positioned dropdowns aren't clipped by parent overflow. Don't wait for the user to find bugs. Log and fix them.

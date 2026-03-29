@@ -60,6 +60,7 @@ async function getAccessToken(
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: body.toString(),
+    signal: AbortSignal.timeout(15_000), // 15s timeout for token fetch
   })
 
   if (!res.ok) {
@@ -234,6 +235,7 @@ async function graphRequest<T>(
       'Content-Type': 'application/json',
       ...(options?.headers ?? {}),
     },
+    signal: options?.signal ?? AbortSignal.timeout(30_000), // 30s timeout per request
   })
 
   if (!res.ok) {
@@ -254,16 +256,22 @@ async function graphRequest<T>(
   return JSON.parse(text) as T
 }
 
-// Paginate through @odata.nextLink automatically
-async function graphGetAll<T>(token: string, path: string): Promise<T[]> {
+// Paginate through @odata.nextLink automatically (max 50 pages to prevent runaway)
+async function graphGetAll<T>(token: string, path: string, maxPages = 50): Promise<T[]> {
   const results: T[] = []
   let url: string | null = path.startsWith('https://') ? path : `https://graph.microsoft.com/v1.0${path}`
+  let pageCount = 0
 
-  while (url) {
+  while (url && pageCount < maxPages) {
     const page: { value: T[]; '@odata.nextLink'?: string } =
       await graphRequest<{ value: T[]; '@odata.nextLink'?: string }>(token, url)
     results.push(...(page.value ?? []))
     url = page['@odata.nextLink'] ?? null
+    pageCount++
+  }
+
+  if (pageCount >= maxPages && url) {
+    console.warn(`[Graph] Pagination capped at ${maxPages} pages for ${path} — ${results.length} results returned`)
   }
 
   return results
