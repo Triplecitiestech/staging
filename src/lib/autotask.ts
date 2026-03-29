@@ -257,17 +257,24 @@ export class AutotaskClient {
 
   private async get<T>(endpoint: string): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: this.headers,
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30_000); // 30s timeout
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: this.headers,
+        signal: controller.signal,
+      });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Autotask API GET ${endpoint} failed (${response.status}): ${errorText}`);
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Autotask API GET ${endpoint} failed (${response.status}): ${errorText}`);
+      }
+
+      return response.json() as Promise<T>;
+    } finally {
+      clearTimeout(timeoutId);
     }
-
-    return response.json() as Promise<T>;
   }
 
   /**
@@ -281,38 +288,56 @@ export class AutotaskClient {
     // First request — wrap single filter in array, pass arrays as-is
     const filterArray = Array.isArray(filter) ? filter : [filter];
     const url = `${this.baseUrl}/v1.0/${entityPath}/query`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: this.headers,
-      body: JSON.stringify({ filter: filterArray }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Autotask API query ${entityPath} failed (${response.status}): ${errorText}`);
-    }
-
-    const data = (await response.json()) as AutotaskApiResponse<T>;
-    if (data.items) {
-      results.push(...data.items);
-    }
-
-    nextPageUrl = data.pageDetails?.nextPageUrl;
-
-    // Paginate through all results
-    while (nextPageUrl) {
-      const pageResponse = await fetch(nextPageUrl, {
-        method: 'GET',
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30_000); // 30s timeout
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
         headers: this.headers,
+        body: JSON.stringify({ filter: filterArray }),
+        signal: controller.signal,
       });
 
-      if (!pageResponse.ok) break;
-
-      const pageData = (await pageResponse.json()) as AutotaskApiResponse<T>;
-      if (pageData.items) {
-        results.push(...pageData.items);
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Autotask API query ${entityPath} failed (${response.status}): ${errorText}`);
       }
-      nextPageUrl = pageData.pageDetails?.nextPageUrl;
+
+      const data = (await response.json()) as AutotaskApiResponse<T>;
+      if (data.items) {
+        results.push(...data.items);
+      }
+
+      nextPageUrl = data.pageDetails?.nextPageUrl;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+    // Paginate through all results (each page gets its own timeout)
+    while (nextPageUrl) {
+      const pageController = new AbortController();
+      const pageTimeoutId = setTimeout(() => pageController.abort(), 30_000);
+      try {
+        const pageResponse = await fetch(nextPageUrl, {
+          method: 'GET',
+          headers: this.headers,
+          signal: pageController.signal,
+        });
+
+        if (!pageResponse.ok) break;
+
+        const pageData = (await pageResponse.json()) as AutotaskApiResponse<T>;
+        if (pageData.items) {
+          results.push(...pageData.items);
+        }
+        nextPageUrl = pageData.pageDetails?.nextPageUrl;
+      } catch {
+        // Stop pagination on timeout/error — return what we have so far
+        console.warn(`[AutotaskClient] Pagination stopped for ${entityPath} — returning ${results.length} results collected so far`);
+        break;
+      } finally {
+        clearTimeout(pageTimeoutId);
+      }
     }
 
     return results;

@@ -26,7 +26,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'DATABASE_URL not configured' }, { status: 500 })
     }
 
-    const client = new Client({ connectionString: databaseUrl })
+    const client = new Client({
+      connectionString: databaseUrl,
+      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+    })
     await client.connect()
 
     const results: string[] = []

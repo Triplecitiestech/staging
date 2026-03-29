@@ -20,8 +20,11 @@ export async function POST(request: Request) {
       }, { status: 500 })
     }
 
-    // Connect directly to database
-    const client = new Client({ connectionString: databaseUrl })
+    // Connect directly to database (with SSL for production)
+    const client = new Client({
+      connectionString: databaseUrl,
+      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+    })
     await client.connect()
 
     const results = []

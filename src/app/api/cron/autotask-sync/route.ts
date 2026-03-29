@@ -15,6 +15,14 @@ import {
 import { ProjectStatus, PhaseStatus, TaskStatus, Priority } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
+import {
+  generateCorrelationId,
+  classifyError,
+  withDbRetry,
+  withCircuitBreaker,
+  structuredLog,
+  type LogContext,
+} from '@/lib/resilience';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -23,7 +31,7 @@ const SYSTEM_EMAIL = 'autotask-sync@triplecitiestech.com';
 
 /**
  * Autotask Sync Cron Job
- * Runs every 5 minutes via Vercel Cron
+ * Runs every 15 minutes via Vercel Cron
  *
  * GET /api/cron/autotask-sync
  * Authorization: Bearer <AUTOTASK_SYNC_SECRET> or Vercel Cron header
@@ -37,6 +45,8 @@ export async function POST(request: NextRequest) {
 }
 
 async function handleSync(request: NextRequest) {
+  const correlationId = generateCorrelationId();
+  const ctx: LogContext = { correlationId, operation: 'autotask-sync' };
   const startTime = Date.now();
   const errors: string[] = [];
   const stats = {
@@ -57,18 +67,15 @@ async function handleSync(request: NextRequest) {
     const syncSecret = process.env.AUTOTASK_SYNC_SECRET;
 
     if (!cronSecret && !syncSecret) {
-      console.error('[Autotask Sync] No cron secret configured — CRON_SECRET or AUTOTASK_SYNC_SECRET must be set');
       return NextResponse.json({ error: 'Unauthorized: cron secret not configured' }, { status: 401 });
     } else if (authHeader) {
       const isValid =
         (cronSecret && authHeader === `Bearer ${cronSecret}`) ||
         (syncSecret && authHeader === `Bearer ${syncSecret}`);
       if (!isValid) {
-        console.error('[Autotask Sync] Invalid authorization');
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       }
     } else {
-      console.error('[Autotask Sync] Missing Authorization header');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -85,33 +92,36 @@ async function handleSync(request: NextRequest) {
       );
     }
 
-    const client = new AutotaskClient();
+    // Use circuit breaker to prevent hammering Autotask when it's down
+    const client = await withCircuitBreaker(
+      async () => new AutotaskClient(),
+      { name: 'autotask-api', failureThreshold: 3, resetTimeoutMs: 120_000 },
+    );
 
     // Determine if this is an incremental or full sync
-    const lastSync = await prisma.autotaskSyncLog.findFirst({
-      where: { status: 'success' },
-      orderBy: { startedAt: 'desc' },
-    });
+    const lastSync = await withDbRetry(
+      () => prisma.autotaskSyncLog.findFirst({
+        where: { status: 'success' },
+        orderBy: { startedAt: 'desc' },
+      }),
+      'autotask-sync:lastSync',
+    );
 
     const isIncremental = !!lastSync?.completedAt;
     const syncSince = lastSync?.completedAt ?? undefined;
 
-    console.log(
-      `[Autotask Sync] Starting ${isIncremental ? 'incremental' : 'full'} sync${
-        syncSince ? ` (since ${syncSince.toISOString()})` : ''
-      }`
-    );
+    structuredLog.info(ctx, `Starting ${isIncremental ? 'incremental' : 'full'} sync${syncSince ? ` (since ${syncSince.toISOString()})` : ''}`);
 
     // 1. Sync Companies
     const atCompanies = isIncremental && syncSince
       ? await client.getCompaniesModifiedSince(syncSince)
       : await client.getActiveCompanies();
 
-    console.log(`[Autotask Sync] Found ${atCompanies.length} companies to sync`);
+    structuredLog.info({ ...ctx, companyCount: atCompanies.length }, `Found ${atCompanies.length} companies to sync`);
 
     for (const atCompany of atCompanies) {
       try {
-        const result = await syncCompany(atCompany);
+        const result = await withDbRetry(() => syncCompany(atCompany), 'syncCompany');
         if (result.created) stats.companiesCreated++;
         else stats.companiesUpdated++;
 
@@ -119,18 +129,16 @@ async function handleSync(request: NextRequest) {
         const atContacts = await client.getContactsByCompany(atCompany.id);
         for (const atContact of atContacts) {
           try {
-            const contactResult = await syncContact(atContact, result.companyId);
+            const contactResult = await withDbRetry(() => syncContact(atContact, result.companyId), 'syncContact');
             if (contactResult.created) stats.contactsCreated++;
             else stats.contactsUpdated++;
           } catch (err) {
             const msg = `Contact sync error (AT ID ${atContact.id}): ${err instanceof Error ? err.message : String(err)}`;
-            console.error(`[Autotask Sync] ${msg}`);
             errors.push(msg);
           }
         }
       } catch (err) {
         const msg = `Company sync error (AT ID ${atCompany.id}): ${err instanceof Error ? err.message : String(err)}`;
-        console.error(`[Autotask Sync] ${msg}`);
         errors.push(msg);
       }
     }
@@ -140,21 +148,24 @@ async function handleSync(request: NextRequest) {
       ? await client.getProjectsModifiedSince(syncSince)
       : await client.getAllProjects();
 
-    console.log(`[Autotask Sync] Found ${atProjects.length} projects to sync`);
+    structuredLog.info({ ...ctx, projectCount: atProjects.length }, `Found ${atProjects.length} projects to sync`);
 
     for (const atProject of atProjects) {
       try {
         // Find the local company for this project
-        const company = await prisma.company.findFirst({
-          where: { autotaskCompanyId: String(atProject.companyID) },
-          select: { id: true },
-        });
+        const company = await withDbRetry(
+          () => prisma.company.findFirst({
+            where: { autotaskCompanyId: String(atProject.companyID) },
+            select: { id: true },
+          }),
+          'findCompany',
+        );
 
         if (!company) {
           // Company not synced yet - try to fetch and sync it
           try {
             const atCompany = await client.getCompany(atProject.companyID);
-            const companyResult = await syncCompany(atCompany);
+            const companyResult = await withDbRetry(() => syncCompany(atCompany), 'syncCompany');
             if (companyResult.created) stats.companiesCreated++;
             else stats.companiesUpdated++;
 
@@ -165,7 +176,6 @@ async function handleSync(request: NextRequest) {
             stats.tasksUpdated += projectResult.tasksUpdated;
           } catch (err) {
             const msg = `Project sync error - could not find/create company (AT Company ID ${atProject.companyID}): ${err instanceof Error ? err.message : String(err)}`;
-            console.error(`[Autotask Sync] ${msg}`);
             errors.push(msg);
           }
           continue;
@@ -178,7 +188,6 @@ async function handleSync(request: NextRequest) {
         stats.tasksUpdated += projectResult.tasksUpdated;
       } catch (err) {
         const msg = `Project sync error (AT ID ${atProject.id}): ${err instanceof Error ? err.message : String(err)}`;
-        console.error(`[Autotask Sync] ${msg}`);
         errors.push(msg);
       }
     }
@@ -187,46 +196,13 @@ async function handleSync(request: NextRequest) {
     const duration = Date.now() - startTime;
     const syncStatus = errors.length === 0 ? 'success' : 'partial';
 
-    await prisma.autotaskSyncLog.create({
-      data: {
-        syncType: isIncremental ? 'incremental' : 'full',
-        status: syncStatus,
-        ...stats,
-        errors: errors.length > 0 ? JSON.stringify(errors) : null,
-        durationMs: duration,
-        completedAt: new Date(),
-      },
-    });
-
-    console.log(
-      `[Autotask Sync] Completed in ${duration}ms - ${JSON.stringify(stats)} - ${errors.length} errors`
-    );
-
-    return NextResponse.json({
-      success: true,
-      syncType: isIncremental ? 'incremental' : 'full',
-      stats,
-      errors: errors.length > 0 ? errors : undefined,
-      durationMs: duration,
-    });
-  } catch (err) {
-    const duration = Date.now() - startTime;
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    const isConnectionError = errorMessage.includes('Failed to conn') ||
-      errorMessage.includes('Connection terminated') ||
-      errorMessage.includes('ECONNREFUSED') ||
-      errorMessage.includes('timeout');
-
-    console.error(`[Autotask Sync] Fatal error: ${errorMessage}`);
-
-    // Log failed sync
     try {
       await prisma.autotaskSyncLog.create({
         data: {
-          syncType: 'unknown',
-          status: 'failed',
+          syncType: isIncremental ? 'incremental' : 'full',
+          status: syncStatus,
           ...stats,
-          errors: JSON.stringify([errorMessage, ...errors]),
+          errors: errors.length > 0 ? JSON.stringify(errors) : null,
           durationMs: duration,
           completedAt: new Date(),
         },
@@ -235,19 +211,60 @@ async function handleSync(request: NextRequest) {
       // Don't fail if logging fails
     }
 
-    // Return 200 for transient connection errors so Vercel doesn't flag them as failures.
-    // The sync will retry on the next cron invocation.
-    if (isConnectionError) {
+    structuredLog.info(
+      { ...ctx, durationMs: duration, stats, errorCount: errors.length },
+      `Sync completed in ${duration}ms`,
+    );
+
+    return NextResponse.json({
+      success: true,
+      syncType: isIncremental ? 'incremental' : 'full',
+      stats,
+      errors: errors.length > 0 ? errors : undefined,
+      correlationId,
+      durationMs: duration,
+    });
+  } catch (err) {
+    const duration = Date.now() - startTime;
+    const classified = classifyError(err);
+
+    structuredLog.error(
+      { ...ctx, durationMs: duration, errorCategory: classified.category },
+      `Sync failed: ${classified.message}`,
+      err,
+    );
+
+    // Log failed sync
+    try {
+      await prisma.autotaskSyncLog.create({
+        data: {
+          syncType: 'unknown',
+          status: 'failed',
+          ...stats,
+          errors: JSON.stringify([classified.message, ...errors]),
+          durationMs: duration,
+          completedAt: new Date(),
+        },
+      });
+    } catch {
+      // Don't fail if logging fails
+    }
+
+    // ALWAYS return 200 for transient errors so Vercel doesn't flag them.
+    // The health monitor uses sliding-window logic to detect real outages.
+    if (classified.isTransient) {
       return NextResponse.json({
         success: false,
         transient: true,
-        message: `Transient connection error (will retry next cycle): ${errorMessage}`,
+        errorCategory: classified.category,
+        message: `Transient ${classified.category} error (will retry next cycle): ${classified.message}`,
+        correlationId,
         durationMs: duration,
       });
     }
 
     return NextResponse.json(
-      { error: 'Sync failed', message: errorMessage },
+      { error: 'Sync failed', message: classified.message, correlationId },
       { status: 500 }
     );
   }

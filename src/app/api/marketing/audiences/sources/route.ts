@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Pool } from 'pg';
+import { getPool } from '@/lib/db-pool';
 
 /**
  * Fix column types and ensure tables/data exist.
@@ -7,10 +7,7 @@ import { Pool } from 'pg';
  * Returns all active sources via raw SQL.
  */
 async function initDefaultsRaw(): Promise<{ id: string; name: string; providerType: string; config: unknown; isActive: boolean; createdAt: Date; updatedAt: Date }[]> {
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) throw new Error('DATABASE_URL not set');
-
-  const pool = new Pool({ connectionString, max: 2 });
+  const pool = getPool();
   const client = await pool.connect();
 
   try {
@@ -279,7 +276,7 @@ async function initDefaultsRaw(): Promise<{ id: string; name: string; providerTy
     return result.rows;
   } finally {
     client.release();
-    await pool.end();
+    // Do NOT call pool.end() — this is a shared pool from db-pool.ts
   }
 }
 
