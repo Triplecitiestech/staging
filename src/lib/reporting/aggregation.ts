@@ -163,10 +163,10 @@ async function aggregateTechnicianForDay(date: Date): Promise<AggregationResult>
       `SELECT "assignedResourceId" AS rid, COUNT(*)::bigint AS cnt
        FROM tickets
        WHERE "assignedResourceId" = ANY($1::int[])
-         AND "createDate" <= $3
-         AND ("completedDate" IS NULL OR "completedDate" > $3)
+         AND "createDate" <= $2
+         AND ("completedDate" IS NULL OR "completedDate" > $2)
        GROUP BY "assignedResourceId"`,
-      resourceIds, dayStart, dayEnd,
+      resourceIds, dayEnd,
     );
     const assignedMap = new Map(assignedRows.map(r => [r.rid, Number(r.cnt)]));
 
@@ -268,11 +268,11 @@ async function aggregateTechnicianForDay(date: Date): Promise<AggregationResult>
       `SELECT "assignedResourceId" AS rid, COUNT(*)::bigint AS cnt
        FROM tickets
        WHERE "assignedResourceId" = ANY($1::int[])
-         AND "createDate" <= $3
-         AND ("completedDate" IS NULL OR "completedDate" > $3)
-         AND NOT (status = ANY($4::int[]))
+         AND "createDate" <= $2
+         AND ("completedDate" IS NULL OR "completedDate" > $2)
+         AND NOT (status = ANY($3::int[]))
        GROUP BY "assignedResourceId"`,
-      resourceIds, dayStart, dayEnd, resolvedStatuses,
+      resourceIds, dayEnd, resolvedStatuses,
     );
     const openMap = new Map(openRows.map(r => [r.rid, Number(r.cnt)]));
 
@@ -451,11 +451,11 @@ async function aggregateCompanyForDay(date: Date): Promise<AggregationResult> {
               COUNT(*) FILTER (WHERE priority = 2)::bigint AS high
        FROM tickets
        WHERE "companyId" = ANY($1::text[])
-         AND "createDate" <= $3
-         AND ("completedDate" IS NULL OR "completedDate" > $3)
-         AND NOT (status = ANY($4::int[]))
+         AND "createDate" <= $2
+         AND ("completedDate" IS NULL OR "completedDate" > $2)
+         AND NOT (status = ANY($3::int[]))
        GROUP BY "companyId"`,
-      companyIds, dayStart, dayEnd, resolvedStatuses,
+      companyIds, dayEnd, resolvedStatuses,
     );
     const openMap = new Map(openRows.map(r => [r.cid, {
       count: Number(r.cnt), urgent: Number(r.urgent), high: Number(r.high),
