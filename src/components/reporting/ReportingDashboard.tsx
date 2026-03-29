@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import ReportFilterBar from './ReportFilters'
+import DataSyncStatus from './DataSyncStatus'
 import StatCard from './StatCard'
 import TrendChart from './TrendChart'
 import PriorityBreakdownChart from './PriorityBreakdownChart'
@@ -404,16 +405,16 @@ export default function ReportingDashboard() {
           {/* AI Report Assistant */}
           <ReportAIAssistant context="dashboard" data={data} />
 
-          {/* Meta info */}
-          <div className="bg-slate-800/30 rounded-lg px-4 py-3 border border-slate-700/30">
-            <div className="text-xs text-slate-500 flex flex-wrap gap-4">
-              <span>Data range: {data.meta.period.from} to {data.meta.period.to}</span>
-              <span>Tickets in period: {data.meta.ticketCount}</span>
-              {data.meta.dataFreshness && (
-                <span>Last sync: {new Date(data.meta.dataFreshness).toLocaleString()}</span>
-              )}
-            </div>
-          </div>
+          {/* Data source + sync status */}
+          <DataSyncStatus
+            source="Autotask PSA"
+            syncFrequency="every 2 hours"
+            lastSyncAt={data.meta.dataFreshness}
+            dataRange={data.meta.period}
+            recordCount={data.meta.ticketCount}
+            onSyncNow={runSync}
+            syncing={syncing}
+          />
         </>
       )}
     </div>

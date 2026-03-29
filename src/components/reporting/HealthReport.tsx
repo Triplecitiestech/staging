@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import ReportFilterBar from './ReportFilters'
 import HealthDistribution from './HealthDistribution'
 import ReportAIAssistant from './ReportAIAssistant'
+import DataSyncStatus from './DataSyncStatus'
 import { useDemoMode } from '@/components/admin/DemoModeProvider'
 
 interface HealthScore {
@@ -224,15 +225,13 @@ export default function HealthReport() {
       {/* AI Report Assistant */}
       <ReportAIAssistant context="health" data={data} />
 
-      {/* Date range */}
-      <div className="bg-slate-800/30 rounded-lg px-4 py-3 border border-slate-700/30">
-        <div className="text-xs text-slate-500 flex flex-wrap gap-4">
-          <span>Data range: {data.meta.period.from} to {data.meta.period.to}</span>
-          {data.meta.dataFreshness && (
-            <span>Last sync: {new Date(data.meta.dataFreshness).toLocaleString()}</span>
-          )}
-        </div>
-      </div>
+      {/* Data source + sync status */}
+      <DataSyncStatus
+        source="Autotask PSA"
+        syncFrequency="every 2 hours"
+        lastSyncAt={data.meta.dataFreshness}
+        dataRange={data.meta.period}
+      />
     </div>
   )
 }
