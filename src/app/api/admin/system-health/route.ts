@@ -198,23 +198,34 @@ async function getCronJobStatuses() {
     'datto-device-sync': 30,
   };
 
-  // Schedules must match vercel.json cron definitions exactly
+  // Schedules must match vercel.json cron definitions exactly.
+  // Keys use BOTH underscored names (as stored in ReportingJobStatus.jobName)
+  // and hyphenated names (for display/legacy) so lookups always match.
   const schedules: Record<string, string> = {
+    'sync_tickets': 'Every 2 hours',
     'sync-tickets': 'Every 2 hours',
+    'sync_time_entries': 'Every 2 hours (+10min)',
     'sync-time-entries': 'Every 2 hours (+10min)',
+    'sync_time_entries_bulk': 'Every 2 hours (+10min)',
+    'sync_ticket_notes': 'Every 2 hours (+20min)',
     'sync-ticket-notes': 'Every 2 hours (+20min)',
+    'sync_resources': 'Daily midnight',
     'sync-resources': 'Daily midnight',
+    'aggregate_company': 'Nightly 1:15AM',
     'aggregate-company': 'Nightly 1:15AM',
+    'aggregate_technician': 'Nightly 1AM',
     'aggregate-technician': 'Nightly 1AM',
+    'compute_health': 'Weekly (Sun 2AM)',
     'compute-health': 'Weekly (Sun 2AM)',
+    'compute_lifecycle': 'Every 2 hours (+30min)',
     'compute-lifecycle': 'Every 2 hours (+30min)',
     'deliver': 'Daily 8AM',
     'backfill': 'On demand',
     'generate-blog': 'Mon/Wed/Fri 8AM',
     'publish-scheduled': 'Every 15 min',
-    'autotask-sync': 'Every 5 min',
+    'autotask-sync': 'Every 15 min',
     'send-approval-emails': 'Daily noon',
-    'soc-triage': 'Every 5 min',
+    'soc-triage': 'Every 15 min',
     'datto-device-sync': 'Every 30 min',
   };
 
