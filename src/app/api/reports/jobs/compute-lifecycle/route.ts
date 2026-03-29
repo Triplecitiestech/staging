@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { computeLifecycle } from '@/lib/reporting/lifecycle';
+import { classifyError, withRetry } from '@/lib/resilience';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -16,11 +17,22 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const result = await computeLifecycle();
+    const result = await withRetry(() => computeLifecycle(), {
+      maxRetries: 1,
+      baseDelayMs: 2000,
+    });
     return NextResponse.json({ success: true, result });
   } catch (err) {
+    const classified = classifyError(err);
+    if (classified.isTransient) {
+      return NextResponse.json({
+        success: false,
+        transient: true,
+        message: `Transient ${classified.category} error: ${classified.message}`,
+      });
+    }
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Computation failed' },
+      { error: classified.message },
       { status: 500 },
     );
   }
