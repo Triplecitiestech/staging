@@ -34,6 +34,7 @@ async function verifyTurnstileToken(token: string, ip: string): Promise<boolean>
         response: token,
         remoteip: ip,
       }),
+      signal: AbortSignal.timeout(10_000),
     })
 
     const data = await response.json()

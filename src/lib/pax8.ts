@@ -155,6 +155,7 @@ class Pax8Client {
         audience:      PAX8_AUDIENCE,
         grant_type:    'client_credentials',
       }),
+      signal: AbortSignal.timeout(15_000), // 15s timeout for auth
     })
 
     if (!res.ok) {
@@ -185,6 +186,7 @@ class Pax8Client {
         Authorization: `Bearer ${this.accessToken}`,
         ...(options.headers ?? {}),
       },
+      signal: options.signal ?? AbortSignal.timeout(30_000), // 30s timeout per request
     })
 
     if (!res.ok) {
@@ -200,12 +202,12 @@ class Pax8Client {
     return res.json() as Promise<T>
   }
 
-  private async getPaged<T>(path: string, params?: Record<string, string>): Promise<T[]> {
+  private async getPaged<T>(path: string, params?: Record<string, string>, maxPages = 50): Promise<T[]> {
     const allItems: T[] = []
     let page = 0
     const size = 100
 
-    while (true) {
+    while (page < maxPages) {
       const query = new URLSearchParams({
         page: String(page),
         size: String(size),
@@ -219,6 +221,10 @@ class Pax8Client {
         break
       }
       page += 1
+    }
+
+    if (page >= maxPages) {
+      console.warn(`[Pax8] Pagination capped at ${maxPages} pages for ${path} — ${allItems.length} results returned`)
     }
 
     return allItems

@@ -126,7 +126,8 @@ ${facebook.hashtags.join(' ')}`;
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(body)
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(15_000),
       });
 
       if (!response.ok) {
@@ -195,7 +196,8 @@ ${instagram.hashtags.join(' ')}`;
           image_url: imageUrl,
           caption: caption.substring(0, 2200), // Instagram limit
           access_token: accessToken
-        })
+        }),
+        signal: AbortSignal.timeout(15_000),
       });
 
       if (!createResponse.ok) {
@@ -217,7 +219,8 @@ ${instagram.hashtags.join(' ')}`;
         body: JSON.stringify({
           creation_id: creationId,
           access_token: accessToken
-        })
+        }),
+        signal: AbortSignal.timeout(15_000),
       });
 
       if (!publishResponse.ok) {
@@ -306,7 +309,8 @@ ${linkedin.hashtags.join(' ')}`;
           'Authorization': `Bearer ${accessToken}`,
           'X-Restli-Protocol-Version': '2.0.0'
         },
-        body: JSON.stringify(body)
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(15_000),
       });
 
       if (!response.ok) {
@@ -382,7 +386,8 @@ Read more: ${blogUrl}
     if (this.config.facebook) {
       try {
         const response = await fetch(
-          `https://graph.facebook.com/v18.0/me?access_token=${this.config.facebook.accessToken}`
+          `https://graph.facebook.com/v18.0/me?access_token=${this.config.facebook.accessToken}`,
+          { signal: AbortSignal.timeout(15_000) }
         );
         results.push({
           platform: 'facebook',
@@ -401,7 +406,8 @@ Read more: ${blogUrl}
     if (this.config.instagram) {
       try {
         const response = await fetch(
-          `https://graph.facebook.com/v18.0/${this.config.instagram.accountId}?fields=id,username&access_token=${this.config.instagram.accessToken}`
+          `https://graph.facebook.com/v18.0/${this.config.instagram.accountId}?fields=id,username&access_token=${this.config.instagram.accessToken}`,
+          { signal: AbortSignal.timeout(15_000) }
         );
         results.push({
           platform: 'instagram',
@@ -422,7 +428,8 @@ Read more: ${blogUrl}
         const response = await fetch('https://api.linkedin.com/v2/me', {
           headers: {
             'Authorization': `Bearer ${this.config.linkedin.accessToken}`
-          }
+          },
+          signal: AbortSignal.timeout(15_000),
         });
         results.push({
           platform: 'linkedin',
