@@ -1,8 +1,33 @@
 # Session Summary
 
-> Last updated: 2026-03-27
-> Branch: `claude/continue-platform-work-2xyFK`
-> Latest commit: `fb0edd6` (SSL fix for Prisma pg pool)
+> Last updated: 2026-03-29
+> Branch: `claude/system-hardening-reliability-FZ7pr`
+> Latest commit: `7fa6c13` (System hardening and health monitor redesign)
+
+---
+
+## Latest Session: System Hardening & Reliability (2026-03-29)
+
+### Problem
+Health monitor was sending constant oscillating "degraded"/"restored" emails throughout the day, caused by transient serverless failures being treated as real outages.
+
+### Root Causes Confirmed
+1. Health monitor alert threshold too low (2 consecutive failures = 1 hour)
+2. Resolution emails fired eagerly on first healthy check
+3. No DB query retry during cold starts
+4. Autotask API client missing timeouts on GET/query methods
+5. Rogue connection pool in marketing/audiences/sources (new Pool per request)
+6. Migration endpoints missing SSL config
+
+### Changes Made
+- **NEW**: `src/lib/resilience.ts` — Central retry, circuit breaker, timeout, error classification, structured logging
+- **NEW**: `src/lib/cron-wrapper.ts` — Standardized cron job execution wrapper
+- **HARDENED**: prisma.ts + db-pool.ts — increased timeouts, global pool caching
+- **HARDENED**: autotask.ts — 30s timeouts on all API methods
+- **REDESIGNED**: health-monitor — sliding window (3 failures to alert, 2 healthy to resolve, 4h cooldown)
+- **HARDENED**: autotask-sync + soc-triage crons — withDbRetry, withCircuitBreaker, structured logging
+- **FIXED**: marketing/audiences/sources — uses shared getPool() now
+- **FIXED**: migration endpoints — added SSL config
 
 ---
 
