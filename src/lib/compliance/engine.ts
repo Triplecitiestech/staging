@@ -3,11 +3,12 @@
  *
  * Coordinates the full assessment lifecycle:
  *   1. Create assessment record
- *   2. Collect evidence from configured connectors
+ *   2. Collect evidence from ALL configured connectors
  *   3. Store evidence in DB
  *   4. Evaluate each control using framework evaluators
  *   5. Store findings in DB
  *   6. Update assessment summary stats
+ *   7. Compute historical comparison
  *
  * All DB operations use raw pg (not Prisma) following the reporting/SOC pattern.
  */
@@ -16,21 +17,36 @@ import { getPool } from '@/lib/db-pool'
 import type { PoolClient } from 'pg'
 import { ensureComplianceTables } from './ensure-tables'
 import { collectGraphEvidence } from './collectors/graph'
+import { collectDattoRmmEvidence, collectDattoBcdrEvidence, collectDnsFilterEvidence } from './collectors/msp'
 import { CIS_V8_FRAMEWORK, CIS_V8_EVALUATORS } from './frameworks/cis-v8'
+import {
+  compareControlIds,
+  EVIDENCE_TO_CONNECTOR,
+} from './types'
 import type {
   Assessment,
   AssessmentStatus,
+  AssessmentComparison,
   ConnectorState,
   ConnectorType,
   EvaluationContext,
   EvidenceRecord,
   EvidenceSourceType,
   Finding,
+  FindingStatus,
   FrameworkId,
   ComplianceDashboard,
   AssessmentSummary,
   CsvExportRow,
 } from './types'
+
+// ---------------------------------------------------------------------------
+// Sorting utility
+// ---------------------------------------------------------------------------
+
+function sortFindings(findings: Finding[]): Finding[] {
+  return [...findings].sort((a, b) => compareControlIds(a.controlId, b.controlId))
+}
 
 // ---------------------------------------------------------------------------
 // Connector management
@@ -77,18 +93,12 @@ export async function upsertConnector(
 
 /**
  * Auto-detect connector status from existing company data and MSP-level env vars.
- *
- * - Microsoft Graph: per-company credentials in companies table
- * - Autotask: per-company autotaskCompanyId in companies table
- * - Datto RMM/EDR/BCDR, DNSFilter: MSP-level API keys in env vars,
- *   customer data matched by company name at query time (same as annual reports)
  */
 export async function detectConnectors(companyId: string): Promise<ConnectorState[]> {
   await ensureComplianceTables()
   const pool = getPool()
   const client = await pool.connect()
   try {
-    // Load company data for integration checks
     const company = await client.query<{
       m365_tenant_id: string | null
       m365_client_id: string | null
@@ -103,40 +113,30 @@ export async function detectConnectors(companyId: string): Promise<ConnectorStat
     if (company.rows.length === 0) return getConnectors(companyId)
     const row = company.rows[0]
 
-    // --- Microsoft Graph: per-company credentials ---
     if (row.m365_tenant_id && row.m365_client_id) {
       const status = row.m365_setup_status === 'verified' ? 'verified' : 'configured'
       await upsertConnector(companyId, 'microsoft_graph', status, null, 'company.m365_*')
     }
 
-    // --- Autotask: per-company mapping via autotaskCompanyId ---
     if (row.autotaskCompanyId) {
       await upsertConnector(companyId, 'autotask', 'verified', null, 'company.autotaskCompanyId')
     } else if (process.env.AUTOTASK_API_USERNAME) {
       await upsertConnector(companyId, 'autotask', 'available', 'Company not synced from Autotask', 'env.AUTOTASK_API_*')
     }
 
-    // --- Datto RMM: MSP-level API, customers matched by site name ---
     if (process.env.DATTO_RMM_API_KEY && process.env.DATTO_RMM_API_SECRET) {
       await upsertConnector(companyId, 'datto_rmm', 'available', null, 'env.DATTO_RMM_*')
     }
-
-    // --- Datto EDR: MSP-level API token ---
     if (process.env.DATTO_EDR_API_TOKEN) {
       await upsertConnector(companyId, 'datto_edr', 'available', null, 'env.DATTO_EDR_*')
     }
-
-    // --- Datto BCDR: MSP-level API, devices matched by clientCompanyName ---
     if (process.env.DATTO_BCDR_PUBLIC_KEY && process.env.DATTO_BCDR_PRIVATE_KEY) {
       await upsertConnector(companyId, 'datto_bcdr', 'available', null, 'env.DATTO_BCDR_*')
     }
-
-    // --- DNSFilter: MSP-level API ---
     if (process.env.DNSFILTER_API_TOKEN) {
       await upsertConnector(companyId, 'dnsfilter', 'available', null, 'env.DNSFILTER_*')
     }
 
-    // Return all connectors for this company
     return getConnectors(companyId)
   } finally {
     client.release()
@@ -163,13 +163,9 @@ export async function createAssessment(
       [companyId, frameworkId, createdBy, framework.controls.length]
     )
     const assessmentId = res.rows[0].id
-
-    // Audit log
     await logAudit(client, companyId, assessmentId, 'assessment_created', createdBy, {
-      frameworkId,
-      totalControls: framework.controls.length,
+      frameworkId, totalControls: framework.controls.length,
     })
-
     return assessmentId
   } finally {
     client.release()
@@ -210,11 +206,7 @@ export async function listAssessments(companyId: string): Promise<Assessment[]> 
   }
 }
 
-async function updateAssessmentStatus(
-  client: PoolClient,
-  assessmentId: string,
-  status: AssessmentStatus
-): Promise<void> {
+async function updateAssessmentStatus(client: PoolClient, assessmentId: string, status: AssessmentStatus): Promise<void> {
   const completedAt = status === 'complete' ? 'NOW()' : 'NULL'
   await client.query(
     `UPDATE compliance_assessments SET status = $1, "completedAt" = ${completedAt} WHERE id = $2`,
@@ -226,10 +218,7 @@ async function updateAssessmentStatus(
 // Evidence persistence
 // ---------------------------------------------------------------------------
 
-async function storeEvidence(
-  client: PoolClient,
-  records: Array<Omit<EvidenceRecord, 'id' | 'collectedAt'>>
-): Promise<EvidenceRecord[]> {
+async function storeEvidence(client: PoolClient, records: Array<Omit<EvidenceRecord, 'id' | 'collectedAt'>>): Promise<EvidenceRecord[]> {
   const stored: EvidenceRecord[] = []
   for (const rec of records) {
     const res = await client.query<{ id: string; collectedAt: string }>(
@@ -237,11 +226,7 @@ async function storeEvidence(
        VALUES ($1, $2, $3, $4::jsonb, $5, $6) RETURNING id, "collectedAt"`,
       [rec.assessmentId, rec.companyId, rec.sourceType, JSON.stringify(rec.rawData), rec.summary, rec.validForHours]
     )
-    stored.push({
-      ...rec,
-      id: res.rows[0].id,
-      collectedAt: res.rows[0].collectedAt,
-    })
+    stored.push({ ...rec, id: res.rows[0].id, collectedAt: res.rows[0].collectedAt })
   }
   return stored
 }
@@ -250,11 +235,7 @@ async function storeEvidence(
 // Finding persistence
 // ---------------------------------------------------------------------------
 
-async function storeFindings(
-  client: PoolClient,
-  assessmentId: string,
-  findings: Array<Omit<Finding, 'id'>>
-): Promise<void> {
+async function storeFindings(client: PoolClient, assessmentId: string, findings: Array<Omit<Finding, 'id'>>): Promise<void> {
   for (const f of findings) {
     await client.query(
       `INSERT INTO compliance_findings (
@@ -264,10 +245,8 @@ async function storeFindings(
        ON CONFLICT ("assessmentId", "controlId")
        DO UPDATE SET status = $3, confidence = $4, reasoning = $5,
          "evidenceIds" = $6::jsonb, "missingEvidence" = $7::jsonb, remediation = $8, "evaluatedAt" = NOW()`,
-      [
-        assessmentId, f.controlId, f.status, f.confidence, f.reasoning,
-        JSON.stringify(f.evidenceIds), JSON.stringify(f.missingEvidence), f.remediation,
-      ]
+      [assessmentId, f.controlId, f.status, f.confidence, f.reasoning,
+        JSON.stringify(f.evidenceIds), JSON.stringify(f.missingEvidence), f.remediation]
     )
   }
 }
@@ -281,11 +260,10 @@ export async function getFindings(assessmentId: string): Promise<Finding[]> {
       `SELECT id, "assessmentId", "controlId", status, confidence, reasoning,
               "evidenceIds", "missingEvidence", remediation, "evaluatedAt",
               "overrideStatus", "overrideReason", "overrideBy", "overrideAt"
-       FROM compliance_findings WHERE "assessmentId" = $1
-       ORDER BY "controlId"`,
+       FROM compliance_findings WHERE "assessmentId" = $1`,
       [assessmentId]
     )
-    return res.rows
+    return sortFindings(res.rows)
   } finally {
     client.release()
   }
@@ -312,40 +290,28 @@ export async function getEvidence(assessmentId: string): Promise<EvidenceRecord[
 // ---------------------------------------------------------------------------
 
 export async function overrideFinding(
-  findingId: string,
-  overrideStatus: string,
-  overrideReason: string,
-  overrideBy: string
+  findingId: string, overrideStatus: string, overrideReason: string, overrideBy: string
 ): Promise<void> {
   await ensureComplianceTables()
   const pool = getPool()
   const client = await pool.connect()
   try {
-    // Get the finding to find assessment for audit log
     const finding = await client.query<{ assessmentId: string; controlId: string }>(
-      `SELECT "assessmentId", "controlId" FROM compliance_findings WHERE id = $1`,
-      [findingId]
+      `SELECT "assessmentId", "controlId" FROM compliance_findings WHERE id = $1`, [findingId]
     )
     if (finding.rows.length === 0) throw new Error('Finding not found')
 
     await client.query(
-      `UPDATE compliance_findings
-       SET "overrideStatus" = $1, "overrideReason" = $2, "overrideBy" = $3, "overrideAt" = NOW()
-       WHERE id = $4`,
+      `UPDATE compliance_findings SET "overrideStatus" = $1, "overrideReason" = $2, "overrideBy" = $3, "overrideAt" = NOW() WHERE id = $4`,
       [overrideStatus, overrideReason, overrideBy, findingId]
     )
 
-    // Get companyId from assessment
     const assessment = await client.query<{ companyId: string }>(
-      `SELECT "companyId" FROM compliance_assessments WHERE id = $1`,
-      [finding.rows[0].assessmentId]
+      `SELECT "companyId" FROM compliance_assessments WHERE id = $1`, [finding.rows[0].assessmentId]
     )
     if (assessment.rows[0]) {
       await logAudit(client, assessment.rows[0].companyId, finding.rows[0].assessmentId, 'finding_overridden', overrideBy, {
-        findingId,
-        controlId: finding.rows[0].controlId,
-        overrideStatus,
-        overrideReason,
+        findingId, controlId: finding.rows[0].controlId, overrideStatus, overrideReason,
       })
     }
   } finally {
@@ -354,47 +320,131 @@ export async function overrideFinding(
 }
 
 // ---------------------------------------------------------------------------
-// Run a full assessment
+// Run a full assessment — collects from ALL available connectors
 // ---------------------------------------------------------------------------
 
 export async function runAssessment(assessmentId: string, actor: string): Promise<{
   success: boolean
   errors: string[]
-  summary: { passed: number; failed: number; partial: number; notAssessed: number }
+  summary: { passed: number; failed: number; partial: number; needsReview: number; notAssessed: number; collectionFailed: number }
 }> {
   await ensureComplianceTables()
   const pool = getPool()
   const client = await pool.connect()
 
   try {
-    // Load assessment
     const assessmentRes = await client.query<Assessment>(
-      `SELECT id, "companyId", "frameworkId", status FROM compliance_assessments WHERE id = $1`,
-      [assessmentId]
+      `SELECT id, "companyId", "frameworkId", status FROM compliance_assessments WHERE id = $1`, [assessmentId]
     )
     if (assessmentRes.rows.length === 0) throw new Error('Assessment not found')
     const assessment = assessmentRes.rows[0]
 
-    // Update status to collecting
     await updateAssessmentStatus(client, assessmentId, 'collecting')
     await logAudit(client, assessment.companyId, assessmentId, 'collection_started', actor, {})
 
-    // Collect evidence
+    // Determine which connectors are available
+    const connectors = await getConnectors(assessment.companyId)
+    const availableConnectors = new Set<ConnectorType>()
+    const failedConnectors = new Set<ConnectorType>()
+
+    for (const c of connectors) {
+      if (c.status === 'available' || c.status === 'verified' || c.status === 'configured') {
+        availableConnectors.add(c.connectorType as ConnectorType)
+      }
+    }
+
     const collectionErrors: string[] = []
     const allEvidence: EvidenceRecord[] = []
 
-    // Microsoft Graph collector
-    const graphResult = await collectGraphEvidence(assessment.companyId, assessmentId)
-    collectionErrors.push(...graphResult.errors)
+    // --- Collect from Microsoft Graph ---
+    if (availableConnectors.has('microsoft_graph')) {
+      try {
+        const graphResult = await collectGraphEvidence(assessment.companyId, assessmentId)
+        collectionErrors.push(...graphResult.errors)
+        if (graphResult.evidence.length > 0) {
+          const stored = await storeEvidence(client, graphResult.evidence)
+          allEvidence.push(...stored)
+        }
+        if (graphResult.errors.length > 0 && graphResult.evidence.length === 0) {
+          failedConnectors.add('microsoft_graph')
+        }
+      } catch (err) {
+        failedConnectors.add('microsoft_graph')
+        collectionErrors.push(`Microsoft Graph: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
 
-    // Store evidence
-    if (graphResult.evidence.length > 0) {
-      const stored = await storeEvidence(client, graphResult.evidence)
-      allEvidence.push(...stored)
+    // --- Collect from Datto RMM ---
+    if (availableConnectors.has('datto_rmm')) {
+      try {
+        const rmmResult = await collectDattoRmmEvidence(assessment.companyId, assessmentId)
+        collectionErrors.push(...rmmResult.errors)
+        if (rmmResult.evidence.length > 0) {
+          const stored = await storeEvidence(client, rmmResult.evidence)
+          allEvidence.push(...stored)
+        }
+        if (rmmResult.errors.length > 0 && rmmResult.evidence.length === 0) {
+          failedConnectors.add('datto_rmm')
+        }
+      } catch (err) {
+        failedConnectors.add('datto_rmm')
+        collectionErrors.push(`Datto RMM: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+
+    // --- Collect from Datto BCDR + SaaS Protect ---
+    if (availableConnectors.has('datto_bcdr')) {
+      try {
+        const bcdrResult = await collectDattoBcdrEvidence(assessment.companyId, assessmentId)
+        collectionErrors.push(...bcdrResult.errors)
+        if (bcdrResult.evidence.length > 0) {
+          const stored = await storeEvidence(client, bcdrResult.evidence)
+          allEvidence.push(...stored)
+        }
+        if (bcdrResult.errors.length > 0 && bcdrResult.evidence.length === 0) {
+          failedConnectors.add('datto_bcdr')
+        }
+      } catch (err) {
+        failedConnectors.add('datto_bcdr')
+        collectionErrors.push(`Datto BCDR: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+
+    // --- Collect from DNSFilter ---
+    if (availableConnectors.has('dnsfilter')) {
+      try {
+        const dnsResult = await collectDnsFilterEvidence(assessment.companyId, assessmentId)
+        collectionErrors.push(...dnsResult.errors)
+        if (dnsResult.evidence.length > 0) {
+          const stored = await storeEvidence(client, dnsResult.evidence)
+          allEvidence.push(...stored)
+        }
+        if (dnsResult.errors.length > 0 && dnsResult.evidence.length === 0) {
+          failedConnectors.add('dnsfilter')
+        }
+      } catch (err) {
+        failedConnectors.add('dnsfilter')
+        collectionErrors.push(`DNSFilter: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+
+    // Update connector lastCollectedAt for successful collections
+    for (const ev of allEvidence) {
+      const connector = EVIDENCE_TO_CONNECTOR[ev.sourceType as EvidenceSourceType]
+      if (connector && !failedConnectors.has(connector)) {
+        try {
+          await client.query(
+            `UPDATE compliance_connectors SET "lastCollectedAt" = NOW() WHERE "companyId" = $1 AND "connectorType" = $2`,
+            [assessment.companyId, connector]
+          )
+        } catch { /* non-fatal */ }
+      }
     }
 
     await logAudit(client, assessment.companyId, assessmentId, 'collection_completed', actor, {
       evidenceCount: allEvidence.length,
+      availableConnectors: Array.from(availableConnectors),
+      failedConnectors: Array.from(failedConnectors),
       errors: collectionErrors,
     })
 
@@ -404,7 +454,6 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
       evidenceMap.set(ev.sourceType as EvidenceSourceType, ev)
     }
 
-    // Update status to evaluating
     await updateAssessmentStatus(client, assessmentId, 'evaluating')
 
     // Evaluate controls
@@ -414,6 +463,8 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
       companyId: assessment.companyId,
       assessmentId,
       evidence: evidenceMap,
+      availableConnectors,
+      failedConnectors,
     }
 
     const findings: Array<Omit<Finding, 'id'>> = []
@@ -422,77 +473,109 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
       if (evaluator) {
         const evalResult = evaluator(ctx)
         findings.push({
-          assessmentId,
-          controlId: evalResult.controlId,
-          status: evalResult.status,
-          confidence: evalResult.confidence,
-          reasoning: evalResult.reasoning,
-          evidenceIds: evalResult.evidenceIds,
-          missingEvidence: evalResult.missingEvidence,
-          remediation: evalResult.remediation,
-          evaluatedAt: new Date().toISOString(),
-          overrideStatus: null,
-          overrideReason: null,
-          overrideBy: null,
-          overrideAt: null,
+          assessmentId, controlId: evalResult.controlId, status: evalResult.status,
+          confidence: evalResult.confidence, reasoning: evalResult.reasoning,
+          evidenceIds: evalResult.evidenceIds, missingEvidence: evalResult.missingEvidence,
+          remediation: evalResult.remediation, evaluatedAt: new Date().toISOString(),
+          overrideStatus: null, overrideReason: null, overrideBy: null, overrideAt: null,
         })
       } else {
         findings.push({
-          assessmentId,
-          controlId: control.controlId,
-          status: 'not_assessed',
-          confidence: 'none',
+          assessmentId, controlId: control.controlId, status: 'not_assessed', confidence: 'none',
           reasoning: 'No evaluator available for this control.',
-          evidenceIds: [],
-          missingEvidence: control.evidenceSources,
-          remediation: null,
-          evaluatedAt: new Date().toISOString(),
-          overrideStatus: null,
-          overrideReason: null,
-          overrideBy: null,
-          overrideAt: null,
+          evidenceIds: [], missingEvidence: control.evidenceSources,
+          remediation: null, evaluatedAt: new Date().toISOString(),
+          overrideStatus: null, overrideReason: null, overrideBy: null, overrideAt: null,
         })
       }
     }
 
-    // Store findings
     await storeFindings(client, assessmentId, findings)
 
-    // Compute summary stats
     const passed = findings.filter((f) => f.status === 'pass').length
     const failed = findings.filter((f) => f.status === 'fail').length
     const partial = findings.filter((f) => f.status === 'partial').length
+    const needsReview = findings.filter((f) => f.status === 'needs_review').length
     const notAssessed = findings.filter((f) => f.status === 'not_assessed' || f.status === 'not_applicable').length
+    const collectionFailed = findings.filter((f) => f.status === 'collection_failed').length
 
     await client.query(
       `UPDATE compliance_assessments
        SET status = 'complete', "completedAt" = NOW(),
            "passedControls" = $1, "failedControls" = $2, "manualReviewControls" = $3
        WHERE id = $4`,
-      [passed, failed, partial + notAssessed, assessmentId]
+      [passed, failed, partial + needsReview + notAssessed + collectionFailed, assessmentId]
     )
 
     await logAudit(client, assessment.companyId, assessmentId, 'assessment_completed', actor, {
-      passed, failed, partial, notAssessed,
+      passed, failed, partial, needsReview, notAssessed, collectionFailed,
     })
 
     return {
-      success: true,
-      errors: collectionErrors,
-      summary: { passed, failed, partial, notAssessed },
+      success: true, errors: collectionErrors,
+      summary: { passed, failed, partial, needsReview, notAssessed, collectionFailed },
     }
   } catch (err) {
-    // Mark assessment as error
-    try {
-      await client.query(
-        `UPDATE compliance_assessments SET status = 'error' WHERE id = $1`,
-        [assessmentId]
-      )
-    } catch { /* ignore */ }
-
+    try { await client.query(`UPDATE compliance_assessments SET status = 'error' WHERE id = $1`, [assessmentId]) } catch { /* ignore */ }
     throw err
   } finally {
     client.release()
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Historical comparison
+// ---------------------------------------------------------------------------
+
+export async function compareAssessments(currentId: string, previousId: string): Promise<AssessmentComparison | null> {
+  const [currentFindings, previousFindings, currentAssessment, previousAssessment] = await Promise.all([
+    getFindings(currentId),
+    getFindings(previousId),
+    getAssessment(currentId),
+    getAssessment(previousId),
+  ])
+
+  if (!currentAssessment || !previousAssessment) return null
+
+  const prevMap = new Map(previousFindings.map((f) => [f.controlId, f]))
+
+  const newlyPassed: string[] = []
+  const newlyFailed: string[] = []
+  const improved: string[] = []
+  const regressed: string[] = []
+  const unchanged: string[] = []
+
+  const statusRank: Record<string, number> = { pass: 4, partial: 3, needs_review: 2, not_assessed: 1, collection_failed: 1, not_applicable: 0, fail: -1 }
+
+  for (const curr of currentFindings) {
+    const prev = prevMap.get(curr.controlId)
+    const currStatus = (curr.overrideStatus ?? curr.status) as FindingStatus
+    const prevStatus = prev ? ((prev.overrideStatus ?? prev.status) as FindingStatus) : null
+
+    if (!prevStatus) { unchanged.push(curr.controlId); continue }
+
+    const currRank = statusRank[currStatus] ?? 0
+    const prevRank = statusRank[prevStatus] ?? 0
+
+    if (currStatus === prevStatus) { unchanged.push(curr.controlId) }
+    else if (currStatus === 'pass' && prevStatus !== 'pass') { newlyPassed.push(curr.controlId) }
+    else if (currStatus === 'fail' && prevStatus !== 'fail') { newlyFailed.push(curr.controlId) }
+    else if (currRank > prevRank) { improved.push(curr.controlId) }
+    else if (currRank < prevRank) { regressed.push(curr.controlId) }
+    else { unchanged.push(curr.controlId) }
+  }
+
+  const currentScore = currentAssessment.totalControls > 0
+    ? Math.round((currentAssessment.passedControls / currentAssessment.totalControls) * 100) : 0
+  const previousScore = previousAssessment.totalControls > 0
+    ? Math.round((previousAssessment.passedControls / previousAssessment.totalControls) * 100) : 0
+
+  return {
+    currentId, previousId,
+    currentDate: currentAssessment.completedAt ?? currentAssessment.createdAt,
+    previousDate: previousAssessment.completedAt ?? previousAssessment.createdAt,
+    currentScore, previousScore, scoreDelta: currentScore - previousScore,
+    newlyPassed, newlyFailed, improved, regressed, unchanged,
   }
 }
 
@@ -505,27 +588,32 @@ export async function getComplianceDashboard(companyId: string): Promise<Complia
   const pool = getPool()
   const client = await pool.connect()
   try {
-    // Get company name
     const companyRes = await client.query<{ displayName: string }>(
-      `SELECT "displayName" FROM companies WHERE id = $1`,
-      [companyId]
+      `SELECT "displayName" FROM companies WHERE id = $1`, [companyId]
     )
     const companyName = companyRes.rows[0]?.displayName ?? 'Unknown'
-
-    // Get connectors
     const connectors = await getConnectors(companyId)
-
-    // Get assessments
     const assessments = await listAssessments(companyId)
 
-    // Latest score
     const latest = assessments.find((a) => a.status === 'complete')
     let latestScorePercent: number | null = null
     if (latest && latest.totalControls > 0) {
       latestScorePercent = Math.round((latest.passedControls / latest.totalControls) * 100)
     }
 
-    return { companyId, companyName, connectors, assessments, latestScorePercent }
+    // Build score trend from completed assessments (oldest first for chart)
+    const scoreTrend = assessments
+      .filter((a) => a.status === 'complete')
+      .reverse()
+      .map((a) => ({
+        date: a.completedAt ?? a.createdAt,
+        score: a.totalControls > 0 ? Math.round((a.passedControls / a.totalControls) * 100) : 0,
+        passed: a.passedControls,
+        failed: a.failedControls,
+        total: a.totalControls,
+      }))
+
+    return { companyId, companyName, connectors, assessments, latestScorePercent, scoreTrend }
   } finally {
     client.release()
   }
@@ -538,15 +626,21 @@ export async function getAssessmentSummary(assessmentId: string): Promise<Assess
   const findings = await getFindings(assessmentId)
   const framework = getFrameworkDefinition(assessment.frameworkId as FrameworkId)
 
-  return {
-    assessment,
-    findings,
-    frameworkName: framework.name,
+  // Find previous completed assessment for comparison
+  let comparison: AssessmentComparison | null = null
+  const allAssessments = await listAssessments(assessment.companyId)
+  const completedBefore = allAssessments.filter(
+    (a) => a.status === 'complete' && a.id !== assessmentId && a.createdAt < assessment.createdAt
+  )
+  if (completedBefore.length > 0) {
+    comparison = await compareAssessments(assessmentId, completedBefore[0].id)
   }
+
+  return { assessment, findings, frameworkName: framework.name, comparison }
 }
 
 // ---------------------------------------------------------------------------
-// CSV Export
+// CSV Export — sorted numerically, includes historical comparison
 // ---------------------------------------------------------------------------
 
 export async function exportAssessmentCsv(assessmentId: string): Promise<string> {
@@ -556,13 +650,30 @@ export async function exportAssessmentCsv(assessmentId: string): Promise<string>
   const framework = getFrameworkDefinition(summary.assessment.frameworkId as FrameworkId)
   const controlMap = new Map(framework.controls.map((c) => [c.controlId, c]))
 
+  // Build previous status map for comparison column
+  const prevStatusMap = new Map<string, string>()
+  if (summary.comparison) {
+    const prevFindings = await getFindings(summary.comparison.previousId)
+    for (const f of prevFindings) {
+      prevStatusMap.set(f.controlId, (f.overrideStatus ?? f.status).toUpperCase())
+    }
+  }
+
   const rows: CsvExportRow[] = summary.findings.map((f) => {
     const ctrl = controlMap.get(f.controlId)
+    const currentStatus = (f.overrideStatus ?? f.status).toUpperCase()
+    const previousStatus = prevStatusMap.get(f.controlId) ?? ''
+    let changeDirection = ''
+    if (previousStatus && previousStatus !== currentStatus) {
+      if (currentStatus === 'PASS' && previousStatus !== 'PASS') changeDirection = 'IMPROVED'
+      else if (currentStatus === 'FAIL' && previousStatus !== 'FAIL') changeDirection = 'REGRESSED'
+      else changeDirection = 'CHANGED'
+    }
     return {
       controlId: f.controlId,
       category: ctrl?.category ?? '',
       title: ctrl?.title ?? '',
-      status: (f.overrideStatus ?? f.status).toUpperCase(),
+      status: currentStatus,
       confidence: f.confidence,
       reasoning: f.reasoning,
       evidenceSources: ctrl?.evidenceSources?.join('; ') ?? '',
@@ -570,30 +681,26 @@ export async function exportAssessmentCsv(assessmentId: string): Promise<string>
       remediation: f.remediation ?? '',
       overrideStatus: f.overrideStatus ?? '',
       overrideReason: f.overrideReason ?? '',
+      previousStatus,
+      changeDirection,
     }
   })
 
-  // Build CSV
   const headers = [
     'Control ID', 'Category', 'Title', 'Status', 'Confidence',
     'Reasoning', 'Evidence Sources', 'Missing Evidence',
     'Remediation', 'Override Status', 'Override Reason',
+    'Previous Status', 'Change',
   ]
 
   const csvLines = [headers.join(',')]
   for (const row of rows) {
     csvLines.push([
-      csvEscape(row.controlId),
-      csvEscape(row.category),
-      csvEscape(row.title),
-      csvEscape(row.status),
-      csvEscape(row.confidence),
-      csvEscape(row.reasoning),
-      csvEscape(row.evidenceSources),
-      csvEscape(row.missingEvidence),
-      csvEscape(row.remediation),
-      csvEscape(row.overrideStatus),
-      csvEscape(row.overrideReason),
+      csvEscape(row.controlId), csvEscape(row.category), csvEscape(row.title),
+      csvEscape(row.status), csvEscape(row.confidence), csvEscape(row.reasoning),
+      csvEscape(row.evidenceSources), csvEscape(row.missingEvidence),
+      csvEscape(row.remediation), csvEscape(row.overrideStatus), csvEscape(row.overrideReason),
+      csvEscape(row.previousStatus), csvEscape(row.changeDirection),
     ].join(','))
   }
 
@@ -620,7 +727,6 @@ async function logAudit(client: PoolClient, companyId: string, assessmentId: str
       [companyId, assessmentId, action, actor, JSON.stringify(details)]
     )
   } catch {
-    // Audit log failures should not block operations
     console.error('[compliance] Failed to write audit log', { companyId, action })
   }
 }
@@ -631,19 +737,15 @@ async function logAudit(client: PoolClient, companyId: string, assessmentId: str
 
 function getFrameworkDefinition(frameworkId: FrameworkId) {
   switch (frameworkId) {
-    case 'cis-v8':
-      return CIS_V8_FRAMEWORK
-    default:
-      throw new Error(`Framework ${frameworkId} not yet implemented`)
+    case 'cis-v8': return CIS_V8_FRAMEWORK
+    default: throw new Error(`Framework ${frameworkId} not yet implemented`)
   }
 }
 
 function getEvaluators(frameworkId: FrameworkId): Record<string, (ctx: EvaluationContext) => import('./types').EvaluationResult> {
   switch (frameworkId) {
-    case 'cis-v8':
-      return CIS_V8_EVALUATORS
-    default:
-      return {}
+    case 'cis-v8': return CIS_V8_EVALUATORS
+    default: return {}
   }
 }
 
