@@ -118,6 +118,19 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
     window.open(`/api/compliance/export?assessmentId=${assessmentId}`, '_blank')
   }
 
+  const deleteAssessmentById = async (assessmentId: string) => {
+    if (!confirm('Delete this assessment and all its evidence/findings? This cannot be undone.')) return
+    try {
+      const res = await fetch(`/api/compliance/assessments/${assessmentId}`, { method: 'DELETE' })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.error)
+      if (activeAssessment?.assessment.id === assessmentId) setActiveAssessment(null)
+      if (selectedCompany) loadDashboard(selectedCompany)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete assessment')
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Company Selector */}
@@ -242,6 +255,11 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
                           >CSV</button>
                         </>
                       )}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); deleteAssessmentById(a.id) }}
+                        className="text-xs bg-red-500/10 hover:bg-red-500/20 text-red-400 px-3 py-1 rounded"
+                        title="Delete assessment"
+                      >Delete</button>
                     </div>
                   </div>
                 ))}

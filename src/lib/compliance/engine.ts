@@ -320,6 +320,34 @@ export async function overrideFinding(
 }
 
 // ---------------------------------------------------------------------------
+// Delete an assessment and all related data
+// ---------------------------------------------------------------------------
+
+export async function deleteAssessment(assessmentId: string, actor: string): Promise<void> {
+  await ensureComplianceTables()
+  const pool = getPool()
+  const client = await pool.connect()
+  try {
+    // Get companyId for audit log before deleting
+    const assessment = await client.query<{ companyId: string; frameworkId: string }>(
+      `SELECT "companyId", "frameworkId" FROM compliance_assessments WHERE id = $1`, [assessmentId]
+    )
+    if (assessment.rows.length === 0) throw new Error('Assessment not found')
+
+    const { companyId, frameworkId } = assessment.rows[0]
+
+    // CASCADE deletes evidence and findings via FK constraints
+    await client.query(`DELETE FROM compliance_assessments WHERE id = $1`, [assessmentId])
+
+    await logAudit(client, companyId, null, 'assessment_deleted', actor, {
+      assessmentId, frameworkId,
+    })
+  } finally {
+    client.release()
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Run a full assessment — collects from ALL available connectors
 // ---------------------------------------------------------------------------
 
