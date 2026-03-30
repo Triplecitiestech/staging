@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const validFrameworks: FrameworkId[] = ['cis-v8']
+    const validFrameworks: FrameworkId[] = ['cis-v8', 'cis-v8-ig1', 'cis-v8-ig2', 'cis-v8-ig3']
     if (!validFrameworks.includes(body.frameworkId as FrameworkId)) {
       return NextResponse.json(
         { error: `Invalid frameworkId. Supported: ${validFrameworks.join(', ')}` },

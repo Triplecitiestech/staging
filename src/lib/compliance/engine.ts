@@ -763,7 +763,28 @@ async function logAudit(client: PoolClient, companyId: string, assessmentId: str
 // Framework registry
 // ---------------------------------------------------------------------------
 
+/** IG tier hierarchy: IG1 = only IG1, IG2 = IG1+IG2, IG3 = IG1+IG2+IG3 */
+const IG_TIERS: Record<string, string[]> = {
+  'IG1': ['IG1'],
+  'IG2': ['IG1', 'IG2'],
+  'IG3': ['IG1', 'IG2', 'IG3'],
+}
+
 function getFrameworkDefinition(frameworkId: FrameworkId) {
+  // Handle IG-level variants: cis-v8-ig1, cis-v8-ig2, cis-v8-ig3
+  const igMatch = frameworkId.match(/^cis-v8-ig(\d)$/)
+  if (igMatch) {
+    const igLevel = `IG${igMatch[1]}`
+    const allowedTiers = IG_TIERS[igLevel] ?? ['IG1']
+    const filtered = CIS_V8_FRAMEWORK.controls.filter((c) => allowedTiers.includes(c.tier))
+    return {
+      ...CIS_V8_FRAMEWORK,
+      id: frameworkId,
+      name: `CIS Controls v8 — ${igLevel}`,
+      controls: filtered,
+    }
+  }
+
   switch (frameworkId) {
     case 'cis-v8': return CIS_V8_FRAMEWORK
     default: throw new Error(`Framework ${frameworkId} not yet implemented`)
@@ -771,10 +792,8 @@ function getFrameworkDefinition(frameworkId: FrameworkId) {
 }
 
 function getEvaluators(frameworkId: FrameworkId): Record<string, (ctx: EvaluationContext) => import('./types').EvaluationResult> {
-  switch (frameworkId) {
-    case 'cis-v8': return CIS_V8_EVALUATORS
-    default: return {}
-  }
+  if (frameworkId.startsWith('cis-v8')) return CIS_V8_EVALUATORS
+  return {}
 }
 
 export { getFrameworkDefinition }

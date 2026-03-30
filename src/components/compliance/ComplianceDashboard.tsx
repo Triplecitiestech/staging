@@ -54,7 +54,7 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
   const [loading, setLoading] = useState(false)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [selectedFramework, setSelectedFramework] = useState('cis-v8')
+  const [selectedFramework, setSelectedFramework] = useState('cis-v8-ig1')
 
   const loadDashboard = useCallback(async (companyId: string) => {
     setLoading(true)
@@ -218,7 +218,9 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
                   className="bg-slate-900/50 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
                 >
                   <optgroup label="CIS Controls v8">
-                    <option value="cis-v8">CIS v8 — Full (IG1 + IG2/IG3)</option>
+                    <option value="cis-v8-ig1">CIS v8 — IG1 (Essential Hygiene)</option>
+                    <option value="cis-v8-ig2">CIS v8 — IG2 (includes IG1)</option>
+                    <option value="cis-v8-ig3">CIS v8 — IG3 (includes IG1 + IG2)</option>
                   </optgroup>
                   <optgroup label="Coming Soon">
                     <option value="cmmc-l1" disabled>CMMC Level 1</option>
@@ -257,7 +259,7 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
                     <div className="flex items-center gap-3">
                       <StatusBadge status={a.status} />
                       <div>
-                        <p className="text-sm font-medium text-white">CIS Controls v8</p>
+                        <p className="text-sm font-medium text-white">{getFrameworkLabel(a.frameworkId)}</p>
                         <p className="text-xs text-slate-400">
                           {new Date(a.createdAt).toLocaleString()} by {a.createdBy}
                         </p>
@@ -716,6 +718,24 @@ function ConfidenceDot({ confidence }: { confidence: string }) {
   const colors: Record<string, string> = { high: 'bg-green-400', medium: 'bg-cyan-400', low: 'bg-slate-400', none: 'bg-slate-600' }
   const labels: Record<string, string> = { high: 'High confidence', medium: 'Medium confidence', low: 'Low confidence', none: 'No evidence' }
   return <span title={labels[confidence] ?? 'Unknown'} className={`w-2 h-2 rounded-full ${colors[confidence] ?? colors.none}`} />
+}
+
+// ---------------------------------------------------------------------------
+// Framework labels
+// ---------------------------------------------------------------------------
+
+function getFrameworkLabel(frameworkId: string): string {
+  const labels: Record<string, string> = {
+    'cis-v8': 'CIS Controls v8',
+    'cis-v8-ig1': 'CIS v8 — IG1',
+    'cis-v8-ig2': 'CIS v8 — IG2',
+    'cis-v8-ig3': 'CIS v8 — IG3',
+    'cmmc-l1': 'CMMC Level 1',
+    'cmmc-l2': 'CMMC Level 2',
+    'nist-800-171': 'NIST 800-171',
+    'hipaa': 'HIPAA',
+  }
+  return labels[frameworkId] ?? frameworkId
 }
 
 // ---------------------------------------------------------------------------
