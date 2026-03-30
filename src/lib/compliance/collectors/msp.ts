@@ -79,15 +79,8 @@ export async function collectDattoRmmEvidence(
     const matchedSites = sites.filter((s) => matchesCompanyName(companyName, s.name))
 
     if (matchedSites.length === 0) {
-      return {
-        evidence: [buildEvidence(assessmentId, companyId, 'datto_rmm_devices', {
-          matched: false,
-          companyName,
-          totalSites: sites.length,
-          note: `No Datto RMM site matched company name "${companyName}"`,
-        }, `No RMM site matched "${companyName}" out of ${sites.length} sites`)],
-        errors: [],
-      }
+      // No match — don't store evidence. The evaluator will report not_assessed.
+      return { evidence: [], errors: [] }
     }
 
     // Collect devices from matched sites
@@ -164,19 +157,23 @@ export async function collectDattoBcdrEvidence(
 
     const hasDevices = summary.deviceDetails && summary.deviceDetails.length > 0
 
-    evidence.push(buildEvidence(assessmentId, companyId, 'datto_bcdr_backup', {
-      matched: hasDevices,
-      companyName,
-      applianceCount: summary.applianceCount,
-      endpointBackupCount: summary.endpointBackupCount,
-      cloudDeviceCount: summary.cloudDeviceCount,
-      totalAlerts: summary.totalAlerts,
-      totalDevices: summary.totalDevices,
-      deviceDetails: (summary.deviceDetails ?? []).slice(0, 20),
-      note: summary.note ?? null,
-    }, hasDevices
-      ? `${(summary.deviceDetails ?? []).length} backup device(s). ${summary.totalAlerts} alerts.`
-      : `No BCDR devices matched "${companyName}"`))
+    // Only store BCDR evidence if there's an actual match for this customer.
+    // Don't pollute reports with "0 devices matched" — that's not evidence.
+    if (hasDevices) {
+      evidence.push(buildEvidence(assessmentId, companyId, 'datto_bcdr_backup', {
+        matched: true,
+        companyName,
+        applianceCount: summary.applianceCount,
+        endpointBackupCount: summary.endpointBackupCount,
+        cloudDeviceCount: summary.cloudDeviceCount,
+        totalAlerts: summary.totalAlerts,
+        totalDevices: summary.totalDevices,
+        deviceDetails: (summary.deviceDetails ?? []).slice(0, 20),
+        note: summary.note ?? null,
+      }, `${(summary.deviceDetails ?? []).length} backup device(s). ${summary.totalAlerts} alerts.`))
+    }
+    // If no match, don't store evidence — the evaluator will use noEvidence()
+    // which correctly reports "not_assessed" or "needs_review" based on connector state
 
     // SaaS Protect uses same credentials
     try {
@@ -186,18 +183,19 @@ export async function collectDattoBcdrEvidence(
 
       const hasSaas = saasSummary.totalCustomers > 0
 
-      evidence.push(buildEvidence(assessmentId, companyId, 'datto_saas_backup', {
-        matched: hasSaas,
-        companyName,
-        totalCustomers: saasSummary.totalCustomers,
-        totalSeats: saasSummary.totalSeats,
-        activeSeats: saasSummary.activeSeats,
-        pausedSeats: saasSummary.pausedSeats,
-        unprotectedSeats: saasSummary.unprotectedSeats,
-        note: saasSummary.note ?? null,
-      }, hasSaas
-        ? `${saasSummary.totalSeats} SaaS backup seats. ${saasSummary.activeSeats} active, ${saasSummary.unprotectedSeats} unprotected.`
-        : `No SaaS Protect customer matched "${companyName}"`))
+      // Only store SaaS evidence if there's an actual customer match
+      if (hasSaas) {
+        evidence.push(buildEvidence(assessmentId, companyId, 'datto_saas_backup', {
+          matched: true,
+          companyName,
+          totalCustomers: saasSummary.totalCustomers,
+          totalSeats: saasSummary.totalSeats,
+          activeSeats: saasSummary.activeSeats,
+          pausedSeats: saasSummary.pausedSeats,
+          unprotectedSeats: saasSummary.unprotectedSeats,
+          note: saasSummary.note ?? null,
+        }, `${saasSummary.totalSeats} SaaS backup seats. ${saasSummary.activeSeats} active, ${saasSummary.unprotectedSeats} unprotected.`))
+      }
     } catch (err) {
       errors.push(`Datto SaaS Protect: ${err instanceof Error ? err.message : String(err)}`)
     }
@@ -227,20 +225,35 @@ export async function collectDnsFilterEvidence(
     const { DnsFilterClient } = await import('@/lib/dnsfilter')
     const client = new DnsFilterClient()
 
+    // Try 7-day window first (more likely to have data than 30 days on some API configs)
     const now = new Date()
-    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
-    const summary = await client.buildSummary(thirtyDaysAgo, now)
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+    let summary = await client.buildSummary(sevenDaysAgo, now)
+    let periodDays = 7
 
-    evidence.push(buildEvidence(assessmentId, companyId, 'dnsfilter_dns', {
-      totalQueries: summary.totalQueries,
-      blockedQueries: summary.blockedQueries,
-      blockRate: summary.totalQueries > 0 ? Math.round((summary.blockedQueries / summary.totalQueries) * 100) : 0,
-      threatsByCategory: summary.threatsByCategory,
-      topBlockedDomains: (summary.topBlockedDomains ?? []).slice(0, 10),
-      monthlyTrends: summary.monthlyTrends,
-      periodDays: 30,
-      note: 'DNSFilter data is MSP-level (covers all customers). Per-customer filtering requires DNSFilter org mapping.',
-    }, `DNS: ${summary.totalQueries.toLocaleString()} queries, ${summary.blockedQueries.toLocaleString()} blocked (30 days). MSP-level data.`))
+    // If 7-day returns zero, try 30-day
+    if (summary.totalQueries === 0) {
+      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+      summary = await client.buildSummary(thirtyDaysAgo, now)
+      periodDays = 30
+    }
+
+    // Only store evidence if we got actual query data
+    if (summary.totalQueries > 0 || summary.blockedQueries > 0) {
+      evidence.push(buildEvidence(assessmentId, companyId, 'dnsfilter_dns', {
+        totalQueries: summary.totalQueries,
+        blockedQueries: summary.blockedQueries,
+        blockRate: summary.totalQueries > 0 ? Math.round((summary.blockedQueries / summary.totalQueries) * 100) : 0,
+        threatsByCategory: summary.threatsByCategory,
+        topBlockedDomains: (summary.topBlockedDomains ?? []).slice(0, 10),
+        monthlyTrends: summary.monthlyTrends,
+        periodDays,
+        note: 'DNSFilter data is MSP-level (covers all customers).',
+      }, `DNS: ${summary.totalQueries.toLocaleString()} queries, ${summary.blockedQueries.toLocaleString()} blocked (${periodDays}-day period). MSP-level data.`))
+    } else {
+      // 0 queries across both windows — the API may not be returning data for this endpoint format
+      errors.push('DNSFilter returned 0 queries for both 7-day and 30-day windows. API endpoint may need configuration.')
+    }
 
     return { evidence, errors }
   } catch (err) {
