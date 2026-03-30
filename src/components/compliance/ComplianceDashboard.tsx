@@ -539,6 +539,7 @@ function FindingRow({ finding, change, expanded, onToggle, assessmentId, onUpdat
   const [overrideStatus, setOverrideStatus] = useState<string>('')
   const [aiProcessing, setAiProcessing] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [isListening, setIsListening] = useState(false)
 
   const effectiveStatus = finding.overrideStatus ?? finding.status
 
@@ -561,8 +562,32 @@ function FindingRow({ finding, change, expanded, onToggle, assessmentId, onUpdat
     regressed: { icon: '↘', color: 'text-rose-400' },
   }
 
+  const toggleListening = () => {
+    if (isListening) { setIsListening(false); return }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const SpeechRecognition = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition
+    if (!SpeechRecognition) { alert('Speech recognition is not supported in this browser.'); return }
+
+    const recognition = new SpeechRecognition()
+    recognition.continuous = false
+    recognition.interimResults = false
+    recognition.lang = 'en-US'
+    setIsListening(true)
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    recognition.onresult = (event: any) => {
+      const transcript = event.results?.[0]?.[0]?.transcript ?? ''
+      if (transcript) setNoteText((prev: string) => prev ? `${prev} ${transcript}` : transcript)
+      setIsListening(false)
+    }
+    recognition.onerror = () => setIsListening(false)
+    recognition.onend = () => setIsListening(false)
+    recognition.start()
+  }
+
   const handleAiAssist = async () => {
-    if (!noteText.trim()) return
+    const instruction = noteText.trim() || 'Review this control and suggest an appropriate status and note based on the current evidence.'
     setAiProcessing(true)
     try {
       const res = await fetch('/api/compliance/ai-assist', {
@@ -573,7 +598,7 @@ function FindingRow({ finding, change, expanded, onToggle, assessmentId, onUpdat
           controlTitle: getControlTitle(finding.controlId),
           currentStatus: effectiveStatus,
           currentReasoning: finding.reasoning,
-          instruction: noteText,
+          instruction,
         }),
       })
       const json = await res.json()
@@ -633,8 +658,14 @@ function FindingRow({ finding, change, expanded, onToggle, assessmentId, onUpdat
 
       {expanded && (
         <div className="px-4 pb-4 space-y-3 bg-slate-900/20">
+          {/* Control description — the actual CIS requirement */}
+          <div className="bg-slate-800/30 border border-white/5 rounded p-3">
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Control Requirement</p>
+            <p className="text-sm text-slate-200">{getControlDescription(finding.controlId)}</p>
+          </div>
+
           <div>
-            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Reasoning</p>
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Assessment Result</p>
             <p className="text-sm text-slate-300">{finding.reasoning}</p>
           </div>
           {finding.remediation && (
@@ -666,13 +697,28 @@ function FindingRow({ finding, change, expanded, onToggle, assessmentId, onUpdat
           <div className="mt-3 pt-3 border-t border-white/10">
             <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">Reviewer Notes</p>
             <div className="flex flex-col gap-2">
-              <textarea
-                value={noteText}
-                onChange={(e) => setNoteText(e.target.value)}
-                placeholder="Add a note, explain a status change, or dictate instructions..."
-                rows={2}
-                className="w-full bg-slate-800/50 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 resize-none"
-              />
+              <div className="relative">
+                <textarea
+                  value={noteText}
+                  onChange={(e) => setNoteText(e.target.value)}
+                  placeholder="Type or dictate a note, explanation, or instruction..."
+                  rows={2}
+                  className="w-full bg-slate-800/50 border border-white/10 rounded-lg px-3 py-2 pr-10 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 resize-none"
+                />
+                <button
+                  onClick={toggleListening}
+                  className={`absolute right-2 top-2 p-1.5 rounded-full transition-colors ${
+                    isListening
+                      ? 'bg-red-500/30 text-red-300 animate-pulse'
+                      : 'bg-slate-700/50 hover:bg-slate-600/50 text-slate-400 hover:text-white'
+                  }`}
+                  title={isListening ? 'Stop listening' : 'Dictate with microphone'}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4M12 15a3 3 0 003-3V5a3 3 0 00-6 0v7a3 3 0 003 3z" />
+                  </svg>
+                </button>
+              </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <select
                   value={overrideStatus}
@@ -688,9 +734,12 @@ function FindingRow({ finding, change, expanded, onToggle, assessmentId, onUpdat
                 </select>
                 <button
                   onClick={handleAiAssist}
-                  disabled={aiProcessing || !noteText.trim()}
-                  className="inline-flex items-center px-3 py-1.5 bg-violet-500/20 hover:bg-violet-500/30 text-violet-300 rounded text-xs font-medium disabled:opacity-40 transition-colors"
+                  disabled={aiProcessing}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-violet-500/20 hover:bg-violet-500/30 text-violet-300 rounded text-xs font-medium disabled:opacity-40 transition-colors"
                 >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
                   {aiProcessing ? 'Processing...' : 'AI Assist'}
                 </button>
                 <button
@@ -851,6 +900,78 @@ function getControlTitle(controlId: string): string {
   return CONTROL_TITLES[controlId] ?? controlId
 }
 
+function getControlDescription(controlId: string): string {
+  return CONTROL_DESCRIPTIONS[controlId] ?? 'No description available for this control.'
+}
+
 function getCategoryForControl(controlId: string): string {
   return controlId.replace('cis-v8-', '').split('.')[0]
+}
+
+const CONTROL_DESCRIPTIONS: Record<string, string> = {
+  'cis-v8-1.1': 'Establish and maintain an accurate, detailed, and up-to-date inventory of all enterprise assets with the potential to store or process data, including end-user devices, network devices, IoT devices, and servers.',
+  'cis-v8-1.2': 'Ensure that a process exists to address unauthorized assets on a weekly basis. The enterprise may choose to remove the asset from the network, deny the asset from connecting remotely, or quarantine the asset.',
+  'cis-v8-1.3': 'Utilize an active discovery tool to identify assets connected to the enterprise network. Configure the active discovery tool to execute daily, or more frequently.',
+  'cis-v8-1.4': 'Use DHCP logging on all DHCP servers or IP address management tools to update the enterprise asset inventory.',
+  'cis-v8-1.5': 'Use a passive discovery tool to identify assets connected to the enterprise network.',
+  'cis-v8-2.1': 'Establish and maintain a detailed inventory of all licensed software installed on enterprise assets.',
+  'cis-v8-2.2': 'Ensure that only currently supported software is designated as authorized in the software inventory for enterprise assets.',
+  'cis-v8-2.3': 'Ensure that unauthorized software is either removed from use on enterprise assets or receives a documented exception.',
+  'cis-v8-3.1': 'Establish and maintain a data management process including data sensitivity levels, data owner, handling requirements, data retention limits, and disposal requirements.',
+  'cis-v8-3.2': 'Establish and maintain a data inventory based on the enterprise\'s data management process. At a minimum, inventory sensitive data.',
+  'cis-v8-3.3': 'Configure data access control lists based on a user\'s need to know. Apply data access control lists to local and remote file systems, databases, and applications.',
+  'cis-v8-3.4': 'Retain data according to the enterprise\'s data management process. Data retention must include both minimum and maximum timelines.',
+  'cis-v8-3.5': 'Securely dispose of data as outlined in the enterprise\'s data management process. Ensure the disposal process and method are commensurate with the data sensitivity.',
+  'cis-v8-3.6': 'Encrypt data on end-user devices containing sensitive data. Example implementations can include Windows BitLocker, Apple FileVault, Linux dm-crypt.',
+  'cis-v8-4.1': 'Establish and maintain a secure configuration process for enterprise assets (end-user devices, including portable and mobile; network devices; non-computing/IoT devices; and servers) and software (operating systems and applications).',
+  'cis-v8-4.2': 'Establish and maintain a secure configuration process for network infrastructure including firewalls, routers, and switches.',
+  'cis-v8-4.3': 'Configure automatic session locking on enterprise assets after a defined period of inactivity. For general purpose operating systems, the period must not exceed 15 minutes. For mobile end-user devices, the period must not exceed 2 minutes.',
+  'cis-v8-4.4': 'Implement and manage a firewall on servers, where supported. Example implementations include a virtual firewall, operating system firewall, or a third-party firewall agent.',
+  'cis-v8-4.5': 'Implement and manage a host-based firewall or port-filtering tool on end-user devices, with a default-deny rule that drops all traffic except those services and ports that are explicitly allowed.',
+  'cis-v8-4.6': 'Securely manage enterprise assets and software. Use encryption for data at rest on enterprise assets containing sensitive data.',
+  'cis-v8-4.7': 'Manage default accounts on enterprise assets and software, such as root, administrator, and other pre-configured vendor default accounts. Example implementations can include disabling default accounts or making them unusable.',
+  'cis-v8-5.1': 'Establish and maintain an inventory of all accounts managed in the enterprise. The inventory must include both user and administrator accounts.',
+  'cis-v8-5.2': 'Use unique passwords for all enterprise assets. Best practice implementation includes, at a minimum, an 8-character password for accounts using MFA and a 14-character password for accounts not using MFA.',
+  'cis-v8-5.3': 'Delete or disable any dormant accounts after a period of 45 days of inactivity, where supported.',
+  'cis-v8-5.4': 'Restrict administrator privileges to dedicated administrator accounts on enterprise assets. Conduct general computing activities, such as internet browsing, email, and productivity suite use, from the user\'s primary, non-privileged account.',
+  'cis-v8-6.1': 'Establish and follow a process, preferably automated, for granting access to enterprise assets upon new hire, rights grant, or role change of a user.',
+  'cis-v8-6.2': 'Establish and follow a process, preferably automated, for revoking access to enterprise assets, through disabling accounts immediately upon termination, rights revocation, or role change of a user.',
+  'cis-v8-6.3': 'Require all externally-exposed enterprise or third-party applications to enforce multi-factor authentication, where supported. Enforcing MFA through a directory service or SSO provider is a satisfactory implementation of this safeguard.',
+  'cis-v8-6.4': 'Require MFA for remote network access.',
+  'cis-v8-6.5': 'Require MFA for all administrative access accounts, where supported, on all enterprise assets, whether managed on-site or through a third-party provider.',
+  'cis-v8-7.1': 'Establish and maintain a documented vulnerability management process for enterprise assets. Review and update documentation annually, or when significant enterprise changes occur that could impact this safeguard.',
+  'cis-v8-7.2': 'Establish and maintain a risk-based remediation strategy documented in a remediation process, with monthly, or more frequent, parsec of vulnerabilities, as review cadence.',
+  'cis-v8-7.3': 'Perform operating system updates on enterprise assets through automated patch management on a monthly, or more frequent, basis.',
+  'cis-v8-7.4': 'Perform application updates on enterprise assets through automated patch management on a monthly, or more frequent, basis.',
+  'cis-v8-8.1': 'Establish and maintain an audit log management process that defines the enterprise\'s logging requirements. At a minimum, address the collection, review, and retention of audit logs for enterprise assets.',
+  'cis-v8-8.2': 'Collect audit logs. Ensure that logging, per the enterprise\'s audit log management process, has been enabled across enterprise assets.',
+  'cis-v8-8.3': 'Ensure that logging destinations maintain adequate storage to comply with the enterprise\'s audit log management process.',
+  'cis-v8-8.5': 'Configure detailed audit logging for enterprise assets containing sensitive data. Include event source, date, username, timestamp, source addresses, destination addresses, and other useful elements that could assist in a forensic investigation.',
+  'cis-v8-9.1': 'Ensure only fully supported browsers and email clients are allowed to execute in the enterprise, only using the latest version of browsers and email clients provided through the vendor.',
+  'cis-v8-9.2': 'Use DNS filtering services on all enterprise assets to block access to known malicious domains.',
+  'cis-v8-10.1': 'Deploy and maintain anti-malware software on all enterprise assets.',
+  'cis-v8-10.2': 'Configure automatic updates for anti-malware signature files on all enterprise assets.',
+  'cis-v8-10.3': 'Disable autorun and autoplay auto-execute functionality for removable media.',
+  'cis-v8-11.1': 'Establish and maintain a data recovery practice. In the practice, address the scope, prioritization, and testing of recovery procedures for in-scope enterprise software and data.',
+  'cis-v8-11.2': 'Perform automated backups of in-scope enterprise assets. Run backups weekly, or more frequently, based on the sensitivity of the data.',
+  'cis-v8-11.3': 'Protect recovery data with equivalent controls to the original data. Reference encryption or data separation, based on requirements.',
+  'cis-v8-11.4': 'Establish and maintain an isolated instance of recovery data using versioning or an offline/air-gapped destination.',
+  'cis-v8-12.1': 'Ensure network infrastructure is kept up-to-date. Example implementations include running the latest stable release of software and/or using currently-supported network-as-a-service (NaaS) offerings.',
+  'cis-v8-12.6': 'Ensure all data in transit is encrypted using TLS 1.2+ for web traffic, encrypted email, and encrypted VPN connections.',
+  'cis-v8-13.1': 'Centralize security event alerting across enterprise assets for log correlation and analysis. Best practice implementation requires the use of a SIEM.',
+  'cis-v8-14.1': 'Establish and maintain a security awareness program. The purpose of a security awareness program is to educate the enterprise\'s workforce on how to interact with enterprise assets and data in a secure manner.',
+  'cis-v8-14.2': 'Train workforce members to recognize social engineering attacks, such as phishing, pre-texting, and tailgating.',
+  'cis-v8-14.3': 'Train workforce members on authentication best practices. Example topics include MFA, password composition, and credential management.',
+  'cis-v8-14.4': 'Train workforce members on how to identify and properly store, transfer, archive, and destroy sensitive data.',
+  'cis-v8-14.5': 'Train workforce members to be aware of causes for unintentional data exposure. Example topics include mis-delivery of sensitive data, losing a portable end-user device, or publishing data to unintended audiences.',
+  'cis-v8-14.6': 'Train workforce members to be able to recognize a potential incident and be able to report such an incident.',
+  'cis-v8-14.7': 'Train workforce to understand how to verify and report out-of-date software patches or any failures in automated processes and tools. Part of this training should include notifying IT personnel of any failures in automated processes and tools.',
+  'cis-v8-14.8': 'Train workforce members on the dangers of connecting to, and transmitting data over, insecure networks for enterprise activities.',
+  'cis-v8-15.1': 'Establish and maintain an inventory of service providers. The inventory is to list all known service providers, include classification(s), and designate an enterprise contact for each service provider.',
+  'cis-v8-15.2': 'Establish and maintain a service provider management policy. Ensure the policy addresses the classification, inventory, assessment, monitoring, and decommissioning of service providers.',
+  'cis-v8-15.7': 'Securely decommission service providers. Example considerations include user and service account deactivation, termination of data flows, and secure disposal of enterprise data within service provider systems.',
+  'cis-v8-16.1': 'Establish and maintain a documented secure application development process. In the process, address such items as: secure application design standards, secure coding practices, developer training, vulnerability management, security of third-party code, and application security testing procedures.',
+  'cis-v8-17.1': 'Designate one key person, and at least one backup, who will manage the enterprise\'s incident handling process. Management personnel are responsible for the coordination and documentation of incident response and recovery efforts.',
+  'cis-v8-17.2': 'Establish and maintain contact information for parties that need to be informed of security incidents. Contacts may include internal staff, third-party vendors, law enforcement, cyber insurance providers, relevant government agencies, ISAC partners, or other stakeholders.',
+  'cis-v8-17.3': 'Establish and maintain an enterprise process for the workforce to report security incidents. The process includes reporting timeframe, personnel to report to, mechanism for reporting, and the minimum information to be reported.',
 }
