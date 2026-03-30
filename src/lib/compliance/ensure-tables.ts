@@ -302,17 +302,8 @@ export async function ensureComplianceTables(): Promise<void> {
       `)
     }
 
-    // --- Add compliance portal visibility column to companies if missing ---
-    await client.query(`
-      DO $$ BEGIN
-        IF NOT EXISTS (
-          SELECT 1 FROM information_schema.columns
-          WHERE table_name = 'companies' AND column_name = 'compliancePortalEnabled'
-        ) THEN
-          ALTER TABLE companies ADD COLUMN "compliancePortalEnabled" BOOLEAN NOT NULL DEFAULT false;
-        END IF;
-      END $$
-    `)
+    // compliancePortalEnabled column on companies is now in Prisma schema
+    // + migration 20260330000000_add_compliance_portal_enabled
 
     tablesEnsured = true
   } finally {

@@ -127,6 +127,9 @@ model Company {
   m365SetupStatus       String?   @default("not_configured") @map("m365_setup_status")
   onboardingCompletedAt DateTime? @map("onboarding_completed_at")
 
+  // Compliance portal visibility toggle
+  compliancePortalEnabled Boolean @default(false) @map("compliancePortalEnabled")
+
   // Relations
   projects        Project[]
   contacts        CompanyContact[]
