@@ -10,6 +10,7 @@ import {
   getAssessmentSummary,
   runAssessment,
   overrideFinding,
+  deleteAssessment,
   getEvidence,
 } from '@/lib/compliance/engine'
 
@@ -67,6 +68,29 @@ export async function POST(
     console.error('[compliance] Run assessment error:', err)
     return NextResponse.json(
       { error: `Assessment failed: ${err instanceof Error ? err.message : String(err)}` },
+      { status: 500 }
+    )
+  }
+}
+
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const session = await auth()
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const { id } = await params
+
+  try {
+    await deleteAssessment(id, session.user.email)
+    return NextResponse.json({ success: true })
+  } catch (err) {
+    console.error('[compliance] Delete assessment error:', err)
+    return NextResponse.json(
+      { error: `Delete failed: ${err instanceof Error ? err.message : String(err)}` },
       { status: 500 }
     )
   }
