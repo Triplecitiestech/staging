@@ -575,21 +575,84 @@ function manualControlEvaluator(controlId: string, description: string): Control
   })
 }
 
-/** Generic evaluator for semi-auto controls that check if relevant evidence was collected */
+/**
+ * Smart semi-auto evaluator. Checks actual evidence data when possible:
+ * - Device compliance data → checks compliantCount/totalCount
+ * - RMM data → checks device count, patch rate, AV rate
+ * - Secure Score → checks percentage
+ * Falls back to 'needs_review' when evidence exists but can't be auto-interpreted.
+ */
 function semiAutoEvaluator(controlId: string, description: string, sources: EvidenceSourceType[]): ControlEvaluator {
   return (ctx: EvaluationContext): EvaluationResult => {
     const available = sources.filter((s) => ctx.evidence.has(s))
     if (available.length === 0) return noEvidence(controlId, sources, ctx)
 
-    return {
-      controlId,
-      status: 'needs_review',
-      confidence: 'low',
-      reasoning: `Evidence collected from ${available.join(', ')} but requires human review to confirm this control is satisfied. ${description}`,
-      evidenceIds: available.map((s) => ctx.evidence.get(s)!.id),
-      missingEvidence: sources.filter((s) => !ctx.evidence.has(s)),
-      remediation: null,
+    const evidenceIds = available.map((s) => ctx.evidence.get(s)!.id)
+    const missing = sources.filter((s) => !ctx.evidence.has(s))
+
+    // Try to extract quantitative signal from the evidence
+    const devices = ctx.evidence.get('microsoft_device_compliance')
+    const rmm = ctx.evidence.get('datto_rmm_devices')
+    const score = ctx.evidence.get('microsoft_secure_score')
+
+    // If we have device compliance data, use it
+    if (devices && available.includes('microsoft_device_compliance')) {
+      const devData = devices.rawData as { complianceRate?: number; compliantCount?: number; totalCount?: number }
+      const rate = devData.complianceRate ?? (devData.totalCount ? Math.round(((devData.compliantCount ?? 0) / devData.totalCount) * 100) : 0)
+      const total = devData.totalCount ?? 0
+      if (total > 0 && rate >= 90) {
+        return { controlId, status: 'pass', confidence: 'medium',
+          reasoning: `${rate}% device compliance rate (${total} devices managed). ${description}`,
+          evidenceIds, missingEvidence: missing, remediation: null }
+      }
+      if (total > 0 && rate >= 60) {
+        return { controlId, status: 'partial', confidence: 'medium',
+          reasoning: `${rate}% device compliance rate. Some devices may not meet this requirement. ${description}`,
+          evidenceIds, missingEvidence: missing,
+          remediation: `Review non-compliant devices and apply required configuration to improve from ${rate}%.` }
+      }
+      if (total > 0) {
+        return { controlId, status: 'fail', confidence: 'medium',
+          reasoning: `Only ${rate}% device compliance rate. ${description}`,
+          evidenceIds, missingEvidence: missing,
+          remediation: 'Review and remediate non-compliant devices via Intune compliance policies.' }
+      }
     }
+
+    // If we have RMM data, use device/patch/AV metrics
+    if (rmm && available.includes('datto_rmm_devices')) {
+      const rmmData = rmm.rawData as { totalDevices?: number; patchRate?: number; avRate?: number; matched?: boolean }
+      if (rmmData.matched && (rmmData.totalDevices ?? 0) > 0) {
+        const patchRate = rmmData.patchRate ?? 0
+        const avRate = rmmData.avRate ?? 0
+        const bestRate = Math.max(patchRate, avRate)
+        if (bestRate >= 90) {
+          return { controlId, status: 'pass', confidence: 'medium',
+            reasoning: `RMM shows ${rmmData.totalDevices} managed devices with ${patchRate}% patch rate and ${avRate}% AV active. ${description}`,
+            evidenceIds, missingEvidence: missing, remediation: null }
+        }
+        return { controlId, status: 'partial', confidence: 'low',
+          reasoning: `RMM shows ${rmmData.totalDevices} devices (${patchRate}% patched, ${avRate}% AV active). ${description}`,
+          evidenceIds, missingEvidence: missing,
+          remediation: 'Review RMM dashboard for devices needing updates or configuration changes.' }
+      }
+    }
+
+    // If we have Secure Score, use it as a general signal
+    if (score && available.includes('microsoft_secure_score')) {
+      const scoreData = score.rawData as { percentage?: number }
+      const pct = scoreData.percentage ?? 0
+      if (pct >= 70) {
+        return { controlId, status: 'pass', confidence: 'low',
+          reasoning: `Secure Score is ${pct}%, suggesting this configuration area meets baseline. ${description}`,
+          evidenceIds, missingEvidence: missing, remediation: null }
+      }
+    }
+
+    // Fallback: evidence exists but can't auto-evaluate
+    return { controlId, status: 'needs_review', confidence: 'low',
+      reasoning: `Evidence collected from ${available.join(', ')}. ${description}`,
+      evidenceIds, missingEvidence: missing, remediation: null }
   }
 }
 

@@ -218,7 +218,7 @@ export async function collectDnsFilterEvidence(
   const errors: string[] = []
 
   if (!process.env.DNSFILTER_API_TOKEN) {
-    return { evidence, errors: ['DNSFilter API token not configured'] }
+    return { evidence, errors: ['DNSFilter: DNSFILTER_API_TOKEN not configured'] }
   }
 
   try {
@@ -228,14 +228,31 @@ export async function collectDnsFilterEvidence(
     // Try 7-day window first (more likely to have data than 30 days on some API configs)
     const now = new Date()
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-    let summary = await client.buildSummary(sevenDaysAgo, now)
+    let summary: Awaited<ReturnType<typeof client.buildSummary>>
     let periodDays = 7
 
-    // If 7-day returns zero, try 30-day
-    if (summary.totalQueries === 0) {
+    try {
+      summary = await client.buildSummary(sevenDaysAgo, now)
+    } catch (err) {
+      console.error('[compliance][dnsfilter] 7-day buildSummary failed:', err instanceof Error ? err.message : String(err))
+      // Try 30-day as fallback
       const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
       summary = await client.buildSummary(thirtyDaysAgo, now)
       periodDays = 30
+    }
+
+    // If 7-day returned zero, try 30-day
+    if (summary.totalQueries === 0 && periodDays === 7) {
+      try {
+        const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+        const summary30 = await client.buildSummary(thirtyDaysAgo, now)
+        if (summary30.totalQueries > 0) {
+          summary = summary30
+          periodDays = 30
+        }
+      } catch {
+        // Keep the 7-day result
+      }
     }
 
     // Only store evidence if we got actual query data
