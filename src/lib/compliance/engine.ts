@@ -23,6 +23,7 @@ import {
   compareControlIds,
   EVIDENCE_TO_CONNECTOR,
 } from './types'
+import { resolveAllControls } from './registry/resolver'
 import type {
   Assessment,
   AssessmentStatus,
@@ -487,12 +488,18 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
     // Evaluate controls
     const framework = getFrameworkDefinition(assessment.frameworkId as FrameworkId)
     const evaluators = getEvaluators(assessment.frameworkId as FrameworkId)
+
+    // Resolve tool mappings from the registry for all controls
+    const controlIds = framework.controls.map((c) => c.controlId)
+    const toolResolutions = resolveAllControls(controlIds, availableConnectors)
+
     const ctx: EvaluationContext = {
       companyId: assessment.companyId,
       assessmentId,
       evidence: evidenceMap,
       availableConnectors,
       failedConnectors,
+      toolResolutions,
     }
 
     const findings: Array<Omit<Finding, 'id'>> = []

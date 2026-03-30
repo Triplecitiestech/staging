@@ -170,6 +170,8 @@ export interface EvaluationContext {
   availableConnectors: Set<ConnectorType>
   /** Which connectors had errors during collection */
   failedConnectors: Set<ConnectorType>
+  /** Resolved tool mappings per control from the registry */
+  toolResolutions?: Map<string, import('./registry/resolver').ControlToolResolution>
 }
 
 export interface EvaluationResult {
