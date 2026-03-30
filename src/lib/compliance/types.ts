@@ -69,7 +69,7 @@ export type ConnectorType =
   | 'dnsfilter'
   | 'autotask'
 
-export type ConnectorStatus = 'not_configured' | 'configured' | 'verified' | 'error'
+export type ConnectorStatus = 'not_configured' | 'available' | 'configured' | 'verified' | 'error'
 
 export interface ConnectorState {
   companyId: string
