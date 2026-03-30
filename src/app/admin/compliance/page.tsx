@@ -16,17 +16,30 @@ export default async function CompliancePage() {
   const session = await auth()
   if (!session) redirect('/admin')
 
-  // Load companies for the selector
-  const { prisma } = await import('@/lib/prisma')
-  const companies = await prisma.company.findMany({
-    select: {
-      id: true,
-      displayName: true,
-      slug: true,
-      m365SetupStatus: true,
-    },
-    orderBy: { displayName: 'asc' },
-  })
+  let companies: Array<{ id: string; name: string; slug: string; m365SetupStatus: string | null }> = []
+
+  try {
+    const { prisma } = await import('@/lib/prisma')
+    const result = await prisma.company.findMany({
+      select: {
+        id: true,
+        displayName: true,
+        slug: true,
+        m365SetupStatus: true,
+      },
+      orderBy: { displayName: 'asc' },
+    })
+
+    companies = result.map((c) => ({
+      id: c.id,
+      name: c.displayName,
+      slug: c.slug,
+      m365SetupStatus: c.m365SetupStatus ?? null,
+    }))
+  } catch (err) {
+    console.error('[compliance] Failed to load companies:', err)
+    // Continue with empty list rather than crashing
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-gray-900 to-slate-950">
@@ -38,14 +51,7 @@ export default async function CompliancePage() {
             Assess customer compliance posture using real data from managed tools
           </p>
         </div>
-        <ComplianceDashboard
-          companies={companies.map((c) => ({
-            id: c.id,
-            name: c.displayName,
-            slug: c.slug,
-            m365SetupStatus: c.m365SetupStatus,
-          }))}
-        />
+        <ComplianceDashboard companies={companies} />
       </main>
     </div>
   )
