@@ -54,6 +54,7 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
   const [loading, setLoading] = useState(false)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [selectedFramework, setSelectedFramework] = useState('cis-v8')
 
   const loadDashboard = useCallback(async (companyId: string) => {
     setLoading(true)
@@ -85,7 +86,7 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
       const createRes = await fetch('/api/compliance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ companyId: selectedCompany, frameworkId: 'cis-v8' }),
+        body: JSON.stringify({ companyId: selectedCompany, frameworkId: selectedFramework }),
       })
       const createJson = await createRes.json()
       if (!createJson.success) throw new Error(createJson.error)
@@ -210,18 +211,35 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
                   </p>
                 )}
               </div>
-              <button
-                onClick={createAndRunAssessment}
-                disabled={running}
-                className="inline-flex items-center px-4 py-2.5 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-white rounded-lg font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-              >
-                {running ? (
-                  <>
-                    <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2" />
-                    Running Assessment...
-                  </>
-                ) : 'Run CIS v8 Assessment'}
-              </button>
+              <div className="flex items-center gap-2">
+                <select
+                  value={selectedFramework}
+                  onChange={(e) => setSelectedFramework(e.target.value)}
+                  className="bg-slate-900/50 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+                >
+                  <optgroup label="CIS Controls v8">
+                    <option value="cis-v8">CIS v8 — Full (IG1 + IG2/IG3)</option>
+                  </optgroup>
+                  <optgroup label="Coming Soon">
+                    <option value="cmmc-l1" disabled>CMMC Level 1</option>
+                    <option value="cmmc-l2" disabled>CMMC Level 2</option>
+                    <option value="nist-800-171" disabled>NIST 800-171</option>
+                    <option value="hipaa" disabled>HIPAA</option>
+                  </optgroup>
+                </select>
+                <button
+                  onClick={createAndRunAssessment}
+                  disabled={running}
+                  className="inline-flex items-center px-4 py-2.5 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-white rounded-lg font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all whitespace-nowrap"
+                >
+                  {running ? (
+                    <>
+                      <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2" />
+                      Running...
+                    </>
+                  ) : 'Run Assessment'}
+                </button>
+              </div>
             </div>
 
             {dashboard.assessments.length > 0 ? (
@@ -274,6 +292,7 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
             <AssessmentResults
               detail={activeAssessment}
               onExport={() => exportCsv(activeAssessment.assessment.id)}
+              onUpdated={() => loadAssessment(activeAssessment.assessment.id)}
             />
           )}
         </>
@@ -355,7 +374,7 @@ function getScoreColor(pct: number): string {
 // Assessment Results with comparison
 // ---------------------------------------------------------------------------
 
-function AssessmentResults({ detail, onExport }: { detail: AssessmentDetail; onExport: () => void }) {
+function AssessmentResults({ detail, onExport, onUpdated }: { detail: AssessmentDetail; onExport: () => void; onUpdated: () => void }) {
   const [expandedControl, setExpandedControl] = useState<string | null>(null)
   const [evidenceView, setEvidenceView] = useState<string | null>(null)
 
@@ -489,6 +508,8 @@ function AssessmentResults({ detail, onExport }: { detail: AssessmentDetail; onE
                   change={changeMap.get(f.controlId)}
                   expanded={expandedControl === f.controlId}
                   onToggle={() => setExpandedControl(expandedControl === f.controlId ? null : f.controlId)}
+                  assessmentId={assessment.id}
+                  onUpdated={onUpdated}
                 />
               ))}
             </div>
@@ -508,9 +529,15 @@ function StatCard({ label, value, color }: { label: string; value: number; color
   )
 }
 
-function FindingRow({ finding, change, expanded, onToggle }: {
+function FindingRow({ finding, change, expanded, onToggle, assessmentId, onUpdated }: {
   finding: Finding; change?: string; expanded: boolean; onToggle: () => void
+  assessmentId: string; onUpdated: () => void
 }) {
+  const [noteText, setNoteText] = useState('')
+  const [overrideStatus, setOverrideStatus] = useState<string>('')
+  const [aiProcessing, setAiProcessing] = useState(false)
+  const [saving, setSaving] = useState(false)
+
   const effectiveStatus = finding.overrideStatus ?? finding.status
 
   const statusConfig: Record<string, { label: string; color: string; bg: string }> = {
@@ -530,6 +557,50 @@ function FindingRow({ finding, change, expanded, onToggle }: {
     newly_failed: { icon: '↓', color: 'text-red-400' },
     improved: { icon: '↗', color: 'text-cyan-400' },
     regressed: { icon: '↘', color: 'text-rose-400' },
+  }
+
+  const handleAiAssist = async () => {
+    if (!noteText.trim()) return
+    setAiProcessing(true)
+    try {
+      const res = await fetch('/api/compliance/ai-assist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          controlId: finding.controlId,
+          controlTitle: getControlTitle(finding.controlId),
+          currentStatus: effectiveStatus,
+          currentReasoning: finding.reasoning,
+          instruction: noteText,
+        }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        if (json.data.suggestedStatus) setOverrideStatus(json.data.suggestedStatus)
+        if (json.data.note) setNoteText(json.data.note)
+      }
+    } catch { /* ignore */ }
+    finally { setAiProcessing(false) }
+  }
+
+  const handleSave = async () => {
+    if (!noteText.trim() && !overrideStatus) return
+    setSaving(true)
+    try {
+      await fetch(`/api/compliance/assessments/${assessmentId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          findingId: finding.id,
+          overrideStatus: overrideStatus || effectiveStatus,
+          overrideReason: noteText || 'Status updated by reviewer',
+        }),
+      })
+      setNoteText('')
+      setOverrideStatus('')
+      onUpdated()
+    } catch { /* ignore */ }
+    finally { setSaving(false) }
   }
 
   return (
@@ -588,6 +659,49 @@ function FindingRow({ finding, change, expanded, onToggle }: {
               <p className="text-sm text-violet-300">{finding.overrideReason}</p>
             </div>
           )}
+
+          {/* Reviewer Notes & Override Panel */}
+          <div className="mt-3 pt-3 border-t border-white/10">
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">Reviewer Notes</p>
+            <div className="flex flex-col gap-2">
+              <textarea
+                value={noteText}
+                onChange={(e) => setNoteText(e.target.value)}
+                placeholder="Add a note, explain a status change, or dictate instructions..."
+                rows={2}
+                className="w-full bg-slate-800/50 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 resize-none"
+              />
+              <div className="flex items-center gap-2 flex-wrap">
+                <select
+                  value={overrideStatus}
+                  onChange={(e) => setOverrideStatus(e.target.value)}
+                  className="bg-slate-800/50 border border-white/10 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+                >
+                  <option value="">Keep current status</option>
+                  <option value="pass">Pass (YES)</option>
+                  <option value="fail">Fail (NO)</option>
+                  <option value="partial">Partial</option>
+                  <option value="needs_review">Needs Review</option>
+                  <option value="not_applicable">Not Applicable</option>
+                </select>
+                <button
+                  onClick={handleAiAssist}
+                  disabled={aiProcessing || !noteText.trim()}
+                  className="inline-flex items-center px-3 py-1.5 bg-violet-500/20 hover:bg-violet-500/30 text-violet-300 rounded text-xs font-medium disabled:opacity-40 transition-colors"
+                >
+                  {aiProcessing ? 'Processing...' : 'AI Assist'}
+                </button>
+                <button
+                  onClick={handleSave}
+                  disabled={saving || (!noteText.trim() && !overrideStatus)}
+                  className="inline-flex items-center px-3 py-1.5 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 rounded text-xs font-medium disabled:opacity-40 transition-colors"
+                >
+                  {saving ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </div>
+
           <div className="flex items-center gap-3 text-xs text-slate-500">
             <span>Confidence: {finding.confidence}</span>
             {finding.evaluatedAt && <span>Evaluated: {new Date(finding.evaluatedAt).toLocaleString()}</span>}
