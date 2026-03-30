@@ -35,6 +35,7 @@ export default async function NewProjectPage() {
         m365VerifiedAt: true,
         m365SetupStatus: true,
         onboardingCompletedAt: true,
+        compliancePortalEnabled: true,
       },
     })
   } catch {
@@ -59,6 +60,7 @@ export default async function NewProjectPage() {
         m365VerifiedAt: true,
         m365SetupStatus: true,
         onboardingCompletedAt: true,
+        compliancePortalEnabled: true,
       },
       orderBy: { displayName: 'asc' }
     })
