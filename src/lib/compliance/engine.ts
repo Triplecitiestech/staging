@@ -75,28 +75,65 @@ export async function upsertConnector(
   }
 }
 
-/** Auto-detect connector status from existing company credentials */
+/**
+ * Auto-detect connector status from existing company data and MSP-level env vars.
+ *
+ * - Microsoft Graph: per-company credentials in companies table
+ * - Autotask: per-company autotaskCompanyId in companies table
+ * - Datto RMM/EDR/BCDR, DNSFilter: MSP-level API keys in env vars,
+ *   customer data matched by company name at query time (same as annual reports)
+ */
 export async function detectConnectors(companyId: string): Promise<ConnectorState[]> {
   await ensureComplianceTables()
   const pool = getPool()
   const client = await pool.connect()
   try {
-    // Check M365 credentials
-    const m365 = await client.query<{
+    // Load company data for integration checks
+    const company = await client.query<{
       m365_tenant_id: string | null
       m365_client_id: string | null
       m365_setup_status: string | null
+      "autotaskCompanyId": string | null
     }>(
-      `SELECT m365_tenant_id, m365_client_id, m365_setup_status FROM companies WHERE id = $1`,
+      `SELECT m365_tenant_id, m365_client_id, m365_setup_status, "autotaskCompanyId"
+       FROM companies WHERE id = $1`,
       [companyId]
     )
 
-    if (m365.rows.length > 0) {
-      const row = m365.rows[0]
-      if (row.m365_tenant_id && row.m365_client_id) {
-        const status = row.m365_setup_status === 'verified' ? 'verified' : 'configured'
-        await upsertConnector(companyId, 'microsoft_graph', status, null, 'company.m365_*')
-      }
+    if (company.rows.length === 0) return getConnectors(companyId)
+    const row = company.rows[0]
+
+    // --- Microsoft Graph: per-company credentials ---
+    if (row.m365_tenant_id && row.m365_client_id) {
+      const status = row.m365_setup_status === 'verified' ? 'verified' : 'configured'
+      await upsertConnector(companyId, 'microsoft_graph', status, null, 'company.m365_*')
+    }
+
+    // --- Autotask: per-company mapping via autotaskCompanyId ---
+    if (row.autotaskCompanyId) {
+      await upsertConnector(companyId, 'autotask', 'verified', null, 'company.autotaskCompanyId')
+    } else if (process.env.AUTOTASK_API_USERNAME) {
+      await upsertConnector(companyId, 'autotask', 'available', 'Company not synced from Autotask', 'env.AUTOTASK_API_*')
+    }
+
+    // --- Datto RMM: MSP-level API, customers matched by site name ---
+    if (process.env.DATTO_RMM_API_KEY && process.env.DATTO_RMM_API_SECRET) {
+      await upsertConnector(companyId, 'datto_rmm', 'available', null, 'env.DATTO_RMM_*')
+    }
+
+    // --- Datto EDR: MSP-level API token ---
+    if (process.env.DATTO_EDR_API_TOKEN) {
+      await upsertConnector(companyId, 'datto_edr', 'available', null, 'env.DATTO_EDR_*')
+    }
+
+    // --- Datto BCDR: MSP-level API, devices matched by clientCompanyName ---
+    if (process.env.DATTO_BCDR_PUBLIC_KEY && process.env.DATTO_BCDR_PRIVATE_KEY) {
+      await upsertConnector(companyId, 'datto_bcdr', 'available', null, 'env.DATTO_BCDR_*')
+    }
+
+    // --- DNSFilter: MSP-level API ---
+    if (process.env.DNSFILTER_API_TOKEN) {
+      await upsertConnector(companyId, 'dnsfilter', 'available', null, 'env.DNSFILTER_*')
     }
 
     // Return all connectors for this company

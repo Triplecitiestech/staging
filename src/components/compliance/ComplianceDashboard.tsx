@@ -165,11 +165,11 @@ export default function ComplianceDashboard({ companies }: Props) {
                 type="microsoft_graph"
                 connectors={dashboard.connectors}
               />
+              <ConnectorCard name="Autotask PSA" type="autotask" connectors={dashboard.connectors} />
               <ConnectorCard name="Datto RMM" type="datto_rmm" connectors={dashboard.connectors} />
               <ConnectorCard name="Datto EDR" type="datto_edr" connectors={dashboard.connectors} />
               <ConnectorCard name="Datto BCDR" type="datto_bcdr" connectors={dashboard.connectors} />
               <ConnectorCard name="DNSFilter" type="dnsfilter" connectors={dashboard.connectors} />
-              <ConnectorCard name="Autotask" type="autotask" connectors={dashboard.connectors} />
             </div>
           </div>
 
@@ -275,6 +275,7 @@ function ConnectorCard({ name, type, connectors }: {
   const statusColors: Record<string, string> = {
     verified: 'bg-green-500/20 text-green-300 border-green-500/30',
     configured: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
+    available: 'bg-violet-500/20 text-violet-300 border-violet-500/30',
     error: 'bg-red-500/20 text-red-300 border-red-500/30',
     not_configured: 'bg-slate-500/20 text-slate-400 border-slate-500/30',
   }
@@ -282,6 +283,7 @@ function ConnectorCard({ name, type, connectors }: {
   const statusLabels: Record<string, string> = {
     verified: 'Connected',
     configured: 'Configured',
+    available: 'Available',
     error: 'Error',
     not_configured: 'Not Configured',
   }
@@ -294,12 +296,15 @@ function ConnectorCard({ name, type, connectors }: {
           {statusLabels[status]}
         </span>
       </div>
+      {status === 'available' && (
+        <p className="text-xs text-slate-500 mt-2">MSP integration active — customer matched by name</p>
+      )}
       {connector?.lastCollectedAt && (
         <p className="text-xs text-slate-500 mt-2">
           Last collected: {new Date(connector.lastCollectedAt).toLocaleString()}
         </p>
       )}
-      {connector?.errorMessage && (
+      {connector?.errorMessage && status !== 'available' && (
         <p className="text-xs text-red-400 mt-1 truncate">{connector.errorMessage}</p>
       )}
     </div>

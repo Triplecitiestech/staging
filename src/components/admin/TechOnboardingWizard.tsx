@@ -389,6 +389,14 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
                       <li>DeviceManagementManagedDevices.Read.All</li>
                       <li>Device.Read.All</li>
                     </ul>
+                    <span className="block text-xs text-blue-300 mt-2 mb-1">Additional permissions for Compliance Evidence Engine:</span>
+                    <ul className="list-disc list-inside ml-4 mt-1 space-y-0.5 text-teal-200 font-mono text-xs">
+                      <li>SecurityEvents.Read.All</li>
+                      <li>Policy.Read.All</li>
+                      <li>Reports.Read.All</li>
+                      <li>Directory.Read.All</li>
+                      <li>UserAuthenticationMethod.Read.All</li>
+                    </ul>
                   </li>
                   <li>
                     Still in <strong>API permissions → Add a permission → Microsoft Graph → Delegated permissions</strong>
