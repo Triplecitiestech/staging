@@ -10,7 +10,7 @@
 // Framework & Control definitions
 // ---------------------------------------------------------------------------
 
-export type FrameworkId = 'cis-v8' | 'cmmc-l1' | 'cmmc-l2' | 'nist-800-171' | 'hipaa' | 'pci'
+export type FrameworkId = 'cis-v8' | 'cis-v8-ig1' | 'cis-v8-ig2' | 'cis-v8-ig3' | 'cmmc-l1' | 'cmmc-l2' | 'nist-800-171' | 'hipaa' | 'pci'
 
 export interface FrameworkDefinition {
   id: FrameworkId
