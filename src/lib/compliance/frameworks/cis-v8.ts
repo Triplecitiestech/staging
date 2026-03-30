@@ -557,181 +557,766 @@ evaluators['cis-v8-8.5'] = (ctx: EvaluationContext): EvaluationResult => {
 }
 
 // ---------------------------------------------------------------------------
-// Control Definitions
+// Generic evaluators for controls without dedicated auto-evaluation logic.
+// These check if required evidence exists and return needs_review for manual
+// controls, or attempt basic evaluation for semi-auto controls.
+// ---------------------------------------------------------------------------
+
+/** Generic evaluator for manual/process controls that need policy or documentation */
+function manualControlEvaluator(controlId: string, description: string): ControlEvaluator {
+  return (_ctx: EvaluationContext): EvaluationResult => ({
+    controlId,
+    status: 'needs_review',
+    confidence: 'none',
+    reasoning: `${description} This is a process/documentation control that requires manual evidence or policy review.`,
+    evidenceIds: [],
+    missingEvidence: ['manual_upload'],
+    remediation: `Document and implement the required process. Upload evidence of the policy or procedure to satisfy this control.`,
+  })
+}
+
+/** Generic evaluator for semi-auto controls that check if relevant evidence was collected */
+function semiAutoEvaluator(controlId: string, description: string, sources: EvidenceSourceType[]): ControlEvaluator {
+  return (ctx: EvaluationContext): EvaluationResult => {
+    const available = sources.filter((s) => ctx.evidence.has(s))
+    if (available.length === 0) return noEvidence(controlId, sources, ctx)
+
+    return {
+      controlId,
+      status: 'needs_review',
+      confidence: 'low',
+      reasoning: `Evidence collected from ${available.join(', ')} but requires human review to confirm this control is satisfied. ${description}`,
+      evidenceIds: available.map((s) => ctx.evidence.get(s)!.id),
+      missingEvidence: sources.filter((s) => !ctx.evidence.has(s)),
+      remediation: null,
+    }
+  }
+}
+
+// --- New evaluators for expanded controls ---
+
+// 1.2 Address Unauthorized Assets
+evaluators['cis-v8-1.2'] = semiAutoEvaluator('cis-v8-1.2',
+  'Verify that a process exists to address unauthorized assets weekly.',
+  ['datto_rmm_devices', 'microsoft_device_compliance'])
+
+// 1.3 Active Discovery Tool
+evaluators['cis-v8-1.3'] = semiAutoEvaluator('cis-v8-1.3',
+  'Verify an active discovery tool runs daily to identify connected assets.',
+  ['datto_rmm_devices'])
+
+// 1.4 DHCP Logging
+evaluators['cis-v8-1.4'] = manualControlEvaluator('cis-v8-1.4',
+  'Use DHCP logging on all DHCP servers or IP address management tools.')
+
+// 1.5 Passive Discovery
+evaluators['cis-v8-1.5'] = semiAutoEvaluator('cis-v8-1.5',
+  'Verify a passive discovery tool identifies assets on the network.',
+  ['datto_rmm_devices'])
+
+// 2.1 Software Inventory
+evaluators['cis-v8-2.1'] = semiAutoEvaluator('cis-v8-2.1',
+  'Verify a detailed inventory of all licensed software is maintained.',
+  ['datto_rmm_devices', 'microsoft_device_compliance'])
+
+// 2.2 Authorized Software Supported
+evaluators['cis-v8-2.2'] = semiAutoEvaluator('cis-v8-2.2',
+  'Verify only currently supported software is authorized for use.',
+  ['datto_rmm_devices'])
+
+// 2.3 Address Unauthorized Software
+evaluators['cis-v8-2.3'] = semiAutoEvaluator('cis-v8-2.3',
+  'Verify unauthorized software is removed or has a documented exception.',
+  ['datto_rmm_devices', 'microsoft_device_compliance'])
+
+// 3.1 Data Management Process
+evaluators['cis-v8-3.1'] = manualControlEvaluator('cis-v8-3.1',
+  'Establish a data management process with sensitivity classification, owners, retention, and disposal.')
+
+// 3.2 Data Inventory
+evaluators['cis-v8-3.2'] = manualControlEvaluator('cis-v8-3.2',
+  'Establish and maintain a data inventory based on the data management process.')
+
+// 3.4 Enforce Data Retention
+evaluators['cis-v8-3.4'] = manualControlEvaluator('cis-v8-3.4',
+  'Retain data according to the enterprise data management process.')
+
+// 3.5 Securely Dispose of Data
+evaluators['cis-v8-3.5'] = manualControlEvaluator('cis-v8-3.5',
+  'Securely dispose of data as outlined in the data management process.')
+
+// 3.6 Encrypt Data on End-User Devices (alias of 4.6 logic)
+evaluators['cis-v8-3.6'] = (ctx: EvaluationContext): EvaluationResult => {
+  const bitlocker = ctx.evidence.get('microsoft_bitlocker')
+  if (!bitlocker) return noEvidence('cis-v8-3.6', ['microsoft_bitlocker', 'microsoft_device_compliance'], ctx)
+
+  const blData = bitlocker.rawData as { totalDevices?: number; encryptedDevices?: number }
+  const total = blData.totalDevices ?? 0
+  const encrypted = blData.encryptedDevices ?? 0
+  const rate = total > 0 ? Math.round((encrypted / total) * 100) : 0
+
+  if (rate >= 95) {
+    return result('cis-v8-3.6', ctx, 'pass', 'high',
+      `${encrypted}/${total} devices (${rate}%) have encryption enabled on end-user devices.`,
+      ['microsoft_bitlocker'], [])
+  }
+  return result('cis-v8-3.6', ctx, 'partial', 'medium',
+    `${encrypted}/${total} devices (${rate}%) encrypted. Some end-user devices lack encryption.`,
+    ['microsoft_bitlocker'], [],
+    `Enable BitLocker/encryption on the remaining ${total - encrypted} unencrypted end-user devices.`)
+}
+
+// 4.2 Secure Config for Network Infrastructure
+evaluators['cis-v8-4.2'] = manualControlEvaluator('cis-v8-4.2',
+  'Establish a secure configuration process for network infrastructure (firewalls, routers, switches).')
+
+// 4.3 Automatic Session Locking
+evaluators['cis-v8-4.3'] = semiAutoEvaluator('cis-v8-4.3',
+  'Verify automatic session locking is configured (max 15min for desktops, 2min for mobile).',
+  ['microsoft_intune_config', 'microsoft_device_compliance'])
+
+// 4.4 Firewall on Servers
+evaluators['cis-v8-4.4'] = semiAutoEvaluator('cis-v8-4.4',
+  'Verify host-based firewalls are enabled on servers.',
+  ['microsoft_defender', 'datto_rmm_devices'])
+
+// 4.5 Firewall on End-User Devices
+evaluators['cis-v8-4.5'] = semiAutoEvaluator('cis-v8-4.5',
+  'Verify host-based firewalls are enabled on end-user devices.',
+  ['microsoft_defender', 'datto_rmm_devices'])
+
+// 5.1 Inventory of Accounts
+evaluators['cis-v8-5.1'] = (ctx: EvaluationContext): EvaluationResult => {
+  const users = ctx.evidence.get('microsoft_users')
+  if (!users) return noEvidence('cis-v8-5.1', ['microsoft_users'], ctx)
+
+  const userData = users.rawData as { totalUsers?: number; disabledUsers?: number; totalCount?: number }
+  const total = userData.totalCount ?? userData.totalUsers ?? 0
+
+  return result('cis-v8-5.1', ctx, 'pass', 'medium',
+    `Account inventory maintained via Entra ID with ${total} total accounts tracked.`,
+    ['microsoft_users'], [])
+}
+
+// 5.4 Restrict Admin Privileges
+evaluators['cis-v8-5.4'] = (ctx: EvaluationContext): EvaluationResult => {
+  const mfa = ctx.evidence.get('microsoft_mfa')
+  if (!mfa) return noEvidence('cis-v8-5.4', ['microsoft_users', 'microsoft_mfa'], ctx)
+
+  const mfaData = mfa.rawData as { adminUsers?: Array<{ displayName?: string }> }
+  const admins = mfaData.adminUsers ?? []
+
+  if (admins.length > 0 && admins.length <= 5) {
+    return result('cis-v8-5.4', ctx, 'pass', 'medium',
+      `${admins.length} admin accounts identified. Verify these are dedicated admin accounts.`,
+      ['microsoft_mfa'], [])
+  }
+  if (admins.length > 5) {
+    return result('cis-v8-5.4', ctx, 'needs_review', 'medium',
+      `${admins.length} admin accounts found. Review whether all need admin privileges and are dedicated accounts.`,
+      ['microsoft_mfa'], [],
+      'Reduce the number of admin accounts. Use dedicated admin accounts separate from daily-use accounts.')
+  }
+  return result('cis-v8-5.4', ctx, 'needs_review', 'low',
+    'Could not determine admin account inventory from available evidence.',
+    ['microsoft_mfa'], ['microsoft_users'])
+}
+
+// 6.4 MFA for Remote Network Access (same logic as 6.3)
+evaluators['cis-v8-6.4'] = (ctx: EvaluationContext): EvaluationResult => {
+  const mfa = ctx.evidence.get('microsoft_mfa')
+  const ca = ctx.evidence.get('microsoft_conditional_access')
+  if (!mfa) return noEvidence('cis-v8-6.4', ['microsoft_mfa', 'microsoft_conditional_access'], ctx)
+
+  const mfaData = mfa.rawData as { totalUsers?: number; mfaRegisteredUsers?: number }
+  const rate = (mfaData.totalUsers ?? 0) > 0
+    ? Math.round(((mfaData.mfaRegisteredUsers ?? 0) / (mfaData.totalUsers ?? 1)) * 100)
+    : 0
+
+  const caData = ca?.rawData as { policies?: Array<{ state?: string }> } | undefined
+  const enabled = (caData?.policies ?? []).filter((p) => p.state === 'enabled').length
+
+  if (rate >= 95 && enabled >= 1) {
+    return result('cis-v8-6.4', ctx, 'pass', 'high',
+      `MFA registered for ${rate}% of users with ${enabled} CA policies. Remote access requires MFA.`,
+      ['microsoft_mfa', 'microsoft_conditional_access'], [])
+  }
+  if (rate >= 90) {
+    return result('cis-v8-6.4', ctx, 'partial', 'medium',
+      `MFA registered for ${rate}% of users. Verify CA policy explicitly requires MFA for remote access.`,
+      ['microsoft_mfa', 'microsoft_conditional_access'], [])
+  }
+  return result('cis-v8-6.4', ctx, 'fail', 'high',
+    `Only ${rate}% of users have MFA. Remote network access is not adequately protected.`,
+    ['microsoft_mfa'], [],
+    'Enforce MFA for all remote access via Conditional Access policy.')
+}
+
+// 7.x Vulnerability Management
+evaluators['cis-v8-7.1'] = semiAutoEvaluator('cis-v8-7.1',
+  'Verify a documented vulnerability management process exists.',
+  ['datto_rmm_patches', 'microsoft_secure_score'])
+
+evaluators['cis-v8-7.2'] = semiAutoEvaluator('cis-v8-7.2',
+  'Verify a risk-based remediation strategy with monthly review exists.',
+  ['autotask_tickets', 'datto_rmm_patches'])
+
+evaluators['cis-v8-7.3'] = (ctx: EvaluationContext): EvaluationResult => {
+  const rmm = ctx.evidence.get('datto_rmm_devices')
+  if (!rmm) return noEvidence('cis-v8-7.3', ['datto_rmm_patches', 'microsoft_device_compliance'], ctx)
+
+  const rmmData = rmm.rawData as { patchRate?: number; totalDevices?: number; patchedDevices?: number }
+  const rate = rmmData.patchRate ?? 0
+
+  if (rate >= 90) {
+    return result('cis-v8-7.3', ctx, 'pass', 'medium',
+      `${rate}% of managed devices are fully patched. Automated OS patch management is active.`,
+      ['datto_rmm_devices'], [])
+  }
+  if (rate >= 70) {
+    return result('cis-v8-7.3', ctx, 'partial', 'medium',
+      `${rate}% patch rate. Some devices have pending patches.`,
+      ['datto_rmm_devices'], [],
+      'Review and approve pending patches. Increase patch automation frequency.')
+  }
+  return result('cis-v8-7.3', ctx, 'fail', 'medium',
+    `${rate}% patch rate is below acceptable threshold. Many devices have missing OS patches.`,
+    ['datto_rmm_devices'], [],
+    'Implement automated OS patching via RMM with at least monthly cadence.')
+}
+
+evaluators['cis-v8-7.4'] = semiAutoEvaluator('cis-v8-7.4',
+  'Verify automated application patch management runs monthly or more frequently.',
+  ['datto_rmm_patches'])
+
+// 8.1 Audit Log Management Process
+evaluators['cis-v8-8.1'] = semiAutoEvaluator('cis-v8-8.1',
+  'Verify a documented audit log management process exists.',
+  ['microsoft_secure_score', 'manual_upload'])
+
+// 8.3 Adequate Audit Log Storage
+evaluators['cis-v8-8.3'] = semiAutoEvaluator('cis-v8-8.3',
+  'Verify logging destinations have adequate storage for retention requirements.',
+  ['microsoft_secure_score'])
+
+// 9.1 Supported Browsers and Email Clients
+evaluators['cis-v8-9.1'] = semiAutoEvaluator('cis-v8-9.1',
+  'Verify only fully supported browsers and email clients are in use.',
+  ['datto_rmm_devices'])
+
+// 10.2 Anti-Malware Signature Updates
+evaluators['cis-v8-10.2'] = semiAutoEvaluator('cis-v8-10.2',
+  'Verify automatic anti-malware signature updates are configured.',
+  ['microsoft_defender', 'datto_rmm_devices'])
+
+// 10.3 Disable Autorun/Autoplay
+evaluators['cis-v8-10.3'] = semiAutoEvaluator('cis-v8-10.3',
+  'Verify autorun and autoplay are disabled for removable media.',
+  ['microsoft_intune_config', 'microsoft_device_compliance'])
+
+// 11.2 Automated Backups
+evaluators['cis-v8-11.2'] = (ctx: EvaluationContext): EvaluationResult => {
+  const bcdr = ctx.evidence.get('datto_bcdr_backup')
+  const saas = ctx.evidence.get('datto_saas_backup')
+  if (!bcdr && !saas) return noEvidence('cis-v8-11.2', ['datto_bcdr_backup', 'datto_saas_backup'], ctx)
+
+  const hasBcdr = bcdr && (bcdr.rawData as { matched?: boolean }).matched
+  const hasSaas = saas && (saas.rawData as { matched?: boolean }).matched
+
+  if (hasBcdr || hasSaas) {
+    return result('cis-v8-11.2', ctx, 'pass', 'medium',
+      `Automated backups confirmed via ${[hasBcdr ? 'Datto BCDR' : '', hasSaas ? 'Datto SaaS Protect' : ''].filter(Boolean).join(' and ')}.`,
+      ['datto_bcdr_backup', 'datto_saas_backup'].filter((s) => ctx.evidence.has(s as EvidenceSourceType)), [])
+  }
+  return result('cis-v8-11.2', ctx, 'needs_review', 'low',
+    'Backup services detected but no matching data found for this customer.',
+    ['datto_bcdr_backup', 'datto_saas_backup'], [],
+    'Verify backup schedules are configured and running for this customer.')
+}
+
+// 11.3 Protect Recovery Data
+evaluators['cis-v8-11.3'] = semiAutoEvaluator('cis-v8-11.3',
+  'Verify recovery data is protected with equivalent controls (encryption, separation).',
+  ['datto_bcdr_backup'])
+
+// 11.4 Isolated Recovery Data
+evaluators['cis-v8-11.4'] = semiAutoEvaluator('cis-v8-11.4',
+  'Verify an isolated instance of recovery data exists (versioned or air-gapped).',
+  ['datto_bcdr_backup'])
+
+// 12.1 Network Infrastructure Up-to-Date
+evaluators['cis-v8-12.1'] = manualControlEvaluator('cis-v8-12.1',
+  'Ensure network infrastructure is kept up-to-date with latest stable firmware/software.')
+
+// 13.1 Centralize Security Event Alerting
+evaluators['cis-v8-13.1'] = semiAutoEvaluator('cis-v8-13.1',
+  'Verify security event alerting is centralized for correlation and analysis.',
+  ['microsoft_defender', 'datto_edr_alerts', 'dnsfilter_dns'])
+
+// 14.x Security Awareness Training (all manual)
+evaluators['cis-v8-14.2'] = manualControlEvaluator('cis-v8-14.2',
+  'Train workforce to recognize social engineering attacks (phishing, pre-texting, tailgating).')
+evaluators['cis-v8-14.3'] = manualControlEvaluator('cis-v8-14.3',
+  'Train workforce on authentication best practices (MFA, password management).')
+evaluators['cis-v8-14.4'] = manualControlEvaluator('cis-v8-14.4',
+  'Train workforce on data handling best practices (storage, transfer, disposal).')
+evaluators['cis-v8-14.5'] = manualControlEvaluator('cis-v8-14.5',
+  'Train workforce on causes of unintentional data exposure.')
+evaluators['cis-v8-14.6'] = manualControlEvaluator('cis-v8-14.6',
+  'Train workforce on recognizing and reporting security incidents.')
+evaluators['cis-v8-14.7'] = manualControlEvaluator('cis-v8-14.7',
+  'Train workforce on identifying and reporting missing security updates.')
+evaluators['cis-v8-14.8'] = manualControlEvaluator('cis-v8-14.8',
+  'Train workforce on dangers of insecure networks for data transmission.')
+
+// 15.1 Service Provider Inventory
+evaluators['cis-v8-15.1'] = manualControlEvaluator('cis-v8-15.1',
+  'Establish and maintain an inventory of service providers with sensitivity classification.')
+
+// 15.2 Service Provider Management Policy
+evaluators['cis-v8-15.2'] = manualControlEvaluator('cis-v8-15.2',
+  'Establish a service provider management policy covering assessment, monitoring, and decommissioning.')
+
+// 16.1 Secure Application Development
+evaluators['cis-v8-16.1'] = manualControlEvaluator('cis-v8-16.1',
+  'Establish and maintain a secure application development process.')
+
+// 17.x Incident Response
+evaluators['cis-v8-17.1'] = manualControlEvaluator('cis-v8-17.1',
+  'Designate personnel (primary + backup) to manage incident handling.')
+evaluators['cis-v8-17.2'] = manualControlEvaluator('cis-v8-17.2',
+  'Establish contact information for parties to be informed of security incidents.')
+evaluators['cis-v8-17.3'] = manualControlEvaluator('cis-v8-17.3',
+  'Establish a process for workforce to report security incidents.')
+
+// ---------------------------------------------------------------------------
+// Control Definitions — Full CIS v8 IG1 (56 safeguards) + key IG2/IG3
 // ---------------------------------------------------------------------------
 
 const CIS_V8_CONTROLS: ControlDefinition[] = [
-  {
-    controlId: 'cis-v8-1.1', frameworkId: 'cis-v8', tier: 'IG1',
+  // === Category 1: Inventory and Control of Enterprise Assets ===
+  { controlId: 'cis-v8-1.1', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [1, 1],
     category: '1 - Inventory and Control of Enterprise Assets',
     title: 'Establish and Maintain Detailed Enterprise Asset Inventory',
-    description: 'Establish and maintain an accurate, detailed, and up-to-date inventory of all enterprise assets with the potential to store or process data.',
+    description: 'Establish and maintain an accurate, detailed, and up-to-date inventory of all enterprise assets with the potential to store or process data, including end-user devices, network devices, IoT devices, and servers.',
     evidenceSources: ['microsoft_device_compliance', 'microsoft_users', 'datto_rmm_devices'],
-    evaluationType: 'semi-auto',
-    sortKey: [1, 1],
-  },
-  {
-    controlId: 'cis-v8-3.3', frameworkId: 'cis-v8', tier: 'IG1',
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-1.2', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [1, 2],
+    category: '1 - Inventory and Control of Enterprise Assets',
+    title: 'Address Unauthorized Assets',
+    description: 'Ensure that a process exists to address unauthorized assets on a weekly basis. The enterprise may choose to remove the asset from the network, deny the asset from connecting remotely, or quarantine the asset.',
+    evidenceSources: ['datto_rmm_devices', 'microsoft_device_compliance'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-1.3', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [1, 3],
+    category: '1 - Inventory and Control of Enterprise Assets',
+    title: 'Utilize an Active Discovery Tool',
+    description: 'Utilize an active discovery tool to identify assets connected to the enterprise network. Configure the active discovery tool to execute daily, or more frequently.',
+    evidenceSources: ['datto_rmm_devices'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-1.4', frameworkId: 'cis-v8', tier: 'IG2', sortKey: [1, 4],
+    category: '1 - Inventory and Control of Enterprise Assets',
+    title: 'Use Dynamic Host Configuration Protocol (DHCP) Logging',
+    description: 'Use DHCP logging on all DHCP servers or IP address management tools to update the enterprise asset inventory.',
+    evidenceSources: ['manual_upload'],
+    evaluationType: 'manual' },
+  { controlId: 'cis-v8-1.5', frameworkId: 'cis-v8', tier: 'IG2', sortKey: [1, 5],
+    category: '1 - Inventory and Control of Enterprise Assets',
+    title: 'Use a Passive Asset Discovery Tool',
+    description: 'Use a passive discovery tool to identify assets connected to the enterprise network.',
+    evidenceSources: ['datto_rmm_devices'],
+    evaluationType: 'semi-auto' },
+
+  // === Category 2: Inventory and Control of Software Assets ===
+  { controlId: 'cis-v8-2.1', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [2, 1],
+    category: '2 - Inventory and Control of Software Assets',
+    title: 'Establish and Maintain a Software Inventory',
+    description: 'Establish and maintain a detailed inventory of all licensed software installed on enterprise assets.',
+    evidenceSources: ['datto_rmm_devices', 'microsoft_device_compliance'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-2.2', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [2, 2],
+    category: '2 - Inventory and Control of Software Assets',
+    title: 'Ensure Authorized Software is Currently Supported',
+    description: 'Ensure that only currently supported software is designated as authorized in the software inventory.',
+    evidenceSources: ['datto_rmm_devices'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-2.3', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [2, 3],
+    category: '2 - Inventory and Control of Software Assets',
+    title: 'Address Unauthorized Software',
+    description: 'Ensure that unauthorized software is either removed from use on enterprise assets or receives a documented exception.',
+    evidenceSources: ['datto_rmm_devices', 'microsoft_device_compliance'],
+    evaluationType: 'semi-auto' },
+
+  // === Category 3: Data Protection ===
+  { controlId: 'cis-v8-3.1', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [3, 1],
+    category: '3 - Data Protection',
+    title: 'Establish and Maintain a Data Management Process',
+    description: 'Establish and maintain a data management process including data sensitivity, data owner, handling of data, data retention limits, and disposal requirements.',
+    evidenceSources: ['manual_upload'],
+    evaluationType: 'manual' },
+  { controlId: 'cis-v8-3.2', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [3, 2],
+    category: '3 - Data Protection',
+    title: 'Establish and Maintain a Data Inventory',
+    description: 'Establish and maintain a data inventory based on the data management process.',
+    evidenceSources: ['manual_upload'],
+    evaluationType: 'manual' },
+  { controlId: 'cis-v8-3.3', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [3, 3],
     category: '3 - Data Protection',
     title: 'Configure Data Access Control Lists',
     description: 'Configure data access control lists based on a user\'s need to know.',
     evidenceSources: ['microsoft_conditional_access'],
-    evaluationType: 'auto',
-    sortKey: [3, 3],
-  },
-  {
-    controlId: 'cis-v8-4.1', frameworkId: 'cis-v8', tier: 'IG1',
+    evaluationType: 'auto' },
+  { controlId: 'cis-v8-3.4', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [3, 4],
+    category: '3 - Data Protection',
+    title: 'Enforce Data Retention',
+    description: 'Retain data according to the enterprise\'s data management process. Data retention must include both minimum and maximum timelines.',
+    evidenceSources: ['manual_upload'],
+    evaluationType: 'manual' },
+  { controlId: 'cis-v8-3.5', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [3, 5],
+    category: '3 - Data Protection',
+    title: 'Securely Dispose of Data',
+    description: 'Securely dispose of data as outlined in the enterprise\'s data management process.',
+    evidenceSources: ['manual_upload'],
+    evaluationType: 'manual' },
+  { controlId: 'cis-v8-3.6', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [3, 6],
+    category: '3 - Data Protection',
+    title: 'Encrypt Data on End-User Devices',
+    description: 'Encrypt data on end-user devices containing sensitive data.',
+    evidenceSources: ['microsoft_bitlocker', 'microsoft_device_compliance'],
+    evaluationType: 'auto' },
+
+  // === Category 4: Secure Configuration ===
+  { controlId: 'cis-v8-4.1', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [4, 1],
     category: '4 - Secure Configuration of Enterprise Assets and Software',
     title: 'Establish and Maintain a Secure Configuration Process',
     description: 'Establish and maintain a secure configuration process for enterprise assets and software.',
     evidenceSources: ['microsoft_secure_score'],
-    evaluationType: 'auto',
-    sortKey: [4, 1],
-  },
-  {
-    controlId: 'cis-v8-4.6', frameworkId: 'cis-v8', tier: 'IG1',
+    evaluationType: 'auto' },
+  { controlId: 'cis-v8-4.2', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [4, 2],
+    category: '4 - Secure Configuration of Enterprise Assets and Software',
+    title: 'Establish and Maintain a Secure Configuration Process for Network Infrastructure',
+    description: 'Establish and maintain a secure configuration process for network infrastructure including firewalls, routers, and switches.',
+    evidenceSources: ['manual_upload'],
+    evaluationType: 'manual' },
+  { controlId: 'cis-v8-4.3', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [4, 3],
+    category: '4 - Secure Configuration of Enterprise Assets and Software',
+    title: 'Configure Automatic Session Locking on Enterprise Assets',
+    description: 'Configure automatic session locking on enterprise assets after a defined period of inactivity. For general purpose OSes, the period must not exceed 15 minutes. For mobile, the period must not exceed 2 minutes.',
+    evidenceSources: ['microsoft_intune_config', 'microsoft_device_compliance'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-4.4', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [4, 4],
+    category: '4 - Secure Configuration of Enterprise Assets and Software',
+    title: 'Implement and Manage a Firewall on Servers',
+    description: 'Implement and manage a firewall on servers where supported. Example implementations include a virtual firewall, OS firewall, or a third-party firewall agent.',
+    evidenceSources: ['microsoft_defender', 'datto_rmm_devices'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-4.5', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [4, 5],
+    category: '4 - Secure Configuration of Enterprise Assets and Software',
+    title: 'Implement and Manage a Firewall on End-User Devices',
+    description: 'Implement and manage a host-based firewall or port-filtering tool on end-user devices.',
+    evidenceSources: ['microsoft_defender', 'datto_rmm_devices'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-4.6', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [4, 6],
     category: '4 - Secure Configuration of Enterprise Assets and Software',
     title: 'Securely Manage Enterprise Assets and Software',
     description: 'Securely manage enterprise assets and software. Use encryption for data at rest on enterprise assets.',
     evidenceSources: ['microsoft_bitlocker'],
-    evaluationType: 'auto',
-    sortKey: [4, 6],
-  },
-  {
-    controlId: 'cis-v8-4.7', frameworkId: 'cis-v8', tier: 'IG1',
+    evaluationType: 'auto' },
+  { controlId: 'cis-v8-4.7', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [4, 7],
     category: '4 - Secure Configuration of Enterprise Assets and Software',
     title: 'Manage Default Accounts on Enterprise Assets and Software',
-    description: 'Manage default accounts on enterprise assets and software such as root, administrator, and other pre-configured vendor default accounts.',
+    description: 'Manage default accounts such as root, administrator, and other pre-configured vendor default accounts.',
     evidenceSources: ['microsoft_users'],
-    evaluationType: 'auto',
-    sortKey: [4, 7],
-  },
-  {
-    controlId: 'cis-v8-5.2', frameworkId: 'cis-v8', tier: 'IG1',
+    evaluationType: 'auto' },
+
+  // === Category 5: Account Management ===
+  { controlId: 'cis-v8-5.1', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [5, 1],
+    category: '5 - Account Management',
+    title: 'Establish and Maintain an Inventory of Accounts',
+    description: 'Establish and maintain an inventory of all accounts managed in the enterprise including end-user, administrator, and service accounts.',
+    evidenceSources: ['microsoft_users'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-5.2', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [5, 2],
     category: '5 - Account Management',
     title: 'Use Unique Passwords',
     description: 'Use unique passwords for all enterprise assets. MFA enforcement significantly reduces password-based risk.',
     evidenceSources: ['microsoft_mfa'],
-    evaluationType: 'semi-auto',
-    sortKey: [5, 2],
-  },
-  {
-    controlId: 'cis-v8-5.3', frameworkId: 'cis-v8', tier: 'IG1',
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-5.3', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [5, 3],
     category: '5 - Account Management',
     title: 'Disable Dormant Accounts',
     description: 'Delete or disable any dormant accounts after a period of 45 days of inactivity.',
     evidenceSources: ['microsoft_users'],
-    evaluationType: 'auto',
-    sortKey: [5, 3],
-  },
-  {
-    controlId: 'cis-v8-6.1', frameworkId: 'cis-v8', tier: 'IG1',
+    evaluationType: 'auto' },
+  { controlId: 'cis-v8-5.4', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [5, 4],
+    category: '5 - Account Management',
+    title: 'Restrict Administrator Privileges to Dedicated Administrator Accounts',
+    description: 'Restrict administrator privileges to dedicated administrator accounts on enterprise assets.',
+    evidenceSources: ['microsoft_users', 'microsoft_mfa'],
+    evaluationType: 'semi-auto' },
+
+  // === Category 6: Access Control Management ===
+  { controlId: 'cis-v8-6.1', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [6, 1],
     category: '6 - Access Control Management',
     title: 'Establish an Access Granting Process',
     description: 'Establish and follow a process for granting access to enterprise assets and data.',
     evidenceSources: ['microsoft_conditional_access', 'microsoft_users'],
-    evaluationType: 'semi-auto',
-    sortKey: [6, 1],
-  },
-  {
-    controlId: 'cis-v8-6.2', frameworkId: 'cis-v8', tier: 'IG1',
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-6.2', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [6, 2],
     category: '6 - Access Control Management',
     title: 'Establish an Access Revoking Process',
-    description: 'Establish and follow a process for revoking access to enterprise assets and data upon termination or role change.',
+    description: 'Establish and follow a process for revoking access upon termination, rights revocation, or role change.',
     evidenceSources: ['microsoft_users'],
-    evaluationType: 'semi-auto',
-    sortKey: [6, 2],
-  },
-  {
-    controlId: 'cis-v8-6.3', frameworkId: 'cis-v8', tier: 'IG1',
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-6.3', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [6, 3],
     category: '6 - Access Control Management',
     title: 'Require MFA for Externally-Exposed Applications',
-    description: 'Require all externally-exposed enterprise or third-party applications to enforce multi-factor authentication.',
+    description: 'Require all externally-exposed enterprise or third-party applications to enforce MFA.',
     evidenceSources: ['microsoft_mfa', 'microsoft_conditional_access'],
-    evaluationType: 'auto',
-    sortKey: [6, 3],
-  },
-  {
-    controlId: 'cis-v8-6.5', frameworkId: 'cis-v8', tier: 'IG1',
+    evaluationType: 'auto' },
+  { controlId: 'cis-v8-6.4', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [6, 4],
+    category: '6 - Access Control Management',
+    title: 'Require MFA for Remote Network Access',
+    description: 'Require MFA for remote network access.',
+    evidenceSources: ['microsoft_mfa', 'microsoft_conditional_access'],
+    evaluationType: 'auto' },
+  { controlId: 'cis-v8-6.5', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [6, 5],
     category: '6 - Access Control Management',
     title: 'Require MFA for Administrative Access',
     description: 'Require MFA for all administrative access accounts.',
     evidenceSources: ['microsoft_mfa'],
-    evaluationType: 'auto',
-    sortKey: [6, 5],
-  },
-  {
-    controlId: 'cis-v8-8.2', frameworkId: 'cis-v8', tier: 'IG1',
+    evaluationType: 'auto' },
+
+  // === Category 7: Continuous Vulnerability Management ===
+  { controlId: 'cis-v8-7.1', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [7, 1],
+    category: '7 - Continuous Vulnerability Management',
+    title: 'Establish and Maintain a Vulnerability Management Process',
+    description: 'Establish and maintain a documented vulnerability management process for enterprise assets.',
+    evidenceSources: ['datto_rmm_patches', 'microsoft_secure_score'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-7.2', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [7, 2],
+    category: '7 - Continuous Vulnerability Management',
+    title: 'Establish and Maintain a Remediation Process',
+    description: 'Establish and maintain a risk-based remediation strategy with monthly or more frequent review.',
+    evidenceSources: ['autotask_tickets', 'datto_rmm_patches'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-7.3', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [7, 3],
+    category: '7 - Continuous Vulnerability Management',
+    title: 'Perform Automated Operating System Patch Management',
+    description: 'Perform OS updates on enterprise assets through automated patch management monthly or more frequently.',
+    evidenceSources: ['datto_rmm_patches', 'microsoft_device_compliance'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-7.4', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [7, 4],
+    category: '7 - Continuous Vulnerability Management',
+    title: 'Perform Automated Application Patch Management',
+    description: 'Perform application updates on enterprise assets through automated patch management monthly or more frequently.',
+    evidenceSources: ['datto_rmm_patches'],
+    evaluationType: 'semi-auto' },
+
+  // === Category 8: Audit Log Management ===
+  { controlId: 'cis-v8-8.1', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [8, 1],
+    category: '8 - Audit Log Management',
+    title: 'Establish and Maintain an Audit Log Management Process',
+    description: 'Establish and maintain an audit log management process that defines the logging requirements for the enterprise.',
+    evidenceSources: ['microsoft_secure_score', 'manual_upload'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-8.2', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [8, 2],
     category: '8 - Audit Log Management',
     title: 'Collect Audit Logs',
     description: 'Collect audit logs. Ensure that logging is enabled for enterprise assets.',
     evidenceSources: ['microsoft_secure_score'],
-    evaluationType: 'semi-auto',
-    sortKey: [8, 2],
-  },
-  {
-    controlId: 'cis-v8-8.5', frameworkId: 'cis-v8', tier: 'IG2',
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-8.3', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [8, 3],
+    category: '8 - Audit Log Management',
+    title: 'Ensure Adequate Audit Log Storage',
+    description: 'Ensure that logging destinations maintain adequate storage to comply with the audit log management process.',
+    evidenceSources: ['microsoft_secure_score'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-8.5', frameworkId: 'cis-v8', tier: 'IG2', sortKey: [8, 5],
     category: '8 - Audit Log Management',
     title: 'Collect Detailed Audit Logs',
     description: 'Configure detailed audit logging for enterprise assets containing sensitive data.',
     evidenceSources: ['microsoft_secure_score', 'microsoft_audit_log'],
-    evaluationType: 'semi-auto',
-    sortKey: [8, 5],
-  },
-  {
-    controlId: 'cis-v8-9.2', frameworkId: 'cis-v8', tier: 'IG1',
+    evaluationType: 'semi-auto' },
+
+  // === Category 9: Email and Web Browser Protections ===
+  { controlId: 'cis-v8-9.1', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [9, 1],
+    category: '9 - Email and Web Browser Protections',
+    title: 'Ensure Use of Only Fully Supported Browsers and Email Clients',
+    description: 'Ensure only fully supported browsers and email clients are allowed to execute in the enterprise.',
+    evidenceSources: ['datto_rmm_devices'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-9.2', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [9, 2],
     category: '9 - Email and Web Browser Protections',
     title: 'Use DNS Filtering Services',
     description: 'Use DNS filtering services on all enterprise assets to block access to known malicious domains.',
     evidenceSources: ['dnsfilter_dns'],
-    evaluationType: 'auto',
-    sortKey: [9, 2],
-  },
-  {
-    controlId: 'cis-v8-10.1', frameworkId: 'cis-v8', tier: 'IG1',
+    evaluationType: 'auto' },
+
+  // === Category 10: Malware Defenses ===
+  { controlId: 'cis-v8-10.1', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [10, 1],
     category: '10 - Malware Defenses',
     title: 'Deploy and Maintain Anti-Malware Software',
     description: 'Deploy and maintain anti-malware software on all enterprise assets.',
     evidenceSources: ['microsoft_defender', 'microsoft_device_compliance', 'datto_edr_alerts'],
-    evaluationType: 'semi-auto',
-    sortKey: [10, 1],
-  },
-  {
-    controlId: 'cis-v8-11.1', frameworkId: 'cis-v8', tier: 'IG1',
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-10.2', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [10, 2],
+    category: '10 - Malware Defenses',
+    title: 'Configure Automatic Anti-Malware Signature Updates',
+    description: 'Configure automatic updates for anti-malware signature files on all enterprise assets.',
+    evidenceSources: ['microsoft_defender', 'datto_rmm_devices'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-10.3', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [10, 3],
+    category: '10 - Malware Defenses',
+    title: 'Disable Autorun and Autoplay for Removable Media',
+    description: 'Disable autorun and autoplay auto-execute functionality for removable media.',
+    evidenceSources: ['microsoft_intune_config', 'microsoft_device_compliance'],
+    evaluationType: 'semi-auto' },
+
+  // === Category 11: Data Recovery ===
+  { controlId: 'cis-v8-11.1', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [11, 1],
     category: '11 - Data Recovery',
     title: 'Establish and Maintain a Data Recovery Practice',
     description: 'Establish and maintain a data recovery practice including tested backup and recovery procedures.',
     evidenceSources: ['datto_bcdr_backup', 'datto_saas_backup'],
-    evaluationType: 'semi-auto',
-    sortKey: [11, 1],
-  },
-  {
-    controlId: 'cis-v8-12.6', frameworkId: 'cis-v8', tier: 'IG2',
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-11.2', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [11, 2],
+    category: '11 - Data Recovery',
+    title: 'Perform Automated Backups',
+    description: 'Perform automated backups of in-scope enterprise assets. Run backups weekly, or more frequently, for sensitive data.',
+    evidenceSources: ['datto_bcdr_backup', 'datto_saas_backup'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-11.3', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [11, 3],
+    category: '11 - Data Recovery',
+    title: 'Protect Recovery Data',
+    description: 'Protect recovery data with equivalent controls to the original data. Reference encryption or data separation based on requirements.',
+    evidenceSources: ['datto_bcdr_backup'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-11.4', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [11, 4],
+    category: '11 - Data Recovery',
+    title: 'Establish and Maintain an Isolated Instance of Recovery Data',
+    description: 'Establish and maintain an isolated instance of recovery data using versioning or an air-gapped destination.',
+    evidenceSources: ['datto_bcdr_backup'],
+    evaluationType: 'semi-auto' },
+
+  // === Category 12: Network Infrastructure Management ===
+  { controlId: 'cis-v8-12.1', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [12, 1],
+    category: '12 - Network Infrastructure Management',
+    title: 'Ensure Network Infrastructure is Up-to-Date',
+    description: 'Ensure network infrastructure is kept up-to-date. Example: run latest stable version of software and/or use currently-supported network-as-a-service (NaaS) offerings.',
+    evidenceSources: ['manual_upload'],
+    evaluationType: 'manual' },
+  { controlId: 'cis-v8-12.6', frameworkId: 'cis-v8', tier: 'IG2', sortKey: [12, 6],
     category: '12 - Network Infrastructure Management',
     title: 'Use of Encryption for Data in Transit',
-    description: 'Use encryption for data in transit, such as TLS for web and email.',
+    description: 'Use encryption for data in transit such as TLS for web and email.',
     evidenceSources: ['microsoft_conditional_access', 'microsoft_secure_score'],
-    evaluationType: 'semi-auto',
-    sortKey: [12, 6],
-  },
-  {
-    controlId: 'cis-v8-14.1', frameworkId: 'cis-v8', tier: 'IG1',
+    evaluationType: 'semi-auto' },
+
+  // === Category 13: Network Monitoring and Defense ===
+  { controlId: 'cis-v8-13.1', frameworkId: 'cis-v8', tier: 'IG2', sortKey: [13, 1],
+    category: '13 - Network Monitoring and Defense',
+    title: 'Centralize Security Event Alerting',
+    description: 'Centralize security event alerting across enterprise assets for log correlation and analysis.',
+    evidenceSources: ['microsoft_defender', 'datto_edr_alerts', 'dnsfilter_dns'],
+    evaluationType: 'semi-auto' },
+
+  // === Category 14: Security Awareness and Skills Training ===
+  { controlId: 'cis-v8-14.1', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [14, 1],
     category: '14 - Security Awareness and Skills Training',
     title: 'Establish and Maintain a Security Awareness Program',
-    description: 'Establish and maintain a security awareness program for all employees.',
+    description: 'Establish and maintain a security awareness program for the workforce.',
     evidenceSources: ['manual_upload'],
-    evaluationType: 'manual',
-    sortKey: [14, 1],
-  },
-  {
-    controlId: 'cis-v8-15.7', frameworkId: 'cis-v8', tier: 'IG3',
+    evaluationType: 'manual' },
+  { controlId: 'cis-v8-14.2', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [14, 2],
+    category: '14 - Security Awareness and Skills Training',
+    title: 'Train Workforce Members to Recognize Social Engineering Attacks',
+    description: 'Train workforce members to recognize social engineering attacks such as phishing, pre-texting, and tailgating.',
+    evidenceSources: ['manual_upload'],
+    evaluationType: 'manual' },
+  { controlId: 'cis-v8-14.3', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [14, 3],
+    category: '14 - Security Awareness and Skills Training',
+    title: 'Train Workforce Members on Authentication Best Practices',
+    description: 'Train workforce members on authentication best practices including MFA, password composition, and credential management.',
+    evidenceSources: ['manual_upload'],
+    evaluationType: 'manual' },
+  { controlId: 'cis-v8-14.4', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [14, 4],
+    category: '14 - Security Awareness and Skills Training',
+    title: 'Train Workforce on Data Handling Best Practices',
+    description: 'Train workforce members on how to identify and properly store, transfer, archive, and destroy sensitive data.',
+    evidenceSources: ['manual_upload'],
+    evaluationType: 'manual' },
+  { controlId: 'cis-v8-14.5', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [14, 5],
+    category: '14 - Security Awareness and Skills Training',
+    title: 'Train Workforce Members on Causes of Unintentional Data Exposure',
+    description: 'Train workforce members to be aware of causes for unintentional data exposure.',
+    evidenceSources: ['manual_upload'],
+    evaluationType: 'manual' },
+  { controlId: 'cis-v8-14.6', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [14, 6],
+    category: '14 - Security Awareness and Skills Training',
+    title: 'Train Workforce Members on Recognizing and Reporting Security Incidents',
+    description: 'Train workforce members to be able to recognize a potential incident and be able to report such an incident.',
+    evidenceSources: ['manual_upload'],
+    evaluationType: 'manual' },
+  { controlId: 'cis-v8-14.7', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [14, 7],
+    category: '14 - Security Awareness and Skills Training',
+    title: 'Train Workforce on How to Identify and Report if Their Assets are Missing Security Updates',
+    description: 'Train workforce to understand how to verify and report out-of-date software patches or any failures in automated processes and tools.',
+    evidenceSources: ['manual_upload'],
+    evaluationType: 'manual' },
+  { controlId: 'cis-v8-14.8', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [14, 8],
+    category: '14 - Security Awareness and Skills Training',
+    title: 'Train Workforce on the Dangers of Connecting to and Transmitting Data Over Insecure Networks',
+    description: 'Train workforce on the dangers of connecting to and transmitting enterprise data over insecure networks.',
+    evidenceSources: ['manual_upload'],
+    evaluationType: 'manual' },
+
+  // === Category 15: Service Provider Management ===
+  { controlId: 'cis-v8-15.1', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [15, 1],
+    category: '15 - Service Provider Management',
+    title: 'Establish and Maintain an Inventory of Service Providers',
+    description: 'Establish and maintain an inventory of service providers including classification by sensitivity level.',
+    evidenceSources: ['manual_upload'],
+    evaluationType: 'manual' },
+  { controlId: 'cis-v8-15.2', frameworkId: 'cis-v8', tier: 'IG2', sortKey: [15, 2],
+    category: '15 - Service Provider Management',
+    title: 'Establish and Maintain a Service Provider Management Policy',
+    description: 'Establish and maintain a service provider management policy. Ensure the policy addresses the classification, inventory, assessment, monitoring, and decommissioning of service providers.',
+    evidenceSources: ['manual_upload'],
+    evaluationType: 'manual' },
+  { controlId: 'cis-v8-15.7', frameworkId: 'cis-v8', tier: 'IG3', sortKey: [15, 7],
     category: '15 - Service Provider Management',
     title: 'Securely Decommission Service Providers',
     description: 'Securely decommission service providers and revoke their access.',
     evidenceSources: ['manual_upload'],
-    evaluationType: 'manual',
-    sortKey: [15, 7],
-  },
+    evaluationType: 'manual' },
+
+  // === Category 16: Application Software Security ===
+  { controlId: 'cis-v8-16.1', frameworkId: 'cis-v8', tier: 'IG2', sortKey: [16, 1],
+    category: '16 - Application Software Security',
+    title: 'Establish and Maintain a Secure Application Development Process',
+    description: 'Establish and maintain a secure application development process.',
+    evidenceSources: ['manual_upload'],
+    evaluationType: 'manual' },
+
+  // === Category 17: Incident Response Management ===
+  { controlId: 'cis-v8-17.1', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [17, 1],
+    category: '17 - Incident Response Management',
+    title: 'Designate Personnel to Manage Incident Handling',
+    description: 'Designate one key person and at least one backup who will manage the enterprise incident handling process.',
+    evidenceSources: ['manual_upload', 'autotask_tickets'],
+    evaluationType: 'manual' },
+  { controlId: 'cis-v8-17.2', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [17, 2],
+    category: '17 - Incident Response Management',
+    title: 'Establish and Maintain Contact Information for Reporting Security Incidents',
+    description: 'Establish and maintain contact information for parties that need to be informed of security incidents.',
+    evidenceSources: ['manual_upload'],
+    evaluationType: 'manual' },
+  { controlId: 'cis-v8-17.3', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [17, 3],
+    category: '17 - Incident Response Management',
+    title: 'Establish and Maintain an Enterprise Process for Reporting Incidents',
+    description: 'Establish and maintain an enterprise process for the workforce to report security incidents.',
+    evidenceSources: ['manual_upload', 'autotask_tickets'],
+    evaluationType: 'manual' },
 ]
 
 // ---------------------------------------------------------------------------

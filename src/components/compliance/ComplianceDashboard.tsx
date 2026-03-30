@@ -609,40 +609,108 @@ function ConfidenceDot({ confidence }: { confidence: string }) {
 // ---------------------------------------------------------------------------
 
 const CONTROL_TITLES: Record<string, string> = {
-  'cis-v8-1.1': 'Enterprise Asset Inventory',
-  'cis-v8-3.3': 'Data Access Control Lists',
-  'cis-v8-4.1': 'Secure Configuration Process',
-  'cis-v8-4.6': 'Encryption at Rest (BitLocker)',
+  // 1 - Asset Inventory
+  'cis-v8-1.1': 'Establish and Maintain Detailed Enterprise Asset Inventory',
+  'cis-v8-1.2': 'Address Unauthorized Assets',
+  'cis-v8-1.3': 'Utilize an Active Discovery Tool',
+  'cis-v8-1.4': 'Use DHCP Logging',
+  'cis-v8-1.5': 'Use a Passive Asset Discovery Tool',
+  // 2 - Software Inventory
+  'cis-v8-2.1': 'Establish and Maintain a Software Inventory',
+  'cis-v8-2.2': 'Ensure Authorized Software is Currently Supported',
+  'cis-v8-2.3': 'Address Unauthorized Software',
+  // 3 - Data Protection
+  'cis-v8-3.1': 'Establish and Maintain a Data Management Process',
+  'cis-v8-3.2': 'Establish and Maintain a Data Inventory',
+  'cis-v8-3.3': 'Configure Data Access Control Lists',
+  'cis-v8-3.4': 'Enforce Data Retention',
+  'cis-v8-3.5': 'Securely Dispose of Data',
+  'cis-v8-3.6': 'Encrypt Data on End-User Devices',
+  // 4 - Secure Configuration
+  'cis-v8-4.1': 'Establish and Maintain a Secure Configuration Process',
+  'cis-v8-4.2': 'Secure Configuration for Network Infrastructure',
+  'cis-v8-4.3': 'Configure Automatic Session Locking',
+  'cis-v8-4.4': 'Implement and Manage a Firewall on Servers',
+  'cis-v8-4.5': 'Implement and Manage a Firewall on End-User Devices',
+  'cis-v8-4.6': 'Securely Manage Enterprise Assets (Encryption at Rest)',
   'cis-v8-4.7': 'Manage Default Accounts',
-  'cis-v8-5.2': 'Use Unique Passwords (MFA)',
+  // 5 - Account Management
+  'cis-v8-5.1': 'Establish and Maintain an Inventory of Accounts',
+  'cis-v8-5.2': 'Use Unique Passwords',
   'cis-v8-5.3': 'Disable Dormant Accounts',
-  'cis-v8-6.1': 'Access Granting Process',
-  'cis-v8-6.2': 'Access Revoking Process',
-  'cis-v8-6.3': 'MFA for External Apps',
-  'cis-v8-6.5': 'MFA for Admin Access',
+  'cis-v8-5.4': 'Restrict Administrator Privileges to Dedicated Accounts',
+  // 6 - Access Control
+  'cis-v8-6.1': 'Establish an Access Granting Process',
+  'cis-v8-6.2': 'Establish an Access Revoking Process',
+  'cis-v8-6.3': 'Require MFA for Externally-Exposed Applications',
+  'cis-v8-6.4': 'Require MFA for Remote Network Access',
+  'cis-v8-6.5': 'Require MFA for Administrative Access',
+  // 7 - Vulnerability Management
+  'cis-v8-7.1': 'Establish and Maintain a Vulnerability Management Process',
+  'cis-v8-7.2': 'Establish and Maintain a Remediation Process',
+  'cis-v8-7.3': 'Perform Automated Operating System Patch Management',
+  'cis-v8-7.4': 'Perform Automated Application Patch Management',
+  // 8 - Audit Log Management
+  'cis-v8-8.1': 'Establish and Maintain an Audit Log Management Process',
   'cis-v8-8.2': 'Collect Audit Logs',
+  'cis-v8-8.3': 'Ensure Adequate Audit Log Storage',
   'cis-v8-8.5': 'Collect Detailed Audit Logs',
-  'cis-v8-9.2': 'DNS Filtering Services',
-  'cis-v8-10.1': 'Anti-Malware Software',
-  'cis-v8-11.1': 'Data Recovery Practice',
-  'cis-v8-12.6': 'Encryption in Transit',
-  'cis-v8-14.1': 'Security Awareness Program',
-  'cis-v8-15.7': 'Decommission Service Providers',
+  // 9 - Email and Web Browser
+  'cis-v8-9.1': 'Ensure Use of Only Fully Supported Browsers and Email Clients',
+  'cis-v8-9.2': 'Use DNS Filtering Services',
+  // 10 - Malware Defenses
+  'cis-v8-10.1': 'Deploy and Maintain Anti-Malware Software',
+  'cis-v8-10.2': 'Configure Automatic Anti-Malware Signature Updates',
+  'cis-v8-10.3': 'Disable Autorun and Autoplay for Removable Media',
+  // 11 - Data Recovery
+  'cis-v8-11.1': 'Establish and Maintain a Data Recovery Practice',
+  'cis-v8-11.2': 'Perform Automated Backups',
+  'cis-v8-11.3': 'Protect Recovery Data',
+  'cis-v8-11.4': 'Establish and Maintain an Isolated Instance of Recovery Data',
+  // 12 - Network Infrastructure
+  'cis-v8-12.1': 'Ensure Network Infrastructure is Up-to-Date',
+  'cis-v8-12.6': 'Use of Encryption for Data in Transit',
+  // 13 - Network Monitoring
+  'cis-v8-13.1': 'Centralize Security Event Alerting',
+  // 14 - Security Awareness
+  'cis-v8-14.1': 'Establish and Maintain a Security Awareness Program',
+  'cis-v8-14.2': 'Train Workforce to Recognize Social Engineering Attacks',
+  'cis-v8-14.3': 'Train Workforce on Authentication Best Practices',
+  'cis-v8-14.4': 'Train Workforce on Data Handling Best Practices',
+  'cis-v8-14.5': 'Train Workforce on Causes of Unintentional Data Exposure',
+  'cis-v8-14.6': 'Train Workforce on Recognizing and Reporting Security Incidents',
+  'cis-v8-14.7': 'Train Workforce on Identifying Missing Security Updates',
+  'cis-v8-14.8': 'Train Workforce on Dangers of Insecure Networks',
+  // 15 - Service Provider Management
+  'cis-v8-15.1': 'Establish and Maintain an Inventory of Service Providers',
+  'cis-v8-15.2': 'Establish and Maintain a Service Provider Management Policy',
+  'cis-v8-15.7': 'Securely Decommission Service Providers',
+  // 16 - Application Software Security
+  'cis-v8-16.1': 'Establish and Maintain a Secure Application Development Process',
+  // 17 - Incident Response
+  'cis-v8-17.1': 'Designate Personnel to Manage Incident Handling',
+  'cis-v8-17.2': 'Establish Contact Information for Reporting Security Incidents',
+  'cis-v8-17.3': 'Establish Enterprise Process for Reporting Incidents',
 }
 
 const CONTROL_CATEGORIES: Record<string, string> = {
   '1': '1 - Inventory and Control of Enterprise Assets',
+  '2': '2 - Inventory and Control of Software Assets',
   '3': '3 - Data Protection',
   '4': '4 - Secure Configuration',
   '5': '5 - Account Management',
   '6': '6 - Access Control Management',
+  '7': '7 - Continuous Vulnerability Management',
   '8': '8 - Audit Log Management',
   '9': '9 - Email and Web Browser Protections',
   '10': '10 - Malware Defenses',
   '11': '11 - Data Recovery',
   '12': '12 - Network Infrastructure Management',
-  '14': '14 - Security Awareness',
+  '13': '13 - Network Monitoring and Defense',
+  '14': '14 - Security Awareness and Skills Training',
   '15': '15 - Service Provider Management',
+  '16': '16 - Application Software Security',
+  '17': '17 - Incident Response Management',
 }
 
 function getControlTitle(controlId: string): string {
