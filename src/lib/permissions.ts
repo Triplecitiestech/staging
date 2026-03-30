@@ -44,6 +44,9 @@ export type Permission =
   | 'run_migrations'
   | 'view_audit_log'
   | 'autotask_sync'
+  // Compliance
+  | 'manage_compliance'
+  | 'view_compliance'
   // Tasks
   | 'update_task_status'
   | 'add_notes'
@@ -69,6 +72,8 @@ const ROLE_PERMISSIONS: Record<StaffRole, Permission[]> = {
     'manage_soc',
     'view_soc',
     'manage_marketing',
+    'manage_compliance',
+    'view_compliance',
     'view_reports',
     'view_billing',
     'manage_billing',
@@ -95,6 +100,8 @@ const ROLE_PERMISSIONS: Record<StaffRole, Permission[]> = {
     'manage_soc',
     'view_soc',
     'manage_marketing',
+    'manage_compliance',
+    'view_compliance',
     'view_reports',
     'view_billing',
     'view_audit_log',
@@ -216,6 +223,7 @@ export const ALL_PERMISSIONS: Permission[] = [
   'manage_blog', 'approve_blog',
   'manage_soc', 'view_soc',
   'manage_marketing',
+  'manage_compliance', 'view_compliance',
   'view_reports', 'view_billing', 'manage_billing',
   'system_settings', 'run_migrations', 'view_audit_log', 'autotask_sync',
   'update_task_status', 'add_notes', 'view_assigned_tasks',
@@ -242,6 +250,8 @@ export const PERMISSION_META: Record<Permission, { label: string; category: stri
   manage_soc: { label: 'Manage SOC', category: 'Security', description: 'Configure SOC rules and incidents' },
   view_soc: { label: 'View SOC', category: 'Security', description: 'View SOC dashboard and alerts' },
   manage_marketing: { label: 'Manage Marketing', category: 'Marketing', description: 'Create and send campaigns' },
+  manage_compliance: { label: 'Manage Compliance', category: 'Compliance', description: 'Run assessments and manage compliance engine' },
+  view_compliance: { label: 'View Compliance', category: 'Compliance', description: 'View compliance assessments and findings' },
   view_reports: { label: 'View Reports', category: 'Reporting', description: 'Access reports and analytics' },
   view_billing: { label: 'View Billing', category: 'Reporting', description: 'View billing information' },
   manage_billing: { label: 'Manage Billing', category: 'Reporting', description: 'Manage billing and invoices' },
