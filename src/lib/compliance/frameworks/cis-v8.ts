@@ -23,7 +23,9 @@ import type {
   FrameworkDefinition,
   FindingStatus,
   ConfidenceLevel,
+  EvidenceSourceType,
 } from '../types'
+import { EVIDENCE_TO_CONNECTOR, parseControlSortKey } from '../types'
 
 // ---------------------------------------------------------------------------
 // Helper: build a result object
@@ -48,15 +50,55 @@ function result(
   return { controlId, status, confidence, reasoning, evidenceIds, missingEvidence, remediation }
 }
 
-function noEvidence(controlId: string, sources: string[]): EvaluationResult {
+/**
+ * Context-aware "no evidence" result.
+ * Distinguishes between:
+ *   - collection_failed: connector was available but collection errored
+ *   - needs_review: connector is available but no data matched this customer
+ *   - not_assessed: connector is not configured at all
+ */
+function noEvidence(controlId: string, sources: string[], ctx?: EvaluationContext): EvaluationResult {
+  if (!ctx) {
+    return {
+      controlId, status: 'not_assessed', confidence: 'none',
+      reasoning: 'Required evidence sources were not available for evaluation.',
+      evidenceIds: [], missingEvidence: sources, remediation: null,
+    }
+  }
+
+  // Check if any required connector failed during collection
+  const failedSources: string[] = []
+  const unavailableSources: string[] = []
+  const availableButEmpty: string[] = []
+
+  for (const src of sources) {
+    const connector = EVIDENCE_TO_CONNECTOR[src as EvidenceSourceType]
+    if (!connector) { unavailableSources.push(src); continue }
+    if (ctx.failedConnectors.has(connector)) { failedSources.push(src); continue }
+    if (ctx.availableConnectors.has(connector)) { availableButEmpty.push(src); continue }
+    unavailableSources.push(src)
+  }
+
+  if (failedSources.length > 0) {
+    return {
+      controlId, status: 'collection_failed', confidence: 'none',
+      reasoning: `Evidence collection failed for: ${failedSources.join(', ')}. The integration is configured but encountered errors during data retrieval.`,
+      evidenceIds: [], missingEvidence: sources, remediation: 'Check integration connectivity and permissions, then re-run the assessment.',
+    }
+  }
+
+  if (availableButEmpty.length > 0 && unavailableSources.length === 0) {
+    return {
+      controlId, status: 'needs_review', confidence: 'low',
+      reasoning: `Integration is available but no matching data was found for this customer from: ${availableButEmpty.join(', ')}.`,
+      evidenceIds: [], missingEvidence: sources, remediation: 'Verify customer account mapping in the integration. Data may exist but was not matched to this customer.',
+    }
+  }
+
   return {
-    controlId,
-    status: 'not_assessed',
-    confidence: 'none',
-    reasoning: 'Required evidence sources were not available for evaluation.',
-    evidenceIds: [],
-    missingEvidence: sources,
-    remediation: null,
+    controlId, status: 'not_assessed', confidence: 'none',
+    reasoning: `Required integrations are not configured: ${unavailableSources.join(', ')}.`,
+    evidenceIds: [], missingEvidence: sources, remediation: null,
   }
 }
 
@@ -70,7 +112,7 @@ const evaluators: Record<string, ControlEvaluator> = {}
 evaluators['cis-v8-1.1'] = (ctx: EvaluationContext): EvaluationResult => {
   const devices = ctx.evidence.get('microsoft_device_compliance')
   const users = ctx.evidence.get('microsoft_users')
-  if (!devices && !users) return noEvidence('cis-v8-1.1', ['microsoft_device_compliance', 'microsoft_users'])
+  if (!devices && !users) return noEvidence('cis-v8-1.1', ['microsoft_device_compliance', 'microsoft_users'], ctx)
 
   const deviceData = devices?.rawData as { devices?: unknown[]; totalCount?: number } | undefined
   const userData = users?.rawData as { users?: unknown[]; totalCount?: number } | undefined
@@ -94,7 +136,7 @@ evaluators['cis-v8-1.1'] = (ctx: EvaluationContext): EvaluationResult => {
 // --- 3.3 Configure Data Access Control Lists ---
 evaluators['cis-v8-3.3'] = (ctx: EvaluationContext): EvaluationResult => {
   const ca = ctx.evidence.get('microsoft_conditional_access')
-  if (!ca) return noEvidence('cis-v8-3.3', ['microsoft_conditional_access'])
+  if (!ca) return noEvidence('cis-v8-3.3', ['microsoft_conditional_access'], ctx)
 
   const caData = ca.rawData as { policies?: Array<{ state?: string; displayName?: string }> }
   const policies = caData.policies ?? []
@@ -114,7 +156,7 @@ evaluators['cis-v8-3.3'] = (ctx: EvaluationContext): EvaluationResult => {
 // --- 4.1 Establish and Maintain a Secure Configuration Process ---
 evaluators['cis-v8-4.1'] = (ctx: EvaluationContext): EvaluationResult => {
   const score = ctx.evidence.get('microsoft_secure_score')
-  if (!score) return noEvidence('cis-v8-4.1', ['microsoft_secure_score'])
+  if (!score) return noEvidence('cis-v8-4.1', ['microsoft_secure_score'], ctx)
 
   const scoreData = score.rawData as { currentScore?: number; maxScore?: number; percentage?: number }
   const pct = scoreData.percentage ?? (scoreData.maxScore ? Math.round((scoreData.currentScore ?? 0) / scoreData.maxScore * 100) : 0)
@@ -139,7 +181,7 @@ evaluators['cis-v8-4.1'] = (ctx: EvaluationContext): EvaluationResult => {
 // --- 4.6 Securely Manage Enterprise Assets and Software (Encryption) ---
 evaluators['cis-v8-4.6'] = (ctx: EvaluationContext): EvaluationResult => {
   const bitlocker = ctx.evidence.get('microsoft_bitlocker')
-  if (!bitlocker) return noEvidence('cis-v8-4.6', ['microsoft_bitlocker'])
+  if (!bitlocker) return noEvidence('cis-v8-4.6', ['microsoft_bitlocker'], ctx)
 
   const blData = bitlocker.rawData as { totalDevices?: number; encryptedDevices?: number; encryptionRate?: number }
   const total = blData.totalDevices ?? 0
@@ -167,7 +209,7 @@ evaluators['cis-v8-4.6'] = (ctx: EvaluationContext): EvaluationResult => {
 // Evaluated via MFA data — if MFA enforced, password-only risk is greatly reduced
 evaluators['cis-v8-5.2'] = (ctx: EvaluationContext): EvaluationResult => {
   const mfa = ctx.evidence.get('microsoft_mfa')
-  if (!mfa) return noEvidence('cis-v8-5.2', ['microsoft_mfa'])
+  if (!mfa) return noEvidence('cis-v8-5.2', ['microsoft_mfa'], ctx)
 
   const mfaData = mfa.rawData as { totalUsers?: number; mfaRegisteredUsers?: number; mfaRate?: number }
   const total = mfaData.totalUsers ?? 0
@@ -196,7 +238,7 @@ evaluators['cis-v8-5.2'] = (ctx: EvaluationContext): EvaluationResult => {
 evaluators['cis-v8-6.1'] = (ctx: EvaluationContext): EvaluationResult => {
   const ca = ctx.evidence.get('microsoft_conditional_access')
   const users = ctx.evidence.get('microsoft_users')
-  if (!ca && !users) return noEvidence('cis-v8-6.1', ['microsoft_conditional_access', 'microsoft_users'])
+  if (!ca && !users) return noEvidence('cis-v8-6.1', ['microsoft_conditional_access', 'microsoft_users'], ctx)
 
   const caData = ca?.rawData as { policies?: Array<{ state?: string }> } | undefined
   const enabled = (caData?.policies ?? []).filter((p) => p.state === 'enabled').length
@@ -216,7 +258,7 @@ evaluators['cis-v8-6.1'] = (ctx: EvaluationContext): EvaluationResult => {
 evaluators['cis-v8-6.3'] = (ctx: EvaluationContext): EvaluationResult => {
   const mfa = ctx.evidence.get('microsoft_mfa')
   const ca = ctx.evidence.get('microsoft_conditional_access')
-  if (!mfa) return noEvidence('cis-v8-6.3', ['microsoft_mfa', 'microsoft_conditional_access'])
+  if (!mfa) return noEvidence('cis-v8-6.3', ['microsoft_mfa', 'microsoft_conditional_access'], ctx)
 
   const mfaData = mfa.rawData as { totalUsers?: number; mfaRegisteredUsers?: number }
   const total = mfaData.totalUsers ?? 0
@@ -248,7 +290,7 @@ evaluators['cis-v8-6.3'] = (ctx: EvaluationContext): EvaluationResult => {
 // --- 6.5 Require MFA for Administrative Access ---
 evaluators['cis-v8-6.5'] = (ctx: EvaluationContext): EvaluationResult => {
   const mfa = ctx.evidence.get('microsoft_mfa')
-  if (!mfa) return noEvidence('cis-v8-6.5', ['microsoft_mfa'])
+  if (!mfa) return noEvidence('cis-v8-6.5', ['microsoft_mfa'], ctx)
 
   const mfaData = mfa.rawData as { adminUsers?: Array<{ mfaRegistered?: boolean; displayName?: string }> }
   const admins = mfaData.adminUsers ?? []
@@ -274,17 +316,34 @@ evaluators['cis-v8-6.5'] = (ctx: EvaluationContext): EvaluationResult => {
 }
 
 // --- 9.2 Use DNS Filtering Services ---
-evaluators['cis-v8-9.2'] = (_ctx: EvaluationContext): EvaluationResult => {
-  // This is a placeholder for DNSFilter integration (Phase 2)
-  // For now, we note it requires evidence we don't collect in MVP
-  return noEvidence('cis-v8-9.2', ['dnsfilter_dns'])
+evaluators['cis-v8-9.2'] = (ctx: EvaluationContext): EvaluationResult => {
+  const dns = ctx.evidence.get('dnsfilter_dns')
+  if (!dns) return noEvidence('cis-v8-9.2', ['dnsfilter_dns'], ctx)
+
+  const dnsData = dns.rawData as { totalQueries?: number; blockedQueries?: number }
+  const total = dnsData.totalQueries ?? 0
+  const blocked = dnsData.blockedQueries ?? 0
+
+  if (total > 0 && blocked > 0) {
+    return result('cis-v8-9.2', ctx, 'pass', 'medium',
+      `DNS filtering active. ${blocked.toLocaleString()} threats blocked out of ${total.toLocaleString()} queries (30-day period). Note: MSP-level data.`,
+      ['dnsfilter_dns'], [])
+  }
+  if (total > 0) {
+    return result('cis-v8-9.2', ctx, 'pass', 'low',
+      `DNS filtering active with ${total.toLocaleString()} queries processed. No threats blocked in period. Note: MSP-level data.`,
+      ['dnsfilter_dns'], [])
+  }
+  return result('cis-v8-9.2', ctx, 'needs_review', 'low',
+    'DNS filtering detected but no query data available. Verify DNSFilter is actively processing DNS traffic.',
+    ['dnsfilter_dns'], [], 'Confirm DNS traffic is routing through DNSFilter for all endpoints.')
 }
 
 // --- 10.1 Deploy and Maintain Anti-Malware Software ---
 evaluators['cis-v8-10.1'] = (ctx: EvaluationContext): EvaluationResult => {
   const defender = ctx.evidence.get('microsoft_defender')
   const devices = ctx.evidence.get('microsoft_device_compliance')
-  if (!defender && !devices) return noEvidence('cis-v8-10.1', ['microsoft_defender', 'microsoft_device_compliance'])
+  if (!defender && !devices) return noEvidence('cis-v8-10.1', ['microsoft_defender', 'microsoft_device_compliance'], ctx)
 
   const defData = defender?.rawData as { protectedDevices?: number; totalDevices?: number } | undefined
   const devData = devices?.rawData as { totalCount?: number } | undefined
@@ -310,16 +369,52 @@ evaluators['cis-v8-10.1'] = (ctx: EvaluationContext): EvaluationResult => {
 }
 
 // --- 11.1 Establish and Maintain a Data Recovery Practice ---
-evaluators['cis-v8-11.1'] = (_ctx: EvaluationContext): EvaluationResult => {
-  // Requires Datto BCDR/SaaS Protect evidence (Phase 2)
-  return noEvidence('cis-v8-11.1', ['datto_bcdr_backup', 'datto_saas_backup'])
+evaluators['cis-v8-11.1'] = (ctx: EvaluationContext): EvaluationResult => {
+  const bcdr = ctx.evidence.get('datto_bcdr_backup')
+  const saas = ctx.evidence.get('datto_saas_backup')
+  if (!bcdr && !saas) return noEvidence('cis-v8-11.1', ['datto_bcdr_backup', 'datto_saas_backup'], ctx)
+
+  const bcdrData = bcdr?.rawData as { matched?: boolean; totalAppliances?: number; totalAlerts?: number; deviceDetails?: unknown[] } | undefined
+  const saasData = saas?.rawData as { matched?: boolean; totalSeats?: number; activeSeats?: number; unprotectedSeats?: number } | undefined
+
+  const hasBcdr = bcdrData?.matched && (bcdrData?.deviceDetails ?? []).length > 0
+  const hasSaas = saasData?.matched && (saasData?.totalSeats ?? 0) > 0
+
+  if (hasBcdr && hasSaas) {
+    const unprotected = saasData?.unprotectedSeats ?? 0
+    if (unprotected === 0) {
+      return result('cis-v8-11.1', ctx, 'pass', 'high',
+        `Backup coverage confirmed: ${(bcdrData?.deviceDetails ?? []).length} BCDR device(s) and ${saasData?.totalSeats} SaaS backup seat(s) with zero unprotected.`,
+        ['datto_bcdr_backup', 'datto_saas_backup'], [])
+    }
+    return result('cis-v8-11.1', ctx, 'partial', 'medium',
+      `Backup systems active: ${(bcdrData?.deviceDetails ?? []).length} BCDR device(s), ${saasData?.totalSeats} SaaS seats. However, ${unprotected} seat(s) are unprotected.`,
+      ['datto_bcdr_backup', 'datto_saas_backup'], [],
+      `Protect the ${unprotected} unprotected SaaS backup seat(s) to ensure complete data recovery coverage.`)
+  }
+  if (hasBcdr) {
+    return result('cis-v8-11.1', ctx, 'partial', 'medium',
+      `BCDR backup active with ${(bcdrData?.deviceDetails ?? []).length} device(s). No SaaS backup data found for this customer.`,
+      ['datto_bcdr_backup'], ['datto_saas_backup'],
+      'Ensure SaaS backup (M365/Google) is also configured for complete data recovery.')
+  }
+  if (hasSaas) {
+    return result('cis-v8-11.1', ctx, 'partial', 'medium',
+      `SaaS backup active with ${saasData?.totalSeats} seat(s). No BCDR backup devices found for this customer.`,
+      ['datto_saas_backup'], ['datto_bcdr_backup'],
+      'Ensure server/endpoint backup (BCDR) is also configured for complete data recovery.')
+  }
+  return result('cis-v8-11.1', ctx, 'needs_review', 'low',
+    'Backup integrations are available but no matching devices/seats found for this customer. Verify company name mapping.',
+    ['datto_bcdr_backup', 'datto_saas_backup'], [],
+    'Verify that the company name in Datto BCDR/SaaS Protect matches the company name in TCT.')
 }
 
 // --- 12.6 Use of Encryption for Data in Transit ---
 evaluators['cis-v8-12.6'] = (ctx: EvaluationContext): EvaluationResult => {
   const ca = ctx.evidence.get('microsoft_conditional_access')
   const score = ctx.evidence.get('microsoft_secure_score')
-  if (!ca && !score) return noEvidence('cis-v8-12.6', ['microsoft_conditional_access', 'microsoft_secure_score'])
+  if (!ca && !score) return noEvidence('cis-v8-12.6', ['microsoft_conditional_access', 'microsoft_secure_score'], ctx)
 
   // M365 services use TLS by default. CA policies can block unmanaged/insecure apps.
   return result('cis-v8-12.6', ctx, 'pass', 'medium',
@@ -331,12 +426,11 @@ evaluators['cis-v8-12.6'] = (ctx: EvaluationContext): EvaluationResult => {
 
 // --- 14.1 Establish and Maintain a Security Awareness Program ---
 evaluators['cis-v8-14.1'] = (_ctx: EvaluationContext): EvaluationResult => {
-  // Cannot auto-evaluate — requires documentation evidence
   return {
     controlId: 'cis-v8-14.1',
-    status: 'not_assessed',
+    status: 'needs_review',
     confidence: 'none',
-    reasoning: 'Security awareness training requires manual evidence (training records, policy documents). Cannot be auto-evaluated from technical data.',
+    reasoning: 'Security awareness training requires manual evidence (training records, policy documents). Cannot be auto-evaluated from technical data alone.',
     evidenceIds: [],
     missingEvidence: ['manual_upload'],
     remediation: 'Implement a security awareness training program and upload evidence of training completion records.',
@@ -347,7 +441,7 @@ evaluators['cis-v8-14.1'] = (_ctx: EvaluationContext): EvaluationResult => {
 evaluators['cis-v8-15.7'] = (_ctx: EvaluationContext): EvaluationResult => {
   return {
     controlId: 'cis-v8-15.7',
-    status: 'not_assessed',
+    status: 'needs_review',
     confidence: 'none',
     reasoning: 'Service provider decommissioning is a process control requiring manual evidence and policy documentation.',
     evidenceIds: [],
@@ -359,7 +453,7 @@ evaluators['cis-v8-15.7'] = (_ctx: EvaluationContext): EvaluationResult => {
 // --- 4.7 Manage Default Accounts on Enterprise Assets ---
 evaluators['cis-v8-4.7'] = (ctx: EvaluationContext): EvaluationResult => {
   const users = ctx.evidence.get('microsoft_users')
-  if (!users) return noEvidence('cis-v8-4.7', ['microsoft_users'])
+  if (!users) return noEvidence('cis-v8-4.7', ['microsoft_users'], ctx)
 
   const userData = users.rawData as { users?: Array<{ userPrincipalName?: string; accountEnabled?: boolean }> }
   const allUsers = userData.users ?? []
@@ -383,7 +477,7 @@ evaluators['cis-v8-4.7'] = (ctx: EvaluationContext): EvaluationResult => {
 // --- 5.3 Disable Dormant Accounts ---
 evaluators['cis-v8-5.3'] = (ctx: EvaluationContext): EvaluationResult => {
   const users = ctx.evidence.get('microsoft_users')
-  if (!users) return noEvidence('cis-v8-5.3', ['microsoft_users'])
+  if (!users) return noEvidence('cis-v8-5.3', ['microsoft_users'], ctx)
 
   const userData = users.rawData as {
     users?: Array<{ accountEnabled?: boolean; lastSignInDateTime?: string; displayName?: string }>
@@ -405,7 +499,7 @@ evaluators['cis-v8-5.3'] = (ctx: EvaluationContext): EvaluationResult => {
 // --- 6.2 Establish and Maintain an Access Revoking Process ---
 evaluators['cis-v8-6.2'] = (ctx: EvaluationContext): EvaluationResult => {
   const users = ctx.evidence.get('microsoft_users')
-  if (!users) return noEvidence('cis-v8-6.2', ['microsoft_users'])
+  if (!users) return noEvidence('cis-v8-6.2', ['microsoft_users'], ctx)
 
   // We check for disabled accounts as evidence of offboarding process
   const userData = users.rawData as { disabledUsers?: number; totalUsers?: number }
@@ -434,7 +528,7 @@ evaluators['cis-v8-6.2'] = (ctx: EvaluationContext): EvaluationResult => {
 // --- 8.2 Collect Audit Logs ---
 evaluators['cis-v8-8.2'] = (ctx: EvaluationContext): EvaluationResult => {
   const score = ctx.evidence.get('microsoft_secure_score')
-  if (!score) return noEvidence('cis-v8-8.2', ['microsoft_secure_score'])
+  if (!score) return noEvidence('cis-v8-8.2', ['microsoft_secure_score'], ctx)
 
   // M365 unified audit log is enabled by default in most tenants
   return result('cis-v8-8.2', ctx, 'pass', 'medium',
@@ -446,7 +540,7 @@ evaluators['cis-v8-8.2'] = (ctx: EvaluationContext): EvaluationResult => {
 // --- 8.5 Collect Detailed Audit Logs ---
 evaluators['cis-v8-8.5'] = (ctx: EvaluationContext): EvaluationResult => {
   const score = ctx.evidence.get('microsoft_secure_score')
-  if (!score) return noEvidence('cis-v8-8.5', ['microsoft_secure_score'])
+  if (!score) return noEvidence('cis-v8-8.5', ['microsoft_secure_score'], ctx)
 
   const scoreData = score.rawData as { currentScore?: number; maxScore?: number }
   const pct = scoreData.maxScore ? Math.round((scoreData.currentScore ?? 0) / scoreData.maxScore * 100) : 0
@@ -474,6 +568,7 @@ const CIS_V8_CONTROLS: ControlDefinition[] = [
     description: 'Establish and maintain an accurate, detailed, and up-to-date inventory of all enterprise assets with the potential to store or process data.',
     evidenceSources: ['microsoft_device_compliance', 'microsoft_users', 'datto_rmm_devices'],
     evaluationType: 'semi-auto',
+    sortKey: [1, 1],
   },
   {
     controlId: 'cis-v8-3.3', frameworkId: 'cis-v8', tier: 'IG1',
@@ -482,6 +577,7 @@ const CIS_V8_CONTROLS: ControlDefinition[] = [
     description: 'Configure data access control lists based on a user\'s need to know.',
     evidenceSources: ['microsoft_conditional_access'],
     evaluationType: 'auto',
+    sortKey: [3, 3],
   },
   {
     controlId: 'cis-v8-4.1', frameworkId: 'cis-v8', tier: 'IG1',
@@ -490,6 +586,7 @@ const CIS_V8_CONTROLS: ControlDefinition[] = [
     description: 'Establish and maintain a secure configuration process for enterprise assets and software.',
     evidenceSources: ['microsoft_secure_score'],
     evaluationType: 'auto',
+    sortKey: [4, 1],
   },
   {
     controlId: 'cis-v8-4.6', frameworkId: 'cis-v8', tier: 'IG1',
@@ -498,6 +595,7 @@ const CIS_V8_CONTROLS: ControlDefinition[] = [
     description: 'Securely manage enterprise assets and software. Use encryption for data at rest on enterprise assets.',
     evidenceSources: ['microsoft_bitlocker'],
     evaluationType: 'auto',
+    sortKey: [4, 6],
   },
   {
     controlId: 'cis-v8-4.7', frameworkId: 'cis-v8', tier: 'IG1',
@@ -506,6 +604,7 @@ const CIS_V8_CONTROLS: ControlDefinition[] = [
     description: 'Manage default accounts on enterprise assets and software such as root, administrator, and other pre-configured vendor default accounts.',
     evidenceSources: ['microsoft_users'],
     evaluationType: 'auto',
+    sortKey: [4, 7],
   },
   {
     controlId: 'cis-v8-5.2', frameworkId: 'cis-v8', tier: 'IG1',
@@ -514,6 +613,7 @@ const CIS_V8_CONTROLS: ControlDefinition[] = [
     description: 'Use unique passwords for all enterprise assets. MFA enforcement significantly reduces password-based risk.',
     evidenceSources: ['microsoft_mfa'],
     evaluationType: 'semi-auto',
+    sortKey: [5, 2],
   },
   {
     controlId: 'cis-v8-5.3', frameworkId: 'cis-v8', tier: 'IG1',
@@ -522,6 +622,7 @@ const CIS_V8_CONTROLS: ControlDefinition[] = [
     description: 'Delete or disable any dormant accounts after a period of 45 days of inactivity.',
     evidenceSources: ['microsoft_users'],
     evaluationType: 'auto',
+    sortKey: [5, 3],
   },
   {
     controlId: 'cis-v8-6.1', frameworkId: 'cis-v8', tier: 'IG1',
@@ -530,6 +631,7 @@ const CIS_V8_CONTROLS: ControlDefinition[] = [
     description: 'Establish and follow a process for granting access to enterprise assets and data.',
     evidenceSources: ['microsoft_conditional_access', 'microsoft_users'],
     evaluationType: 'semi-auto',
+    sortKey: [6, 1],
   },
   {
     controlId: 'cis-v8-6.2', frameworkId: 'cis-v8', tier: 'IG1',
@@ -538,6 +640,7 @@ const CIS_V8_CONTROLS: ControlDefinition[] = [
     description: 'Establish and follow a process for revoking access to enterprise assets and data upon termination or role change.',
     evidenceSources: ['microsoft_users'],
     evaluationType: 'semi-auto',
+    sortKey: [6, 2],
   },
   {
     controlId: 'cis-v8-6.3', frameworkId: 'cis-v8', tier: 'IG1',
@@ -546,6 +649,7 @@ const CIS_V8_CONTROLS: ControlDefinition[] = [
     description: 'Require all externally-exposed enterprise or third-party applications to enforce multi-factor authentication.',
     evidenceSources: ['microsoft_mfa', 'microsoft_conditional_access'],
     evaluationType: 'auto',
+    sortKey: [6, 3],
   },
   {
     controlId: 'cis-v8-6.5', frameworkId: 'cis-v8', tier: 'IG1',
@@ -554,6 +658,7 @@ const CIS_V8_CONTROLS: ControlDefinition[] = [
     description: 'Require MFA for all administrative access accounts.',
     evidenceSources: ['microsoft_mfa'],
     evaluationType: 'auto',
+    sortKey: [6, 5],
   },
   {
     controlId: 'cis-v8-8.2', frameworkId: 'cis-v8', tier: 'IG1',
@@ -562,6 +667,7 @@ const CIS_V8_CONTROLS: ControlDefinition[] = [
     description: 'Collect audit logs. Ensure that logging is enabled for enterprise assets.',
     evidenceSources: ['microsoft_secure_score'],
     evaluationType: 'semi-auto',
+    sortKey: [8, 2],
   },
   {
     controlId: 'cis-v8-8.5', frameworkId: 'cis-v8', tier: 'IG2',
@@ -570,6 +676,7 @@ const CIS_V8_CONTROLS: ControlDefinition[] = [
     description: 'Configure detailed audit logging for enterprise assets containing sensitive data.',
     evidenceSources: ['microsoft_secure_score', 'microsoft_audit_log'],
     evaluationType: 'semi-auto',
+    sortKey: [8, 5],
   },
   {
     controlId: 'cis-v8-9.2', frameworkId: 'cis-v8', tier: 'IG1',
@@ -578,6 +685,7 @@ const CIS_V8_CONTROLS: ControlDefinition[] = [
     description: 'Use DNS filtering services on all enterprise assets to block access to known malicious domains.',
     evidenceSources: ['dnsfilter_dns'],
     evaluationType: 'auto',
+    sortKey: [9, 2],
   },
   {
     controlId: 'cis-v8-10.1', frameworkId: 'cis-v8', tier: 'IG1',
@@ -586,6 +694,7 @@ const CIS_V8_CONTROLS: ControlDefinition[] = [
     description: 'Deploy and maintain anti-malware software on all enterprise assets.',
     evidenceSources: ['microsoft_defender', 'microsoft_device_compliance', 'datto_edr_alerts'],
     evaluationType: 'semi-auto',
+    sortKey: [10, 1],
   },
   {
     controlId: 'cis-v8-11.1', frameworkId: 'cis-v8', tier: 'IG1',
@@ -594,6 +703,7 @@ const CIS_V8_CONTROLS: ControlDefinition[] = [
     description: 'Establish and maintain a data recovery practice including tested backup and recovery procedures.',
     evidenceSources: ['datto_bcdr_backup', 'datto_saas_backup'],
     evaluationType: 'semi-auto',
+    sortKey: [11, 1],
   },
   {
     controlId: 'cis-v8-12.6', frameworkId: 'cis-v8', tier: 'IG2',
@@ -602,6 +712,7 @@ const CIS_V8_CONTROLS: ControlDefinition[] = [
     description: 'Use encryption for data in transit, such as TLS for web and email.',
     evidenceSources: ['microsoft_conditional_access', 'microsoft_secure_score'],
     evaluationType: 'semi-auto',
+    sortKey: [12, 6],
   },
   {
     controlId: 'cis-v8-14.1', frameworkId: 'cis-v8', tier: 'IG1',
@@ -610,6 +721,7 @@ const CIS_V8_CONTROLS: ControlDefinition[] = [
     description: 'Establish and maintain a security awareness program for all employees.',
     evidenceSources: ['manual_upload'],
     evaluationType: 'manual',
+    sortKey: [14, 1],
   },
   {
     controlId: 'cis-v8-15.7', frameworkId: 'cis-v8', tier: 'IG3',
@@ -618,6 +730,7 @@ const CIS_V8_CONTROLS: ControlDefinition[] = [
     description: 'Securely decommission service providers and revoke their access.',
     evidenceSources: ['manual_upload'],
     evaluationType: 'manual',
+    sortKey: [15, 7],
   },
 ]
 
