@@ -482,6 +482,7 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
 
   // --- Phase 1: Read assessment info and set status (quick DB access) ---
   let assessment: Assessment
+  let companyDisplayName = ''
   const availableConnectors = new Set<ConnectorType>()
   {
     const client = await pool.connect()
@@ -491,6 +492,12 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
       )
       if (assessmentRes.rows.length === 0) throw new Error('Assessment not found')
       assessment = assessmentRes.rows[0]
+
+      // Pre-fetch company name so collectors don't need DB during Phase 2
+      const companyRes = await client.query<{ displayName: string }>(
+        `SELECT "displayName" FROM companies WHERE id = $1`, [assessment.companyId]
+      )
+      companyDisplayName = companyRes.rows[0]?.displayName ?? ''
 
       await updateAssessmentStatus(client, assessmentId, 'collecting')
       await logAudit(client, assessment.companyId, assessmentId, 'collection_started', actor, {})
@@ -541,7 +548,7 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
   }
   if (availableConnectors.has('domotz')) {
     collectors.push({ name: 'Domotz', connector: 'domotz',
-      fn: () => collectDomotzEvidence(assessment.companyId, assessmentId) })
+      fn: () => collectDomotzEvidence(assessment.companyId, assessmentId, companyDisplayName) })
   }
   if (availableConnectors.has('saas_alerts')) {
     collectors.push({ name: 'SaaS Alerts', connector: 'saas_alerts',
@@ -549,7 +556,7 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
   }
   if (availableConnectors.has('it_glue')) {
     collectors.push({ name: 'IT Glue', connector: 'it_glue',
-      fn: () => collectItGlueEvidence(assessment.companyId, assessmentId) })
+      fn: () => collectItGlueEvidence(assessment.companyId, assessmentId, companyDisplayName) })
   }
   if (availableConnectors.has('ubiquiti')) {
     collectors.push({ name: 'Ubiquiti', connector: 'ubiquiti',
@@ -570,6 +577,7 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
 
   for (const settled of results) {
     if (settled.status === 'rejected') {
+      console.error(`[compliance] Collector rejected:`, settled.reason)
       collectionErrors.push(`Collector rejected: ${settled.reason}`)
       continue
     }
@@ -580,7 +588,13 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
     if (entry.error) {
       failedConnectors.add(entry.connector)
       collectionErrors.push(`${entry.name}: ${entry.error}`)
+      console.error(`[compliance] ${entry.name} collector error: ${entry.error}`)
     } else if (entry.result) {
+      if (entry.result.errors.length > 0) {
+        console.log(`[compliance] ${entry.name}: ${entry.result.evidence.length} evidence, ${entry.result.errors.length} errors: ${entry.result.errors.join('; ')}`)
+      } else {
+        console.log(`[compliance] ${entry.name}: ${entry.result.evidence.length} evidence collected`)
+      }
       collectionErrors.push(...entry.result.errors)
       pendingEvidence.push(...entry.result.evidence)
       if (entry.result.errors.length > 0 && entry.result.evidence.length === 0) {

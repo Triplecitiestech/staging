@@ -284,7 +284,8 @@ export async function collectDnsFilterEvidence(
 
 export async function collectDomotzEvidence(
   companyId: string,
-  assessmentId: string
+  assessmentId: string,
+  companyName?: string
 ): Promise<{ evidence: Array<Omit<EvidenceRecord, 'id' | 'collectedAt'>>; errors: string[] }> {
   const evidence: Array<Omit<EvidenceRecord, 'id' | 'collectedAt'>> = []
   const errors: string[] = []
@@ -293,9 +294,13 @@ export async function collectDomotzEvidence(
     return { evidence, errors: ['Domotz: DOMOTZ_API_KEY or DOMOTZ_API_URL not configured'] }
   }
 
-  const companyName = await getCompanyDisplayName(companyId)
+  // Use provided name or fetch from DB as fallback
+  if (!companyName) {
+    try { companyName = await getCompanyDisplayName(companyId) ?? undefined } catch { /* use undefined */ }
+  }
 
   try {
+    console.log(`[domotz] Starting collection for company ${companyId} (${companyName ?? 'unknown'})`)
     const { DomotzClient } = await import('@/lib/domotz')
     const client = new DomotzClient()
     const summary = await client.buildSummary()
@@ -382,7 +387,9 @@ export async function collectDomotzEvidence(
 
     return { evidence, errors }
   } catch (err) {
-    return { evidence, errors: [`Domotz collection failed: ${err instanceof Error ? err.message : String(err)}`] }
+    const msg = `Domotz collection failed: ${err instanceof Error ? err.message : String(err)}`
+    console.error(`[domotz] ${msg}`)
+    return { evidence, errors: [msg] }
   }
 }
 
@@ -392,7 +399,8 @@ export async function collectDomotzEvidence(
 
 export async function collectItGlueEvidence(
   companyId: string,
-  assessmentId: string
+  assessmentId: string,
+  companyName?: string
 ): Promise<{ evidence: Array<Omit<EvidenceRecord, 'id' | 'collectedAt'>>; errors: string[] }> {
   const evidence: Array<Omit<EvidenceRecord, 'id' | 'collectedAt'>> = []
   const errors: string[] = []
@@ -401,7 +409,10 @@ export async function collectItGlueEvidence(
     return { evidence, errors: ['IT Glue: IT_GLUE_API_KEY not configured'] }
   }
 
-  const companyName = await getCompanyDisplayName(companyId)
+  // Use provided name or fetch from DB as fallback
+  if (!companyName) {
+    try { companyName = await getCompanyDisplayName(companyId) ?? undefined } catch { /* ignore */ }
+  }
   if (!companyName) {
     return { evidence, errors: ['Company not found'] }
   }
