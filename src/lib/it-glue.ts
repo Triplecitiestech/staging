@@ -78,10 +78,15 @@ export interface ItGlueDocumentationSummary {
   configurationCount: number
   flexibleAssetTypeCount: number
   flexibleAssetTypes: Array<{ id: string; name: string }>
-  /** Whether key documentation types exist (policies, procedures, etc.) */
   hasDocumentedPolicies: boolean
   hasDocumentedProcedures: boolean
   hasNetworkDiagrams: boolean
+  /** Per-matched-org details */
+  matchedOrgName: string | null
+  matchedOrgFlexibleAssetCount: number
+  matchedOrgFlexibleAssetTypes: string[]
+  matchedOrgConfigCount: number
+  totalOrgsInAccount: number
   note: string | null
 }
 
@@ -155,6 +160,7 @@ export class ItGlueClient {
       return {
         available: false, organizationCount: 0, organizations: [],
         configurationCount: 0, flexibleAssetTypeCount: 0, flexibleAssetTypes: [],
+        matchedOrgName: null, matchedOrgFlexibleAssetCount: 0, matchedOrgFlexibleAssetTypes: [], matchedOrgConfigCount: 0, totalOrgsInAccount: 0,
         hasDocumentedPolicies: false, hasDocumentedProcedures: false, hasNetworkDiagrams: false,
         note: 'IT Glue API not configured',
       }
@@ -187,32 +193,50 @@ export class ItGlueClient {
       const hasNetworkDiagrams = networkKeywords.some((k) => flexTypeNames.some((n) => n.includes(k)))
 
       let configurationCount = 0
+      let flexibleAssetCount = 0
+      let orgFlexibleAssetNames: string[] = []
+
       if (targetOrg) {
+        // Get configuration count for the matched org
         try {
-          const configs = await this.getConfigurations(targetOrg.id, 1, 1)
-          // The API returns paginated — we just need to know configs exist
-          configurationCount = configs.length > 0 ? configs.length : 0
+          const configs = await this.getConfigurations(targetOrg.id, 1, 50)
+          configurationCount = configs.length
+        } catch { /* non-fatal */ }
+
+        // Get flexible assets for the matched org — these are the actual documented items
+        try {
+          const flexAssets = await this.getFlexibleAssets(targetOrg.id, 1, 50)
+          flexibleAssetCount = flexAssets.length
+          // Map asset type IDs to names
+          const typeMap = new Map(flexTypes.map((t) => [Number(t.id), t.attributes.name]))
+          orgFlexibleAssetNames = flexAssets
+            .map((a) => typeMap.get(a.attributes['flexible-asset-type-id']) ?? 'Unknown')
+            .filter((v, i, arr) => arr.indexOf(v) === i) // dedupe
         } catch { /* non-fatal */ }
       }
 
       return {
         available: true,
-        organizationCount: orgs.length,
-        organizations: orgs.slice(0, 20).map((o) => ({
-          id: o.id,
-          name: o.attributes.name,
-          status: o.attributes['organization-status-name'],
-        })),
+        organizationCount: targetOrg ? 1 : 0,
+        organizations: targetOrg
+          ? [{ id: targetOrg.id, name: targetOrg.attributes.name, status: targetOrg.attributes['organization-status-name'] }]
+          : [],
         configurationCount,
         flexibleAssetTypeCount: flexTypes.length,
         flexibleAssetTypes: flexTypes.map((t) => ({ id: t.id, name: t.attributes.name })),
         hasDocumentedPolicies,
         hasDocumentedProcedures,
         hasNetworkDiagrams,
+        // New fields for per-org detail
+        matchedOrgName: targetOrg?.attributes.name ?? null,
+        matchedOrgFlexibleAssetCount: flexibleAssetCount,
+        matchedOrgFlexibleAssetTypes: orgFlexibleAssetNames,
+        matchedOrgConfigCount: configurationCount,
+        totalOrgsInAccount: orgs.length,
         note: targetOrg
-          ? `Matched organization: ${targetOrg.attributes.name}`
+          ? `Matched organization: ${targetOrg.attributes.name} (${configurationCount} configurations, ${flexibleAssetCount} flexible assets)`
           : companyName
-            ? `No IT Glue organization matched "${companyName}". ${orgs.length} organizations available.`
+            ? `No IT Glue organization matched "${companyName}". ${orgs.length} organizations in the account.`
             : null,
       }
     } catch (err) {
@@ -220,6 +244,7 @@ export class ItGlueClient {
         available: false, organizationCount: 0, organizations: [],
         configurationCount: 0, flexibleAssetTypeCount: 0, flexibleAssetTypes: [],
         hasDocumentedPolicies: false, hasDocumentedProcedures: false, hasNetworkDiagrams: false,
+        matchedOrgName: null, matchedOrgFlexibleAssetCount: 0, matchedOrgFlexibleAssetTypes: [], matchedOrgConfigCount: 0, totalOrgsInAccount: 0,
         note: `IT Glue API error: ${err instanceof Error ? err.message : String(err)}`,
       }
     }

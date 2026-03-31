@@ -374,15 +374,19 @@ export async function collectItGlueEvidence(
     }
 
     evidence.push(buildEvidence(assessmentId, companyId, 'it_glue_documentation' as EvidenceSourceType, {
+      matchedOrgName: summary.matchedOrgName,
       organizationCount: summary.organizationCount,
       matchedOrganization: summary.note,
-      configurationCount: summary.configurationCount,
+      configurationCount: summary.matchedOrgConfigCount,
+      flexibleAssetCount: summary.matchedOrgFlexibleAssetCount,
+      flexibleAssetTypes: summary.matchedOrgFlexibleAssetTypes,
       flexibleAssetTypeCount: summary.flexibleAssetTypeCount,
-      flexibleAssetTypes: summary.flexibleAssetTypes,
       hasDocumentedPolicies: summary.hasDocumentedPolicies,
       hasDocumentedProcedures: summary.hasDocumentedProcedures,
       hasNetworkDiagrams: summary.hasNetworkDiagrams,
-    }, `IT Glue: ${summary.organizationCount} org(s), ${summary.flexibleAssetTypeCount} flexible asset types. Policies: ${summary.hasDocumentedPolicies ? 'yes' : 'no'}, Procedures: ${summary.hasDocumentedProcedures ? 'yes' : 'no'}, Network diagrams: ${summary.hasNetworkDiagrams ? 'yes' : 'no'}.`))
+    }, summary.matchedOrgName
+      ? `IT Glue: "${summary.matchedOrgName}" — ${summary.matchedOrgConfigCount} configurations, ${summary.matchedOrgFlexibleAssetCount} flexible assets${summary.matchedOrgFlexibleAssetTypes.length > 0 ? ` (${summary.matchedOrgFlexibleAssetTypes.join(', ')})` : ''}. Policies: ${summary.hasDocumentedPolicies ? 'yes' : 'no'}, Procedures: ${summary.hasDocumentedProcedures ? 'yes' : 'no'}.`
+      : `IT Glue: No organization matched "${companyName}". ${summary.totalOrgsInAccount} orgs in account.`))
 
     return { evidence, errors }
   } catch (err) {

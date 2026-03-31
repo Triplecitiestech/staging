@@ -225,11 +225,12 @@ async function collectMfa(
 
   return buildEvidence(assessmentId, companyId, 'microsoft_mfa', {
     totalUsers: users.length,
-    mfaRegisteredUsers: 0,
-    mfaRate: 0,
+    mfaRegisteredUsers: null,
+    mfaRate: null,
     adminUsers: [],
-    note: 'MFA registration details unavailable — Reports.Read.All or UserAuthenticationMethod.Read.All permission may be missing.',
-  }, `${users.length} active users found. MFA registration details unavailable (missing permissions).`)
+    permissionMissing: 'UserAuthenticationMethod.Read.All',
+    note: 'MFA registration details unavailable. Add the "UserAuthenticationMethod.Read.All" Application permission to the customer\'s Azure AD app registration and grant admin consent.',
+  }, `${users.length} active users. MFA data requires "UserAuthenticationMethod.Read.All" permission — add it in Azure AD > App registrations > API permissions.`)
 }
 
 function summarizeMfaMethods(users: Array<{ defaultMfaMethod: string }>): Record<string, number> {
