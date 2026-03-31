@@ -411,37 +411,75 @@ async function loadEnvironmentContext(existingClient?: PoolClient): Promise<Envi
     let onPremServers: string | null = null
     let customApps: string | null = null
     let byodPolicy: string | null = null
+    const scope = {
+      endpoints: null as string | null,
+      users: null as string | null,
+      backup: null as string | null,
+      network: null as string | null,
+      saas: null as string | null,
+      incidentResponse: null as string | null,
+    }
 
     for (const a of answers) {
       // Store label from notes field (setup wizard stores label in notes when toolId is null)
       rawAnswers[a.questionId] = a.notes || a.toolId || ''
+      const label = (a.notes || '').toLowerCase()
 
       // Map specific answers to structured flags
       if (a.questionId === 'remote_access') {
-        const label = (a.notes || '').toLowerCase()
         if (label.includes('cloud-only') || label.includes('no vpn')) remoteAccess = 'cloud_only'
         else if (label.includes('vpn required')) remoteAccess = 'vpn_required'
         else if (label.includes('hybrid')) remoteAccess = 'hybrid'
       }
       if (a.questionId === 'on_prem_servers') {
-        const label = (a.notes || '').toLowerCase()
         if (label.includes('no on-prem') || label.includes('fully cloud')) onPremServers = 'no_servers'
         else if (label.includes('bcdr')) onPremServers = 'yes_bcdr'
         else onPremServers = 'yes_mixed'
       }
       if (a.questionId === 'custom_apps') {
-        const label = (a.notes || '').toLowerCase()
         customApps = label.includes('no') || label.includes('standard') ? 'no' : 'yes'
       }
       if (a.questionId === 'byod_policy') {
-        const label = (a.notes || '').toLowerCase()
         if (label.includes('company-owned')) byodPolicy = 'company_owned'
         else if (label.includes('no management') || label.includes('no mdm')) byodPolicy = 'byod_unmanaged'
         else byodPolicy = 'byod_managed'
       }
+      // Scope definitions
+      if (a.questionId === 'scope_endpoints') {
+        if (label.includes('all managed')) scope.endpoints = 'all_managed'
+        else if (label.includes('workstations only')) scope.endpoints = 'workstations_only'
+        else if (label.includes('workstations + servers') || label.includes('workstations and servers')) scope.endpoints = 'workstations_servers'
+        else if (label.includes('custom')) scope.endpoints = 'custom'
+      }
+      if (a.questionId === 'scope_users') {
+        if (label.includes('all licensed')) scope.users = 'all_licensed'
+        else if (label.includes('full-time') || label.includes('employees only')) scope.users = 'employees_only'
+        else if (label.includes('all users') || label.includes('shared')) scope.users = 'all_including_shared'
+      }
+      if (a.questionId === 'scope_backup') {
+        if (label.includes('servers + m365') || label.includes('servers and m365')) scope.backup = 'servers_m365'
+        else if (label.includes('m365 data only') || label.includes('cloud-only')) scope.backup = 'm365_only'
+        else if (label.includes('servers only')) scope.backup = 'servers_only'
+        else if (label.includes('all data') || label.includes('endpoint backup')) scope.backup = 'all_data'
+      }
+      if (a.questionId === 'scope_network') {
+        if (label.includes('all customer') || label.includes('managed by us')) scope.network = 'all_managed'
+        else if (label.includes('primary office')) scope.network = 'primary_only'
+        else if (label.includes('guest') || label.includes('iot')) scope.network = 'all_including_guest'
+      }
+      if (a.questionId === 'scope_saas') {
+        if (label.includes('microsoft 365 only') || label.includes('m365 only')) scope.saas = 'm365_only'
+        else if (label.includes('line-of-business') || label.includes('lob')) scope.saas = 'm365_plus_lob'
+        else if (label.includes('all saas')) scope.saas = 'all_saas'
+      }
+      if (a.questionId === 'scope_incident_response') {
+        if (label.includes('tct handles')) scope.incidentResponse = 'tct_handles'
+        else if (label.includes('shared')) scope.incidentResponse = 'shared'
+        else if (label.includes('internal') || label.includes('customer has')) scope.incidentResponse = 'customer_internal'
+      }
     }
 
-    return { remoteAccess, onPremServers, customApps, byodPolicy, rawAnswers }
+    return { remoteAccess, onPremServers, customApps, byodPolicy, scope, rawAnswers }
   } catch (err) {
     console.error('[compliance] Failed to load environment context:', err)
     return undefined
