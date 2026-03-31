@@ -28,6 +28,92 @@ import type {
 import { EVIDENCE_TO_CONNECTOR, parseControlSortKey } from '../types'
 
 // ---------------------------------------------------------------------------
+// Environment-aware N/A helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Check if the customer environment makes a control not applicable.
+ * Returns an EvaluationResult with 'not_applicable' if so, or null to proceed normally.
+ */
+function envNotApplicable(controlId: string, ctx: EvaluationContext): EvaluationResult | null {
+  const env = ctx.environment
+  if (!env) return null
+
+  // CIS 6.4: MFA for Remote Network Access (VPN) — N/A for cloud-only orgs
+  if (controlId === 'cis-v8-6.4' && env.remoteAccess === 'cloud_only') {
+    return { controlId, status: 'not_applicable', confidence: 'high',
+      reasoning: 'This control requires MFA for VPN/remote network access. Per the setup wizard, this customer is cloud-only with no VPN. All applications are SaaS/cloud-based, so VPN-specific MFA controls do not apply.',
+      evidenceIds: [], missingEvidence: [], remediation: null }
+  }
+
+  // CIS 4.4: Firewall on Servers — N/A if no on-prem servers
+  if (controlId === 'cis-v8-4.4' && env.onPremServers === 'no_servers') {
+    return { controlId, status: 'not_applicable', confidence: 'high',
+      reasoning: 'This control requires host-based firewall on servers. Per the setup wizard, this customer has no on-premises servers (fully cloud). Server firewall controls do not apply.',
+      evidenceIds: [], missingEvidence: [], remediation: null }
+  }
+
+  // CIS 16.x: Application Security — N/A if no custom development
+  if (controlId.startsWith('cis-v8-16.') && env.customApps === 'no') {
+    return { controlId, status: 'not_applicable', confidence: 'high',
+      reasoning: 'This control applies to organizations that develop custom software applications. Per the setup wizard, this customer uses standard business software only — no custom development. Application security development controls do not apply.',
+      evidenceIds: [], missingEvidence: [], remediation: null }
+  }
+
+  return null
+}
+
+// ---------------------------------------------------------------------------
+// Tool deployment attestation helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Check if a tool relevant to this control has been marked as deployed.
+ * Returns an EvaluationResult with 'pass' (low confidence, attestation) if so.
+ */
+function toolAttestationPass(controlId: string, ctx: EvaluationContext): EvaluationResult | null {
+  const tools = ctx.deployedTools
+  if (!tools || tools.size === 0) return null
+
+  // Map controls to the tools that can satisfy them via attestation
+  const controlToolMap: Record<string, { toolIds: string[]; description: string }> = {
+    // Bullphish ID covers all training controls (14.x)
+    'cis-v8-14.1': { toolIds: ['bullphish_id'], description: 'Security awareness training via Bullphish ID' },
+    'cis-v8-14.2': { toolIds: ['bullphish_id'], description: 'Social engineering recognition training via Bullphish ID' },
+    'cis-v8-14.3': { toolIds: ['bullphish_id'], description: 'Authentication best practices training via Bullphish ID' },
+    'cis-v8-14.4': { toolIds: ['bullphish_id'], description: 'Data handling training via Bullphish ID' },
+    'cis-v8-14.5': { toolIds: ['bullphish_id'], description: 'Unintentional data exposure training via Bullphish ID' },
+    'cis-v8-14.6': { toolIds: ['bullphish_id'], description: 'Security incident recognition training via Bullphish ID' },
+    'cis-v8-14.7': { toolIds: ['bullphish_id'], description: 'Missing security updates training via Bullphish ID' },
+    'cis-v8-14.8': { toolIds: ['bullphish_id'], description: 'Insecure network dangers training via Bullphish ID' },
+    // RocketCyber SOC covers security monitoring/alerting (13.x)
+    'cis-v8-13.1': { toolIds: ['rocketcyber'], description: 'Centralized security event alerting via RocketCyber SOC' },
+    // Dark Web ID covers credential monitoring
+    'cis-v8-5.2': { toolIds: ['dark_web_id'], description: 'Compromised credential monitoring via Dark Web ID' },
+  }
+
+  const mapping = controlToolMap[controlId]
+  if (!mapping) return null
+
+  for (const toolId of mapping.toolIds) {
+    const deployment = tools.get(toolId)
+    if (deployment?.deployed) {
+      return {
+        controlId,
+        status: 'pass',
+        confidence: 'low',
+        reasoning: `${mapping.description} is deployed (admin attestation). This tool is marked as active on the Tool Capability Map but does not have an API integration for automated evidence collection. Status is based on administrator attestation.${deployment.notes ? ` Notes: ${deployment.notes}` : ''}`,
+        evidenceIds: [],
+        missingEvidence: [],
+        remediation: null,
+      }
+    }
+  }
+
+  return null
+}
+
+// ---------------------------------------------------------------------------
 // Helper: build a result object
 // ---------------------------------------------------------------------------
 
@@ -467,15 +553,19 @@ evaluators['cis-v8-12.6'] = (ctx: EvaluationContext): EvaluationResult => {
 }
 
 // --- 14.1 Establish and Maintain a Security Awareness Program ---
-evaluators['cis-v8-14.1'] = (_ctx: EvaluationContext): EvaluationResult => {
+evaluators['cis-v8-14.1'] = (ctx: EvaluationContext): EvaluationResult => {
+  // Check Bullphish ID deployment attestation
+  const attestation = toolAttestationPass('cis-v8-14.1', ctx)
+  if (attestation) return attestation
+
   return {
     controlId: 'cis-v8-14.1',
     status: 'needs_review',
     confidence: 'none',
-    reasoning: 'Security awareness training requires manual evidence (training records, policy documents). Cannot be auto-evaluated from technical data alone.',
+    reasoning: 'Security awareness training requires manual evidence (training records, policy documents). Cannot be auto-evaluated from technical data alone. If Bullphish ID is deployed, toggle it as "Deployed" on the Tool Capability Map.',
     evidenceIds: [],
     missingEvidence: ['manual_upload'],
-    remediation: 'Implement a security awareness training program and upload evidence of training completion records.',
+    remediation: 'Implement a security awareness training program and upload evidence of training completion records. Or mark Bullphish ID as deployed on the Tool Capability Map.',
   }
 }
 
@@ -700,10 +790,12 @@ function semiAutoEvaluator(controlId: string, description: string, sources: Evid
 
 // --- Helper for 14.x training controls ---
 
-/** Training controls check for Bullphish ID evidence (if integrated) or note it as attestation-only */
+/** Training controls check for Bullphish ID deployment attestation first, then fall back to needs_review */
 function trainingEvaluator(controlId: string, description: string, ctx: EvaluationContext): EvaluationResult {
-  // When Bullphish ID or similar training tool is integrated, it would produce evidence here.
-  // For now, these require either the deployment toggle attestation or manual evidence.
+  // Check if Bullphish ID is toggled as deployed via attestation
+  const attestation = toolAttestationPass(controlId, ctx)
+  if (attestation) return attestation
+
   return {
     controlId,
     status: 'needs_review',
@@ -1042,8 +1134,11 @@ evaluators['cis-v8-4.3'] = (ctx: EvaluationContext): EvaluationResult => {
     'Create an Intune compliance policy requiring screen lock (15min max for desktops, 2min for mobile).')
 }
 
-// 4.4 Firewall on Servers
+// 4.4 Firewall on Servers — N/A if no on-prem servers
 evaluators['cis-v8-4.4'] = (ctx: EvaluationContext): EvaluationResult => {
+  const envNA = envNotApplicable('cis-v8-4.4', ctx)
+  if (envNA) return envNA
+
   const defender = ctx.evidence.get('microsoft_defender')
   const devices = ctx.evidence.get('microsoft_device_compliance')
   const edr = ctx.evidence.get('datto_edr_alerts')
@@ -1132,8 +1227,11 @@ evaluators['cis-v8-5.4'] = (ctx: EvaluationContext): EvaluationResult => {
     ['microsoft_mfa'], ['microsoft_users'])
 }
 
-// 6.4 MFA for Remote Network Access (same logic as 6.3)
+// 6.4 MFA for Remote Network Access — N/A for cloud-only environments
 evaluators['cis-v8-6.4'] = (ctx: EvaluationContext): EvaluationResult => {
+  const envNA = envNotApplicable('cis-v8-6.4', ctx)
+  if (envNA) return envNA
+
   const mfa = ctx.evidence.get('microsoft_mfa')
   const ca = ctx.evidence.get('microsoft_conditional_access')
   if (!mfa) return noEvidence('cis-v8-6.4', ['microsoft_mfa', 'microsoft_conditional_access'], ctx)
@@ -1352,11 +1450,33 @@ evaluators['cis-v8-11.4'] = (ctx: EvaluationContext): EvaluationResult => {
     ['datto_bcdr_backup'], [])
 }
 
-// 12.1 Network Infrastructure Up-to-Date — Domotz monitors network devices
+// 12.1 Network Infrastructure Up-to-Date — Domotz + Ubiquiti monitor network devices
 evaluators['cis-v8-12.1'] = (ctx: EvaluationContext): EvaluationResult => {
   const domotz = ctx.evidence.get('domotz_network_discovery' as EvidenceSourceType)
+  const ubiquiti = ctx.evidence.get('ubiquiti_network' as EvidenceSourceType)
   const itg = ctx.evidence.get('it_glue_documentation' as EvidenceSourceType)
-  const sources = ['domotz_network_discovery', 'it_glue_documentation'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
+  const sources = ['domotz_network_discovery', 'ubiquiti_network', 'it_glue_documentation'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
+
+  // Ubiquiti provides actual firmware versions per device — strong evidence
+  if (ubiquiti) {
+    const ubData = ubiquiti.rawData as {
+      totalDevices?: number; totalSites?: number; devicesByModel?: Record<string, number>
+      devices?: Array<{ hostname?: string; model?: string; firmware?: string; siteName?: string }>
+    }
+    const deviceCount = ubData.totalDevices ?? 0
+    const siteCount = ubData.totalSites ?? 0
+    const models = ubData.devicesByModel ?? {}
+    const modelList = Object.entries(models).map(([k, v]) => `${k} (${v})`).join(', ')
+    const firmwareList = (ubData.devices ?? []).slice(0, 10)
+      .map((d) => `${d.hostname}: ${d.model} v${d.firmware}`)
+      .join('; ')
+
+    if (deviceCount > 0) {
+      return result('cis-v8-12.1', ctx, 'pass', 'high',
+        `UniFi manages ${deviceCount} network device(s) across ${siteCount} site(s). Models: ${modelList}. Firmware: ${firmwareList}. UniFi Cloud provides centralized firmware management with auto-update capability.${domotz ? ' Domotz provides additional network monitoring.' : ''}`,
+        sources, [])
+    }
+  }
 
   if (domotz) {
     const data = domotz.rawData as { agentCount?: number; discoveryActive?: boolean; deviceTypes?: Record<string, number> }
@@ -1370,13 +1490,16 @@ evaluators['cis-v8-12.1'] = (ctx: EvaluationContext): EvaluationResult => {
   if (itg) {
     return result('cis-v8-12.1', ctx, 'needs_review', 'low',
       'IT Glue documentation available — verify network infrastructure update records are maintained.',
-      sources, ['domotz_network_discovery'])
+      sources, ['domotz_network_discovery', 'ubiquiti_network'])
   }
-  return noEvidence('cis-v8-12.1', ['domotz_network_discovery', 'it_glue_documentation'], ctx)
+  return noEvidence('cis-v8-12.1', ['domotz_network_discovery', 'ubiquiti_network', 'it_glue_documentation'], ctx)
 }
 
 // 13.1 Centralize Security Event Alerting — RocketCyber SOC + SaaS Alerts + EDR + Defender
 evaluators['cis-v8-13.1'] = (ctx: EvaluationContext): EvaluationResult => {
+  // Check RocketCyber deployment attestation first — if it's marked deployed, it covers SOC
+  const attestation = toolAttestationPass('cis-v8-13.1', ctx)
+
   const edr = ctx.evidence.get('datto_edr_alerts')
   const defender = ctx.evidence.get('microsoft_defender')
   const saasAlerts = ctx.evidence.get('saas_alerts_monitoring' as EvidenceSourceType)
@@ -1384,6 +1507,8 @@ evaluators['cis-v8-13.1'] = (ctx: EvaluationContext): EvaluationResult => {
   const sources = ['datto_edr_alerts', 'microsoft_defender', 'saas_alerts_monitoring', 'dnsfilter_dns'].filter(
     (s) => ctx.evidence.has(s as EvidenceSourceType)
   )
+  // If no API evidence but RocketCyber is attested, use attestation
+  if (sources.length === 0 && attestation) return attestation
   if (sources.length === 0) return noEvidence('cis-v8-13.1', ['datto_edr_alerts', 'microsoft_defender', 'saas_alerts_monitoring'], ctx)
 
   const alertSources: string[] = []
@@ -1466,8 +1591,11 @@ evaluators['cis-v8-15.2'] = (ctx: EvaluationContext): EvaluationResult => {
     'Create a service provider management policy in IT Glue covering vendor assessment, ongoing monitoring, and secure decommissioning procedures.')
 }
 
-// 16.1 Secure Application Development — IT Glue documentation
+// 16.1 Secure Application Development — N/A if no custom development
 evaluators['cis-v8-16.1'] = (ctx: EvaluationContext): EvaluationResult => {
+  const envNA = envNotApplicable('cis-v8-16.1', ctx)
+  if (envNA) return envNA
+
   const itg = ctx.evidence.get('it_glue_documentation' as EvidenceSourceType)
   if (itg) {
     const data = itg.rawData as { hasDocumentedProcedures?: boolean }

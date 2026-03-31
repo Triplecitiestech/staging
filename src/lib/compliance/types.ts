@@ -64,6 +64,7 @@ export type EvidenceSourceType =
   | 'domotz_network_discovery'
   | 'it_glue_documentation'
   | 'saas_alerts_monitoring'
+  | 'ubiquiti_network'
   | 'manual_upload'
 
 export type ConnectorType =
@@ -76,6 +77,7 @@ export type ConnectorType =
   | 'domotz'
   | 'it_glue'
   | 'saas_alerts'
+  | 'ubiquiti'
 
 export type ConnectorStatus = 'not_configured' | 'available' | 'configured' | 'verified' | 'error'
 
@@ -168,6 +170,33 @@ export interface Finding {
 // Evaluation engine types
 // ---------------------------------------------------------------------------
 
+/**
+ * Customer environment context from the setup wizard.
+ * Allows evaluators to auto-mark controls as N/A when they don't apply.
+ */
+export interface EnvironmentContext {
+  /** 'cloud_only' | 'vpn_required' | 'hybrid' — from remote_access question */
+  remoteAccess: string | null
+  /** 'no_servers' | 'yes_bcdr' | 'yes_mixed' — from on_prem_servers question */
+  onPremServers: string | null
+  /** 'no' | 'yes' — from custom_apps question */
+  customApps: string | null
+  /** 'company_owned' | 'byod_managed' | 'byod_unmanaged' — from byod_policy question */
+  byodPolicy: string | null
+  /** Full raw answers map from setup wizard (questionId → label) */
+  rawAnswers: Record<string, string>
+}
+
+/**
+ * Tool deployments from the Tool Capability Map.
+ * Maps toolId → { deployed: boolean, notes: string | null }
+ */
+export interface ToolDeployment {
+  toolId: string
+  deployed: boolean
+  notes: string | null
+}
+
 export interface EvaluationContext {
   companyId: string
   assessmentId: string
@@ -178,6 +207,10 @@ export interface EvaluationContext {
   failedConnectors: Set<ConnectorType>
   /** Resolved tool mappings per control from the registry */
   toolResolutions?: Map<string, import('./registry/resolver').ControlToolResolution>
+  /** Customer environment context from setup wizard — enables auto N/A */
+  environment?: EnvironmentContext
+  /** Tool deployment toggles from Tool Capability Map — enables attestation-based pass */
+  deployedTools?: Map<string, ToolDeployment>
 }
 
 export interface EvaluationResult {
@@ -351,5 +384,6 @@ export const EVIDENCE_TO_CONNECTOR: Record<EvidenceSourceType, ConnectorType | n
   domotz_network_discovery: 'domotz',
   it_glue_documentation: 'it_glue',
   saas_alerts_monitoring: 'saas_alerts',
+  ubiquiti_network: 'ubiquiti',
   manual_upload: null,
 }

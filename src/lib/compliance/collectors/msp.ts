@@ -444,3 +444,70 @@ export async function collectSaasAlertsEvidence(
     return { evidence, errors: [`SaaS Alerts collection failed: ${err instanceof Error ? err.message : String(err)}`] }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Ubiquiti UniFi Collector — Network Infrastructure
+// ---------------------------------------------------------------------------
+
+export async function collectUbiquitiEvidence(
+  companyId: string,
+  assessmentId: string
+): Promise<{ evidence: Array<Omit<EvidenceRecord, 'id' | 'collectedAt'>>; errors: string[] }> {
+  const evidence: Array<Omit<EvidenceRecord, 'id' | 'collectedAt'>> = []
+  const errors: string[] = []
+
+  if (!process.env.UBIQUITI_API_KEY) {
+    return { evidence, errors: ['Ubiquiti: UBIQUITI_API_KEY not configured'] }
+  }
+
+  try {
+    const { buildSummary } = await import('@/lib/ubiquiti')
+    const summary = await buildSummary()
+
+    if (!summary) {
+      return { evidence, errors: ['Ubiquiti: API returned no data'] }
+    }
+
+    if (summary.totalDevices === 0 && summary.totalSites === 0) {
+      return { evidence, errors: [] }
+    }
+
+    // Categorize devices by model type
+    const devicesByModel: Record<string, number> = {}
+    for (const d of summary.devices) {
+      const model = d.model || 'Unknown'
+      devicesByModel[model] = (devicesByModel[model] ?? 0) + 1
+    }
+
+    // Calculate uptime health (devices with >24h uptime are healthy)
+    const healthyDevices = summary.devices.filter((d) => d.uptime > 86400).length
+
+    evidence.push(buildEvidence(assessmentId, companyId, 'ubiquiti_network' as EvidenceSourceType, {
+      totalSites: summary.totalSites,
+      totalDevices: summary.totalDevices,
+      totalClients: summary.totalClients,
+      healthyDevices,
+      devicesByModel,
+      sites: summary.sites.map((s) => ({
+        name: s.name,
+        totalDevices: s.totalDevices,
+        adoptedDevices: s.adoptedDevices,
+        satisfaction: s.satisfaction,
+      })),
+      devices: summary.devices.slice(0, 100).map((d) => ({
+        hostname: d.hostname,
+        model: d.model,
+        firmware: d.firmware,
+        ipAddress: d.ipAddress,
+        macAddress: d.macAddress,
+        uptimeHours: Math.round(d.uptime / 3600),
+        siteName: d.siteName,
+        connectedClients: d.connectedClients,
+      })),
+    }, `Ubiquiti: ${summary.totalDevices} network devices across ${summary.totalSites} site(s). ${summary.totalClients} connected clients. Models: ${Object.entries(devicesByModel).map(([k, v]) => `${k} (${v})`).join(', ')}.`))
+
+    return { evidence, errors }
+  } catch (err) {
+    return { evidence, errors: [`Ubiquiti collection failed: ${err instanceof Error ? err.message : String(err)}`] }
+  }
+}

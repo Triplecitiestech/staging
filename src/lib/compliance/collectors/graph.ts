@@ -74,12 +74,17 @@ async function graphGet<T>(token: string, path: string, timeout = 30_000): Promi
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       signal: AbortSignal.timeout(timeout),
     })
-    if (!res.ok) return null
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      console.error(`[graph-v1] ${path} failed (${res.status}): ${text.substring(0, 300)}`)
+      return null
+    }
     if (res.status === 204) return null
     const text = await res.text()
     if (!text.trim()) return null
     return JSON.parse(text) as T
-  } catch {
+  } catch (err) {
+    console.error(`[graph-v1] ${path} error:`, err instanceof Error ? err.message : String(err))
     return null
   }
 }
@@ -198,37 +203,67 @@ async function collectConditionalAccess(
 async function collectMfa(
   token: string, assessmentId: string, companyId: string
 ): Promise<Omit<EvidenceRecord, 'id' | 'collectedAt'> | null> {
-  // Try beta credential registration details endpoint
-  // Requires: UserAuthenticationMethod.Read.All AND Reports.Read.All
-  let regData = await graphGetBeta<{
-    value: Array<{
-      id: string
-      userPrincipalName: string
-      userDisplayName: string
-      isMfaRegistered: boolean
-      isMfaCapable: boolean
-      isAdmin: boolean
-      defaultMfaMethod: string
-    }>
-  }>(token, '/reports/authenticationMethods/userRegistrationDetails?$top=999')
+  // MFA registration details — try v1.0 first (this endpoint graduated from beta)
+  // Requires: UserAuthenticationMethod.Read.All AND AuditLog.Read.All (or Reports.Read.All)
+  // NOTE: Reports.Read.All alone is insufficient in many tenants — AuditLog.Read.All is often needed.
+  type MfaRegUser = {
+    id: string
+    userPrincipalName: string
+    userDisplayName: string
+    isMfaRegistered: boolean
+    isMfaCapable: boolean
+    isAdmin: boolean
+    defaultMfaMethod: string
+  }
 
-  // If beta failed, try v1.0 endpoint
+  console.log(`[mfa-collector] Starting MFA collection for company ${companyId}`)
+
+  // Try v1.0 endpoint first (preferred — stable API)
+  let regData = await graphGet<{ value: MfaRegUser[] }>(
+    token, '/reports/authenticationMethods/userRegistrationDetails?$top=999'
+  )
+
+  // If v1.0 failed, try beta endpoint
   if (!regData?.value) {
-    const v1Data = await graphGet<{
+    console.log(`[mfa-collector] v1.0 returned no data, trying beta endpoint`)
+    const betaData = await graphGetBeta<{ value: MfaRegUser[] }>(
+      token, '/reports/authenticationMethods/userRegistrationDetails?$top=999'
+    )
+    if (betaData?.value) regData = betaData
+  }
+
+  // If both MFA endpoints failed, try the credential user registration details (beta)
+  // This is an alternative endpoint that some tenants respond to
+  if (!regData?.value) {
+    console.log(`[mfa-collector] Both userRegistrationDetails endpoints failed, trying credentialUserRegistrationDetails`)
+    const credData = await graphGetBeta<{
       value: Array<{
         id: string
         userPrincipalName: string
         userDisplayName: string
         isMfaRegistered: boolean
-        isMfaCapable: boolean
-        isAdmin: boolean
-        defaultMfaMethod: string
+        isRegistered: boolean
+        authMethods: string[]
       }>
-    }>(token, '/reports/authenticationMethods/userRegistrationDetails?$top=999')
-    if (v1Data?.value) regData = v1Data
+    }>(token, '/reports/credentialUserRegistrationDetails?$top=999')
+    if (credData?.value) {
+      // Map to the same shape
+      regData = {
+        value: credData.value.map((u) => ({
+          id: u.id,
+          userPrincipalName: u.userPrincipalName,
+          userDisplayName: u.userDisplayName,
+          isMfaRegistered: u.isMfaRegistered,
+          isMfaCapable: u.isMfaRegistered || u.isRegistered,
+          isAdmin: false, // Not available from this endpoint
+          defaultMfaMethod: u.authMethods?.[0] ?? 'unknown',
+        })),
+      }
+    }
   }
 
   if (regData?.value) {
+    console.log(`[mfa-collector] Got ${regData.value.length} users from MFA endpoint`)
     const users = regData.value
     const total = users.length
     const mfaRegistered = users.filter((u) => u.isMfaRegistered || u.isMfaCapable).length
@@ -251,6 +286,8 @@ async function collectMfa(
     }, `MFA: ${mfaRegistered}/${total} users registered (${mfaRate}%)`)
   }
 
+  console.log(`[mfa-collector] All MFA endpoints returned no data, falling back to user count`)
+
   // Fallback: use directory role membership + user count
   const users = await graphGetAllPages<{ id: string; accountEnabled: boolean }>(
     token, '/users?$select=id,accountEnabled&$filter=accountEnabled eq true&$top=999'
@@ -261,9 +298,9 @@ async function collectMfa(
     mfaRegisteredUsers: null,
     mfaRate: null,
     adminUsers: [],
-    permissionMissing: 'UserAuthenticationMethod.Read.All + Reports.Read.All',
-    note: 'MFA registration details unavailable. Both "UserAuthenticationMethod.Read.All" AND "Reports.Read.All" Application permissions are required. Add both in the customer\'s Azure AD app registration and click "Grant admin consent for [tenant]".',
-  }, `${users.length} active users. MFA data requires both "UserAuthenticationMethod.Read.All" AND "Reports.Read.All" permissions — add them in Azure AD > App registrations > API permissions, then grant admin consent.`)
+    permissionMissing: 'UserAuthenticationMethod.Read.All + AuditLog.Read.All',
+    note: 'MFA registration details unavailable. Required Application permissions: "UserAuthenticationMethod.Read.All" AND "AuditLog.Read.All" (or "Reports.Read.All"). Add in the customer\'s Azure AD app registration > API permissions > Microsoft Graph > Application permissions, then click "Grant admin consent for [tenant]". The credentialUserRegistrationDetails endpoint was also attempted as a fallback.',
+  }, `${users.length} active users. MFA data requires "UserAuthenticationMethod.Read.All" + "AuditLog.Read.All" Application permissions — add them in Azure AD > App registrations > API permissions, then grant admin consent.`)
 }
 
 function summarizeMfaMethods(users: Array<{ defaultMfaMethod: string }>): Record<string, number> {
