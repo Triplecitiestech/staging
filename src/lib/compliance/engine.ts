@@ -17,7 +17,7 @@ import { getPool } from '@/lib/db-pool'
 import type { PoolClient } from 'pg'
 import { ensureComplianceTables } from './ensure-tables'
 import { collectGraphEvidence } from './collectors/graph'
-import { collectDattoRmmEvidence, collectDattoBcdrEvidence, collectDnsFilterEvidence, collectDomotzEvidence, collectItGlueEvidence, collectSaasAlertsEvidence, collectUbiquitiEvidence } from './collectors/msp'
+import { collectDattoRmmEvidence, collectDattoBcdrEvidence, collectDnsFilterEvidence, collectDomotzEvidence, collectItGlueEvidence, collectSaasAlertsEvidence, collectUbiquitiEvidence, collectMyItProcessEvidence } from './collectors/msp'
 import { CIS_V8_FRAMEWORK, CIS_V8_EVALUATORS } from './frameworks/cis-v8'
 import {
   compareControlIds,
@@ -166,6 +166,9 @@ export async function detectConnectors(companyId: string): Promise<ConnectorStat
     }
     if (process.env.UBIQUITI_API_KEY) {
       await upsert('ubiquiti', 'verified', null, 'env.UBIQUITI_*')
+    }
+    if (process.env.MYITP_API_KEY) {
+      await upsert('myitprocess', 'verified', null, 'env.MYITP_*')
     }
 
     // Read back all connectors using the same client
@@ -561,6 +564,10 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
   if (availableConnectors.has('ubiquiti')) {
     collectors.push({ name: 'Ubiquiti', connector: 'ubiquiti',
       fn: () => collectUbiquitiEvidence(assessment.companyId, assessmentId) })
+  }
+  if (availableConnectors.has('myitprocess')) {
+    collectors.push({ name: 'MyITProcess', connector: 'myitprocess',
+      fn: () => collectMyItProcessEvidence(assessment.companyId, assessmentId, companyDisplayName) })
   }
 
   // Run all collectors in parallel — no DB connection held during this phase

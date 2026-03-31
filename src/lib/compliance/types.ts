@@ -65,6 +65,7 @@ export type EvidenceSourceType =
   | 'it_glue_documentation'
   | 'saas_alerts_monitoring'
   | 'ubiquiti_network'
+  | 'myitprocess_alignment'
   | 'manual_upload'
 
 export type ConnectorType =
@@ -78,6 +79,7 @@ export type ConnectorType =
   | 'it_glue'
   | 'saas_alerts'
   | 'ubiquiti'
+  | 'myitprocess'
 
 export type ConnectorStatus = 'not_configured' | 'available' | 'configured' | 'verified' | 'error'
 
@@ -385,5 +387,6 @@ export const EVIDENCE_TO_CONNECTOR: Record<EvidenceSourceType, ConnectorType | n
   it_glue_documentation: 'it_glue',
   saas_alerts_monitoring: 'saas_alerts',
   ubiquiti_network: 'ubiquiti',
+  myitprocess_alignment: 'myitprocess',
   manual_upload: null,
 }

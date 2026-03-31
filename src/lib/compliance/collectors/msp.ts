@@ -564,3 +564,77 @@ export async function collectUbiquitiEvidence(
     return { evidence, errors: [`Ubiquiti collection failed: ${err instanceof Error ? err.message : String(err)}`] }
   }
 }
+
+// ---------------------------------------------------------------------------
+// MyITProcess Collector — Standards Alignment & Reviews
+// ---------------------------------------------------------------------------
+
+export async function collectMyItProcessEvidence(
+  companyId: string,
+  assessmentId: string,
+  companyName?: string
+): Promise<{ evidence: Array<Omit<EvidenceRecord, 'id' | 'collectedAt'>>; errors: string[] }> {
+  const evidence: Array<Omit<EvidenceRecord, 'id' | 'collectedAt'>> = []
+  const errors: string[] = []
+
+  if (!process.env.MYITP_API_KEY) {
+    return { evidence, errors: ['MyITProcess: MYITP_API_KEY not configured'] }
+  }
+
+  if (!companyName) {
+    try { companyName = await getCompanyDisplayName(companyId) ?? undefined } catch { /* ignore */ }
+  }
+
+  try {
+    console.log(`[myitp] Starting collection for ${companyName ?? companyId}`)
+    const { MyItProcessClient } = await import('@/lib/myitprocess')
+    const client = new MyItProcessClient()
+    const summary = await client.buildComplianceSummary(companyName)
+
+    if (!summary.available) {
+      return { evidence, errors: [summary.note ?? 'MyITProcess API unavailable'] }
+    }
+
+    // Store evidence even if no matched client — alignment score presence is useful
+    const reviewNames = summary.reviews.map((r) => r.name)
+    const activeRecs = summary.recommendations.filter((r) => !r.isArchived)
+    const findingLabels = summary.findings.map((f) => f.question.label)
+
+    evidence.push(buildEvidence(assessmentId, companyId, 'myitprocess_alignment' as EvidenceSourceType, {
+      matchedClient: summary.matchedClient ? {
+        id: summary.matchedClient.id,
+        name: summary.matchedClient.name,
+        alignmentScore: summary.matchedClient.alignmentScore,
+        lastReviewDate: summary.matchedClient.lastReviewDate,
+        isActive: summary.matchedClient.isActive,
+      } : null,
+      alignmentScore: summary.alignmentScore,
+      totalClients: summary.totalClients,
+      reviewCount: summary.reviews.length,
+      reviewNames,
+      findingCount: summary.findings.length,
+      findingLabels: findingLabels.slice(0, 50),
+      recommendationCount: activeRecs.length,
+      recommendations: activeRecs.slice(0, 20).map((r) => ({
+        name: r.name,
+        priority: r.priority,
+        status: r.status,
+        budget: r.budget,
+      })),
+      initiativeCount: summary.initiatives.length,
+      initiatives: summary.initiatives.slice(0, 10).map((i) => ({
+        title: i.title,
+        recommendationCount: i.recommendationsIds.length,
+      })),
+      note: summary.note,
+    }, summary.matchedClient
+      ? `MyITProcess: "${summary.matchedClient.name}" — alignment score ${summary.alignmentScore ?? 'N/A'}%. ${summary.reviews.length} review(s), ${activeRecs.length} active recommendation(s), ${summary.findings.length} finding(s).`
+      : `MyITProcess: No client matched "${companyName}". ${summary.totalClients} clients in account.`))
+
+    return { evidence, errors }
+  } catch (err) {
+    const msg = `MyITProcess collection failed: ${err instanceof Error ? err.message : String(err)}`
+    console.error(`[myitp] ${msg}`)
+    return { evidence, errors: [msg] }
+  }
+}
