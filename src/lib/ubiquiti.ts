@@ -57,6 +57,11 @@ export interface UnifiSite {
       totalDevice?: number
       totalAdoptedDevice?: number
       totalUnapprovedDevice?: number
+      wifiClient?: number
+      wiredClient?: number
+      wifiDevice?: number
+      wiredDevice?: number
+      gatewayDevice?: number
     }
     internetIssues?: number
     satisfaction?: number
