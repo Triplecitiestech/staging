@@ -10,6 +10,7 @@ import {
   createAssessment,
   detectConnectors,
 } from '@/lib/compliance/engine'
+import { ensureComplianceTables } from '@/lib/compliance/ensure-tables'
 import type { FrameworkId } from '@/lib/compliance/types'
 
 export const dynamic = 'force-dynamic'
@@ -26,7 +27,8 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Auto-detect connectors on first access
+    // Ensure tables exist once, then detect connectors
+    await ensureComplianceTables()
     await detectConnectors(companyId)
     const dashboard = await getComplianceDashboard(companyId)
     return NextResponse.json({ success: true, data: dashboard })
