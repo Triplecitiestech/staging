@@ -674,14 +674,78 @@ function semiAutoEvaluator(controlId: string, description: string, sources: Evid
 // --- New evaluators for expanded controls ---
 
 // 1.2 Address Unauthorized Assets
-evaluators['cis-v8-1.2'] = semiAutoEvaluator('cis-v8-1.2',
-  'Verify that a process exists to address unauthorized assets weekly.',
-  ['datto_rmm_devices', 'microsoft_device_compliance'])
+// This control requires: active network discovery showing ALL devices (Domotz),
+// compared against managed device inventory (RMM/Intune), to identify rogues.
+// Having "10 managed devices" is NOT evidence — you need to show what's unmanaged.
+evaluators['cis-v8-1.2'] = (ctx: EvaluationContext): EvaluationResult => {
+  const domotz = ctx.evidence.get('domotz_network_discovery' as EvidenceSourceType)
+  const rmm = ctx.evidence.get('datto_rmm_devices')
+  const devices = ctx.evidence.get('microsoft_device_compliance')
+
+  if (!domotz && !rmm && !devices) return noEvidence('cis-v8-1.2', ['domotz_network_discovery', 'datto_rmm_devices', 'microsoft_device_compliance'], ctx)
+
+  const domotzData = domotz?.rawData as { totalDevices?: number; uniqueMacAddresses?: number; discoveryActive?: boolean } | undefined
+  const rmmData = rmm?.rawData as { totalDevices?: number; matched?: boolean } | undefined
+  const devData = devices?.rawData as { totalCount?: number } | undefined
+
+  const networkDevices = domotzData?.totalDevices ?? 0
+  const managedDevices = (rmmData?.matched ? (rmmData?.totalDevices ?? 0) : 0) + (devData?.totalCount ?? 0)
+  const sources = ['domotz_network_discovery', 'datto_rmm_devices', 'microsoft_device_compliance'].filter(
+    (s) => ctx.evidence.has(s as EvidenceSourceType)
+  )
+
+  if (domotz && domotzData?.discoveryActive && networkDevices > 0 && managedDevices > 0) {
+    const unmanaged = Math.max(0, networkDevices - managedDevices)
+    if (unmanaged <= 0) {
+      return result('cis-v8-1.2', ctx, 'pass', 'high',
+        `Domotz discovered ${networkDevices} devices on the network. ${managedDevices} are managed via RMM/Intune. All discovered devices are accounted for.`,
+        sources, [])
+    }
+    return result('cis-v8-1.2', ctx, 'partial', 'medium',
+      `Domotz discovered ${networkDevices} network devices but only ${managedDevices} are managed. Approximately ${unmanaged} unmanaged device(s) detected — these need to be addressed (quarantined, documented, or enrolled).`,
+      sources, [],
+      `Review the ${unmanaged} unmanaged devices found by Domotz. Apply zero-trust network policy or enroll them in management.`)
+  }
+  if (domotz && domotzData?.discoveryActive) {
+    return result('cis-v8-1.2', ctx, 'needs_review', 'low',
+      `Domotz active discovery is running (${networkDevices} devices found). RMM/Intune data needed to compare managed vs unmanaged.`,
+      sources, ['datto_rmm_devices'])
+  }
+  // No Domotz — can't properly assess unauthorized assets
+  return result('cis-v8-1.2', ctx, 'needs_review', 'low',
+    `${managedDevices} managed devices found via RMM/Intune, but without active network discovery (Domotz), unauthorized devices cannot be identified. Managed device count alone does not address this control.`,
+    sources, ['domotz_network_discovery'],
+    'Deploy Domotz or equivalent network scanner to discover ALL devices on the network. Compare against managed inventory to identify unauthorized assets.')
+}
 
 // 1.3 Active Discovery Tool
-evaluators['cis-v8-1.3'] = semiAutoEvaluator('cis-v8-1.3',
-  'Verify an active discovery tool runs daily to identify connected assets.',
-  ['datto_rmm_devices'])
+// This MUST use Domotz or equivalent network scanner. RMM is NOT active discovery.
+evaluators['cis-v8-1.3'] = (ctx: EvaluationContext): EvaluationResult => {
+  const domotz = ctx.evidence.get('domotz_network_discovery' as EvidenceSourceType)
+  if (!domotz) return noEvidence('cis-v8-1.3', ['domotz_network_discovery'], ctx)
+
+  const data = domotz.rawData as {
+    totalDevices?: number; uniqueMacAddresses?: number; uniqueIpAddresses?: number
+    discoveryActive?: boolean; agentCount?: number
+    agents?: Array<{ name: string; status: string; deviceCount: number }>
+  }
+
+  if (data.discoveryActive && (data.totalDevices ?? 0) > 0) {
+    const agentInfo = (data.agents ?? []).map((a) => `${a.name} (${a.status}, ${a.deviceCount} devices)`).join(', ')
+    return result('cis-v8-1.3', ctx, 'pass', 'high',
+      `Domotz active network discovery is running. ${data.agentCount ?? 0} collector(s) scanning the network: ${agentInfo || 'active'}. ${data.totalDevices} devices discovered, ${data.uniqueMacAddresses ?? 0} unique MAC addresses, ${data.uniqueIpAddresses ?? 0} unique IPs.`,
+      ['domotz_network_discovery'], [])
+  }
+  if (data.agentCount && data.agentCount > 0) {
+    return result('cis-v8-1.3', ctx, 'partial', 'medium',
+      `Domotz is configured with ${data.agentCount} collector(s) but discovery may not be actively running. Verify collectors are online and scanning.`,
+      ['domotz_network_discovery'], [],
+      'Check Domotz dashboard — ensure all collectors are online and auto-discovery is enabled.')
+  }
+  return result('cis-v8-1.3', ctx, 'needs_review', 'low',
+    'Domotz evidence was collected but no active discovery data found. Verify the Domotz configuration.',
+    ['domotz_network_discovery'], [])
+}
 
 // 1.4 DHCP Logging
 evaluators['cis-v8-1.4'] = manualControlEvaluator('cis-v8-1.4',
