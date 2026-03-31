@@ -201,6 +201,51 @@ const SETUP_QUESTIONS: SetupQuestion[] = [
       { toolId: null, label: 'No PSA', description: 'Using email or basic ticketing only' },
     ],
   },
+
+  // --- Customer Environment ---
+  {
+    id: 'remote_access',
+    category: 'Customer Environment',
+    question: 'How do customers typically access corporate resources remotely?',
+    description: 'This determines whether VPN-related controls apply.',
+    options: [
+      { toolId: null, label: 'Cloud-only — no VPN needed', description: 'All applications are SaaS/cloud. No on-premises resources requiring VPN.' },
+      { toolId: null, label: 'VPN required for on-prem resources', description: 'Employees use VPN to access on-premises servers, file shares, or applications.' },
+      { toolId: null, label: 'Hybrid — some cloud, some VPN', description: 'Mix of cloud apps and on-prem resources accessed via VPN.' },
+    ],
+  },
+  {
+    id: 'on_prem_servers',
+    category: 'Customer Environment',
+    question: 'Do customers typically have on-premises servers?',
+    description: 'This affects server-specific controls like server firewalls and server backup.',
+    options: [
+      { toolId: null, label: 'No on-prem servers', description: 'Fully cloud — no servers on-site.' },
+      { toolId: null, label: 'Yes — with BCDR backup', description: 'On-prem servers protected by Datto BCDR.' },
+      { toolId: null, label: 'Yes — mixed backup', description: 'On-prem servers with various backup solutions.' },
+    ],
+  },
+  {
+    id: 'custom_apps',
+    category: 'Customer Environment',
+    question: 'Do customers develop custom software applications?',
+    description: 'If no, application security development controls (CIS 16.x) would be not applicable.',
+    options: [
+      { toolId: null, label: 'No — standard business software only', description: 'Most SMBs do not develop custom apps. CIS 16.x would be N/A.' },
+      { toolId: null, label: 'Yes — some custom development', description: 'Customer builds or maintains custom applications.' },
+    ],
+  },
+  {
+    id: 'byod_policy',
+    category: 'Customer Environment',
+    question: 'What is the typical BYOD (Bring Your Own Device) policy?',
+    description: 'Affects device management and compliance enforcement scope.',
+    options: [
+      { toolId: null, label: 'Company-owned devices only', description: 'All devices are purchased and managed by the company.' },
+      { toolId: null, label: 'BYOD allowed with management', description: 'Personal devices allowed but must enroll in Intune/MDM.' },
+      { toolId: null, label: 'BYOD with no management', description: 'Personal devices used with no MDM enrollment. Higher risk.' },
+    ],
+  },
 ]
 
 // Group questions by category
