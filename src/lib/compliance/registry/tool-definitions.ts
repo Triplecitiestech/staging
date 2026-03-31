@@ -160,18 +160,18 @@ export const DEFAULT_TOOLS: ToolDefinition[] = [
   {
     toolId: 'domotz', name: 'Domotz', vendor: 'Domotz',
     category: 'Network Monitoring & Discovery',
-    integrationStatus: 'known', connectorType: null,
+    integrationStatus: 'integrated', connectorType: 'domotz',
     description: 'Active and passive network discovery — scans every IP and MAC address across VLANs. Monitors network device health, port status, and connectivity.',
     capabilities: [
       { capabilityId: 'asset_discovery_active', confidence: 'authoritative',
         dataDescription: 'All IP/MAC addresses on the network, device type identification, VLAN mapping, scan frequency',
-        evidenceSourceTypes: [] },
+        evidenceSourceTypes: ['domotz_network_discovery'] },
       { capabilityId: 'asset_discovery_passive', confidence: 'authoritative',
         dataDescription: 'Passive traffic observation to detect new devices connecting to the network',
-        evidenceSourceTypes: [] },
+        evidenceSourceTypes: ['domotz_network_discovery'] },
       { capabilityId: 'network_infrastructure', confidence: 'supplementary',
         dataDescription: 'Switch port mapping, AP status, network topology',
-        evidenceSourceTypes: [] },
+        evidenceSourceTypes: ['domotz_network_discovery'] },
     ],
   },
 
@@ -226,12 +226,12 @@ export const DEFAULT_TOOLS: ToolDefinition[] = [
   {
     toolId: 'it_glue', name: 'IT Glue', vendor: 'Kaseya/Datto',
     category: 'IT Documentation',
-    integrationStatus: 'known', connectorType: null,
+    integrationStatus: 'integrated', connectorType: 'it_glue',
     description: 'IT documentation and CMDB — stores passwords, network diagrams, procedures, asset records, runbooks.',
     capabilities: [
       { capabilityId: 'it_documentation', confidence: 'authoritative',
         dataDescription: 'Documented procedures, password vault, network diagrams, configuration records',
-        evidenceSourceTypes: [] },
+        evidenceSourceTypes: ['it_glue_documentation'] },
     ],
   },
 

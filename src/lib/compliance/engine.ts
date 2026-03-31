@@ -17,7 +17,7 @@ import { getPool } from '@/lib/db-pool'
 import type { PoolClient } from 'pg'
 import { ensureComplianceTables } from './ensure-tables'
 import { collectGraphEvidence } from './collectors/graph'
-import { collectDattoRmmEvidence, collectDattoBcdrEvidence, collectDnsFilterEvidence } from './collectors/msp'
+import { collectDattoRmmEvidence, collectDattoBcdrEvidence, collectDnsFilterEvidence, collectDomotzEvidence, collectItGlueEvidence } from './collectors/msp'
 import { CIS_V8_FRAMEWORK, CIS_V8_EVALUATORS } from './frameworks/cis-v8'
 import {
   compareControlIds,
@@ -136,6 +136,12 @@ export async function detectConnectors(companyId: string): Promise<ConnectorStat
     }
     if (process.env.DNSFILTER_API_TOKEN) {
       await upsertConnector(companyId, 'dnsfilter', 'available', null, 'env.DNSFILTER_*')
+    }
+    if (process.env.DOMOTZ_API_KEY && process.env.DOMOTZ_API_URL) {
+      await upsertConnector(companyId, 'domotz', 'available', null, 'env.DOMOTZ_*')
+    }
+    if (process.env.IT_GLUE_API_KEY) {
+      await upsertConnector(companyId, 'it_glue', 'available', null, 'env.IT_GLUE_*')
     }
 
     return getConnectors(companyId)
@@ -454,6 +460,42 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
       } catch (err) {
         failedConnectors.add('dnsfilter')
         collectionErrors.push(`DNSFilter: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+
+    // --- Collect from Domotz ---
+    if (availableConnectors.has('domotz')) {
+      try {
+        const domotzResult = await collectDomotzEvidence(assessment.companyId, assessmentId)
+        collectionErrors.push(...domotzResult.errors)
+        if (domotzResult.evidence.length > 0) {
+          const stored = await storeEvidence(client, domotzResult.evidence)
+          allEvidence.push(...stored)
+        }
+        if (domotzResult.errors.length > 0 && domotzResult.evidence.length === 0) {
+          failedConnectors.add('domotz')
+        }
+      } catch (err) {
+        failedConnectors.add('domotz')
+        collectionErrors.push(`Domotz: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+
+    // --- Collect from IT Glue ---
+    if (availableConnectors.has('it_glue')) {
+      try {
+        const itgResult = await collectItGlueEvidence(assessment.companyId, assessmentId)
+        collectionErrors.push(...itgResult.errors)
+        if (itgResult.evidence.length > 0) {
+          const stored = await storeEvidence(client, itgResult.evidence)
+          allEvidence.push(...stored)
+        }
+        if (itgResult.errors.length > 0 && itgResult.evidence.length === 0) {
+          failedConnectors.add('it_glue')
+        }
+      } catch (err) {
+        failedConnectors.add('it_glue')
+        collectionErrors.push(`IT Glue: ${err instanceof Error ? err.message : String(err)}`)
       }
     }
 

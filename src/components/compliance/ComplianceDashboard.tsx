@@ -179,6 +179,8 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
               <ConnectorCard name="Datto EDR" type="datto_edr" connectors={dashboard.connectors} />
               <ConnectorCard name="Datto BCDR / SaaS Protect" type="datto_bcdr" connectors={dashboard.connectors} />
               <ConnectorCard name="DNSFilter" type="dnsfilter" connectors={dashboard.connectors} />
+              <ConnectorCard name="Domotz" type="domotz" connectors={dashboard.connectors} />
+              <ConnectorCard name="IT Glue" type="it_glue" connectors={dashboard.connectors} />
             </div>
           </div>
 
