@@ -185,6 +185,15 @@ export interface EnvironmentContext {
   customApps: string | null
   /** 'company_owned' | 'byod_managed' | 'byod_unmanaged' — from byod_policy question */
   byodPolicy: string | null
+  /** Compliance scope definitions from setup wizard */
+  scope: {
+    endpoints: string | null   // 'all_managed' | 'workstations_only' | 'workstations_servers' | 'custom'
+    users: string | null       // 'all_licensed' | 'employees_only' | 'all_including_shared'
+    backup: string | null      // 'servers_m365' | 'm365_only' | 'servers_only' | 'all_data'
+    network: string | null     // 'all_managed' | 'primary_only' | 'all_including_guest'
+    saas: string | null        // 'm365_only' | 'm365_plus_lob' | 'all_saas'
+    incidentResponse: string | null  // 'tct_handles' | 'shared' | 'customer_internal'
+  }
   /** Full raw answers map from setup wizard (questionId → label) */
   rawAnswers: Record<string, string>
 }

@@ -246,6 +246,76 @@ const SETUP_QUESTIONS: SetupQuestion[] = [
       { toolId: null, label: 'BYOD with no management', description: 'Personal devices used with no MDM enrollment. Higher risk.' },
     ],
   },
+
+  // --- Compliance Scope ---
+  {
+    id: 'scope_endpoints',
+    category: 'Compliance Scope',
+    question: 'What endpoints are in scope for compliance?',
+    description: 'Defines which devices must meet security baselines (encryption, patching, AV, EDR). Affects CIS 1.x, 4.x, 7.x, 10.x controls.',
+    options: [
+      { toolId: null, label: 'All managed endpoints', description: 'Every device with an RMM agent or enrolled in Intune is in scope.' },
+      { toolId: null, label: 'Workstations only', description: 'Servers excluded — only user endpoints must meet compliance baselines.' },
+      { toolId: null, label: 'Workstations + servers', description: 'Both user endpoints and on-prem servers are in scope.' },
+      { toolId: null, label: 'Custom scope per customer', description: 'Scope varies — defined per customer during onboarding.' },
+    ],
+  },
+  {
+    id: 'scope_users',
+    category: 'Compliance Scope',
+    question: 'Which user accounts are in scope for identity controls?',
+    description: 'Defines which M365 users must have MFA, Conditional Access, and access reviews. Affects CIS 5.x, 6.x controls.',
+    options: [
+      { toolId: null, label: 'All licensed M365 users', description: 'Every user with an M365 license must have MFA, CA policies, etc.' },
+      { toolId: null, label: 'Only full-time employees', description: 'Contractors, shared mailboxes, and service accounts excluded.' },
+      { toolId: null, label: 'All users including shared/service accounts', description: 'Everything — shared mailboxes, service accounts, room mailboxes.' },
+    ],
+  },
+  {
+    id: 'scope_backup',
+    category: 'Compliance Scope',
+    question: 'What data must be backed up for compliance?',
+    description: 'Defines backup coverage requirements. Affects CIS 11.x controls.',
+    options: [
+      { toolId: null, label: 'Servers + M365 data', description: 'All on-prem servers (BCDR) and all M365 mailboxes/SharePoint/Teams (SaaS Protect).' },
+      { toolId: null, label: 'M365 data only (cloud-only customers)', description: 'No servers — only M365 mailboxes, OneDrive, SharePoint, Teams need backup.' },
+      { toolId: null, label: 'Servers only', description: 'On-prem servers backed up — M365 data relies on Microsoft retention.' },
+      { toolId: null, label: 'All data + endpoint backup', description: 'Servers, M365, and individual workstation data backed up.' },
+    ],
+  },
+  {
+    id: 'scope_network',
+    category: 'Compliance Scope',
+    question: 'Which network segments are in scope?',
+    description: 'Defines which networks must be monitored, scanned, and have firmware managed. Affects CIS 1.x, 12.x controls.',
+    options: [
+      { toolId: null, label: 'All customer networks (managed by us)', description: 'Every site where we manage the network infrastructure is in scope.' },
+      { toolId: null, label: 'Primary office only', description: 'Only the main office network — branch offices or remote sites excluded.' },
+      { toolId: null, label: 'All networks including guest/IoT', description: 'Full scope — production, guest, IoT, and management VLANs.' },
+    ],
+  },
+  {
+    id: 'scope_saas',
+    category: 'Compliance Scope',
+    question: 'Which cloud/SaaS applications are in scope?',
+    description: 'Defines which cloud services need security monitoring, access controls, and audit logging. Affects CIS 3.x, 8.x, 9.x controls.',
+    options: [
+      { toolId: null, label: 'Microsoft 365 only', description: 'M365 is the primary cloud platform — Exchange, SharePoint, Teams, OneDrive.' },
+      { toolId: null, label: 'M365 + line-of-business SaaS', description: 'M365 plus other critical SaaS apps (CRM, ERP, accounting).' },
+      { toolId: null, label: 'All SaaS platforms', description: 'Every cloud service used by the customer is in scope.' },
+    ],
+  },
+  {
+    id: 'scope_incident_response',
+    category: 'Compliance Scope',
+    question: 'Who handles security incident response?',
+    description: 'Defines incident handling responsibilities. Affects CIS 17.x controls.',
+    options: [
+      { toolId: null, label: 'TCT handles all incidents', description: 'We are the designated incident response team for all managed customers.' },
+      { toolId: null, label: 'Shared responsibility', description: 'We handle technical response — customer handles business decisions and communications.' },
+      { toolId: null, label: 'Customer has internal security team', description: 'Customer has their own security team — we provide data and support.' },
+    ],
+  },
 ]
 
 // Group questions by category
