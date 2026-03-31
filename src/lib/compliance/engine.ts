@@ -479,178 +479,123 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
 }> {
   await ensureComplianceTables()
   const pool = getPool()
+
+  // --- Phase 1: Read assessment info and set status (quick DB access) ---
+  let assessment: Assessment
+  const availableConnectors = new Set<ConnectorType>()
+  {
+    const client = await pool.connect()
+    try {
+      const assessmentRes = await client.query<Assessment>(
+        `SELECT id, "companyId", "frameworkId", status FROM compliance_assessments WHERE id = $1`, [assessmentId]
+      )
+      if (assessmentRes.rows.length === 0) throw new Error('Assessment not found')
+      assessment = assessmentRes.rows[0]
+
+      await updateAssessmentStatus(client, assessmentId, 'collecting')
+      await logAudit(client, assessment.companyId, assessmentId, 'collection_started', actor, {})
+
+      // Determine which connectors are available
+      const connRes = await client.query<ConnectorState>(
+        `SELECT "connectorType", status FROM compliance_connectors WHERE "companyId" = $1`,
+        [assessment.companyId]
+      )
+      for (const c of connRes.rows) {
+        if (c.status === 'available' || c.status === 'verified' || c.status === 'configured') {
+          availableConnectors.add(c.connectorType as ConnectorType)
+        }
+      }
+    } finally {
+      client.release() // Release connection BEFORE external API calls
+    }
+  }
+
+  // --- Phase 2: Collect evidence from external APIs (NO DB connection held) ---
+  const collectionErrors: string[] = []
+  const pendingEvidence: Array<Omit<EvidenceRecord, 'id' | 'collectedAt'>> = []
+  const failedConnectors = new Set<ConnectorType>()
+
+  type CollectorEntry = {
+    name: string
+    connector: ConnectorType
+    fn: () => Promise<{ evidence: Array<Omit<EvidenceRecord, 'id' | 'collectedAt'>>; errors: string[] }>
+  }
+
+  const collectors: CollectorEntry[] = []
+
+  if (availableConnectors.has('microsoft_graph')) {
+    collectors.push({ name: 'Microsoft Graph', connector: 'microsoft_graph',
+      fn: () => collectGraphEvidence(assessment.companyId, assessmentId) })
+  }
+  if (availableConnectors.has('datto_rmm')) {
+    collectors.push({ name: 'Datto RMM', connector: 'datto_rmm',
+      fn: () => collectDattoRmmEvidence(assessment.companyId, assessmentId) })
+  }
+  if (availableConnectors.has('datto_bcdr')) {
+    collectors.push({ name: 'Datto BCDR', connector: 'datto_bcdr',
+      fn: () => collectDattoBcdrEvidence(assessment.companyId, assessmentId) })
+  }
+  if (availableConnectors.has('dnsfilter')) {
+    collectors.push({ name: 'DNSFilter', connector: 'dnsfilter',
+      fn: () => collectDnsFilterEvidence(assessment.companyId, assessmentId) })
+  }
+  if (availableConnectors.has('domotz')) {
+    collectors.push({ name: 'Domotz', connector: 'domotz',
+      fn: () => collectDomotzEvidence(assessment.companyId, assessmentId) })
+  }
+  if (availableConnectors.has('saas_alerts')) {
+    collectors.push({ name: 'SaaS Alerts', connector: 'saas_alerts',
+      fn: () => collectSaasAlertsEvidence(assessment.companyId, assessmentId) })
+  }
+  if (availableConnectors.has('it_glue')) {
+    collectors.push({ name: 'IT Glue', connector: 'it_glue',
+      fn: () => collectItGlueEvidence(assessment.companyId, assessmentId) })
+  }
+  if (availableConnectors.has('ubiquiti')) {
+    collectors.push({ name: 'Ubiquiti', connector: 'ubiquiti',
+      fn: () => collectUbiquitiEvidence(assessment.companyId, assessmentId) })
+  }
+
+  // Run all collectors in parallel — no DB connection held during this phase
+  const results = await Promise.allSettled(
+    collectors.map(async (c) => {
+      try {
+        const result = await c.fn()
+        return { ...c, result }
+      } catch (err) {
+        return { ...c, error: err instanceof Error ? err.message : String(err) }
+      }
+    })
+  )
+
+  for (const settled of results) {
+    if (settled.status === 'rejected') {
+      collectionErrors.push(`Collector rejected: ${settled.reason}`)
+      continue
+    }
+    const entry = settled.value as CollectorEntry & {
+      result?: { evidence: Array<Omit<EvidenceRecord, 'id' | 'collectedAt'>>; errors: string[] }
+      error?: string
+    }
+    if (entry.error) {
+      failedConnectors.add(entry.connector)
+      collectionErrors.push(`${entry.name}: ${entry.error}`)
+    } else if (entry.result) {
+      collectionErrors.push(...entry.result.errors)
+      pendingEvidence.push(...entry.result.evidence)
+      if (entry.result.errors.length > 0 && entry.result.evidence.length === 0) {
+        failedConnectors.add(entry.connector)
+      }
+    }
+  }
+
+  // --- Phase 3: Store evidence, evaluate, update DB (reconnect) ---
   const client = await pool.connect()
-
   try {
-    const assessmentRes = await client.query<Assessment>(
-      `SELECT id, "companyId", "frameworkId", status FROM compliance_assessments WHERE id = $1`, [assessmentId]
-    )
-    if (assessmentRes.rows.length === 0) throw new Error('Assessment not found')
-    const assessment = assessmentRes.rows[0]
+    // Store all collected evidence
+    const allEvidence = await storeEvidence(client, pendingEvidence)
 
-    await updateAssessmentStatus(client, assessmentId, 'collecting')
-    await logAudit(client, assessment.companyId, assessmentId, 'collection_started', actor, {})
-
-    // Determine which connectors are available
-    const connectors = await getConnectors(assessment.companyId)
-    const availableConnectors = new Set<ConnectorType>()
-    const failedConnectors = new Set<ConnectorType>()
-
-    for (const c of connectors) {
-      if (c.status === 'available' || c.status === 'verified' || c.status === 'configured') {
-        availableConnectors.add(c.connectorType as ConnectorType)
-      }
-    }
-
-    const collectionErrors: string[] = []
-    const allEvidence: EvidenceRecord[] = []
-
-    // --- Collect from Microsoft Graph ---
-    if (availableConnectors.has('microsoft_graph')) {
-      try {
-        const graphResult = await collectGraphEvidence(assessment.companyId, assessmentId)
-        collectionErrors.push(...graphResult.errors)
-        if (graphResult.evidence.length > 0) {
-          const stored = await storeEvidence(client, graphResult.evidence)
-          allEvidence.push(...stored)
-        }
-        if (graphResult.errors.length > 0 && graphResult.evidence.length === 0) {
-          failedConnectors.add('microsoft_graph')
-        }
-      } catch (err) {
-        failedConnectors.add('microsoft_graph')
-        collectionErrors.push(`Microsoft Graph: ${err instanceof Error ? err.message : String(err)}`)
-      }
-    }
-
-    // --- Collect from Datto RMM ---
-    if (availableConnectors.has('datto_rmm')) {
-      try {
-        const rmmResult = await collectDattoRmmEvidence(assessment.companyId, assessmentId)
-        collectionErrors.push(...rmmResult.errors)
-        if (rmmResult.evidence.length > 0) {
-          const stored = await storeEvidence(client, rmmResult.evidence)
-          allEvidence.push(...stored)
-        }
-        if (rmmResult.errors.length > 0 && rmmResult.evidence.length === 0) {
-          failedConnectors.add('datto_rmm')
-        }
-      } catch (err) {
-        failedConnectors.add('datto_rmm')
-        collectionErrors.push(`Datto RMM: ${err instanceof Error ? err.message : String(err)}`)
-      }
-    }
-
-    // --- Collect from Datto BCDR + SaaS Protect ---
-    if (availableConnectors.has('datto_bcdr')) {
-      try {
-        const bcdrResult = await collectDattoBcdrEvidence(assessment.companyId, assessmentId)
-        collectionErrors.push(...bcdrResult.errors)
-        if (bcdrResult.evidence.length > 0) {
-          const stored = await storeEvidence(client, bcdrResult.evidence)
-          allEvidence.push(...stored)
-        }
-        if (bcdrResult.errors.length > 0 && bcdrResult.evidence.length === 0) {
-          failedConnectors.add('datto_bcdr')
-        }
-      } catch (err) {
-        failedConnectors.add('datto_bcdr')
-        collectionErrors.push(`Datto BCDR: ${err instanceof Error ? err.message : String(err)}`)
-      }
-    }
-
-    // --- Collect from DNSFilter ---
-    if (availableConnectors.has('dnsfilter')) {
-      try {
-        const dnsResult = await collectDnsFilterEvidence(assessment.companyId, assessmentId)
-        collectionErrors.push(...dnsResult.errors)
-        if (dnsResult.evidence.length > 0) {
-          const stored = await storeEvidence(client, dnsResult.evidence)
-          allEvidence.push(...stored)
-        }
-        if (dnsResult.errors.length > 0 && dnsResult.evidence.length === 0) {
-          failedConnectors.add('dnsfilter')
-        }
-      } catch (err) {
-        failedConnectors.add('dnsfilter')
-        collectionErrors.push(`DNSFilter: ${err instanceof Error ? err.message : String(err)}`)
-      }
-    }
-
-    // --- Collect from Domotz ---
-    if (availableConnectors.has('domotz')) {
-      try {
-        const domotzResult = await collectDomotzEvidence(assessment.companyId, assessmentId)
-        collectionErrors.push(...domotzResult.errors)
-        if (domotzResult.evidence.length > 0) {
-          const stored = await storeEvidence(client, domotzResult.evidence)
-          allEvidence.push(...stored)
-        }
-        if (domotzResult.errors.length > 0 && domotzResult.evidence.length === 0) {
-          failedConnectors.add('domotz')
-        }
-      } catch (err) {
-        failedConnectors.add('domotz')
-        collectionErrors.push(`Domotz: ${err instanceof Error ? err.message : String(err)}`)
-      }
-    }
-
-    // --- Collect from SaaS Alerts ---
-    if (availableConnectors.has('saas_alerts')) {
-      try {
-        const saResult = await collectSaasAlertsEvidence(assessment.companyId, assessmentId)
-        collectionErrors.push(...saResult.errors)
-        if (saResult.evidence.length > 0) {
-          const stored = await storeEvidence(client, saResult.evidence)
-          allEvidence.push(...stored)
-        }
-        if (saResult.errors.length > 0 && saResult.evidence.length === 0) {
-          failedConnectors.add('saas_alerts')
-        }
-      } catch (err) {
-        failedConnectors.add('saas_alerts')
-        collectionErrors.push(`SaaS Alerts: ${err instanceof Error ? err.message : String(err)}`)
-      }
-    }
-
-    // --- Collect from IT Glue ---
-    if (availableConnectors.has('it_glue')) {
-      try {
-        const itgResult = await collectItGlueEvidence(assessment.companyId, assessmentId)
-        collectionErrors.push(...itgResult.errors)
-        if (itgResult.evidence.length > 0) {
-          const stored = await storeEvidence(client, itgResult.evidence)
-          allEvidence.push(...stored)
-        }
-        if (itgResult.errors.length > 0 && itgResult.evidence.length === 0) {
-          failedConnectors.add('it_glue')
-        }
-      } catch (err) {
-        failedConnectors.add('it_glue')
-        collectionErrors.push(`IT Glue: ${err instanceof Error ? err.message : String(err)}`)
-      }
-    }
-
-    // --- Collect from Ubiquiti UniFi ---
-    if (availableConnectors.has('ubiquiti')) {
-      try {
-        const ubResult = await collectUbiquitiEvidence(assessment.companyId, assessmentId)
-        collectionErrors.push(...ubResult.errors)
-        if (ubResult.evidence.length > 0) {
-          const stored = await storeEvidence(client, ubResult.evidence)
-          allEvidence.push(...stored)
-        }
-        if (ubResult.errors.length > 0 && ubResult.evidence.length === 0) {
-          failedConnectors.add('ubiquiti')
-        }
-      } catch (err) {
-        failedConnectors.add('ubiquiti')
-        collectionErrors.push(`Ubiquiti: ${err instanceof Error ? err.message : String(err)}`)
-      }
-    }
-
-    // Update connector lastCollectedAt for ALL connectors that were attempted without failure
-    // (not just ones that produced evidence — a successful empty result still counts as "collected")
+    // Update connector lastCollectedAt
     for (const connectorType of Array.from(availableConnectors)) {
       if (!failedConnectors.has(connectorType)) {
         try {
