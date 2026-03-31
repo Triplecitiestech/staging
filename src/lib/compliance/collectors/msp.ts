@@ -331,25 +331,13 @@ export async function collectDomotzEvidence(
       })
 
       if (agentMatches.length > 0) {
-        // Filter devices to only those from matched agents
-        const matchedAgentIds = new Set(agentMatches.map((a) => a.id))
         matchedAgents = agentMatches
-        // We don't have agent ID on devices directly, so we need to re-fetch per matched agent
-        // For now, use the matched agents' device counts for summary
         matchNote = `Matched ${agentMatches.length} agent(s): ${agentMatches.map((a) => a.name).join(', ')}`
-        // Use devices from matched agents only
-        const { DomotzClient: DC } = await import('@/lib/domotz')
-        const dc = new DC()
-        const filteredDevices: typeof summary.devices = []
-        for (const agent of agentMatches) {
-          try {
-            const agentDevices = await dc.getDevices(agent.id)
-            filteredDevices.push(...agentDevices)
-          } catch { /* use what we have */ }
-        }
-        if (filteredDevices.length > 0) {
-          matchedDevices = filteredDevices
-        }
+        // buildSummary() already fetched devices per agent, but they're combined.
+        // Use agent device counts for the matched total; devices array stays MSP-wide
+        // (we don't have agent ID on each device to filter without re-fetching).
+        const matchedDeviceCount = agentMatches.reduce((sum, a) => sum + a.deviceCount, 0)
+        matchNote += `. ~${matchedDeviceCount} devices from matched agents.`
       } else {
         matchNote = `No agent matched "${companyName}". All ${summary.agents.length} agents: ${summary.agents.map((a) => a.name).join(', ')}. Showing MSP-wide data.`
         console.log(`[domotz] ${matchNote}`)
