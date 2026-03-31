@@ -538,6 +538,46 @@ evaluators['cis-v8-11.1'] = (ctx: EvaluationContext): EvaluationResult => {
     'Verify that the company name in Datto BCDR/SaaS Protect matches the company name in TCT.')
 }
 
+// --- 11.2 Perform Automated Backups ---
+evaluators['cis-v8-11.2'] = (ctx: EvaluationContext): EvaluationResult => {
+  const bcdr = ctx.evidence.get('datto_bcdr_backup')
+  const saas = ctx.evidence.get('datto_saas_backup')
+  if (!bcdr && !saas) return noEvidence('cis-v8-11.2', ['datto_bcdr_backup', 'datto_saas_backup'], ctx)
+
+  const bcdrData = bcdr?.rawData as { matched?: boolean; totalAppliances?: number; deviceDetails?: Array<{ name?: string }> } | undefined
+  const saasData = saas?.rawData as { matched?: boolean; totalSeats?: number; activeSeats?: number; unprotectedSeats?: number } | undefined
+
+  const hasBcdr = bcdrData?.matched && (bcdrData?.deviceDetails ?? []).length > 0
+  const hasSaas = saasData?.matched && (saasData?.totalSeats ?? 0) > 0
+  const sources = ['datto_bcdr_backup', 'datto_saas_backup'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
+  const backupLayers: string[] = []
+
+  if (hasBcdr) {
+    const deviceNames = (bcdrData?.deviceDetails ?? []).map((d) => d.name).filter(Boolean).slice(0, 10)
+    backupLayers.push(`Datto BCDR: ${(bcdrData?.deviceDetails ?? []).length} protected server(s)/workstation(s) with automated backup schedules${deviceNames.length > 0 ? ` (${deviceNames.join(', ')})` : ''}. Backups run on configurable intervals (typically every 15min–1hr) with local + cloud replication.`)
+  }
+  if (hasSaas) {
+    const unprotected = saasData?.unprotectedSeats ?? 0
+    backupLayers.push(`Datto SaaS Protect: ${saasData?.totalSeats} M365 backup seat(s) (${saasData?.activeSeats ?? 0} active). Automated daily backup of Exchange, OneDrive, SharePoint, and Teams data.${unprotected > 0 ? ` ${unprotected} unprotected seat(s) need attention.` : ' All seats protected.'}`)
+  }
+
+  if (backupLayers.length >= 2) {
+    return result('cis-v8-11.2', ctx, 'pass', 'high',
+      `Automated backups active across ${backupLayers.length} layers:\n${backupLayers.map((l, i) => `${i + 1}. ${l}`).join('\n')}`,
+      sources, [])
+  }
+  if (backupLayers.length === 1) {
+    return result('cis-v8-11.2', ctx, 'partial', 'medium',
+      `Automated backup active: ${backupLayers[0]}. ${!hasBcdr ? 'On-premises/server backup (BCDR) not detected.' : 'Cloud/SaaS backup not detected.'}`,
+      sources, hasBcdr ? ['datto_saas_backup'] : ['datto_bcdr_backup'],
+      !hasBcdr ? 'Deploy Datto BCDR for server/workstation backup coverage.' : 'Deploy Datto SaaS Protect for M365 data backup.')
+  }
+  return result('cis-v8-11.2', ctx, 'needs_review', 'low',
+    'Backup integrations connected but no matching devices/seats found for this customer.',
+    sources, [],
+    'Verify company name mapping in Datto BCDR and SaaS Protect.')
+}
+
 // --- 12.6 Use of Encryption for Data in Transit ---
 evaluators['cis-v8-12.6'] = (ctx: EvaluationContext): EvaluationResult => {
   const ca = ctx.evidence.get('microsoft_conditional_access')

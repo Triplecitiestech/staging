@@ -17,24 +17,26 @@
 // Types
 // ---------------------------------------------------------------------------
 
-export interface UnifiHost {
-  id: string
-  reportedState: {
-    hostname?: string
-    firmwareVersion?: string
-    hardwareModel?: string
-    isManaged?: boolean
-    ipAddress?: string
-    macAddress?: string
-    uptime?: number
-    features?: Record<string, unknown>
-    overview?: {
-      connectedUserNum?: number
-      wifiScore?: number
-      cpuLoadPercentage?: number
-      memoryUsagePercentage?: number
-    }
-  }
+export interface UnifiDevice {
+  _id: string
+  mac: string
+  ip: string
+  name: string
+  model: string
+  model_in_lts: boolean
+  model_in_eol: boolean
+  type: string // uap, usw, ugw, etc.
+  version: string
+  adopted: boolean
+  site_id: string
+  connected_at: number
+  uptime: number
+  state: number // 1 = connected
+  next_interval: number
+  overheating: boolean
+  num_sta: number // connected client count
+  user_num_sta: number
+  guest_num_sta: number
 }
 
 export interface UnifiSite {
@@ -134,16 +136,24 @@ export async function listSites(): Promise<UnifiSite[]> {
 }
 
 /**
- * List all hosts (network devices) for a site.
+ * List all devices globally (the /ea/devices endpoint is not per-site).
  */
-export async function listHosts(siteId: string): Promise<UnifiHost[]> {
+export async function listDevices(): Promise<UnifiDevice[]> {
   const config = getConfig()
   if (!config) return []
 
-  const data = await unifiGet<{ data: UnifiHost[] }>(
-    `/ea/sites/${siteId}/hosts`, config.apiKey, config.baseUrl
+  // Try /ea/devices first (Early Access), then /v1/devices as fallback
+  let data = await unifiGet<UnifiDevice[]>(
+    '/ea/devices', config.apiKey, config.baseUrl
   )
-  return data?.data ?? []
+  if (!data || (Array.isArray(data) && data.length === 0)) {
+    // Response might be wrapped in { data: [...] }
+    const wrapped = await unifiGet<{ data: UnifiDevice[] }>(
+      '/ea/devices', config.apiKey, config.baseUrl
+    )
+    if (wrapped?.data) data = wrapped.data
+  }
+  return Array.isArray(data) ? data : []
 }
 
 /**
@@ -153,54 +163,47 @@ export async function buildSummary(): Promise<UnifiSummary | null> {
   const config = getConfig()
   if (!config) return null
 
-  const sites = await listSites()
-  if (sites.length === 0) return null
+  // Fetch sites and devices in parallel (global endpoint, not per-site)
+  const [sites, devices] = await Promise.all([
+    listSites(),
+    listDevices(),
+  ])
+
+  console.log(`[ubiquiti] Found ${sites.length} sites, ${devices.length} devices`)
+
+  if (sites.length === 0 && devices.length === 0) return null
+
+  // Build site name lookup
+  const siteNameMap = new Map<string, string>()
+  for (const site of sites) {
+    siteNameMap.set(site.siteId, site.meta?.desc || site.meta?.name || site.siteId)
+  }
 
   const summary: UnifiSummary = {
-    sites: [],
-    devices: [],
+    sites: sites.map((s) => ({
+      siteId: s.siteId,
+      name: s.meta?.desc || s.meta?.name || s.siteId,
+      timezone: s.meta?.timezone ?? '',
+      totalDevices: s.statistics?.counts?.totalDevice ?? 0,
+      adoptedDevices: s.statistics?.counts?.totalAdoptedDevice ?? 0,
+      satisfaction: s.statistics?.satisfaction ?? 0,
+    })),
+    devices: devices.map((d) => ({
+      id: d._id,
+      hostname: d.name || 'Unknown',
+      model: d.model || 'Unknown',
+      firmware: d.version || 'Unknown',
+      ipAddress: d.ip || '',
+      macAddress: d.mac || '',
+      uptime: d.uptime || 0,
+      siteId: d.site_id || '',
+      siteName: siteNameMap.get(d.site_id) || d.site_id || '',
+      connectedClients: d.num_sta || 0,
+    })),
     totalSites: sites.length,
-    totalDevices: 0,
-    totalClients: 0,
+    totalDevices: devices.length,
+    totalClients: devices.reduce((sum, d) => sum + (d.num_sta || 0), 0),
   }
-
-  for (const site of sites) {
-    const siteName = site.meta?.desc || site.meta?.name || site.siteId
-    const totalDevices = site.statistics?.counts?.totalDevice ?? 0
-    const adoptedDevices = site.statistics?.counts?.totalAdoptedDevice ?? 0
-
-    summary.sites.push({
-      siteId: site.siteId,
-      name: siteName,
-      timezone: site.meta?.timezone ?? '',
-      totalDevices,
-      adoptedDevices,
-      satisfaction: site.statistics?.satisfaction ?? 0,
-    })
-
-    // Fetch hosts for each site
-    const hosts = await listHosts(site.siteId)
-    for (const host of hosts) {
-      const rs = host.reportedState ?? {}
-      const clients = rs.overview?.connectedUserNum ?? 0
-      summary.totalClients += clients
-
-      summary.devices.push({
-        id: host.id,
-        hostname: rs.hostname ?? 'Unknown',
-        model: rs.hardwareModel ?? 'Unknown',
-        firmware: rs.firmwareVersion ?? 'Unknown',
-        ipAddress: rs.ipAddress ?? '',
-        macAddress: rs.macAddress ?? '',
-        uptime: rs.uptime ?? 0,
-        siteId: site.siteId,
-        siteName: siteName,
-        connectedClients: clients,
-      })
-    }
-  }
-
-  summary.totalDevices = summary.devices.length
 
   return summary
 }
