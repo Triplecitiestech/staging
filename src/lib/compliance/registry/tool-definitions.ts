@@ -190,12 +190,18 @@ export const DEFAULT_TOOLS: ToolDefinition[] = [
   {
     toolId: 'saas_alerts', name: 'SaaS Alerts', vendor: 'SaaS Alerts',
     category: 'SaaS Security Monitoring',
-    integrationStatus: 'known', connectorType: null,
-    description: 'Monitors SaaS application security — suspicious logins, data exfiltration, permission changes across M365, Google, Salesforce.',
+    integrationStatus: 'integrated', connectorType: 'saas_alerts',
+    description: 'SaaS security platform with Respond (auto threat response), Unify (device-to-identity binding), and Fortify (M365 Secure Score management). Monitors M365, Google, Salesforce, Slack, Dropbox, Okta, Duo.',
     capabilities: [
       { capabilityId: 'saas_security_monitoring', confidence: 'authoritative',
-        dataDescription: 'SaaS security events, anomalous behavior detection, risk scoring',
-        evidenceSourceTypes: [] },
+        dataDescription: 'SaaS security events — suspicious logins, permission changes, anomalous behavior, severity classification',
+        evidenceSourceTypes: ['saas_alerts_monitoring'] },
+      { capabilityId: 'siem_soc', confidence: 'supplementary',
+        dataDescription: 'Centralized SaaS event alerting with auto-response capabilities',
+        evidenceSourceTypes: ['saas_alerts_monitoring'] },
+      { capabilityId: 'audit_logging', confidence: 'supplementary',
+        dataDescription: 'SaaS activity audit trail across monitored applications',
+        evidenceSourceTypes: ['saas_alerts_monitoring'] },
     ],
   },
 

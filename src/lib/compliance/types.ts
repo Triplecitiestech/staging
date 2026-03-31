@@ -63,6 +63,7 @@ export type EvidenceSourceType =
   | 'autotask_tickets'
   | 'domotz_network_discovery'
   | 'it_glue_documentation'
+  | 'saas_alerts_monitoring'
   | 'manual_upload'
 
 export type ConnectorType =
@@ -74,6 +75,7 @@ export type ConnectorType =
   | 'autotask'
   | 'domotz'
   | 'it_glue'
+  | 'saas_alerts'
 
 export type ConnectorStatus = 'not_configured' | 'available' | 'configured' | 'verified' | 'error'
 
@@ -348,5 +350,6 @@ export const EVIDENCE_TO_CONNECTOR: Record<EvidenceSourceType, ConnectorType | n
   autotask_tickets: 'autotask',
   domotz_network_discovery: 'domotz',
   it_glue_documentation: 'it_glue',
+  saas_alerts_monitoring: 'saas_alerts',
   manual_upload: null,
 }
