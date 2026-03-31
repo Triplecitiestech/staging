@@ -1,0 +1,157 @@
+/**
+ * GET /api/compliance/debug-collectors?companyId=xxx
+ *
+ * Diagnostic endpoint that tests each collector individually
+ * and returns the raw result. For debugging collection_failed errors.
+ */
+
+import { NextRequest, NextResponse } from 'next/server'
+import { auth } from '@/auth'
+
+export const dynamic = 'force-dynamic'
+export const maxDuration = 60
+
+export async function GET(request: NextRequest) {
+  const session = await auth()
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const collector = request.nextUrl.searchParams.get('collector') ?? 'domotz'
+  const companyName = request.nextUrl.searchParams.get('companyName') ?? 'EZ Red'
+
+  const results: Record<string, unknown> = { collector, companyName, timestamp: new Date().toISOString() }
+
+  try {
+    if (collector === 'domotz') {
+      // Test Domotz API directly
+      const apiKey = process.env.DOMOTZ_API_KEY
+      const apiUrl = process.env.DOMOTZ_API_URL
+      results.envConfigured = { hasApiKey: !!apiKey, hasApiUrl: !!apiUrl, apiUrl }
+
+      if (!apiKey || !apiUrl) {
+        return NextResponse.json({ ...results, error: 'DOMOTZ_API_KEY or DOMOTZ_API_URL not set' })
+      }
+
+      // Step 1: Fetch agents
+      const agentsRes = await fetch(`${apiUrl}/agent`, {
+        headers: { 'x-api-key': apiKey, 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(15_000),
+      })
+      const agentsStatus = agentsRes.status
+      const agentsText = await agentsRes.text()
+      results.agentsResponse = { status: agentsStatus, bodyLength: agentsText.length, body: agentsText.substring(0, 2000) }
+
+      if (agentsRes.ok) {
+        try {
+          const agents = JSON.parse(agentsText)
+          results.agentCount = Array.isArray(agents) ? agents.length : 'not-array'
+          if (Array.isArray(agents) && agents.length > 0) {
+            results.agentSample = agents.slice(0, 3).map((a: Record<string, unknown>) => ({
+              id: a.id, display_name: a.display_name, status: a.status
+            }))
+
+            // Step 2: Fetch devices for first agent
+            const firstAgent = agents[0] as { id: number; display_name: string }
+            const devicesRes = await fetch(`${apiUrl}/agent/${firstAgent.id}/device`, {
+              headers: { 'x-api-key': apiKey, 'Accept': 'application/json' },
+              signal: AbortSignal.timeout(15_000),
+            })
+            const devicesText = await devicesRes.text()
+            results.devicesResponse = {
+              agentId: firstAgent.id,
+              agentName: firstAgent.display_name,
+              status: devicesRes.status,
+              bodyLength: devicesText.length,
+              body: devicesText.substring(0, 2000),
+            }
+            if (devicesRes.ok) {
+              try {
+                const devices = JSON.parse(devicesText)
+                results.deviceCount = Array.isArray(devices) ? devices.length : 'not-array'
+              } catch { results.deviceParseError = 'Failed to parse devices JSON' }
+            }
+          }
+        } catch { results.agentParseError = 'Failed to parse agents JSON' }
+      }
+    } else if (collector === 'dnsfilter') {
+      const apiToken = process.env.DNSFILTER_API_TOKEN
+      const apiUrl = process.env.DNSFILTER_API_URL || 'https://api.dnsfilter.com/v1'
+      results.envConfigured = { hasToken: !!apiToken, apiUrl }
+
+      if (!apiToken) {
+        return NextResponse.json({ ...results, error: 'DNSFILTER_API_TOKEN not set' })
+      }
+
+      // Test MSP organizations endpoint
+      const orgRes = await fetch(`${apiUrl}/msp/organizations`, {
+        headers: { 'Authorization': `Token ${apiToken}`, 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(15_000),
+      })
+      results.mspOrgsResponse = { status: orgRes.status, body: (await orgRes.text()).substring(0, 2000) }
+
+      // Test regular organizations endpoint
+      const org2Res = await fetch(`${apiUrl}/organizations`, {
+        headers: { 'Authorization': `Token ${apiToken}`, 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(15_000),
+      })
+      results.orgsResponse = { status: org2Res.status, body: (await org2Res.text()).substring(0, 2000) }
+
+      // Test traffic reports
+      const now = new Date()
+      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+      const trafficRes = await fetch(`${apiUrl}/traffic_reports?from=${weekAgo.toISOString()}&to=${now.toISOString()}`, {
+        headers: { 'Authorization': `Token ${apiToken}`, 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(15_000),
+      })
+      results.trafficResponse = { status: trafficRes.status, body: (await trafficRes.text()).substring(0, 2000) }
+    } else if (collector === 'itglue') {
+      const apiKey = process.env.IT_GLUE_API_KEY
+      const apiUrl = process.env.IT_GLUE_API_URL || 'https://api.itglue.com'
+      results.envConfigured = { hasApiKey: !!apiKey, apiUrl }
+
+      if (!apiKey) {
+        return NextResponse.json({ ...results, error: 'IT_GLUE_API_KEY not set' })
+      }
+
+      const orgRes = await fetch(`${apiUrl}/organizations?page[size]=10`, {
+        headers: { 'x-api-key': apiKey, 'Content-Type': 'application/vnd.api+json', 'Accept': 'application/vnd.api+json' },
+        signal: AbortSignal.timeout(15_000),
+      })
+      const orgText = await orgRes.text()
+      results.orgsResponse = { status: orgRes.status, bodyLength: orgText.length, body: orgText.substring(0, 3000) }
+    } else if (collector === 'ubiquiti') {
+      const apiKey = process.env.UBIQUITI_API_KEY
+      const apiUrl = process.env.UBIQUITI_API_URL || 'https://api.ui.com'
+      results.envConfigured = { hasApiKey: !!apiKey, apiUrl }
+
+      if (!apiKey) {
+        return NextResponse.json({ ...results, error: 'UBIQUITI_API_KEY not set' })
+      }
+
+      // Test sites
+      const sitesRes = await fetch(`${apiUrl}/ea/sites`, {
+        headers: { 'x-api-key': apiKey, 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(15_000),
+      })
+      const sitesText = await sitesRes.text()
+      results.sitesResponse = { status: sitesRes.status, bodyLength: sitesText.length, body: sitesText.substring(0, 2000) }
+
+      // Test devices
+      const devicesRes = await fetch(`${apiUrl}/ea/devices`, {
+        headers: { 'x-api-key': apiKey, 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(15_000),
+      })
+      const devicesText = await devicesRes.text()
+      results.devicesResponse = { status: devicesRes.status, bodyLength: devicesText.length, body: devicesText.substring(0, 2000) }
+    }
+
+    return NextResponse.json({ success: true, ...results })
+  } catch (err) {
+    return NextResponse.json({
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+      ...results,
+    })
+  }
+}
