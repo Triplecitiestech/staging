@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
+import { ensureComplianceTables } from '@/lib/compliance/ensure-tables'
 import {
   getAssessmentSummary,
   runAssessment,
@@ -29,6 +30,7 @@ export async function GET(
   const { id } = await params
 
   try {
+    await ensureComplianceTables()
     const summary = await getAssessmentSummary(id)
     if (!summary) {
       return NextResponse.json({ error: 'Assessment not found' }, { status: 404 })
@@ -62,6 +64,7 @@ export async function POST(
   const { id } = await params
 
   try {
+    await ensureComplianceTables()
     const result = await runAssessment(id, session.user.email)
     return NextResponse.json({ success: true, data: result })
   } catch (err) {

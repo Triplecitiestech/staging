@@ -56,7 +56,7 @@ function sortFindings(findings: Finding[]): Finding[] {
 // ---------------------------------------------------------------------------
 
 export async function getConnectors(companyId: string): Promise<ConnectorState[]> {
-  await ensureComplianceTables()
+
   const pool = getPool()
   const client = await pool.connect()
   try {
@@ -78,7 +78,7 @@ export async function upsertConnector(
   errorMessage: string | null = null,
   configRef: string | null = null
 ): Promise<void> {
-  await ensureComplianceTables()
+
   const pool = getPool()
   const client = await pool.connect()
   try {
@@ -99,7 +99,7 @@ export async function upsertConnector(
  * Uses a single DB connection for all upserts to avoid pool exhaustion.
  */
 export async function detectConnectors(companyId: string): Promise<ConnectorState[]> {
-  await ensureComplianceTables()
+
   const pool = getPool()
   const client = await pool.connect()
   try {
@@ -192,7 +192,7 @@ export async function createAssessment(
   frameworkId: FrameworkId,
   createdBy: string
 ): Promise<string> {
-  await ensureComplianceTables()
+
   const pool = getPool()
   const client = await pool.connect()
   try {
@@ -213,7 +213,7 @@ export async function createAssessment(
 }
 
 export async function getAssessment(assessmentId: string): Promise<Assessment | null> {
-  await ensureComplianceTables()
+
   const pool = getPool()
   const client = await pool.connect()
   try {
@@ -230,7 +230,7 @@ export async function getAssessment(assessmentId: string): Promise<Assessment | 
 }
 
 export async function listAssessments(companyId: string): Promise<Assessment[]> {
-  await ensureComplianceTables()
+
   const pool = getPool()
   const client = await pool.connect()
   try {
@@ -292,7 +292,7 @@ async function storeFindings(client: PoolClient, assessmentId: string, findings:
 }
 
 export async function getFindings(assessmentId: string): Promise<Finding[]> {
-  await ensureComplianceTables()
+
   const pool = getPool()
   const client = await pool.connect()
   try {
@@ -310,7 +310,7 @@ export async function getFindings(assessmentId: string): Promise<Finding[]> {
 }
 
 export async function getEvidence(assessmentId: string): Promise<EvidenceRecord[]> {
-  await ensureComplianceTables()
+
   const pool = getPool()
   const client = await pool.connect()
   try {
@@ -332,7 +332,7 @@ export async function getEvidence(assessmentId: string): Promise<EvidenceRecord[
 export async function overrideFinding(
   findingId: string, overrideStatus: string, overrideReason: string, overrideBy: string
 ): Promise<void> {
-  await ensureComplianceTables()
+
   const pool = getPool()
   const client = await pool.connect()
   try {
@@ -364,7 +364,7 @@ export async function overrideFinding(
 // ---------------------------------------------------------------------------
 
 export async function deleteAssessment(assessmentId: string, actor: string): Promise<void> {
-  await ensureComplianceTables()
+
   const pool = getPool()
   const client = await pool.connect()
   try {
@@ -518,7 +518,7 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
   errors: string[]
   summary: { passed: number; failed: number; partial: number; needsReview: number; notAssessed: number; collectionFailed: number }
 }> {
-  await ensureComplianceTables()
+
   const pool = getPool()
 
   // --- Phase 1: Read assessment info and set status (quick DB access) ---
@@ -824,7 +824,7 @@ export async function compareAssessments(currentId: string, previousId: string):
 // ---------------------------------------------------------------------------
 
 export async function getComplianceDashboard(companyId: string): Promise<ComplianceDashboard> {
-  await ensureComplianceTables()
+
   const pool = getPool()
   const client = await pool.connect()
   try {
@@ -874,7 +874,7 @@ export async function getComplianceDashboard(companyId: string): Promise<Complia
 }
 
 export async function getAssessmentSummary(assessmentId: string): Promise<AssessmentSummary | null> {
-  await ensureComplianceTables()
+
   const pool = getPool()
   const client = await pool.connect()
   try {
