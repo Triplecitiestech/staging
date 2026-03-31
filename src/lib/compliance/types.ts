@@ -61,6 +61,8 @@ export type EvidenceSourceType =
   | 'datto_saas_backup'
   | 'dnsfilter_dns'
   | 'autotask_tickets'
+  | 'domotz_network_discovery'
+  | 'it_glue_documentation'
   | 'manual_upload'
 
 export type ConnectorType =
@@ -70,6 +72,8 @@ export type ConnectorType =
   | 'datto_bcdr'
   | 'dnsfilter'
   | 'autotask'
+  | 'domotz'
+  | 'it_glue'
 
 export type ConnectorStatus = 'not_configured' | 'available' | 'configured' | 'verified' | 'error'
 
@@ -342,5 +346,7 @@ export const EVIDENCE_TO_CONNECTOR: Record<EvidenceSourceType, ConnectorType | n
   datto_saas_backup: 'datto_bcdr',
   dnsfilter_dns: 'dnsfilter',
   autotask_tickets: 'autotask',
+  domotz_network_discovery: 'domotz',
+  it_glue_documentation: 'it_glue',
   manual_upload: null,
 }

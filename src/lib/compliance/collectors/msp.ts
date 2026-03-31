@@ -277,3 +277,115 @@ export async function collectDnsFilterEvidence(
     return { evidence, errors: [`DNSFilter collection failed: ${err instanceof Error ? err.message : String(err)}`] }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Domotz Collector — Active/Passive Network Discovery
+// ---------------------------------------------------------------------------
+
+export async function collectDomotzEvidence(
+  companyId: string,
+  assessmentId: string
+): Promise<{ evidence: Array<Omit<EvidenceRecord, 'id' | 'collectedAt'>>; errors: string[] }> {
+  const evidence: Array<Omit<EvidenceRecord, 'id' | 'collectedAt'>> = []
+  const errors: string[] = []
+
+  if (!process.env.DOMOTZ_API_KEY || !process.env.DOMOTZ_API_URL) {
+    return { evidence, errors: ['Domotz: DOMOTZ_API_KEY or DOMOTZ_API_URL not configured'] }
+  }
+
+  try {
+    const { DomotzClient } = await import('@/lib/domotz')
+    const client = new DomotzClient()
+    const summary = await client.buildSummary()
+
+    if (!summary.available) {
+      return { evidence, errors: [summary.note ?? 'Domotz API unavailable'] }
+    }
+
+    if (summary.totalDevices === 0) {
+      return { evidence, errors: [] } // No devices discovered — don't store empty evidence
+    }
+
+    // Count device types
+    const deviceTypes: Record<string, number> = {}
+    const uniqueMacs = new Set<string>()
+    const uniqueIps = new Set<string>()
+
+    for (const d of summary.devices) {
+      const typeLabel = d.type?.label ?? 'Unknown'
+      deviceTypes[typeLabel] = (deviceTypes[typeLabel] ?? 0) + 1
+      if (d.hw_address) uniqueMacs.add(d.hw_address.toLowerCase())
+      for (const ip of d.ip_addresses ?? []) uniqueIps.add(ip)
+    }
+
+    evidence.push(buildEvidence(assessmentId, companyId, 'domotz_network_discovery' as EvidenceSourceType, {
+      totalDevices: summary.totalDevices,
+      uniqueMacAddresses: uniqueMacs.size,
+      uniqueIpAddresses: uniqueIps.size,
+      discoveryActive: summary.discoveryActive,
+      agentCount: summary.agents.length,
+      agents: summary.agents,
+      deviceTypes,
+      // Store a sample of devices (not all — could be hundreds)
+      deviceSample: summary.devices.slice(0, 50).map((d) => ({
+        displayName: d.display_name,
+        ipAddresses: d.ip_addresses,
+        macAddress: d.hw_address,
+        type: d.type?.label,
+        vendor: d.vendor,
+        importance: d.importance,
+        firstSeen: d.first_seen_on,
+      })),
+    }, `Domotz: ${summary.totalDevices} devices discovered (${uniqueMacs.size} unique MACs, ${uniqueIps.size} unique IPs) across ${summary.agents.length} collector(s). Discovery ${summary.discoveryActive ? 'active' : 'inactive'}.`))
+
+    return { evidence, errors }
+  } catch (err) {
+    return { evidence, errors: [`Domotz collection failed: ${err instanceof Error ? err.message : String(err)}`] }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// IT Glue Collector — Documentation & CMDB
+// ---------------------------------------------------------------------------
+
+export async function collectItGlueEvidence(
+  companyId: string,
+  assessmentId: string
+): Promise<{ evidence: Array<Omit<EvidenceRecord, 'id' | 'collectedAt'>>; errors: string[] }> {
+  const evidence: Array<Omit<EvidenceRecord, 'id' | 'collectedAt'>> = []
+  const errors: string[] = []
+
+  if (!process.env.IT_GLUE_API_KEY) {
+    return { evidence, errors: ['IT Glue: IT_GLUE_API_KEY not configured'] }
+  }
+
+  const companyName = await getCompanyDisplayName(companyId)
+  if (!companyName) {
+    return { evidence, errors: ['Company not found'] }
+  }
+
+  try {
+    const { ItGlueClient } = await import('@/lib/it-glue')
+    const client = new ItGlueClient()
+    const summary = await client.buildSummary(companyName)
+
+    if (!summary.available) {
+      return { evidence, errors: [summary.note ?? 'IT Glue API unavailable'] }
+    }
+
+    evidence.push(buildEvidence(assessmentId, companyId, 'it_glue_documentation' as EvidenceSourceType, {
+      organizationCount: summary.organizationCount,
+      matchedOrganization: summary.note,
+      configurationCount: summary.configurationCount,
+      flexibleAssetTypeCount: summary.flexibleAssetTypeCount,
+      flexibleAssetTypes: summary.flexibleAssetTypes,
+      hasDocumentedPolicies: summary.hasDocumentedPolicies,
+      hasDocumentedProcedures: summary.hasDocumentedProcedures,
+      hasNetworkDiagrams: summary.hasNetworkDiagrams,
+    }, `IT Glue: ${summary.organizationCount} org(s), ${summary.flexibleAssetTypeCount} flexible asset types. Policies: ${summary.hasDocumentedPolicies ? 'yes' : 'no'}, Procedures: ${summary.hasDocumentedProcedures ? 'yes' : 'no'}, Network diagrams: ${summary.hasNetworkDiagrams ? 'yes' : 'no'}.`))
+
+    return { evidence, errors }
+  } catch (err) {
+    return { evidence, errors: [`IT Glue collection failed: ${err instanceof Error ? err.message : String(err)}`] }
+  }
+}
