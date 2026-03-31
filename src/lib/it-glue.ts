@@ -90,6 +90,74 @@ export interface ItGlueDocumentationSummary {
   note: string | null
 }
 
+/**
+ * Normalize a company name for fuzzy matching.
+ * Strips common suffixes, punctuation, and whitespace.
+ */
+function normalizeCompanyName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[,.'"\-]/g, ' ')               // punctuation → space
+    .replace(/\b(llc|inc|corp|ltd|co|company|technologies|technology|tech|group|services|solutions|enterprises?)\b/gi, '')
+    .replace(/\s+/g, ' ')                     // collapse whitespace
+    .trim()
+}
+
+/**
+ * Fuzzy match a company name against IT Glue organizations.
+ * Tries multiple strategies: exact, normalized, word overlap, abbreviation.
+ */
+function fuzzyMatchOrganization(
+  companyName: string,
+  orgs: ItGlueOrganization[]
+): ItGlueOrganization | null {
+  const lowerName = companyName.toLowerCase()
+  const normalizedName = normalizeCompanyName(companyName)
+  const nameWords = normalizedName.split(' ').filter(Boolean)
+
+  // Strategy 1: Exact substring match (original logic)
+  const exact = orgs.find((o) => {
+    const orgName = o.attributes.name.toLowerCase()
+    return orgName.includes(lowerName) || lowerName.includes(orgName)
+  })
+  if (exact) return exact
+
+  // Strategy 2: Normalized name match (strips LLC, Inc, punctuation)
+  const normalized = orgs.find((o) => {
+    const orgNorm = normalizeCompanyName(o.attributes.name)
+    return orgNorm.includes(normalizedName) || normalizedName.includes(orgNorm)
+  })
+  if (normalized) return normalized
+
+  // Strategy 3: Short name match (IT Glue has a short-name field)
+  const shortName = orgs.find((o) => {
+    const sn = (o.attributes['short-name'] ?? '').toLowerCase()
+    return sn && (sn.includes(lowerName) || lowerName.includes(sn))
+  })
+  if (shortName) return shortName
+
+  // Strategy 4: All significant words present (handles "EZ Red" matching "EZ Red Technologies LLC")
+  if (nameWords.length >= 1) {
+    const wordMatch = orgs.find((o) => {
+      const orgNorm = normalizeCompanyName(o.attributes.name)
+      return nameWords.every((w) => orgNorm.includes(w))
+    })
+    if (wordMatch) return wordMatch
+  }
+
+  // Strategy 5: Concatenated match (handles "EZ Red" vs "EZRed" or "EZRED")
+  const squished = normalizedName.replace(/\s+/g, '')
+  if (squished.length >= 3) {
+    const squishedMatch = orgs.find((o) => {
+      const orgSquished = normalizeCompanyName(o.attributes.name).replace(/\s+/g, '')
+      return orgSquished.includes(squished) || squished.includes(orgSquished)
+    })
+    if (squishedMatch) return squishedMatch
+  }
+
+  return null
+}
+
 export class ItGlueClient {
   private apiKey: string
   private baseUrl: string
@@ -167,17 +235,24 @@ export class ItGlueClient {
     }
 
     try {
-      // Get organizations
-      const orgs = await this.getOrganizations()
+      // Get organizations (fetch multiple pages if needed)
+      let orgs = await this.getOrganizations(1, 250)
+      // If exactly 250 returned, there might be more
+      if (orgs.length === 250) {
+        const page2 = await this.getOrganizations(2, 250)
+        orgs = [...orgs, ...page2]
+      }
 
-      // If company name provided, try to match
+      // If company name provided, try to match using fuzzy matching
       let targetOrg: ItGlueOrganization | null = null
       if (companyName) {
-        const lowerName = companyName.toLowerCase()
-        targetOrg = orgs.find((o) => {
-          const orgName = o.attributes.name.toLowerCase()
-          return orgName.includes(lowerName) || lowerName.includes(orgName)
-        }) ?? null
+        targetOrg = fuzzyMatchOrganization(companyName, orgs)
+
+        // Log for debugging
+        if (!targetOrg) {
+          const orgNames = orgs.map((o) => o.attributes.name).slice(0, 30)
+          console.log(`[it-glue] No match for "${companyName}" among ${orgs.length} orgs. First 30: ${orgNames.join(', ')}`)
+        }
       }
 
       // Get flexible asset types to check for policy/procedure documentation
@@ -236,7 +311,7 @@ export class ItGlueClient {
         note: targetOrg
           ? `Matched organization: ${targetOrg.attributes.name} (${configurationCount} configurations, ${flexibleAssetCount} flexible assets)`
           : companyName
-            ? `No IT Glue organization matched "${companyName}". ${orgs.length} organizations in the account.`
+            ? `No IT Glue organization matched "${companyName}". ${orgs.length} organizations in the account. Closest names: ${orgs.map((o) => o.attributes.name).slice(0, 15).join(', ')}`
             : null,
       }
     } catch (err) {
