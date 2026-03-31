@@ -16,10 +16,11 @@
 export interface DomotzAgent {
   id: number
   display_name: string
-  status: string
-  licence: { id: number; name: string } | null
+  status: { value: string; last_change: string }
+  licence: { id: number; name: string; code: string } | null
   creation_time: string
-  last_status_change: string
+  timezone: string
+  version: { agent: string; package: string } | null
 }
 
 export interface DomotzDevice {
@@ -54,7 +55,7 @@ export interface DomotzNetworkSummary {
   agents: Array<{
     id: number
     name: string
-    status: string
+    status: string  // resolved to "ONLINE" / "OFFLINE" string
     deviceCount: number
   }>
   totalDevices: number
@@ -138,10 +139,14 @@ export class DomotzClient {
         if (settled.status === 'fulfilled') {
           const { agent, devices } = settled.value
           allDevices.push(...devices)
+          // agent.status is { value: "ONLINE", last_change: "..." }
+          const statusValue = typeof agent.status === 'object' && agent.status !== null
+            ? (agent.status as { value?: string }).value ?? 'UNKNOWN'
+            : String(agent.status)
           agentSummaries.push({
             id: agent.id,
             name: agent.display_name,
-            status: agent.status,
+            status: statusValue,
             deviceCount: devices.length,
           })
         } else {
