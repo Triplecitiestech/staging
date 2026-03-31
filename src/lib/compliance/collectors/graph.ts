@@ -434,6 +434,50 @@ export interface CollectionResult {
   errors: string[]
 }
 
+/** Collect Intune compliance policies — the actual policy definitions */
+async function collectIntunePolicies(
+  token: string, assessmentId: string, companyId: string
+): Promise<Omit<EvidenceRecord, 'id' | 'collectedAt'> | null> {
+  // Compliance policies
+  const compPolicies = await graphGetAllPages<{
+    id: string
+    displayName: string
+    description: string | null
+    createdDateTime: string
+    lastModifiedDateTime: string
+  }>(token, '/deviceManagement/deviceCompliancePolicies?$select=id,displayName,description,createdDateTime,lastModifiedDateTime')
+
+  // Device configuration profiles
+  const configProfiles = await graphGetAllPages<{
+    id: string
+    displayName: string
+    description: string | null
+    createdDateTime: string
+    lastModifiedDateTime: string
+  }>(token, '/deviceManagement/deviceConfigurations?$select=id,displayName,description,createdDateTime,lastModifiedDateTime')
+
+  if (compPolicies.length === 0 && configProfiles.length === 0) return null
+
+  return buildEvidence(assessmentId, companyId, 'microsoft_intune_config', {
+    compliancePolicies: compPolicies.map((p) => ({
+      id: p.id,
+      name: p.displayName,
+      description: p.description,
+      lastModified: p.lastModifiedDateTime,
+    })),
+    compliancePolicyCount: compPolicies.length,
+    configProfiles: configProfiles.map((p) => ({
+      id: p.id,
+      name: p.displayName,
+      description: p.description,
+      lastModified: p.lastModifiedDateTime,
+    })),
+    configProfileCount: configProfiles.length,
+    policyNames: compPolicies.map((p) => p.displayName),
+    profileNames: configProfiles.map((p) => p.displayName),
+  }, `Intune: ${compPolicies.length} compliance policies (${compPolicies.map((p) => p.displayName).join(', ')}), ${configProfiles.length} configuration profiles (${configProfiles.map((p) => p.displayName).join(', ')}).`)
+}
+
 export async function collectGraphEvidence(
   companyId: string,
   assessmentId: string
@@ -470,6 +514,7 @@ export async function collectGraphEvidence(
     { name: 'BitLocker', fn: () => collectBitlocker(token, assessmentId, companyId) },
     { name: 'Defender', fn: () => collectDefender(token, assessmentId, companyId) },
     { name: 'Users', fn: () => collectUsers(token, assessmentId, companyId) },
+    { name: 'Intune Policies', fn: () => collectIntunePolicies(token, assessmentId, companyId) },
   ]
 
   // Run all collectors in parallel — each handles its own errors

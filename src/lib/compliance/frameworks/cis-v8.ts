@@ -831,27 +831,40 @@ evaluators['cis-v8-2.2'] = (ctx: EvaluationContext): EvaluationResult => {
 // 2.3 Address Unauthorized Software — Intune compliance + RMM
 evaluators['cis-v8-2.3'] = (ctx: EvaluationContext): EvaluationResult => {
   const devices = ctx.evidence.get('microsoft_device_compliance')
+  const policies = ctx.evidence.get('microsoft_intune_config')
   const rmm = ctx.evidence.get('datto_rmm_devices')
-  if (!devices && !rmm) return noEvidence('cis-v8-2.3', ['microsoft_device_compliance', 'datto_rmm_devices'], ctx)
+  if (!devices && !rmm && !policies) return noEvidence('cis-v8-2.3', ['microsoft_device_compliance', 'microsoft_intune_config', 'datto_rmm_devices'], ctx)
 
-  const devData = devices?.rawData as { complianceRate?: number; totalCount?: number } | undefined
+  const devData = devices?.rawData as { complianceRate?: number; totalCount?: number; noncompliantCount?: number; devices?: Array<{ deviceName?: string; complianceState?: string }> } | undefined
+  const policyData = policies?.rawData as { compliancePolicyCount?: number; policyNames?: string[]; configProfileCount?: number; profileNames?: string[] } | undefined
   const rate = devData?.complianceRate ?? 0
   const total = devData?.totalCount ?? 0
-  const sources = ['microsoft_device_compliance', 'datto_rmm_devices'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
+  const noncompliant = devData?.noncompliantCount ?? 0
+  const sources = ['microsoft_device_compliance', 'microsoft_intune_config', 'datto_rmm_devices'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
+  const policyCount = policyData?.compliancePolicyCount ?? 0
+  const policyNames = policyData?.policyNames ?? []
 
-  if (total > 0 && rate >= 90) {
-    return result('cis-v8-2.3', ctx, 'pass', 'medium',
-      `${rate}% device compliance rate across ${total} Intune-managed devices. Non-compliant devices would be flagged by compliance policies which can block unauthorized software.`,
+  if (policyCount > 0 && total > 0 && rate >= 90) {
+    const noncompliantDevices = (devData?.devices ?? []).filter((d) => d.complianceState === 'noncompliant').map((d) => d.deviceName).slice(0, 5)
+    return result('cis-v8-2.3', ctx, 'pass', 'high',
+      `${policyCount} Intune compliance policies enforced: ${policyNames.join(', ')}. ${rate}% compliance across ${total} devices.${noncompliant > 0 ? ` ${noncompliant} noncompliant device(s): ${noncompliantDevices.join(', ')}.` : ' All devices compliant.'}`,
       sources, [])
   }
-  if (total > 0) {
+  if (policyCount > 0 && total > 0) {
     return result('cis-v8-2.3', ctx, 'partial', 'medium',
-      `${rate}% compliance rate. Some devices may have unauthorized software. Review non-compliant devices in Intune.`,
-      sources, [], 'Review Intune compliance reports for devices with unauthorized applications.')
+      `${policyCount} compliance policies exist (${policyNames.join(', ')}) but only ${rate}% of ${total} devices are compliant. ${noncompliant} device(s) noncompliant.`,
+      sources, [],
+      `Review the ${noncompliant} noncompliant devices in Intune and remediate or document exceptions.`)
+  }
+  if (policyCount === 0 && total > 0) {
+    return result('cis-v8-2.3', ctx, 'fail', 'medium',
+      `${total} Intune-managed devices found but no compliance policies are configured. Without policies, unauthorized software cannot be automatically detected or blocked.`,
+      sources, [],
+      'Create Intune compliance policies that define allowed software baselines. Non-compliant devices should be blocked from corporate resources.')
   }
   return result('cis-v8-2.3', ctx, 'needs_review', 'low',
-    'RMM provides software audit data but formal unauthorized software remediation process should be documented.',
-    sources, [], 'Document the process for identifying and removing unauthorized software.')
+    'RMM provides software audit data but Intune compliance policies are needed to enforce authorized software. Formal unauthorized software remediation process should be documented.',
+    sources, [], 'Configure Intune compliance policies and document the software authorization process.')
 }
 
 // 3.1 Data Management Process — IT Glue documentation
@@ -973,23 +986,28 @@ evaluators['cis-v8-4.2'] = (ctx: EvaluationContext): EvaluationResult => {
 // 4.3 Automatic Session Locking — Intune device compliance
 evaluators['cis-v8-4.3'] = (ctx: EvaluationContext): EvaluationResult => {
   const devices = ctx.evidence.get('microsoft_device_compliance')
-  const score = ctx.evidence.get('microsoft_secure_score')
-  if (!devices && !score) return noEvidence('cis-v8-4.3', ['microsoft_device_compliance', 'microsoft_secure_score'], ctx)
+  const policies = ctx.evidence.get('microsoft_intune_config')
+  if (!devices && !policies) return noEvidence('cis-v8-4.3', ['microsoft_device_compliance', 'microsoft_intune_config'], ctx)
 
   const devData = devices?.rawData as { complianceRate?: number; totalCount?: number } | undefined
-  const scoreData = score?.rawData as { percentage?: number } | undefined
-  const sources = ['microsoft_device_compliance', 'microsoft_secure_score'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
+  const policyData = policies?.rawData as { configProfileCount?: number; profileNames?: string[]; compliancePolicyCount?: number; policyNames?: string[] } | undefined
+  const sources = ['microsoft_device_compliance', 'microsoft_intune_config'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
   const rate = devData?.complianceRate ?? 0
+  const profileCount = policyData?.configProfileCount ?? 0
+  const profileNames = policyData?.profileNames ?? []
+  const policyCount = policyData?.compliancePolicyCount ?? 0
+  const policyNames = policyData?.policyNames ?? []
 
-  if (rate >= 90) {
-    return result('cis-v8-4.3', ctx, 'pass', 'medium',
-      `${rate}% device compliance rate. Intune compliance policies enforce screen lock timeout (15min desktop, 2min mobile). ${devData?.totalCount ?? 0} devices managed.`,
+  if (profileCount > 0 && rate >= 90) {
+    return result('cis-v8-4.3', ctx, 'pass', 'high',
+      `${profileCount} Intune configuration profiles deployed: ${profileNames.join(', ')}. ${policyCount} compliance policies: ${policyNames.join(', ')}. ${rate}% compliance across ${devData?.totalCount ?? 0} devices. Session locking should be configured within these policies.`,
       sources, [])
   }
-  if ((scoreData?.percentage ?? 0) >= 60) {
-    return result('cis-v8-4.3', ctx, 'pass', 'low',
-      `Secure Score is ${scoreData?.percentage}% suggesting baseline policies are configured. Verify screen lock policy is specifically set in Intune.`,
-      sources, [])
+  if (profileCount > 0) {
+    return result('cis-v8-4.3', ctx, 'partial', 'medium',
+      `${profileCount} configuration profiles exist (${profileNames.join(', ')}) but compliance rate is ${rate}%. Verify session lock timeout is specifically configured (15min desktop, 2min mobile).`,
+      sources, [],
+      'Review Intune configuration profiles to ensure screen lock timeout is set to 15min or less for desktops and 2min for mobile.')
   }
   return result('cis-v8-4.3', ctx, 'needs_review', 'low',
     'Device compliance data exists but session locking policy cannot be specifically confirmed. Verify in Intune.',
