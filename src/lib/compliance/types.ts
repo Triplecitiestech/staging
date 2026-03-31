@@ -222,6 +222,8 @@ export interface EvaluationContext {
   environment?: EnvironmentContext
   /** Tool deployment toggles from Tool Capability Map — enables attestation-based pass */
   deployedTools?: Map<string, ToolDeployment>
+  /** Policy analyses — maps controlId to policies that satisfy it */
+  policyCoverage?: Map<string, Array<{ policyTitle: string; status: 'satisfied' | 'partial' }>>
 }
 
 export interface EvaluationResult {

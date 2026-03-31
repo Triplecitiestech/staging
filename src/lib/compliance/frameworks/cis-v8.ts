@@ -114,6 +114,55 @@ function toolAttestationPass(controlId: string, ctx: EvaluationContext): Evaluat
 }
 
 // ---------------------------------------------------------------------------
+// Policy coverage upgrade helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Check if uploaded policies satisfy a control.
+ * Called AFTER the main evaluator runs — upgrades needs_review/partial to pass
+ * when a policy covers the control. Doesn't downgrade existing pass results.
+ */
+function applyPolicyCoverage(evalResult: EvaluationResult, ctx: EvaluationContext): EvaluationResult {
+  const coverage = ctx.policyCoverage?.get(evalResult.controlId)
+  if (!coverage || coverage.length === 0) return evalResult
+
+  const satisfied = coverage.filter((c) => c.status === 'satisfied')
+  const partial = coverage.filter((c) => c.status === 'partial')
+  const policyNames = coverage.map((c) => c.policyTitle)
+
+  // Don't downgrade existing pass
+  if (evalResult.status === 'pass') {
+    // But add policy info to reasoning
+    return {
+      ...evalResult,
+      reasoning: `${evalResult.reasoning} Additionally, policy documentation supports this control: ${policyNames.join(', ')}.`,
+    }
+  }
+
+  // Upgrade needs_review or not_assessed to pass/partial based on policy coverage
+  if (satisfied.length > 0 && (evalResult.status === 'needs_review' || evalResult.status === 'not_assessed' || evalResult.status === 'partial')) {
+    return {
+      ...evalResult,
+      status: 'pass',
+      confidence: evalResult.confidence === 'none' ? 'medium' : evalResult.confidence,
+      reasoning: `Policy documentation satisfies this control: ${satisfied.map((c) => c.policyTitle).join(', ')}. ${evalResult.reasoning}`,
+      remediation: null,
+    }
+  }
+
+  if (partial.length > 0 && (evalResult.status === 'needs_review' || evalResult.status === 'not_assessed')) {
+    return {
+      ...evalResult,
+      status: 'partial',
+      confidence: evalResult.confidence === 'none' ? 'low' : evalResult.confidence,
+      reasoning: `Policy documentation partially addresses this control: ${partial.map((c) => c.policyTitle).join(', ')}. ${evalResult.reasoning}`,
+    }
+  }
+
+  return evalResult
+}
+
+// ---------------------------------------------------------------------------
 // Helper: build a result object
 // ---------------------------------------------------------------------------
 
@@ -2248,6 +2297,7 @@ export const CIS_V8_FRAMEWORK: FrameworkDefinition = {
 }
 
 export const CIS_V8_EVALUATORS: Record<string, ControlEvaluator> = evaluators
+export { applyPolicyCoverage }
 
 export function getFramework(): FrameworkDefinition {
   return CIS_V8_FRAMEWORK
