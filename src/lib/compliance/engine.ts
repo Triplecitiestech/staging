@@ -17,7 +17,7 @@ import { getPool } from '@/lib/db-pool'
 import type { PoolClient } from 'pg'
 import { ensureComplianceTables } from './ensure-tables'
 import { collectGraphEvidence } from './collectors/graph'
-import { collectDattoRmmEvidence, collectDattoBcdrEvidence, collectDnsFilterEvidence, collectDomotzEvidence, collectItGlueEvidence } from './collectors/msp'
+import { collectDattoRmmEvidence, collectDattoBcdrEvidence, collectDnsFilterEvidence, collectDomotzEvidence, collectItGlueEvidence, collectSaasAlertsEvidence } from './collectors/msp'
 import { CIS_V8_FRAMEWORK, CIS_V8_EVALUATORS } from './frameworks/cis-v8'
 import {
   compareControlIds,
@@ -125,23 +125,28 @@ export async function detectConnectors(companyId: string): Promise<ConnectorStat
       await upsertConnector(companyId, 'autotask', 'available', 'Company not synced from Autotask', 'env.AUTOTASK_API_*')
     }
 
+    // MSP-level integrations — if env vars are configured, they're connected
+    // (customer data matched by name at collection time)
     if (process.env.DATTO_RMM_API_KEY && process.env.DATTO_RMM_API_SECRET) {
-      await upsertConnector(companyId, 'datto_rmm', 'available', null, 'env.DATTO_RMM_*')
+      await upsertConnector(companyId, 'datto_rmm', 'verified', null, 'env.DATTO_RMM_*')
     }
     if (process.env.DATTO_EDR_API_TOKEN) {
-      await upsertConnector(companyId, 'datto_edr', 'available', null, 'env.DATTO_EDR_*')
+      await upsertConnector(companyId, 'datto_edr', 'verified', null, 'env.DATTO_EDR_*')
     }
     if (process.env.DATTO_BCDR_PUBLIC_KEY && process.env.DATTO_BCDR_PRIVATE_KEY) {
-      await upsertConnector(companyId, 'datto_bcdr', 'available', null, 'env.DATTO_BCDR_*')
+      await upsertConnector(companyId, 'datto_bcdr', 'verified', null, 'env.DATTO_BCDR_*')
     }
     if (process.env.DNSFILTER_API_TOKEN) {
-      await upsertConnector(companyId, 'dnsfilter', 'available', null, 'env.DNSFILTER_*')
+      await upsertConnector(companyId, 'dnsfilter', 'verified', null, 'env.DNSFILTER_*')
     }
     if (process.env.DOMOTZ_API_KEY && process.env.DOMOTZ_API_URL) {
-      await upsertConnector(companyId, 'domotz', 'available', null, 'env.DOMOTZ_*')
+      await upsertConnector(companyId, 'domotz', 'verified', null, 'env.DOMOTZ_*')
     }
     if (process.env.IT_GLUE_API_KEY) {
-      await upsertConnector(companyId, 'it_glue', 'available', null, 'env.IT_GLUE_*')
+      await upsertConnector(companyId, 'it_glue', 'verified', null, 'env.IT_GLUE_*')
+    }
+    if (process.env.SAAS_ALERTS_API_KEY) {
+      await upsertConnector(companyId, 'saas_alerts', 'verified', null, 'env.SAAS_ALERTS_*')
     }
 
     return getConnectors(companyId)
@@ -478,6 +483,24 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
       } catch (err) {
         failedConnectors.add('domotz')
         collectionErrors.push(`Domotz: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+
+    // --- Collect from SaaS Alerts ---
+    if (availableConnectors.has('saas_alerts')) {
+      try {
+        const saResult = await collectSaasAlertsEvidence(assessment.companyId, assessmentId)
+        collectionErrors.push(...saResult.errors)
+        if (saResult.evidence.length > 0) {
+          const stored = await storeEvidence(client, saResult.evidence)
+          allEvidence.push(...stored)
+        }
+        if (saResult.errors.length > 0 && saResult.evidence.length === 0) {
+          failedConnectors.add('saas_alerts')
+        }
+      } catch (err) {
+        failedConnectors.add('saas_alerts')
+        collectionErrors.push(`SaaS Alerts: ${err instanceof Error ? err.message : String(err)}`)
       }
     }
 

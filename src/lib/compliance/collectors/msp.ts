@@ -389,3 +389,54 @@ export async function collectItGlueEvidence(
     return { evidence, errors: [`IT Glue collection failed: ${err instanceof Error ? err.message : String(err)}`] }
   }
 }
+
+// ---------------------------------------------------------------------------
+// SaaS Alerts Collector — SaaS Security Monitoring
+// ---------------------------------------------------------------------------
+
+export async function collectSaasAlertsEvidence(
+  companyId: string,
+  assessmentId: string
+): Promise<{ evidence: Array<Omit<EvidenceRecord, 'id' | 'collectedAt'>>; errors: string[] }> {
+  const evidence: Array<Omit<EvidenceRecord, 'id' | 'collectedAt'>> = []
+  const errors: string[] = []
+
+  if (!process.env.SAAS_ALERTS_API_KEY) {
+    return { evidence, errors: ['SaaS Alerts: SAAS_ALERTS_API_KEY not configured'] }
+  }
+
+  try {
+    const { SaasAlertsClient } = await import('@/lib/saas-alerts')
+    const client = new SaasAlertsClient()
+    const summary = await client.buildSummary()
+
+    if (!summary.available) {
+      return { evidence, errors: [summary.note ?? 'SaaS Alerts API unavailable'] }
+    }
+
+    // Store evidence even if 0 events — having the connection working is itself evidence
+    evidence.push(buildEvidence(assessmentId, companyId, 'saas_alerts_monitoring' as EvidenceSourceType, {
+      totalEvents: summary.totalEvents,
+      eventsBySeverity: summary.eventsBySeverity,
+      eventsByType: summary.eventsByType,
+      customerCount: summary.customers.length,
+      customers: summary.customers.slice(0, 20),
+      recentHighSeverity: summary.recentEvents
+        .filter((e) => e.alertStatus === 'high' || e.alertStatus === 'critical')
+        .slice(0, 10)
+        .map((e) => ({
+          time: e.time,
+          user: e.user?.name,
+          type: e.jointType,
+          description: e.jointDesc,
+          severity: e.alertStatus,
+          ip: e.ip,
+        })),
+      note: summary.note,
+    }, `SaaS Alerts: ${summary.totalEvents} events (30 days). ${summary.customers.length} monitored tenants. Severity breakdown: ${Object.entries(summary.eventsBySeverity).map(([k, v]) => `${k}=${v}`).join(', ') || 'none'}.`))
+
+    return { evidence, errors }
+  } catch (err) {
+    return { evidence, errors: [`SaaS Alerts collection failed: ${err instanceof Error ? err.message : String(err)}`] }
+  }
+}
