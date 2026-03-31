@@ -658,34 +658,104 @@ evaluators['cis-v8-6.2'] = (ctx: EvaluationContext): EvaluationResult => {
 }
 
 // --- 8.2 Collect Audit Logs ---
+// Multi-layer: M365 UAL + Datto RMM (endpoint actions, software, patches) +
+// Datto EDR/RocketCyber (security events per device) + Domotz (network device logs) +
+// Ubiquiti (network infrastructure logs) + SaaS Alerts (cloud app events)
 evaluators['cis-v8-8.2'] = (ctx: EvaluationContext): EvaluationResult => {
   const score = ctx.evidence.get('microsoft_secure_score')
-  if (!score) return noEvidence('cis-v8-8.2', ['microsoft_secure_score'], ctx)
+  const rmm = ctx.evidence.get('datto_rmm_devices')
+  const edr = ctx.evidence.get('datto_edr_alerts')
+  const domotz = ctx.evidence.get('domotz_network_discovery' as EvidenceSourceType)
+  const ubiquiti = ctx.evidence.get('ubiquiti_network' as EvidenceSourceType)
+  const saasAlerts = ctx.evidence.get('saas_alerts_monitoring' as EvidenceSourceType)
+  const sources = ['microsoft_secure_score', 'datto_rmm_devices', 'datto_edr_alerts', 'domotz_network_discovery', 'ubiquiti_network', 'saas_alerts_monitoring']
+    .filter((s) => ctx.evidence.has(s as EvidenceSourceType))
 
-  // M365 unified audit log is enabled by default in most tenants
-  return result('cis-v8-8.2', ctx, 'pass', 'medium',
-    'Microsoft 365 Unified Audit Log is available by default for all E3/E5/Business Premium tenants. Provides comprehensive audit trail for user and admin activities.',
-    ['microsoft_secure_score'], ['microsoft_audit_log'],
-    null)
+  if (sources.length === 0) return noEvidence('cis-v8-8.2', ['microsoft_secure_score', 'datto_rmm_devices', 'datto_edr_alerts'], ctx)
+
+  // Check attestation for RocketCyber SOC
+  const rocketcyberDeployed = ctx.deployedTools?.get('rocketcyber')?.deployed
+
+  const layers: string[] = []
+  if (score) layers.push('Microsoft 365 Unified Audit Log (sign-ins, admin actions, mail flow, SharePoint access)')
+  if (rmm) {
+    const rmmData = rmm.rawData as { totalDevices?: number }
+    layers.push(`Datto RMM (${rmmData.totalDevices ?? 0} endpoints — software inventory, patch history, Windows Update logs, endpoint actions)`)
+  }
+  if (edr || rocketcyberDeployed) {
+    layers.push('Datto EDR + RocketCyber SOC (per-device security events, process execution, file changes, network connections, threat detections)')
+  }
+  if (domotz) {
+    const dData = domotz.rawData as { totalDevices?: number; agentCount?: number }
+    layers.push(`Domotz (${dData.totalDevices ?? 0} network devices monitored across ${dData.agentCount ?? 0} collector(s) — device status changes, connectivity events)`)
+  }
+  if (ubiquiti) {
+    const uData = ubiquiti.rawData as { totalDevices?: number; totalSites?: number }
+    layers.push(`Ubiquiti UniFi (${uData.totalDevices ?? 0} network devices across ${uData.totalSites ?? 0} site(s) — AP/switch/gateway logs, client connections, firmware events)`)
+  }
+  if (saasAlerts) {
+    const saData = saasAlerts.rawData as { totalEvents?: number }
+    layers.push(`SaaS Alerts (${saData.totalEvents ?? 0} cloud application events — suspicious logins, data exfiltration, permission changes)`)
+  }
+
+  if (layers.length >= 3) {
+    return result('cis-v8-8.2', ctx, 'pass', 'high',
+      `Audit logs collected across ${layers.length} layers:\n${layers.map((l, i) => `${i + 1}. ${l}`).join('\n')}`,
+      sources, [])
+  }
+  if (layers.length >= 2) {
+    return result('cis-v8-8.2', ctx, 'pass', 'medium',
+      `Audit logs collected across ${layers.length} layers:\n${layers.map((l, i) => `${i + 1}. ${l}`).join('\n')}`,
+      sources, [])
+  }
+  return result('cis-v8-8.2', ctx, 'partial', 'low',
+    `Audit logs collected from: ${layers.join('; ')}. Additional logging layers recommended.`,
+    sources, [],
+    'Deploy additional logging: Datto RMM for endpoint logs, RocketCyber SOC for security event correlation, Domotz for network device monitoring.')
 }
 
 // --- 8.5 Collect Detailed Audit Logs ---
 evaluators['cis-v8-8.5'] = (ctx: EvaluationContext): EvaluationResult => {
   const score = ctx.evidence.get('microsoft_secure_score')
-  if (!score) return noEvidence('cis-v8-8.5', ['microsoft_secure_score'], ctx)
+  const rmm = ctx.evidence.get('datto_rmm_devices')
+  const edr = ctx.evidence.get('datto_edr_alerts')
+  const saasAlerts = ctx.evidence.get('saas_alerts_monitoring' as EvidenceSourceType)
+  const sources = ['microsoft_secure_score', 'datto_rmm_devices', 'datto_edr_alerts', 'saas_alerts_monitoring']
+    .filter((s) => ctx.evidence.has(s as EvidenceSourceType))
 
-  const scoreData = score.rawData as { currentScore?: number; maxScore?: number }
-  const pct = scoreData.maxScore ? Math.round((scoreData.currentScore ?? 0) / scoreData.maxScore * 100) : 0
+  if (sources.length === 0) return noEvidence('cis-v8-8.5', ['microsoft_secure_score', 'datto_rmm_devices', 'datto_edr_alerts'], ctx)
 
-  if (pct >= 50) {
+  const rocketcyberDeployed = ctx.deployedTools?.get('rocketcyber')?.deployed
+  const detailLayers: string[] = []
+
+  if (score) {
+    const scoreData = score.rawData as { percentage?: number }
+    detailLayers.push(`M365 UAL detailed logging (Secure Score ${scoreData.percentage ?? 0}% — includes command-line audit, mailbox audit, sign-in risk events)`)
+  }
+  if (rmm) {
+    detailLayers.push('Datto RMM detailed endpoint telemetry (process execution, software changes, patch deployment results, Windows Event Log collection)')
+  }
+  if (edr || rocketcyberDeployed) {
+    detailLayers.push('Datto EDR/RocketCyber detailed security logs (per-process execution, file hash tracking, network connection logs, threat intel correlation)')
+  }
+  if (saasAlerts) {
+    detailLayers.push('SaaS Alerts detailed cloud telemetry (per-user activity, anomaly scoring, data movement tracking)')
+  }
+
+  if (detailLayers.length >= 3) {
+    return result('cis-v8-8.5', ctx, 'pass', 'high',
+      `Detailed audit logs collected across ${detailLayers.length} sources:\n${detailLayers.map((l, i) => `${i + 1}. ${l}`).join('\n')}`,
+      sources, [])
+  }
+  if (detailLayers.length >= 2) {
     return result('cis-v8-8.5', ctx, 'pass', 'medium',
-      'M365 Unified Audit Log provides detailed logging. Secure Score suggests logging configuration meets baseline.',
-      ['microsoft_secure_score'], ['microsoft_audit_log'])
+      `Detailed audit logs from: ${detailLayers.join('; ')}.`,
+      sources, [])
   }
   return result('cis-v8-8.5', ctx, 'partial', 'low',
-    'Audit logging available via M365 but Secure Score is low, suggesting logging configuration may need improvement.',
-    ['microsoft_secure_score'], ['microsoft_audit_log'],
-    'Review M365 audit log settings. Enable mailbox auditing, SharePoint access logging, and sign-in log retention.')
+    `Detailed logging available from: ${detailLayers.join('; ')}. Additional detail sources recommended.`,
+    sources, [],
+    'Enable detailed audit logging in M365 (mailbox auditing, sign-in logs). Deploy Datto EDR for process-level telemetry.')
 }
 
 // ---------------------------------------------------------------------------
@@ -1337,39 +1407,74 @@ evaluators['cis-v8-7.4'] = (ctx: EvaluationContext): EvaluationResult => {
   return noEvidence('cis-v8-7.4', ['datto_rmm_patches'], ctx)
 }
 
-// 8.1 Audit Log Management Process — M365 audit + IT Glue documentation
+// 8.1 Audit Log Management Process — multi-layer logging architecture
 evaluators['cis-v8-8.1'] = (ctx: EvaluationContext): EvaluationResult => {
   const score = ctx.evidence.get('microsoft_secure_score')
+  const rmm = ctx.evidence.get('datto_rmm_devices')
+  const edr = ctx.evidence.get('datto_edr_alerts')
   const itg = ctx.evidence.get('it_glue_documentation' as EvidenceSourceType)
-  const sources = ['microsoft_secure_score', 'it_glue_documentation'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
-  if (sources.length === 0) return noEvidence('cis-v8-8.1', ['microsoft_secure_score', 'it_glue_documentation'], ctx)
+  const saasAlerts = ctx.evidence.get('saas_alerts_monitoring' as EvidenceSourceType)
+  const sources = ['microsoft_secure_score', 'datto_rmm_devices', 'datto_edr_alerts', 'it_glue_documentation', 'saas_alerts_monitoring']
+    .filter((s) => ctx.evidence.has(s as EvidenceSourceType))
+  if (sources.length === 0) return noEvidence('cis-v8-8.1', ['microsoft_secure_score', 'it_glue_documentation', 'datto_rmm_devices'], ctx)
 
   const scoreData = score?.rawData as { percentage?: number } | undefined
   const itgData = itg?.rawData as { hasDocumentedProcedures?: boolean } | undefined
+  const rocketcyberDeployed = ctx.deployedTools?.get('rocketcyber')?.deployed
 
-  if (scoreData && itgData?.hasDocumentedProcedures) {
-    return result('cis-v8-8.1', ctx, 'pass', 'medium',
-      `Audit log management process in place: M365 Unified Audit Log active (Secure Score ${scoreData.percentage ?? 0}%), and IT Glue contains documented procedures for log management.`,
+  // Count active logging layers as evidence of a managed process
+  const activeLayers: string[] = []
+  if (score) activeLayers.push('M365 Unified Audit Log')
+  if (rmm) activeLayers.push('Datto RMM endpoint logging')
+  if (edr || rocketcyberDeployed) activeLayers.push('Datto EDR/RocketCyber SOC event correlation')
+  if (saasAlerts) activeLayers.push('SaaS Alerts cloud monitoring')
+
+  const hasProcess = activeLayers.length >= 2 // Multiple managed tools = an operational log management process
+  const hasDocumentation = itgData?.hasDocumentedProcedures
+
+  if (hasProcess && hasDocumentation) {
+    return result('cis-v8-8.1', ctx, 'pass', 'high',
+      `Audit log management process established with ${activeLayers.length} active logging layers (${activeLayers.join(', ')}). IT Glue contains documented procedures. Secure Score: ${scoreData?.percentage ?? 'N/A'}%.`,
       sources, [])
   }
-  if (scoreData) {
-    return result('cis-v8-8.1', ctx, 'partial', 'low',
-      `M365 audit logging is available (Secure Score ${scoreData.percentage ?? 0}%). A formal audit log management process should be documented in IT Glue.`,
+  if (hasProcess) {
+    return result('cis-v8-8.1', ctx, 'pass', 'medium',
+      `Audit log management process operational across ${activeLayers.length} layers: ${activeLayers.join(', ')}. Secure Score: ${scoreData?.percentage ?? 'N/A'}%. Formal documentation in IT Glue would strengthen this control.`,
       sources, ['it_glue_documentation'],
-      'Document an audit log management process in IT Glue covering collection, review frequency, and retention requirements.')
+      'Document the audit log management process in IT Glue — cover which tools collect logs, review frequency, and retention policies.')
   }
-  return result('cis-v8-8.1', ctx, 'needs_review', 'low', 'Audit log management process documentation needed.', sources, [])
+  if (activeLayers.length === 1) {
+    return result('cis-v8-8.1', ctx, 'partial', 'low',
+      `Audit logging active via ${activeLayers[0]}. Additional logging layers and formal process documentation recommended.`,
+      sources, ['it_glue_documentation'],
+      'Expand logging coverage with Datto RMM (endpoints), RocketCyber (security events), and document the process in IT Glue.')
+  }
+  return result('cis-v8-8.1', ctx, 'needs_review', 'low', 'Audit log management process needs documentation and additional tool coverage.', sources, [])
 }
 
-// 8.3 Adequate Audit Log Storage — M365 retains logs, check retention
+// 8.3 Adequate Audit Log Storage — multi-layer retention
 evaluators['cis-v8-8.3'] = (ctx: EvaluationContext): EvaluationResult => {
   const score = ctx.evidence.get('microsoft_secure_score')
-  if (!score) return noEvidence('cis-v8-8.3', ['microsoft_secure_score'], ctx)
+  const rmm = ctx.evidence.get('datto_rmm_devices')
+  const edr = ctx.evidence.get('datto_edr_alerts')
+  const sources = ['microsoft_secure_score', 'datto_rmm_devices', 'datto_edr_alerts']
+    .filter((s) => ctx.evidence.has(s as EvidenceSourceType))
 
-  const scoreData = score.rawData as { percentage?: number }
-  return result('cis-v8-8.3', ctx, 'pass', 'medium',
-    `Microsoft 365 retains audit logs for 90 days (standard) or 1 year (E5/compliance add-on). Current Secure Score: ${scoreData.percentage ?? 0}%. Log storage is managed by Microsoft cloud infrastructure.`,
-    ['microsoft_secure_score'], [])
+  if (sources.length === 0) return noEvidence('cis-v8-8.3', ['microsoft_secure_score', 'datto_rmm_devices'], ctx)
+
+  const rocketcyberDeployed = ctx.deployedTools?.get('rocketcyber')?.deployed
+  const storageDetails: string[] = []
+
+  if (score) {
+    const scoreData = score.rawData as { percentage?: number }
+    storageDetails.push(`M365: 90-day retention (standard) or 1 year (E5/compliance add-on). Secure Score: ${scoreData.percentage ?? 0}%`)
+  }
+  if (rmm) storageDetails.push('Datto RMM: endpoint audit data retained in RMM cloud platform (patch history, software changes, component logs)')
+  if (edr || rocketcyberDeployed) storageDetails.push('RocketCyber SOC: security event logs retained with full incident history and forensic timeline')
+
+  return result('cis-v8-8.3', ctx, 'pass', storageDetails.length >= 2 ? 'high' : 'medium',
+    `Audit log storage across ${storageDetails.length} platform(s):\n${storageDetails.map((s, i) => `${i + 1}. ${s}`).join('\n')}`,
+    sources, [])
 }
 
 // 9.1 Supported Browsers/Email Clients — RMM software audit can show browser versions

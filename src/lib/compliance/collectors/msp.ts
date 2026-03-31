@@ -222,6 +222,7 @@ export async function collectDnsFilterEvidence(
   }
 
   try {
+    console.log('[dnsfilter] Starting collection')
     const { DnsFilterClient } = await import('@/lib/dnsfilter')
     const client = new DnsFilterClient()
 
@@ -274,7 +275,9 @@ export async function collectDnsFilterEvidence(
 
     return { evidence, errors }
   } catch (err) {
-    return { evidence, errors: [`DNSFilter collection failed: ${err instanceof Error ? err.message : String(err)}`] }
+    const msg = `DNSFilter collection failed: ${err instanceof Error ? err.message : String(err)}`
+    console.error(`[dnsfilter] ${msg}`)
+    return { evidence, errors: [msg] }
   }
 }
 
