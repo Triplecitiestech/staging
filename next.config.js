@@ -94,7 +94,7 @@ const nextConfig = {
                   "form-action 'self'",
                   "frame-ancestors 'none'",
                   "frame-src https://challenges.cloudflare.com https://messenger.chatgenie.io https://www.youtube.com https://youtube.com https://calendly.com",
-                  "connect-src 'self' https://vercel.live https://vercel.com https://challenges.cloudflare.com https://messenger.chatgenie.io https://api.chatgenie.io https://*.cloudflare.com https://calendly.com https://*.apollo.io",
+                  "connect-src 'self' https://vercel.live https://vercel.com https://challenges.cloudflare.com https://messenger.chatgenie.io https://api.chatgenie.io https://*.cloudflare.com https://calendly.com https://*.apollo.io wss://*.speech.microsoft.com wss://speech.platform.bing.com https://*.google.com",
                   "upgrade-insecure-requests",
                 ].join('; '),
           },
