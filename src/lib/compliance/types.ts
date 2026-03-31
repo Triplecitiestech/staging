@@ -259,7 +259,7 @@ export interface AssessmentComparison {
 // Policy management
 // ---------------------------------------------------------------------------
 
-export type PolicySource = 'upload' | 'paste' | 'generated'
+export type PolicySource = 'upload' | 'paste' | 'generated' | 'sharepoint'
 export type PolicyAnalysisStatus = 'pending' | 'analyzing' | 'complete' | 'error'
 
 export interface CompliancePolicy {
