@@ -311,7 +311,7 @@ export async function collectDomotzEvidence(
     // Try to match agents to this specific customer by name
     // Domotz agents are usually named per-customer/site (e.g. "EZ Red - Main Office")
     let matchedAgents = summary.agents
-    let matchedDevices = summary.devices
+    const matchedDevices = summary.devices
     let matchNote = ''
 
     if (companyName) {
