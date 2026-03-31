@@ -96,6 +96,7 @@ export async function upsertConnector(
 
 /**
  * Auto-detect connector status from existing company data and MSP-level env vars.
+ * Uses a single DB connection for all upserts to avoid pool exhaustion.
  */
 export async function detectConnectors(companyId: string): Promise<ConnectorState[]> {
   await ensureComplianceTables()
@@ -113,48 +114,67 @@ export async function detectConnectors(companyId: string): Promise<ConnectorStat
       [companyId]
     )
 
-    if (company.rows.length === 0) return getConnectors(companyId)
+    if (company.rows.length === 0) {
+      client.release()
+      return getConnectors(companyId)
+    }
     const row = company.rows[0]
+
+    // Helper: upsert using the SAME client (no extra pool.connect())
+    const upsert = async (ct: ConnectorType, status: string, err: string | null, ref: string | null) => {
+      await client.query(
+        `INSERT INTO compliance_connectors ("companyId", "connectorType", status, "errorMessage", "configRef", "updatedAt")
+         VALUES ($1, $2, $3, $4, $5, NOW())
+         ON CONFLICT ("companyId", "connectorType")
+         DO UPDATE SET status = $3, "errorMessage" = $4, "configRef" = $5, "updatedAt" = NOW()`,
+        [companyId, ct, status, err, ref]
+      )
+    }
 
     if (row.m365_tenant_id && row.m365_client_id) {
       const status = row.m365_setup_status === 'verified' ? 'verified' : 'configured'
-      await upsertConnector(companyId, 'microsoft_graph', status, null, 'company.m365_*')
+      await upsert('microsoft_graph', status, null, 'company.m365_*')
     }
 
     if (row.autotaskCompanyId) {
-      await upsertConnector(companyId, 'autotask', 'verified', null, 'company.autotaskCompanyId')
+      await upsert('autotask', 'verified', null, 'company.autotaskCompanyId')
     } else if (process.env.AUTOTASK_API_USERNAME) {
-      await upsertConnector(companyId, 'autotask', 'available', 'Company not synced from Autotask', 'env.AUTOTASK_API_*')
+      await upsert('autotask', 'available', 'Company not synced from Autotask', 'env.AUTOTASK_API_*')
     }
 
     // MSP-level integrations — if env vars are configured, they're connected
-    // (customer data matched by name at collection time)
     if (process.env.DATTO_RMM_API_KEY && process.env.DATTO_RMM_API_SECRET) {
-      await upsertConnector(companyId, 'datto_rmm', 'verified', null, 'env.DATTO_RMM_*')
+      await upsert('datto_rmm', 'verified', null, 'env.DATTO_RMM_*')
     }
     if (process.env.DATTO_EDR_API_TOKEN) {
-      await upsertConnector(companyId, 'datto_edr', 'verified', null, 'env.DATTO_EDR_*')
+      await upsert('datto_edr', 'verified', null, 'env.DATTO_EDR_*')
     }
     if (process.env.DATTO_BCDR_PUBLIC_KEY && process.env.DATTO_BCDR_PRIVATE_KEY) {
-      await upsertConnector(companyId, 'datto_bcdr', 'verified', null, 'env.DATTO_BCDR_*')
+      await upsert('datto_bcdr', 'verified', null, 'env.DATTO_BCDR_*')
     }
     if (process.env.DNSFILTER_API_TOKEN) {
-      await upsertConnector(companyId, 'dnsfilter', 'verified', null, 'env.DNSFILTER_*')
+      await upsert('dnsfilter', 'verified', null, 'env.DNSFILTER_*')
     }
     if (process.env.DOMOTZ_API_KEY && process.env.DOMOTZ_API_URL) {
-      await upsertConnector(companyId, 'domotz', 'verified', null, 'env.DOMOTZ_*')
+      await upsert('domotz', 'verified', null, 'env.DOMOTZ_*')
     }
     if (process.env.IT_GLUE_API_KEY) {
-      await upsertConnector(companyId, 'it_glue', 'verified', null, 'env.IT_GLUE_*')
+      await upsert('it_glue', 'verified', null, 'env.IT_GLUE_*')
     }
     if (process.env.SAAS_ALERTS_API_KEY) {
-      await upsertConnector(companyId, 'saas_alerts', 'verified', null, 'env.SAAS_ALERTS_*')
+      await upsert('saas_alerts', 'verified', null, 'env.SAAS_ALERTS_*')
     }
     if (process.env.UBIQUITI_API_KEY) {
-      await upsertConnector(companyId, 'ubiquiti', 'verified', null, 'env.UBIQUITI_*')
+      await upsert('ubiquiti', 'verified', null, 'env.UBIQUITI_*')
     }
 
-    return getConnectors(companyId)
+    // Read back all connectors using the same client
+    const res = await client.query<ConnectorState>(
+      `SELECT id, "companyId", "connectorType", status, "lastCollectedAt", "errorMessage", "configRef"
+       FROM compliance_connectors WHERE "companyId" = $1`,
+      [companyId]
+    )
+    return res.rows
   } finally {
     client.release()
   }
