@@ -385,7 +385,7 @@ function getScoreColor(pct: number): string {
 // ---------------------------------------------------------------------------
 
 function AssessmentResults({ detail, onExport, onUpdated }: { detail: AssessmentDetail; onExport: () => void; onUpdated: () => void }) {
-  const [expandedControl, setExpandedControl] = useState<string | null>(null)
+  const [expandedControls, setExpandedControls] = useState<Set<string>>(new Set())
   const [evidenceView, setEvidenceView] = useState<string | null>(null)
 
   const { assessment, findings, frameworkName, comparison } = detail
@@ -435,7 +435,19 @@ function AssessmentResults({ detail, onExport, onUpdated }: { detail: Assessment
               : `Status: ${assessment.status}`}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => {
+              if (expandedControls.size === findings.length) {
+                setExpandedControls(new Set())
+              } else {
+                setExpandedControls(new Set(findings.map((f) => f.controlId)))
+              }
+            }}
+            className="inline-flex items-center px-3 py-2 bg-slate-700/50 hover:bg-slate-600/50 text-slate-300 hover:text-white rounded-lg text-sm transition-colors"
+          >
+            {expandedControls.size === findings.length ? 'Collapse All' : 'Expand All'}
+          </button>
           <button onClick={onExport} className="inline-flex items-center px-3 py-2 bg-slate-700/50 hover:bg-slate-600/50 text-slate-300 hover:text-white rounded-lg text-sm transition-colors">
             Export CSV
           </button>
@@ -516,10 +528,18 @@ function AssessmentResults({ detail, onExport, onUpdated }: { detail: Assessment
                   key={f.controlId}
                   finding={f}
                   change={changeMap.get(f.controlId)}
-                  expanded={expandedControl === f.controlId}
-                  onToggle={() => setExpandedControl(expandedControl === f.controlId ? null : f.controlId)}
+                  expanded={expandedControls.has(f.controlId)}
+                  onToggle={() => setExpandedControls((prev) => {
+                    const next = new Set(prev)
+                    if (next.has(f.controlId)) next.delete(f.controlId)
+                    else next.add(f.controlId)
+                    return next
+                  })}
                   assessmentId={assessment.id}
                   onUpdated={onUpdated}
+                  evidenceRecords={detail.evidence?.filter((e) =>
+                    Array.isArray(f.evidenceIds) && (f.evidenceIds as string[]).includes(e.id)
+                  ) ?? []}
                 />
               ))}
             </div>
@@ -539,9 +559,10 @@ function StatCard({ label, value, color }: { label: string; value: number; color
   )
 }
 
-function FindingRow({ finding, change, expanded, onToggle, assessmentId, onUpdated }: {
+function FindingRow({ finding, change, expanded, onToggle, assessmentId, onUpdated, evidenceRecords }: {
   finding: Finding; change?: string; expanded: boolean; onToggle: () => void
   assessmentId: string; onUpdated: () => void
+  evidenceRecords: EvidenceRecord[]
 }) {
   const [noteText, setNoteText] = useState('')
   const [overrideStatus, setOverrideStatus] = useState<string>('')
@@ -618,7 +639,7 @@ function FindingRow({ finding, change, expanded, onToggle, assessmentId, onUpdat
       recognition.onerror = (e: { error: string }) => {
         console.error('[speech] Error:', e.error)
         if (e.error === 'not-allowed') {
-          alert('Microphone access was denied. Please allow microphone permission in your browser settings.')
+          alert('Microphone blocked. Click the lock icon in the address bar → Site settings → Microphone → Allow. Then try again.')
         }
         recognitionRef.current = null
         setIsListening(false)
@@ -728,6 +749,24 @@ function FindingRow({ finding, change, expanded, onToggle, assessmentId, onUpdat
               <p className="text-sm text-cyan-300">{finding.remediation}</p>
             </div>
           )}
+          {/* Inline Evidence — show actual data that drove this result */}
+          {evidenceRecords.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">Supporting Evidence</p>
+              <div className="space-y-2">
+                {evidenceRecords.map((ev) => (
+                  <div key={ev.id} className="bg-slate-800/60 border border-white/5 rounded p-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-mono text-cyan-400">{ev.sourceType.replace(/_/g, ' ')}</span>
+                      <span className="text-xs text-slate-500">{new Date(ev.collectedAt).toLocaleString()}</span>
+                    </div>
+                    <p className="text-xs text-slate-300 mb-2">{ev.summary}</p>
+                    <EvidenceDataView rawData={ev.rawData} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {Array.isArray(finding.missingEvidence) && finding.missingEvidence.length > 0 && (
             <div>
               <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Missing Evidence</p>
@@ -813,6 +852,91 @@ function FindingRow({ finding, change, expanded, onToggle, assessmentId, onUpdat
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+/** Renders key data points from evidence rawData in a readable format */
+function EvidenceDataView({ rawData }: { rawData: Record<string, unknown> }) {
+  // Extract the most useful fields for display
+  const displayFields: Array<{ label: string; value: string }> = []
+
+  const add = (label: string, val: unknown) => {
+    if (val === null || val === undefined || val === '') return
+    if (typeof val === 'object' && !Array.isArray(val)) return
+    if (Array.isArray(val)) {
+      if (val.length === 0) return
+      displayFields.push({ label, value: val.length <= 5 ? val.join(', ') : `${val.length} items` })
+      return
+    }
+    displayFields.push({ label, value: String(val) })
+  }
+
+  // Common evidence fields
+  add('Total Devices', rawData.totalDevices ?? rawData.totalCount)
+  add('Compliant Devices', rawData.compliantCount)
+  add('Compliance Rate', rawData.complianceRate ? `${rawData.complianceRate}%` : null)
+  add('Encrypted Devices', rawData.encryptedDevices)
+  add('Encryption Rate', rawData.encryptionRate ? `${rawData.encryptionRate}%` : null)
+  add('Total Users', rawData.totalUsers)
+  add('MFA Registered', rawData.mfaRegisteredUsers)
+  add('MFA Rate', rawData.mfaRate ? `${rawData.mfaRate}%` : null)
+  add('Dormant Accounts', rawData.dormantCount)
+  add('Disabled Accounts', rawData.disabledUsers)
+  add('Current Score', rawData.currentScore)
+  add('Max Score', rawData.maxScore)
+  add('Score Percentage', rawData.percentage ? `${rawData.percentage}%` : null)
+  add('Total Policies', rawData.totalPolicies)
+  add('Enabled Policies', rawData.enabledPolicies)
+  add('Patch Rate', rawData.patchRate ? `${rawData.patchRate}%` : null)
+  add('AV Active Rate', rawData.avRate ? `${rawData.avRate}%` : null)
+  add('Total Queries', rawData.totalQueries)
+  add('Blocked Queries', rawData.blockedQueries)
+  add('Block Rate', rawData.blockRate ? `${rawData.blockRate}%` : null)
+  add('Total Events', rawData.totalEvents)
+  add('Total Agents', rawData.agentCount)
+  add('Discovery Active', rawData.discoveryActive)
+  add('Unique MACs', rawData.uniqueMacAddresses)
+  add('Unique IPs', rawData.uniqueIpAddresses)
+  add('Matched', rawData.matched)
+  add('Organization Count', rawData.organizationCount)
+  add('Has Policies', rawData.hasDocumentedPolicies)
+  add('Has Procedures', rawData.hasDocumentedProcedures)
+  add('Customer Count', rawData.customerCount)
+  add('Total Seats', rawData.totalSeats)
+  add('Active Seats', rawData.activeSeats)
+  add('Unprotected Seats', rawData.unprotectedSeats)
+  add('Appliance Count', rawData.applianceCount)
+  add('Total Alerts', rawData.totalAlerts)
+
+  // Show device types breakdown if available
+  const deviceTypes = rawData.deviceTypes as Record<string, number> | undefined
+  if (deviceTypes && typeof deviceTypes === 'object') {
+    const entries = Object.entries(deviceTypes).sort((a, b) => b[1] - a[1]).slice(0, 8)
+    if (entries.length > 0) {
+      displayFields.push({ label: 'Device Types', value: entries.map(([k, v]) => `${k}: ${v}`).join(', ') })
+    }
+  }
+
+  // Show severity breakdown
+  const severity = rawData.eventsBySeverity as Record<string, number> | undefined
+  if (severity && typeof severity === 'object') {
+    const entries = Object.entries(severity)
+    if (entries.length > 0) {
+      displayFields.push({ label: 'By Severity', value: entries.map(([k, v]) => `${k}: ${v}`).join(', ') })
+    }
+  }
+
+  if (displayFields.length === 0) return null
+
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-1">
+      {displayFields.map((f, i) => (
+        <div key={i} className="flex items-baseline gap-1.5">
+          <span className="text-[10px] text-slate-500 uppercase">{f.label}:</span>
+          <span className="text-xs text-white font-medium">{f.value}</span>
+        </div>
+      ))}
     </div>
   )
 }
