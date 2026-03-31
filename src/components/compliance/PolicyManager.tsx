@@ -15,6 +15,15 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { CompliancePolicy, PolicyAnalysis } from '@/lib/compliance/types'
 
+interface SharePointFile {
+  id: string
+  name: string
+  size: number
+  lastModified: string
+  webUrl: string
+  mimeType: string | null
+}
+
 interface PolicyManagerProps {
   companyId: string
   companyName: string
@@ -56,6 +65,13 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
   const [content, setContent] = useState('')
   const [sharepointUrl, setSharepointUrl] = useState('')
   const [submitting, setSubmitting] = useState(false)
+
+  // SharePoint folder scan state
+  const [spScanning, setSpScanning] = useState(false)
+  const [spFiles, setSpFiles] = useState<SharePointFile[]>([])
+  const [spSelected, setSpSelected] = useState<Set<string>>(new Set())
+  const [spImporting, setSpImporting] = useState(false)
+  const [spImportProgress, setSpImportProgress] = useState(0)
 
   // Expanded policy detail
   const [expandedPolicy, setExpandedPolicy] = useState<string | null>(null)
@@ -147,6 +163,75 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
     } finally {
       setSubmitting(false)
     }
+  }
+
+  const scanSharePointFolder = async () => {
+    if (!sharepointUrl.trim()) return
+    setSpScanning(true)
+    setError(null)
+    setSpFiles([])
+    try {
+      const res = await fetch('/api/compliance/policies/sharepoint-scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId, folderUrl: sharepointUrl.trim() }),
+      })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.error)
+      setSpFiles(json.files ?? [])
+      // Select all by default
+      setSpSelected(new Set((json.files ?? []).map((f: SharePointFile) => f.id)))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to scan SharePoint folder')
+    } finally {
+      setSpScanning(false)
+    }
+  }
+
+  const importSelectedFiles = async () => {
+    if (spSelected.size === 0) return
+    setSpImporting(true)
+    setSpImportProgress(0)
+    setError(null)
+    const selected = spFiles.filter((f) => spSelected.has(f.id))
+    let imported = 0
+
+    for (const file of selected) {
+      try {
+        await fetch('/api/compliance/policies', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            companyId,
+            title: file.name.replace(/\.[^.]+$/, ''),
+            content: `[SHAREPOINT:${file.webUrl}]`,
+            source: 'sharepoint',
+            category: '',
+            analyze: true,
+          }),
+        })
+        imported++
+        setSpImportProgress(Math.round((imported / selected.length) * 100))
+      } catch {
+        // Continue with remaining files
+      }
+    }
+
+    setSpImporting(false)
+    setSpFiles([])
+    setSpSelected(new Set())
+    setSharepointUrl('')
+    setShowAddForm(false)
+    await loadPolicies()
+  }
+
+  const toggleSpFile = (id: string) => {
+    setSpSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   }
 
   const getAnalysisForPolicy = (policyId: string): PolicyAnalysis | undefined => {
@@ -298,48 +383,114 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
           {addMode === 'sharepoint' && (
             <div className="space-y-3">
               <div>
-                <label className="text-sm text-slate-300 mb-1 block">SharePoint Document URL</label>
-                <input
-                  type="url"
-                  value={sharepointUrl}
-                  onChange={(e) => setSharepointUrl(e.target.value)}
-                  placeholder="https://yourcompany.sharepoint.com/sites/Policies/Shared Documents/..."
-                  className="w-full bg-slate-900/50 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
-                />
+                <label className="text-sm text-slate-300 mb-1 block">SharePoint Folder URL</label>
+                <div className="flex gap-2">
+                  <input
+                    type="url"
+                    value={sharepointUrl}
+                    onChange={(e) => setSharepointUrl(e.target.value)}
+                    placeholder="https://yourcompany.sharepoint.com/sites/Policies/Shared Documents/Compliance"
+                    className="flex-1 bg-slate-900/50 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+                  />
+                  <button
+                    onClick={scanSharePointFolder}
+                    disabled={spScanning || !sharepointUrl.trim()}
+                    className="px-4 py-2 bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 rounded-lg text-sm font-medium hover:bg-cyan-500/30 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                  >
+                    {spScanning ? 'Scanning...' : 'Scan Folder'}
+                  </button>
+                </div>
               </div>
               <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
                 <p className="text-sm text-blue-300">
-                  The system will use the customer&apos;s M365 Graph credentials to fetch the document from SharePoint.
-                  The customer must have M365 configured with <code className="text-cyan-400">Sites.Read.All</code> permission
-                  on their app registration.
+                  Point to a SharePoint folder containing policy documents. The system will scan for all
+                  .txt, .md, .pdf, and .docx files. You can select which ones to import and analyze.
+                  Requires <code className="text-cyan-400">Sites.Read.All</code> permission on the customer&apos;s app registration.
                 </p>
               </div>
+
+              {/* Scanned files list */}
+              {spFiles.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-white font-medium">{spFiles.length} documents found</p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setSpSelected(new Set(spFiles.map((f) => f.id)))}
+                        className="text-xs text-cyan-400 hover:text-cyan-300"
+                      >
+                        Select all
+                      </button>
+                      <button
+                        onClick={() => setSpSelected(new Set())}
+                        className="text-xs text-slate-400 hover:text-slate-300"
+                      >
+                        Deselect all
+                      </button>
+                    </div>
+                  </div>
+                  <div className="max-h-64 overflow-y-auto space-y-1">
+                    {spFiles.map((file) => (
+                      <label
+                        key={file.id}
+                        className="flex items-center gap-3 p-2 rounded-lg bg-slate-900/30 hover:bg-slate-900/50 cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={spSelected.has(file.id)}
+                          onChange={() => toggleSpFile(file.id)}
+                          className="rounded border-white/20 bg-slate-800 text-cyan-500 focus:ring-cyan-500/50"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm text-white truncate">{file.name}</p>
+                          <p className="text-xs text-slate-500">
+                            {(file.size / 1024).toFixed(0)}KB &middot; Modified {new Date(file.lastModified).toLocaleDateString()}
+                          </p>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                  <button
+                    onClick={importSelectedFiles}
+                    disabled={spImporting || spSelected.size === 0}
+                    className="w-full px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-white rounded-lg font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  >
+                    {spImporting
+                      ? `Importing & Analyzing... ${spImportProgress}%`
+                      : `Import & Analyze ${spSelected.size} Document${spSelected.size === 1 ? '' : 's'}`}
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
-          {/* Submit */}
-          <div className="flex justify-end gap-3">
-            <button
-              onClick={() => setShowAddForm(false)}
-              className="px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleSubmit}
-              disabled={submitting || !title.trim() || (addMode !== 'sharepoint' && !content.trim()) || (addMode === 'sharepoint' && !sharepointUrl.trim())}
-              className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-white rounded-lg font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-            >
-              {submitting ? (
-                <>
-                  <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2" />
-                  Analyzing...
-                </>
-              ) : (
-                'Submit & Analyze'
+          {/* Submit — only show for paste/upload modes, or sharepoint with no scanned files */}
+          {(addMode !== 'sharepoint' || spFiles.length === 0) && (
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setShowAddForm(false)}
+                className="px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors"
+              >
+                Cancel
+              </button>
+              {addMode !== 'sharepoint' && (
+                <button
+                  onClick={handleSubmit}
+                  disabled={submitting || !title.trim() || !content.trim()}
+                  className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-white rounded-lg font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                >
+                  {submitting ? (
+                    <>
+                      <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2" />
+                      Analyzing...
+                    </>
+                  ) : (
+                    'Submit & Analyze'
+                  )}
+                </button>
               )}
-            </button>
-          </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -389,7 +540,7 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
                     <div className="min-w-0">
                       <h4 className="text-sm font-medium text-white truncate">{policy.title}</h4>
                       <p className="text-xs text-slate-400">
-                        {getSourceLabel(policy.source)} {policy.category ? `\u2022 ${policy.category}` : ''} \u2022{' '}
+                        {getSourceLabel(policy.source)} {policy.category ? `&bull; ${policy.category}` : ''} &bull;{' '}
                         {new Date(policy.createdAt).toLocaleDateString()}
                       </p>
                     </div>
@@ -407,7 +558,7 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
                         {analysis.status}
                       </span>
                     )}
-                    <span className="text-slate-500 text-sm">{isExpanded ? '\u25B2' : '\u25BC'}</span>
+                    <span className="text-slate-500 text-sm">{isExpanded ? '&#9650;' : '&#9660;'}</span>
                   </div>
                 </div>
 
@@ -482,7 +633,7 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
                         <ul className="space-y-1">
                           {(analysis.gaps as string[]).map((gap, i) => (
                             <li key={i} className="text-xs text-slate-400 flex gap-2">
-                              <span className="text-red-400 flex-shrink-0">\u2022</span>
+                              <span className="text-red-400 flex-shrink-0">&bull;</span>
                               {gap}
                             </li>
                           ))}
@@ -497,7 +648,7 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
                         <ul className="space-y-1">
                           {(analysis.recommendations as string[]).map((rec, i) => (
                             <li key={i} className="text-xs text-slate-400 flex gap-2">
-                              <span className="text-cyan-400 flex-shrink-0">\u2192</span>
+                              <span className="text-cyan-400 flex-shrink-0">&rarr;</span>
                               {rec}
                             </li>
                           ))}

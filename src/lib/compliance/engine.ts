@@ -18,7 +18,7 @@ import type { PoolClient } from 'pg'
 import { ensureComplianceTables } from './ensure-tables'
 import { collectGraphEvidence } from './collectors/graph'
 import { collectDattoRmmEvidence, collectDattoBcdrEvidence, collectDnsFilterEvidence, collectDomotzEvidence, collectItGlueEvidence, collectSaasAlertsEvidence, collectUbiquitiEvidence, collectMyItProcessEvidence } from './collectors/msp'
-import { CIS_V8_FRAMEWORK, CIS_V8_EVALUATORS } from './frameworks/cis-v8'
+import { CIS_V8_FRAMEWORK, CIS_V8_EVALUATORS, applyPolicyCoverage } from './frameworks/cis-v8'
 import {
   compareControlIds,
   EVIDENCE_TO_CONNECTOR,
@@ -489,6 +489,47 @@ async function loadEnvironmentContext(existingClient?: PoolClient): Promise<Envi
 }
 
 /**
+ * Load policy analyses for a company and build a coverage map.
+ * Maps controlId → array of policies that satisfy or partially satisfy it.
+ */
+async function loadPolicyCoverage(
+  companyId: string, client: PoolClient
+): Promise<Map<string, Array<{ policyTitle: string; status: 'satisfied' | 'partial' }>>> {
+  const map = new Map<string, Array<{ policyTitle: string; status: 'satisfied' | 'partial' }>>()
+  try {
+    // Join policies with their analyses to get control coverage
+    const res = await client.query<{
+      title: string
+      satisfiedControls: string[]
+      partialControls: string[]
+    }>(
+      `SELECT p.title, a."satisfiedControls", a."partialControls"
+       FROM compliance_policies p
+       JOIN compliance_policy_analyses a ON a."policyId" = p.id
+       WHERE p."companyId" = $1 AND a.status = 'complete'
+       ORDER BY a."analyzedAt" DESC`,
+      [companyId]
+    )
+    for (const row of res.rows) {
+      const satisfied = Array.isArray(row.satisfiedControls) ? row.satisfiedControls : []
+      const partial = Array.isArray(row.partialControls) ? row.partialControls : []
+      for (const controlId of satisfied) {
+        const existing = map.get(controlId) ?? []
+        existing.push({ policyTitle: row.title, status: 'satisfied' })
+        map.set(controlId, existing)
+      }
+      for (const controlId of partial) {
+        if (!map.has(controlId)) map.set(controlId, [])
+        map.get(controlId)!.push({ policyTitle: row.title, status: 'partial' })
+      }
+    }
+  } catch {
+    // Tables may not exist yet
+  }
+  return map
+}
+
+/**
  * Load tool deployment toggles for a company from the compliance_company_tools table.
  */
 async function loadDeployedTools(
@@ -695,6 +736,9 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
     // Load tool deployment toggles
     const deployedTools = await loadDeployedTools(assessment.companyId, client)
 
+    // Load policy analyses — build a map of controlId → policies that cover it
+    const policyCoverage = await loadPolicyCoverage(assessment.companyId, client)
+
     const ctx: EvaluationContext = {
       companyId: assessment.companyId,
       assessmentId,
@@ -704,13 +748,16 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
       toolResolutions,
       environment,
       deployedTools,
+      policyCoverage,
     }
 
     const findings: Array<Omit<Finding, 'id'>> = []
     for (const control of framework.controls) {
       const evaluator = evaluators[control.controlId]
       if (evaluator) {
-        const evalResult = evaluator(ctx)
+        const rawResult = evaluator(ctx)
+        // Apply policy coverage upgrade — upgrades needs_review/partial to pass if policy satisfies
+        const evalResult = applyPolicyCoverage(rawResult, ctx)
         findings.push({
           assessmentId, controlId: evalResult.controlId, status: evalResult.status,
           confidence: evalResult.confidence, reasoning: evalResult.reasoning,
