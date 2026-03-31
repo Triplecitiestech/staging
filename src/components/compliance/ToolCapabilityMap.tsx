@@ -42,14 +42,44 @@ interface Props {
   companies: Array<{ id: string; name: string }>
 }
 
+interface CompanyToolStatus {
+  toolId: string
+  deployed: boolean
+  notes: string | null
+  deployedBy: string | null
+  deployedAt: string | null
+}
+
 export default function ToolCapabilityMap({ companies }: Props) {
   const [tools, setTools] = useState<Tool[]>([])
   const [capabilities, setCapabilities] = useState<Capability[]>([])
   const [gapAnalysis, setGapAnalysis] = useState<GapAnalysis | null>(null)
+  const [companyTools, setCompanyTools] = useState<CompanyToolStatus[]>([])
   const [selectedCompany, setSelectedCompany] = useState('')
   const [selectedFramework, setSelectedFramework] = useState('cis-v8-ig1')
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState<'tools' | 'matrix' | 'gaps'>('tools')
+
+  const loadCompanyTools = useCallback(async (companyId: string) => {
+    if (!companyId) { setCompanyTools([]); return }
+    try {
+      const res = await fetch(`/api/compliance/registry/company-tools?companyId=${companyId}`)
+      const json = await res.json()
+      if (json.success) setCompanyTools(json.data)
+    } catch { /* ignore */ }
+  }, [])
+
+  const toggleToolDeployment = async (toolId: string, deployed: boolean) => {
+    if (!selectedCompany) return
+    try {
+      await fetch('/api/compliance/registry/company-tools', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId: selectedCompany, toolId, deployed }),
+      })
+      await loadCompanyTools(selectedCompany)
+    } catch { /* ignore */ }
+  }
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -67,7 +97,8 @@ export default function ToolCapabilityMap({ companies }: Props) {
       }
     } catch { /* ignore */ }
     finally { setLoading(false) }
-  }, [selectedCompany, selectedFramework])
+    if (selectedCompany) loadCompanyTools(selectedCompany)
+  }, [selectedCompany, selectedFramework, loadCompanyTools])
 
   useEffect(() => { loadData() }, [loadData])
 
@@ -135,13 +166,13 @@ export default function ToolCapabilityMap({ companies }: Props) {
               <div>
                 <h2 className="text-sm font-semibold text-green-400 uppercase tracking-wider mb-3">Integrated Tools ({integratedTools.length})</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {integratedTools.map((tool) => <ToolCard key={tool.toolId} tool={tool} statusColors={statusColors} statusLabels={statusLabels} confidenceColors={confidenceColors} />)}
+                  {integratedTools.map((tool) => <ToolCard key={tool.toolId} tool={tool} statusColors={statusColors} statusLabels={statusLabels} confidenceColors={confidenceColors} deployed={companyTools.find((ct) => ct.toolId === tool.toolId)?.deployed} showToggle={!!selectedCompany} onToggle={(deployed) => toggleToolDeployment(tool.toolId, deployed)} />)}
                 </div>
               </div>
               <div>
                 <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">Known Tools — Not Yet Integrated ({knownTools.length})</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {knownTools.map((tool) => <ToolCard key={tool.toolId} tool={tool} statusColors={statusColors} statusLabels={statusLabels} confidenceColors={confidenceColors} />)}
+                  {knownTools.map((tool) => <ToolCard key={tool.toolId} tool={tool} statusColors={statusColors} statusLabels={statusLabels} confidenceColors={confidenceColors} deployed={companyTools.find((ct) => ct.toolId === tool.toolId)?.deployed} showToggle={!!selectedCompany} onToggle={(deployed) => toggleToolDeployment(tool.toolId, deployed)} />)}
                 </div>
               </div>
             </div>
@@ -237,25 +268,42 @@ export default function ToolCapabilityMap({ companies }: Props) {
   )
 }
 
-function ToolCard({ tool, statusColors, statusLabels, confidenceColors }: {
+function ToolCard({ tool, statusColors, statusLabels, confidenceColors, deployed, showToggle, onToggle }: {
   tool: Tool
   statusColors: Record<string, string>
   statusLabels: Record<string, string>
   confidenceColors: Record<string, string>
+  deployed?: boolean
+  showToggle: boolean
+  onToggle: (deployed: boolean) => void
 }) {
   const [expanded, setExpanded] = useState(false)
 
   return (
-    <div className="bg-slate-800/50 border border-white/10 rounded-lg p-4">
+    <div className={`bg-slate-800/50 border rounded-lg p-4 ${deployed ? 'border-green-500/30' : 'border-white/10'}`}>
       <div className="flex items-start justify-between mb-2">
         <div>
           <h3 className="text-sm font-semibold text-white">{tool.name}</h3>
           <p className="text-xs text-slate-500">{tool.vendor} — {tool.category}</p>
         </div>
-        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${statusColors[tool.integrationStatus]}`}>
-          {statusLabels[tool.integrationStatus]}
-        </span>
+        <div className="flex items-center gap-2">
+          {showToggle && (
+            <button
+              onClick={() => onToggle(!deployed)}
+              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${deployed ? 'bg-green-500' : 'bg-slate-600'}`}
+              title={deployed ? 'Deployed for this customer' : 'Not deployed for this customer'}
+            >
+              <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${deployed ? 'translate-x-[18px]' : 'translate-x-[3px]'}`} />
+            </button>
+          )}
+          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${statusColors[tool.integrationStatus]}`}>
+            {statusLabels[tool.integrationStatus]}
+          </span>
+        </div>
       </div>
+      {showToggle && deployed && tool.integrationStatus !== 'integrated' && (
+        <p className="text-xs text-green-400/80 mb-2">Deployed (attestation) — controls auto-satisfied at low confidence</p>
+      )}
       <p className="text-xs text-slate-400 mb-3">{tool.description}</p>
       <button onClick={() => setExpanded(!expanded)} className="text-xs text-cyan-400 hover:text-cyan-300">
         {tool.capabilityCount} capabilities {expanded ? '▲' : '▼'}
