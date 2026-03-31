@@ -252,6 +252,18 @@ export const DEFAULT_TOOLS: ToolDefinition[] = [
         evidenceSourceTypes: ['ubiquiti_network'] },
     ],
   },
+
+  {
+    toolId: 'myitprocess', name: 'MyITProcess', vendor: 'Kaseya (TruMethods)',
+    category: 'vCIO & Standards',
+    integrationStatus: 'integrated', connectorType: 'myitprocess',
+    description: 'vCIO platform for IT standards alignment, technology reviews, recommendations, and QBR meetings.',
+    capabilities: [
+      { capabilityId: 'standards_alignment', confidence: 'authoritative',
+        dataDescription: 'Client alignment scores, review findings, standard question results, recommendations',
+        evidenceSourceTypes: ['myitprocess_alignment'] },
+    ],
+  },
 ]
 
 export const TOOL_MAP = new Map(DEFAULT_TOOLS.map((t) => [t.toolId, t]))
