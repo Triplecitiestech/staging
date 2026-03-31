@@ -55,7 +55,7 @@ const nextConfig = {
           // Permissions Policy
           {
             key: 'Permissions-Policy',
-            value: 'camera=(), microphone=(), geolocation=(), interest-cohort=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()',
+            value: 'camera=(), microphone=(self), geolocation=(), interest-cohort=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()',
           },
           // Strict Transport Security (HTTPS only)
           {
