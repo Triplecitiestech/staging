@@ -45,11 +45,17 @@ export default async function CompliancePage() {
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-gray-900 to-slate-950">
       <AdminHeader />
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold text-white">Compliance Evidence Engine</h1>
+        <div className="mb-8 flex items-start justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-white">Compliance Evidence Engine</h1>
           <p className="text-slate-400 mt-1">
             Assess customer compliance posture using real data from managed tools
           </p>
+          </div>
+          <a href="/admin/compliance/setup"
+            className="inline-flex items-center px-3 py-2 bg-slate-700/50 hover:bg-slate-600/50 text-slate-300 hover:text-white rounded-lg text-sm transition-colors whitespace-nowrap">
+            MSP Setup
+          </a>
         </div>
         <ComplianceDashboard companies={companies} />
       </main>
