@@ -17,7 +17,7 @@ import { getPool } from '@/lib/db-pool'
 import type { PoolClient } from 'pg'
 import { ensureComplianceTables } from './ensure-tables'
 import { collectGraphEvidence } from './collectors/graph'
-import { collectDattoRmmEvidence, collectDattoBcdrEvidence, collectDnsFilterEvidence, collectDomotzEvidence, collectItGlueEvidence, collectSaasAlertsEvidence } from './collectors/msp'
+import { collectDattoRmmEvidence, collectDattoBcdrEvidence, collectDnsFilterEvidence, collectDomotzEvidence, collectItGlueEvidence, collectSaasAlertsEvidence, collectUbiquitiEvidence } from './collectors/msp'
 import { CIS_V8_FRAMEWORK, CIS_V8_EVALUATORS } from './frameworks/cis-v8'
 import {
   compareControlIds,
@@ -30,6 +30,7 @@ import type {
   AssessmentComparison,
   ConnectorState,
   ConnectorType,
+  EnvironmentContext,
   EvaluationContext,
   EvidenceRecord,
   EvidenceSourceType,
@@ -39,6 +40,7 @@ import type {
   ComplianceDashboard,
   AssessmentSummary,
   CsvExportRow,
+  ToolDeployment,
 } from './types'
 
 // ---------------------------------------------------------------------------
@@ -147,6 +149,9 @@ export async function detectConnectors(companyId: string): Promise<ConnectorStat
     }
     if (process.env.SAAS_ALERTS_API_KEY) {
       await upsertConnector(companyId, 'saas_alerts', 'verified', null, 'env.SAAS_ALERTS_*')
+    }
+    if (process.env.UBIQUITI_API_KEY) {
+      await upsertConnector(companyId, 'ubiquiti', 'verified', null, 'env.UBIQUITI_*')
     }
 
     return getConnectors(companyId)
@@ -360,6 +365,90 @@ export async function deleteAssessment(assessmentId: string, actor: string): Pro
 }
 
 // ---------------------------------------------------------------------------
+// Environment context + tool deployment loaders
+// ---------------------------------------------------------------------------
+
+/**
+ * Load MSP setup wizard answers and derive environment context.
+ * Maps setup question labels to structured flags for evaluators.
+ */
+async function loadEnvironmentContext(): Promise<EnvironmentContext | undefined> {
+  const pool = getPool()
+  const client = await pool.connect()
+  try {
+    const res = await client.query<{ answers: Array<{ questionId: string; toolId: string | null; notes: string }> }>(
+      `SELECT answers FROM compliance_msp_setup WHERE id = 'msp_setup'`
+    )
+    if (res.rows.length === 0) return undefined
+    const answers = res.rows[0].answers ?? []
+    if (answers.length === 0) return undefined
+
+    const rawAnswers: Record<string, string> = {}
+    let remoteAccess: string | null = null
+    let onPremServers: string | null = null
+    let customApps: string | null = null
+    let byodPolicy: string | null = null
+
+    for (const a of answers) {
+      // Store label from notes field (setup wizard stores label in notes when toolId is null)
+      rawAnswers[a.questionId] = a.notes || a.toolId || ''
+
+      // Map specific answers to structured flags
+      if (a.questionId === 'remote_access') {
+        const label = (a.notes || '').toLowerCase()
+        if (label.includes('cloud-only') || label.includes('no vpn')) remoteAccess = 'cloud_only'
+        else if (label.includes('vpn required')) remoteAccess = 'vpn_required'
+        else if (label.includes('hybrid')) remoteAccess = 'hybrid'
+      }
+      if (a.questionId === 'on_prem_servers') {
+        const label = (a.notes || '').toLowerCase()
+        if (label.includes('no on-prem') || label.includes('fully cloud')) onPremServers = 'no_servers'
+        else if (label.includes('bcdr')) onPremServers = 'yes_bcdr'
+        else onPremServers = 'yes_mixed'
+      }
+      if (a.questionId === 'custom_apps') {
+        const label = (a.notes || '').toLowerCase()
+        customApps = label.includes('no') || label.includes('standard') ? 'no' : 'yes'
+      }
+      if (a.questionId === 'byod_policy') {
+        const label = (a.notes || '').toLowerCase()
+        if (label.includes('company-owned')) byodPolicy = 'company_owned'
+        else if (label.includes('no management') || label.includes('no mdm')) byodPolicy = 'byod_unmanaged'
+        else byodPolicy = 'byod_managed'
+      }
+    }
+
+    return { remoteAccess, onPremServers, customApps, byodPolicy, rawAnswers }
+  } catch (err) {
+    console.error('[compliance] Failed to load environment context:', err)
+    return undefined
+  } finally {
+    client.release()
+  }
+}
+
+/**
+ * Load tool deployment toggles for a company from the compliance_company_tools table.
+ */
+async function loadDeployedTools(
+  companyId: string, client: PoolClient
+): Promise<Map<string, ToolDeployment>> {
+  const map = new Map<string, ToolDeployment>()
+  try {
+    const res = await client.query<{ toolId: string; deployed: boolean; notes: string | null }>(
+      `SELECT "toolId", deployed, notes FROM compliance_company_tools WHERE "companyId" = $1`,
+      [companyId]
+    )
+    for (const row of res.rows) {
+      map.set(row.toolId, { toolId: row.toolId, deployed: row.deployed, notes: row.notes })
+    }
+  } catch {
+    // Table may not exist yet — that's fine, return empty
+  }
+  return map
+}
+
+// ---------------------------------------------------------------------------
 // Run a full assessment — collects from ALL available connectors
 // ---------------------------------------------------------------------------
 
@@ -522,6 +611,24 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
       }
     }
 
+    // --- Collect from Ubiquiti UniFi ---
+    if (availableConnectors.has('ubiquiti')) {
+      try {
+        const ubResult = await collectUbiquitiEvidence(assessment.companyId, assessmentId)
+        collectionErrors.push(...ubResult.errors)
+        if (ubResult.evidence.length > 0) {
+          const stored = await storeEvidence(client, ubResult.evidence)
+          allEvidence.push(...stored)
+        }
+        if (ubResult.errors.length > 0 && ubResult.evidence.length === 0) {
+          failedConnectors.add('ubiquiti')
+        }
+      } catch (err) {
+        failedConnectors.add('ubiquiti')
+        collectionErrors.push(`Ubiquiti: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+
     // Update connector lastCollectedAt for successful collections
     for (const ev of allEvidence) {
       const connector = EVIDENCE_TO_CONNECTOR[ev.sourceType as EvidenceSourceType]
@@ -558,6 +665,12 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
     const controlIds = framework.controls.map((c) => c.controlId)
     const toolResolutions = resolveAllControls(controlIds, availableConnectors)
 
+    // Load environment context from setup wizard answers
+    const environment = await loadEnvironmentContext()
+
+    // Load tool deployment toggles
+    const deployedTools = await loadDeployedTools(assessment.companyId, client)
+
     const ctx: EvaluationContext = {
       companyId: assessment.companyId,
       assessmentId,
@@ -565,6 +678,8 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
       availableConnectors,
       failedConnectors,
       toolResolutions,
+      environment,
+      deployedTools,
     }
 
     const findings: Array<Omit<Finding, 'id'>> = []
@@ -596,7 +711,8 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
     const failed = findings.filter((f) => f.status === 'fail').length
     const partial = findings.filter((f) => f.status === 'partial').length
     const needsReview = findings.filter((f) => f.status === 'needs_review').length
-    const notAssessed = findings.filter((f) => f.status === 'not_assessed' || f.status === 'not_applicable').length
+    const notApplicable = findings.filter((f) => f.status === 'not_applicable').length
+    const notAssessed = findings.filter((f) => f.status === 'not_assessed').length
     const collectionFailed = findings.filter((f) => f.status === 'collection_failed').length
 
     await client.query(
@@ -604,11 +720,11 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
        SET status = 'complete', "completedAt" = NOW(),
            "passedControls" = $1, "failedControls" = $2, "manualReviewControls" = $3
        WHERE id = $4`,
-      [passed, failed, partial + needsReview + notAssessed + collectionFailed, assessmentId]
+      [passed, failed, partial + needsReview + notAssessed + notApplicable + collectionFailed, assessmentId]
     )
 
     await logAudit(client, assessment.companyId, assessmentId, 'assessment_completed', actor, {
-      passed, failed, partial, needsReview, notAssessed, collectionFailed,
+      passed, failed, partial, needsReview, notApplicable, notAssessed, collectionFailed,
     })
 
     return {
