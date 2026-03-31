@@ -392,9 +392,9 @@ export async function deleteAssessment(assessmentId: string, actor: string): Pro
  * Load MSP setup wizard answers and derive environment context.
  * Maps setup question labels to structured flags for evaluators.
  */
-async function loadEnvironmentContext(): Promise<EnvironmentContext | undefined> {
+async function loadEnvironmentContext(existingClient?: PoolClient): Promise<EnvironmentContext | undefined> {
   const pool = getPool()
-  const client = await pool.connect()
+  const client = existingClient ?? await pool.connect()
   try {
     const res = await client.query<{ answers: Array<{ questionId: string; toolId: string | null; notes: string }> }>(
       `SELECT answers FROM compliance_msp_setup WHERE id = 'msp_setup'`
@@ -443,7 +443,7 @@ async function loadEnvironmentContext(): Promise<EnvironmentContext | undefined>
     console.error('[compliance] Failed to load environment context:', err)
     return undefined
   } finally {
-    client.release()
+    if (!existingClient) client.release()
   }
 }
 
@@ -631,7 +631,7 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
     const toolResolutions = resolveAllControls(controlIds, availableConnectors)
 
     // Load environment context from setup wizard answers
-    const environment = await loadEnvironmentContext()
+    const environment = await loadEnvironmentContext(client)
 
     // Load tool deployment toggles
     const deployedTools = await loadDeployedTools(assessment.companyId, client)
@@ -773,8 +773,22 @@ export async function getComplianceDashboard(companyId: string): Promise<Complia
       `SELECT "displayName" FROM companies WHERE id = $1`, [companyId]
     )
     const companyName = companyRes.rows[0]?.displayName ?? 'Unknown'
-    const connectors = await getConnectors(companyId)
-    const assessments = await listAssessments(companyId)
+
+    // All queries use the SAME client — no extra pool.connect() calls
+    const connRes = await client.query<ConnectorState>(
+      `SELECT id, "companyId", "connectorType", status, "lastCollectedAt", "errorMessage", "configRef"
+       FROM compliance_connectors WHERE "companyId" = $1`,
+      [companyId]
+    )
+    const connectors = connRes.rows
+
+    const assRes = await client.query<Assessment>(
+      `SELECT id, "companyId", "frameworkId", status, "createdAt", "completedAt",
+              "createdBy", "totalControls", "passedControls", "failedControls", "manualReviewControls"
+       FROM compliance_assessments WHERE "companyId" = $1 ORDER BY "createdAt" DESC`,
+      [companyId]
+    )
+    const assessments = assRes.rows
 
     const latest = assessments.find((a) => a.status === 'complete')
     let latestScorePercent: number | null = null
@@ -801,23 +815,83 @@ export async function getComplianceDashboard(companyId: string): Promise<Complia
 }
 
 export async function getAssessmentSummary(assessmentId: string): Promise<AssessmentSummary | null> {
-  const assessment = await getAssessment(assessmentId)
-  if (!assessment) return null
+  await ensureComplianceTables()
+  const pool = getPool()
+  const client = await pool.connect()
+  try {
+    // All queries use the SAME client
+    const assRes = await client.query<Assessment>(
+      `SELECT id, "companyId", "frameworkId", status, "createdAt", "completedAt",
+              "createdBy", "totalControls", "passedControls", "failedControls", "manualReviewControls"
+       FROM compliance_assessments WHERE id = $1`,
+      [assessmentId]
+    )
+    if (assRes.rows.length === 0) return null
+    const assessment = assRes.rows[0]
 
-  const findings = await getFindings(assessmentId)
-  const framework = getFrameworkDefinition(assessment.frameworkId as FrameworkId)
+    const findRes = await client.query<Finding>(
+      `SELECT id, "assessmentId", "controlId", status, confidence, reasoning,
+              "evidenceIds", "missingEvidence", remediation, "evaluatedAt",
+              "overrideStatus", "overrideReason", "overrideBy", "overrideAt"
+       FROM compliance_findings WHERE "assessmentId" = $1`,
+      [assessmentId]
+    )
+    const findings = sortFindings(findRes.rows)
+    const framework = getFrameworkDefinition(assessment.frameworkId as FrameworkId)
 
-  // Find previous completed assessment for comparison
-  let comparison: AssessmentComparison | null = null
-  const allAssessments = await listAssessments(assessment.companyId)
-  const completedBefore = allAssessments.filter(
-    (a) => a.status === 'complete' && a.id !== assessmentId && a.createdAt < assessment.createdAt
-  )
-  if (completedBefore.length > 0) {
-    comparison = await compareAssessments(assessmentId, completedBefore[0].id)
+    // Find previous completed assessment for comparison
+    let comparison: AssessmentComparison | null = null
+    const prevRes = await client.query<Assessment>(
+      `SELECT id, "companyId", "frameworkId", status, "createdAt", "completedAt",
+              "createdBy", "totalControls", "passedControls", "failedControls", "manualReviewControls"
+       FROM compliance_assessments
+       WHERE "companyId" = $1 AND status = 'complete' AND id != $2 AND "createdAt" < $3
+       ORDER BY "createdAt" DESC LIMIT 1`,
+      [assessment.companyId, assessmentId, assessment.createdAt]
+    )
+    if (prevRes.rows.length > 0) {
+      const prev = prevRes.rows[0]
+      const prevFindings = await client.query<Finding>(
+        `SELECT id, "assessmentId", "controlId", status, confidence, reasoning,
+                "evidenceIds", "missingEvidence", remediation, "evaluatedAt",
+                "overrideStatus", "overrideReason", "overrideBy", "overrideAt"
+         FROM compliance_findings WHERE "assessmentId" = $1`,
+        [prev.id]
+      )
+      // Compute comparison inline
+      const prevMap = new Map(prevFindings.rows.map((f) => [f.controlId, f]))
+      const statusRank: Record<string, number> = { pass: 4, partial: 3, needs_review: 2, not_assessed: 1, collection_failed: 1, not_applicable: 0, fail: -1 }
+      const newlyPassed: string[] = [], newlyFailed: string[] = [], improved: string[] = [], regressed: string[] = [], unchanged: string[] = []
+
+      for (const curr of findings) {
+        const p = prevMap.get(curr.controlId)
+        const cs = (curr.overrideStatus ?? curr.status) as FindingStatus
+        const ps = p ? ((p.overrideStatus ?? p.status) as FindingStatus) : null
+        if (!ps) { unchanged.push(curr.controlId); continue }
+        const cr = statusRank[cs] ?? 0, pr = statusRank[ps] ?? 0
+        if (cs === ps) unchanged.push(curr.controlId)
+        else if (cs === 'pass' && ps !== 'pass') newlyPassed.push(curr.controlId)
+        else if (cs === 'fail' && ps !== 'fail') newlyFailed.push(curr.controlId)
+        else if (cr > pr) improved.push(curr.controlId)
+        else if (cr < pr) regressed.push(curr.controlId)
+        else unchanged.push(curr.controlId)
+      }
+
+      const currentScore = assessment.totalControls > 0 ? Math.round((assessment.passedControls / assessment.totalControls) * 100) : 0
+      const previousScore = prev.totalControls > 0 ? Math.round((prev.passedControls / prev.totalControls) * 100) : 0
+      comparison = {
+        currentId: assessmentId, previousId: prev.id,
+        currentDate: assessment.completedAt ?? assessment.createdAt,
+        previousDate: prev.completedAt ?? prev.createdAt,
+        currentScore, previousScore, scoreDelta: currentScore - previousScore,
+        newlyPassed, newlyFailed, improved, regressed, unchanged,
+      }
+    }
+
+    return { assessment, findings, frameworkName: framework.name, comparison }
+  } finally {
+    client.release()
   }
-
-  return { assessment, findings, frameworkName: framework.name, comparison }
 }
 
 // ---------------------------------------------------------------------------
