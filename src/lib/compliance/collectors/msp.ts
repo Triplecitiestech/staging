@@ -293,6 +293,8 @@ export async function collectDomotzEvidence(
     return { evidence, errors: ['Domotz: DOMOTZ_API_KEY or DOMOTZ_API_URL not configured'] }
   }
 
+  const companyName = await getCompanyDisplayName(companyId)
+
   try {
     const { DomotzClient } = await import('@/lib/domotz')
     const client = new DomotzClient()
@@ -303,15 +305,63 @@ export async function collectDomotzEvidence(
     }
 
     if (summary.totalDevices === 0) {
-      return { evidence, errors: [] } // No devices discovered — don't store empty evidence
+      return { evidence, errors: [] }
     }
 
-    // Count device types
+    // Try to match agents to this specific customer by name
+    // Domotz agents are usually named per-customer/site (e.g. "EZ Red - Main Office")
+    let matchedAgents = summary.agents
+    let matchedDevices = summary.devices
+    let matchNote = ''
+
+    if (companyName) {
+      const normalizedName = companyName.toLowerCase().replace(/[^a-z0-9]/g, '')
+      const nameWords = companyName.toLowerCase().split(/\s+/).filter((w) => w.length >= 2)
+
+      const agentMatches = summary.agents.filter((a) => {
+        const agentNorm = a.name.toLowerCase()
+        const agentStripped = agentNorm.replace(/[^a-z0-9]/g, '')
+        // Exact substring
+        if (agentNorm.includes(companyName.toLowerCase())) return true
+        // Stripped comparison
+        if (agentStripped.includes(normalizedName) || normalizedName.includes(agentStripped)) return true
+        // All significant words present
+        if (nameWords.length >= 1 && nameWords.every((w) => agentNorm.includes(w))) return true
+        return false
+      })
+
+      if (agentMatches.length > 0) {
+        // Filter devices to only those from matched agents
+        const matchedAgentIds = new Set(agentMatches.map((a) => a.id))
+        matchedAgents = agentMatches
+        // We don't have agent ID on devices directly, so we need to re-fetch per matched agent
+        // For now, use the matched agents' device counts for summary
+        matchNote = `Matched ${agentMatches.length} agent(s): ${agentMatches.map((a) => a.name).join(', ')}`
+        // Use devices from matched agents only
+        const { DomotzClient: DC } = await import('@/lib/domotz')
+        const dc = new DC()
+        const filteredDevices: typeof summary.devices = []
+        for (const agent of agentMatches) {
+          try {
+            const agentDevices = await dc.getDevices(agent.id)
+            filteredDevices.push(...agentDevices)
+          } catch { /* use what we have */ }
+        }
+        if (filteredDevices.length > 0) {
+          matchedDevices = filteredDevices
+        }
+      } else {
+        matchNote = `No agent matched "${companyName}". All ${summary.agents.length} agents: ${summary.agents.map((a) => a.name).join(', ')}. Showing MSP-wide data.`
+        console.log(`[domotz] ${matchNote}`)
+      }
+    }
+
+    // Count device types from matched devices
     const deviceTypes: Record<string, number> = {}
     const uniqueMacs = new Set<string>()
     const uniqueIps = new Set<string>()
 
-    for (const d of summary.devices) {
+    for (const d of matchedDevices) {
       const typeLabel = d.type?.label ?? 'Unknown'
       deviceTypes[typeLabel] = (deviceTypes[typeLabel] ?? 0) + 1
       if (d.hw_address) uniqueMacs.add(d.hw_address.toLowerCase())
@@ -319,15 +369,17 @@ export async function collectDomotzEvidence(
     }
 
     evidence.push(buildEvidence(assessmentId, companyId, 'domotz_network_discovery' as EvidenceSourceType, {
-      totalDevices: summary.totalDevices,
+      totalDevices: matchedDevices.length,
       uniqueMacAddresses: uniqueMacs.size,
       uniqueIpAddresses: uniqueIps.size,
       discoveryActive: summary.discoveryActive,
-      agentCount: summary.agents.length,
-      agents: summary.agents,
+      agentCount: matchedAgents.length,
+      agents: matchedAgents,
       deviceTypes,
-      // Store a sample of devices (not all — could be hundreds)
-      deviceSample: summary.devices.slice(0, 50).map((d) => ({
+      matchNote,
+      mspWideTotalDevices: summary.totalDevices,
+      mspWideTotalAgents: summary.agents.length,
+      deviceSample: matchedDevices.slice(0, 50).map((d) => ({
         displayName: d.display_name,
         ipAddresses: d.ip_addresses,
         macAddress: d.hw_address,
@@ -336,7 +388,9 @@ export async function collectDomotzEvidence(
         importance: d.importance,
         firstSeen: d.first_seen_on,
       })),
-    }, `Domotz: ${summary.totalDevices} devices discovered (${uniqueMacs.size} unique MACs, ${uniqueIps.size} unique IPs) across ${summary.agents.length} collector(s). Discovery ${summary.discoveryActive ? 'active' : 'inactive'}.`))
+    }, matchNote
+      ? `Domotz: ${matchedDevices.length} devices (${uniqueMacs.size} unique MACs) from ${matchedAgents.length} agent(s). ${matchNote}. Discovery ${summary.discoveryActive ? 'active' : 'inactive'}.`
+      : `Domotz: ${matchedDevices.length} devices discovered (${uniqueMacs.size} unique MACs, ${uniqueIps.size} unique IPs) across ${matchedAgents.length} collector(s). Discovery ${summary.discoveryActive ? 'active' : 'inactive'}.`))
 
     return { evidence, errors }
   } catch (err) {

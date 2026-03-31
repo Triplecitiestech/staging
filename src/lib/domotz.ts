@@ -142,12 +142,21 @@ export class DomotzClient {
         }
       }
 
+      const agentStatuses = agentSummaries.map((a) => `${a.name}: ${a.status} (${a.deviceCount} devices)`)
+      console.log(`[domotz] Agents: ${agentStatuses.join(', ')}`)
+
+      // Check for online/active status (Domotz may use ONLINE, online, or ACTIVE)
+      const isActive = agentSummaries.some((a) => {
+        const s = (a.status ?? '').toUpperCase()
+        return s === 'ONLINE' || s === 'ACTIVE' || s === 'OK'
+      })
+
       return {
         available: true,
         agents: agentSummaries,
         totalDevices: allDevices.length,
         devices: allDevices,
-        discoveryActive: agentSummaries.some((a) => a.status === 'ONLINE'),
+        discoveryActive: isActive || allDevices.length > 0, // If we got devices, discovery is working
         note: agents.length > 10 ? `Showing devices from 10 of ${agents.length} agents` : null,
       }
     } catch (err) {
