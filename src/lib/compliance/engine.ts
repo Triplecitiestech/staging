@@ -631,7 +631,7 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
 
     // Update connector lastCollectedAt for ALL connectors that were attempted without failure
     // (not just ones that produced evidence — a successful empty result still counts as "collected")
-    for (const connectorType of availableConnectors) {
+    for (const connectorType of Array.from(availableConnectors)) {
       if (!failedConnectors.has(connectorType)) {
         try {
           await client.query(
