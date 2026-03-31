@@ -629,14 +629,14 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
       }
     }
 
-    // Update connector lastCollectedAt for successful collections
-    for (const ev of allEvidence) {
-      const connector = EVIDENCE_TO_CONNECTOR[ev.sourceType as EvidenceSourceType]
-      if (connector && !failedConnectors.has(connector)) {
+    // Update connector lastCollectedAt for ALL connectors that were attempted without failure
+    // (not just ones that produced evidence — a successful empty result still counts as "collected")
+    for (const connectorType of availableConnectors) {
+      if (!failedConnectors.has(connectorType)) {
         try {
           await client.query(
             `UPDATE compliance_connectors SET "lastCollectedAt" = NOW() WHERE "companyId" = $1 AND "connectorType" = $2`,
-            [assessment.companyId, connector]
+            [assessment.companyId, connectorType]
           )
         } catch { /* non-fatal */ }
       }

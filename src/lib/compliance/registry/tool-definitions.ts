@@ -244,12 +244,12 @@ export const DEFAULT_TOOLS: ToolDefinition[] = [
   {
     toolId: 'ubiquiti', name: 'Ubiquiti UniFi', vendor: 'Ubiquiti',
     category: 'Network Infrastructure',
-    integrationStatus: 'known', connectorType: null,
+    integrationStatus: 'integrated', connectorType: 'ubiquiti',
     description: 'Network infrastructure — managed switches, wireless access points, routers, security gateways.',
     capabilities: [
       { capabilityId: 'network_infrastructure', confidence: 'authoritative',
-        dataDescription: 'Switch/AP/router status, firmware versions, client connections, VLAN configuration',
-        evidenceSourceTypes: [] },
+        dataDescription: 'Switch/AP/router status, firmware versions, client connections, site inventory',
+        evidenceSourceTypes: ['ubiquiti_network'] },
     ],
   },
 ]

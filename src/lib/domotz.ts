@@ -120,10 +120,23 @@ export class DomotzClient {
       const allDevices: DomotzDevice[] = []
       const agentSummaries: DomotzNetworkSummary['agents'] = []
 
-      // Collect devices from up to 10 agents
-      for (const agent of agents.slice(0, 10)) {
-        try {
-          const devices = await this.getDevices(agent.id)
+      // Collect devices from up to 10 agents IN PARALLEL to avoid timeout
+      const agentBatch = agents.slice(0, 10)
+      const deviceResults = await Promise.allSettled(
+        agentBatch.map(async (agent) => {
+          try {
+            const devices = await this.getDevices(agent.id)
+            return { agent, devices }
+          } catch (err) {
+            console.error(`[domotz] Failed to get devices for agent ${agent.id} (${agent.display_name}):`, err instanceof Error ? err.message : String(err))
+            return { agent, devices: [] as DomotzDevice[] }
+          }
+        })
+      )
+
+      for (const settled of deviceResults) {
+        if (settled.status === 'fulfilled') {
+          const { agent, devices } = settled.value
           allDevices.push(...devices)
           agentSummaries.push({
             id: agent.id,
@@ -131,14 +144,9 @@ export class DomotzClient {
             status: agent.status,
             deviceCount: devices.length,
           })
-        } catch (err) {
-          console.error(`[domotz] Failed to get devices for agent ${agent.id}:`, err instanceof Error ? err.message : String(err))
-          agentSummaries.push({
-            id: agent.id,
-            name: agent.display_name,
-            status: agent.status,
-            deviceCount: 0,
-          })
+        } else {
+          // Promise rejected — shouldn't happen since we catch inside, but just in case
+          console.error(`[domotz] Agent fetch rejected:`, settled.reason)
         }
       }
 
