@@ -12,9 +12,13 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 export async function GET(request: NextRequest) {
-  const session = await auth()
-  if (!session?.user?.email) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Allow auth via session OR migration secret for PowerShell access
+  const secret = request.nextUrl.searchParams.get('secret')
+  if (secret !== process.env.MIGRATION_SECRET) {
+    const session = await auth()
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: 'Unauthorized. Add ?secret=MIGRATION_SECRET or use browser session.' }, { status: 401 })
+    }
   }
 
   const collector = request.nextUrl.searchParams.get('collector') ?? 'domotz'
