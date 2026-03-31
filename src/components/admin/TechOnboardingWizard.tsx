@@ -420,7 +420,11 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
                   </li>
                   <li>
                     Go to <strong>Certificates &amp; secrets → New client secret</strong>.
-                    Set expiry to 24 months. Copy the secret <em>value immediately</em> (shown once).
+                    Set expiry to 24 months.
+                    <div className="bg-red-500/10 border border-red-500/30 rounded px-3 py-2 mt-2 text-xs">
+                      <strong className="text-red-300">IMPORTANT:</strong>
+                      <span className="text-red-200"> Azure shows TWO columns — &ldquo;Value&rdquo; and &ldquo;Secret ID&rdquo;. You need the <strong>Value</strong> (starts with something like <code>OY58Q~...</code>). Do NOT copy the Secret ID (it looks like a GUID: <code>a8116ff3-2516-...</code>). The Value is only visible once — copy it immediately before navigating away.</span>
+                    </div>
                   </li>
                   <li>
                     Copy the <strong>Directory (tenant) ID</strong> and <strong>Application (client) ID</strong>
@@ -456,7 +460,7 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-1">
-                    Client Secret Value
+                    Client Secret Value <span className="text-xs text-slate-500 font-normal">(NOT the Secret ID)</span>
                     {company.m365_client_secret_set && (
                       <span className="ml-2 text-xs text-teal-400 font-normal">
                         (already set — only enter if rotating)
@@ -467,7 +471,7 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
                     type="password"
                     value={clientSecret}
                     onChange={(e) => setClientSecret(e.target.value)}
-                    placeholder={company.m365_client_secret_set ? '●●●●●●●● (leave blank to keep existing)' : 'Paste the secret value here'}
+                    placeholder={company.m365_client_secret_set ? '●●●●●●●● (leave blank to keep existing)' : 'Paste the Value column (NOT Secret ID)'}
                     className="w-full bg-slate-800 border border-white/10 rounded-lg px-4 py-2.5 text-white text-sm font-mono placeholder-gray-600 focus:outline-none focus:border-teal-500"
                   />
                 </div>
