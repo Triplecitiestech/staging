@@ -258,33 +258,60 @@ evaluators['cis-v8-6.1'] = (ctx: EvaluationContext): EvaluationResult => {
 evaluators['cis-v8-6.3'] = (ctx: EvaluationContext): EvaluationResult => {
   const mfa = ctx.evidence.get('microsoft_mfa')
   const ca = ctx.evidence.get('microsoft_conditional_access')
-  if (!mfa) return noEvidence('cis-v8-6.3', ['microsoft_mfa', 'microsoft_conditional_access'], ctx)
+  if (!mfa && !ca) return noEvidence('cis-v8-6.3', ['microsoft_mfa', 'microsoft_conditional_access'], ctx)
 
-  const mfaData = mfa.rawData as { totalUsers?: number; mfaRegisteredUsers?: number }
-  const total = mfaData.totalUsers ?? 0
-  const registered = mfaData.mfaRegisteredUsers ?? 0
-  const rate = total > 0 ? Math.round((registered / total) * 100) : 0
+  const mfaData = mfa?.rawData as { totalUsers?: number; mfaRegisteredUsers?: number | null; mfaRate?: number | null; permissionMissing?: string; note?: string } | undefined
+  const total = mfaData?.totalUsers ?? 0
+  const registered = mfaData?.mfaRegisteredUsers
+  const rate = registered !== null && registered !== undefined && total > 0 ? Math.round((registered / total) * 100) : null
 
-  const caData = ca?.rawData as { policies?: Array<{ state?: string; displayName?: string }> } | undefined
-  const mfaPolicies = (caData?.policies ?? []).filter(
-    (p) => p.state === 'enabled' && (p.displayName ?? '').toLowerCase().includes('mfa')
-  )
+  const caData = ca?.rawData as { policies?: Array<{ state?: string; displayName?: string }>; enabledPolicies?: number } | undefined
+  const allPolicies = caData?.policies ?? []
+  const enabledPolicies = allPolicies.filter((p) => p.state === 'enabled')
+  const mfaPolicies = enabledPolicies.filter((p) => {
+    const name = (p.displayName ?? '').toLowerCase()
+    return name.includes('mfa') || name.includes('multi-factor') || name.includes('multifactor')
+  })
+  const sources = ['microsoft_mfa', 'microsoft_conditional_access'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
 
-  if (rate >= 95 && mfaPolicies.length >= 1) {
+  // If MFA data is unavailable (permission missing), evaluate based on CA policies alone
+  if (rate === null && mfaData?.permissionMissing) {
+    if (enabledPolicies.length > 0) {
+      const policyList = enabledPolicies.map((p) => p.displayName).join(', ')
+      if (mfaPolicies.length > 0) {
+        return result('cis-v8-6.3', ctx, 'pass', 'medium',
+          `${enabledPolicies.length} Conditional Access policies active (${policyList}). ${mfaPolicies.length} explicitly require MFA. Per-user MFA registration details unavailable — add "UserAuthenticationMethod.Read.All" permission to the app registration for detailed MFA metrics.`,
+          sources, [])
+      }
+      return result('cis-v8-6.3', ctx, 'partial', 'low',
+        `${enabledPolicies.length} CA policies active (${policyList}) but none explicitly named for MFA. MFA may be enforced within these policies. Per-user data unavailable — add "UserAuthenticationMethod.Read.All" permission.`,
+        sources, [],
+        'Add "UserAuthenticationMethod.Read.All" permission to the app registration. Verify CA policies require MFA for all cloud apps.')
+    }
+    return result('cis-v8-6.3', ctx, 'needs_review', 'none',
+      `${total} users found but MFA registration data unavailable. Add "UserAuthenticationMethod.Read.All" Application permission to the customer's app registration in Azure AD and grant admin consent.`,
+      sources, [],
+      'Add "UserAuthenticationMethod.Read.All" Application permission in Azure AD > App registrations > API permissions > Add permission > Microsoft Graph > Application > UserAuthenticationMethod.Read.All. Then grant admin consent.')
+  }
+
+  // MFA data available
+  if (rate !== null && rate >= 95 && mfaPolicies.length >= 1) {
     return result('cis-v8-6.3', ctx, 'pass', 'high',
-      `MFA registered for ${rate}% of users with ${mfaPolicies.length} CA policy enforcing MFA on external access.`,
-      ['microsoft_mfa', 'microsoft_conditional_access'], [])
+      `MFA registered for ${rate}% of ${total} users. ${mfaPolicies.length} CA policy requires MFA: ${mfaPolicies.map((p) => p.displayName).join(', ')}. ${enabledPolicies.length} total CA policies active.`,
+      sources, [])
   }
-  if (rate >= 95) {
+  if (rate !== null && rate >= 95) {
     return result('cis-v8-6.3', ctx, 'pass', 'medium',
-      `MFA registered for ${rate}% of users. No explicit MFA-named CA policy found, but high registration rate provides coverage.`,
-      ['microsoft_mfa', 'microsoft_conditional_access'], [],
-      'Consider creating an explicit Conditional Access policy requiring MFA for all cloud apps.')
+      `MFA registered for ${rate}% of ${total} users. ${enabledPolicies.length} CA policies active: ${enabledPolicies.map((p) => p.displayName).join(', ')}.`,
+      sources, [])
   }
-  return result('cis-v8-6.3', ctx, 'fail', 'high',
-    `Only ${rate}% of users have MFA registered. External applications are vulnerable to credential attacks.`,
-    ['microsoft_mfa', 'microsoft_conditional_access'], [],
-    'Create a Conditional Access policy requiring MFA for all cloud applications and enforce MFA registration for all users.')
+  if (rate !== null) {
+    return result('cis-v8-6.3', ctx, 'fail', 'high',
+      `Only ${rate}% of ${total} users have MFA registered (${registered} of ${total}). ${enabledPolicies.length} CA policies exist but MFA coverage is insufficient.`,
+      sources, [],
+      'Create a Conditional Access policy requiring MFA for all cloud applications and enforce MFA registration for all users.')
+  }
+  return noEvidence('cis-v8-6.3', ['microsoft_mfa', 'microsoft_conditional_access'], ctx)
 }
 
 // --- 6.5 Require MFA for Administrative Access ---
