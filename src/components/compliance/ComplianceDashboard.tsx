@@ -14,7 +14,7 @@
  *   - CSV export
  */
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import type {
   Assessment,
   Finding,
@@ -545,6 +545,8 @@ function FindingRow({ finding, change, expanded, onToggle, assessmentId, onUpdat
   const [aiProcessing, setAiProcessing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [isListening, setIsListening] = useState(false)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null)
 
   const effectiveStatus = finding.overrideStatus ?? finding.status
 
@@ -568,27 +570,71 @@ function FindingRow({ finding, change, expanded, onToggle, assessmentId, onUpdat
   }
 
   const toggleListening = () => {
-    if (isListening) { setIsListening(false); return }
+    if (isListening && recognitionRef.current) {
+      recognitionRef.current.stop()
+      recognitionRef.current = null
+      setIsListening(false)
+      return
+    }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const SpeechRecognition = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition
-    if (!SpeechRecognition) { alert('Speech recognition is not supported in this browser.'); return }
+    const SpeechRecognitionCtor = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition
+    if (!SpeechRecognitionCtor) {
+      alert('Speech recognition is not supported in this browser. Use Chrome or Edge.')
+      return
+    }
 
-    const recognition = new SpeechRecognition()
-    recognition.continuous = false
-    recognition.interimResults = false
-    recognition.lang = 'en-US'
-    setIsListening(true)
+    try {
+      const recognition = new SpeechRecognitionCtor()
+      recognition.continuous = true
+      recognition.interimResults = true
+      recognition.lang = 'en-US'
+      recognitionRef.current = recognition
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    recognition.onresult = (event: any) => {
-      const transcript = event.results?.[0]?.[0]?.transcript ?? ''
-      if (transcript) setNoteText((prev: string) => prev ? `${prev} ${transcript}` : transcript)
+      let finalTranscript = ''
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      recognition.onresult = (event: any) => {
+        let interim = ''
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const result = event.results[i]
+          if (result.isFinal) {
+            finalTranscript += result[0].transcript + ' '
+          } else {
+            interim += result[0].transcript
+          }
+        }
+        // Show final + interim in the textarea as user speaks
+        setNoteText((prev: string) => {
+          const base = prev.replace(/\[listening\.\.\.\].*$/, '').trim()
+          const combined = ((base ? base + ' ' : '') + finalTranscript + (interim ? `[listening...] ${interim}` : '')).trim()
+          return combined
+        })
+      }
+
+      recognition.onerror = (e: { error: string }) => {
+        console.error('[speech] Error:', e.error)
+        if (e.error === 'not-allowed') {
+          alert('Microphone access was denied. Please allow microphone permission in your browser settings.')
+        }
+        recognitionRef.current = null
+        setIsListening(false)
+      }
+
+      recognition.onend = () => {
+        // Clean up interim markers
+        setNoteText((prev: string) => prev.replace(/\[listening\.\.\.\].*$/, '').trim())
+        recognitionRef.current = null
+        setIsListening(false)
+      }
+
+      recognition.start()
+      setIsListening(true)
+    } catch (err) {
+      console.error('[speech] Failed to start:', err)
+      alert('Failed to start speech recognition. Make sure you are using Chrome or Edge and have allowed microphone access.')
       setIsListening(false)
     }
-    recognition.onerror = () => setIsListening(false)
-    recognition.onend = () => setIsListening(false)
-    recognition.start()
   }
 
   const handleAiAssist = async () => {
