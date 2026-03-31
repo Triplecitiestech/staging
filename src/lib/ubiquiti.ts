@@ -18,25 +18,30 @@
 // ---------------------------------------------------------------------------
 
 export interface UnifiDevice {
-  _id: string
+  id: string
   mac: string
-  ip: string
   name: string
   model: string
-  model_in_lts: boolean
-  model_in_eol: boolean
-  type: string // uap, usw, ugw, etc.
+  shortname: string
+  ip: string
+  productLine: string | null
+  status: string
   version: string
-  adopted: boolean
-  site_id: string
-  connected_at: number
-  uptime: number
-  state: number // 1 = connected
-  next_interval: number
-  overheating: boolean
-  num_sta: number // connected client count
-  user_num_sta: number
-  guest_num_sta: number
+  firmwareStatus: string
+  updateAvailable: string | null
+  isConsole: boolean | null
+  isManaged: boolean | null
+  startupTime: string | null
+  adoptionTime: string | null
+  note: string | null
+}
+
+/** The /ea/devices response groups devices by host (console/controller) */
+interface UnifiDeviceHost {
+  hostId: string
+  hostName?: string
+  devices: UnifiDevice[]
+  updatedAt?: string
 }
 
 export interface UnifiSite {
@@ -136,24 +141,30 @@ export async function listSites(): Promise<UnifiSite[]> {
 }
 
 /**
- * List all devices globally (the /ea/devices endpoint is not per-site).
+ * List all devices globally. The /ea/devices endpoint returns devices
+ * grouped by host (console/controller): { data: [{ hostId, hostName, devices: [...] }] }
  */
-export async function listDevices(): Promise<UnifiDevice[]> {
+export async function listDevices(): Promise<{ device: UnifiDevice; hostName: string }[]> {
   const config = getConfig()
   if (!config) return []
 
-  // Try /ea/devices first (Early Access), then /v1/devices as fallback
-  let data = await unifiGet<UnifiDevice[]>(
+  const response = await unifiGet<{ data: UnifiDeviceHost[] }>(
     '/ea/devices', config.apiKey, config.baseUrl
   )
-  if (!data || (Array.isArray(data) && data.length === 0)) {
-    // Response might be wrapped in { data: [...] }
-    const wrapped = await unifiGet<{ data: UnifiDevice[] }>(
-      '/ea/devices', config.apiKey, config.baseUrl
-    )
-    if (wrapped?.data) data = wrapped.data
+
+  if (!response?.data) return []
+
+  // Flatten: extract devices from each host
+  const allDevices: { device: UnifiDevice; hostName: string }[] = []
+  for (const host of response.data) {
+    const hostName = host.hostName ?? host.hostId ?? 'Unknown'
+    for (const device of host.devices ?? []) {
+      allDevices.push({ device, hostName })
+    }
   }
-  return Array.isArray(data) ? data : []
+
+  console.log(`[ubiquiti] Found ${response.data.length} hosts with ${allDevices.length} total devices`)
+  return allDevices
 }
 
 /**
@@ -163,46 +174,49 @@ export async function buildSummary(): Promise<UnifiSummary | null> {
   const config = getConfig()
   if (!config) return null
 
-  // Fetch sites and devices in parallel (global endpoint, not per-site)
-  const [sites, devices] = await Promise.all([
+  // Fetch sites and devices in parallel
+  const [sites, deviceEntries] = await Promise.all([
     listSites(),
     listDevices(),
   ])
 
-  console.log(`[ubiquiti] Found ${sites.length} sites, ${devices.length} devices`)
+  console.log(`[ubiquiti] Found ${sites.length} sites, ${deviceEntries.length} devices`)
 
-  if (sites.length === 0 && devices.length === 0) return null
+  if (sites.length === 0 && deviceEntries.length === 0) return null
 
-  // Build site name lookup
-  const siteNameMap = new Map<string, string>()
-  for (const site of sites) {
-    siteNameMap.set(site.siteId, site.meta?.desc || site.meta?.name || site.siteId)
-  }
-
-  const summary: UnifiSummary = {
-    sites: sites.map((s) => ({
+  // Count clients from site statistics
+  let totalClients = 0
+  const siteSummaries = sites.map((s) => {
+    const wifiClients = s.statistics?.counts?.wifiClient ?? 0
+    const wiredClients = s.statistics?.counts?.wiredClient ?? 0
+    totalClients += wifiClients + wiredClients
+    return {
       siteId: s.siteId,
       name: s.meta?.desc || s.meta?.name || s.siteId,
       timezone: s.meta?.timezone ?? '',
       totalDevices: s.statistics?.counts?.totalDevice ?? 0,
       adoptedDevices: s.statistics?.counts?.totalAdoptedDevice ?? 0,
       satisfaction: s.statistics?.satisfaction ?? 0,
-    })),
-    devices: devices.map((d) => ({
-      id: d._id,
-      hostname: d.name || 'Unknown',
-      model: d.model || 'Unknown',
-      firmware: d.version || 'Unknown',
-      ipAddress: d.ip || '',
-      macAddress: d.mac || '',
-      uptime: d.uptime || 0,
-      siteId: d.site_id || '',
-      siteName: siteNameMap.get(d.site_id) || d.site_id || '',
-      connectedClients: d.num_sta || 0,
+    }
+  })
+
+  const summary: UnifiSummary = {
+    sites: siteSummaries,
+    devices: deviceEntries.map(({ device, hostName }) => ({
+      id: device.id,
+      hostname: device.name || 'Unknown',
+      model: device.model || device.shortname || 'Unknown',
+      firmware: device.version || 'Unknown',
+      ipAddress: device.ip || '',
+      macAddress: device.mac || '',
+      uptime: 0, // Not available in EA API response
+      siteId: '',
+      siteName: hostName,
+      connectedClients: 0,
     })),
     totalSites: sites.length,
-    totalDevices: devices.length,
-    totalClients: devices.reduce((sum, d) => sum + (d.num_sta || 0), 0),
+    totalDevices: deviceEntries.length,
+    totalClients,
   }
 
   return summary

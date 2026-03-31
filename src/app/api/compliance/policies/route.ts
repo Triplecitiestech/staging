@@ -168,17 +168,37 @@ async function analyzePolicyWithAI(
 Policy Title: ${title}
 
 Policy Content:
-${content.substring(0, 8000)}
+${content.substring(0, 12000)}
 
 Analyze this policy and provide a JSON response with:
-1. "satisfiedControls" - array of CIS v8 control IDs (like "cis-v8-6.3") that this policy adequately addresses
-2. "partialControls" - array of control IDs partially addressed
-3. "missingControls" - array of control IDs this policy should address but doesn't
+1. "satisfiedControls" - array of CIS v8 control IDs that this policy ADEQUATELY addresses with specific language
+2. "partialControls" - array of control IDs partially addressed (mentioned but lacking detail)
+3. "missingControls" - array of control IDs this policy SHOULD address based on its category but doesn't
 4. "gaps" - array of strings describing specific gaps or missing sections
 5. "recommendations" - array of specific actionable recommendations to improve the policy
 6. "summary" - a 2-3 sentence overall assessment
 
-Use ONLY these control IDs: cis-v8-1.1, cis-v8-3.3, cis-v8-4.1, cis-v8-4.6, cis-v8-4.7, cis-v8-5.2, cis-v8-5.3, cis-v8-6.1, cis-v8-6.2, cis-v8-6.3, cis-v8-6.5, cis-v8-8.2, cis-v8-8.5, cis-v8-9.2, cis-v8-10.1, cis-v8-11.1, cis-v8-12.6, cis-v8-14.1, cis-v8-15.7
+CIS v8 Controls to evaluate against:
+1.1 Asset Inventory, 1.2 Address Unauthorized Assets, 1.3 Active Discovery Tool, 1.4 DHCP Logging, 1.5 Passive Discovery,
+2.1 Software Inventory, 2.2 Authorized Software, 2.3 Address Unauthorized Software,
+3.1 Data Management Process, 3.2 Data Inventory, 3.3 Data Access Control, 3.4 Data Retention, 3.5 Data Disposal, 3.6 Encrypt End-User Devices,
+4.1 Secure Configuration Process, 4.2 Network Secure Config, 4.3 Session Locking, 4.4 Server Firewall, 4.5 Endpoint Firewall, 4.6 Encryption, 4.7 Default Accounts,
+5.1 Account Inventory, 5.2 Unique Passwords, 5.3 Disable Dormant Accounts, 5.4 Restrict Admin Privileges,
+6.1 Access Granting Process, 6.2 Access Revoking Process, 6.3 MFA for External Apps, 6.4 MFA for Remote Access, 6.5 MFA for Admin Access,
+7.1 Vulnerability Management, 7.2 Remediation Process, 7.3 OS Patch Management, 7.4 Application Patch Management,
+8.1 Audit Log Management Process, 8.2 Collect Audit Logs, 8.3 Audit Log Storage, 8.5 Detailed Audit Logs,
+9.1 Supported Browsers, 9.2 DNS Filtering,
+10.1 Anti-Malware, 10.2 Configure Anti-Malware, 10.3 Disable Autorun,
+11.1 Data Recovery Practice, 11.2 Automated Backups, 11.3 Protect Recovery Data, 11.4 Isolated Recovery Data,
+12.1 Network Infrastructure Up-to-Date, 12.6 Encryption in Transit,
+13.1 Centralized Security Alerting,
+14.1 Security Awareness Program, 14.2-14.8 Specific Training Topics,
+15.1 Service Provider Inventory, 15.2 Service Provider Management, 15.7 Decommission Service Providers,
+16.1 Secure Application Development,
+17.1 Incident Handling Personnel, 17.2 Incident Reporting Process, 17.3 Incident Response Plan
+
+Use control IDs in format "cis-v8-X.Y" (e.g. "cis-v8-17.1", "cis-v8-6.3").
+Only include controls that are RELEVANT to this type of policy. A password policy shouldn't list backup controls as missing.
 
 Respond with ONLY valid JSON, no markdown.`
 
