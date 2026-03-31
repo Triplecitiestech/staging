@@ -78,28 +78,25 @@ export class DnsFilterClient {
   /**
    * Get the current organization info to find org ID.
    */
-  private async getOrganizationId(): Promise<number | null> {
+  private async getOrganizationId(): Promise<string | null> {
     try {
-      // Try MSP organizations first
-      const mspData = await this.request<{
-        data?: Array<{ id?: number; name?: string }>;
-      }>('/msp/organizations');
-
-      if (mspData.data && mspData.data.length > 0 && mspData.data[0].id) {
-        return mspData.data[0].id;
-      }
-    } catch {
-      // Not an MSP account, try regular org endpoint
-    }
-
-    try {
+      // The /organizations endpoint returns { data: [{ id: "123", type: "organizations", ... }] }
       const orgData = await this.request<{
-        data?: { id?: number; name?: string };
-        id?: number;
+        data?: Array<{ id?: string; type?: string; attributes?: { name?: string } }> | { id?: string };
       }>('/organizations');
 
-      return orgData.data?.id || orgData.id || null;
-    } catch {
+      // Handle array response (MSP with multiple orgs)
+      if (Array.isArray(orgData.data) && orgData.data.length > 0) {
+        console.log(`[dnsfilter] Found ${orgData.data.length} organizations. Using first: ${orgData.data[0].attributes?.name ?? orgData.data[0].id}`);
+        return orgData.data[0].id ?? null;
+      }
+      // Handle single object response
+      if (orgData.data && !Array.isArray(orgData.data)) {
+        return (orgData.data as { id?: string }).id ?? null;
+      }
+      return null;
+    } catch (err) {
+      console.error('[dnsfilter] Failed to get org ID:', err instanceof Error ? err.message : String(err));
       return null;
     }
   }
@@ -120,22 +117,24 @@ export class DnsFilterClient {
     const sinceDateOnly = since.toISOString().split('T')[0];
     const untilDateOnly = until.toISOString().split('T')[0];
 
-    // Try endpoints in order of specificity
-    const endpoints = [
-      `/traffic_reports/query_logs?from=${sinceStr}&to=${untilStr}`,
-      `/traffic_reports?from=${sinceStr}&to=${untilStr}`,
-      `/traffic_reports?start_date=${sinceDateOnly}&end_date=${untilDateOnly}`,
-    ];
-
-    // If we can get org ID, add org-scoped endpoints (higher priority)
     const orgId = await this.getOrganizationId();
+    console.log(`[dnsfilter] Org ID: ${orgId}, date range: ${sinceDateOnly} to ${untilDateOnly}`);
+
+    // Build endpoints to try — org-scoped first (required for most accounts)
+    const endpoints: string[] = [];
     if (orgId) {
-      endpoints.unshift(
-        `/organizations/${orgId}/traffic_reports/query_logs?from=${sinceStr}&to=${untilStr}`,
+      endpoints.push(
+        `/organizations/${orgId}/filtering_report?start=${sinceDateOnly}&end=${untilDateOnly}`,
+        `/organizations/${orgId}/total_queries?start=${sinceDateOnly}&end=${untilDateOnly}`,
         `/organizations/${orgId}/traffic_reports?from=${sinceStr}&to=${untilStr}`,
         `/organizations/${orgId}/traffic_reports?start_date=${sinceDateOnly}&end_date=${untilDateOnly}`,
       );
     }
+    // Global fallbacks
+    endpoints.push(
+      `/traffic_reports?from=${sinceStr}&to=${untilStr}`,
+      `/traffic_reports?start_date=${sinceDateOnly}&end_date=${untilDateOnly}`,
+    );
 
     let lastError: Error | null = null;
 
