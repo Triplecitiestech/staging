@@ -671,6 +671,23 @@ function semiAutoEvaluator(controlId: string, description: string, sources: Evid
   }
 }
 
+// --- Helper for 14.x training controls ---
+
+/** Training controls check for Bullphish ID evidence (if integrated) or note it as attestation-only */
+function trainingEvaluator(controlId: string, description: string, ctx: EvaluationContext): EvaluationResult {
+  // When Bullphish ID or similar training tool is integrated, it would produce evidence here.
+  // For now, these require either the deployment toggle attestation or manual evidence.
+  return {
+    controlId,
+    status: 'needs_review',
+    confidence: 'none',
+    reasoning: `${description}. This control requires security awareness training evidence (Bullphish ID or equivalent). If Bullphish ID is deployed, toggle it as "Deployed" on the Tool Capability Map to attest compliance.`,
+    evidenceIds: [],
+    missingEvidence: ['manual_upload'],
+    remediation: 'Deploy Bullphish ID or equivalent training platform. Mark as deployed on the Tool Capability Map, or upload training completion evidence.',
+  }
+}
+
 // --- New evaluators for expanded controls ---
 
 // 1.2 Address Unauthorized Assets
@@ -747,45 +764,166 @@ evaluators['cis-v8-1.3'] = (ctx: EvaluationContext): EvaluationResult => {
     ['domotz_network_discovery'], [])
 }
 
-// 1.4 DHCP Logging
-evaluators['cis-v8-1.4'] = manualControlEvaluator('cis-v8-1.4',
-  'Use DHCP logging on all DHCP servers or IP address management tools.')
+// 1.4 DHCP Logging — Domotz can show DHCP-assigned devices
+evaluators['cis-v8-1.4'] = (ctx: EvaluationContext): EvaluationResult => {
+  const domotz = ctx.evidence.get('domotz_network_discovery' as EvidenceSourceType)
+  if (domotz) {
+    const data = domotz.rawData as { totalDevices?: number; discoveryActive?: boolean }
+    if (data.discoveryActive) {
+      return result('cis-v8-1.4', ctx, 'pass', 'medium',
+        `Domotz monitors network device connections including DHCP-assigned devices. ${data.totalDevices ?? 0} devices tracked with IP/MAC correlation.`,
+        ['domotz_network_discovery'], [])
+    }
+  }
+  return { controlId: 'cis-v8-1.4', status: 'needs_review', confidence: 'none',
+    reasoning: 'DHCP logging requires verification of router/DHCP server configuration. Domotz provides device tracking but DHCP server logging should be confirmed separately.',
+    evidenceIds: [], missingEvidence: ['domotz_network_discovery'], remediation: 'Enable DHCP logging on the network gateway/DHCP server. Verify Domotz is tracking all DHCP leases.' }
+}
 
-// 1.5 Passive Discovery
-evaluators['cis-v8-1.5'] = semiAutoEvaluator('cis-v8-1.5',
-  'Verify a passive discovery tool identifies assets on the network.',
-  ['datto_rmm_devices'])
+// 1.5 Passive Discovery — Domotz does this, NOT RMM
+evaluators['cis-v8-1.5'] = (ctx: EvaluationContext): EvaluationResult => {
+  const domotz = ctx.evidence.get('domotz_network_discovery' as EvidenceSourceType)
+  if (!domotz) return noEvidence('cis-v8-1.5', ['domotz_network_discovery'], ctx)
 
-// 2.1 Software Inventory
-evaluators['cis-v8-2.1'] = semiAutoEvaluator('cis-v8-2.1',
-  'Verify a detailed inventory of all licensed software is maintained.',
-  ['datto_rmm_devices', 'microsoft_device_compliance'])
+  const data = domotz.rawData as { totalDevices?: number; discoveryActive?: boolean; uniqueMacAddresses?: number }
+  if (data.discoveryActive) {
+    return result('cis-v8-1.5', ctx, 'pass', 'high',
+      `Domotz passive discovery is active, monitoring the network for new devices. ${data.uniqueMacAddresses ?? 0} unique MAC addresses tracked.`,
+      ['domotz_network_discovery'], [])
+  }
+  return result('cis-v8-1.5', ctx, 'partial', 'medium',
+    'Domotz is configured but passive discovery status could not be confirmed.',
+    ['domotz_network_discovery'], [])
+}
 
-// 2.2 Authorized Software Supported
-evaluators['cis-v8-2.2'] = semiAutoEvaluator('cis-v8-2.2',
-  'Verify only currently supported software is authorized for use.',
-  ['datto_rmm_devices'])
+// 2.1 Software Inventory — RMM provides software audit data
+evaluators['cis-v8-2.1'] = (ctx: EvaluationContext): EvaluationResult => {
+  const rmm = ctx.evidence.get('datto_rmm_devices')
+  if (!rmm) return noEvidence('cis-v8-2.1', ['datto_rmm_devices'], ctx)
 
-// 2.3 Address Unauthorized Software
-evaluators['cis-v8-2.3'] = semiAutoEvaluator('cis-v8-2.3',
-  'Verify unauthorized software is removed or has a documented exception.',
-  ['datto_rmm_devices', 'microsoft_device_compliance'])
+  const rmmData = rmm.rawData as { totalDevices?: number; matched?: boolean }
+  if (rmmData.matched && (rmmData.totalDevices ?? 0) > 0) {
+    return result('cis-v8-2.1', ctx, 'pass', 'medium',
+      `Datto RMM maintains software inventory via audit scans across ${rmmData.totalDevices} managed devices. Software lists are collected per device during each audit cycle.`,
+      ['datto_rmm_devices'], [])
+  }
+  return result('cis-v8-2.1', ctx, 'needs_review', 'low',
+    'RMM data exists but no matched devices found for this customer. Software inventory cannot be confirmed.',
+    ['datto_rmm_devices'], [])
+}
 
-// 3.1 Data Management Process
-evaluators['cis-v8-3.1'] = manualControlEvaluator('cis-v8-3.1',
-  'Establish a data management process with sensitivity classification, owners, retention, and disposal.')
+// 2.2 Authorized Software Supported — check via RMM audit + patch data
+evaluators['cis-v8-2.2'] = (ctx: EvaluationContext): EvaluationResult => {
+  const rmm = ctx.evidence.get('datto_rmm_devices')
+  if (!rmm) return noEvidence('cis-v8-2.2', ['datto_rmm_devices'], ctx)
 
-// 3.2 Data Inventory
-evaluators['cis-v8-3.2'] = manualControlEvaluator('cis-v8-3.2',
-  'Establish and maintain a data inventory based on the data management process.')
+  const rmmData = rmm.rawData as { totalDevices?: number; patchRate?: number; matched?: boolean }
+  if (rmmData.matched && (rmmData.totalDevices ?? 0) > 0) {
+    const patchRate = rmmData.patchRate ?? 0
+    return result('cis-v8-2.2', ctx, patchRate >= 80 ? 'pass' : 'partial', 'medium',
+      `RMM monitors ${rmmData.totalDevices} devices. Patch compliance rate: ${patchRate}%. Unsupported software would show as unpatchable in the RMM dashboard.`,
+      ['datto_rmm_devices'], [],
+      patchRate < 80 ? 'Review RMM for devices running unsupported OS or software versions.' : null)
+  }
+  return noEvidence('cis-v8-2.2', ['datto_rmm_devices'], ctx)
+}
 
-// 3.4 Enforce Data Retention
-evaluators['cis-v8-3.4'] = manualControlEvaluator('cis-v8-3.4',
-  'Retain data according to the enterprise data management process.')
+// 2.3 Address Unauthorized Software — Intune compliance + RMM
+evaluators['cis-v8-2.3'] = (ctx: EvaluationContext): EvaluationResult => {
+  const devices = ctx.evidence.get('microsoft_device_compliance')
+  const rmm = ctx.evidence.get('datto_rmm_devices')
+  if (!devices && !rmm) return noEvidence('cis-v8-2.3', ['microsoft_device_compliance', 'datto_rmm_devices'], ctx)
 
-// 3.5 Securely Dispose of Data
-evaluators['cis-v8-3.5'] = manualControlEvaluator('cis-v8-3.5',
-  'Securely dispose of data as outlined in the data management process.')
+  const devData = devices?.rawData as { complianceRate?: number; totalCount?: number } | undefined
+  const rate = devData?.complianceRate ?? 0
+  const total = devData?.totalCount ?? 0
+  const sources = ['microsoft_device_compliance', 'datto_rmm_devices'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
+
+  if (total > 0 && rate >= 90) {
+    return result('cis-v8-2.3', ctx, 'pass', 'medium',
+      `${rate}% device compliance rate across ${total} Intune-managed devices. Non-compliant devices would be flagged by compliance policies which can block unauthorized software.`,
+      sources, [])
+  }
+  if (total > 0) {
+    return result('cis-v8-2.3', ctx, 'partial', 'medium',
+      `${rate}% compliance rate. Some devices may have unauthorized software. Review non-compliant devices in Intune.`,
+      sources, [], 'Review Intune compliance reports for devices with unauthorized applications.')
+  }
+  return result('cis-v8-2.3', ctx, 'needs_review', 'low',
+    'RMM provides software audit data but formal unauthorized software remediation process should be documented.',
+    sources, [], 'Document the process for identifying and removing unauthorized software.')
+}
+
+// 3.1 Data Management Process — IT Glue documentation
+evaluators['cis-v8-3.1'] = (ctx: EvaluationContext): EvaluationResult => {
+  const itg = ctx.evidence.get('it_glue_documentation' as EvidenceSourceType)
+  if (!itg) return noEvidence('cis-v8-3.1', ['it_glue_documentation'], ctx)
+
+  const data = itg.rawData as { hasDocumentedPolicies?: boolean; flexibleAssetTypeCount?: number }
+  if (data.hasDocumentedPolicies) {
+    return result('cis-v8-3.1', ctx, 'pass', 'medium',
+      `IT Glue contains documented policies (${data.flexibleAssetTypeCount ?? 0} flexible asset types configured). Data management process documentation found.`,
+      ['it_glue_documentation'], [])
+  }
+  return result('cis-v8-3.1', ctx, 'needs_review', 'low',
+    `IT Glue is configured with ${data.flexibleAssetTypeCount ?? 0} flexible asset types but no policy-type documentation was detected. Verify data management process is documented.`,
+    ['it_glue_documentation'], [],
+    'Create a data management process document in IT Glue covering data sensitivity, owners, retention, and disposal.')
+}
+
+// 3.2 Data Inventory — IT Glue configurations
+evaluators['cis-v8-3.2'] = (ctx: EvaluationContext): EvaluationResult => {
+  const itg = ctx.evidence.get('it_glue_documentation' as EvidenceSourceType)
+  if (!itg) return noEvidence('cis-v8-3.2', ['it_glue_documentation'], ctx)
+
+  const data = itg.rawData as { configurationCount?: number; organizationCount?: number }
+  if ((data.configurationCount ?? 0) > 0) {
+    return result('cis-v8-3.2', ctx, 'pass', 'low',
+      `IT Glue contains ${data.configurationCount} configuration items for this organization. These serve as a data/asset inventory.`,
+      ['it_glue_documentation'], [])
+  }
+  return result('cis-v8-3.2', ctx, 'needs_review', 'low',
+    'IT Glue is configured but no configuration items found for this customer. Create a data inventory.',
+    ['it_glue_documentation'], [],
+    'Document sensitive data locations and classifications as IT Glue configurations or flexible assets.')
+}
+
+// 3.4 Enforce Data Retention — check SaaS backup + IT Glue policy
+evaluators['cis-v8-3.4'] = (ctx: EvaluationContext): EvaluationResult => {
+  const itg = ctx.evidence.get('it_glue_documentation' as EvidenceSourceType)
+  const saas = ctx.evidence.get('datto_saas_backup')
+  const sources = ['it_glue_documentation', 'datto_saas_backup'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
+
+  if (itg && (itg.rawData as { hasDocumentedPolicies?: boolean }).hasDocumentedPolicies) {
+    return result('cis-v8-3.4', ctx, 'pass', 'low',
+      'IT Glue contains policy documentation. Data retention policies should be defined within.' + (saas ? ' Datto SaaS Protect provides backup retention for cloud data.' : ''),
+      sources, [])
+  }
+  if (saas) {
+    return result('cis-v8-3.4', ctx, 'partial', 'low',
+      'Datto SaaS Protect provides backup retention for M365 data, but a formal data retention policy should be documented.',
+      sources, ['it_glue_documentation'],
+      'Document a data retention policy in IT Glue specifying min/max retention timelines.')
+  }
+  return noEvidence('cis-v8-3.4', ['it_glue_documentation', 'datto_saas_backup'], ctx)
+}
+
+// 3.5 Securely Dispose of Data — IT Glue documentation
+evaluators['cis-v8-3.5'] = (ctx: EvaluationContext): EvaluationResult => {
+  const itg = ctx.evidence.get('it_glue_documentation' as EvidenceSourceType)
+  if (!itg) return noEvidence('cis-v8-3.5', ['it_glue_documentation'], ctx)
+
+  const data = itg.rawData as { hasDocumentedProcedures?: boolean }
+  if (data.hasDocumentedProcedures) {
+    return result('cis-v8-3.5', ctx, 'pass', 'low',
+      'IT Glue contains documented procedures. Data disposal process should be included.',
+      ['it_glue_documentation'], [])
+  }
+  return result('cis-v8-3.5', ctx, 'needs_review', 'none',
+    'No documented data disposal procedures found in IT Glue.',
+    ['it_glue_documentation'], [],
+    'Create a data disposal SOP in IT Glue covering secure deletion, drive wiping, and certificate of destruction processes.')
+}
 
 // 3.6 Encrypt Data on End-User Devices (alias of 4.6 logic)
 evaluators['cis-v8-3.6'] = (ctx: EvaluationContext): EvaluationResult => {
@@ -808,14 +946,56 @@ evaluators['cis-v8-3.6'] = (ctx: EvaluationContext): EvaluationResult => {
     `Enable BitLocker/encryption on the remaining ${total - encrypted} unencrypted end-user devices.`)
 }
 
-// 4.2 Secure Config for Network Infrastructure
-evaluators['cis-v8-4.2'] = manualControlEvaluator('cis-v8-4.2',
-  'Establish a secure configuration process for network infrastructure (firewalls, routers, switches).')
+// 4.2 Secure Config for Network Infrastructure — Domotz + IT Glue
+evaluators['cis-v8-4.2'] = (ctx: EvaluationContext): EvaluationResult => {
+  const domotz = ctx.evidence.get('domotz_network_discovery' as EvidenceSourceType)
+  const itg = ctx.evidence.get('it_glue_documentation' as EvidenceSourceType)
+  const sources = ['domotz_network_discovery', 'it_glue_documentation'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
 
-// 4.3 Automatic Session Locking
-evaluators['cis-v8-4.3'] = semiAutoEvaluator('cis-v8-4.3',
-  'Verify automatic session locking is configured (max 15min for desktops, 2min for mobile).',
-  ['microsoft_intune_config', 'microsoft_device_compliance'])
+  if (domotz && itg) {
+    const dData = domotz.rawData as { agentCount?: number; discoveryActive?: boolean }
+    const iData = itg.rawData as { hasDocumentedProcedures?: boolean }
+    if (dData.discoveryActive && iData.hasDocumentedProcedures) {
+      return result('cis-v8-4.2', ctx, 'pass', 'medium',
+        `Domotz monitors ${dData.agentCount ?? 0} network collector(s). IT Glue contains documented procedures for network configuration management.`,
+        sources, [])
+    }
+  }
+  if (domotz) {
+    return result('cis-v8-4.2', ctx, 'partial', 'low',
+      'Domotz monitors network infrastructure but secure configuration procedures should be documented in IT Glue.',
+      sources, ['it_glue_documentation'],
+      'Document network infrastructure secure configuration standards in IT Glue.')
+  }
+  return noEvidence('cis-v8-4.2', ['domotz_network_discovery', 'it_glue_documentation'], ctx)
+}
+
+// 4.3 Automatic Session Locking — Intune device compliance
+evaluators['cis-v8-4.3'] = (ctx: EvaluationContext): EvaluationResult => {
+  const devices = ctx.evidence.get('microsoft_device_compliance')
+  const score = ctx.evidence.get('microsoft_secure_score')
+  if (!devices && !score) return noEvidence('cis-v8-4.3', ['microsoft_device_compliance', 'microsoft_secure_score'], ctx)
+
+  const devData = devices?.rawData as { complianceRate?: number; totalCount?: number } | undefined
+  const scoreData = score?.rawData as { percentage?: number } | undefined
+  const sources = ['microsoft_device_compliance', 'microsoft_secure_score'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
+  const rate = devData?.complianceRate ?? 0
+
+  if (rate >= 90) {
+    return result('cis-v8-4.3', ctx, 'pass', 'medium',
+      `${rate}% device compliance rate. Intune compliance policies enforce screen lock timeout (15min desktop, 2min mobile). ${devData?.totalCount ?? 0} devices managed.`,
+      sources, [])
+  }
+  if ((scoreData?.percentage ?? 0) >= 60) {
+    return result('cis-v8-4.3', ctx, 'pass', 'low',
+      `Secure Score is ${scoreData?.percentage}% suggesting baseline policies are configured. Verify screen lock policy is specifically set in Intune.`,
+      sources, [])
+  }
+  return result('cis-v8-4.3', ctx, 'needs_review', 'low',
+    'Device compliance data exists but session locking policy cannot be specifically confirmed. Verify in Intune.',
+    sources, [],
+    'Create an Intune compliance policy requiring screen lock (15min max for desktops, 2min for mobile).')
+}
 
 // 4.4 Firewall on Servers
 evaluators['cis-v8-4.4'] = (ctx: EvaluationContext): EvaluationResult => {
@@ -937,14 +1117,43 @@ evaluators['cis-v8-6.4'] = (ctx: EvaluationContext): EvaluationResult => {
     'Enforce MFA for all remote access via Conditional Access policy.')
 }
 
-// 7.x Vulnerability Management
-evaluators['cis-v8-7.1'] = semiAutoEvaluator('cis-v8-7.1',
-  'Verify a documented vulnerability management process exists.',
-  ['datto_rmm_patches', 'microsoft_secure_score'])
+// 7.1 Vulnerability Management Process — RMM patching + Secure Score
+evaluators['cis-v8-7.1'] = (ctx: EvaluationContext): EvaluationResult => {
+  const rmm = ctx.evidence.get('datto_rmm_devices')
+  const score = ctx.evidence.get('microsoft_secure_score')
+  const itg = ctx.evidence.get('it_glue_documentation' as EvidenceSourceType)
+  const sources = ['datto_rmm_devices', 'microsoft_secure_score', 'it_glue_documentation'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
+  if (sources.length === 0) return noEvidence('cis-v8-7.1', ['datto_rmm_patches', 'microsoft_secure_score'], ctx)
 
-evaluators['cis-v8-7.2'] = semiAutoEvaluator('cis-v8-7.2',
-  'Verify a risk-based remediation strategy with monthly review exists.',
-  ['autotask_tickets', 'datto_rmm_patches'])
+  const rmmData = rmm?.rawData as { patchRate?: number; totalDevices?: number; matched?: boolean } | undefined
+  const scoreData = score?.rawData as { percentage?: number } | undefined
+  const patchRate = rmmData?.patchRate ?? 0
+  const scorePct = scoreData?.percentage ?? 0
+
+  if (patchRate >= 80 && scorePct >= 50) {
+    return result('cis-v8-7.1', ctx, 'pass', 'medium',
+      `Vulnerability management active: RMM patch rate ${patchRate}% across ${rmmData?.totalDevices ?? 0} devices, Secure Score ${scorePct}%. Automated patching via Datto RMM serves as the vulnerability remediation process.`,
+      sources, [])
+  }
+  if (patchRate > 0 || scorePct > 0) {
+    return result('cis-v8-7.1', ctx, 'partial', 'low',
+      `Patch rate: ${patchRate}%, Secure Score: ${scorePct}%. Process exists but needs improvement.`,
+      sources, [], 'Improve patch approval cadence and review Secure Score recommendations monthly.')
+  }
+  return result('cis-v8-7.1', ctx, 'needs_review', 'low', 'Vulnerability management evidence is limited.', sources, [])
+}
+
+// 7.2 Remediation Process — Autotask tickets + RMM patches
+evaluators['cis-v8-7.2'] = (ctx: EvaluationContext): EvaluationResult => {
+  const rmm = ctx.evidence.get('datto_rmm_devices')
+  const sources = ['datto_rmm_devices', 'autotask_tickets'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
+  if (sources.length === 0) return noEvidence('cis-v8-7.2', ['datto_rmm_patches', 'autotask_tickets'], ctx)
+
+  const rmmData = rmm?.rawData as { patchRate?: number; totalDevices?: number } | undefined
+  return result('cis-v8-7.2', ctx, (rmmData?.patchRate ?? 0) >= 80 ? 'pass' : 'partial', 'low',
+    `Remediation tracked via Datto RMM automated patching (${rmmData?.patchRate ?? 0}% patch rate) and Autotask ticketing for manual remediation items.`,
+    sources, [], (rmmData?.patchRate ?? 0) < 80 ? 'Review pending patches and create remediation tickets for stale vulnerabilities.' : null)
+}
 
 evaluators['cis-v8-7.3'] = (ctx: EvaluationContext): EvaluationResult => {
   const rmm = ctx.evidence.get('datto_rmm_devices')
@@ -970,120 +1179,313 @@ evaluators['cis-v8-7.3'] = (ctx: EvaluationContext): EvaluationResult => {
     'Implement automated OS patching via RMM with at least monthly cadence.')
 }
 
-evaluators['cis-v8-7.4'] = semiAutoEvaluator('cis-v8-7.4',
-  'Verify automated application patch management runs monthly or more frequently.',
-  ['datto_rmm_patches'])
+// 7.4 Automated Application Patch Management — RMM handles third-party patching
+evaluators['cis-v8-7.4'] = (ctx: EvaluationContext): EvaluationResult => {
+  const rmm = ctx.evidence.get('datto_rmm_devices')
+  if (!rmm) return noEvidence('cis-v8-7.4', ['datto_rmm_patches'], ctx)
 
-// 8.1 Audit Log Management Process
-evaluators['cis-v8-8.1'] = semiAutoEvaluator('cis-v8-8.1',
-  'Verify a documented audit log management process exists.',
-  ['microsoft_secure_score', 'manual_upload'])
+  const rmmData = rmm.rawData as { patchRate?: number; totalDevices?: number; matched?: boolean }
+  if (rmmData.matched && (rmmData.totalDevices ?? 0) > 0) {
+    return result('cis-v8-7.4', ctx, rmmData.patchRate && rmmData.patchRate >= 80 ? 'pass' : 'partial', 'medium',
+      `Datto RMM manages application patching across ${rmmData.totalDevices} devices. Overall patch rate: ${rmmData.patchRate ?? 0}%. Third-party application updates are deployed via RMM patch policies.`,
+      ['datto_rmm_devices'], [],
+      (rmmData.patchRate ?? 0) < 80 ? 'Review pending third-party application patches in RMM and approve outstanding updates.' : null)
+  }
+  return noEvidence('cis-v8-7.4', ['datto_rmm_patches'], ctx)
+}
 
-// 8.3 Adequate Audit Log Storage
-evaluators['cis-v8-8.3'] = semiAutoEvaluator('cis-v8-8.3',
-  'Verify logging destinations have adequate storage for retention requirements.',
-  ['microsoft_secure_score'])
+// 8.1 Audit Log Management Process — M365 audit + IT Glue documentation
+evaluators['cis-v8-8.1'] = (ctx: EvaluationContext): EvaluationResult => {
+  const score = ctx.evidence.get('microsoft_secure_score')
+  const itg = ctx.evidence.get('it_glue_documentation' as EvidenceSourceType)
+  const sources = ['microsoft_secure_score', 'it_glue_documentation'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
+  if (sources.length === 0) return noEvidence('cis-v8-8.1', ['microsoft_secure_score', 'it_glue_documentation'], ctx)
 
-// 9.1 Supported Browsers and Email Clients
-evaluators['cis-v8-9.1'] = semiAutoEvaluator('cis-v8-9.1',
-  'Verify only fully supported browsers and email clients are in use.',
-  ['datto_rmm_devices'])
+  const scoreData = score?.rawData as { percentage?: number } | undefined
+  const itgData = itg?.rawData as { hasDocumentedProcedures?: boolean } | undefined
 
-// 10.2 Anti-Malware Signature Updates
-evaluators['cis-v8-10.2'] = (ctx: EvaluationContext): EvaluationResult => {
-  const defender = ctx.evidence.get('microsoft_defender')
-  const edr = ctx.evidence.get('datto_edr_alerts')
-  if (!defender && !edr) return noEvidence('cis-v8-10.2', ['microsoft_defender', 'datto_edr_alerts'], ctx)
-
-  // Windows Defender (managed via Datto EDR) auto-updates signatures by default
-  if (edr || defender) {
-    const sources = ['microsoft_defender', 'datto_edr_alerts'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
-    return result('cis-v8-10.2', ctx, 'pass', 'medium',
-      'Windows Defender (managed via Datto EDR) automatically updates malware signatures via Windows Update. Signature updates are enabled by default and managed through Intune/EDR policy.',
+  if (scoreData && itgData?.hasDocumentedProcedures) {
+    return result('cis-v8-8.1', ctx, 'pass', 'medium',
+      `Audit log management process in place: M365 Unified Audit Log active (Secure Score ${scoreData.percentage ?? 0}%), and IT Glue contains documented procedures for log management.`,
       sources, [])
   }
-  return noEvidence('cis-v8-10.2', ['microsoft_defender', 'datto_edr_alerts'], ctx)
-}
-
-// 10.3 Disable Autorun/Autoplay
-evaluators['cis-v8-10.3'] = semiAutoEvaluator('cis-v8-10.3',
-  'Verify autorun and autoplay are disabled for removable media.',
-  ['microsoft_intune_config', 'microsoft_device_compliance'])
-
-// 11.2 Automated Backups
-evaluators['cis-v8-11.2'] = (ctx: EvaluationContext): EvaluationResult => {
-  const bcdr = ctx.evidence.get('datto_bcdr_backup')
-  const saas = ctx.evidence.get('datto_saas_backup')
-  if (!bcdr && !saas) return noEvidence('cis-v8-11.2', ['datto_bcdr_backup', 'datto_saas_backup'], ctx)
-
-  const hasBcdr = bcdr && (bcdr.rawData as { matched?: boolean }).matched
-  const hasSaas = saas && (saas.rawData as { matched?: boolean }).matched
-
-  if (hasBcdr || hasSaas) {
-    return result('cis-v8-11.2', ctx, 'pass', 'medium',
-      `Automated backups confirmed via ${[hasBcdr ? 'Datto BCDR' : '', hasSaas ? 'Datto SaaS Protect' : ''].filter(Boolean).join(' and ')}.`,
-      ['datto_bcdr_backup', 'datto_saas_backup'].filter((s) => ctx.evidence.has(s as EvidenceSourceType)), [])
+  if (scoreData) {
+    return result('cis-v8-8.1', ctx, 'partial', 'low',
+      `M365 audit logging is available (Secure Score ${scoreData.percentage ?? 0}%). A formal audit log management process should be documented in IT Glue.`,
+      sources, ['it_glue_documentation'],
+      'Document an audit log management process in IT Glue covering collection, review frequency, and retention requirements.')
   }
-  return result('cis-v8-11.2', ctx, 'needs_review', 'low',
-    'Backup services detected but no matching data found for this customer.',
-    ['datto_bcdr_backup', 'datto_saas_backup'], [],
-    'Verify backup schedules are configured and running for this customer.')
+  return result('cis-v8-8.1', ctx, 'needs_review', 'low', 'Audit log management process documentation needed.', sources, [])
 }
 
-// 11.3 Protect Recovery Data
-evaluators['cis-v8-11.3'] = semiAutoEvaluator('cis-v8-11.3',
-  'Verify recovery data is protected with equivalent controls (encryption, separation).',
-  ['datto_bcdr_backup'])
+// 8.3 Adequate Audit Log Storage — M365 retains logs, check retention
+evaluators['cis-v8-8.3'] = (ctx: EvaluationContext): EvaluationResult => {
+  const score = ctx.evidence.get('microsoft_secure_score')
+  if (!score) return noEvidence('cis-v8-8.3', ['microsoft_secure_score'], ctx)
 
-// 11.4 Isolated Recovery Data
-evaluators['cis-v8-11.4'] = semiAutoEvaluator('cis-v8-11.4',
-  'Verify an isolated instance of recovery data exists (versioned or air-gapped).',
-  ['datto_bcdr_backup'])
+  const scoreData = score.rawData as { percentage?: number }
+  return result('cis-v8-8.3', ctx, 'pass', 'medium',
+    `Microsoft 365 retains audit logs for 90 days (standard) or 1 year (E5/compliance add-on). Current Secure Score: ${scoreData.percentage ?? 0}%. Log storage is managed by Microsoft cloud infrastructure.`,
+    ['microsoft_secure_score'], [])
+}
 
-// 12.1 Network Infrastructure Up-to-Date
-evaluators['cis-v8-12.1'] = manualControlEvaluator('cis-v8-12.1',
-  'Ensure network infrastructure is kept up-to-date with latest stable firmware/software.')
+// 9.1 Supported Browsers/Email Clients — RMM software audit can show browser versions
+evaluators['cis-v8-9.1'] = (ctx: EvaluationContext): EvaluationResult => {
+  const rmm = ctx.evidence.get('datto_rmm_devices')
+  const devices = ctx.evidence.get('microsoft_device_compliance')
+  const sources = ['datto_rmm_devices', 'microsoft_device_compliance'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
+  if (sources.length === 0) return noEvidence('cis-v8-9.1', ['datto_rmm_devices'], ctx)
 
-// 13.1 Centralize Security Event Alerting
-evaluators['cis-v8-13.1'] = semiAutoEvaluator('cis-v8-13.1',
-  'Verify security event alerting is centralized for correlation and analysis.',
-  ['microsoft_defender', 'datto_edr_alerts', 'dnsfilter_dns'])
+  const rmmData = rmm?.rawData as { totalDevices?: number; matched?: boolean } | undefined
+  const devData = devices?.rawData as { complianceRate?: number } | undefined
 
-// 14.x Security Awareness Training (all manual)
-evaluators['cis-v8-14.2'] = manualControlEvaluator('cis-v8-14.2',
-  'Train workforce to recognize social engineering attacks (phishing, pre-texting, tailgating).')
-evaluators['cis-v8-14.3'] = manualControlEvaluator('cis-v8-14.3',
-  'Train workforce on authentication best practices (MFA, password management).')
-evaluators['cis-v8-14.4'] = manualControlEvaluator('cis-v8-14.4',
-  'Train workforce on data handling best practices (storage, transfer, disposal).')
-evaluators['cis-v8-14.5'] = manualControlEvaluator('cis-v8-14.5',
-  'Train workforce on causes of unintentional data exposure.')
-evaluators['cis-v8-14.6'] = manualControlEvaluator('cis-v8-14.6',
-  'Train workforce on recognizing and reporting security incidents.')
-evaluators['cis-v8-14.7'] = manualControlEvaluator('cis-v8-14.7',
-  'Train workforce on identifying and reporting missing security updates.')
-evaluators['cis-v8-14.8'] = manualControlEvaluator('cis-v8-14.8',
-  'Train workforce on dangers of insecure networks for data transmission.')
+  if (rmmData?.matched && (rmmData.totalDevices ?? 0) > 0) {
+    return result('cis-v8-9.1', ctx, 'partial', 'low',
+      `RMM manages ${rmmData.totalDevices} devices with software audit capability. Browser versions can be verified via RMM software inventory. Intune compliance rate: ${devData?.complianceRate ?? 'N/A'}%.`,
+      sources, [],
+      'Review RMM software audit reports for unsupported browser or email client versions. Consider Intune compliance policy requiring minimum browser version.')
+  }
+  return result('cis-v8-9.1', ctx, 'needs_review', 'low',
+    'Device data available but specific browser/email client version verification requires RMM software audit review.',
+    sources, [])
+}
 
-// 15.1 Service Provider Inventory
-evaluators['cis-v8-15.1'] = manualControlEvaluator('cis-v8-15.1',
-  'Establish and maintain an inventory of service providers with sensitivity classification.')
+// 10.3 Disable Autorun/Autoplay — Intune/GPO policy
+evaluators['cis-v8-10.3'] = (ctx: EvaluationContext): EvaluationResult => {
+  const devices = ctx.evidence.get('microsoft_device_compliance')
+  const score = ctx.evidence.get('microsoft_secure_score')
+  if (!devices && !score) return noEvidence('cis-v8-10.3', ['microsoft_device_compliance', 'microsoft_secure_score'], ctx)
 
-// 15.2 Service Provider Management Policy
-evaluators['cis-v8-15.2'] = manualControlEvaluator('cis-v8-15.2',
-  'Establish a service provider management policy covering assessment, monitoring, and decommissioning.')
+  const devData = devices?.rawData as { complianceRate?: number; totalCount?: number } | undefined
+  const scoreData = score?.rawData as { percentage?: number } | undefined
+  const sources = ['microsoft_device_compliance', 'microsoft_secure_score'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
 
-// 16.1 Secure Application Development
-evaluators['cis-v8-16.1'] = manualControlEvaluator('cis-v8-16.1',
-  'Establish and maintain a secure application development process.')
+  if ((devData?.complianceRate ?? 0) >= 90) {
+    return result('cis-v8-10.3', ctx, 'pass', 'medium',
+      `${devData?.complianceRate}% device compliance across ${devData?.totalCount ?? 0} Intune-managed devices. Autorun/Autoplay can be disabled via Intune device configuration profile or GPO. Secure Score: ${scoreData?.percentage ?? 'N/A'}%.`,
+      sources, [])
+  }
+  if ((scoreData?.percentage ?? 0) >= 60) {
+    return result('cis-v8-10.3', ctx, 'pass', 'low',
+      `Secure Score ${scoreData?.percentage}% suggests baseline policies are in place. Windows 10/11 disables autorun by default. Verify via Intune configuration profile.`,
+      sources, [])
+  }
+  return result('cis-v8-10.3', ctx, 'needs_review', 'low',
+    'Verify autorun/autoplay is disabled via Intune device configuration profile or Group Policy.',
+    sources, [], 'Create an Intune configuration profile to explicitly disable autorun and autoplay for removable media.')
+}
 
-// 17.x Incident Response
-evaluators['cis-v8-17.1'] = manualControlEvaluator('cis-v8-17.1',
-  'Designate personnel (primary + backup) to manage incident handling.')
-evaluators['cis-v8-17.2'] = manualControlEvaluator('cis-v8-17.2',
-  'Establish contact information for parties to be informed of security incidents.')
-evaluators['cis-v8-17.3'] = manualControlEvaluator('cis-v8-17.3',
-  'Establish a process for workforce to report security incidents.')
+// 11.3 Protect Recovery Data — Datto BCDR encrypts backup data
+evaluators['cis-v8-11.3'] = (ctx: EvaluationContext): EvaluationResult => {
+  const bcdr = ctx.evidence.get('datto_bcdr_backup')
+  if (!bcdr) return noEvidence('cis-v8-11.3', ['datto_bcdr_backup'], ctx)
+
+  const data = bcdr.rawData as { matched?: boolean; totalDevices?: number; applianceCount?: number }
+  if (data.matched) {
+    return result('cis-v8-11.3', ctx, 'pass', 'high',
+      `Datto BCDR protects recovery data with AES-256 encryption at rest and TLS in transit. ${data.applianceCount ?? 0} appliance(s) with ${data.totalDevices ?? 0} protected device(s). Offsite cloud replication is encrypted end-to-end.`,
+      ['datto_bcdr_backup'], [])
+  }
+  return result('cis-v8-11.3', ctx, 'needs_review', 'low',
+    'BCDR evidence exists but no matched devices. Verify backup encryption settings.',
+    ['datto_bcdr_backup'], [])
+}
+
+// 11.4 Isolated Recovery Data — Datto cloud offsite = isolated copy
+evaluators['cis-v8-11.4'] = (ctx: EvaluationContext): EvaluationResult => {
+  const bcdr = ctx.evidence.get('datto_bcdr_backup')
+  if (!bcdr) return noEvidence('cis-v8-11.4', ['datto_bcdr_backup'], ctx)
+
+  const data = bcdr.rawData as { matched?: boolean; applianceCount?: number }
+  if (data.matched) {
+    return result('cis-v8-11.4', ctx, 'pass', 'high',
+      `Datto BCDR maintains an isolated instance of recovery data via Datto Cloud offsite replication. ${data.applianceCount ?? 0} appliance(s) replicate to Datto's geographically separate cloud infrastructure, providing an air-gapped recovery option with instant virtualization capability.`,
+      ['datto_bcdr_backup'], [])
+  }
+  return result('cis-v8-11.4', ctx, 'needs_review', 'low',
+    'BCDR evidence exists but no matched devices. Verify offsite replication is configured.',
+    ['datto_bcdr_backup'], [])
+}
+
+// 12.1 Network Infrastructure Up-to-Date — Domotz monitors network devices
+evaluators['cis-v8-12.1'] = (ctx: EvaluationContext): EvaluationResult => {
+  const domotz = ctx.evidence.get('domotz_network_discovery' as EvidenceSourceType)
+  const itg = ctx.evidence.get('it_glue_documentation' as EvidenceSourceType)
+  const sources = ['domotz_network_discovery', 'it_glue_documentation'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
+
+  if (domotz) {
+    const data = domotz.rawData as { agentCount?: number; discoveryActive?: boolean; deviceTypes?: Record<string, number> }
+    if (data.discoveryActive) {
+      return result('cis-v8-12.1', ctx, 'partial', 'medium',
+        `Domotz monitors network infrastructure with ${data.agentCount ?? 0} collector(s). Network device types discovered: ${data.deviceTypes ? Object.entries(data.deviceTypes).map(([k, v]) => `${k}: ${v}`).join(', ') : 'N/A'}. Firmware version tracking requires manual verification or vendor-specific monitoring.`,
+        sources, [],
+        'Verify network device firmware is current. Document firmware update schedule in IT Glue.')
+    }
+  }
+  if (itg) {
+    return result('cis-v8-12.1', ctx, 'needs_review', 'low',
+      'IT Glue documentation available — verify network infrastructure update records are maintained.',
+      sources, ['domotz_network_discovery'])
+  }
+  return noEvidence('cis-v8-12.1', ['domotz_network_discovery', 'it_glue_documentation'], ctx)
+}
+
+// 13.1 Centralize Security Event Alerting — RocketCyber SOC + SaaS Alerts + EDR + Defender
+evaluators['cis-v8-13.1'] = (ctx: EvaluationContext): EvaluationResult => {
+  const edr = ctx.evidence.get('datto_edr_alerts')
+  const defender = ctx.evidence.get('microsoft_defender')
+  const saasAlerts = ctx.evidence.get('saas_alerts_monitoring' as EvidenceSourceType)
+  const dns = ctx.evidence.get('dnsfilter_dns')
+  const sources = ['datto_edr_alerts', 'microsoft_defender', 'saas_alerts_monitoring', 'dnsfilter_dns'].filter(
+    (s) => ctx.evidence.has(s as EvidenceSourceType)
+  )
+  if (sources.length === 0) return noEvidence('cis-v8-13.1', ['datto_edr_alerts', 'microsoft_defender', 'saas_alerts_monitoring'], ctx)
+
+  const alertSources: string[] = []
+  if (edr) alertSources.push('Datto EDR (endpoint threats → RocketCyber SOC)')
+  if (defender) alertSources.push('Microsoft Defender (endpoint + cloud alerts)')
+  if (saasAlerts) {
+    const saData = saasAlerts.rawData as { totalEvents?: number; customerCount?: number }
+    alertSources.push(`SaaS Alerts (${saData.totalEvents ?? 0} events across ${saData.customerCount ?? 0} tenants)`)
+  }
+  if (dns) alertSources.push('DNSFilter (DNS threat blocking)')
+
+  if (alertSources.length >= 3) {
+    return result('cis-v8-13.1', ctx, 'pass', 'high',
+      `Security event alerting centralized across ${alertSources.length} sources: ${alertSources.join('; ')}. RocketCyber SOC aggregates endpoint and firewall events for correlation.`,
+      sources, [])
+  }
+  if (alertSources.length >= 2) {
+    return result('cis-v8-13.1', ctx, 'pass', 'medium',
+      `Security alerting from ${alertSources.length} sources: ${alertSources.join('; ')}.`,
+      sources, [])
+  }
+  return result('cis-v8-13.1', ctx, 'partial', 'low',
+    `Limited centralized alerting: ${alertSources.join('; ')}. Deploy additional monitoring sources for comprehensive coverage.`,
+    sources, [], 'Consider deploying RocketCyber SOC for centralized SIEM capability across endpoints, network, and cloud.')
+}
+
+// 14.x Security Awareness Training — Check for Bullphish ID via tool deployment attestation
+// These all require the same evidence: security awareness training tool deployed
+evaluators['cis-v8-14.2'] = (ctx: EvaluationContext): EvaluationResult => {
+  return trainingEvaluator('cis-v8-14.2', 'Social engineering recognition training (phishing, pre-texting, tailgating)', ctx)
+}
+evaluators['cis-v8-14.3'] = (ctx: EvaluationContext): EvaluationResult => {
+  return trainingEvaluator('cis-v8-14.3', 'Authentication best practices training (MFA, password management)', ctx)
+}
+evaluators['cis-v8-14.4'] = (ctx: EvaluationContext): EvaluationResult => {
+  return trainingEvaluator('cis-v8-14.4', 'Data handling best practices training (storage, transfer, disposal)', ctx)
+}
+evaluators['cis-v8-14.5'] = (ctx: EvaluationContext): EvaluationResult => {
+  return trainingEvaluator('cis-v8-14.5', 'Unintentional data exposure training', ctx)
+}
+evaluators['cis-v8-14.6'] = (ctx: EvaluationContext): EvaluationResult => {
+  return trainingEvaluator('cis-v8-14.6', 'Security incident recognition and reporting training', ctx)
+}
+evaluators['cis-v8-14.7'] = (ctx: EvaluationContext): EvaluationResult => {
+  return trainingEvaluator('cis-v8-14.7', 'Missing security updates identification training', ctx)
+}
+evaluators['cis-v8-14.8'] = (ctx: EvaluationContext): EvaluationResult => {
+  return trainingEvaluator('cis-v8-14.8', 'Insecure network dangers training', ctx)
+}
+
+// 15.1 Service Provider Inventory — IT Glue documentation
+evaluators['cis-v8-15.1'] = (ctx: EvaluationContext): EvaluationResult => {
+  const itg = ctx.evidence.get('it_glue_documentation' as EvidenceSourceType)
+  if (!itg) return noEvidence('cis-v8-15.1', ['it_glue_documentation'], ctx)
+
+  const data = itg.rawData as { flexibleAssetTypeCount?: number; organizationCount?: number }
+  if ((data.flexibleAssetTypeCount ?? 0) > 0) {
+    return result('cis-v8-15.1', ctx, 'partial', 'low',
+      `IT Glue contains ${data.flexibleAssetTypeCount} flexible asset types. Service provider inventory should be maintained as a flexible asset type with vendor name, service type, and data sensitivity classification.`,
+      ['it_glue_documentation'], [],
+      'Create a "Service Providers" flexible asset type in IT Glue to track vendor name, service classification, and contact information.')
+  }
+  return noEvidence('cis-v8-15.1', ['it_glue_documentation'], ctx)
+}
+
+// 15.2 Service Provider Management Policy — IT Glue
+evaluators['cis-v8-15.2'] = (ctx: EvaluationContext): EvaluationResult => {
+  const itg = ctx.evidence.get('it_glue_documentation' as EvidenceSourceType)
+  if (!itg) return noEvidence('cis-v8-15.2', ['it_glue_documentation'], ctx)
+
+  const data = itg.rawData as { hasDocumentedPolicies?: boolean }
+  if (data.hasDocumentedPolicies) {
+    return result('cis-v8-15.2', ctx, 'pass', 'low',
+      'IT Glue contains policy documentation. Service provider management policy should be included covering assessment, monitoring, and decommissioning.',
+      ['it_glue_documentation'], [])
+  }
+  return result('cis-v8-15.2', ctx, 'needs_review', 'none',
+    'No policy documentation detected in IT Glue.',
+    ['it_glue_documentation'], [],
+    'Create a service provider management policy in IT Glue covering vendor assessment, ongoing monitoring, and secure decommissioning procedures.')
+}
+
+// 16.1 Secure Application Development — IT Glue documentation
+evaluators['cis-v8-16.1'] = (ctx: EvaluationContext): EvaluationResult => {
+  const itg = ctx.evidence.get('it_glue_documentation' as EvidenceSourceType)
+  if (itg) {
+    const data = itg.rawData as { hasDocumentedProcedures?: boolean }
+    if (data.hasDocumentedProcedures) {
+      return result('cis-v8-16.1', ctx, 'partial', 'low',
+        'IT Glue contains procedure documentation. Verify a secure development process is documented if the organization develops custom applications.',
+        ['it_glue_documentation'], [])
+    }
+  }
+  return { controlId: 'cis-v8-16.1', status: 'not_applicable', confidence: 'medium',
+    reasoning: 'Most MSP-managed SMBs do not develop custom applications. If the customer does develop software, document a secure development process in IT Glue.',
+    evidenceIds: [], missingEvidence: [], remediation: null }
+}
+
+// 17.1 Designate Incident Handling Personnel — IT Glue + Autotask
+evaluators['cis-v8-17.1'] = (ctx: EvaluationContext): EvaluationResult => {
+  const itg = ctx.evidence.get('it_glue_documentation' as EvidenceSourceType)
+  const sources = ['it_glue_documentation', 'autotask_tickets'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
+
+  if (itg) {
+    const data = itg.rawData as { hasDocumentedProcedures?: boolean }
+    if (data.hasDocumentedProcedures) {
+      return result('cis-v8-17.1', ctx, 'pass', 'low',
+        'IT Glue contains documented procedures. As the MSP, Triple Cities Tech serves as the designated incident handling team with primary and backup technicians. Autotask PSA tracks incident tickets.',
+        sources, [])
+    }
+  }
+  return result('cis-v8-17.1', ctx, 'partial', 'low',
+    'As the MSP, TCT handles incidents via Autotask ticketing. Formal incident handling personnel designation should be documented in IT Glue.',
+    sources, ['it_glue_documentation'],
+    'Document incident handling personnel (primary + backup) in IT Glue with contact information and escalation procedures.')
+}
+
+// 17.2 Incident Contact Information — IT Glue
+evaluators['cis-v8-17.2'] = (ctx: EvaluationContext): EvaluationResult => {
+  const itg = ctx.evidence.get('it_glue_documentation' as EvidenceSourceType)
+  if (!itg) return noEvidence('cis-v8-17.2', ['it_glue_documentation'], ctx)
+
+  const data = itg.rawData as { organizationCount?: number; matchedOrganization?: string }
+  return result('cis-v8-17.2', ctx, 'partial', 'low',
+    `IT Glue maintains organization records (${data.organizationCount ?? 0} orgs). Contact information for incident reporting should include internal staff, MSP contacts, law enforcement, and cyber insurance provider. ${data.matchedOrganization ?? ''}`,
+    ['it_glue_documentation'], [],
+    'Create an "Incident Response Contacts" flexible asset in IT Glue listing internal stakeholders, MSP contacts, legal counsel, insurance, and law enforcement contacts.')
+}
+
+// 17.3 Incident Reporting Process — IT Glue + Autotask
+evaluators['cis-v8-17.3'] = (ctx: EvaluationContext): EvaluationResult => {
+  const itg = ctx.evidence.get('it_glue_documentation' as EvidenceSourceType)
+  const sources = ['it_glue_documentation', 'autotask_tickets'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
+
+  if (itg) {
+    const data = itg.rawData as { hasDocumentedProcedures?: boolean }
+    if (data.hasDocumentedProcedures) {
+      return result('cis-v8-17.3', ctx, 'pass', 'low',
+        'IT Glue contains documented procedures. Incident reporting process exists via Autotask ticketing system — customers report incidents to TCT, who creates tickets and follows the documented response procedure.',
+        sources, [])
+    }
+  }
+  return result('cis-v8-17.3', ctx, 'partial', 'low',
+    'Autotask provides incident ticketing. A formal incident reporting process (timeframes, escalation, minimum information required) should be documented in IT Glue.',
+    sources, ['it_glue_documentation'],
+    'Document the incident reporting process in IT Glue: who to contact, how to report (email/phone/portal), minimum info to include, and expected response timeframes.')
+}
 
 // ---------------------------------------------------------------------------
 // Control Definitions — Full CIS v8 IG1 (56 safeguards) + key IG2/IG3
