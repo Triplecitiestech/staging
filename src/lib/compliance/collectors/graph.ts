@@ -86,7 +86,23 @@ async function graphGet<T>(token: string, path: string, timeout = 30_000): Promi
 
 async function graphGetBeta<T>(token: string, path: string): Promise<T | null> {
   const url = `https://graph.microsoft.com/beta${path}`
-  return graphGet<T>(token, url)
+  try {
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(30_000),
+    })
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      console.error(`[graph-beta] ${path} failed (${res.status}): ${text.substring(0, 300)}`)
+      return null
+    }
+    const text = await res.text()
+    if (!text.trim()) return null
+    return JSON.parse(text) as T
+  } catch (err) {
+    console.error(`[graph-beta] ${path} error:`, err instanceof Error ? err.message : String(err))
+    return null
+  }
 }
 
 async function graphGetAllPages<T>(token: string, path: string, maxPages = 20): Promise<T[]> {
@@ -183,7 +199,8 @@ async function collectMfa(
   token: string, assessmentId: string, companyId: string
 ): Promise<Omit<EvidenceRecord, 'id' | 'collectedAt'> | null> {
   // Try beta credential registration details endpoint
-  const regData = await graphGetBeta<{
+  // Requires: UserAuthenticationMethod.Read.All AND Reports.Read.All
+  let regData = await graphGetBeta<{
     value: Array<{
       id: string
       userPrincipalName: string
@@ -194,6 +211,22 @@ async function collectMfa(
       defaultMfaMethod: string
     }>
   }>(token, '/reports/authenticationMethods/userRegistrationDetails?$top=999')
+
+  // If beta failed, try v1.0 endpoint
+  if (!regData?.value) {
+    const v1Data = await graphGet<{
+      value: Array<{
+        id: string
+        userPrincipalName: string
+        userDisplayName: string
+        isMfaRegistered: boolean
+        isMfaCapable: boolean
+        isAdmin: boolean
+        defaultMfaMethod: string
+      }>
+    }>(token, '/reports/authenticationMethods/userRegistrationDetails?$top=999')
+    if (v1Data?.value) regData = v1Data
+  }
 
   if (regData?.value) {
     const users = regData.value
@@ -228,9 +261,9 @@ async function collectMfa(
     mfaRegisteredUsers: null,
     mfaRate: null,
     adminUsers: [],
-    permissionMissing: 'UserAuthenticationMethod.Read.All',
-    note: 'MFA registration details unavailable. Add the "UserAuthenticationMethod.Read.All" Application permission to the customer\'s Azure AD app registration and grant admin consent.',
-  }, `${users.length} active users. MFA data requires "UserAuthenticationMethod.Read.All" permission — add it in Azure AD > App registrations > API permissions.`)
+    permissionMissing: 'UserAuthenticationMethod.Read.All + Reports.Read.All',
+    note: 'MFA registration details unavailable. Both "UserAuthenticationMethod.Read.All" AND "Reports.Read.All" Application permissions are required. Add both in the customer\'s Azure AD app registration and click "Grant admin consent for [tenant]".',
+  }, `${users.length} active users. MFA data requires both "UserAuthenticationMethod.Read.All" AND "Reports.Read.All" permissions — add them in Azure AD > App registrations > API permissions, then grant admin consent.`)
 }
 
 function summarizeMfaMethods(users: Array<{ defaultMfaMethod: string }>): Record<string, number> {
