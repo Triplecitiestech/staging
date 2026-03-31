@@ -84,6 +84,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'companyId, title, and content are required' }, { status: 400 })
     }
 
+    let policyContent = body.content
+
+    // If content is a SharePoint URL, fetch the document via Graph API
+    const spMatch = policyContent.match(/^\[SHAREPOINT:(https?:\/\/.+)]$/)
+    if (spMatch) {
+      try {
+        policyContent = await fetchSharePointDocument(body.companyId, spMatch[1])
+      } catch (err) {
+        return NextResponse.json({
+          error: `Failed to fetch SharePoint document: ${err instanceof Error ? err.message : String(err)}`,
+        }, { status: 400 })
+      }
+    }
+
     await ensureComplianceTables()
     const pool = getPool()
     const client = await pool.connect()
@@ -94,7 +108,7 @@ export async function POST(request: NextRequest) {
         `INSERT INTO compliance_policies ("companyId", title, source, content, category, tags, "frameworkIds", "controlIds", "createdBy")
          VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9) RETURNING id`,
         [
-          body.companyId, body.title, body.source ?? 'paste', body.content,
+          body.companyId, body.title, body.source ?? 'paste', policyContent,
           body.category ?? '', JSON.stringify(body.tags ?? []),
           JSON.stringify(body.frameworkIds ?? ['cis-v8']),
           JSON.stringify(body.controlIds ?? []),
@@ -106,7 +120,7 @@ export async function POST(request: NextRequest) {
       // Trigger AI analysis if requested
       let analysis: PolicyAnalysis | null = null
       if (body.analyze !== false) {
-        analysis = await analyzePolicyWithAI(client, policyId, body.companyId, body.title, body.content, session.user.email)
+        analysis = await analyzePolicyWithAI(client, policyId, body.companyId, body.title, policyContent, session.user.email)
       }
 
       return NextResponse.json({ success: true, policyId, analysis })
@@ -242,4 +256,105 @@ Respond with ONLY valid JSON, no markdown.`
     )
     return null
   }
+}
+
+// ---------------------------------------------------------------------------
+// SharePoint Document Fetcher
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch a document from SharePoint using the customer's M365 Graph credentials.
+ * Extracts text content from the document (supports .docx, .txt, .pdf via Graph content API).
+ */
+async function fetchSharePointDocument(companyId: string, sharePointUrl: string): Promise<string> {
+  const { getTenantCredentials } = await import('@/lib/graph')
+  const creds = await getTenantCredentials(companyId)
+  if (!creds) {
+    throw new Error('M365 credentials not configured for this company. Set up M365 in the company onboarding wizard first.')
+  }
+
+  // Get token
+  const tokenUrl = `https://login.microsoftonline.com/${creds.tenantId}/oauth2/v2.0/token`
+  const tokenBody = new URLSearchParams({
+    grant_type: 'client_credentials',
+    client_id: creds.clientId,
+    client_secret: creds.clientSecret,
+    scope: 'https://graph.microsoft.com/.default',
+  })
+
+  const tokenRes = await fetch(tokenUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: tokenBody.toString(),
+    signal: AbortSignal.timeout(15_000),
+  })
+  if (!tokenRes.ok) throw new Error(`Graph auth failed: ${tokenRes.status}`)
+  const tokenData = (await tokenRes.json()) as { access_token: string }
+  const token = tokenData.access_token
+
+  // Parse the SharePoint URL to extract site and file path
+  // Format: https://{tenant}.sharepoint.com/sites/{siteName}/Shared Documents/{path}
+  const url = new URL(sharePointUrl)
+  const pathParts = url.pathname.split('/')
+  const sitesIdx = pathParts.indexOf('sites')
+
+  if (sitesIdx === -1) {
+    throw new Error('Invalid SharePoint URL — must contain /sites/{siteName}/...')
+  }
+
+  const siteName = pathParts[sitesIdx + 1]
+  const hostname = url.hostname
+
+  // Get the site ID
+  const siteRes = await fetch(
+    `https://graph.microsoft.com/v1.0/sites/${hostname}:/sites/${siteName}`,
+    { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) }
+  )
+  if (!siteRes.ok) throw new Error(`SharePoint site not found: ${siteName} (${siteRes.status})`)
+  const siteData = (await siteRes.json()) as { id: string }
+  const siteId = siteData.id
+
+  // Find the file — extract path after "Shared Documents" or "Documents"
+  const docsIdx = pathParts.findIndex((p) =>
+    p === 'Shared%20Documents' || p === 'Shared Documents' || p === 'Documents'
+  )
+  if (docsIdx === -1) {
+    throw new Error('Could not determine document path. URL should contain /Shared Documents/ or /Documents/')
+  }
+
+  const filePath = pathParts.slice(docsIdx).map(decodeURIComponent).join('/')
+
+  // Get file by path from default document library
+  const driveRes = await fetch(
+    `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:/${filePath}`,
+    { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) }
+  )
+  if (!driveRes.ok) throw new Error(`File not found in SharePoint: ${filePath} (${driveRes.status})`)
+  const fileData = (await driveRes.json()) as { id: string; name: string; size: number; '@microsoft.graph.downloadUrl'?: string }
+
+  // Download file content
+  const downloadUrl = fileData['@microsoft.graph.downloadUrl']
+  if (!downloadUrl) throw new Error('Could not get download URL for the document')
+
+  const contentRes = await fetch(downloadUrl, { signal: AbortSignal.timeout(30_000) })
+  if (!contentRes.ok) throw new Error(`Failed to download document: ${contentRes.status}`)
+
+  const contentType = contentRes.headers.get('content-type') ?? ''
+  const fileName = fileData.name.toLowerCase()
+
+  // Extract text based on file type
+  if (fileName.endsWith('.txt') || fileName.endsWith('.md') || contentType.includes('text/')) {
+    return await contentRes.text()
+  }
+
+  // For .docx, .pdf — return raw text (Graph doesn't natively extract text)
+  // We'll pass the content to Claude which can handle document analysis
+  if (fileName.endsWith('.docx') || fileName.endsWith('.pdf')) {
+    const buffer = await contentRes.arrayBuffer()
+    const base64 = Buffer.from(buffer).toString('base64')
+    return `[Document: ${fileData.name}, ${(fileData.size / 1024).toFixed(0)}KB, fetched from SharePoint]\n\n[BASE64_CONTENT:${base64.substring(0, 50000)}]`
+  }
+
+  // Fallback: try as text
+  return await contentRes.text()
 }

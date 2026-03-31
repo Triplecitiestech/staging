@@ -14,7 +14,7 @@
  *   - CSV export
  */
 
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, lazy, Suspense } from 'react'
 import type {
   Assessment,
   Finding,
@@ -22,6 +22,8 @@ import type {
   EvidenceRecord,
   AssessmentComparison,
 } from '@/lib/compliance/types'
+
+const PolicyManager = lazy(() => import('./PolicyManager'))
 
 interface Company {
   id: string
@@ -55,6 +57,7 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [selectedFramework, setSelectedFramework] = useState('cis-v8-ig1')
+  const [activeTab, setActiveTab] = useState<'assessments' | 'policies'>('assessments')
 
   const loadDashboard = useCallback(async (companyId: string) => {
     setLoading(true)
@@ -162,7 +165,40 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
         <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-300">{error}</div>
       )}
 
-      {dashboard && !loading && (
+      {/* Tab Navigation — only show when a company is selected */}
+      {selectedCompany && dashboard && !loading && (
+        <div className="flex gap-1 bg-slate-800/30 border border-white/5 rounded-lg p-1">
+          <button
+            onClick={() => setActiveTab('assessments')}
+            className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+              activeTab === 'assessments'
+                ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
+                : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+            }`}
+          >
+            Assessments & Evidence
+          </button>
+          <button
+            onClick={() => setActiveTab('policies')}
+            className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+              activeTab === 'policies'
+                ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
+                : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+            }`}
+          >
+            Policy Analysis
+          </button>
+        </div>
+      )}
+
+      {/* Policy Manager Tab */}
+      {selectedCompany && dashboard && !loading && activeTab === 'policies' && (
+        <Suspense fallback={<div className="text-center py-8"><div className="animate-spin w-6 h-6 border-2 border-cyan-400 border-t-transparent rounded-full mx-auto" /></div>}>
+          <PolicyManager companyId={selectedCompany} companyName={dashboard.companyName} />
+        </Suspense>
+      )}
+
+      {dashboard && !loading && activeTab === 'assessments' && (
         <>
           {/* Connector Status */}
           <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg p-6">
