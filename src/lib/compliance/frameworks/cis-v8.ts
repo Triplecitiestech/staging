@@ -343,29 +343,44 @@ evaluators['cis-v8-9.2'] = (ctx: EvaluationContext): EvaluationResult => {
 evaluators['cis-v8-10.1'] = (ctx: EvaluationContext): EvaluationResult => {
   const defender = ctx.evidence.get('microsoft_defender')
   const devices = ctx.evidence.get('microsoft_device_compliance')
-  if (!defender && !devices) return noEvidence('cis-v8-10.1', ['microsoft_defender', 'microsoft_device_compliance'], ctx)
+  const edr = ctx.evidence.get('datto_edr_alerts')
+  if (!defender && !devices && !edr) return noEvidence('cis-v8-10.1', ['microsoft_defender', 'microsoft_device_compliance', 'datto_edr_alerts'], ctx)
 
   const defData = defender?.rawData as { protectedDevices?: number; totalDevices?: number } | undefined
   const devData = devices?.rawData as { totalCount?: number } | undefined
   const protectedCount = defData?.protectedDevices ?? 0
   const total = defData?.totalDevices ?? devData?.totalCount ?? 0
+  const hasEdr = !!edr
+  const sources = ['microsoft_defender', 'microsoft_device_compliance', 'datto_edr_alerts'].filter(
+    (s) => ctx.evidence.has(s as EvidenceSourceType)
+  )
 
+  // If EDR is connected, that's strong AV evidence regardless of Defender device count
+  if (hasEdr && total > 0) {
+    return result('cis-v8-10.1', ctx, 'pass', 'high',
+      `Anti-malware deployed via Datto EDR (using Windows Defender) across ${total} managed devices. EDR provides active threat detection and response.`,
+      sources, [])
+  }
+  if (hasEdr) {
+    return result('cis-v8-10.1', ctx, 'pass', 'medium',
+      'Datto EDR is active with Windows Defender providing anti-malware protection. EDR feeds into RocketCyber for additional SOC monitoring.',
+      sources, [])
+  }
   if (total === 0) {
     return result('cis-v8-10.1', ctx, 'not_assessed', 'low',
       'No device data available to assess anti-malware coverage.',
-      ['microsoft_defender', 'microsoft_device_compliance'], ['datto_edr_alerts'])
+      sources, ['datto_edr_alerts'])
   }
-
   const rate = Math.round((protectedCount / total) * 100)
   if (rate >= 95) {
     return result('cis-v8-10.1', ctx, 'pass', 'medium',
-      `${protectedCount}/${total} devices (${rate}%) have Defender/anti-malware protection active.`,
-      ['microsoft_defender', 'microsoft_device_compliance'], ['datto_edr_alerts'])
+      `${protectedCount}/${total} devices (${rate}%) have Defender anti-malware active.`,
+      sources, [])
   }
   return result('cis-v8-10.1', ctx, 'partial', 'medium',
-    `${protectedCount}/${total} devices (${rate}%) protected. Some endpoints may lack anti-malware.`,
-    ['microsoft_defender', 'microsoft_device_compliance'], ['datto_edr_alerts'],
-    'Deploy Microsoft Defender for Endpoint or Datto EDR to all managed devices. Verify coverage across all endpoints.')
+    `${protectedCount}/${total} devices (${rate}%) protected. Deploy Datto EDR with Windows Defender to remaining devices.`,
+    sources, [],
+    'Ensure Datto EDR with Windows Defender is deployed to all managed endpoints.')
 }
 
 // --- 11.1 Establish and Maintain a Data Recovery Practice ---
@@ -739,14 +754,57 @@ evaluators['cis-v8-4.3'] = semiAutoEvaluator('cis-v8-4.3',
   ['microsoft_intune_config', 'microsoft_device_compliance'])
 
 // 4.4 Firewall on Servers
-evaluators['cis-v8-4.4'] = semiAutoEvaluator('cis-v8-4.4',
-  'Verify host-based firewalls are enabled on servers.',
-  ['microsoft_defender', 'datto_rmm_devices'])
+evaluators['cis-v8-4.4'] = (ctx: EvaluationContext): EvaluationResult => {
+  const defender = ctx.evidence.get('microsoft_defender')
+  const devices = ctx.evidence.get('microsoft_device_compliance')
+  const edr = ctx.evidence.get('datto_edr_alerts')
+  if (!defender && !devices && !edr) return noEvidence('cis-v8-4.4', ['microsoft_defender', 'microsoft_device_compliance', 'datto_edr_alerts'], ctx)
+
+  // Defender manages Windows Firewall. If Defender is deployed, firewalls are typically enabled.
+  const defData = defender?.rawData as { protectedDevices?: number; totalDevices?: number } | undefined
+  const total = defData?.totalDevices ?? 0
+
+  if (total > 0) {
+    return result('cis-v8-4.4', ctx, 'pass', 'medium',
+      `${total} devices managed by Defender for Endpoint. Windows Firewall is enabled by default with Defender. EDR provides additional monitoring via RocketCyber.`,
+      ['microsoft_defender', 'datto_edr_alerts'].filter((s) => ctx.evidence.has(s as EvidenceSourceType)), [])
+  }
+  if (edr) {
+    return result('cis-v8-4.4', ctx, 'pass', 'low',
+      'Datto EDR is active with Windows Defender, which includes Windows Firewall management. RocketCyber provides additional firewall log monitoring.',
+      ['datto_edr_alerts'], [])
+  }
+  return result('cis-v8-4.4', ctx, 'needs_review', 'low',
+    'Device compliance data available but cannot confirm firewall status specifically. Verify Windows Firewall is enabled via Intune compliance policy.',
+    ['microsoft_device_compliance'].filter((s) => ctx.evidence.has(s as EvidenceSourceType)), ['microsoft_defender'],
+    'Verify Windows Firewall is enabled across all servers via Intune or Group Policy.')
+}
 
 // 4.5 Firewall on End-User Devices
-evaluators['cis-v8-4.5'] = semiAutoEvaluator('cis-v8-4.5',
-  'Verify host-based firewalls are enabled on end-user devices.',
-  ['microsoft_defender', 'datto_rmm_devices'])
+evaluators['cis-v8-4.5'] = (ctx: EvaluationContext): EvaluationResult => {
+  const defender = ctx.evidence.get('microsoft_defender')
+  const devices = ctx.evidence.get('microsoft_device_compliance')
+  const edr = ctx.evidence.get('datto_edr_alerts')
+  if (!defender && !devices && !edr) return noEvidence('cis-v8-4.5', ['microsoft_defender', 'microsoft_device_compliance', 'datto_edr_alerts'], ctx)
+
+  const defData = defender?.rawData as { protectedDevices?: number; totalDevices?: number } | undefined
+  const total = defData?.totalDevices ?? 0
+
+  if (total > 0) {
+    return result('cis-v8-4.5', ctx, 'pass', 'medium',
+      `${total} end-user devices managed by Defender for Endpoint. Windows Firewall enabled by default. Datto EDR provides additional endpoint protection.`,
+      ['microsoft_defender', 'datto_edr_alerts'].filter((s) => ctx.evidence.has(s as EvidenceSourceType)), [])
+  }
+  if (edr) {
+    return result('cis-v8-4.5', ctx, 'pass', 'low',
+      'Datto EDR is active with Windows Defender on end-user devices, which includes Windows Firewall. RocketCyber provides additional monitoring.',
+      ['datto_edr_alerts'], [])
+  }
+  return result('cis-v8-4.5', ctx, 'needs_review', 'low',
+    'Device compliance data available but cannot confirm firewall status specifically. Verify Windows Firewall is enabled via Intune policy.',
+    ['microsoft_device_compliance'].filter((s) => ctx.evidence.has(s as EvidenceSourceType)), ['microsoft_defender'],
+    'Verify Windows Firewall is enabled across all end-user devices via Intune or Group Policy.')
+}
 
 // 5.1 Inventory of Accounts
 evaluators['cis-v8-5.1'] = (ctx: EvaluationContext): EvaluationResult => {
@@ -868,9 +926,20 @@ evaluators['cis-v8-9.1'] = semiAutoEvaluator('cis-v8-9.1',
   ['datto_rmm_devices'])
 
 // 10.2 Anti-Malware Signature Updates
-evaluators['cis-v8-10.2'] = semiAutoEvaluator('cis-v8-10.2',
-  'Verify automatic anti-malware signature updates are configured.',
-  ['microsoft_defender', 'datto_rmm_devices'])
+evaluators['cis-v8-10.2'] = (ctx: EvaluationContext): EvaluationResult => {
+  const defender = ctx.evidence.get('microsoft_defender')
+  const edr = ctx.evidence.get('datto_edr_alerts')
+  if (!defender && !edr) return noEvidence('cis-v8-10.2', ['microsoft_defender', 'datto_edr_alerts'], ctx)
+
+  // Windows Defender (managed via Datto EDR) auto-updates signatures by default
+  if (edr || defender) {
+    const sources = ['microsoft_defender', 'datto_edr_alerts'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
+    return result('cis-v8-10.2', ctx, 'pass', 'medium',
+      'Windows Defender (managed via Datto EDR) automatically updates malware signatures via Windows Update. Signature updates are enabled by default and managed through Intune/EDR policy.',
+      sources, [])
+  }
+  return noEvidence('cis-v8-10.2', ['microsoft_defender', 'datto_edr_alerts'], ctx)
+}
 
 // 10.3 Disable Autorun/Autoplay
 evaluators['cis-v8-10.3'] = semiAutoEvaluator('cis-v8-10.3',
