@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import type { TicketDetailProps, UnifiedTicketNote } from '@/types/tickets';
-import { formatMinutes } from '@/lib/tickets/utils';
+import { formatMinutes, getStatusBadgeColor } from '@/lib/tickets/utils';
 import TimelineEntry from './TimelineEntry';
 import TicketNoteToggle from './TicketNoteToggle';
 import TicketReplyForm from './TicketReplyForm';
@@ -53,13 +53,15 @@ export default function TicketDetail({
         <div className="flex items-center gap-3 mb-2 flex-wrap">
           <h3 className="text-xl font-bold text-white">{demo.title(ticket.title)}</h3>
           <span
-            className={`px-2.5 py-0.5 text-xs font-medium rounded-full whitespace-nowrap ${
+            className={`px-2.5 py-0.5 text-xs font-medium rounded-full whitespace-nowrap border ${
               ticket.isResolved
-                ? 'bg-green-500/20 text-green-300 border border-green-500/30'
-                : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                ? 'bg-green-500/20 text-green-300 border-green-500/30'
+                : isCustomer
+                  ? `${getStatusBadgeColor(ticket.statusLabel)} border-white/10`
+                  : 'bg-blue-500/20 text-blue-300 border-blue-500/30'
             }`}
           >
-            {ticket.isResolved ? 'Closed' : 'Open'}
+            {ticket.isResolved ? 'Closed' : isCustomer ? (ticket.statusLabel || 'Open') : 'Open'}
           </span>
         </div>
         <p className="text-sm text-gray-400">Ticket #{ticket.ticketNumber}</p>

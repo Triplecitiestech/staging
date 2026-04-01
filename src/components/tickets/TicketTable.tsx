@@ -4,13 +4,39 @@ import { useState, useMemo } from 'react';
 import type { UnifiedTicketRow, TicketTableProps, SortField, SortDir } from '@/types/tickets';
 import PriorityBadge from './PriorityBadge';
 import SlaIndicator from './SlaIndicator';
-import { formatMinutes } from '@/lib/tickets/utils';
+import { formatMinutes, getStatusBadgeColor } from '@/lib/tickets/utils';
 import { useDemoMode } from '@/components/admin/DemoModeProvider';
 
 /** Autotask "waiting on customer" ticket statuses (7=Waiting Customer, 12=Customer Note Added) */
 const WAITING_ON_CUSTOMER_STATUSES = new Set([7, 12]);
 function isWaitingOnCustomer(status: number): boolean {
   return WAITING_ON_CUSTOMER_STATUSES.has(status);
+}
+
+/** Get display label for a ticket based on perspective */
+function getDisplayStatusLabel(ticket: UnifiedTicketRow, isStaff: boolean): string {
+  // Staff view: use internal labels
+  if (isStaff) {
+    if (ticket.isResolved) return 'Resolved';
+    if (isWaitingOnCustomer(ticket.status)) return 'Waiting on Customer';
+    return 'Open';
+  }
+  // Customer view: use the refined statusLabel from the adapter
+  if (ticket.isResolved) return 'Closed';
+  return ticket.statusLabel || 'Open';
+}
+
+/** Get badge color for a ticket based on perspective */
+function getDisplayStatusColor(ticket: UnifiedTicketRow, isStaff: boolean): string {
+  if (isStaff) {
+    // Staff colors unchanged
+    if (ticket.isResolved) return 'bg-emerald-400/20 text-emerald-400';
+    if (isWaitingOnCustomer(ticket.status)) return 'bg-rose-400/20 text-rose-400';
+    return 'bg-cyan-400/20 text-cyan-400';
+  }
+  // Customer view: use refined color from statusLabel
+  if (ticket.isResolved) return 'bg-green-500/20 text-green-300';
+  return getStatusBadgeColor(ticket.statusLabel);
 }
 
 export default function TicketTable({
@@ -137,14 +163,8 @@ export default function TicketTable({
               <p className="text-xs text-gray-500 mt-0.5">#{ticket.ticketNumber} - {new Date(ticket.createDate).toLocaleDateString()}</p>
             </div>
             <div className="flex items-center gap-2 ml-3">
-              <span className={`px-2 py-0.5 text-xs font-medium rounded-full whitespace-nowrap ${
-                ticket.isResolved
-                  ? 'bg-green-500/20 text-green-300'
-                  : isWaitingOnCustomer(ticket.status)
-                    ? 'bg-rose-500/20 text-rose-300'
-                    : 'bg-blue-500/20 text-blue-300'
-              }`}>
-                {ticket.isResolved ? 'Closed' : isWaitingOnCustomer(ticket.status) ? (isStaff ? 'Waiting on Customer' : 'Awaiting Your Team') : 'Open'}
+              <span className={`px-2 py-0.5 text-xs font-medium rounded-full whitespace-nowrap ${getDisplayStatusColor(ticket, isStaff)}`}>
+                {getDisplayStatusLabel(ticket, isStaff)}
               </span>
               <svg className="w-4 h-4 text-gray-500 group-hover:text-cyan-400 transition-colors flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -294,15 +314,9 @@ function TicketRow({
       </td>
       <td className="text-center px-4 py-3">
         <span
-          className={`text-xs px-2 py-0.5 rounded-full ${
-            ticket.isResolved
-              ? 'bg-emerald-400/20 text-emerald-400'
-              : isWaitingOnCustomer(ticket.status)
-                ? 'bg-rose-400/20 text-rose-400'
-                : 'bg-cyan-400/20 text-cyan-400'
-          }`}
+          className={`text-xs px-2 py-0.5 rounded-full ${getDisplayStatusColor(ticket, isStaff)}`}
         >
-          {ticket.isResolved ? 'Resolved' : isWaitingOnCustomer(ticket.status) ? (isStaff ? 'Waiting on Customer' : 'Awaiting Your Team') : 'Open'}
+          {getDisplayStatusLabel(ticket, isStaff)}
         </span>
       </td>
       {isStaff && (
