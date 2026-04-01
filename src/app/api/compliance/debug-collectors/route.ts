@@ -148,6 +148,78 @@ export async function GET(request: NextRequest) {
       })
       const devicesText = await devicesRes.text()
       results.devicesResponse = { status: devicesRes.status, bodyLength: devicesText.length, body: devicesText.substring(0, 2000) }
+    } else if (collector === 'policies') {
+      // Debug: check if controlDetails are populated in policy analyses
+      const { getPool } = await import('@/lib/db-pool')
+      const { ensureComplianceTables } = await import('@/lib/compliance/ensure-tables')
+      await ensureComplianceTables()
+      const pool = getPool()
+      const client = await pool.connect()
+      try {
+        // Find the company
+        const companyRes = await client.query<{ id: string; displayName: string }>(
+          `SELECT id, "displayName" FROM companies WHERE "displayName" ILIKE $1 LIMIT 1`,
+          [`%${companyName}%`]
+        )
+        if (companyRes.rows.length === 0) {
+          results.error = `No company matching "${companyName}"`
+          return NextResponse.json({ success: false, ...results })
+        }
+        const company = companyRes.rows[0]
+        results.company = { id: company.id, name: company.displayName }
+
+        // Get policies
+        const policiesRes = await client.query<{ id: string; title: string }>(
+          `SELECT id, title FROM compliance_policies WHERE "companyId" = $1 ORDER BY "createdAt" DESC`,
+          [company.id]
+        )
+        results.policyCount = policiesRes.rows.length
+
+        // Get analyses with controlDetails
+        const analysesRes = await client.query<{
+          id: string; policyId: string; status: string; analyzedAt: string | null;
+          satisfiedCount: number; partialCount: number; missingCount: number;
+          controlDetailsLength: number; sampleDetails: string;
+        }>(
+          `SELECT a.id, a."policyId", a.status, a."analyzedAt",
+                  jsonb_array_length(COALESCE(a."satisfiedControls", '[]'::jsonb)) as "satisfiedCount",
+                  jsonb_array_length(COALESCE(a."partialControls", '[]'::jsonb)) as "partialCount",
+                  jsonb_array_length(COALESCE(a."missingControls", '[]'::jsonb)) as "missingCount",
+                  jsonb_array_length(COALESCE(a."controlDetails", '[]'::jsonb)) as "controlDetailsLength",
+                  COALESCE(a."controlDetails", '[]'::jsonb)::text as "sampleDetails"
+           FROM compliance_policy_analyses a
+           JOIN compliance_policies p ON p.id = a."policyId"
+           WHERE p."companyId" = $1 AND a.status = 'complete'
+           ORDER BY a."analyzedAt" DESC`,
+          [company.id]
+        )
+
+        results.analyses = analysesRes.rows.map((a) => {
+          const policyTitle = policiesRes.rows.find((p) => p.id === a.policyId)?.title ?? 'unknown'
+          // Parse and show first 2 controlDetails entries
+          let sampleQuotes: unknown[] = []
+          try {
+            const details = JSON.parse(a.sampleDetails)
+            sampleQuotes = (details as Array<{ controlId: string; status: string; quote: string | null }>)
+              .filter((d) => d.quote)
+              .slice(0, 3)
+              .map((d) => ({ controlId: d.controlId, status: d.status, quote: d.quote?.substring(0, 100) }))
+          } catch { /* ignore */ }
+          return {
+            policyTitle,
+            status: a.status,
+            analyzedAt: a.analyzedAt,
+            satisfied: a.satisfiedCount,
+            partial: a.partialCount,
+            missing: a.missingCount,
+            controlDetailsCount: a.controlDetailsLength,
+            hasQuotes: sampleQuotes.length > 0,
+            sampleQuotes,
+          }
+        })
+      } finally {
+        client.release()
+      }
     }
 
     return NextResponse.json({ success: true, ...results })

@@ -546,8 +546,8 @@ async function loadPolicyCoverage(
     if (map.size > 0) {
       console.log(`[compliance] Policy coverage loaded: ${map.size} controls covered by policies (${res.rows.length} policy analyses)`)
     }
-  } catch {
-    // Tables may not exist yet
+  } catch (err) {
+    console.error('[compliance] loadPolicyCoverage error (tables may not exist yet):', err instanceof Error ? err.message : err)
   }
   return map
 }
