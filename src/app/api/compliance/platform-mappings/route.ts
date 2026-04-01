@@ -232,9 +232,19 @@ async function listPlatformSources(platform: string): Promise<SourceItem[]> {
 
     case 'dnsfilter': {
       if (!process.env.DNSFILTER_API_TOKEN) throw new Error('DNSFilter not configured')
-      // DNSFilter doesn't have a public list orgs endpoint in our client yet
-      // Return a placeholder — user can enter the org ID manually
-      return []
+      const apiToken = process.env.DNSFILTER_API_TOKEN
+      const baseUrl = (process.env.DNSFILTER_API_URL || 'https://api.dnsfilter.com/v1').replace(/\/$/, '')
+      const res = await fetch(`${baseUrl}/organizations`, {
+        headers: { 'Authorization': `Token ${apiToken}`, 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(15_000),
+      })
+      if (!res.ok) throw new Error(`DNSFilter orgs failed: ${res.status}`)
+      const json = await res.json() as { data?: Array<{ id: string; attributes?: { name?: string } }> }
+      return (json.data ?? []).map((o) => ({
+        id: o.id,
+        name: o.attributes?.name ?? 'Unknown',
+        type: 'organization',
+      }))
     }
 
     default:

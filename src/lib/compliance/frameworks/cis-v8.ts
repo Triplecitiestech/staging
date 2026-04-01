@@ -532,23 +532,53 @@ evaluators['cis-v8-9.2'] = (ctx: EvaluationContext): EvaluationResult => {
   const dns = ctx.evidence.get('dnsfilter_dns')
   if (!dns) return noEvidence('cis-v8-9.2', ['dnsfilter_dns'], ctx)
 
-  const dnsData = dns.rawData as { totalQueries?: number; blockedQueries?: number }
+  const dnsData = dns.rawData as {
+    dnsFilteringActive?: boolean
+    matchedOrganization?: string | null
+    networkCount?: number
+    policyCount?: number
+    blockedCategoryCount?: number
+    totalOrganizations?: number
+    // Legacy fields from old collector
+    totalQueries?: number
+    blockedQueries?: number
+  }
+
+  // New evidence format: orgs + networks + policies
+  if (dnsData.dnsFilteringActive) {
+    const orgName = dnsData.matchedOrganization
+    const networks = dnsData.networkCount ?? 0
+    const policies = dnsData.policyCount ?? 0
+    const blockedCats = dnsData.blockedCategoryCount ?? 0
+
+    if (orgName && networks > 0 && policies > 0) {
+      return result('cis-v8-9.2', ctx, 'pass', 'high',
+        `DNS filtering active for "${orgName}": ${networks} network(s) configured with ${policies} blocking policy/policies covering ${blockedCats} threat categories.`,
+        ['dnsfilter_dns'], [])
+    }
+    if (orgName) {
+      return result('cis-v8-9.2', ctx, 'pass', 'medium',
+        `DNS filtering active for "${orgName}" in DNSFilter. ${networks} network(s), ${policies} policy/policies.`,
+        ['dnsfilter_dns'], [])
+    }
+    // MSP-level only (no customer-specific match)
+    return result('cis-v8-9.2', ctx, 'pass', 'low',
+      `DNSFilter is active MSP-wide (${dnsData.totalOrganizations ?? 0} organizations, ${networks} networks). Map this customer to their specific DNSFilter organization in Platform Mapping for higher confidence.`,
+      ['dnsfilter_dns'], [])
+  }
+
+  // Legacy: query-based evidence (in case old assessments exist)
   const total = dnsData.totalQueries ?? 0
   const blocked = dnsData.blockedQueries ?? 0
-
-  if (total > 0 && blocked > 0) {
-    return result('cis-v8-9.2', ctx, 'pass', 'medium',
-      `DNS filtering active. ${blocked.toLocaleString()} threats blocked out of ${total.toLocaleString()} queries (30-day period). Note: MSP-level data.`,
-      ['dnsfilter_dns'], [])
-  }
   if (total > 0) {
-    return result('cis-v8-9.2', ctx, 'pass', 'low',
-      `DNS filtering active with ${total.toLocaleString()} queries processed. No threats blocked in period. Note: MSP-level data.`,
+    return result('cis-v8-9.2', ctx, 'pass', 'medium',
+      `DNS filtering active. ${blocked.toLocaleString()} threats blocked out of ${total.toLocaleString()} queries.`,
       ['dnsfilter_dns'], [])
   }
+
   return result('cis-v8-9.2', ctx, 'needs_review', 'low',
-    'DNS filtering detected but no query data available. Verify DNSFilter is actively processing DNS traffic.',
-    ['dnsfilter_dns'], [], 'Confirm DNS traffic is routing through DNSFilter for all endpoints.')
+    'DNS filtering evidence collected but could not confirm active filtering for this customer.',
+    ['dnsfilter_dns'], [], 'Map this customer to their DNSFilter organization in Platform Mapping.')
 }
 
 // --- 10.1 Deploy and Maintain Anti-Malware Software ---
