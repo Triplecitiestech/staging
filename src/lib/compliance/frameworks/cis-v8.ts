@@ -140,7 +140,21 @@ function applyPolicyCoverage(evalResult: EvaluationResult, ctx: EvaluationContex
   const hasTechnicalEvidence = evalResult.evidenceIds.length > 0
 
   if (hasTechnicalEvidence) {
-    // Just mention the policy exists — don't change status, confidence, or evidence
+    // Don't change status, confidence, or evidence — but show policy details with quotes
+    const relevantPolicies = [...satisfied, ...partial]
+    if (relevantPolicies.length > 0) {
+      const details = relevantPolicies.map((c) => {
+        let detail = `**${c.policyTitle}**`
+        if (c.section) detail += ` (${c.section})`
+        if (c.reasoning) detail += `: ${c.reasoning}`
+        if (c.quote) detail += ` — "${c.quote}"`
+        return detail
+      })
+      return {
+        ...evalResult,
+        reasoning: `${evalResult.reasoning}\n\nAdditionally supported by uploaded policy documentation:\n${details.join('\n')}`,
+      }
+    }
     return {
       ...evalResult,
       reasoning: `${evalResult.reasoning} Additionally supported by uploaded policy: ${policyNames.join(', ')}.`,
