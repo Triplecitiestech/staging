@@ -301,8 +301,28 @@ export default function PlatformMappingPanel({ companyId, companyName }: Platfor
                     </button>
                   )}
 
-                  {/* Source Item Picker */}
-                  {isLoading ? (
+                  {/* Webhook setup for SaaS Alerts */}
+                  {platform === 'saas_alerts' && (
+                    <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg space-y-2">
+                      <p className="text-xs font-medium text-blue-300">Webhook Setup Required</p>
+                      <p className="text-xs text-slate-400">
+                        SaaS Alerts uses webhooks to push event data (their API is behind Cloudflare).
+                        Configure in <span className="text-cyan-400">manage.saasalerts.com</span>:
+                      </p>
+                      <ol className="text-xs text-slate-400 space-y-1 list-decimal list-inside">
+                        <li>Go to Settings &rarr; API &rarr; Webhook API</li>
+                        <li>Click &ldquo;+ Add new domain&rdquo;</li>
+                        <li>Add domain: <code className="text-cyan-400 bg-slate-800 px-1 rounded">www.triplecitiestech.com</code></li>
+                        <li>Set webhook URL: <code className="text-cyan-400 bg-slate-800 px-1 rounded text-[10px]">https://www.triplecitiestech.com/api/compliance/webhooks/saas-alerts</code></li>
+                      </ol>
+                      <p className="text-xs text-slate-500">
+                        Once configured, events flow automatically. No customer mapping needed — events are MSP-wide.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Source Item Picker (skip for webhook-based platforms) */}
+                  {platform === 'saas_alerts' ? null : isLoading ? (
                     <div className="flex items-center gap-2 text-sm text-cyan-400 py-4 justify-center">
                       <div className="animate-spin w-4 h-4 border-2 border-cyan-400 border-t-transparent rounded-full" />
                       Loading {meta.itemLabel.toLowerCase()}s from {meta.label}...
