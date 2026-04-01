@@ -633,7 +633,7 @@ export async function collectUbiquitiEvidence(
       const hosts = await listHosts()
       matchedHostNames = hosts.filter((h) => mappedIds.has(h.hostId)).map((h) => h.hostName)
       // Also include mapped names directly in case hostName changed
-      for (const n of mappedNames) { if (n) matchedHostNames.push(n) }
+      Array.from(mappedNames).forEach((n) => { if (n) matchedHostNames.push(n) })
       const hostNameSet = new Set(matchedHostNames)
       matchedDevices = summary.devices.filter((d) => hostNameSet.has(d.siteName))
       console.log(`[compliance][ubiquiti] Using explicit mapping: ${matchedDevices.length} devices from ${matchedHostNames.length} host(s) for ${name}`)
