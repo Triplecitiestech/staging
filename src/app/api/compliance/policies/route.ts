@@ -270,7 +270,8 @@ Respond with ONLY valid JSON, no markdown.`
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 2000,
+        max_tokens: 4000,
+        system: 'You are a compliance policy analyst. Always respond with valid JSON only. No markdown, no preamble, no explanation outside the JSON object.',
         messages: [{ role: 'user', content: prompt }],
       }),
       signal: AbortSignal.timeout(45_000),
@@ -296,9 +297,19 @@ Respond with ONLY valid JSON, no markdown.`
     try {
       parsed = JSON.parse(text)
     } catch {
-      // Try to extract JSON from text
-      const jsonMatch = text.match(/\{[\s\S]*\}/)
-      if (jsonMatch) parsed = JSON.parse(jsonMatch[0])
+      // Try to extract JSON from text — Claude sometimes adds preamble or markdown
+      try {
+        // Remove markdown code fences if present
+        const cleaned = text.replace(/```json\s*/g, '').replace(/```\s*/g, '')
+        const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
+        if (jsonMatch) {
+          parsed = JSON.parse(jsonMatch[0])
+        }
+      } catch {
+        // If still can't parse, store the raw text as the summary
+        console.error('[compliance/policies] Failed to parse AI response as JSON:', text.substring(0, 500))
+        parsed = { summary: text.substring(0, 2000) }
+      }
     }
 
     await client.query(
