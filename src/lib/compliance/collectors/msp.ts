@@ -109,7 +109,6 @@ export async function collectDattoRmmEvidence(
 
     const onlineDevices = allDevices.filter((d) => d.online)
     const patchedDevices = allDevices.filter((d) => d.patchesApprovedPending === 0)
-    const avActive = allDevices.filter((d) => d.antivirusStatus === 'On')
 
     evidence.push(buildEvidence(assessmentId, companyId, 'datto_rmm_devices', {
       matched: true,
@@ -119,10 +118,8 @@ export async function collectDattoRmmEvidence(
       onlineDevices: onlineDevices.length,
       patchedDevices: patchedDevices.length,
       patchRate: allDevices.length > 0 ? Math.round((patchedDevices.length / allDevices.length) * 100) : 0,
-      avActiveDevices: avActive.length,
-      avRate: allDevices.length > 0 ? Math.round((avActive.length / allDevices.length) * 100) : 0,
       devices: allDevices.slice(0, 50), // cap at 50 for storage
-    }, `${allDevices.length} devices across ${matchedSites.length} site(s). ${patchedDevices.length} fully patched, ${avActive.length} AV active.`))
+    }, `${allDevices.length} devices across ${matchedSites.length} site(s). ${patchedDevices.length} fully patched (${allDevices.length > 0 ? Math.round((patchedDevices.length / allDevices.length) * 100) : 0}% patch rate).`))
 
     return { evidence, errors }
   } catch (err) {
@@ -474,7 +471,12 @@ export async function collectSaasAlertsEvidence(
       return { evidence, errors: [summary.note ?? 'SaaS Alerts API unavailable'] }
     }
 
-    // Store evidence even if 0 events — having the connection working is itself evidence
+    // Only store evidence if there's actual data (customers or events)
+    if (summary.customers.length === 0 && summary.totalEvents === 0) {
+      errors.push('SaaS Alerts API connected but returned 0 customers and 0 events. Verify the API key has proper permissions and customers are onboarded in manage.saasalerts.com.')
+      return { evidence, errors }
+    }
+
     evidence.push(buildEvidence(assessmentId, companyId, 'saas_alerts_monitoring' as EvidenceSourceType, {
       totalEvents: summary.totalEvents,
       eventsBySeverity: summary.eventsBySeverity,
@@ -507,7 +509,8 @@ export async function collectSaasAlertsEvidence(
 
 export async function collectUbiquitiEvidence(
   companyId: string,
-  assessmentId: string
+  assessmentId: string,
+  companyName?: string
 ): Promise<{ evidence: Array<Omit<EvidenceRecord, 'id' | 'collectedAt'>>; errors: string[] }> {
   const evidence: Array<Omit<EvidenceRecord, 'id' | 'collectedAt'>> = []
   const errors: string[] = []
@@ -516,8 +519,14 @@ export async function collectUbiquitiEvidence(
     return { evidence, errors: ['Ubiquiti: UBIQUITI_API_KEY not configured'] }
   }
 
+  const name = companyName ?? await getCompanyDisplayName(companyId)
+  if (!name) {
+    return { evidence, errors: ['Company not found'] }
+  }
+
   try {
     const { buildSummary } = await import('@/lib/ubiquiti')
+    const { matchesCompanyName } = await import('@/utils')
     const summary = await buildSummary()
 
     if (!summary) {
@@ -528,39 +537,51 @@ export async function collectUbiquitiEvidence(
       return { evidence, errors: [] }
     }
 
+    // Filter sites to this customer only — Ubiquiti returns ALL MSP sites
+    const matchedSites = summary.sites.filter((s) => matchesCompanyName(name, s.name))
+
+    if (matchedSites.length === 0) {
+      // No matching sites for this customer — don't store evidence
+      return { evidence: [], errors: [] }
+    }
+
+    const matchedSiteNames = new Set(matchedSites.map((s) => s.name))
+
+    // Filter devices to matched sites only
+    const matchedDevices = summary.devices.filter((d) => matchedSiteNames.has(d.siteName))
+
     // Categorize devices by model type
     const devicesByModel: Record<string, number> = {}
-    for (const d of summary.devices) {
+    for (const d of matchedDevices) {
       const model = d.model || 'Unknown'
       devicesByModel[model] = (devicesByModel[model] ?? 0) + 1
     }
 
-    // Calculate uptime health (devices with >24h uptime are healthy)
-    const healthyDevices = summary.devices.filter((d) => d.uptime > 86400).length
+    const matchedClients = matchedSites.reduce((sum, s) => sum + s.totalDevices, 0)
 
     evidence.push(buildEvidence(assessmentId, companyId, 'ubiquiti_network' as EvidenceSourceType, {
-      totalSites: summary.totalSites,
-      totalDevices: summary.totalDevices,
-      totalClients: summary.totalClients,
-      healthyDevices,
+      matched: true,
+      companyName: name,
+      totalSites: matchedSites.length,
+      totalDevices: matchedDevices.length,
+      totalClients: matchedClients,
       devicesByModel,
-      sites: summary.sites.map((s) => ({
+      sites: matchedSites.map((s) => ({
         name: s.name,
         totalDevices: s.totalDevices,
         adoptedDevices: s.adoptedDevices,
         satisfaction: s.satisfaction,
       })),
-      devices: summary.devices.slice(0, 100).map((d) => ({
+      devices: matchedDevices.slice(0, 50).map((d) => ({
         hostname: d.hostname,
         model: d.model,
         firmware: d.firmware,
         ipAddress: d.ipAddress,
         macAddress: d.macAddress,
-        uptimeHours: Math.round(d.uptime / 3600),
         siteName: d.siteName,
         connectedClients: d.connectedClients,
       })),
-    }, `Ubiquiti: ${summary.totalDevices} network devices across ${summary.totalSites} site(s). ${summary.totalClients} connected clients. Models: ${Object.entries(devicesByModel).map(([k, v]) => `${k} (${v})`).join(', ')}.`))
+    }, `Ubiquiti: ${matchedDevices.length} network devices across ${matchedSites.length} site(s) for ${name}. Models: ${Object.entries(devicesByModel).map(([k, v]) => `${k} (${v})`).join(', ')}.`))
 
     return { evidence, errors }
   } catch (err) {

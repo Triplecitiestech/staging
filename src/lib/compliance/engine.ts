@@ -588,6 +588,7 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
   // --- Phase 1: Read assessment info and set status (quick DB access) ---
   let assessment: Assessment
   let companyDisplayName = ''
+  let environmentContext: EnvironmentContext | undefined
   const availableConnectors = new Set<ConnectorType>()
   {
     const client = await pool.connect()
@@ -603,6 +604,9 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
         `SELECT "displayName" FROM companies WHERE id = $1`, [assessment.companyId]
       )
       companyDisplayName = companyRes.rows[0]?.displayName ?? ''
+
+      // Load environment context early so we can skip irrelevant collectors in Phase 2
+      environmentContext = await loadEnvironmentContext(client)
 
       await updateAssessmentStatus(client, assessmentId, 'collecting')
       await logAudit(client, assessment.companyId, assessmentId, 'collection_started', actor, {})
@@ -644,8 +648,15 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
       fn: () => collectDattoRmmEvidence(assessment.companyId, assessmentId) })
   }
   if (availableConnectors.has('datto_bcdr')) {
-    collectors.push({ name: 'Datto BCDR', connector: 'datto_bcdr',
-      fn: () => collectDattoBcdrEvidence(assessment.companyId, assessmentId) })
+    // Skip BCDR collection if setup wizard says no on-prem servers or backup scope is M365-only
+    const skipBcdr = environmentContext?.scope?.backup === 'm365_only'
+      || environmentContext?.onPremServers === 'no_servers'
+    if (skipBcdr) {
+      console.log(`[compliance] Skipping Datto BCDR collector — ${environmentContext?.scope?.backup === 'm365_only' ? 'backup scope is m365_only' : 'no on-prem servers'} per setup wizard`)
+    } else {
+      collectors.push({ name: 'Datto BCDR', connector: 'datto_bcdr',
+        fn: () => collectDattoBcdrEvidence(assessment.companyId, assessmentId) })
+    }
   }
   if (availableConnectors.has('dnsfilter')) {
     collectors.push({ name: 'DNSFilter', connector: 'dnsfilter',
@@ -665,7 +676,7 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
   }
   if (availableConnectors.has('ubiquiti')) {
     collectors.push({ name: 'Ubiquiti', connector: 'ubiquiti',
-      fn: () => collectUbiquitiEvidence(assessment.companyId, assessmentId) })
+      fn: () => collectUbiquitiEvidence(assessment.companyId, assessmentId, companyDisplayName) })
   }
   if (availableConnectors.has('myitprocess')) {
     collectors.push({ name: 'MyITProcess', connector: 'myitprocess',
@@ -753,8 +764,8 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
     const controlIds = framework.controls.map((c) => c.controlId)
     const toolResolutions = resolveAllControls(controlIds, availableConnectors)
 
-    // Load environment context from setup wizard answers
-    const environment = await loadEnvironmentContext(client)
+    // Reuse environment context loaded in Phase 1 (or reload if missing)
+    const environment = environmentContext ?? await loadEnvironmentContext(client)
 
     // Load tool deployment toggles
     const deployedTools = await loadDeployedTools(assessment.companyId, client)
