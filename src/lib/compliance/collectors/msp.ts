@@ -640,7 +640,7 @@ export async function collectUbiquitiEvidence(
     } else {
       // Fall back to name matching on host/site names
       matchedDevices = summary.devices.filter((d) => matchesCompanyName(name, d.siteName))
-      matchedHostNames = [...new Set(matchedDevices.map((d) => d.siteName))]
+      matchedHostNames = Array.from(new Set(matchedDevices.map((d) => d.siteName)))
     }
 
     if (matchedDevices.length === 0) {
