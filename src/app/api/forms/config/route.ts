@@ -202,7 +202,7 @@ async function resolveDataSource(
         break
       default:
         console.warn(`[forms/config] Unknown data source endpoint: ${endpoint}`)
-        return []
+        return { options: [] }
     }
 
     return {
