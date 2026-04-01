@@ -909,7 +909,7 @@ function FormattedReasoning({ text }: { text: string }) {
 
     return (
       <div className="space-y-3">
-        {technicalPart && <p className="text-sm text-slate-300">{technicalPart}</p>}
+        {technicalPart && <TechnicalReasoning text={technicalPart} />}
         <div className="border-l-2 border-violet-500/30 pl-3 space-y-2">
           <p className="text-xs font-medium text-violet-400">Policy Documentation</p>
           {renderPolicyLines(policyPart)}
@@ -929,10 +929,54 @@ function FormattedReasoning({ text }: { text: string }) {
     )
   }
 
-  // Fallback: just handle newlines
+  // Fallback
+  return <TechnicalReasoning text={text} />
+}
+
+/** Render technical reasoning — handles numbered lists like "1. Microsoft 365... 2. Datto RMM..." */
+function TechnicalReasoning({ text }: { text: string }) {
+  // Split numbered items: "Blah 1. Foo 2. Bar" → intro + list items
+  const numberedMatch = text.match(/^(.*?)\s*(\d+\.\s)/)
+  if (numberedMatch && numberedMatch.index !== undefined) {
+    const intro = text.substring(0, numberedMatch.index + numberedMatch[1].length).trim()
+    const listPart = text.substring(numberedMatch.index + numberedMatch[1].length).trim()
+
+    // Split on numbered items
+    const items: string[] = []
+    const itemRegex = /(\d+)\.\s/g
+    let match: RegExpExecArray | null
+    const positions: number[] = []
+    while ((match = itemRegex.exec(listPart)) !== null) {
+      positions.push(match.index)
+    }
+    for (let i = 0; i < positions.length; i++) {
+      const start = positions[i]
+      const end = i + 1 < positions.length ? positions[i + 1] : listPart.length
+      items.push(listPart.substring(start).substring(0, end - start).trim())
+    }
+
+    if (items.length > 1) {
+      return (
+        <div className="space-y-1.5">
+          {intro && <p className="text-sm text-slate-300">{intro}</p>}
+          <div className="space-y-1 pl-1">
+            {items.map((item, i) => (
+              <p key={i} className="text-xs text-slate-400">{renderInlineFormatting(item)}</p>
+            ))}
+          </div>
+        </div>
+      )
+    }
+  }
+
+  // No numbered list — just render with newline handling
+  const lines = text.split('\n').filter(Boolean)
+  if (lines.length <= 1) {
+    return <p className="text-sm text-slate-300">{renderInlineFormatting(text)}</p>
+  }
   return (
     <div className="space-y-1">
-      {text.split('\n').filter(Boolean).map((line, i) => (
+      {lines.map((line, i) => (
         <p key={i} className="text-sm text-slate-300">{renderInlineFormatting(line)}</p>
       ))}
     </div>

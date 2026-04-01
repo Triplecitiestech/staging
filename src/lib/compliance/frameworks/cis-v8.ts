@@ -595,6 +595,38 @@ evaluators['cis-v8-10.1'] = (ctx: EvaluationContext): EvaluationResult => {
     'Ensure Datto EDR with Windows Defender is deployed to all managed endpoints.')
 }
 
+// --- 10.2 Configure Automatic Anti-Malware Signature Updates ---
+evaluators['cis-v8-10.2'] = (ctx: EvaluationContext): EvaluationResult => {
+  const defender = ctx.evidence.get('microsoft_defender')
+  const edr = ctx.evidence.get('datto_edr_alerts')
+  const devices = ctx.evidence.get('microsoft_device_compliance')
+  if (!defender && !edr && !devices) return noEvidence('cis-v8-10.2', ['microsoft_defender', 'datto_edr_alerts'], ctx)
+
+  const sources = ['microsoft_defender', 'datto_edr_alerts', 'microsoft_device_compliance'].filter(
+    (s) => ctx.evidence.has(s as EvidenceSourceType)
+  )
+
+  // EDR (Datto EDR + Windows Defender) auto-updates signatures via cloud
+  if (edr) {
+    return result('cis-v8-10.2', ctx, 'pass', 'high',
+      'Datto EDR manages Windows Defender with automatic cloud-based signature updates. Signatures update continuously via Microsoft Security Intelligence.',
+      sources, [])
+  }
+  // Defender managed via Intune auto-updates
+  if (defender) {
+    const defData = defender.rawData as { protectedDevices?: number; totalDevices?: number } | undefined
+    const total = defData?.totalDevices ?? 0
+    if (total > 0) {
+      return result('cis-v8-10.2', ctx, 'pass', 'medium',
+        `Windows Defender is deployed across ${total} devices via Intune. Microsoft Defender automatically updates virus definitions through Windows Update and cloud-delivered protection.`,
+        sources, [])
+    }
+  }
+  return result('cis-v8-10.2', ctx, 'needs_review', 'low',
+    'Anti-malware is detected but automatic signature update configuration could not be confirmed. Verify Windows Defender receives automatic definition updates via Intune or Group Policy.',
+    sources, [], 'Deploy Datto EDR to ensure automatic signature updates across all endpoints.')
+}
+
 // --- 11.1 Establish and Maintain a Data Recovery Practice ---
 evaluators['cis-v8-11.1'] = (ctx: EvaluationContext): EvaluationResult => {
   const bcdr = ctx.evidence.get('datto_bcdr_backup')
