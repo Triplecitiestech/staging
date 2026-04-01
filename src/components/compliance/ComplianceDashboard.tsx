@@ -777,7 +777,7 @@ function FindingRow({ finding, change, expanded, onToggle, assessmentId, onUpdat
 
           <div>
             <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Assessment Result</p>
-            <p className="text-sm text-slate-300">{finding.reasoning}</p>
+            <FormattedReasoning text={finding.reasoning} />
           </div>
           {finding.remediation && (
             <div>
@@ -890,6 +890,100 @@ function FindingRow({ finding, change, expanded, onToggle, assessmentId, onUpdat
       )}
     </div>
   )
+}
+
+/**
+ * Renders assessment reasoning with proper formatting.
+ * Handles: **bold** → <strong>, newlines → line breaks,
+ * "— quote" → styled quote blocks, policy documentation sections.
+ */
+function FormattedReasoning({ text }: { text: string }) {
+  if (!text) return null
+
+  // Split on the "Additionally supported by" or "Satisfied by" boundary
+  const policyDivider = text.match(/\n\n(Additionally supported by uploaded policy documentation:|Satisfied by uploaded policy documentation:)/)
+
+  if (policyDivider && policyDivider.index !== undefined) {
+    const technicalPart = text.substring(0, policyDivider.index)
+    const policyPart = text.substring(policyDivider.index + 2) // skip \n\n
+
+    return (
+      <div className="space-y-3">
+        {technicalPart && <p className="text-sm text-slate-300">{technicalPart}</p>}
+        <div className="border-l-2 border-violet-500/30 pl-3 space-y-2">
+          <p className="text-xs font-medium text-violet-400">Policy Documentation</p>
+          {renderPolicyLines(policyPart)}
+        </div>
+      </div>
+    )
+  }
+
+  // Check if the whole thing is policy-satisfied (no technical part)
+  const fullPolicyMatch = text.match(/^(Satisfied by uploaded policy documentation:|Partially addressed by uploaded policy documentation:)\n/)
+  if (fullPolicyMatch) {
+    return (
+      <div className="border-l-2 border-emerald-500/30 pl-3 space-y-2">
+        <p className="text-xs font-medium text-emerald-400">Satisfied by Policy Documentation</p>
+        {renderPolicyLines(text.substring(fullPolicyMatch[0].length))}
+      </div>
+    )
+  }
+
+  // Fallback: just handle newlines
+  return (
+    <div className="space-y-1">
+      {text.split('\n').filter(Boolean).map((line, i) => (
+        <p key={i} className="text-sm text-slate-300">{renderInlineFormatting(line)}</p>
+      ))}
+    </div>
+  )
+}
+
+/** Render policy lines with bold names, sections, and quoted text */
+function renderPolicyLines(text: string) {
+  const lines = text.split('\n').filter((l) => l.trim())
+  // Skip the header line if it starts with "Additionally" or "Satisfied"
+  const contentLines = lines.filter((l) => !l.startsWith('Additionally supported') && !l.startsWith('Satisfied by'))
+
+  return (
+    <div className="space-y-2">
+      {contentLines.map((line, i) => {
+        // Parse: **PolicyName** (Section): Reasoning — "Quote"
+        const policyMatch = line.match(/^\*\*(.+?)\*\*\s*(?:\((.+?)\))?\s*:?\s*(.*)$/)
+        if (policyMatch) {
+          const [, policyName, section, rest] = policyMatch
+          const quoteMatch = rest?.match(/^(.*?)\s*—\s*"(.+)"$/)
+          const reasoning = quoteMatch ? quoteMatch[1] : rest
+          const quote = quoteMatch ? quoteMatch[2] : null
+          return (
+            <div key={i} className="text-xs space-y-0.5">
+              <div>
+                <span className="font-semibold text-slate-200">{policyName}</span>
+                {section && <span className="text-slate-500 ml-1">({section})</span>}
+              </div>
+              {reasoning && <p className="text-slate-400">{reasoning}</p>}
+              {quote && (
+                <p className="text-slate-500 italic pl-2 border-l border-slate-700">&ldquo;{quote}&rdquo;</p>
+              )}
+            </div>
+          )
+        }
+        return <p key={i} className="text-xs text-slate-400">{renderInlineFormatting(line)}</p>
+      })}
+    </div>
+  )
+}
+
+/** Render inline **bold** formatting */
+function renderInlineFormatting(text: string) {
+  const parts = text.split(/(\*\*.+?\*\*)/)
+  if (parts.length === 1) return <>{text}</>
+  return <>{parts.map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return <strong key={i} className="text-slate-200">{part.slice(2, -2)}</strong>
+    }
+    return <span key={i}>{part}</span>
+  })}</>
 }
 
 /** Renders key data points from evidence rawData in a readable format */
