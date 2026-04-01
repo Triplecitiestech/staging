@@ -102,9 +102,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         updated_at TIMESTAMPTZ DEFAULT NOW()
       )
     `)
-    // Add impersonation columns if they don't exist (safe for existing tables)
+    // Add columns if they don't exist (safe for existing tables)
     await client.query(`ALTER TABLE hr_requests ADD COLUMN IF NOT EXISTS impersonated_by_email TEXT`).catch(() => {})
     await client.query(`ALTER TABLE hr_requests ADD COLUMN IF NOT EXISTS impersonated_by_name TEXT`).catch(() => {})
+    await client.query(`ALTER TABLE hr_requests ADD COLUMN IF NOT EXISTS scheduled_deletion_date DATE`).catch(() => {})
     await client.query(`
       CREATE TABLE IF NOT EXISTS hr_audit_logs (
         id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,

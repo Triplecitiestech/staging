@@ -538,6 +538,14 @@ export function createGraphClient(creds: TenantCredentials) {
       })
     },
 
+    /** Permanently delete a user account from Azure AD */
+    async deleteUser(userId: string): Promise<void> {
+      const t = await token()
+      await graphRequest(t, `/users/${userId}`, {
+        method: 'DELETE',
+      })
+    },
+
     /** Remove a license from a user */
     async removeLicense(userId: string, skuId: string): Promise<void> {
       const t = await token()
