@@ -43,31 +43,36 @@ export async function GET(request: NextRequest) {
     // Resolve target contact — by ID or find primary
     let targetContact: { email: string; name: string | null; customerRole: string | null; isPrimary: boolean } | null = null
 
-    if (contactId) {
-      targetContact = await prisma.companyContact.findFirst({
-        where: { id: contactId, companyId: company.id, isActive: true },
-        select: { email: true, name: true, customerRole: true, isPrimary: true },
-      })
-    }
+    try {
+      if (contactId) {
+        targetContact = await prisma.companyContact.findFirst({
+          where: { id: contactId, companyId: company.id, isActive: true },
+          select: { email: true, name: true, customerRole: true, isPrimary: true },
+        })
+      }
 
-    if (!targetContact) {
-      targetContact = await prisma.companyContact.findFirst({
-        where: {
-          companyId: company.id,
-          isActive: true,
-          OR: [{ isPrimary: true }, { customerRole: 'CLIENT_MANAGER' }],
-        },
-        select: { email: true, name: true, customerRole: true, isPrimary: true },
-        orderBy: [{ isPrimary: 'desc' }, { name: 'asc' }],
-      })
-    }
+      if (!targetContact) {
+        targetContact = await prisma.companyContact.findFirst({
+          where: { companyId: company.id, isActive: true, isPrimary: true },
+          select: { email: true, name: true, customerRole: true, isPrimary: true },
+        })
+      }
 
-    if (!targetContact) {
-      targetContact = await prisma.companyContact.findFirst({
-        where: { companyId: company.id, isActive: true },
-        select: { email: true, name: true, customerRole: true, isPrimary: true },
-        orderBy: { name: 'asc' },
-      })
+      if (!targetContact) {
+        targetContact = await prisma.companyContact.findFirst({
+          where: { companyId: company.id, isActive: true, customerRole: 'CLIENT_MANAGER' },
+          select: { email: true, name: true, customerRole: true, isPrimary: true },
+        })
+      }
+
+      if (!targetContact) {
+        targetContact = await prisma.companyContact.findFirst({
+          where: { companyId: company.id, isActive: true },
+          select: { email: true, name: true, customerRole: true, isPrimary: true },
+        })
+      }
+    } catch (contactErr) {
+      console.error('[Admin Portal Access] Contact lookup failed:', contactErr instanceof Error ? contactErr.message : String(contactErr))
     }
 
     const adminEmail = session.user?.email ?? 'admin@triplecitiestech.com'
