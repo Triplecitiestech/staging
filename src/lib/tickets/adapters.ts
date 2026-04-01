@@ -16,7 +16,7 @@ import type {
   NotePublishType,
 } from '@/types/tickets';
 import { NOTE_PUBLISH } from '@/types/tickets';
-import { isResolvedStatus, PRIORITY_LABELS, getAutotaskWebUrl, isWaitingCustomerStatus } from './utils';
+import { isResolvedStatus, PRIORITY_LABELS, getAutotaskWebUrl, isWaitingCustomerStatus, getTicketStatusPicklist, resolveCustomerStatusLabel } from './utils';
 
 // ============================================
 // STAFF ADAPTER (Local DB → Unified Types)
@@ -368,10 +368,13 @@ export async function getCustomerTicketList(params: CustomerTicketListParams): P
     };
   }
 
-  // Fetch live from Autotask
+  // Fetch live from Autotask + resolve status picklist for customer-facing labels
   const { AutotaskClient } = await import('@/lib/autotask');
   const client = new AutotaskClient();
-  const rawTickets = await client.getCompanyTickets(atCompanyId, 90);
+  const [rawTickets, statusPicklist] = await Promise.all([
+    client.getCompanyTickets(atCompanyId, 90),
+    getTicketStatusPicklist(),
+  ]);
 
   // For non-manager users, filter to only their tickets (by Autotask contactID)
   let filteredTickets = rawTickets;
@@ -404,7 +407,7 @@ export async function getCustomerTicketList(params: CustomerTicketListParams): P
     title: t.title,
     description: t.description || null,
     status: t.status,
-    statusLabel: isResolvedStatus(t.status) ? 'Resolved' : isWaitingCustomerStatus(t.status) ? 'Awaiting Your Team' : 'Open',
+    statusLabel: resolveCustomerStatusLabel(t.status, statusPicklist),
     isResolved: isResolvedStatus(t.status),
     priority: t.priority,
     priorityLabel: PRIORITY_LABELS[t.priority] || `P${t.priority}`,

@@ -59,10 +59,9 @@ interface CustomerDashboardProps {
 
 const DONE_STATUSES = ['REVIEWED_AND_DONE', 'NOT_APPLICABLE', 'ITG_DOCUMENTED']
 
-/** Autotask "waiting on customer" ticket statuses (7=Waiting Customer, 12=Customer Note Added) */
-const WAITING_TICKET_STATUSES = new Set([7, 12])
-function isWaitingOnCustomer(status: number): boolean {
-  return WAITING_TICKET_STATUSES.has(status)
+/** Check if a ticket is waiting on the customer, using the refined statusLabel from the adapter */
+function isWaitingOnCustomer(ticket: { status: number; statusLabel: string }): boolean {
+  return ticket.statusLabel === 'Awaiting Your Team'
 }
 
 // Task status labels mapped 1:1 to Autotask picklist values
@@ -255,7 +254,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
         base = closedThisMonth
         break
       case 'awaiting':
-        base = openTickets.filter(t => isWaitingOnCustomer(t.status))
+        base = openTickets.filter(t => isWaitingOnCustomer(t))
         break
       default:
         base = tickets
@@ -274,7 +273,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
       case 'open': return `Open Tickets (${openTickets.length})`
       case 'closed': return `Closed Tickets (${closedTickets.length})`
       case 'closed-this-month': return `Closed This Month (${closedThisMonth.length})`
-      case 'awaiting': return `Needs Your Action (${openTickets.filter(t => isWaitingOnCustomer(t.status)).length})`
+      case 'awaiting': return `Needs Your Action (${openTickets.filter(t => isWaitingOnCustomer(t)).length})`
       default: return 'Tickets'
     }
   })()
@@ -749,7 +748,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
               : 'border-red-500/30 hover:border-red-400/60 hover:shadow-lg hover:shadow-red-500/10'
           }`}
         >
-          <div className="text-3xl font-bold text-red-400">{openTickets.filter(t => isWaitingOnCustomer(t.status)).length}</div>
+          <div className="text-3xl font-bold text-red-400">{openTickets.filter(t => isWaitingOnCustomer(t)).length}</div>
           <div className="text-sm text-gray-400 mt-1">Needs Your Action</div>
         </button>
         <button
