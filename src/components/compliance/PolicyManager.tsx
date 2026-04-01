@@ -13,7 +13,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react'
-import type { CompliancePolicy, PolicyAnalysis } from '@/lib/compliance/types'
+import type { CompliancePolicy, PolicyAnalysis, PolicyControlDetail } from '@/lib/compliance/types'
 
 interface SharePointFile {
   id: string
@@ -592,8 +592,11 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
                     <div className="min-w-0">
                       <h4 className="text-sm font-medium text-white truncate">{policy.title}</h4>
                       <p className="text-xs text-slate-400">
-                        {getSourceLabel(policy.source)} {policy.category ? `&bull; ${policy.category}` : ''} &bull;{' '}
-                        {new Date(policy.createdAt).toLocaleDateString()}
+                        {getSourceLabel(policy.source)}{policy.category ? ` · ${policy.category}` : ''} ·{' '}
+                        Added {new Date(policy.createdAt).toLocaleDateString()}
+                        {analysis?.analyzedAt && (
+                          <> · Analyzed {new Date(analysis.analyzedAt).toLocaleDateString()}</>
+                        )}
                       </p>
                     </div>
                   </div>
@@ -610,7 +613,7 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
                         {analysis.status}
                       </span>
                     )}
-                    <span className="text-slate-500 text-sm">{isExpanded ? '&#9650;' : '&#9660;'}</span>
+                    <span className="text-slate-500 text-sm">{isExpanded ? '▲' : '▼'}</span>
                   </div>
                 </div>
 
@@ -625,58 +628,54 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
                     )}
 
                     {/* Controls Grid */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      {/* Satisfied */}
-                      <div className="space-y-2">
-                        <h5 className="text-sm font-medium text-emerald-400">
-                          Satisfied Controls ({(analysis.satisfiedControls ?? []).length})
-                        </h5>
-                        <div className="space-y-1">
-                          {(analysis.satisfiedControls ?? []).map((c: string) => (
-                            <div key={c} className="text-xs bg-emerald-500/10 text-emerald-300 px-2 py-1 rounded">
-                              {c}
-                            </div>
-                          ))}
-                          {(analysis.satisfiedControls ?? []).length === 0 && (
-                            <p className="text-xs text-slate-500">None</p>
-                          )}
-                        </div>
-                      </div>
+                    {(() => {
+                      const details = (analysis.controlDetails ?? []) as PolicyControlDetail[]
+                      const detailMap = new Map(details.map((d) => [d.controlId, d]))
+                      const hasDetails = details.length > 0
 
-                      {/* Partial */}
-                      <div className="space-y-2">
-                        <h5 className="text-sm font-medium text-violet-400">
-                          Partially Addressed ({(analysis.partialControls ?? []).length})
-                        </h5>
-                        <div className="space-y-1">
-                          {(analysis.partialControls ?? []).map((c: string) => (
-                            <div key={c} className="text-xs bg-violet-500/10 text-violet-300 px-2 py-1 rounded">
-                              {c}
-                            </div>
-                          ))}
-                          {(analysis.partialControls ?? []).length === 0 && (
-                            <p className="text-xs text-slate-500">None</p>
-                          )}
+                      const renderControlList = (
+                        controls: string[],
+                        status: 'satisfied' | 'partial' | 'missing',
+                        label: string,
+                        colorClass: string,
+                        bgClass: string
+                      ) => (
+                        <div className="space-y-2">
+                          <h5 className={`text-sm font-medium ${colorClass}`}>
+                            {label} ({controls.length})
+                          </h5>
+                          <div className="space-y-1.5">
+                            {controls.map((c: string) => {
+                              const detail = detailMap.get(c)
+                              return (
+                                <div key={c} className={`text-xs ${bgClass} px-2.5 py-1.5 rounded`}>
+                                  <span className="font-medium">{c}</span>
+                                  {hasDetails && detail?.reasoning && (
+                                    <p className="mt-0.5 text-slate-400">{detail.reasoning}</p>
+                                  )}
+                                  {hasDetails && detail?.quote && status !== 'missing' && (
+                                    <p className="mt-0.5 italic text-slate-500">&ldquo;{detail.quote}&rdquo;
+                                      {detail.section && <span className="not-italic text-slate-600"> — {detail.section}</span>}
+                                    </p>
+                                  )}
+                                </div>
+                              )
+                            })}
+                            {controls.length === 0 && (
+                              <p className="text-xs text-slate-500">None</p>
+                            )}
+                          </div>
                         </div>
-                      </div>
+                      )
 
-                      {/* Missing */}
-                      <div className="space-y-2">
-                        <h5 className="text-sm font-medium text-red-400">
-                          Missing / Not Addressed ({(analysis.missingControls ?? []).length})
-                        </h5>
-                        <div className="space-y-1">
-                          {(analysis.missingControls ?? []).map((c: string) => (
-                            <div key={c} className="text-xs bg-red-500/10 text-red-300 px-2 py-1 rounded">
-                              {c}
-                            </div>
-                          ))}
-                          {(analysis.missingControls ?? []).length === 0 && (
-                            <p className="text-xs text-slate-500">None</p>
-                          )}
+                      return (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          {renderControlList(analysis.satisfiedControls ?? [], 'satisfied', 'Satisfied Controls', 'text-emerald-400', 'bg-emerald-500/10 text-emerald-300')}
+                          {renderControlList(analysis.partialControls ?? [], 'partial', 'Partially Addressed', 'text-violet-400', 'bg-violet-500/10 text-violet-300')}
+                          {renderControlList(analysis.missingControls ?? [], 'missing', 'Missing / Not Addressed', 'text-red-400', 'bg-red-500/10 text-red-300')}
                         </div>
-                      </div>
-                    </div>
+                      )
+                    })()}
 
                     {/* Gaps */}
                     {(analysis.gaps ?? []).length > 0 && (

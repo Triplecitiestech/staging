@@ -263,6 +263,7 @@ export async function ensureComplianceTables(): Promise<void> {
           gaps                JSONB NOT NULL DEFAULT '[]',
           recommendations     JSONB NOT NULL DEFAULT '[]',
           "analysisText"      TEXT NOT NULL DEFAULT '',
+          "controlDetails"    JSONB NOT NULL DEFAULT '[]',
           "analyzedAt"        TIMESTAMPTZ,
           "createdAt"         TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
@@ -300,6 +301,11 @@ export async function ensureComplianceTables(): Promise<void> {
         CREATE INDEX IF NOT EXISTS idx_compliance_attestations_company
         ON compliance_attestations ("companyId")
       `)
+    }
+
+    // Ensure controlDetails column exists on compliance_policy_analyses (added after initial table creation)
+    if (existingSet.has('compliance_policy_analyses')) {
+      await client.query(`ALTER TABLE compliance_policy_analyses ADD COLUMN IF NOT EXISTS "controlDetails" JSONB NOT NULL DEFAULT '[]'`)
     }
 
     // compliancePortalEnabled column on companies is now in Prisma schema

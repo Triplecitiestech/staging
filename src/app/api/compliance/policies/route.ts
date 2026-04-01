@@ -41,7 +41,8 @@ export async function GET(request: NextRequest) {
     if (policyIds.length > 0) {
       const analysisRes = await client.query<PolicyAnalysis>(
         `SELECT id, "policyId", "companyId", status, "satisfiedControls", "partialControls",
-                "missingControls", gaps, recommendations, "analysisText", "analyzedAt"
+                "missingControls", gaps, recommendations, "analysisText",
+                COALESCE("controlDetails", '[]'::jsonb) as "controlDetails", "analyzedAt"
          FROM compliance_policy_analyses
          WHERE "policyId" = ANY($1) ORDER BY "createdAt" DESC`,
         [policyIds]
