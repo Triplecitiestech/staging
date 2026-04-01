@@ -49,6 +49,43 @@ async function getCompanyDisplayName(companyId: string): Promise<string | null> 
 }
 
 // ---------------------------------------------------------------------------
+// Platform mapping lookup — explicit customer-to-platform-entity mapping
+// ---------------------------------------------------------------------------
+
+interface PlatformMapping {
+  externalId: string
+  externalName: string
+  externalType: string
+}
+
+/**
+ * Load explicit platform mappings for a company.
+ * Returns null if no mappings exist (fall back to name matching).
+ * Returns empty array if mappings table exists but none set for this platform.
+ */
+async function getPlatformMappings(companyId: string, platform: string): Promise<PlatformMapping[] | null> {
+  try {
+    const { getPool } = await import('@/lib/db-pool')
+    const pool = getPool()
+    const client = await pool.connect()
+    try {
+      const res = await client.query<PlatformMapping>(
+        `SELECT "externalId", "externalName", "externalType"
+         FROM compliance_platform_mappings
+         WHERE "companyId" = $1 AND platform = $2`,
+        [companyId, platform]
+      )
+      return res.rows
+    } finally {
+      client.release()
+    }
+  } catch {
+    // Table may not exist yet
+    return null
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Datto RMM Collector
 // ---------------------------------------------------------------------------
 
@@ -75,11 +112,18 @@ export async function collectDattoRmmEvidence(
     const client = new DattoRmmClient()
     const sites = await client.getSites()
 
-    // Find sites matching this company
-    const matchedSites = sites.filter((s) => matchesCompanyName(companyName, s.name))
+    // Use explicit platform mappings if available, fall back to name matching
+    const mappings = await getPlatformMappings(companyId, 'datto_rmm')
+    let matchedSites: typeof sites
+    if (mappings && mappings.length > 0) {
+      const mappedIds = new Set(mappings.map((m) => m.externalId))
+      matchedSites = sites.filter((s) => mappedIds.has(s.uid) || mappedIds.has(String(s.id)))
+      console.log(`[compliance][datto_rmm] Using explicit mapping: ${matchedSites.length} site(s) for ${companyName}`)
+    } else {
+      matchedSites = sites.filter((s) => matchesCompanyName(companyName, s.name))
+    }
 
     if (matchedSites.length === 0) {
-      // No match — don't store evidence. The evaluator will report not_assessed.
       return { evidence: [], errors: [] }
     }
 
@@ -150,7 +194,14 @@ export async function collectDattoBcdrEvidence(
   try {
     const { DattoBcdrClient } = await import('@/lib/datto-bcdr')
     const client = new DattoBcdrClient()
-    const summary = await client.buildSummary(companyName)
+
+    // Use explicit mapping if available (mapped by clientCompanyName in Datto)
+    const mappings = await getPlatformMappings(companyId, 'datto_bcdr')
+    const matchName = (mappings && mappings.length > 0) ? mappings[0].externalId : companyName
+    if (mappings && mappings.length > 0) {
+      console.log(`[compliance][datto_bcdr] Using explicit mapping: "${matchName}" for ${companyName}`)
+    }
+    const summary = await client.buildSummary(matchName)
 
     const hasDevices = summary.deviceDetails && summary.deviceDetails.length > 0
 
@@ -313,24 +364,26 @@ export async function collectDomotzEvidence(
       return { evidence, errors: [] }
     }
 
-    // Try to match agents to this specific customer by name
-    // Domotz agents are usually named per-customer/site (e.g. "EZ Red - Main Office")
+    // Use explicit platform mappings if available, fall back to name matching
     let matchedAgents = summary.agents
     const matchedDevices = summary.devices
     let matchNote = ''
 
-    if (companyName) {
+    const mappings = await getPlatformMappings(companyId, 'domotz')
+    if (mappings && mappings.length > 0) {
+      const mappedIds = new Set(mappings.map((m) => m.externalId))
+      matchedAgents = summary.agents.filter((a) => mappedIds.has(String(a.id)))
+      matchNote = `Explicit mapping: ${matchedAgents.length} agent(s) for ${companyName}`
+      console.log(`[compliance][domotz] ${matchNote}`)
+    } else if (companyName) {
       const normalizedName = companyName.toLowerCase().replace(/[^a-z0-9]/g, '')
       const nameWords = companyName.toLowerCase().split(/\s+/).filter((w) => w.length >= 2)
 
       const agentMatches = summary.agents.filter((a) => {
         const agentNorm = a.name.toLowerCase()
         const agentStripped = agentNorm.replace(/[^a-z0-9]/g, '')
-        // Exact substring
-        if (agentNorm.includes(companyName.toLowerCase())) return true
-        // Stripped comparison
+        if (agentNorm.includes(companyName!.toLowerCase())) return true
         if (agentStripped.includes(normalizedName) || normalizedName.includes(agentStripped)) return true
-        // All significant words present
         if (nameWords.length >= 1 && nameWords.every((w) => agentNorm.includes(w))) return true
         return false
       })
@@ -338,9 +391,6 @@ export async function collectDomotzEvidence(
       if (agentMatches.length > 0) {
         matchedAgents = agentMatches
         matchNote = `Matched ${agentMatches.length} agent(s): ${agentMatches.map((a) => a.name).join(', ')}`
-        // buildSummary() already fetched devices per agent, but they're combined.
-        // Use agent device counts for the matched total; devices array stays MSP-wide
-        // (we don't have agent ID on each device to filter without re-fetching).
         const matchedDeviceCount = agentMatches.reduce((sum, a) => sum + a.deviceCount, 0)
         matchNote += `. ~${matchedDeviceCount} devices from matched agents.`
       } else {
@@ -420,7 +470,16 @@ export async function collectItGlueEvidence(
   try {
     const { ItGlueClient } = await import('@/lib/it-glue')
     const client = new ItGlueClient()
-    const summary = await client.buildSummary(companyName)
+
+    // Use explicit mapping if available (org ID directly)
+    const mappings = await getPlatformMappings(companyId, 'it_glue')
+    let matchByName = companyName
+    if (mappings && mappings.length > 0) {
+      // If mapped, use the mapped org name for matching
+      matchByName = mappings[0].externalName || companyName
+      console.log(`[compliance][it_glue] Using explicit mapping: org "${matchByName}" for ${companyName}`)
+    }
+    const summary = await client.buildSummary(matchByName)
 
     if (!summary.available) {
       return { evidence, errors: [summary.note ?? 'IT Glue API unavailable'] }
@@ -537,11 +596,18 @@ export async function collectUbiquitiEvidence(
       return { evidence, errors: [] }
     }
 
-    // Filter sites to this customer only — Ubiquiti returns ALL MSP sites
-    const matchedSites = summary.sites.filter((s) => matchesCompanyName(name, s.name))
+    // Use explicit platform mappings if available, fall back to name matching
+    const mappings = await getPlatformMappings(companyId, 'ubiquiti')
+    let matchedSites: typeof summary.sites
+    if (mappings && mappings.length > 0) {
+      const mappedIds = new Set(mappings.map((m) => m.externalId))
+      matchedSites = summary.sites.filter((s) => mappedIds.has(s.siteId))
+      console.log(`[compliance][ubiquiti] Using explicit mapping: ${matchedSites.length} site(s) for ${name}`)
+    } else {
+      matchedSites = summary.sites.filter((s) => matchesCompanyName(name, s.name))
+    }
 
     if (matchedSites.length === 0) {
-      // No matching sites for this customer — don't store evidence
       return { evidence: [], errors: [] }
     }
 
