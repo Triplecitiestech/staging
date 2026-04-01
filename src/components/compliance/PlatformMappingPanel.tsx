@@ -43,6 +43,7 @@ const PLATFORMS = [
   'ubiquiti',
   'domotz',
   'it_glue',
+  'dnsfilter',
   'saas_alerts',
 ] as const
 
