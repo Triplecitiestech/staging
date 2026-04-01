@@ -114,19 +114,27 @@ async function resolveDataSource(
     switch (endpoint) {
       case 'licenses': {
         const skus = await graphClient.getLicenseSkus()
-        // Filter to only licenses with available seats
-        return skus
-          .filter((sku) => {
-            const available = sku.prepaidUnits.enabled - sku.consumedUnits
-            return available > 0
-          })
-          .map((sku) => {
-            const available = sku.prepaidUnits.enabled - sku.consumedUnits
+        // Show all licenses with enabled seats (including fully allocated ones)
+        // Exclude free add-ons like FLOW_FREE unless they're the only option
+        const FREE_ADDONS = new Set([
+          'FLOW_FREE', 'POWERAPPS_VIRAL', 'POWER_BI_STANDARD',
+          'MICROSOFT_BUSINESS_CENTER', 'CCIBOTS_PRIVPREV_VIRAL',
+          'STREAM', 'WINDOWS_STORE',
+        ])
+        const paid = skus.filter((sku) => {
+          const partNumber = (sku.skuPartNumber ?? '').toUpperCase()
+          return sku.prepaidUnits.enabled > 0 && !FREE_ADDONS.has(partNumber)
+        })
+        // If no paid licenses, fall back to showing all with enabled seats
+        const filtered = paid.length > 0 ? paid : skus.filter(s => s.prepaidUnits.enabled > 0)
+
+        return filtered.map((sku) => {
+            const available = Math.max(0, sku.prepaidUnits.enabled - sku.consumedUnits)
+            const total = sku.prepaidUnits.enabled
             const partNumber = (sku.skuPartNumber ?? '').toUpperCase()
             let label = sku.displayName ?? sku.skuPartNumber
-            if (labelSuffix) {
-              label += ' ' + labelSuffix.replace('{available}', String(Math.max(0, available)))
-            }
+            // Show seat count: "Microsoft 365 Business Premium (2 of 50 available)"
+            label += ` (${available} of ${total} available)`
             // Add Recommended badge for Business Premium
             if (partNumber.includes('BUSINESS_PREMIUM') || partNumber.includes('SPB')) {
               label += ' — Recommended'
