@@ -87,28 +87,52 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ ...results, error: 'DNSFILTER_API_TOKEN not set' })
       }
 
-      // Test MSP organizations endpoint
-      const orgRes = await fetch(`${apiUrl}/msp/organizations`, {
-        headers: { 'Authorization': `Token ${apiToken}`, 'Accept': 'application/json' },
-        signal: AbortSignal.timeout(15_000),
-      })
-      results.mspOrgsResponse = { status: orgRes.status, body: (await orgRes.text()).substring(0, 2000) }
+      const headers = { 'Authorization': `Token ${apiToken}`, 'Accept': 'application/json' }
 
-      // Test regular organizations endpoint
-      const org2Res = await fetch(`${apiUrl}/organizations`, {
-        headers: { 'Authorization': `Token ${apiToken}`, 'Accept': 'application/json' },
-        signal: AbortSignal.timeout(15_000),
-      })
-      results.orgsResponse = { status: org2Res.status, body: (await org2Res.text()).substring(0, 2000) }
+      // Step 1: Get organizations to find org IDs
+      const org2Res = await fetch(`${apiUrl}/organizations`, { headers, signal: AbortSignal.timeout(15_000) })
+      const orgText = await org2Res.text()
+      results.orgsStatus = org2Res.status
 
-      // Test traffic reports
+      let firstOrgId = ''
+      try {
+        const orgJson = JSON.parse(orgText)
+        const orgs = Array.isArray(orgJson.data) ? orgJson.data : []
+        results.orgCount = orgs.length
+        results.orgSample = orgs.slice(0, 5).map((o: { id: string; attributes?: { name?: string } }) => ({
+          id: o.id, name: o.attributes?.name
+        }))
+        if (orgs.length > 0) firstOrgId = orgs[0].id
+      } catch { results.orgParseError = orgText.substring(0, 300) }
+
+      // Step 2: Probe multiple traffic/stats endpoints with first org ID
       const now = new Date()
       const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-      const trafficRes = await fetch(`${apiUrl}/traffic_reports?from=${weekAgo.toISOString()}&to=${now.toISOString()}`, {
-        headers: { 'Authorization': `Token ${apiToken}`, 'Accept': 'application/json' },
-        signal: AbortSignal.timeout(15_000),
-      })
-      results.trafficResponse = { status: trafficRes.status, body: (await trafficRes.text()).substring(0, 2000) }
+      const dateOnly = weekAgo.toISOString().split('T')[0]
+      const nowDateOnly = now.toISOString().split('T')[0]
+
+      const testEndpoints = [
+        `/traffic_reports?from=${weekAgo.toISOString()}&to=${now.toISOString()}`,
+        `/traffic_reports/total_queries?start=${dateOnly}&end=${nowDateOnly}`,
+        `/organizations/${firstOrgId}/total_queries?start=${dateOnly}&end=${nowDateOnly}`,
+        `/organizations/${firstOrgId}/filtering_report?start=${dateOnly}&end=${nowDateOnly}`,
+        `/organizations/${firstOrgId}/traffic_reports?from=${weekAgo.toISOString()}&to=${now.toISOString()}`,
+        `/organizations/${firstOrgId}/stats?start=${dateOnly}&end=${nowDateOnly}`,
+        `/networks`,
+        `/policies`,
+      ]
+
+      const endpointTests: Array<{ path: string; status: number; body: string }> = []
+      for (const path of testEndpoints) {
+        try {
+          const res = await fetch(`${apiUrl}${path}`, { headers, signal: AbortSignal.timeout(10_000) })
+          const body = await res.text()
+          endpointTests.push({ path, status: res.status, body: body.substring(0, 500) })
+        } catch (err) {
+          endpointTests.push({ path, status: 0, body: err instanceof Error ? err.message : String(err) })
+        }
+      }
+      results.endpointTests = endpointTests
     } else if (collector === 'itglue') {
       const apiKey = process.env.IT_GLUE_API_KEY
       const apiUrl = process.env.IT_GLUE_API_URL || 'https://api.itglue.com'
