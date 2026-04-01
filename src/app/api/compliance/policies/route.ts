@@ -151,19 +151,16 @@ export async function PATCH(request: NextRequest) {
 
     try {
       if (body.reanalyzeAll && body.companyId) {
-        // Re-analyze ALL policies for a company
-        const policies = await client.query<{ id: string; title: string; content: string }>(
-          `SELECT id, title, content FROM compliance_policies WHERE "companyId" = $1`,
+        // Return list of policy IDs — client will re-analyze one at a time to avoid timeout
+        const policies = await client.query<{ id: string; title: string }>(
+          `SELECT id, title FROM compliance_policies WHERE "companyId" = $1`,
           [body.companyId]
         )
-        const results: Array<{ policyId: string; title: string; status: string }> = []
-        for (const policy of policies.rows) {
-          // Delete old analyses
-          await client.query(`DELETE FROM compliance_policy_analyses WHERE "policyId" = $1`, [policy.id])
-          const analysis = await analyzePolicyWithAI(client, policy.id, body.companyId, policy.title, policy.content, session.user.email)
-          results.push({ policyId: policy.id, title: policy.title, status: analysis?.status ?? 'error' })
-        }
-        return NextResponse.json({ success: true, reanalyzed: results.length, results })
+        return NextResponse.json({
+          success: true,
+          action: 'list',
+          policies: policies.rows.map((p) => ({ id: p.id, title: p.title })),
+        })
       }
 
       if (body.policyId) {
