@@ -43,6 +43,7 @@ interface FormQuestion {
   autoFill?: Record<string, string> | null
   visibilityRules?: Record<string, unknown> | null
   automationKey?: string | null
+  dataSourceError?: string | null
 }
 
 interface FormSection {
@@ -99,10 +100,45 @@ function getLicenseDescription(partNumber: string): string {
   return 'Contact your account manager at Triple Cities Tech for details on this license.'
 }
 
+interface DataSourceResult {
+  options: Array<{ value: string; label: string; helpText?: string }>
+  error?: string
+}
+
+/** Map Graph API error codes/messages to user-friendly permission descriptions */
+function classifyGraphError(endpoint: string, err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err)
+  const lower = msg.toLowerCase()
+
+  if (lower.includes('insufficient privileges') || lower.includes('authorization_requestdenied') || lower.includes('403')) {
+    const permissionMap: Record<string, string> = {
+      users: 'User.Read.All',
+      devices: 'DeviceManagementManagedDevices.Read.All',
+      licenses: 'Organization.Read.All',
+      securityGroups: 'Group.Read.All',
+      distributionLists: 'Group.Read.All',
+      m365Groups: 'Group.Read.All',
+      sharepointSites: 'Sites.Read.All',
+    }
+    const perm = permissionMap[endpoint] || 'required permission'
+    return `Missing Graph API permission: ${perm}. Grant this Application permission in the Azure AD app registration and click "Grant admin consent".`
+  }
+
+  if (lower.includes('token') || lower.includes('invalid_client') || lower.includes('401')) {
+    return 'M365 credentials are invalid or expired. Update the client secret in the tech onboarding wizard.'
+  }
+
+  if (lower.includes('timeout') || lower.includes('econnrefused') || lower.includes('network')) {
+    return 'Could not reach Microsoft Graph API. This may be a temporary network issue — try refreshing.'
+  }
+
+  return `Failed to load data: ${msg.slice(0, 120)}`
+}
+
 async function resolveDataSource(
   dataSource: Record<string, unknown>,
   graphClient: GraphClient
-): Promise<Array<{ value: string; label: string }>> {
+): Promise<DataSourceResult> {
   const endpoint = dataSource.endpoint as string
   const valueField = dataSource.valueField as string
   const labelField = dataSource.labelField as string
@@ -128,7 +164,8 @@ async function resolveDataSource(
         // If no paid licenses, fall back to showing all with enabled seats
         const filtered = paid.length > 0 ? paid : skus.filter(s => s.prepaidUnits.enabled > 0)
 
-        return filtered.map((sku) => {
+        return {
+          options: filtered.map((sku) => {
             const available = Math.max(0, sku.prepaidUnits.enabled - sku.consumedUnits)
             const total = sku.prepaidUnits.enabled
             const partNumber = (sku.skuPartNumber ?? '').toUpperCase()
@@ -142,7 +179,8 @@ async function resolveDataSource(
             // License descriptions and role alignment
             const helpText = getLicenseDescription(partNumber)
             return { value: sku[valueField as keyof typeof sku] as string, label, helpText }
-          })
+          }),
+        }
       }
       case 'securityGroups':
         items = (await graphClient.getSecurityGroups()) as unknown as Array<Record<string, unknown>>
@@ -167,54 +205,65 @@ async function resolveDataSource(
         return []
     }
 
-    return items.map((item) => {
-      let label = String(item[labelField] ?? '')
-      if (labelSuffix) {
-        let suffix = labelSuffix
-        // Replace template vars like {userPrincipalName} with actual values
-        suffix = suffix.replace(/\{(\w+)\}/g, (_, field) => String(item[field] ?? ''))
-        label += ' ' + suffix
-      }
-      return { value: String(item[valueField] ?? ''), label }
-    })
+    return {
+      options: items.map((item) => {
+        let label = String(item[labelField] ?? '')
+        if (labelSuffix) {
+          let suffix = labelSuffix
+          // Replace template vars like {userPrincipalName} with actual values
+          suffix = suffix.replace(/\{(\w+)\}/g, (_, field) => String(item[field] ?? ''))
+          label += ' ' + suffix
+        }
+        return { value: String(item[valueField] ?? ''), label }
+      }),
+    }
   } catch (err) {
+    const errorMsg = classifyGraphError(endpoint, err)
     console.error(`[forms/config] Failed to resolve data source "${endpoint}":`, err)
-    return []
+    return { options: [], error: errorMsg }
   }
+}
+
+interface UserDataSourceResult {
+  users: UserOption[]
+  error?: string
 }
 
 /** Resolve users data source with full user properties for user_select fields */
 async function resolveUserDataSource(
   dataSource: Record<string, unknown>,
   graphClient: GraphClient
-): Promise<UserOption[]> {
+): Promise<UserDataSourceResult> {
   const labelField = dataSource.labelField as string
   const labelSuffix = dataSource.labelSuffix as string | undefined
 
   try {
     const users = await graphClient.getUsers()
-    return users.map((u) => {
-      let label = String((u as unknown as Record<string, unknown>)[labelField] ?? '')
-      if (labelSuffix) {
-        let suffix = labelSuffix
-        suffix = suffix.replace(/\{(\w+)\}/g, (_, field) => String((u as unknown as Record<string, unknown>)[field] ?? ''))
-        label += ' ' + suffix
-      }
-      return {
-        value: u.userPrincipalName,
-        label,
-        displayName: u.displayName,
-        givenName: u.givenName ?? undefined,
-        surname: u.surname ?? undefined,
-        userPrincipalName: u.userPrincipalName,
-        mail: u.mail ?? undefined,
-        department: u.department ?? undefined,
-        jobTitle: u.jobTitle ?? undefined,
-      }
-    })
+    return {
+      users: users.map((u) => {
+        let label = String((u as unknown as Record<string, unknown>)[labelField] ?? '')
+        if (labelSuffix) {
+          let suffix = labelSuffix
+          suffix = suffix.replace(/\{(\w+)\}/g, (_, field) => String((u as unknown as Record<string, unknown>)[field] ?? ''))
+          label += ' ' + suffix
+        }
+        return {
+          value: u.userPrincipalName,
+          label,
+          displayName: u.displayName,
+          givenName: u.givenName ?? undefined,
+          surname: u.surname ?? undefined,
+          userPrincipalName: u.userPrincipalName,
+          mail: u.mail ?? undefined,
+          department: u.department ?? undefined,
+          jobTitle: u.jobTitle ?? undefined,
+        }
+      }),
+    }
   } catch (err) {
+    const errorMsg = classifyGraphError('users', err)
     console.error('[forms/config] Failed to resolve user data source:', err)
-    return []
+    return { users: [], error: errorMsg }
   }
 }
 
@@ -1592,17 +1641,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
               // user_select gets full user objects for auto-fill
               resolvePromises.push(
                 resolveUserDataSource(question.dataSource as Record<string, unknown>, graphClient).then(
-                  (userOptions) => {
-                    question.resolvedUserOptions = userOptions
-                    question.resolvedOptions = userOptions.map((u) => ({ value: u.value, label: u.label }))
+                  (result) => {
+                    question.resolvedUserOptions = result.users
+                    question.resolvedOptions = result.users.map((u) => ({ value: u.value, label: u.label }))
+                    if (result.error) question.dataSourceError = result.error
                   }
                 )
               )
             } else {
               resolvePromises.push(
                 resolveDataSource(question.dataSource as Record<string, unknown>, graphClient).then(
-                  (options) => {
-                    question.resolvedOptions = options
+                  (result) => {
+                    question.resolvedOptions = result.options
+                    if (result.error) question.dataSourceError = result.error
                   }
                 )
               )
