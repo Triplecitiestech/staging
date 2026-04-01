@@ -119,8 +119,13 @@ function toolAttestationPass(controlId: string, ctx: EvaluationContext): Evaluat
 
 /**
  * Check if uploaded policies satisfy a control.
- * Called AFTER the main evaluator runs — upgrades needs_review/partial to pass
- * when a policy covers the control. Doesn't downgrade existing pass results.
+ * Called AFTER the main evaluator runs.
+ *
+ * IMPORTANT: Policies only upgrade controls that LACK technical evidence.
+ * If a control already has technical evidence (pass, fail, partial with evidence),
+ * the policy is mentioned as supporting documentation but does NOT change the status.
+ * Policies exist to satisfy process/documentation controls like incident response,
+ * security awareness, data handling — NOT to override BitLocker percentages or MFA rates.
  */
 function applyPolicyCoverage(evalResult: EvaluationResult, ctx: EvaluationContext): EvaluationResult {
   const coverage = ctx.policyCoverage?.get(evalResult.controlId)
@@ -130,32 +135,46 @@ function applyPolicyCoverage(evalResult: EvaluationResult, ctx: EvaluationContex
   const partial = coverage.filter((c) => c.status === 'partial')
   const policyNames = coverage.map((c) => c.policyTitle)
 
-  // Don't downgrade existing pass
-  if (evalResult.status === 'pass') {
-    // But add policy info to reasoning
+  // If the control already has technical evidence (evidenceIds present),
+  // policies are just supporting documentation — don't change the status
+  const hasTechnicalEvidence = evalResult.evidenceIds.length > 0
+
+  if (hasTechnicalEvidence) {
+    // Just mention the policy exists — don't change status, confidence, or evidence
     return {
       ...evalResult,
-      reasoning: `${evalResult.reasoning} Additionally, policy documentation supports this control: ${policyNames.join(', ')}.`,
+      reasoning: `${evalResult.reasoning} Additionally supported by uploaded policy: ${policyNames.join(', ')}.`,
     }
   }
 
-  // Upgrade needs_review or not_assessed to pass/partial based on policy coverage
-  if (satisfied.length > 0 && (evalResult.status === 'needs_review' || evalResult.status === 'not_assessed' || evalResult.status === 'partial')) {
+  // No technical evidence — this is a process/documentation control.
+  // Policies CAN upgrade these from needs_review to pass.
+
+  if (evalResult.status === 'pass') return evalResult // Already passing, nothing to do
+
+  if (satisfied.length > 0 && (evalResult.status === 'needs_review' || evalResult.status === 'not_assessed')) {
+    const satisfiedNames = satisfied.map((c) => c.policyTitle).join(', ')
     return {
-      ...evalResult,
+      controlId: evalResult.controlId,
       status: 'pass',
-      confidence: evalResult.confidence === 'none' ? 'medium' : evalResult.confidence,
-      reasoning: `Policy documentation satisfies this control: ${satisfied.map((c) => c.policyTitle).join(', ')}. ${evalResult.reasoning}`,
+      confidence: 'medium',
+      reasoning: `Satisfied by uploaded policy documentation: ${satisfiedNames}. These policies were analyzed by AI and determined to adequately address this control's requirements.`,
+      evidenceIds: [],
+      missingEvidence: [],
       remediation: null,
     }
   }
 
   if (partial.length > 0 && (evalResult.status === 'needs_review' || evalResult.status === 'not_assessed')) {
+    const partialNames = partial.map((c) => c.policyTitle).join(', ')
     return {
-      ...evalResult,
+      controlId: evalResult.controlId,
       status: 'partial',
-      confidence: evalResult.confidence === 'none' ? 'low' : evalResult.confidence,
-      reasoning: `Policy documentation partially addresses this control: ${partial.map((c) => c.policyTitle).join(', ')}. ${evalResult.reasoning}`,
+      confidence: 'low',
+      reasoning: `Partially addressed by uploaded policy documentation: ${partialNames}. The policy covers some aspects but may lack specific implementation detail.${evalResult.remediation ? ` Recommendation: ${evalResult.remediation}` : ''}`,
+      evidenceIds: [],
+      missingEvidence: evalResult.missingEvidence,
+      remediation: evalResult.remediation,
     }
   }
 
