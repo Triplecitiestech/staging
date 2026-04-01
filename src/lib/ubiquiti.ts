@@ -146,6 +146,28 @@ export async function listSites(): Promise<UnifiSite[]> {
 }
 
 /**
+ * List all hosts (consoles/controllers). Each host typically represents one
+ * customer site with a UDM/UDR/UCK console. The host name is the customer-facing
+ * name visible in UniFi Site Manager (e.g., "EZ Red - New York").
+ */
+export async function listHosts(): Promise<Array<{ hostId: string; hostName: string; deviceCount: number }>> {
+  const config = getConfig()
+  if (!config) return []
+
+  const response = await unifiGet<{ data: UnifiDeviceHost[] }>(
+    '/ea/devices', config.apiKey, config.baseUrl
+  )
+
+  if (!response?.data) return []
+
+  return response.data.map((host) => ({
+    hostId: host.hostId,
+    hostName: host.hostName ?? host.hostId ?? 'Unknown',
+    deviceCount: host.devices?.length ?? 0,
+  }))
+}
+
+/**
  * List all devices globally. The /ea/devices endpoint returns devices
  * grouped by host (console/controller): { data: [{ hostId, hostName, devices: [...] }] }
  */

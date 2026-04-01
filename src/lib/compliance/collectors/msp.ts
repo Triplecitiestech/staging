@@ -63,6 +63,11 @@ interface PlatformMapping {
  * Returns null if no mappings exist (fall back to name matching).
  * Returns empty array if mappings table exists but none set for this platform.
  */
+/**
+ * Load explicit platform mappings for a company.
+ * Returns null if no mappings exist (fall back to name matching).
+ * Returns empty array if the platform is marked as "not used" (__none__).
+ */
 async function getPlatformMappings(companyId: string, platform: string): Promise<PlatformMapping[] | null> {
   try {
     const { getPool } = await import('@/lib/db-pool')
@@ -116,6 +121,10 @@ export async function collectDattoRmmEvidence(
     const mappings = await getPlatformMappings(companyId, 'datto_rmm')
     let matchedSites: typeof sites
     if (mappings && mappings.length > 0) {
+      if (mappings.some((m) => m.externalId === '__none__')) {
+        console.log('[compliance][datto_rmm] Marked as not used — skipping')
+        return { evidence: [], errors: [] }
+      }
       const mappedIds = new Set(mappings.map((m) => m.externalId))
       matchedSites = sites.filter((s) => mappedIds.has(s.uid) || mappedIds.has(String(s.id)))
       console.log(`[compliance][datto_rmm] Using explicit mapping: ${matchedSites.length} site(s) for ${companyName}`)
@@ -195,9 +204,13 @@ export async function collectDattoBcdrEvidence(
     const { DattoBcdrClient } = await import('@/lib/datto-bcdr')
     const client = new DattoBcdrClient()
 
-    // Use explicit mapping if available (mapped by clientCompanyName in Datto)
+    // Use explicit mapping if available (mapped by device serial or clientCompanyName)
     const mappings = await getPlatformMappings(companyId, 'datto_bcdr')
-    const matchName = (mappings && mappings.length > 0) ? mappings[0].externalId : companyName
+    if (mappings && mappings.some((m) => m.externalId === '__none__')) {
+      console.log('[compliance][datto_bcdr] Marked as not used — skipping')
+      return { evidence: [], errors: [] }
+    }
+    const matchName = (mappings && mappings.length > 0) ? mappings[0].externalName || mappings[0].externalId : companyName
     if (mappings && mappings.length > 0) {
       console.log(`[compliance][datto_bcdr] Using explicit mapping: "${matchName}" for ${companyName}`)
     }
@@ -371,6 +384,10 @@ export async function collectDomotzEvidence(
 
     const mappings = await getPlatformMappings(companyId, 'domotz')
     if (mappings && mappings.length > 0) {
+      if (mappings.some((m) => m.externalId === '__none__')) {
+        console.log('[compliance][domotz] Marked as not used — skipping')
+        return { evidence: [], errors: [] }
+      }
       const mappedIds = new Set(mappings.map((m) => m.externalId))
       matchedAgents = summary.agents.filter((a) => mappedIds.has(String(a.id)))
       matchNote = `Explicit mapping: ${matchedAgents.length} agent(s) for ${companyName}`
@@ -473,6 +490,10 @@ export async function collectItGlueEvidence(
 
     // Use explicit mapping if available (org ID directly)
     const mappings = await getPlatformMappings(companyId, 'it_glue')
+    if (mappings && mappings.some((m) => m.externalId === '__none__')) {
+      console.log('[compliance][it_glue] Marked as not used — skipping')
+      return { evidence: [], errors: [] }
+    }
     let matchByName = companyName
     if (mappings && mappings.length > 0) {
       // If mapped, use the mapped org name for matching
@@ -584,7 +605,7 @@ export async function collectUbiquitiEvidence(
   }
 
   try {
-    const { buildSummary } = await import('@/lib/ubiquiti')
+    const { buildSummary, listHosts } = await import('@/lib/ubiquiti')
     const { matchesCompanyName } = await import('@/utils')
     const summary = await buildSummary()
 
@@ -596,25 +617,35 @@ export async function collectUbiquitiEvidence(
       return { evidence, errors: [] }
     }
 
-    // Use explicit platform mappings if available, fall back to name matching
+    // Use explicit platform mappings if available (mapped by hostId/console name)
     const mappings = await getPlatformMappings(companyId, 'ubiquiti')
-    let matchedSites: typeof summary.sites
+    let matchedDevices: typeof summary.devices
+    let matchedHostNames: string[] = []
+
     if (mappings && mappings.length > 0) {
+      if (mappings.some((m) => m.externalId === '__none__')) {
+        console.log('[compliance][ubiquiti] Marked as not used — skipping')
+        return { evidence: [], errors: [] }
+      }
+      // Mappings are by hostId — get host names for those IDs
       const mappedIds = new Set(mappings.map((m) => m.externalId))
-      matchedSites = summary.sites.filter((s) => mappedIds.has(s.siteId))
-      console.log(`[compliance][ubiquiti] Using explicit mapping: ${matchedSites.length} site(s) for ${name}`)
+      const mappedNames = new Set(mappings.map((m) => m.externalName))
+      const hosts = await listHosts()
+      matchedHostNames = hosts.filter((h) => mappedIds.has(h.hostId)).map((h) => h.hostName)
+      // Also include mapped names directly in case hostName changed
+      for (const n of mappedNames) { if (n) matchedHostNames.push(n) }
+      const hostNameSet = new Set(matchedHostNames)
+      matchedDevices = summary.devices.filter((d) => hostNameSet.has(d.siteName))
+      console.log(`[compliance][ubiquiti] Using explicit mapping: ${matchedDevices.length} devices from ${matchedHostNames.length} host(s) for ${name}`)
     } else {
-      matchedSites = summary.sites.filter((s) => matchesCompanyName(name, s.name))
+      // Fall back to name matching on host/site names
+      matchedDevices = summary.devices.filter((d) => matchesCompanyName(name, d.siteName))
+      matchedHostNames = [...new Set(matchedDevices.map((d) => d.siteName))]
     }
 
-    if (matchedSites.length === 0) {
+    if (matchedDevices.length === 0) {
       return { evidence: [], errors: [] }
     }
-
-    const matchedSiteNames = new Set(matchedSites.map((s) => s.name))
-
-    // Filter devices to matched sites only
-    const matchedDevices = summary.devices.filter((d) => matchedSiteNames.has(d.siteName))
 
     // Categorize devices by model type
     const devicesByModel: Record<string, number> = {}
@@ -623,21 +654,13 @@ export async function collectUbiquitiEvidence(
       devicesByModel[model] = (devicesByModel[model] ?? 0) + 1
     }
 
-    const matchedClients = matchedSites.reduce((sum, s) => sum + s.totalDevices, 0)
-
     evidence.push(buildEvidence(assessmentId, companyId, 'ubiquiti_network' as EvidenceSourceType, {
       matched: true,
       companyName: name,
-      totalSites: matchedSites.length,
+      totalHosts: matchedHostNames.length,
+      hostNames: matchedHostNames,
       totalDevices: matchedDevices.length,
-      totalClients: matchedClients,
       devicesByModel,
-      sites: matchedSites.map((s) => ({
-        name: s.name,
-        totalDevices: s.totalDevices,
-        adoptedDevices: s.adoptedDevices,
-        satisfaction: s.satisfaction,
-      })),
       devices: matchedDevices.slice(0, 50).map((d) => ({
         hostname: d.hostname,
         model: d.model,
@@ -647,7 +670,7 @@ export async function collectUbiquitiEvidence(
         siteName: d.siteName,
         connectedClients: d.connectedClients,
       })),
-    }, `Ubiquiti: ${matchedDevices.length} network devices across ${matchedSites.length} site(s) for ${name}. Models: ${Object.entries(devicesByModel).map(([k, v]) => `${k} (${v})`).join(', ')}.`))
+    }, `Ubiquiti: ${matchedDevices.length} network devices across ${matchedHostNames.length} console(s) for ${name}. Models: ${Object.entries(devicesByModel).map(([k, v]) => `${k} (${v})`).join(', ')}.`))
 
     return { evidence, errors }
   } catch (err) {
