@@ -1037,6 +1037,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // Track overall provisioning outcome
     let primaryActionSucceeded = false
+    let targetUserId: string | null = null
+    let targetUpn: string | null = null
     const provisioningResults: string[] = []
     const failedSteps: string[] = []
     const manualSteps: string[] = []
@@ -1781,8 +1783,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
         // Find user
         const findStart = new Date()
-        let targetUserId: string | null = null
-        let targetUpn: string | null = null
         try {
           const user = await graph.getUserByEmail(workEmail)
           if (!user) throw new Error(`User not found: ${workEmail}`)
