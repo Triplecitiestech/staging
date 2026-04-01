@@ -497,13 +497,15 @@ async function loadPolicyCoverage(
 ): Promise<Map<string, Array<{ policyTitle: string; status: 'satisfied' | 'partial' }>>> {
   const map = new Map<string, Array<{ policyTitle: string; status: 'satisfied' | 'partial' }>>()
   try {
-    // Join policies with their analyses to get control coverage
+    // Join policies with their analyses to get control coverage + detail
     const res = await client.query<{
       title: string
       satisfiedControls: string[]
       partialControls: string[]
+      controlDetails: Array<{ controlId: string; status: string; reasoning: string; quote: string | null; section: string | null }> | null
     }>(
-      `SELECT p.title, a."satisfiedControls", a."partialControls"
+      `SELECT p.title, a."satisfiedControls", a."partialControls",
+              COALESCE(a."controlDetails", '[]'::jsonb) as "controlDetails"
        FROM compliance_policies p
        JOIN compliance_policy_analyses a ON a."policyId" = p.id
        WHERE p."companyId" = $1 AND a.status = 'complete'
@@ -511,16 +513,34 @@ async function loadPolicyCoverage(
       [companyId]
     )
     for (const row of res.rows) {
+      const details = Array.isArray(row.controlDetails) ? row.controlDetails : []
+      const detailMap = new Map(details.map((d) => [d.controlId, d]))
+
       const satisfied = Array.isArray(row.satisfiedControls) ? row.satisfiedControls : []
       const partial = Array.isArray(row.partialControls) ? row.partialControls : []
+
       for (const controlId of satisfied) {
+        const detail = detailMap.get(controlId)
         const existing = map.get(controlId) ?? []
-        existing.push({ policyTitle: row.title, status: 'satisfied' })
+        existing.push({
+          policyTitle: row.title,
+          status: 'satisfied',
+          reasoning: detail?.reasoning,
+          quote: detail?.quote,
+          section: detail?.section,
+        })
         map.set(controlId, existing)
       }
       for (const controlId of partial) {
+        const detail = detailMap.get(controlId)
         if (!map.has(controlId)) map.set(controlId, [])
-        map.get(controlId)!.push({ policyTitle: row.title, status: 'partial' })
+        map.get(controlId)!.push({
+          policyTitle: row.title,
+          status: 'partial',
+          reasoning: detail?.reasoning,
+          quote: detail?.quote,
+          section: detail?.section,
+        })
       }
     }
     if (map.size > 0) {

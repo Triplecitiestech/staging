@@ -227,12 +227,20 @@ Policy Content:
 ${content.substring(0, 12000)}
 
 Analyze this policy and provide a JSON response with:
-1. "satisfiedControls" - array of CIS v8 control IDs that this policy ADEQUATELY addresses with specific language
-2. "partialControls" - array of control IDs partially addressed (mentioned but lacking detail)
-3. "missingControls" - array of control IDs this policy SHOULD address based on its category but doesn't
-4. "gaps" - array of strings describing specific gaps or missing sections
-5. "recommendations" - array of specific actionable recommendations to improve the policy
-6. "summary" - a 2-3 sentence overall assessment
+1. "controlDetails" - array of objects for EACH relevant control with:
+   - "controlId": CIS v8 control ID (e.g. "cis-v8-3.4")
+   - "status": "satisfied" | "partial" | "missing"
+   - "reasoning": 1-2 sentence explanation of WHY this control is satisfied/partial/missing
+   - "quote": exact quote from the policy text that addresses this control (null if missing)
+   - "section": the section heading or title where the relevant text appears (null if missing)
+2. "satisfiedControls" - array of control IDs fully satisfied (for backward compatibility)
+3. "partialControls" - array of control IDs partially addressed
+4. "missingControls" - array of control IDs this policy SHOULD address but doesn't
+5. "gaps" - array of strings describing specific gaps
+6. "recommendations" - array of specific actionable recommendations
+7. "summary" - a 2-3 sentence overall assessment
+
+IMPORTANT: For each control in controlDetails, include an exact "quote" from the policy text that demonstrates compliance. Keep quotes under 200 characters. If the control is "missing", set quote to null.
 
 CIS v8 Controls to evaluate against:
 1.1 Asset Inventory, 1.2 Address Unauthorized Assets, 1.3 Active Discovery Tool, 1.4 DHCP Logging, 1.5 Passive Discovery,
@@ -283,6 +291,7 @@ Respond with ONLY valid JSON, no markdown.`
 
     // Parse JSON from response
     let parsed: {
+      controlDetails?: Array<{ controlId: string; status: string; reasoning: string; quote: string | null; section: string | null }>
       satisfiedControls?: string[]
       partialControls?: string[]
       missingControls?: string[]
@@ -309,6 +318,18 @@ Respond with ONLY valid JSON, no markdown.`
       }
     }
 
+    // If controlDetails provided, derive satisfied/partial/missing from it
+    if (parsed.controlDetails && parsed.controlDetails.length > 0 && !parsed.satisfiedControls) {
+      parsed.satisfiedControls = parsed.controlDetails.filter((c) => c.status === 'satisfied').map((c) => c.controlId)
+      parsed.partialControls = parsed.controlDetails.filter((c) => c.status === 'partial').map((c) => c.controlId)
+      parsed.missingControls = parsed.controlDetails.filter((c) => c.status === 'missing').map((c) => c.controlId)
+    }
+
+    // Ensure controlDetails column exists (added after initial table creation)
+    try {
+      await client.query(`ALTER TABLE compliance_policy_analyses ADD COLUMN IF NOT EXISTS "controlDetails" JSONB DEFAULT '[]'`)
+    } catch { /* column may already exist */ }
+
     await client.query(
       `UPDATE compliance_policy_analyses
        SET status = 'complete',
@@ -318,8 +339,9 @@ Respond with ONLY valid JSON, no markdown.`
            gaps = $4::jsonb,
            recommendations = $5::jsonb,
            "analysisText" = $6,
+           "controlDetails" = $7::jsonb,
            "analyzedAt" = NOW()
-       WHERE id = $7`,
+       WHERE id = $8`,
       [
         JSON.stringify(parsed.satisfiedControls ?? []),
         JSON.stringify(parsed.partialControls ?? []),
@@ -327,6 +349,7 @@ Respond with ONLY valid JSON, no markdown.`
         JSON.stringify(parsed.gaps ?? []),
         JSON.stringify(parsed.recommendations ?? []),
         parsed.summary ?? text,
+        JSON.stringify(parsed.controlDetails ?? []),
         analysisId,
       ]
     )
