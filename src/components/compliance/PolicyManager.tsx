@@ -263,9 +263,17 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
       const policy = policies[i]
       setReanalyzeProgress({ current: i + 1, total: policies.length, currentTitle: policy.title })
       try {
-        await reanalyzePolicy(policy.id)
-      } catch {
-        // Continue with remaining policies
+        const res = await fetch('/api/compliance/policies', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ policyId: policy.id }),
+        })
+        const json = await res.json()
+        if (!json.success) {
+          console.error(`[reanalyzeAll] Failed for ${policy.title}:`, json.error)
+        }
+      } catch (err) {
+        console.error(`[reanalyzeAll] Error for ${policy.title}:`, err)
       }
     }
     await loadPolicies()
@@ -711,7 +719,7 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
                     <div className="flex items-center gap-3">
                       <button
                         onClick={(e) => { e.stopPropagation(); reanalyzePolicy(policy.id) }}
-                        disabled={reanalyzing === policy.id}
+                        disabled={reanalyzing !== null}
                         className="text-xs px-3 py-1 bg-violet-500/20 text-violet-400 border border-violet-500/30 rounded hover:bg-violet-500/30 disabled:opacity-50 transition-all"
                       >
                         {reanalyzing === policy.id ? 'Re-analyzing...' : 'Re-analyze with latest prompt'}
