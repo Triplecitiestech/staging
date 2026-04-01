@@ -18,8 +18,8 @@ export const maxDuration = 30
 // Platform definitions — what each platform calls its grouping
 const PLATFORM_META: Record<string, { label: string; itemLabel: string }> = {
   datto_rmm: { label: 'Datto RMM', itemLabel: 'Site' },
-  datto_bcdr: { label: 'Datto BCDR', itemLabel: 'Client' },
-  ubiquiti: { label: 'Ubiquiti UniFi', itemLabel: 'Site' },
+  datto_bcdr: { label: 'Datto BCDR', itemLabel: 'Client / Device' },
+  ubiquiti: { label: 'Ubiquiti UniFi', itemLabel: 'Console' },
   domotz: { label: 'Domotz', itemLabel: 'Agent' },
   it_glue: { label: 'IT Glue', itemLabel: 'Organization' },
   saas_alerts: { label: 'SaaS Alerts', itemLabel: 'Customer' },
@@ -169,32 +169,26 @@ async function listPlatformSources(platform: string): Promise<SourceItem[]> {
       const { DattoBcdrClient } = await import('@/lib/datto-bcdr')
       const client = new DattoBcdrClient()
       const devices = await client.getDevices()
-      // Group by unique clientCompanyName
-      const companies = new Map<string, { count: number; devices: string[] }>()
-      for (const d of devices) {
-        const name = d.clientCompanyName || 'Unknown'
-        const existing = companies.get(name) ?? { count: 0, devices: [] }
-        existing.count++
-        if (existing.devices.length < 3) existing.devices.push(d.name)
-        companies.set(name, existing)
-      }
-      return Array.from(companies.entries()).map(([name, info]) => ({
-        id: name, // clientCompanyName is the identifier
-        name,
-        type: 'client',
-        detail: `${info.count} device(s): ${info.devices.join(', ')}`,
+      // Show individual devices so admin can pick exactly which ones belong to this customer
+      return devices.map((d) => ({
+        id: d.serialNumber || d.name,
+        name: d.name,
+        type: 'device',
+        detail: `Client: ${d.clientCompanyName || 'Unknown'} | Model: ${d.model || 'Unknown'}`,
       }))
     }
 
     case 'ubiquiti': {
       if (!process.env.UBIQUITI_API_KEY) throw new Error('Ubiquiti not configured')
-      const { listSites } = await import('@/lib/ubiquiti')
-      const sites = await listSites()
-      return sites.map((s) => ({
-        id: s.siteId,
-        name: s.meta?.desc || s.meta?.name || s.siteId,
-        type: 'site',
-        detail: `${s.statistics?.counts?.totalDevice ?? 0} devices`,
+      // Use host/console names — these are the customer-facing names
+      // (site names from /ea/sites are all "Default")
+      const { listHosts } = await import('@/lib/ubiquiti')
+      const hosts = await listHosts()
+      return hosts.map((h) => ({
+        id: h.hostId,
+        name: h.hostName,
+        type: 'console',
+        detail: `${h.deviceCount} device(s)`,
       }))
     }
 

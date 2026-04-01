@@ -103,6 +103,35 @@ export default function PlatformMappingPanel({ companyId, companyName }: Platfor
     }
   }
 
+  const markNotUsed = async (platform: string) => {
+    setSaving(true)
+    try {
+      // Remove any existing mappings for this platform
+      await fetch('/api/compliance/platform-mappings', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId, platform }),
+      })
+      // Add a special "none" mapping
+      await fetch('/api/compliance/platform-mappings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyId,
+          platform,
+          externalId: '__none__',
+          externalName: 'Not Used',
+          externalType: 'none',
+        }),
+      })
+      await loadMappings()
+    } catch {
+      setError('Failed to save')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const addMapping = async (platform: string, item: SourceItem) => {
     setSaving(true)
     try {
@@ -204,19 +233,29 @@ export default function PlatformMappingPanel({ companyId, companyName }: Platfor
                 className="w-full flex items-center justify-between p-4 hover:bg-slate-700/30 transition-colors"
               >
                 <div className="flex items-center gap-3">
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${
-                    platformMappings.length > 0
-                      ? 'bg-emerald-500/20 text-emerald-400'
-                      : 'bg-slate-700 text-slate-400'
-                  }`}>
-                    {platformMappings.length || '?'}
-                  </div>
+                  {(() => {
+                    const isNotUsed = platformMappings.some((m) => m.externalId === '__none__')
+                    const hasMappings = platformMappings.length > 0 && !isNotUsed
+                    return (
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${
+                        isNotUsed
+                          ? 'bg-slate-600/50 text-slate-500'
+                          : hasMappings
+                            ? 'bg-emerald-500/20 text-emerald-400'
+                            : 'bg-slate-700 text-slate-400'
+                      }`}>
+                        {isNotUsed ? '—' : hasMappings ? platformMappings.length : '?'}
+                      </div>
+                    )
+                  })()}
                   <div className="text-left">
                     <p className="text-sm font-medium text-white">{meta.label}</p>
                     <p className="text-xs text-slate-500">
-                      {platformMappings.length > 0
-                        ? `${platformMappings.length} ${meta.itemLabel.toLowerCase()}(s) mapped`
-                        : `No ${meta.itemLabel.toLowerCase()} mapped — using name matching`}
+                      {platformMappings.some((m) => m.externalId === '__none__')
+                        ? 'Not used by this customer'
+                        : platformMappings.length > 0
+                          ? `${platformMappings.length} ${meta.itemLabel.toLowerCase()}(s) mapped`
+                          : `No ${meta.itemLabel.toLowerCase()} mapped — using name matching`}
                     </p>
                   </div>
                 </div>
@@ -249,6 +288,17 @@ export default function PlatformMappingPanel({ companyId, companyName }: Platfor
                         </div>
                       ))}
                     </div>
+                  )}
+
+                  {/* Not Used button */}
+                  {!platformMappings.some((m) => m.externalId === '__none__') && (
+                    <button
+                      onClick={() => markNotUsed(platform)}
+                      disabled={saving}
+                      className="w-full text-left px-3 py-2 text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-700/50 rounded-lg border border-dashed border-white/10 transition-colors disabled:opacity-50"
+                    >
+                      Customer does not use {meta.label} — mark as not used
+                    </button>
                   )}
 
                   {/* Source Item Picker */}
