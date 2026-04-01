@@ -5,7 +5,7 @@
 
 import { prisma } from '@/lib/prisma';
 import { AutotaskClient } from '@/lib/autotask';
-import { createJobTracker, getLastSuccessfulRun } from './job-status';
+import { createJobTracker, getLastSuccessfulRun, getLastRunTime } from './job-status';
 import { JOB_NAMES, isResolvedStatus, updateStatusClassification } from './types';
 import { ensureReportingTables } from './ensure-tables';
 
@@ -34,11 +34,15 @@ interface TicketSyncResult {
 
 /**
  * Sync tickets from Autotask to local database.
- * Fetches tickets modified since last successful sync.
+ * Fetches tickets modified since last sync (successful OR failed — to avoid
+ * re-syncing data that was already processed before a timeout).
  * If no previous sync, fetches last `defaultDays` days.
- * Processes companies in batches to stay within Vercel's 60s timeout.
+ * Processes companies in batches with a time budget to stay within Vercel's 60s timeout.
  */
 export async function syncTickets(defaultDays: number = 90, batchSize: number = 2, force: boolean = false, companyFilter?: string): Promise<TicketSyncResult> {
+  const startTime = Date.now();
+  // Leave 8s buffer for finalization + DB writes before Vercel kills the function
+  const TIME_BUDGET_MS = 50_000;
   const finish = createJobTracker(JOB_NAMES.SYNC_TICKETS);
   const result: TicketSyncResult = { created: 0, updated: 0, statusChanges: 0, errors: [] };
 
@@ -48,11 +52,27 @@ export async function syncTickets(defaultDays: number = 90, batchSize: number = 
     await assertTableExists('ticket_status_history');
 
     const client = new AutotaskClient();
-    const lastSync = force ? null : await getLastSuccessfulRun(JOB_NAMES.SYNC_TICKETS);
 
-    // Use full window for first sync or force re-sync.
-    // The 30-day limit was too small for quarterly reports, causing empty data.
-    const sinceDate = lastSync || new Date(Date.now() - defaultDays * 24 * 60 * 60 * 1000);
+    // Use last run time (not just last successful run) to avoid the infinite
+    // failure loop: if a sync times out after processing 15 of 20 companies,
+    // those 15 companies' data was already written. The next run should start
+    // from where we left off, not re-sync 180 days from scratch.
+    const lastSuccessSync = force ? null : await getLastSuccessfulRun(JOB_NAMES.SYNC_TICKETS);
+    const lastAnySync = force ? null : await getLastRunTime(JOB_NAMES.SYNC_TICKETS);
+
+    // Priority: last successful sync > last any sync > defaultDays window
+    // For incremental runs, use a 2-day overlap to catch any late-arriving data
+    let sinceDate: Date;
+    if (lastSuccessSync) {
+      sinceDate = new Date(lastSuccessSync.getTime() - 2 * 24 * 60 * 60 * 1000); // 2-day overlap
+    } else if (lastAnySync) {
+      sinceDate = new Date(lastAnySync.getTime() - 2 * 24 * 60 * 60 * 1000); // 2-day overlap
+    } else {
+      // First-ever sync: cap at 30 days to fit within timeout.
+      // Use force=true with specific days for historical backfill.
+      const cappedDays = Math.min(defaultDays, 30);
+      sinceDate = new Date(Date.now() - cappedDays * 24 * 60 * 60 * 1000);
+    }
     console.log(`[ReportingSync] Syncing tickets since ${sinceDate.toISOString()} (force=${force}, days=${defaultDays}, company=${companyFilter || 'all'})`);
 
     // Resolve picklist labels (cached for the batch)
@@ -87,30 +107,53 @@ export async function syncTickets(defaultDays: number = 90, batchSize: number = 
       companyBatches.push(companies.slice(i, i + batchSize));
     }
 
+    let stoppedEarly = false;
     for (let i = 0; i < companyBatches.length; i++) {
+      // Check time budget before each batch
+      const elapsed = Date.now() - startTime;
+      if (elapsed > TIME_BUDGET_MS) {
+        const remaining = companyBatches.length - i;
+        console.warn(`[ReportingSync] Time budget exceeded (${elapsed}ms). Stopping with ${remaining} batches remaining.`);
+        stoppedEarly = true;
+        break;
+      }
+
       // Process batch concurrently (batch size 2 stays under Autotask 3-thread limit)
       await Promise.all(companyBatches[i].map(company => processCompanyTickets(company, sinceDate, picklistCache, result)));
       // Throttle between batches to avoid Autotask 429 rate limiting
       if (i < companyBatches.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
     }
 
     // Distinguish partial success (some errors but most records synced) from total failure
     const totalProcessed = result.created + result.updated;
     const hasErrors = result.errors.length > 0;
-    const status = !hasErrors ? 'success' : totalProcessed > 0 ? 'partial' : 'failed';
+    // If we stopped early but processed some data, that's "partial" not "failed"
+    const status = stoppedEarly
+      ? (totalProcessed > 0 ? 'partial' : 'failed')
+      : (!hasErrors ? 'success' : totalProcessed > 0 ? 'partial' : 'failed');
+
+    if (stoppedEarly) {
+      result.errors.push(`Time budget reached — processed ${totalProcessed} tickets, remaining companies will sync next cycle`);
+    }
 
     await finish({
       status,
-      meta: { created: result.created, updated: result.updated, statusChanges: result.statusChanges, errorCount: result.errors.length },
+      meta: { created: result.created, updated: result.updated, statusChanges: result.statusChanges, errorCount: result.errors.length, stoppedEarly },
       error: hasErrors ? result.errors.slice(0, 10).join('; ') : undefined,
     });
 
     return result;
   } catch (err) {
+    // Even on failure, if we processed some data, record it as partial
+    const totalProcessed = result.created + result.updated;
     const error = err instanceof Error ? err.message : String(err);
-    await finish({ status: 'failed', error });
+    await finish({
+      status: totalProcessed > 0 ? 'partial' : 'failed',
+      meta: { created: result.created, updated: result.updated, statusChanges: result.statusChanges, errorCount: result.errors.length + 1 },
+      error,
+    });
     throw err;
   }
 }

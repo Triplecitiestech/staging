@@ -23,7 +23,9 @@ export async function GET(request: NextRequest) {
     const force = request.nextUrl.searchParams.get('force') === 'true';
     // company= filter to sync a single company (by name or ID) — avoids timeout on full force sync
     const companyFilter = request.nextUrl.searchParams.get('company') || undefined;
-    const result = await withRetry(() => syncTickets(days, 2, force, companyFilter), { maxRetries: 1, baseDelayMs: 2000 });
+    // Do NOT wrap in withRetry — this job has its own time budget and can take
+    // 50s+. Retrying the whole thing just guarantees a timeout.
+    const result = await syncTickets(days, 2, force, companyFilter);
     return NextResponse.json({ success: true, result });
   } catch (err) {
     const classified = classifyError(err);

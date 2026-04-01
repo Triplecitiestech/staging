@@ -82,3 +82,23 @@ export async function getLastSuccessfulRun(jobName: string): Promise<Date | null
     return null;
   }
 }
+
+/**
+ * Get the last run time for a job regardless of status.
+ * This is used to avoid re-syncing data that was already processed
+ * even if the overall job failed (e.g., timed out after syncing
+ * some companies). Returns null if never run.
+ */
+export async function getLastRunTime(jobName: string): Promise<Date | null> {
+  try {
+    const record = await prisma.reportingJobStatus.findUnique({
+      where: { jobName },
+    });
+    if (record?.lastRunAt) {
+      return record.lastRunAt;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
