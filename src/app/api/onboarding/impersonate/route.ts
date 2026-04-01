@@ -46,38 +46,42 @@ export async function POST(request: NextRequest) {
     // Resolve target contact — either by explicit ID or find primary
     let targetContact: { email: string; name: string | null; customerRole: string | null; isPrimary: boolean } | null = null
 
-    if (contactId) {
-      // Impersonate a specific contact
-      targetContact = await prisma.companyContact.findFirst({
-        where: { id: contactId, companyId: company.id, isActive: true },
-        select: { email: true, name: true, customerRole: true, isPrimary: true },
-      })
-      if (!targetContact) {
-        return NextResponse.json({ error: 'Contact not found or inactive' }, { status: 404 })
-      }
-    } else {
-      // Default: find primary contact or first CLIENT_MANAGER
-      targetContact = await prisma.companyContact.findFirst({
-        where: {
-          companyId: company.id,
-          isActive: true,
-          OR: [
-            { isPrimary: true },
-            { customerRole: 'CLIENT_MANAGER' },
-          ],
-        },
-        select: { email: true, name: true, customerRole: true, isPrimary: true },
-        orderBy: [{ isPrimary: 'desc' }, { name: 'asc' }],
-      })
-
-      // If still no contact, fall back to any active contact
-      if (!targetContact) {
+    try {
+      if (contactId) {
+        // Impersonate a specific contact
         targetContact = await prisma.companyContact.findFirst({
-          where: { companyId: company.id, isActive: true },
+          where: { id: contactId, companyId: company.id, isActive: true },
           select: { email: true, name: true, customerRole: true, isPrimary: true },
-          orderBy: { name: 'asc' },
         })
+        if (!targetContact) {
+          return NextResponse.json({ error: 'Contact not found or inactive' }, { status: 404 })
+        }
+      } else {
+        // Default: find primary contact first
+        targetContact = await prisma.companyContact.findFirst({
+          where: { companyId: company.id, isActive: true, isPrimary: true },
+          select: { email: true, name: true, customerRole: true, isPrimary: true },
+        })
+
+        // Then try CLIENT_MANAGER
+        if (!targetContact) {
+          targetContact = await prisma.companyContact.findFirst({
+            where: { companyId: company.id, isActive: true, customerRole: 'CLIENT_MANAGER' },
+            select: { email: true, name: true, customerRole: true, isPrimary: true },
+          })
+        }
+
+        // Fall back to any active contact
+        if (!targetContact) {
+          targetContact = await prisma.companyContact.findFirst({
+            where: { companyId: company.id, isActive: true },
+            select: { email: true, name: true, customerRole: true, isPrimary: true },
+          })
+        }
       }
+    } catch (contactErr) {
+      console.error('[Impersonate] Contact lookup failed:', contactErr instanceof Error ? contactErr.message : String(contactErr))
+      // Continue without a target contact — will fall back to admin identity
     }
 
     const adminEmail = session.user?.email ?? 'admin@triplecitiestech.com'
