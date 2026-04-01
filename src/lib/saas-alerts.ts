@@ -53,7 +53,10 @@ export class SaasAlertsClient {
 
   constructor() {
     this.apiKey = process.env.SAAS_ALERTS_API_KEY ?? ''
-    this.baseUrl = (process.env.SAAS_ALERTS_API_URL ?? 'https://manage.saasalerts.com/api').replace(/\/$/, '')
+    // Ensure base URL always ends with /api
+    let url = (process.env.SAAS_ALERTS_API_URL ?? 'https://manage.saasalerts.com/api').replace(/\/$/, '')
+    if (!url.endsWith('/api')) url += '/api'
+    this.baseUrl = url
   }
 
   isConfigured(): boolean {
