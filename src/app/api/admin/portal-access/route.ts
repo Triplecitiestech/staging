@@ -3,10 +3,11 @@ import { auth } from '@/auth'
 import { createPortalSession, setPortalSessionCookie, type PortalSessionData } from '@/lib/portal-session'
 
 /**
- * GET /api/admin/portal-access?company=slug
+ * GET /api/admin/portal-access?company=slug&contactId=optional
  *
  * Staff impersonation endpoint: creates a customer portal session
  * for an authenticated admin user and redirects to the customer dashboard.
+ * Now supports true impersonation with dual-identity audit trail.
  */
 export async function GET(request: NextRequest) {
   try {
@@ -20,6 +21,8 @@ export async function GET(request: NextRequest) {
     }
 
     const companySlug = request.nextUrl.searchParams.get('company')
+    const contactId = request.nextUrl.searchParams.get('contactId')
+
     if (!companySlug) {
       return NextResponse.json({ error: 'company parameter required' }, { status: 400 })
     }
@@ -30,26 +33,71 @@ export async function GET(request: NextRequest) {
     const { prisma } = await import('@/lib/prisma')
     const company = await prisma.company.findUnique({
       where: { slug },
-      select: { id: true, displayName: true },
+      select: { id: true, displayName: true, slug: true },
     })
 
     if (!company) {
       return NextResponse.json({ error: 'Company not found' }, { status: 404 })
     }
 
-    // Create a portal session for admin impersonation
-    const sessionData: PortalSessionData = {
-      email: session.user?.email ?? 'admin@triplecitiestech.com',
-      name: session.user?.name ?? 'TCT Admin',
-      companySlug: slug,
-      role: 'CLIENT_MANAGER',
-      isManager: true,
-      exp: Date.now() + 8 * 60 * 60 * 1000,
+    // Resolve target contact — by ID or find primary
+    let targetContact: { email: string; name: string | null; customerRole: string | null; isPrimary: boolean } | null = null
+
+    if (contactId) {
+      targetContact = await prisma.companyContact.findFirst({
+        where: { id: contactId, companyId: company.id, isActive: true },
+        select: { email: true, name: true, customerRole: true, isPrimary: true },
+      })
     }
+
+    if (!targetContact) {
+      targetContact = await prisma.companyContact.findFirst({
+        where: {
+          companyId: company.id,
+          isActive: true,
+          OR: [{ isPrimary: true }, { customerRole: 'CLIENT_MANAGER' }],
+        },
+        select: { email: true, name: true, customerRole: true, isPrimary: true },
+        orderBy: [{ isPrimary: 'desc' }, { name: 'asc' }],
+      })
+    }
+
+    if (!targetContact) {
+      targetContact = await prisma.companyContact.findFirst({
+        where: { companyId: company.id, isActive: true },
+        select: { email: true, name: true, customerRole: true, isPrimary: true },
+        orderBy: { name: 'asc' },
+      })
+    }
+
+    const adminEmail = session.user?.email ?? 'admin@triplecitiestech.com'
+    const adminName = session.user?.name ?? 'TCT Admin'
+
+    const targetRole = targetContact
+      ? (targetContact.customerRole === 'CLIENT_MANAGER' || targetContact.isPrimary)
+        ? 'CLIENT_MANAGER'
+        : (targetContact.customerRole || 'CLIENT_USER')
+      : 'CLIENT_MANAGER'
+
+    const sessionData: PortalSessionData = {
+      email: targetContact?.email ?? adminEmail,
+      name: targetContact?.name ?? adminName,
+      companySlug: slug,
+      role: targetRole,
+      isManager: targetRole === 'CLIENT_MANAGER',
+      exp: Date.now() + 8 * 60 * 60 * 1000,
+      impersonation: {
+        adminEmail,
+        adminName,
+        targetEmail: targetContact?.email ?? adminEmail,
+        targetName: targetContact?.name ?? company.displayName ?? slug,
+      },
+    }
+
     const token = createPortalSession(sessionData)
     await setPortalSessionCookie(token)
 
-    console.log(`[Admin Portal Access] Staff ${session.user?.email} impersonating customer portal for ${company.displayName} (${slug})`)
+    console.log(`[Admin Portal Access] Staff ${adminEmail} impersonating ${targetContact?.email ?? 'primary user'} for ${company.displayName} (${slug})`)
 
     // Redirect to the customer portal
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || request.nextUrl.origin

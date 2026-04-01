@@ -168,6 +168,7 @@ export default async function PortalFunctionPage({ params }: PageProps) {
       isManager={session.isManager}
       dbDegraded={dbDegraded}
       portalFunction={portalFunction}
+      impersonation={session.impersonation ?? undefined}
     />
   )
 }

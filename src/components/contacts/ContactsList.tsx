@@ -385,13 +385,13 @@ export default function ContactsList({ contacts, staffUsers: initialStaff, curre
     setPermSaving(false)
   }
 
-  const impersonateCustomer = async (companySlug: string) => {
+  const impersonateCustomer = async (companySlug: string, contactId?: string) => {
     setImpersonating(companySlug)
     try {
       const res = await fetch('/api/onboarding/impersonate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ companySlug }),
+        body: JSON.stringify({ companySlug, contactId }),
       })
       const data = await res.json()
       if (res.ok && data.portalUrl) {
@@ -638,9 +638,9 @@ export default function ContactsList({ contacts, staffUsers: initialStaff, curre
                                   </svg>
                                 </button>
                                 <button
-                                  onClick={(e) => { e.stopPropagation(); impersonateCustomer(contact.company.slug) }}
+                                  onClick={(e) => { e.stopPropagation(); impersonateCustomer(contact.company.slug, contact.id) }}
                                   disabled={impersonating === contact.company.slug}
-                                  title={`View portal as ${demo.company(contact.company.displayName)}`}
+                                  title={`Impersonate ${contact.name || contact.email} in ${demo.company(contact.company.displayName)} portal`}
                                   className="p-1.5 text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 rounded transition-colors"
                                 >
                                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createHash } from 'crypto'
 import { PoolClient } from 'pg'
 import { getPool } from '@/lib/db-pool'
+import { getPortalSession } from '@/lib/portal-session'
 
 // ---------------------------------------------------------------------------
 // Raw pg pool — bypasses Prisma entirely so schema mismatches can't cause 500s
@@ -92,12 +93,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         idempotency_key TEXT UNIQUE NOT NULL,
         error_message TEXT,
         retry_count INTEGER DEFAULT 0,
+        impersonated_by_email TEXT,
+        impersonated_by_name TEXT,
         started_at TIMESTAMPTZ,
         completed_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ DEFAULT NOW(),
         updated_at TIMESTAMPTZ DEFAULT NOW()
       )
     `)
+    // Add impersonation columns if they don't exist (safe for existing tables)
+    await client.query(`ALTER TABLE hr_requests ADD COLUMN IF NOT EXISTS impersonated_by_email TEXT`).catch(() => {})
+    await client.query(`ALTER TABLE hr_requests ADD COLUMN IF NOT EXISTS impersonated_by_name TEXT`).catch(() => {})
     await client.query(`
       CREATE TABLE IF NOT EXISTS hr_audit_logs (
         id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
@@ -196,21 +202,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       )
     }
 
-    // 3e. Determine target UPN for offboarding
+    // 3e. Detect impersonation from portal session (server-side, not client-provided)
+    const portalSession = await getPortalSession()
+    const impersonation = portalSession?.impersonation ?? null
+
+    // 3f. Determine target UPN for offboarding
     const offboardTarget = answersTyped.employee_to_offboard ?? answersTyped.work_email ?? ''
     const targetUpn =
       type === 'offboarding' && offboardTarget
         ? offboardTarget.toLowerCase().trim()
         : null
 
-    // 3f. Insert hr_request
+    // 3g. Insert hr_request
     const submitterName = submittedByName?.trim() ?? contact.name ?? null
 
     const insertRes = await client.query<{ id: string }>(
       `INSERT INTO hr_requests
          (company_id, company_slug, type, status, submitted_by_email, submitted_by_name,
-          answers, idempotency_key, target_upn, created_at, updated_at)
-       VALUES ($1, $2, $3, 'pending', $4, $5, $6::jsonb, $7, $8, NOW(), NOW())
+          answers, idempotency_key, target_upn, impersonated_by_email, impersonated_by_name,
+          created_at, updated_at)
+       VALUES ($1, $2, $3, 'pending', $4, $5, $6::jsonb, $7, $8, $9, $10, NOW(), NOW())
        RETURNING id`,
       [
         company.id,
@@ -218,18 +229,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         type,
         normalizedEmail,
         submitterName,
-        JSON.stringify(answers),  // explicit cast to ::jsonb handles string→jsonb
+        JSON.stringify(answers),
         idempotencyKey,
         targetUpn,
+        impersonation?.adminEmail ?? null,
+        impersonation?.adminName ?? null,
       ]
     )
 
     const requestId = insertRes.rows[0].id
 
-    // 3g. Write audit log
+    // 3h. Write audit log with dual attribution for impersonation
     const employeeName = type === 'offboarding'
       ? (answersTyped.employee_to_offboard ?? `${answersTyped.first_name ?? ''} ${answersTyped.last_name ?? ''}`.trim())
       : `${answersTyped.first_name ?? ''} ${answersTyped.last_name ?? ''}`.trim()
+
+    const actorLabel = impersonation
+      ? `${impersonation.adminEmail} (impersonating ${normalizedEmail})`
+      : normalizedEmail
+
     await client.query(
       `INSERT INTO hr_audit_logs
          (company_id, request_id, actor, action, resource, details, severity, created_at)
@@ -237,13 +255,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       [
         company.id,
         requestId,
-        normalizedEmail,
+        actorLabel,
         `hr_request:${requestId}`,
-        JSON.stringify({ type, employeeName, submittedByName: submitterName }),
+        JSON.stringify({
+          type,
+          employeeName,
+          submittedByName: submitterName,
+          ...(impersonation ? {
+            impersonatedBy: impersonation.adminEmail,
+            impersonatedByName: impersonation.adminName,
+            performedAs: normalizedEmail,
+          } : {}),
+        }),
       ]
     )
 
-    // 3h. Fire-and-forget background processing
+    if (impersonation) {
+      console.log(`[hr/submit] Admin ${impersonation.adminEmail} submitted ${type} request as ${normalizedEmail} for company ${normalizedSlug}`)
+    }
+
+    // 3i. Fire-and-forget background processing
     const processUrl = new URL('/api/hr/process', request.url)
     const internalSecret = process.env.INTERNAL_SECRET ?? ''
 
@@ -258,7 +289,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       console.error('[hr/submit] Failed to kick off background processing:', err)
     })
 
-    // 3i. Return 202 Accepted
+    // 3j. Return 202 Accepted
     return NextResponse.json(
       { requestId, message: 'Request submitted successfully' },
       { status: 202 }
