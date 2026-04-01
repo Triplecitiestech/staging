@@ -494,8 +494,8 @@ async function loadEnvironmentContext(existingClient?: PoolClient): Promise<Envi
  */
 async function loadPolicyCoverage(
   companyId: string, client: PoolClient
-): Promise<Map<string, Array<{ policyTitle: string; status: 'satisfied' | 'partial' }>>> {
-  const map = new Map<string, Array<{ policyTitle: string; status: 'satisfied' | 'partial' }>>()
+): Promise<Map<string, Array<{ policyTitle: string; status: 'satisfied' | 'partial'; reasoning?: string; quote?: string | null; section?: string | null }>>> {
+  const map = new Map<string, Array<{ policyTitle: string; status: 'satisfied' | 'partial'; reasoning?: string; quote?: string | null; section?: string | null }>>()
   try {
     // Join policies with their analyses to get control coverage + detail
     const res = await client.query<{
