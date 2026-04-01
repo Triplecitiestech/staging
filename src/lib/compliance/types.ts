@@ -222,8 +222,14 @@ export interface EvaluationContext {
   environment?: EnvironmentContext
   /** Tool deployment toggles from Tool Capability Map — enables attestation-based pass */
   deployedTools?: Map<string, ToolDeployment>
-  /** Policy analyses — maps controlId to policies that satisfy it */
-  policyCoverage?: Map<string, Array<{ policyTitle: string; status: 'satisfied' | 'partial' }>>
+  /** Policy analyses — maps controlId to policies that satisfy it, with detail */
+  policyCoverage?: Map<string, Array<{
+    policyTitle: string
+    status: 'satisfied' | 'partial'
+    reasoning?: string
+    quote?: string | null
+    section?: string | null
+  }>>
 }
 
 export interface EvaluationResult {
@@ -279,6 +285,14 @@ export interface CompliancePolicy {
   updatedAt: string
 }
 
+export interface PolicyControlDetail {
+  controlId: string
+  status: 'satisfied' | 'partial' | 'missing'
+  reasoning: string
+  quote: string | null  // Exact quote from the policy that satisfies/addresses the control
+  section: string | null  // Section or heading where the relevant text was found
+}
+
 export interface PolicyAnalysis {
   id: string
   policyId: string
@@ -291,6 +305,8 @@ export interface PolicyAnalysis {
   recommendations: string[]
   analysisText: string
   analyzedAt: string | null
+  /** Per-control detail with reasoning and quotes — new field, may be null for old analyses */
+  controlDetails?: PolicyControlDetail[]
 }
 
 // ---------------------------------------------------------------------------

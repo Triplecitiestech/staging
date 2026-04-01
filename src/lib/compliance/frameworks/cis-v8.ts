@@ -153,12 +153,19 @@ function applyPolicyCoverage(evalResult: EvaluationResult, ctx: EvaluationContex
   if (evalResult.status === 'pass') return evalResult // Already passing, nothing to do
 
   if (satisfied.length > 0 && (evalResult.status === 'needs_review' || evalResult.status === 'not_assessed')) {
-    const satisfiedNames = satisfied.map((c) => c.policyTitle).join(', ')
+    // Build detailed reasoning with quotes from each satisfying policy
+    const details = satisfied.map((c) => {
+      let detail = `**${c.policyTitle}**`
+      if (c.section) detail += ` (${c.section})`
+      if (c.reasoning) detail += `: ${c.reasoning}`
+      if (c.quote) detail += ` — "${c.quote}"`
+      return detail
+    })
     return {
       controlId: evalResult.controlId,
       status: 'pass',
       confidence: 'medium',
-      reasoning: `Satisfied by uploaded policy documentation: ${satisfiedNames}. These policies were analyzed by AI and determined to adequately address this control's requirements.`,
+      reasoning: `Satisfied by uploaded policy documentation:\n${details.join('\n')}`,
       evidenceIds: [],
       missingEvidence: [],
       remediation: null,
@@ -166,12 +173,18 @@ function applyPolicyCoverage(evalResult: EvaluationResult, ctx: EvaluationContex
   }
 
   if (partial.length > 0 && (evalResult.status === 'needs_review' || evalResult.status === 'not_assessed')) {
-    const partialNames = partial.map((c) => c.policyTitle).join(', ')
+    const details = partial.map((c) => {
+      let detail = `**${c.policyTitle}**`
+      if (c.section) detail += ` (${c.section})`
+      if (c.reasoning) detail += `: ${c.reasoning}`
+      if (c.quote) detail += ` — "${c.quote}"`
+      return detail
+    })
     return {
       controlId: evalResult.controlId,
       status: 'partial',
       confidence: 'low',
-      reasoning: `Partially addressed by uploaded policy documentation: ${partialNames}. The policy covers some aspects but may lack specific implementation detail.${evalResult.remediation ? ` Recommendation: ${evalResult.remediation}` : ''}`,
+      reasoning: `Partially addressed by uploaded policy documentation:\n${details.join('\n')}${evalResult.remediation ? `\nRecommendation: ${evalResult.remediation}` : ''}`,
       evidenceIds: [],
       missingEvidence: evalResult.missingEvidence,
       remediation: evalResult.remediation,
