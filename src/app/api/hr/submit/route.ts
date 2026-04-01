@@ -3,6 +3,7 @@ import { createHash } from 'crypto'
 import { PoolClient } from 'pg'
 import { getPool } from '@/lib/db-pool'
 import { getPortalSession } from '@/lib/portal-session'
+import { withDbRetry } from '@/lib/resilience'
 
 // ---------------------------------------------------------------------------
 // Raw pg pool — bypasses Prisma entirely so schema mismatches can't cause 500s
@@ -60,13 +61,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const normalizedEmail = submittedByEmail.toLowerCase().trim()
   const normalizedSlug  = companySlug.toLowerCase().trim()
 
-  // 3. DB work — all in one try/catch so any error returns a clean JSON response
+  // 3. DB work — acquire connection with retry for serverless cold starts
   let client: PoolClient
   try {
-    client = await pool.connect()
+    client = await withDbRetry(() => pool.connect(), 'hr/submit pool.connect')
   } catch (connErr) {
     const msg = connErr instanceof Error ? connErr.message : String(connErr)
-    console.error('[hr/submit] Database connection failed:', msg)
+    console.error('[hr/submit] Database connection failed after retries:', msg)
     return NextResponse.json(
       { error: 'Unable to connect to the database. Please try again in a moment.' },
       { status: 503 }

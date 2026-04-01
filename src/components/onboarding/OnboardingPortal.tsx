@@ -77,15 +77,13 @@ export default function OnboardingPortal({
       {/* Admin impersonation banner */}
       {impersonation && (
         <div className="sticky top-0 z-[60] bg-violet-600/95 backdrop-blur-sm border-b border-violet-400/30 px-4 py-2">
-          <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 min-w-0">
-              <svg className="w-4 h-4 text-violet-200 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-              </svg>
-              <span className="text-sm text-white font-medium truncate">
-                Signed in as <span className="font-bold">{impersonation.adminName}</span>, impersonating <span className="font-bold">{impersonation.targetName}</span> ({impersonation.targetEmail})
-              </span>
-            </div>
+          <div className="max-w-7xl mx-auto flex items-center justify-center gap-3">
+            <svg className="w-4 h-4 text-violet-200 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+            </svg>
+            <span className="text-sm text-white font-medium">
+              Signed in as <span className="font-bold">{impersonation.adminName}</span>, impersonating <span className="font-bold">{impersonation.targetName}</span> ({impersonation.targetEmail})
+            </span>
             <button
               onClick={handleStopImpersonation}
               className="flex-shrink-0 px-3 py-1 text-xs font-medium text-violet-100 bg-violet-700/80 hover:bg-violet-800 border border-violet-400/40 rounded-md transition-colors"
