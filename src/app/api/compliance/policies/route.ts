@@ -133,6 +133,65 @@ export async function POST(request: NextRequest) {
   }
 }
 
+/**
+ * PATCH /api/compliance/policies — Re-analyze an existing policy with the latest prompt
+ */
+export async function PATCH(request: NextRequest) {
+  const session = await auth()
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  try {
+    const body = (await request.json()) as { policyId?: string; companyId?: string; reanalyzeAll?: boolean }
+
+    await ensureComplianceTables()
+    const pool = getPool()
+    const client = await pool.connect()
+
+    try {
+      if (body.reanalyzeAll && body.companyId) {
+        // Re-analyze ALL policies for a company
+        const policies = await client.query<{ id: string; title: string; content: string }>(
+          `SELECT id, title, content FROM compliance_policies WHERE "companyId" = $1`,
+          [body.companyId]
+        )
+        const results: Array<{ policyId: string; title: string; status: string }> = []
+        for (const policy of policies.rows) {
+          // Delete old analyses
+          await client.query(`DELETE FROM compliance_policy_analyses WHERE "policyId" = $1`, [policy.id])
+          const analysis = await analyzePolicyWithAI(client, policy.id, body.companyId, policy.title, policy.content, session.user.email)
+          results.push({ policyId: policy.id, title: policy.title, status: analysis?.status ?? 'error' })
+        }
+        return NextResponse.json({ success: true, reanalyzed: results.length, results })
+      }
+
+      if (body.policyId) {
+        // Re-analyze a single policy
+        const policy = await client.query<{ id: string; title: string; content: string; companyId: string }>(
+          `SELECT id, title, content, "companyId" FROM compliance_policies WHERE id = $1`,
+          [body.policyId]
+        )
+        if (policy.rows.length === 0) {
+          return NextResponse.json({ error: 'Policy not found' }, { status: 404 })
+        }
+        const p = policy.rows[0]
+        // Delete old analyses
+        await client.query(`DELETE FROM compliance_policy_analyses WHERE "policyId" = $1`, [p.id])
+        const analysis = await analyzePolicyWithAI(client, p.id, p.companyId, p.title, p.content, session.user.email)
+        return NextResponse.json({ success: true, analysis })
+      }
+
+      return NextResponse.json({ error: 'policyId or (companyId + reanalyzeAll) required' }, { status: 400 })
+    } finally {
+      client.release()
+    }
+  } catch (err) {
+    console.error('[compliance/policies] PATCH error:', err)
+    return NextResponse.json({ error: 'Failed to re-analyze policy' }, { status: 500 })
+  }
+}
+
 // ---------------------------------------------------------------------------
 // AI Policy Analysis
 // ---------------------------------------------------------------------------

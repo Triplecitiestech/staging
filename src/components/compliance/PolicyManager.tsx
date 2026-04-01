@@ -65,6 +65,7 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
   const [content, setContent] = useState('')
   const [sharepointUrl, setSharepointUrl] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [reanalyzing, setReanalyzing] = useState<string | null>(null) // policyId or 'all'
 
   // SharePoint folder scan state
   const [spScanning, setSpScanning] = useState(false)
@@ -234,6 +235,44 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
     })
   }
 
+  const reanalyzePolicy = async (policyId: string) => {
+    setReanalyzing(policyId)
+    setError(null)
+    try {
+      const res = await fetch('/api/compliance/policies', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ policyId }),
+      })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.error)
+      await loadPolicies()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Re-analysis failed')
+    } finally {
+      setReanalyzing(null)
+    }
+  }
+
+  const reanalyzeAll = async () => {
+    setReanalyzing('all')
+    setError(null)
+    try {
+      const res = await fetch('/api/compliance/policies', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId, reanalyzeAll: true }),
+      })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.error)
+      await loadPolicies()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Re-analysis failed')
+    } finally {
+      setReanalyzing(null)
+    }
+  }
+
   const getAnalysisForPolicy = (policyId: string): PolicyAnalysis | undefined => {
     return analyses.find((a) => a.policyId === policyId)
   }
@@ -275,12 +314,23 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
             Upload or paste customer policies — AI analyzes them against CIS v8 controls
           </p>
         </div>
-        <button
-          onClick={() => setShowAddForm(!showAddForm)}
-          className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-white rounded-lg font-medium text-sm transition-all"
-        >
-          {showAddForm ? 'Cancel' : '+ Add Policy'}
-        </button>
+        <div className="flex gap-2">
+          {policies.length > 0 && (
+            <button
+              onClick={reanalyzeAll}
+              disabled={reanalyzing === 'all'}
+              className="inline-flex items-center px-3 py-2 bg-violet-500/20 text-violet-400 border border-violet-500/30 rounded-lg text-sm font-medium hover:bg-violet-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            >
+              {reanalyzing === 'all' ? 'Re-analyzing...' : 'Re-analyze All'}
+            </button>
+          )}
+          <button
+            onClick={() => setShowAddForm(!showAddForm)}
+            className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-white rounded-lg font-medium text-sm transition-all"
+          >
+            {showAddForm ? 'Cancel' : '+ Add Policy'}
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -656,7 +706,16 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
                       </div>
                     )}
 
-                    {/* Policy Content Preview */}
+                    {/* Re-analyze + Content Preview */}
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); reanalyzePolicy(policy.id) }}
+                        disabled={reanalyzing === policy.id}
+                        className="text-xs px-3 py-1 bg-violet-500/20 text-violet-400 border border-violet-500/30 rounded hover:bg-violet-500/30 disabled:opacity-50 transition-all"
+                      >
+                        {reanalyzing === policy.id ? 'Re-analyzing...' : 'Re-analyze with latest prompt'}
+                      </button>
+                    </div>
                     <details className="group">
                       <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-300">
                         View policy content ({policy.content.length.toLocaleString()} chars)

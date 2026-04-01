@@ -523,6 +523,9 @@ async function loadPolicyCoverage(
         map.get(controlId)!.push({ policyTitle: row.title, status: 'partial' })
       }
     }
+    if (map.size > 0) {
+      console.log(`[compliance] Policy coverage loaded: ${map.size} controls covered by policies (${res.rows.length} policy analyses)`)
+    }
   } catch {
     // Tables may not exist yet
   }
