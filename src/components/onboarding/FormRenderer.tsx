@@ -25,6 +25,7 @@ export interface MergedQuestion {
   dataSource?: Record<string, unknown> | null
   autoFill?: Record<string, string> | null
   resolvedUserOptions?: UserOption[] | null
+  dataSourceError?: string | null
 }
 
 export interface MergedSection {

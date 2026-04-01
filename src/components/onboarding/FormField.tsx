@@ -30,6 +30,7 @@ export interface FormFieldQuestion {
   options?: { value: string; label: string; helpText?: string }[]
   userOptions?: UserOption[]
   autoFillMap?: Record<string, string>
+  dataSourceError?: string | null
 }
 
 interface FormFieldProps {
@@ -287,7 +288,7 @@ function SelectField({
   onChange: (key: string, value: unknown) => void
   error?: string | null
 }) {
-  const { key, label, helpText, isRequired, options } = question
+  const { key, label, helpText, isRequired, options, dataSourceError } = question
   const [search, setSearch] = useState('')
   const showSearch = (options ?? []).length > 8
 
@@ -324,6 +325,9 @@ function SelectField({
           </option>
         ))}
       </select>
+      {(options ?? []).length === 0 && dataSourceError && (
+        <p className="text-xs text-rose-400/80 mt-1">{dataSourceError}</p>
+      )}
       {helpText && <p className={helpClass}>{helpText}</p>}
       {error && <p className={errorClass}>{error}</p>}
     </div>
@@ -345,7 +349,7 @@ function UserSelectField({
   onChange: (key: string, value: unknown) => void
   error?: string | null
 }) {
-  const { key, label, helpText, isRequired, userOptions, autoFillMap } = question
+  const { key, label, helpText, isRequired, userOptions, autoFillMap, dataSourceError } = question
   const [search, setSearch] = useState('')
 
   const users = userOptions ?? []
@@ -423,9 +427,14 @@ function UserSelectField({
           />
           <div className="mt-1.5 max-h-56 overflow-y-auto space-y-1 pr-1">
             {filtered.length === 0 ? (
-              <p className="text-xs text-gray-500 py-2 text-center">
-                {search ? 'No matching users' : 'No users available'}
-              </p>
+              <div className="py-2 text-center">
+                <p className="text-xs text-gray-500">
+                  {search ? 'No matching users' : 'No users available'}
+                </p>
+                {!search && dataSourceError && (
+                  <p className="text-xs text-rose-400/80 mt-1 px-2">{dataSourceError}</p>
+                )}
+              </div>
             ) : (
               filtered.slice(0, 50).map((user) => (
                 <button
