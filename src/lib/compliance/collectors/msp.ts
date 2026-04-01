@@ -538,46 +538,70 @@ export async function collectSaasAlertsEvidence(
   const evidence: Array<Omit<EvidenceRecord, 'id' | 'collectedAt'>> = []
   const errors: string[] = []
 
-  if (!process.env.SAAS_ALERTS_API_KEY) {
-    return { evidence, errors: ['SaaS Alerts: SAAS_ALERTS_API_KEY not configured'] }
-  }
-
+  // SaaS Alerts API is behind Cloudflare bot protection — can't call directly from serverless.
+  // Instead, read from webhook events stored locally via /api/compliance/webhooks/saas-alerts.
   try {
-    const { SaasAlertsClient } = await import('@/lib/saas-alerts')
-    const client = new SaasAlertsClient()
-    const summary = await client.buildSummary()
+    const { getPool } = await import('@/lib/db-pool')
+    const pool = getPool()
+    const client = await pool.connect()
+    try {
+      // Read events from last 30 days
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+      const res = await client.query<{ eventType: string; severity: string; rawData: Record<string, unknown> }>(
+        `SELECT "eventType", severity, "rawData"
+         FROM compliance_webhook_events
+         WHERE source = 'saas_alerts' AND "receivedAt" > $1 AND "expiresAt" > NOW()
+         ORDER BY "receivedAt" DESC LIMIT 1000`,
+        [thirtyDaysAgo]
+      )
 
-    if (!summary.available) {
-      return { evidence, errors: [summary.note ?? 'SaaS Alerts API unavailable'] }
-    }
+      if (res.rows.length === 0) {
+        // Check if webhook is even configured by looking for ANY events ever
+        const anyRes = await client.query<{ count: string }>(
+          `SELECT COUNT(*) as count FROM compliance_webhook_events WHERE source = 'saas_alerts'`
+        )
+        const totalEver = parseInt(anyRes.rows[0]?.count ?? '0')
+        if (totalEver === 0) {
+          errors.push('SaaS Alerts: No webhook events received yet. Configure the webhook in manage.saasalerts.com > Settings > API > Webhook API. Set URL to: https://www.triplecitiestech.com/api/compliance/webhooks/saas-alerts')
+        } else {
+          errors.push('SaaS Alerts: No events in the last 30 days (webhook is configured).')
+        }
+        return { evidence, errors }
+      }
 
-    // Only store evidence if there's actual data (customers or events)
-    if (summary.customers.length === 0 && summary.totalEvents === 0) {
-      errors.push('SaaS Alerts API connected but returned 0 customers and 0 events. Verify the API key has proper permissions and customers are onboarded in manage.saasalerts.com.')
+      // Aggregate events
+      const eventsBySeverity: Record<string, number> = {}
+      const eventsByType: Record<string, number> = {}
+      const recentHigh: Array<{ time?: string; user?: string; type: string; description?: string; severity: string }> = []
+
+      for (const row of res.rows) {
+        eventsBySeverity[row.severity] = (eventsBySeverity[row.severity] ?? 0) + 1
+        eventsByType[row.eventType] = (eventsByType[row.eventType] ?? 0) + 1
+        if ((row.severity === 'critical' || row.severity === 'high') && recentHigh.length < 10) {
+          const raw = row.rawData as Record<string, unknown>
+          recentHigh.push({
+            time: raw.time as string | undefined,
+            user: (raw.user as { name?: string })?.name,
+            type: row.eventType,
+            description: raw.jointDesc as string | undefined,
+            severity: row.severity,
+          })
+        }
+      }
+
+      evidence.push(buildEvidence(assessmentId, companyId, 'saas_alerts_monitoring' as EvidenceSourceType, {
+        totalEvents: res.rows.length,
+        eventsBySeverity,
+        eventsByType,
+        recentHighSeverity: recentHigh,
+        source: 'webhook',
+        note: 'Data collected via SaaS Alerts webhook (real-time event push).',
+      }, `SaaS Alerts: ${res.rows.length} events (30 days, via webhook). Severity: ${Object.entries(eventsBySeverity).map(([k, v]) => `${k}=${v}`).join(', ') || 'none'}.`))
+
       return { evidence, errors }
+    } finally {
+      client.release()
     }
-
-    evidence.push(buildEvidence(assessmentId, companyId, 'saas_alerts_monitoring' as EvidenceSourceType, {
-      totalEvents: summary.totalEvents,
-      eventsBySeverity: summary.eventsBySeverity,
-      eventsByType: summary.eventsByType,
-      customerCount: summary.customers.length,
-      customers: summary.customers.slice(0, 20),
-      recentHighSeverity: summary.recentEvents
-        .filter((e) => e.alertStatus === 'high' || e.alertStatus === 'critical')
-        .slice(0, 10)
-        .map((e) => ({
-          time: e.time,
-          user: e.user?.name,
-          type: e.jointType,
-          description: e.jointDesc,
-          severity: e.alertStatus,
-          ip: e.ip,
-        })),
-      note: summary.note,
-    }, `SaaS Alerts: ${summary.totalEvents} events (30 days). ${summary.customers.length} monitored tenants. Severity breakdown: ${Object.entries(summary.eventsBySeverity).map(([k, v]) => `${k}=${v}`).join(', ') || 'none'}.`))
-
-    return { evidence, errors }
   } catch (err) {
     return { evidence, errors: [`SaaS Alerts collection failed: ${err instanceof Error ? err.message : String(err)}`] }
   }

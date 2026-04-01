@@ -39,7 +39,8 @@ export async function ensureComplianceTables(): Promise<void> {
            'compliance_policies',
            'compliance_policy_analyses',
            'compliance_attestations',
-           'compliance_platform_mappings'
+           'compliance_platform_mappings',
+           'compliance_webhook_events'
          )`
     )
     const existingSet = new Set(existing.rows.map((r) => r.tablename))
@@ -328,6 +329,31 @@ export async function ensureComplianceTables(): Promise<void> {
       await client.query(`
         CREATE INDEX IF NOT EXISTS idx_compliance_platform_mappings_platform
         ON compliance_platform_mappings ("companyId", platform)
+      `)
+    }
+
+    // --- compliance_webhook_events ---
+    // Stores inbound webhook events from SaaS Alerts (and other future webhook sources).
+    // The collector reads from this table instead of calling the external API.
+    if (!existingSet.has('compliance_webhook_events')) {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS compliance_webhook_events (
+          id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+          source          TEXT NOT NULL,
+          "eventType"     TEXT NOT NULL DEFAULT '',
+          severity        TEXT NOT NULL DEFAULT 'low',
+          "rawData"       JSONB NOT NULL DEFAULT '{}',
+          "receivedAt"    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          "expiresAt"     TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '90 days'
+        )
+      `)
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_compliance_webhook_events_source
+        ON compliance_webhook_events (source, "receivedAt" DESC)
+      `)
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_compliance_webhook_events_expires
+        ON compliance_webhook_events ("expiresAt")
       `)
     }
 
