@@ -92,6 +92,12 @@ export function mapAutotaskLabelToCustomerStatus(
   autotaskLabel: string,
   statusId: number
 ): CustomerStatusLabel {
+  // ALWAYS check resolved/waiting status IDs first — these are authoritative
+  // regardless of what the picklist label text says (a ticket can have a label
+  // like "Scheduled" in its status history but actually be completed)
+  if (isResolvedStatus(statusId)) return 'Closed';
+  if (isWaitingCustomerStatus(statusId)) return 'Awaiting Your Team';
+
   const lower = autotaskLabel.toLowerCase();
 
   // Resolved / closed statuses
