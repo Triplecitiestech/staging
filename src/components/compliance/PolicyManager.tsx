@@ -66,6 +66,7 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
   const [sharepointUrl, setSharepointUrl] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [reanalyzing, setReanalyzing] = useState<string | null>(null) // policyId or 'all'
+  const [reanalyzeProgress, setReanalyzeProgress] = useState({ current: 0, total: 0, currentTitle: '' })
 
   // SharePoint folder scan state
   const [spScanning, setSpScanning] = useState(false)
@@ -257,23 +258,19 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
   const reanalyzeAll = async () => {
     setReanalyzing('all')
     setError(null)
-    // Re-analyze one at a time from the client to avoid server timeout
-    let succeeded = 0
-    for (const policy of policies) {
+    setReanalyzeProgress({ current: 0, total: policies.length, currentTitle: '' })
+    for (let i = 0; i < policies.length; i++) {
+      const policy = policies[i]
+      setReanalyzeProgress({ current: i + 1, total: policies.length, currentTitle: policy.title })
       try {
-        const res = await fetch('/api/compliance/policies', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ policyId: policy.id }),
-        })
-        const json = await res.json()
-        if (json.success) succeeded++
+        await reanalyzePolicy(policy.id)
       } catch {
         // Continue with remaining policies
       }
     }
     await loadPolicies()
     setReanalyzing(null)
+    setReanalyzeProgress({ current: 0, total: 0, currentTitle: '' })
   }
 
   const getAnalysisForPolicy = (policyId: string): PolicyAnalysis | undefined => {
@@ -324,7 +321,9 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
               disabled={reanalyzing === 'all'}
               className="inline-flex items-center px-3 py-2 bg-violet-500/20 text-violet-400 border border-violet-500/30 rounded-lg text-sm font-medium hover:bg-violet-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
             >
-              {reanalyzing === 'all' ? 'Re-analyzing...' : 'Re-analyze All'}
+              {reanalyzing === 'all'
+                ? `Analyzing ${reanalyzeProgress.current}/${reanalyzeProgress.total}: ${reanalyzeProgress.currentTitle.substring(0, 20)}...`
+                : 'Re-analyze All'}
             </button>
           )}
           <button
