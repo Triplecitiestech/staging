@@ -23,6 +23,13 @@ export interface PortalSessionData {
   role: string      // 'CLIENT_MANAGER' | 'CLIENT_USER' | 'CLIENT_VIEWER'
   isManager: boolean
   exp: number       // Unix timestamp (ms)
+  // Impersonation context — present when admin is acting as a customer
+  impersonation?: {
+    adminEmail: string    // The real admin performing the impersonation
+    adminName: string     // Admin's display name
+    targetEmail: string   // The customer user being impersonated
+    targetName: string    // Customer's display name
+  }
 }
 
 // ---------------------------------------------------------------------------

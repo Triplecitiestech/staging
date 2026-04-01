@@ -11,6 +11,13 @@ import OnboardingJourney, { useOnboardingJourney } from './OnboardingJourney'
 import type { OnboardingData } from '@/types/onboarding'
 import { useDemoMode } from '@/components/admin/DemoModeProvider'
 
+interface ImpersonationContext {
+  adminEmail: string
+  adminName: string
+  targetEmail: string
+  targetName: string
+}
+
 interface OnboardingPortalProps {
   companySlug: string
   companyDisplayName?: string | null
@@ -23,6 +30,7 @@ interface OnboardingPortalProps {
   isManager?: boolean
   dbDegraded?: boolean
   portalFunction?: string
+  impersonation?: ImpersonationContext
 }
 
 export default function OnboardingPortal({
@@ -35,6 +43,7 @@ export default function OnboardingPortal({
   userName,
   isManager,
   dbDegraded,
+  impersonation,
 }: OnboardingPortalProps) {
   const router = useRouter()
   const demo = useDemoMode()
@@ -52,12 +61,43 @@ export default function OnboardingPortal({
       })
   }
 
+  const handleStopImpersonation = () => {
+    // Clear portal session cookie and redirect back to admin
+    fetch('/api/portal/auth/logout', { method: 'POST' })
+      .finally(() => {
+        window.location.replace('/admin')
+      })
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-slate-950 via-gray-900 to-slate-950 relative">
       {/* Ambient grid overlay */}
       <div className="pointer-events-none fixed inset-0 z-0 opacity-[0.03]" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)', backgroundSize: '60px 60px' }} />
+
+      {/* Admin impersonation banner */}
+      {impersonation && (
+        <div className="sticky top-0 z-[60] bg-violet-600/95 backdrop-blur-sm border-b border-violet-400/30 px-4 py-2">
+          <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 min-w-0">
+              <svg className="w-4 h-4 text-violet-200 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+              </svg>
+              <span className="text-sm text-white font-medium truncate">
+                Signed in as <span className="font-bold">{impersonation.adminName}</span>, impersonating <span className="font-bold">{impersonation.targetName}</span> ({impersonation.targetEmail})
+              </span>
+            </div>
+            <button
+              onClick={handleStopImpersonation}
+              className="flex-shrink-0 px-3 py-1 text-xs font-medium text-violet-100 bg-violet-700/80 hover:bg-violet-800 border border-violet-400/40 rounded-md transition-colors"
+            >
+              Stop Impersonation
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Portal header bar */}
-      <header className="sticky top-0 z-50 bg-slate-950/90 backdrop-blur-sm border-b border-white/10">
+      <header className={`sticky ${impersonation ? 'top-[40px]' : 'top-0'} z-50 bg-slate-950/90 backdrop-blur-sm border-b border-white/10`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-14">
           <div className="flex items-center gap-3">
             <span className="text-lg font-bold text-white tracking-tight">TCT</span>
@@ -70,9 +110,15 @@ export default function OnboardingPortal({
               <Button onClick={() => router.refresh()} leftIcon={<RefreshCw size={16} />} className="bg-gray-700/50 hover:bg-gray-700 text-gray-300">
                 Refresh
               </Button>
-              <Button onClick={handleLogout} variant="outline" leftIcon={<LogOut size={16} />} className="border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white">
-                Log Out
-              </Button>
+              {impersonation ? (
+                <Button onClick={handleStopImpersonation} variant="outline" leftIcon={<LogOut size={16} />} className="border-violet-500/50 text-violet-300 hover:bg-violet-600/20 hover:text-violet-200">
+                  Exit to Admin
+                </Button>
+              ) : (
+                <Button onClick={handleLogout} variant="outline" leftIcon={<LogOut size={16} />} className="border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white">
+                  Log Out
+                </Button>
+              )}
             </div>
           )}
         </div>
@@ -137,6 +183,7 @@ export default function OnboardingPortal({
               userEmail={userEmail}
               userName={userName}
               isManager={isManager}
+              impersonation={impersonation}
             />
           </Container>
         )}

@@ -48,6 +48,13 @@ interface Project {
 // Ticket type alias — uses the unified type system
 type Ticket = UnifiedTicketRow
 
+interface ImpersonationContext {
+  adminEmail: string
+  adminName: string
+  targetEmail: string
+  targetName: string
+}
+
 interface CustomerDashboardProps {
   projects: Project[]
   companyName?: string
@@ -55,6 +62,7 @@ interface CustomerDashboardProps {
   userEmail?: string
   userName?: string
   isManager?: boolean
+  impersonation?: ImpersonationContext
 }
 
 const DONE_STATUSES = ['REVIEWED_AND_DONE', 'NOT_APPLICABLE', 'ITG_DOCUMENTED']
@@ -116,7 +124,7 @@ function getProjectStatusLabel(status: string) {
 
 type TicketFilter = 'all' | 'open' | 'closed' | 'closed-this-month' | 'awaiting'
 
-export default function CustomerDashboard({ projects, companyName, companySlug, userEmail, userName, isManager }: CustomerDashboardProps) {
+export default function CustomerDashboard({ projects, companyName, companySlug, userEmail, userName, isManager, impersonation }: CustomerDashboardProps) {
   const demo = useDemoMode()
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
   const [projectViewMode, setProjectViewMode] = useState<'vertical' | 'horizontal'>('vertical')
