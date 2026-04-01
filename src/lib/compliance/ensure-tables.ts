@@ -38,7 +38,8 @@ export async function ensureComplianceTables(): Promise<void> {
            'compliance_audit_log',
            'compliance_policies',
            'compliance_policy_analyses',
-           'compliance_attestations'
+           'compliance_attestations',
+           'compliance_platform_mappings'
          )`
     )
     const existingSet = new Set(existing.rows.map((r) => r.tablename))
@@ -300,6 +301,33 @@ export async function ensureComplianceTables(): Promise<void> {
       await client.query(`
         CREATE INDEX IF NOT EXISTS idx_compliance_attestations_company
         ON compliance_attestations ("companyId")
+      `)
+    }
+
+    // --- compliance_platform_mappings ---
+    // Explicit per-company mapping to platform-specific site/org/device IDs.
+    // Replaces fuzzy name matching for MSP-level integrations.
+    if (!existingSet.has('compliance_platform_mappings')) {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS compliance_platform_mappings (
+          id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+          "companyId"     TEXT NOT NULL,
+          platform        TEXT NOT NULL,
+          "externalId"    TEXT NOT NULL,
+          "externalName"  TEXT NOT NULL DEFAULT '',
+          "externalType"  TEXT NOT NULL DEFAULT 'site',
+          "mappedBy"      TEXT,
+          "mappedAt"      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          UNIQUE ("companyId", platform, "externalId")
+        )
+      `)
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_compliance_platform_mappings_company
+        ON compliance_platform_mappings ("companyId")
+      `)
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_compliance_platform_mappings_platform
+        ON compliance_platform_mappings ("companyId", platform)
       `)
     }
 

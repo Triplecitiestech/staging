@@ -24,6 +24,7 @@ import type {
 } from '@/lib/compliance/types'
 
 const PolicyManager = lazy(() => import('./PolicyManager'))
+const PlatformMappingPanel = lazy(() => import('./PlatformMappingPanel'))
 
 interface Company {
   id: string
@@ -57,7 +58,7 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [selectedFramework, setSelectedFramework] = useState('cis-v8-ig1')
-  const [activeTab, setActiveTab] = useState<'assessments' | 'policies'>('assessments')
+  const [activeTab, setActiveTab] = useState<'assessments' | 'policies' | 'mapping'>('assessments')
 
   const loadDashboard = useCallback(async (companyId: string) => {
     setLoading(true)
@@ -188,6 +189,16 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
           >
             Policy Analysis
           </button>
+          <button
+            onClick={() => setActiveTab('mapping')}
+            className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+              activeTab === 'mapping'
+                ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
+                : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+            }`}
+          >
+            Platform Mapping
+          </button>
         </div>
       )}
 
@@ -195,6 +206,13 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
       {selectedCompany && dashboard && !loading && activeTab === 'policies' && (
         <Suspense fallback={<div className="text-center py-8"><div className="animate-spin w-6 h-6 border-2 border-cyan-400 border-t-transparent rounded-full mx-auto" /></div>}>
           <PolicyManager companyId={selectedCompany} companyName={dashboard.companyName} />
+        </Suspense>
+      )}
+
+      {/* Platform Mapping Tab */}
+      {selectedCompany && dashboard && !loading && activeTab === 'mapping' && (
+        <Suspense fallback={<div className="text-center py-8"><div className="animate-spin w-6 h-6 border-2 border-cyan-400 border-t-transparent rounded-full mx-auto" /></div>}>
+          <PlatformMappingPanel companyId={selectedCompany} companyName={dashboard.companyName} />
         </Suspense>
       )}
 
