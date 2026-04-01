@@ -111,15 +111,32 @@ export async function GET(request: NextRequest) {
       const dateOnly = weekAgo.toISOString().split('T')[0]
       const nowDateOnly = now.toISOString().split('T')[0]
 
+      // Parse first network ID from the networks response
+      let firstNetworkId = ''
+      try {
+        const netRes = await fetch(`${apiUrl}/networks`, { headers, signal: AbortSignal.timeout(10_000) })
+        const netJson = JSON.parse(await netRes.text()) as { data?: Array<{ id: string; attributes?: { name?: string; organization_id?: number } }> }
+        results.networkCount = netJson.data?.length ?? 0
+        results.networkSample = (netJson.data ?? []).slice(0, 5).map((n) => ({
+          id: n.id, name: n.attributes?.name, orgId: n.attributes?.organization_id
+        }))
+        if (netJson.data?.[0]) firstNetworkId = netJson.data[0].id
+      } catch { /* continue */ }
+
       const testEndpoints = [
-        `/traffic_reports?from=${weekAgo.toISOString()}&to=${now.toISOString()}`,
-        `/traffic_reports/total_queries?start=${dateOnly}&end=${nowDateOnly}`,
-        `/organizations/${firstOrgId}/total_queries?start=${dateOnly}&end=${nowDateOnly}`,
-        `/organizations/${firstOrgId}/filtering_report?start=${dateOnly}&end=${nowDateOnly}`,
-        `/organizations/${firstOrgId}/traffic_reports?from=${weekAgo.toISOString()}&to=${now.toISOString()}`,
-        `/organizations/${firstOrgId}/stats?start=${dateOnly}&end=${nowDateOnly}`,
-        `/networks`,
-        `/policies`,
+        // Network-scoped query endpoints (most likely to work)
+        `/networks/${firstNetworkId}/filtering_reports/total_queries?start=${dateOnly}&end=${nowDateOnly}`,
+        `/networks/${firstNetworkId}/filtering_reports?start=${dateOnly}&end=${nowDateOnly}`,
+        `/networks/${firstNetworkId}/query_log_reports/total_queries?start=${dateOnly}&end=${nowDateOnly}`,
+        `/networks/${firstNetworkId}/total_queries?start=${dateOnly}&end=${nowDateOnly}`,
+        `/networks/${firstNetworkId}/stats?start=${dateOnly}&end=${nowDateOnly}`,
+        // Org-scoped
+        `/organizations/${firstOrgId}/filtering_reports/total_queries?start=${dateOnly}&end=${nowDateOnly}`,
+        `/organizations/${firstOrgId}/filtering_reports?start=${dateOnly}&end=${nowDateOnly}`,
+        // Global
+        `/filtering_reports/total_queries?start=${dateOnly}&end=${nowDateOnly}`,
+        `/filtering_reports?start=${dateOnly}&end=${nowDateOnly}`,
+        `/query_log_reports?from=${weekAgo.toISOString()}&to=${now.toISOString()}`,
       ]
 
       const endpointTests: Array<{ path: string; status: number; body: string }> = []
