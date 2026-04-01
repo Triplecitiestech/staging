@@ -378,11 +378,6 @@ export async function collectDnsFilterEvidence(
     return { evidence, errors: [`DNSFilter collection failed: ${err instanceof Error ? err.message : String(err)}`] }
   }
 }
-    const msg = `DNSFilter collection failed: ${err instanceof Error ? err.message : String(err)}`
-    console.error(`[dnsfilter] ${msg}`)
-    return { evidence, errors: [msg] }
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Domotz Collector — Active/Passive Network Discovery
