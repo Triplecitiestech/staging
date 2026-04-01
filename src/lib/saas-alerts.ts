@@ -110,18 +110,25 @@ export class SaasAlertsClient {
     throw lastError ?? new Error('SaaS Alerts: All authentication methods failed')
   }
 
-  /** List customers/tenants */
+  /** List customers/tenants — tries multiple endpoint paths */
   async getCustomers(): Promise<SaasAlertCustomer[]> {
-    try {
-      const data = await this.request<{ data?: SaasAlertCustomer[]; customers?: SaasAlertCustomer[] } | SaasAlertCustomer[]>('/customers')
-      if (Array.isArray(data)) return data
-      return data.data ?? data.customers ?? []
-    } catch {
-      return []
+    // Try documented paths in order
+    const paths = ['/reports/customers', '/customers', '/reports/tenants']
+    for (const path of paths) {
+      try {
+        const data = await this.request<{ data?: SaasAlertCustomer[]; customers?: SaasAlertCustomer[] } | SaasAlertCustomer[]>(path)
+        if (Array.isArray(data) && data.length > 0) return data
+        const nested = (data as { data?: SaasAlertCustomer[]; customers?: SaasAlertCustomer[] })
+        const result = nested?.data ?? nested?.customers ?? []
+        if (result.length > 0) return result
+      } catch {
+        continue
+      }
     }
+    return []
   }
 
-  /** Query events with optional filtering */
+  /** Query events — uses documented /reports/ endpoints */
   async getEvents(params?: {
     customerId?: string
     since?: string  // ISO date
@@ -129,34 +136,52 @@ export class SaasAlertsClient {
     severity?: string
     limit?: number
   }): Promise<SaasAlertEvent[]> {
+    // Try POST /reports/event/query first (documented: posts JSON queries to data indexes)
     try {
-      // Try POST /event/query (documented endpoint)
-      const body: Record<string, unknown> = {}
-      if (params?.customerId) body.customerId = params.customerId
-      if (params?.since) body.from = params.since
-      if (params?.until) body.to = params.until
-      if (params?.severity) body.alertStatus = params.severity
-      if (params?.limit) body.size = params.limit
+      // Build Elasticsearch-style query body per API docs
+      const must: Array<Record<string, unknown>> = []
+      if (params?.since || params?.until) {
+        const range: Record<string, string> = {}
+        if (params?.since) range.gte = params.since
+        if (params?.until) range.lte = params.until
+        must.push({ range: { time: range } })
+      }
+      if (params?.severity) {
+        must.push({ term: { 'alertStatus.keyword': params.severity } })
+      }
+      if (params?.customerId) {
+        must.push({ term: { 'customerId.keyword': params.customerId } })
+      }
+
+      const body: Record<string, unknown> = {
+        size: params?.limit ?? 500,
+        ...(must.length > 0 ? { query: { bool: { must } } } : {}),
+      }
 
       const data = await this.request<{
-        data?: { events?: SaasAlertEvent[] }
+        data?: { events?: SaasAlertEvent[]; hits?: { hits?: Array<{ _source: SaasAlertEvent }> } }
         events?: SaasAlertEvent[]
-      }>('/event/query', 'POST', body)
+        hits?: { hits?: Array<{ _source: SaasAlertEvent }> }
+      }>('/reports/event/query', 'POST', body)
 
-      return data?.data?.events ?? data?.events ?? []
+      // Handle various response shapes (direct events or Elasticsearch hits)
+      if (data?.hits?.hits) return data.hits.hits.map((h) => h._source)
+      if (data?.data?.hits?.hits) return data.data.hits.hits.map((h) => h._source)
+      if (data?.data?.events) return data.data.events
+      return data?.events ?? []
     } catch {
-      // Fallback: try GET /events
+      // Fallback: try GET /reports/events
       try {
         const qs = new URLSearchParams()
         if (params?.since) qs.set('from', params.since)
         if (params?.until) qs.set('to', params.until)
-        if (params?.limit) qs.set('limit', String(params.limit))
+        if (params?.limit) qs.set('size', String(params.limit))
 
         const data = await this.request<{ events?: SaasAlertEvent[] } | SaasAlertEvent[]>(
-          `/events?${qs.toString()}`
+          `/reports/events?${qs.toString()}`
         )
         if (Array.isArray(data)) return data
-        return data.events ?? []
+        return (data as { events?: SaasAlertEvent[] }).events ?? []
       } catch {
         return []
       }
