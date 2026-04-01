@@ -135,11 +135,15 @@ function applyPolicyCoverage(evalResult: EvaluationResult, ctx: EvaluationContex
   const partial = coverage.filter((c) => c.status === 'partial')
   const policyNames = coverage.map((c) => c.policyTitle)
 
-  // If the control already has technical evidence (evidenceIds present),
-  // policies are just supporting documentation — don't change the status
-  const hasTechnicalEvidence = evalResult.evidenceIds.length > 0
+  // If the control has conclusive technical evidence (pass/partial/fail with evidenceIds),
+  // policies are supporting documentation only — don't change the status.
+  // But if the status is needs_review (evidence was checked but insufficient, e.g.
+  // "IT Glue has no data disposal procedures"), policies CAN upgrade because
+  // the uploaded policy IS the documentation the control requires.
+  const hasConclusiveTechnicalEvidence = evalResult.evidenceIds.length > 0
+    && evalResult.status !== 'needs_review'
 
-  if (hasTechnicalEvidence) {
+  if (hasConclusiveTechnicalEvidence) {
     // Don't change status, confidence, or evidence — but show policy details with quotes
     const relevantPolicies = [...satisfied, ...partial]
     if (relevantPolicies.length > 0) {
