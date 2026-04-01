@@ -1,33 +1,33 @@
 # Current Tasks
 
-> Last updated: 2026-03-31
-
-Active development work and outstanding items.
+> Last updated: 2026-04-01
 
 ## Compliance Evidence Engine — Active Work
 
-### Priority 1: Bugs
-- [x] **MFA data shows 0%** — Fixed: Added v1.0 first, beta fallback, credentialUserRegistrationDetails third fallback. Error logging added to graphGet. Runtime logs will show `[mfa-collector]` and `[graph-v1]` messages. If still 0%, check for `AuditLog.Read.All` permission.
-- [ ] **Microphone dictation not prompting** — CSP `connect-src` updated with speech WebSocket endpoints, `Permissions-Policy` set to `microphone=(self)`. Edge may have cached old block. User needs to add site to mic allow list or clear cache.
-- [ ] **DNSFilter 0 queries** — buildSummary tries multiple endpoint patterns but all return 0. May need different org scoping or date format.
+### Priority 1: Bugs to Fix Immediately
+- [ ] **Unicode `&#9660;` rendering literally in PolicyManager** — HTML entities don't work in JSX. Replace with actual unicode chars (`\u25BC`) or use React `<span>` elements. Same for `&bull;`, `&rarr;`, `&middot;` — check all of PolicyManager.tsx.
+- [ ] **Policy analysis timestamp not visible** — Add `analyzedAt` date to each policy card so users know when it was last analyzed. Currently only shows `createdAt`.
+- [ ] **Verify controlDetails column exists** — The ALTER TABLE in the policies route may not have run. Check if `compliance_policy_analyses` has a `controlDetails` JSONB column. If not, add it to ensure-tables.ts.
+- [ ] **Policy quotes not showing in assessment results** — Even after re-analyze, CIS 3.4 and other controls with technical evidence only show "Additionally supported by uploaded policy: ..." without quotes. For controls WITHOUT technical evidence, verify the quotes/reasoning from controlDetails are being displayed.
+- [ ] **Ubiquiti 0 devices** — /ea/devices endpoint code was fixed to handle nested host response, but production still shows 0. Run debug endpoint to verify: `/api/compliance/debug-collectors?collector=ubiquiti&secret=...`
+- [ ] **DNSFilter collection_failed** — Endpoint paths fixed but untested. Run debug endpoint to verify: `/api/compliance/debug-collectors?collector=dnsfilter&secret=...`
 
-### Priority 2: Evidence Quality — DONE
-- [x] **Environment-aware N/A controls** — Setup wizard answers now feed into evaluators. CIS 6.4 (VPN MFA) = N/A for cloud-only. CIS 4.4 (Server firewall) = N/A for no-server. CIS 16.x (App security) = N/A for no-custom-dev.
-- [x] **Tool deployment toggle → evaluator** — Bullphish ID → 14.x training auto-pass. RocketCyber → 13.1 alerting auto-pass. Dark Web ID → 5.2 credential monitoring. All with 'low' confidence attestation note.
+### Priority 2: Features to Complete
+- [ ] **Multi-framework policy analysis** — Update `analyzePolicyWithAI` to accept a frameworkId parameter. Use the framework's control list instead of hardcoded CIS v8. This enables analyzing policies against CMMC, HIPAA, NIST 800-171 when those frameworks are added.
+- [ ] **SharePoint folder scan testing** — The scan endpoint and UI are built but untested. Requires `Sites.Read.All` on the customer's Azure AD app registration. Test with a real SharePoint folder URL.
+- [ ] **Customer attestation input** — DB table `compliance_attestations` exists. Need API route and UI for customers to submit responses where technical evidence is insufficient.
 - [ ] **Override persistence** — When a reviewer marks a control as N/A with a reason, that override should carry forward to future assessments (currently per-assessment only).
+- [ ] **Customer portal compliance card** — Backend exists (`/api/compliance/portal`), needs component wired into `CustomerDashboard.tsx` with `compliancePortalEnabled` toggle.
+- [ ] **Policy management UI polish** — Delete policy button, edit policy, re-order, categories filter.
 
-### Priority 3: Remaining Features
-- [ ] **Policy management UI** — Backend exists (`/api/compliance/policies` with Claude AI analysis), needs frontend in the compliance dashboard.
-- [ ] **Customer portal compliance card** — Backend exists (`/api/compliance/portal`), needs component wired into `CustomerDashboard.tsx` with `compliancePortalEnabled` toggle in admin company settings.
-- [ ] **Customer attestation input** — DB table exists (`compliance_attestations`), needs API route and UI for customers to submit responses where technical evidence is insufficient.
-
-### New: Ubiquiti Integration
-- [x] **Ubiquiti UniFi Cloud API client** — `src/lib/ubiquiti.ts` lists sites and devices with firmware versions
-- [x] **Evidence collection** — Ubiquiti collector in msp.ts, wired into engine
-- [x] **CIS 12.1 evaluator** — Uses Ubiquiti firmware data for network infrastructure assessment
+### Priority 3: Quality Improvements
+- [ ] **Assessment score methodology** — Consider separate scores: technical score (from integrations) vs documentation score (from policies). Or show "X/Y controls satisfied by evidence, Z additional by policy."
+- [ ] **Evaluator evidence attribution** — When applyPolicyCoverage upgrades a control, the "Supporting Evidence" section should show the policy document as evidence, not stale IT Glue references.
+- [ ] **Remove debug endpoint** — `/api/compliance/debug-collectors` should be removed or properly gated before broader rollout.
+- [ ] **MyITProcess integration** — Currently collects data but doesn't feed into any evaluator. Alignment scores could inform documentation controls.
 
 ## Other Systems — Maintenance
 - Reporting pipeline: stable, all cron jobs healthy
 - SOC system: stable
 - Blog/marketing: stable
-- Autotask sync: running every 15 min
+- Autotask sync: running every 15 min (504 timeouts occasionally during pool exhaustion — should be resolved now)
