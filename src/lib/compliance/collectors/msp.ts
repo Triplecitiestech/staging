@@ -278,64 +278,106 @@ export async function collectDnsFilterEvidence(
   const evidence: Array<Omit<EvidenceRecord, 'id' | 'collectedAt'>> = []
   const errors: string[] = []
 
-  if (!process.env.DNSFILTER_API_TOKEN) {
+  const apiToken = process.env.DNSFILTER_API_TOKEN
+  if (!apiToken) {
     return { evidence, errors: ['DNSFilter: DNSFILTER_API_TOKEN not configured'] }
   }
 
+  const baseUrl = (process.env.DNSFILTER_API_URL || 'https://api.dnsfilter.com/v1').replace(/\/$/, '')
+  const headers = { 'Authorization': `Token ${apiToken}`, 'Accept': 'application/json' }
+
   try {
-    console.log('[dnsfilter] Starting collection')
-    const { DnsFilterClient } = await import('@/lib/dnsfilter')
-    const client = new DnsFilterClient()
+    // DNSFilter v1 API: traffic_reports endpoints don't exist.
+    // Evidence comes from: organizations (customers), networks (sites), and policies (blocking rules).
+    // Having active orgs + networks + blocking policies = DNS filtering is deployed.
 
-    // Try 7-day window first (more likely to have data than 30 days on some API configs)
-    const now = new Date()
-    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-    let summary: Awaited<ReturnType<typeof client.buildSummary>>
-    let periodDays = 7
+    // Fetch organizations
+    const orgRes = await fetch(`${baseUrl}/organizations`, { headers, signal: AbortSignal.timeout(15_000) })
+    if (!orgRes.ok) throw new Error(`Organizations endpoint failed: ${orgRes.status}`)
+    const orgJson = await orgRes.json() as { data?: Array<{ id: string; attributes?: { name?: string } }> }
+    const orgs = orgJson.data ?? []
 
-    try {
-      summary = await client.buildSummary(sevenDaysAgo, now)
-    } catch (err) {
-      console.error('[compliance][dnsfilter] 7-day buildSummary failed:', err instanceof Error ? err.message : String(err))
-      // Try 30-day as fallback
-      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
-      summary = await client.buildSummary(thirtyDaysAgo, now)
-      periodDays = 30
+    // Fetch networks
+    const netRes = await fetch(`${baseUrl}/networks`, { headers, signal: AbortSignal.timeout(15_000) })
+    const netJson = netRes.ok
+      ? await netRes.json() as { data?: Array<{ id: string; attributes?: { name?: string; organization_id?: number } }> }
+      : { data: [] }
+    const networks = netJson.data ?? []
+
+    // Fetch policies
+    const polRes = await fetch(`${baseUrl}/policies`, { headers, signal: AbortSignal.timeout(15_000) })
+    const polJson = polRes.ok
+      ? await polRes.json() as { data?: Array<{ id: string; attributes?: { name?: string; organization_id?: number; blacklist_categories?: number[] } }> }
+      : { data: [] }
+    const policies = polJson.data ?? []
+
+    // Match to customer if platform mapping exists
+    const mappings = await getPlatformMappings(companyId, 'dnsfilter')
+    let customerOrgName: string | null = null
+    let customerNetworks: typeof networks = networks
+    let customerPolicies: typeof policies = policies
+
+    if (mappings && mappings.some((m) => m.externalId === '__none__')) {
+      console.log('[compliance][dnsfilter] Marked as not used — skipping')
+      return { evidence: [], errors: [] }
     }
 
-    // If 7-day returned zero, try 30-day
-    if (summary.totalQueries === 0 && periodDays === 7) {
-      try {
-        const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
-        const summary30 = await client.buildSummary(thirtyDaysAgo, now)
-        if (summary30.totalQueries > 0) {
-          summary = summary30
-          periodDays = 30
+    if (mappings && mappings.length > 0) {
+      const mappedOrgId = mappings[0].externalId
+      const matchedOrg = orgs.find((o) => o.id === mappedOrgId)
+      customerOrgName = matchedOrg?.attributes?.name ?? mappings[0].externalName
+      const orgIdNum = parseInt(mappedOrgId)
+      customerNetworks = networks.filter((n) => n.attributes?.organization_id === orgIdNum)
+      customerPolicies = policies.filter((p) => p.attributes?.organization_id === orgIdNum)
+      console.log(`[compliance][dnsfilter] Using explicit mapping: org "${customerOrgName}" (${mappedOrgId}), ${customerNetworks.length} networks, ${customerPolicies.length} policies`)
+    } else {
+      // Use name matching as fallback
+      const companyName = await getCompanyDisplayName(companyId)
+      if (companyName) {
+        const { matchesCompanyName } = await import('@/utils')
+        const matchedOrg = orgs.find((o) => matchesCompanyName(companyName, o.attributes?.name ?? ''))
+        if (matchedOrg) {
+          customerOrgName = matchedOrg.attributes?.name ?? null
+          const orgIdNum = parseInt(matchedOrg.id)
+          customerNetworks = networks.filter((n) => n.attributes?.organization_id === orgIdNum)
+          customerPolicies = policies.filter((p) => p.attributes?.organization_id === orgIdNum)
         }
-      } catch {
-        // Keep the 7-day result
       }
     }
 
-    // Only store evidence if we got actual query data
-    if (summary.totalQueries > 0 || summary.blockedQueries > 0) {
-      evidence.push(buildEvidence(assessmentId, companyId, 'dnsfilter_dns', {
-        totalQueries: summary.totalQueries,
-        blockedQueries: summary.blockedQueries,
-        blockRate: summary.totalQueries > 0 ? Math.round((summary.blockedQueries / summary.totalQueries) * 100) : 0,
-        threatsByCategory: summary.threatsByCategory,
-        topBlockedDomains: (summary.topBlockedDomains ?? []).slice(0, 10),
-        monthlyTrends: summary.monthlyTrends,
-        periodDays,
-        note: 'DNSFilter data is MSP-level (covers all customers).',
-      }, `DNS: ${summary.totalQueries.toLocaleString()} queries, ${summary.blockedQueries.toLocaleString()} blocked (${periodDays}-day period). MSP-level data.`))
-    } else {
-      // 0 queries across both windows — the API may not be returning data for this endpoint format
-      errors.push('DNSFilter returned 0 queries for both 7-day and 30-day windows. API endpoint may need configuration.')
+    const blockedCategoryCount = customerPolicies.reduce(
+      (sum, p) => sum + (p.attributes?.blacklist_categories?.length ?? 0), 0
+    )
+
+    if (orgs.length === 0) {
+      return { evidence, errors: ['DNSFilter: No organizations found. Verify API token permissions.'] }
     }
+
+    evidence.push(buildEvidence(assessmentId, companyId, 'dnsfilter_dns', {
+      totalOrganizations: orgs.length,
+      matchedOrganization: customerOrgName,
+      networkCount: customerNetworks.length,
+      networks: customerNetworks.slice(0, 10).map((n) => ({ id: n.id, name: n.attributes?.name })),
+      policyCount: customerPolicies.length,
+      policies: customerPolicies.slice(0, 5).map((p) => ({
+        id: p.id, name: p.attributes?.name,
+        blockedCategories: p.attributes?.blacklist_categories?.length ?? 0,
+      })),
+      blockedCategoryCount,
+      dnsFilteringActive: true,
+      note: customerOrgName
+        ? `Matched to DNSFilter organization: ${customerOrgName}`
+        : 'MSP-level DNSFilter data (no customer-specific org matched)',
+    }, customerOrgName
+      ? `DNSFilter: "${customerOrgName}" — ${customerNetworks.length} network(s), ${customerPolicies.length} policy/policies with ${blockedCategoryCount} blocked categories.`
+      : `DNSFilter: MSP-wide — ${orgs.length} organizations, ${networks.length} networks, DNS filtering active.`
+    ))
 
     return { evidence, errors }
   } catch (err) {
+    return { evidence, errors: [`DNSFilter collection failed: ${err instanceof Error ? err.message : String(err)}`] }
+  }
+}
     const msg = `DNSFilter collection failed: ${err instanceof Error ? err.message : String(err)}`
     console.error(`[dnsfilter] ${msg}`)
     return { evidence, errors: [msg] }
