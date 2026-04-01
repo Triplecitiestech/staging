@@ -148,6 +148,33 @@ export async function GET(request: NextRequest) {
       })
       const devicesText = await devicesRes.text()
       results.devicesResponse = { status: devicesRes.status, bodyLength: devicesText.length, body: devicesText.substring(0, 2000) }
+    } else if (collector === 'saas_alerts') {
+      if (!process.env.SAAS_ALERTS_API_KEY) {
+        return NextResponse.json({ ...results, error: 'SAAS_ALERTS_API_KEY not set' })
+      }
+      results.envConfigured = { hasApiKey: true, apiUrl: process.env.SAAS_ALERTS_API_URL ?? 'https://manage.saasalerts.com/api' }
+
+      const { SaasAlertsClient } = await import('@/lib/saas-alerts')
+      const client = new SaasAlertsClient()
+
+      // Test customer listing
+      try {
+        const customers = await client.getCustomers()
+        results.customerCount = customers.length
+        results.customers = customers.slice(0, 10)
+      } catch (err) {
+        results.customerError = err instanceof Error ? err.message : String(err)
+      }
+
+      // Test event query
+      try {
+        const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+        const events = await client.getEvents({ since, limit: 5 })
+        results.eventCount = events.length
+        results.sampleEvents = events.slice(0, 3)
+      } catch (err) {
+        results.eventError = err instanceof Error ? err.message : String(err)
+      }
     } else if (collector === 'policies') {
       // Debug: check if controlDetails are populated in policy analyses
       const { getPool } = await import('@/lib/db-pool')

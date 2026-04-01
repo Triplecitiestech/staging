@@ -77,7 +77,9 @@ export class SaasAlertsClient {
 
     let lastError: Error | null = null
 
-    for (const headers of headerPatterns) {
+    for (let i = 0; i < headerPatterns.length; i++) {
+      const headers = headerPatterns[i]
+      const authType = ['apikey', 'x-api-key', 'Bearer', 'raw'][i]
       try {
         const res = await fetch(url, {
           method,
@@ -87,6 +89,7 @@ export class SaasAlertsClient {
         })
 
         if (res.status === 401 || res.status === 403) {
+          console.log(`[saas-alerts] ${path} auth pattern "${authType}" returned ${res.status}`)
           continue // Try next auth pattern
         }
 
@@ -96,6 +99,7 @@ export class SaasAlertsClient {
         }
 
         const text = await res.text()
+        console.log(`[saas-alerts] ${method} ${path} (auth: ${authType}) → ${res.status}, body: ${text.substring(0, 300)}`)
         if (!text || text.trim().length === 0) return {} as T
         return JSON.parse(text) as T
       } catch (err) {
