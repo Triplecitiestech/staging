@@ -257,20 +257,23 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
   const reanalyzeAll = async () => {
     setReanalyzing('all')
     setError(null)
-    try {
-      const res = await fetch('/api/compliance/policies', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ companyId, reanalyzeAll: true }),
-      })
-      const json = await res.json()
-      if (!json.success) throw new Error(json.error)
-      await loadPolicies()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Re-analysis failed')
-    } finally {
-      setReanalyzing(null)
+    // Re-analyze one at a time from the client to avoid server timeout
+    let succeeded = 0
+    for (const policy of policies) {
+      try {
+        const res = await fetch('/api/compliance/policies', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ policyId: policy.id }),
+        })
+        const json = await res.json()
+        if (json.success) succeeded++
+      } catch {
+        // Continue with remaining policies
+      }
     }
+    await loadPolicies()
+    setReanalyzing(null)
   }
 
   const getAnalysisForPolicy = (policyId: string): PolicyAnalysis | undefined => {
