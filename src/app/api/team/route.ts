@@ -42,6 +42,6 @@ export async function GET() {
     return NextResponse.json({ team })
   } catch (err) {
     console.error('[api/team] Failed to fetch staff:', err instanceof Error ? err.message : err)
-    return NextResponse.json({ team: [] })
+    return NextResponse.json({ error: 'Failed to load team data' }, { status: 500 })
   }
 }

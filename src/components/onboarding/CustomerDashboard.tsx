@@ -157,6 +157,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
   const [commentSuccess, setCommentSuccess] = useState<string | null>(null)
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [ticketsLoading, setTicketsLoading] = useState(false)
+  const [ticketsError, setTicketsError] = useState<string | null>(null)
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null)
   const [ticketNotes, setTicketNotes] = useState<UnifiedTicketNote[]>([])
   const [notesLoading, setNotesLoading] = useState(false)
@@ -182,10 +183,20 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
   useEffect(() => {
     if (!companySlug) return
     setTicketsLoading(true)
+    setTicketsError(null)
     fetch(`/api/tickets?perspective=customer&companySlug=${encodeURIComponent(companySlug)}`)
-      .then(res => res.ok ? res.json() : { tickets: [] })
+      .then(async res => {
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          throw new Error(body.error || `Failed to load tickets (HTTP ${res.status})`)
+        }
+        return res.json()
+      })
       .then((data: TicketListResponse) => setTickets(data.tickets || []))
-      .catch(() => setTickets([]))
+      .catch((err) => {
+        setTickets([])
+        setTicketsError(err instanceof Error ? err.message : 'Failed to load tickets')
+      })
       .finally(() => setTicketsLoading(false))
   }, [companySlug])
 
@@ -975,18 +986,41 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
             className="w-full sm:w-64 px-3 py-1.5 text-sm bg-gray-800/50 border border-gray-600/50 rounded-md text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500/50"
           />
         </div>
-        <TicketTable
-          tickets={filteredTickets}
-          perspective="customer"
-          onTicketClick={(ticketId) => {
-            const ticket = filteredTickets.find(t => t.ticketId === ticketId)
-            if (ticket) handleSelectTicket(ticket)
-          }}
-          compact
-          search={ticketSearch}
-          onSearchChange={setTicketSearch}
-          loading={ticketsLoading}
-        />
+        {ticketsError ? (
+          <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-center">
+            <p className="text-red-400 text-sm">{ticketsError}</p>
+            <button
+              onClick={() => {
+                setTicketsError(null)
+                setTicketsLoading(true)
+                fetch(`/api/tickets?perspective=customer&companySlug=${encodeURIComponent(companySlug || '')}`)
+                  .then(async res => {
+                    if (!res.ok) throw new Error('Failed to reload')
+                    return res.json()
+                  })
+                  .then((data: TicketListResponse) => setTickets(data.tickets || []))
+                  .catch((err) => setTicketsError(err instanceof Error ? err.message : 'Failed to load tickets'))
+                  .finally(() => setTicketsLoading(false))
+              }}
+              className="mt-2 text-xs text-cyan-400 hover:text-cyan-300 underline"
+            >
+              Try Again
+            </button>
+          </div>
+        ) : (
+          <TicketTable
+            tickets={filteredTickets}
+            perspective="customer"
+            onTicketClick={(ticketId) => {
+              const ticket = filteredTickets.find(t => t.ticketId === ticketId)
+              if (ticket) handleSelectTicket(ticket)
+            }}
+            compact
+            search={ticketSearch}
+            onSearchChange={setTicketSearch}
+            loading={ticketsLoading}
+          />
+        )}
       </div>
 
       {/* Projects - hidden if no projects, single project gets full width */}

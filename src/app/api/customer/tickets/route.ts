@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('[Customer Tickets API] Error:', error)
     return NextResponse.json(
-      { error: 'Unable to load tickets. Please try again shortly.', tickets: [] },
+      { error: 'Unable to load tickets. Please try again shortly.' },
       { status: 502 }
     )
   }
