@@ -1,45 +1,33 @@
 # Current Tasks
 
-> Last updated: 2026-04-01 (Session 2)
+> Last updated: 2026-04-02 (Session 2 — final)
 
-## Compliance Evidence Engine — Active Work
+## Compliance Evidence Engine — Outstanding Work
 
-### Priority 1: Bugs to Fix Now
-- [ ] **DNSFilter collection_failed** — Still not working. Need to debug with debug endpoint and fix the collector/client.
-- [ ] **SaaS Alerts webhook** — Domain whitelisted but need Kaseya support to explain how to register the webhook endpoint URL. Message drafted for Ben.
-- [ ] **Platform mapping QA** — Verify Ubiquiti console listing works (was showing "Default", now uses host names). User needs to map EZ Red's console.
-- [ ] **Assessment formatting polish** — Controls with 8+ policy quotes (like CIS 8.2) are still dense. Consider collapsible sections.
+### Priority 1: Blocked / Waiting
+- [ ] **SaaS Alerts integration** — Support ticket submitted to Kaseya. Their API at manage.saasalerts.com is behind Cloudflare bot protection, blocking all server-to-server calls. Webhook receiver built at `/api/compliance/webhooks/saas-alerts` and domain whitelisted. Need Kaseya to explain webhook URL registration or provide a non-Cloudflare API endpoint. Once working, SaaS Alerts auto-appears as a logging layer in CIS 8.2 and 13.1.
 
-### Priority 2: Features to Complete
-- [ ] **Multi-framework policy analysis** — Update `analyzePolicyWithAI` to accept frameworkId. Use framework's control list instead of hardcoded CIS v8.
-- [ ] **Customer attestation input** — DB table `compliance_attestations` exists. Need API route + UI for customer responses.
-- [ ] **Override persistence** — Reviewer overrides should carry forward to future assessments (currently per-assessment only).
-- [ ] **Customer portal compliance card** — Backend exists (`/api/compliance/portal`), needs component in CustomerDashboard.
-- [ ] **Policy management polish** — Delete policy, edit, re-order, categories filter.
+### Priority 2: Evidence Quality Improvements
+- [ ] **CIS 10.3 (Autorun/Autoplay)** — Currently uses Intune compliance rate as a proxy. Needs actual Intune device configuration profile data to verify autorun is specifically disabled. Requires Graph API call to `/deviceManagement/deviceConfigurations` to check for autorun settings.
+- [ ] **CIS 7.3/7.4 patch differentiation** — Datto RMM API `/device/{uid}/patch` returns 404. The API only provides aggregate `patchesApprovedPending` per device, not OS vs third-party split. Both evaluators use the same data and note this limitation. Would need Datto RMM reporting module or alternative API endpoint.
+- [ ] **Assessment formatting** — Long policy documentation sections (8+ policies) still dense. Consider collapsible/accordion sections.
 
-### Priority 3: Quality
-- [ ] **Assessment score methodology** — Separate scores: technical (integrations) vs documentation (policies). Or show "X/Y by evidence, Z by policy."
-- [ ] **Debug endpoint cleanup** — `/api/compliance/debug-collectors` should be removed or properly gated before production.
-- [ ] **MyITProcess integration** — Collects data but doesn't feed into any evaluator. Alignment scores could inform documentation controls.
-- [ ] **Set iteration pattern** — TypeScript target doesn't support `for...of` on Sets or `[...Set]` spread. Always use `Array.from()`.
+### Priority 3: Features to Build
+- [ ] **Multi-framework policy analysis** — `analyzePolicyWithAI` hardcodes CIS v8 control list. Accept frameworkId parameter for CMMC, HIPAA, NIST 800-171.
+- [ ] **Customer attestation input** — DB table `compliance_attestations` exists. Need API route + UI for customer-submitted responses.
+- [ ] **Override persistence** — Reviewer overrides (N/A, manual pass) should carry forward to future assessments. Currently per-assessment only.
+- [ ] **Customer portal compliance card** — Backend exists (`/api/compliance/portal`), needs component wired into CustomerDashboard.
+- [ ] **Assessment score methodology** — Consider separate technical vs documentation scores, or "X/Y by evidence, Z by policy" display.
+- [ ] **MyITProcess integration** — Collects alignment scores but doesn't feed into any evaluator.
 
-## Completed This Session
-- [x] Unicode entities in PolicyManager
-- [x] Policy analysis timestamps on cards
-- [x] controlDetails column + GET query
-- [x] Policy quotes in assessment results (both policy-only and technical+policy)
-- [x] Re-analyze race condition
-- [x] needs_review policy upgrade logic
-- [x] Assessment result formatting (FormattedReasoning)
-- [x] Datto RMM AV reference removed
-- [x] CIS 10.2 evaluator
-- [x] Cross-customer data isolation (Ubiquiti, BCDR, SaaS Alerts)
-- [x] Platform Mapping system (table, API, UI, collector integration)
-- [x] SaaS Alerts webhook receiver
-- [x] applyPolicyCoverage shows quotes for technical evidence controls
+### Priority 4: Cleanup
+- [ ] **Debug endpoint cleanup** — `/api/compliance/debug-collectors` should be auth-gated or removed before broader production rollout.
+- [ ] **Remove SaaS Alerts API client logging** — Verbose auth pattern logging added for debugging, should be removed once integration works.
+- [ ] **TypeScript pattern** — Always use `Array.from()` for Set iteration. `for...of Set` and `[...Set]` fail build (no downlevelIteration).
 
 ## Other Systems — Maintenance
 - Reporting pipeline: stable
 - SOC system: stable
 - Blog/marketing: stable
 - Autotask sync: stable
+- HR offboarding: `targetUserId` scope fix deployed
