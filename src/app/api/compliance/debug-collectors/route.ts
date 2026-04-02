@@ -7,17 +7,18 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
+import { checkSecretAuth } from '@/lib/api-auth'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 export async function GET(request: NextRequest) {
-  // Allow auth via session OR migration secret for PowerShell access
-  const secret = request.nextUrl.searchParams.get('secret')
-  if (secret !== process.env.MIGRATION_SECRET) {
+  // Allow auth via Authorization header, query param secret, OR admin session
+  const secretDenied = checkSecretAuth(request)
+  if (secretDenied) {
     const session = await auth()
     if (!session?.user?.email) {
-      return NextResponse.json({ error: 'Unauthorized. Add ?secret=MIGRATION_SECRET or use browser session.' }, { status: 401 })
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
   }
 

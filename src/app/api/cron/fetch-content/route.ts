@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { classifyError } from '@/lib/resilience';
 import { contentCurator } from '@/lib/content-curator';
 
 // Disable static generation for this API route
@@ -102,12 +103,19 @@ async function handleFetchContent(request: NextRequest) {
     });
   } catch (error) {
     console.error('❌ Error fetching content:', error);
+    const classified = classifyError(error);
+
+    if (classified.isTransient) {
+      return NextResponse.json({
+        success: false,
+        transient: true,
+        error: classified.message,
+        errorCategory: classified.category,
+      });
+    }
 
     return NextResponse.json(
-      {
-        error: 'Failed to fetch content',
-        details: error instanceof Error ? error.message : 'Unknown error'
-      },
+      { error: 'Failed to fetch content', details: classified.message },
       { status: 500 }
     );
   }

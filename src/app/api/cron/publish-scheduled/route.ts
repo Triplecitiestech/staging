@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { classifyError } from '@/lib/resilience';
 import { createSocialMediaPublisher, type PublishResult, type SocialMediaConfig } from '@/lib/social-publisher';
 import type { BlogPostDraft } from '@/lib/blog-generator';
 import { Resend } from 'resend';
@@ -236,12 +237,20 @@ async function handlePublishScheduled(request: NextRequest) {
     });
   } catch (error) {
     console.error('❌ Error in publish-scheduled cron:', error);
+    const classified = classifyError(error);
+
+    // Return 200 for transient errors so Vercel doesn't flag the cron as failed
+    if (classified.isTransient) {
+      return NextResponse.json({
+        success: false,
+        transient: true,
+        error: classified.message,
+        errorCategory: classified.category,
+      });
+    }
 
     return NextResponse.json(
-      {
-        error: 'Failed to publish scheduled posts',
-        details: error instanceof Error ? error.message : 'Unknown error'
-      },
+      { error: 'Failed to publish scheduled posts', details: classified.message },
       { status: 500 }
     );
   }

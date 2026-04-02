@@ -89,12 +89,11 @@ export default function MonitoringDashboardClient() {
   const [setupNeeded, setSetupNeeded] = useState(false)
   const [settingUp, setSettingUp] = useState(false)
 
-  const fetchData = useCallback(async () => {
+  const fetchDataImpl = useCallback(async (signal?: AbortSignal) => {
     try {
-      const res = await fetch('/api/admin/platform-monitor')
+      const res = await fetch('/api/admin/platform-monitor', { signal })
       if (res.ok) {
         const result = await res.json()
-        // Check if we got empty data indicating tables don't exist
         const isEmpty = result.aiUsage?.summary?.length === 0 &&
           result.database?.tables?.length === 0 &&
           result.thresholds?.length === 0 &&
@@ -103,14 +102,20 @@ export default function MonitoringDashboardClient() {
           setSetupNeeded(true)
         }
         setData(result)
-      } else if (res.status === 401) {
-        // Session not ready yet — will retry on next mount
       }
-    } catch { /* handled by null state */ }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
+    }
     setLoading(false)
   }, [])
 
-  useEffect(() => { fetchData() }, [fetchData])
+  const fetchData = useCallback(() => fetchDataImpl(), [fetchDataImpl])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    fetchDataImpl(controller.signal)
+    return () => controller.abort()
+  }, [fetchDataImpl])
 
   if (loading) {
     return (

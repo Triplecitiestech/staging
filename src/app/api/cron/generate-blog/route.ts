@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { classifyError } from '@/lib/resilience';
 import { contentCurator } from '@/lib/content-curator';
 import { blogGenerator } from '@/lib/blog-generator';
 import { generateBlogApprovalEmail, generateBlogApprovalEmailText } from '@/lib/email-templates/blog-approval';
@@ -198,12 +199,19 @@ async function handleGenerateBlog(request: NextRequest) {
     });
   } catch (error) {
     console.error('❌ Error generating blog post:', error);
+    const classified = classifyError(error);
+
+    if (classified.isTransient) {
+      return NextResponse.json({
+        success: false,
+        transient: true,
+        error: classified.message,
+        errorCategory: classified.category,
+      });
+    }
 
     return NextResponse.json(
-      {
-        error: 'Failed to generate blog post',
-        details: error instanceof Error ? error.message : 'Unknown error'
-      },
+      { error: 'Failed to generate blog post', details: classified.message },
       { status: 500 }
     );
   }

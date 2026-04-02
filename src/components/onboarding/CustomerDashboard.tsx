@@ -169,22 +169,27 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
   // Load compliance data when companySlug is available
   useEffect(() => {
     if (!companySlug) return
-    fetch(`/api/compliance/portal?companySlug=${encodeURIComponent(companySlug)}`)
+    const controller = new AbortController()
+    fetch(`/api/compliance/portal?companySlug=${encodeURIComponent(companySlug)}`, { signal: controller.signal })
       .then(res => res.ok ? res.json() : null)
       .then(data => {
         if (data?.success && data.data?.enabled) {
           setComplianceData(data.data)
         }
       })
-      .catch(() => { /* compliance not available */ })
+      .catch((err) => {
+        if (err instanceof DOMException && err.name === 'AbortError') return
+      })
+    return () => controller.abort()
   }, [companySlug])
 
   // Load tickets when companySlug is available
   useEffect(() => {
     if (!companySlug) return
+    const controller = new AbortController()
     setTicketsLoading(true)
     setTicketsError(null)
-    fetch(`/api/tickets?perspective=customer&companySlug=${encodeURIComponent(companySlug)}`)
+    fetch(`/api/tickets?perspective=customer&companySlug=${encodeURIComponent(companySlug)}`, { signal: controller.signal })
       .then(async res => {
         if (!res.ok) {
           const body = await res.json().catch(() => ({}))
@@ -194,10 +199,12 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
       })
       .then((data: TicketListResponse) => setTickets(data.tickets || []))
       .catch((err) => {
+        if (err instanceof DOMException && err.name === 'AbortError') return
         setTickets([])
         setTicketsError(err instanceof Error ? err.message : 'Failed to load tickets')
       })
       .finally(() => setTicketsLoading(false))
+    return () => controller.abort()
   }, [companySlug])
 
   const fetchTicketNotes = useCallback(async (ticketId: string) => {
