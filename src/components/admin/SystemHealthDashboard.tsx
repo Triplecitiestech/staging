@@ -94,19 +94,27 @@ export default function SystemHealthDashboard() {
   const [aiInput, setAiInput] = useState('')
   const [aiLoading, setAiLoading] = useState(false)
 
-  const fetchHealth = useCallback(async () => {
+  const fetchHealthImpl = useCallback(async (signal?: AbortSignal) => {
     try {
-      const res = await fetch('/api/admin/system-health')
+      const res = await fetch('/api/admin/system-health', { signal })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       setHealth(await res.json())
       setError(null)
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
       setError(err instanceof Error ? err.message : 'Failed to load')
     }
     setLoading(false)
   }, [])
 
-  useEffect(() => { fetchHealth() }, [fetchHealth])
+  // Parameterless wrapper for button onClick and setInterval
+  const fetchHealth = useCallback(() => fetchHealthImpl(), [fetchHealthImpl])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    fetchHealthImpl(controller.signal)
+    return () => controller.abort()
+  }, [fetchHealthImpl])
 
   // Auto-refresh every 60s
   useEffect(() => {

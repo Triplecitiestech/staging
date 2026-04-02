@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { cronHandler } from '@/lib/cron-wrapper';
 import { prisma } from '@/lib/prisma';
 import { DattoRmmClient } from '@/lib/datto-rmm';
 
@@ -9,21 +9,14 @@ export const maxDuration = 60;
  * GET /api/cron/datto-device-sync
  * Syncs device data from Datto RMM into local cache (every 30 min).
  */
-export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get('authorization');
-  const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+export const GET = cronHandler(
+  { name: 'datto-device-sync', timeoutMs: 55000 },
+  async () => {
+    const client = new DattoRmmClient();
+    if (!client.isConfigured()) {
+      return { success: true, message: 'Datto RMM not configured — skipped' };
+    }
 
-  const client = new DattoRmmClient();
-  if (!client.isConfigured()) {
-    return NextResponse.json({ status: 'skipped', message: 'Datto RMM not configured' });
-  }
-
-  const startTime = Date.now();
-
-  try {
     // Fetch devices (up to 10 pages = 2500 devices)
     const devices = await client.getDevices(10);
 
@@ -58,10 +51,9 @@ export async function GET(request: NextRequest) {
       upserted++;
     }
 
-    const durationMs = Date.now() - startTime;
-
     // Update job status
     try {
+      const durationMs = Date.now(); // approximate — cron-wrapper tracks the real duration
       await prisma.$executeRawUnsafe(`
         INSERT INTO soc_job_status (id, "jobName", "lastRunAt", "lastRunStatus", "lastRunDurationMs", "lastRunMeta", "firstRunAt")
         VALUES (gen_random_uuid()::text, 'datto-device-sync', now(), 'success', $1, $2::jsonb, now())
@@ -70,19 +62,15 @@ export async function GET(request: NextRequest) {
           "lastRunStatus" = 'success',
           "lastRunDurationMs" = $1,
           "lastRunMeta" = $2::jsonb
-      `, durationMs, JSON.stringify({ devicesSync: upserted }));
+      `, 0, JSON.stringify({ devicesSync: upserted }));
     } catch {
-      // Non-critical
+      // Non-critical — job status tracking failure doesn't affect sync
     }
 
-    return NextResponse.json({
-      status: 'ok',
-      devicesSynced: upserted,
-      durationMs,
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error('[Datto Sync] Error:', err);
-    return NextResponse.json({ status: 'error', message }, { status: 500 });
-  }
-}
+    return {
+      success: true,
+      message: `Synced ${upserted} devices from Datto RMM`,
+      data: { devicesSynced: upserted },
+    };
+  },
+);

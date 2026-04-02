@@ -119,12 +119,12 @@ export default function SocDashboardClient() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [chatMessages, chatLoading])
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (signal?: AbortSignal) => {
     try {
       const [statusRes, ticketsRes, activityRes] = await Promise.all([
-        fetch('/api/soc/status'),
-        fetch('/api/soc/tickets?days=30&filter=actionable'),
-        fetch('/api/soc/activity?limit=50'),
+        fetch('/api/soc/status', { signal }),
+        fetch('/api/soc/tickets?days=30&filter=actionable', { signal }),
+        fetch('/api/soc/activity?limit=50', { signal }),
       ])
       if (statusRes.ok) setStatus(await statusRes.json())
       if (ticketsRes.ok) setTicketsData(await ticketsRes.json())
@@ -132,14 +132,19 @@ export default function SocDashboardClient() {
         const data = await activityRes.json()
         setActivity(data.entries || [])
       }
-    } catch {
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
       // Tables may not exist yet
     } finally {
       setLoading(false)
     }
   }, [])
 
-  useEffect(() => { fetchData() }, [fetchData])
+  useEffect(() => {
+    const controller = new AbortController()
+    fetchData(controller.signal)
+    return () => controller.abort()
+  }, [fetchData])
 
   const handleRunNow = async (reprocess = false) => {
     setRunning(true)
