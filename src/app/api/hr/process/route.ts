@@ -2250,34 +2250,43 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // -----------------------------------------------------------------
     // Schedule account deletion if data_handling === 'delete_after_backup'
     // -----------------------------------------------------------------
-    if (hrRequest.type === 'offboarding' && primaryActionSucceeded && targetUserId) {
+    if (hrRequest.type === 'offboarding' && primaryActionSucceeded) {
       const a = answers as Record<string, string>
       if (a.data_handling === 'delete_after_backup') {
-        const deletionDate = new Date()
-        deletionDate.setDate(deletionDate.getDate() + 30)
-        const deletionDateStr = deletionDate.toISOString().slice(0, 10)
+        // Read target info from the DB (set during offboarding processing above)
+        const targetRes = await client.query<{ target_user_id: string | null; target_upn: string | null; autotask_ticket_id: number | null }>(
+          `SELECT target_user_id, target_upn, autotask_ticket_id FROM hr_requests WHERE id = $1`,
+          [hrRequest.id]
+        )
+        const reqData = targetRes.rows[0]
+        if (reqData?.target_user_id) {
+          const deletionDate = new Date()
+          deletionDate.setDate(deletionDate.getDate() + 30)
+          const deletionDateStr = deletionDate.toISOString().slice(0, 10)
+          const employeeName = `${a.first_name ?? ''} ${a.last_name ?? ''}`.trim() || reqData.target_upn || 'employee'
 
-        try {
-          await client.query(
-            `UPDATE hr_requests SET scheduled_deletion_date = $2, updated_at = NOW() WHERE id = $1`,
-            [hrRequest.id, deletionDateStr]
-          )
-          console.log(`[hr/process] Scheduled account deletion for ${targetUpn} on ${deletionDateStr}`)
+          try {
+            await client.query(
+              `UPDATE hr_requests SET scheduled_deletion_date = $2, updated_at = NOW() WHERE id = $1`,
+              [hrRequest.id, deletionDateStr]
+            )
+            console.log(`[hr/process] Scheduled account deletion for ${reqData.target_upn} on ${deletionDateStr}`)
 
-          // Add ticket note about the scheduled deletion
-          if (ticketId) {
-            try {
-              await addTicketNote(
-                'Account Deletion Scheduled',
-                `The Microsoft 365 account for ${fullName} (${targetUpn}) has been disabled and will be automatically deleted on ${deletionDateStr} (30 days from today).\n\nThe account is currently blocked from sign-in. If the deletion needs to be cancelled, update the HR request before the scheduled date.`,
-                1 // Customer-visible
-              )
-            } catch {
-              // Non-fatal
+            // Add ticket note about the scheduled deletion
+            if (reqData.autotask_ticket_id && typeof addTicketNote === 'function') {
+              try {
+                await addTicketNote(
+                  'Account Deletion Scheduled',
+                  `The Microsoft 365 account for ${employeeName} (${reqData.target_upn}) has been disabled and will be automatically deleted on ${deletionDateStr} (30 days from today).\n\nThe account is currently blocked from sign-in. If the deletion needs to be cancelled, update the HR request before the scheduled date.`,
+                  1 // Customer-visible
+                )
+              } catch {
+                // Non-fatal
+              }
             }
+          } catch (err) {
+            console.warn('[hr/process] Failed to set scheduled deletion date:', err instanceof Error ? err.message : err)
           }
-        } catch (err) {
-          console.warn('[hr/process] Failed to set scheduled deletion date:', err instanceof Error ? err.message : err)
         }
       }
     }
