@@ -13,6 +13,10 @@
  *   compliance_evidence      — collected evidence records (raw data snapshots)
  *   compliance_findings      — per-control evaluation results
  *   compliance_audit_log     — all compliance-related actions
+ *   policy_org_profiles      — org-wide questionnaire answers for policy generation
+ *   policy_intake_answers    — per-policy questionnaire answers
+ *   policy_generation_records — tracks policy generation workflow state per company+policy
+ *   policy_versions          — version history of generated policies
  */
 
 import { getPool } from '@/lib/db-pool'
@@ -40,7 +44,11 @@ export async function ensureComplianceTables(): Promise<void> {
            'compliance_policy_analyses',
            'compliance_attestations',
            'compliance_platform_mappings',
-           'compliance_webhook_events'
+           'compliance_webhook_events',
+           'policy_org_profiles',
+           'policy_intake_answers',
+           'policy_generation_records',
+           'policy_versions'
          )`
     )
     const existingSet = new Set(existing.rows.map((r) => r.tablename))
@@ -364,6 +372,139 @@ export async function ensureComplianceTables(): Promise<void> {
 
     // compliancePortalEnabled column on companies is now in Prisma schema
     // + migration 20260330000000_add_compliance_portal_enabled
+
+    // =========================================================================
+    // Policy Generation System Tables
+    // =========================================================================
+
+    // --- policy_org_profiles ---
+    // Stores company-wide questionnaire answers used across all policy generation.
+    if (!existingSet.has('policy_org_profiles')) {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS policy_org_profiles (
+          id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+          "companyId"     TEXT NOT NULL UNIQUE,
+          answers         JSONB NOT NULL DEFAULT '{}',
+          "updatedAt"     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          "updatedBy"     TEXT NOT NULL DEFAULT ''
+        )
+      `)
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_policy_org_profiles_company
+        ON policy_org_profiles ("companyId")
+      `)
+      await client.query(`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'policy_org_profiles_companyId_fkey') THEN
+            ALTER TABLE policy_org_profiles
+            ADD CONSTRAINT "policy_org_profiles_companyId_fkey"
+            FOREIGN KEY ("companyId") REFERENCES companies(id) ON DELETE CASCADE;
+          END IF;
+        END $$
+      `)
+    }
+
+    // --- policy_intake_answers ---
+    // Per-policy-type questionnaire answers for a company.
+    if (!existingSet.has('policy_intake_answers')) {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS policy_intake_answers (
+          id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+          "companyId"     TEXT NOT NULL,
+          "policySlug"    TEXT NOT NULL,
+          answers         JSONB NOT NULL DEFAULT '{}',
+          "updatedAt"     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          "updatedBy"     TEXT NOT NULL DEFAULT '',
+          UNIQUE ("companyId", "policySlug")
+        )
+      `)
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_policy_intake_answers_company
+        ON policy_intake_answers ("companyId")
+      `)
+      await client.query(`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'policy_intake_answers_companyId_fkey') THEN
+            ALTER TABLE policy_intake_answers
+            ADD CONSTRAINT "policy_intake_answers_companyId_fkey"
+            FOREIGN KEY ("companyId") REFERENCES companies(id) ON DELETE CASCADE;
+          END IF;
+        END $$
+      `)
+    }
+
+    // --- policy_generation_records ---
+    // Tracks the current generation state for each company+policy combination.
+    if (!existingSet.has('policy_generation_records')) {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS policy_generation_records (
+          id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+          "companyId"     TEXT NOT NULL,
+          "policySlug"    TEXT NOT NULL,
+          "policyId"      TEXT,
+          status          TEXT NOT NULL DEFAULT 'missing',
+          version         INT NOT NULL DEFAULT 0,
+          "inputSnapshot" JSONB NOT NULL DEFAULT '{}',
+          "inputHash"     TEXT NOT NULL DEFAULT '',
+          "generatedAt"   TIMESTAMPTZ,
+          "generatedBy"   TEXT,
+          "approvedAt"    TIMESTAMPTZ,
+          "approvedBy"    TEXT,
+          "exportedAt"    TIMESTAMPTZ,
+          "createdAt"     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          "updatedAt"     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          UNIQUE ("companyId", "policySlug")
+        )
+      `)
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_policy_generation_records_company
+        ON policy_generation_records ("companyId")
+      `)
+      await client.query(`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'policy_generation_records_companyId_fkey') THEN
+            ALTER TABLE policy_generation_records
+            ADD CONSTRAINT "policy_generation_records_companyId_fkey"
+            FOREIGN KEY ("companyId") REFERENCES companies(id) ON DELETE CASCADE;
+          END IF;
+        END $$
+      `)
+    }
+
+    // --- policy_versions ---
+    // Immutable version history — every generation creates a new row.
+    if (!existingSet.has('policy_versions')) {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS policy_versions (
+          id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+          "companyId"     TEXT NOT NULL,
+          "policySlug"    TEXT NOT NULL,
+          version         INT NOT NULL DEFAULT 1,
+          "policyId"      TEXT NOT NULL,
+          content         TEXT NOT NULL DEFAULT '',
+          status          TEXT NOT NULL DEFAULT 'draft',
+          "inputSnapshot" JSONB NOT NULL DEFAULT '{}',
+          "generatedAt"   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          "generatedBy"   TEXT NOT NULL DEFAULT '',
+          "approvedAt"    TIMESTAMPTZ,
+          "approvedBy"    TEXT,
+          UNIQUE ("companyId", "policySlug", version)
+        )
+      `)
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_policy_versions_company_slug
+        ON policy_versions ("companyId", "policySlug")
+      `)
+      await client.query(`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'policy_versions_companyId_fkey') THEN
+            ALTER TABLE policy_versions
+            ADD CONSTRAINT "policy_versions_companyId_fkey"
+            FOREIGN KEY ("companyId") REFERENCES companies(id) ON DELETE CASCADE;
+          END IF;
+        END $$
+      `)
+    }
 
     tablesEnsured = true
   } finally {
