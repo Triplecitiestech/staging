@@ -1,4 +1,6 @@
 import { prisma } from '@/lib/prisma';
+import { auth } from '@/auth';
+import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,9 +50,18 @@ interface SystemHealthResponse {
 }
 
 export async function GET() {
-  // No auth check — this endpoint only returns operational metrics (no PII).
-  // The admin page server component already gates access via session.
-  // Requiring auth here caused cascading 401s when DB was slow (database-backed sessions).
+  // Lightweight auth check — reject unauthenticated requests but don't block
+  // health checks if DB-backed session lookup is slow (returns 401 vs hanging).
+  try {
+    const session = await auth();
+    if (!session?.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+  } catch {
+    // If session check itself fails (e.g., DB down), allow the health check
+    // to proceed — the whole point of this endpoint is to diagnose DB issues.
+    // The admin page server component also gates access via session.
+  }
   const now = new Date().toISOString();
 
   // Run all checks concurrently

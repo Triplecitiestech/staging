@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useDemoMode } from '@/components/admin/DemoModeProvider'
@@ -55,6 +55,22 @@ export default function CompanyDetail({ company, contacts: initialContacts, proj
     contactEmail: company.contactEmail || '',
   })
   const [saving, setSaving] = useState(false)
+
+  // Sync state with props when parent re-renders (e.g., after router.refresh())
+  useEffect(() => {
+    setContacts(initialContacts)
+  }, [initialContacts])
+
+  useEffect(() => {
+    if (!editing) {
+      setEditForm({
+        displayName: company.displayName,
+        primaryContact: company.primaryContact || '',
+        contactTitle: company.contactTitle || '',
+        contactEmail: company.contactEmail || '',
+      })
+    }
+  }, [company, editing])
 
   // New contact form
   const [showAddContact, setShowAddContact] = useState(false)
