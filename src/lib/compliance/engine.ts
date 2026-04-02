@@ -280,13 +280,17 @@ async function storeFindings(client: PoolClient, assessmentId: string, findings:
     await client.query(
       `INSERT INTO compliance_findings (
         "assessmentId", "controlId", status, confidence, reasoning,
-        "evidenceIds", "missingEvidence", remediation
-       ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8)
+        "evidenceIds", "missingEvidence", remediation,
+        "overrideStatus", "overrideReason", "overrideBy", "overrideAt"
+       ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $12)
        ON CONFLICT ("assessmentId", "controlId")
        DO UPDATE SET status = $3, confidence = $4, reasoning = $5,
-         "evidenceIds" = $6::jsonb, "missingEvidence" = $7::jsonb, remediation = $8, "evaluatedAt" = NOW()`,
+         "evidenceIds" = $6::jsonb, "missingEvidence" = $7::jsonb, remediation = $8,
+         "overrideStatus" = $9, "overrideReason" = $10, "overrideBy" = $11, "overrideAt" = $12,
+         "evaluatedAt" = NOW()`,
       [assessmentId, f.controlId, f.status, f.confidence, f.reasoning,
-        JSON.stringify(f.evidenceIds), JSON.stringify(f.missingEvidence), f.remediation]
+        JSON.stringify(f.evidenceIds), JSON.stringify(f.missingEvidence), f.remediation,
+        f.overrideStatus, f.overrideReason, f.overrideBy, f.overrideAt]
     )
   }
 }
@@ -574,6 +578,60 @@ async function loadDeployedTools(
 }
 
 // ---------------------------------------------------------------------------
+// Override persistence — carry forward overrides from previous assessments
+// ---------------------------------------------------------------------------
+
+/**
+ * Load overrides from the most recent completed assessment for the same company+framework.
+ * These are carried forward to new assessments so reviewer decisions persist.
+ */
+async function loadPreviousOverrides(
+  client: PoolClient,
+  companyId: string,
+  frameworkId: FrameworkId,
+  currentAssessmentId: string
+): Promise<Map<string, { overrideStatus: string; overrideReason: string; overrideBy: string; overrideAt: string }>> {
+  const map = new Map<string, { overrideStatus: string; overrideReason: string; overrideBy: string; overrideAt: string }>()
+  try {
+    const res = await client.query<{
+      controlId: string
+      overrideStatus: string
+      overrideReason: string
+      overrideBy: string
+      overrideAt: string
+    }>(
+      `SELECT f."controlId", f."overrideStatus", f."overrideReason", f."overrideBy", f."overrideAt"
+       FROM compliance_findings f
+       JOIN compliance_assessments a ON a.id = f."assessmentId"
+       WHERE a."companyId" = $1
+         AND a."frameworkId" = $2
+         AND a.status = 'complete'
+         AND a.id != $3
+         AND f."overrideStatus" IS NOT NULL
+       ORDER BY a."completedAt" DESC`,
+      [companyId, frameworkId, currentAssessmentId]
+    )
+    // Only take the most recent override per control
+    for (const row of res.rows) {
+      if (!map.has(row.controlId)) {
+        map.set(row.controlId, {
+          overrideStatus: row.overrideStatus,
+          overrideReason: row.overrideReason,
+          overrideBy: row.overrideBy,
+          overrideAt: row.overrideAt,
+        })
+      }
+    }
+    if (map.size > 0) {
+      console.log(`[compliance] Carried forward ${map.size} overrides from previous assessment`)
+    }
+  } catch (err) {
+    console.error('[compliance] Failed to load previous overrides:', err instanceof Error ? err.message : err)
+  }
+  return map
+}
+
+// ---------------------------------------------------------------------------
 // Run a full assessment — collects from ALL available connectors
 // ---------------------------------------------------------------------------
 
@@ -792,9 +850,28 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
       policyCoverage,
     }
 
+    // Load persistent overrides from the most recent completed assessment
+    const previousOverrides = await loadPreviousOverrides(
+      client, assessment.companyId, assessment.frameworkId as FrameworkId, assessmentId
+    )
+
     const findings: Array<Omit<Finding, 'id'>> = []
     for (const control of framework.controls) {
       const evaluator = evaluators[control.controlId]
+      let overrideStatus: FindingStatus | null = null
+      let overrideReason: string | null = null
+      let overrideBy: string | null = null
+      let overrideAt: string | null = null
+
+      // Carry forward override from previous assessment if it exists
+      const prevOverride = previousOverrides.get(control.controlId)
+      if (prevOverride) {
+        overrideStatus = prevOverride.overrideStatus as FindingStatus
+        overrideReason = `[Carried forward] ${prevOverride.overrideReason}`
+        overrideBy = prevOverride.overrideBy
+        overrideAt = prevOverride.overrideAt
+      }
+
       if (evaluator) {
         const rawResult = evaluator(ctx)
         // Apply policy coverage upgrade — upgrades needs_review/partial to pass if policy satisfies
@@ -804,7 +881,7 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
           confidence: evalResult.confidence, reasoning: evalResult.reasoning,
           evidenceIds: evalResult.evidenceIds, missingEvidence: evalResult.missingEvidence,
           remediation: evalResult.remediation, evaluatedAt: new Date().toISOString(),
-          overrideStatus: null, overrideReason: null, overrideBy: null, overrideAt: null,
+          overrideStatus, overrideReason, overrideBy, overrideAt,
         })
       } else {
         findings.push({
@@ -812,7 +889,7 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
           reasoning: 'No evaluator available for this control.',
           evidenceIds: [], missingEvidence: control.evidenceSources,
           remediation: null, evaluatedAt: new Date().toISOString(),
-          overrideStatus: null, overrideReason: null, overrideBy: null, overrideAt: null,
+          overrideStatus, overrideReason, overrideBy, overrideAt,
         })
       }
     }

@@ -7,6 +7,28 @@ import { CUSTOMER_VISIBILITY } from '@/types/tickets'
 import { HrRequestSection } from './HrRequestSection'
 import { useDemoMode } from '@/components/admin/DemoModeProvider'
 
+// --- Compliance Portal Types ---
+interface CompliancePortalData {
+  enabled: boolean
+  companyName?: string
+  assessment?: {
+    frameworkName: string
+    completedAt: string
+    scorePercent: number
+    passed: number
+    failed: number
+    other: number
+    total: number
+  } | null
+  findings?: Array<{
+    controlId: string
+    status: string
+    confidence: string
+    reasoning: string
+  }>
+  trend?: Array<{ date: string; score: number }>
+}
+
 interface Comment {
   id: string
   content: string
@@ -140,6 +162,22 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
   const [notesLoading, setNotesLoading] = useState(false)
   const [ticketSearch, setTicketSearch] = useState('')
   const [ticketFilter, setTicketFilter] = useState<TicketFilter>('all')
+  const [complianceData, setComplianceData] = useState<CompliancePortalData | null>(null)
+  const [complianceExpanded, setComplianceExpanded] = useState(false)
+
+  // Load compliance data when companySlug is available
+  useEffect(() => {
+    if (!companySlug) return
+    fetch(`/api/compliance/portal?companySlug=${encodeURIComponent(companySlug)}`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.success && data.data?.enabled) {
+          setComplianceData(data.data)
+        }
+      })
+      .catch(() => { /* compliance not available */ })
+  }, [companySlug])
+
   // Load tickets when companySlug is available
   useEffect(() => {
     if (!companySlug) return
@@ -777,6 +815,142 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
             userName={userName}
             isManager={isManager}
           />
+        </div>
+      )}
+
+      {/* Compliance Score Card */}
+      {complianceData?.assessment && (
+        <div className="mb-8">
+          <div className="bg-gray-800/50 border border-white/10 rounded-lg overflow-hidden">
+            {/* Header */}
+            <button
+              onClick={() => setComplianceExpanded(!complianceExpanded)}
+              className="w-full p-5 text-left flex items-center gap-4"
+            >
+              <div className="relative flex-shrink-0">
+                {/* Radial score gauge */}
+                <svg className="w-16 h-16 -rotate-90" viewBox="0 0 36 36">
+                  <path
+                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                    fill="none" stroke="currentColor" strokeWidth="3" className="text-gray-700"
+                  />
+                  <path
+                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                    fill="none"
+                    strokeWidth="3"
+                    strokeDasharray={`${complianceData.assessment.scorePercent}, 100`}
+                    className={
+                      complianceData.assessment.scorePercent >= 80 ? 'stroke-green-400' :
+                      complianceData.assessment.scorePercent >= 60 ? 'stroke-cyan-400' :
+                      'stroke-red-400'
+                    }
+                    strokeLinecap="round"
+                  />
+                </svg>
+                <span className="absolute inset-0 flex items-center justify-center text-sm font-bold text-white rotate-0">
+                  {complianceData.assessment.scorePercent}%
+                </span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-lg font-bold text-white">Security Compliance</h3>
+                <p className="text-sm text-gray-400 mt-0.5">
+                  {complianceData.assessment.frameworkName} — {complianceData.assessment.passed} of {complianceData.assessment.total} controls passing
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Last assessed: {new Date(complianceData.assessment.completedAt).toLocaleDateString()}
+                </p>
+              </div>
+              <div className="flex items-center gap-3 flex-shrink-0">
+                {/* Mini stat badges */}
+                <div className="hidden sm:flex gap-2">
+                  <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-500/20 text-green-300 border border-green-500/30">
+                    {complianceData.assessment.passed} Pass
+                  </span>
+                  <span className="px-2 py-1 text-xs font-medium rounded-full bg-red-500/20 text-red-400 border border-red-500/30">
+                    {complianceData.assessment.failed} Fail
+                  </span>
+                  {complianceData.assessment.other > 0 && (
+                    <span className="px-2 py-1 text-xs font-medium rounded-full bg-slate-500/20 text-slate-300 border border-slate-500/30">
+                      {complianceData.assessment.other} Review
+                    </span>
+                  )}
+                </div>
+                <svg className={`w-4 h-4 text-gray-500 transition-transform flex-shrink-0 ${complianceExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
+            </button>
+
+            {/* Expanded: Score trend + findings breakdown */}
+            {complianceExpanded && (
+              <div className="border-t border-white/5 p-5">
+                {/* Score trend */}
+                {complianceData.trend && complianceData.trend.length > 1 && (
+                  <div className="mb-5">
+                    <h4 className="text-sm font-semibold text-gray-300 mb-3">Score Trend</h4>
+                    <div className="flex items-end gap-1 h-20">
+                      {complianceData.trend.map((t, i) => {
+                        const maxScore = Math.max(...(complianceData.trend ?? []).map(tr => tr.score), 1)
+                        const height = (t.score / maxScore) * 100
+                        return (
+                          <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                            <span className="text-[10px] text-gray-500">{t.score}%</span>
+                            <div
+                              className={`w-full rounded-t transition-all ${
+                                t.score >= 80 ? 'bg-green-500/60' :
+                                t.score >= 60 ? 'bg-cyan-500/60' :
+                                'bg-red-500/60'
+                              }`}
+                              style={{ height: `${height}%`, minHeight: '4px' }}
+                            />
+                            <span className="text-[9px] text-gray-600">
+                              {new Date(t.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                            </span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Findings grouped by status */}
+                {complianceData.findings && complianceData.findings.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-300 mb-3">Control Status</h4>
+                    <div className="space-y-1.5 max-h-64 overflow-y-auto">
+                      {complianceData.findings
+                        .filter(f => f.status !== 'not_applicable' && f.status !== 'not_assessed')
+                        .map(f => {
+                          const statusColor = f.status === 'pass'
+                            ? 'bg-green-500/20 text-green-300 border-green-500/30'
+                            : f.status === 'fail'
+                            ? 'bg-red-500/20 text-red-400 border-red-500/30'
+                            : f.status === 'partial'
+                            ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30'
+                            : 'bg-slate-500/20 text-slate-300 border-slate-500/30'
+                          const statusLabel = f.status === 'pass' ? 'Pass'
+                            : f.status === 'fail' ? 'Fail'
+                            : f.status === 'partial' ? 'Partial'
+                            : f.status === 'needs_review' ? 'Review'
+                            : f.status
+                          // Extract control number from ID (cis-v8-1.1 → 1.1)
+                          const controlNum = f.controlId.replace(/^cis-v8-/, '')
+                          return (
+                            <div key={f.controlId} className="flex items-center gap-2 py-1 px-2 rounded hover:bg-gray-700/30">
+                              <span className={`text-xs px-1.5 py-0.5 rounded-full border flex-shrink-0 ${statusColor}`}>
+                                {statusLabel}
+                              </span>
+                              <span className="text-xs text-gray-400 font-mono flex-shrink-0 w-8">{controlNum}</span>
+                              <span className="text-xs text-gray-300 truncate">{f.reasoning.split('.')[0]}</span>
+                            </div>
+                          )
+                        })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
