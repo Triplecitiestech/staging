@@ -1570,24 +1570,26 @@ evaluators['cis-v8-6.4'] = (ctx: EvaluationContext): EvaluationResult => {
 evaluators['cis-v8-7.1'] = (ctx: EvaluationContext): EvaluationResult => {
   const rmm = ctx.evidence.get('datto_rmm_devices')
   const score = ctx.evidence.get('microsoft_secure_score')
-  const itg = ctx.evidence.get('it_glue_documentation' as EvidenceSourceType)
   const sources = ['datto_rmm_devices', 'microsoft_secure_score', 'it_glue_documentation'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
-  if (sources.length === 0) return noEvidence('cis-v8-7.1', ['datto_rmm_patches', 'microsoft_secure_score'], ctx)
+  if (sources.length === 0) return noEvidence('cis-v8-7.1', ['datto_rmm_devices', 'microsoft_secure_score'], ctx)
 
-  const rmmData = rmm?.rawData as { patchRate?: number; totalDevices?: number; matched?: boolean } | undefined
+  const rmmData = rmm?.rawData as { patchRate?: number; totalDevices?: number; patchedDevices?: number; unpatchedDevices?: number } | undefined
   const scoreData = score?.rawData as { percentage?: number } | undefined
   const patchRate = rmmData?.patchRate ?? 0
   const scorePct = scoreData?.percentage ?? 0
+  const total = rmmData?.totalDevices ?? 0
+  const patched = rmmData?.patchedDevices ?? 0
+  const unpatched = rmmData?.unpatchedDevices ?? 0
 
   if (patchRate >= 80 && scorePct >= 50) {
     return result('cis-v8-7.1', ctx, 'pass', 'medium',
-      `Vulnerability management active: RMM patch rate ${patchRate}% across ${rmmData?.totalDevices ?? 0} devices, Secure Score ${scorePct}%. Automated patching via Datto RMM serves as the vulnerability remediation process.`,
+      `Vulnerability management active: ${patched}/${total} devices fully patched (${patchRate}%), Secure Score ${scorePct}%. Datto RMM provides automated patch management for OS and third-party applications with policy-based deployment and scheduling.`,
       sources, [])
   }
   if (patchRate > 0 || scorePct > 0) {
     return result('cis-v8-7.1', ctx, 'partial', 'low',
-      `Patch rate: ${patchRate}%, Secure Score: ${scorePct}%. Process exists but needs improvement.`,
-      sources, [], 'Improve patch approval cadence and review Secure Score recommendations monthly.')
+      `${patched}/${total} devices patched (${patchRate}%), Secure Score: ${scorePct}%. ${unpatched > 0 ? `${unpatched} device(s) have pending patches.` : ''} Automated patch management is configured but compliance rate needs improvement.`,
+      sources, [], 'Review and approve pending patches in Datto RMM. Address devices with outstanding patches.')
   }
   return result('cis-v8-7.1', ctx, 'needs_review', 'low', 'Vulnerability management evidence is limited.', sources, [])
 }
@@ -1596,51 +1598,69 @@ evaluators['cis-v8-7.1'] = (ctx: EvaluationContext): EvaluationResult => {
 evaluators['cis-v8-7.2'] = (ctx: EvaluationContext): EvaluationResult => {
   const rmm = ctx.evidence.get('datto_rmm_devices')
   const sources = ['datto_rmm_devices', 'autotask_tickets'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
-  if (sources.length === 0) return noEvidence('cis-v8-7.2', ['datto_rmm_patches', 'autotask_tickets'], ctx)
+  if (sources.length === 0) return noEvidence('cis-v8-7.2', ['datto_rmm_devices', 'autotask_tickets'], ctx)
 
-  const rmmData = rmm?.rawData as { patchRate?: number; totalDevices?: number } | undefined
-  return result('cis-v8-7.2', ctx, (rmmData?.patchRate ?? 0) >= 80 ? 'pass' : 'partial', 'low',
-    `Remediation tracked via Datto RMM automated patching (${rmmData?.patchRate ?? 0}% patch rate) and Autotask ticketing for manual remediation items.`,
-    sources, [], (rmmData?.patchRate ?? 0) < 80 ? 'Review pending patches and create remediation tickets for stale vulnerabilities.' : null)
+  const rmmData = rmm?.rawData as { patchRate?: number; totalDevices?: number; unpatchedDevices?: number; unpatchedDeviceList?: Array<{ hostname: string; pending: number }> } | undefined
+  const rate = rmmData?.patchRate ?? 0
+  const unpatched = rmmData?.unpatchedDevices ?? 0
+  const unpatchedList = (rmmData?.unpatchedDeviceList ?? []).slice(0, 5)
+  const deviceDetail = unpatchedList.length > 0
+    ? ` Devices with pending patches: ${unpatchedList.map((d) => `${d.hostname} (${d.pending} pending)`).join(', ')}.`
+    : ''
+
+  return result('cis-v8-7.2', ctx, rate >= 80 ? 'pass' : 'partial', 'low',
+    `Remediation via Datto RMM automated patching (${rate}% compliance) and Autotask ticketing.${unpatched > 0 ? ` ${unpatched} device(s) have pending patches requiring remediation.${deviceDetail}` : ' All devices fully patched.'}`,
+    sources, [], rate < 80 ? 'Review pending patches in RMM and create Autotask tickets for devices requiring manual remediation.' : null)
 }
 
+// 7.3 OS Patch Management — Datto RMM manages Windows Update
 evaluators['cis-v8-7.3'] = (ctx: EvaluationContext): EvaluationResult => {
   const rmm = ctx.evidence.get('datto_rmm_devices')
-  if (!rmm) return noEvidence('cis-v8-7.3', ['datto_rmm_patches', 'microsoft_device_compliance'], ctx)
+  if (!rmm) return noEvidence('cis-v8-7.3', ['datto_rmm_devices', 'microsoft_device_compliance'], ctx)
 
-  const rmmData = rmm.rawData as { patchRate?: number; totalDevices?: number; patchedDevices?: number }
+  const rmmData = rmm.rawData as { patchRate?: number; totalDevices?: number; patchedDevices?: number; unpatchedDevices?: number; unpatchedDeviceList?: Array<{ hostname: string; os: string; pending: number }> }
   const rate = rmmData.patchRate ?? 0
+  const total = rmmData.totalDevices ?? 0
+  const patched = rmmData.patchedDevices ?? 0
+  const unpatched = rmmData.unpatchedDevices ?? 0
+  const unpatchedList = (rmmData.unpatchedDeviceList ?? []).slice(0, 5)
 
+  // RMM manages both OS and 3rd party patches — rate is combined
   if (rate >= 90) {
     return result('cis-v8-7.3', ctx, 'pass', 'medium',
-      `${rate}% of managed devices are fully patched. Automated OS patch management is active.`,
+      `${patched}/${total} devices fully patched (${rate}%). Datto RMM manages OS updates (Windows Update) with automated, policy-based deployment and scheduling.`,
       ['datto_rmm_devices'], [])
   }
   if (rate >= 70) {
     return result('cis-v8-7.3', ctx, 'partial', 'medium',
-      `${rate}% patch rate. Some devices have pending patches.`,
+      `${patched}/${total} devices patched (${rate}%). ${unpatched} device(s) have pending updates.${unpatchedList.length > 0 ? ` Unpatched: ${unpatchedList.map((d) => `${d.hostname} (${d.os}, ${d.pending} pending)`).join(', ')}.` : ''}`,
       ['datto_rmm_devices'], [],
-      'Review and approve pending patches. Increase patch automation frequency.')
+      'Approve pending OS patches in Datto RMM and investigate devices with stale patch status.')
   }
   return result('cis-v8-7.3', ctx, 'fail', 'medium',
-    `${rate}% patch rate is below acceptable threshold. Many devices have missing OS patches.`,
+    `${patched}/${total} devices patched (${rate}%). ${unpatched} device(s) have pending updates.${unpatchedList.length > 0 ? ` Unpatched: ${unpatchedList.map((d) => `${d.hostname} (${d.pending} pending)`).join(', ')}.` : ''}`,
     ['datto_rmm_devices'], [],
-    'Implement automated OS patching via RMM with at least monthly cadence.')
+    'Review and approve all pending patches in Datto RMM. Ensure automated patch policies run at least monthly.')
 }
 
 // 7.4 Automated Application Patch Management — RMM handles third-party patching
 evaluators['cis-v8-7.4'] = (ctx: EvaluationContext): EvaluationResult => {
   const rmm = ctx.evidence.get('datto_rmm_devices')
-  if (!rmm) return noEvidence('cis-v8-7.4', ['datto_rmm_patches'], ctx)
+  if (!rmm) return noEvidence('cis-v8-7.4', ['datto_rmm_devices'], ctx)
 
-  const rmmData = rmm.rawData as { patchRate?: number; totalDevices?: number; matched?: boolean }
-  if (rmmData.matched && (rmmData.totalDevices ?? 0) > 0) {
-    return result('cis-v8-7.4', ctx, rmmData.patchRate && rmmData.patchRate >= 80 ? 'pass' : 'partial', 'medium',
-      `Datto RMM manages application patching across ${rmmData.totalDevices} devices. Overall patch rate: ${rmmData.patchRate ?? 0}%. Third-party application updates are deployed via RMM patch policies.`,
-      ['datto_rmm_devices'], [],
-      (rmmData.patchRate ?? 0) < 80 ? 'Review pending third-party application patches in RMM and approve outstanding updates.' : null)
-  }
-  return noEvidence('cis-v8-7.4', ['datto_rmm_patches'], ctx)
+  const rmmData = rmm.rawData as { patchRate?: number; totalDevices?: number; patchedDevices?: number; unpatchedDevices?: number; matched?: boolean }
+  if (!rmmData.matched || (rmmData.totalDevices ?? 0) === 0) return noEvidence('cis-v8-7.4', ['datto_rmm_devices'], ctx)
+
+  const rate = rmmData.patchRate ?? 0
+  const total = rmmData.totalDevices ?? 0
+  const patched = rmmData.patchedDevices ?? 0
+  const unpatched = rmmData.unpatchedDevices ?? 0
+
+  // RMM manages both OS and 3rd party — rate is combined. Note this in the evidence.
+  return result('cis-v8-7.4', ctx, rate >= 80 ? 'pass' : 'partial', 'medium',
+    `Datto RMM manages third-party application patching across ${total} devices. ${patched}/${total} fully patched (${rate}%).${unpatched > 0 ? ` ${unpatched} device(s) have pending application updates.` : ''} RMM deploys third-party patches via automated patch policies alongside OS updates.`,
+    ['datto_rmm_devices'], [],
+    rate < 80 ? 'Review and approve pending third-party application patches in Datto RMM.' : null)
 }
 
 // 8.1 Audit Log Management Process — multi-layer logging architecture
