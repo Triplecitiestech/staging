@@ -1,72 +1,74 @@
 # Session Summary
 
-> Last updated: 2026-04-02 (Session 3)
-> Branch: `claude/compliance-policy-generation-uaxkJ`
-> Latest commit: `cea3819` — Add compliance policy generation system (Phase 1)
+> Last updated: 2026-04-02 (Session 4 — Stabilization Audit)
+> Branch: `claude/stabilize-production-app-gR4Qo`
+> Latest commit: `630810e` — Stabilization Phase F
 
-## What Was Built This Session
+## What Was Done This Session
 
-### Compliance Policy Generation System (Phase 1)
+### Full Production Stabilization Audit + Remediation
 
-Built a complete policy generation workflow system inside the compliance engine:
+Performed a comprehensive codebase audit (214+ API routes, 17 cron jobs, 150 client components, 37+ Prisma models) and implemented targeted fixes across 7 commits.
 
-**Core Data Model (`src/lib/compliance/policy-generation/`)**
-- **Master Policy Catalog** — 30+ policy types across 9 categories (governance, access-control, data-protection, operations, incident-response, human-resources, vendor-management, technical, compliance-specific)
-- **Framework-to-Policy Mappings** — ~120 mappings connecting CIS v8, HIPAA, NIST 800-171, CMMC L1/L2 controls to specific policy types with coverage type (full/partial/supporting)
-- **Type System** — Full TypeScript types for catalog items, framework mappings, questionnaire definitions, generation records, version history, export formats, and document storage provider interface
+**Phase 1-2: Audit & Assessment (documented inline)**
+- Mapped all subsystems, critical workflows, regression hotspots
+- Identified top instability causes: zero workflow tests, silent error swallowing, unused security utilities, auth gaps
+- Assessed production readiness across auth, sessions, integrations, error handling, monitoring
 
-**Questionnaire / Intake Engine**
-- **Organization Profile** — 30+ questions covering company identity, regulatory scope, operational context, security posture, governance, and technology (filled once, shared across all policies)
-- **Policy-Specific Questions** — Conditional questions for ~12 policy types (incident response contacts, HIPAA officers, VPN config, password requirements, etc.)
-- **Adaptive Logic** — Conditional display, pre-fill from org profile, completion percentage tracking
-- **Persistence** — `policy_org_profiles` and `policy_intake_answers` tables with upsert
+**Phase A: Immediate Safety**
+- Removed default signing key fallback in `onboarding-session.ts`
+- Added auth to `/api/admin/system-health` (was completely unauthenticated)
+- Fixed useState not syncing with props in `CompanyDetail.tsx`
+- Added error boundaries to admin layout + portal layout
+- Created env validation module wired into `instrumentation.ts`
+- Fixed silent error swallowing in `customer/tickets` API
 
-**AI Generation Engine**
-- Generates complete, company-specific policies using Claude Sonnet 4
-- System prompt enforces professional formatting, completeness, company-specific language
-- Builds detailed context from org profile + policy answers + framework controls
-- Supports 5 modes: new, improve, update-framework, standardize, fill-missing
-- Input hashing for change detection
-- Version tracking in `policy_versions` table
+**Phase B: Error Handling**
+- Fixed `/api/team` returning 200 with empty array on DB error
+- Added `ticketsError` state + retry button to `CustomerDashboard`
 
-**Export Pipeline**
-- HTML export with print-ready professional styling (header, metadata grid, footer)
-- Markdown export for raw text
-- Individual policy download
-- Full bundle download (all policies)
-- Document Storage Provider abstraction with stubs for SharePoint and IT Glue (Phase 2)
+**Phase C: Regression Tests**
+- `critical-workflows.spec.ts`: ~25 e2e tests for public site, portal, admin, API contracts, cron auth
+- `error-handling.spec.ts`: ~15 e2e tests for error response contracts, secret leakage, auth enforcement
 
-**Database Tables (4 new, raw SQL via ensure-tables.ts)**
-- `policy_org_profiles` — company-wide questionnaire answers
-- `policy_intake_answers` — per-policy questionnaire answers
-- `policy_generation_records` — workflow state per company+policy
-- `policy_versions` — immutable version history with audit trail
+**Phase D: Rate Limiting + Cron Wrapper**
+- Created `checkRateLimit()` helper in security.ts
+- Wired rate limiting to portal auth login + discover endpoints
+- Migrated `send-approval-emails` cron to cronHandler
 
-**API Routes (4 new)**
-- `GET /api/compliance/policies/catalog` — catalog + needs analysis with status per company
-- `GET/POST /api/compliance/policies/questionnaire` — load/save questionnaire answers
-- `POST/PATCH /api/compliance/policies/generate` — AI generation + status management (approve/reject)
-- `GET /api/compliance/policies/export` — download individual or bundle (HTML/MD)
+**Phase E: AbortController + Unit Tests**
+- Migrated `datto-device-sync` cron to cronHandler
+- Added Authorization header auth to `autotask/trigger`
+- Added AbortController cleanup to SOC, Reporting, SystemHealth dashboards
+- Added 36 unit tests (tickets/utils, onboarding-session, env-validation) — total: 51
 
-**UI Components**
-- **PolicyGenerationDashboard** — Full workspace with 3 views: overview, org-profile, policy-detail
-- Overview: framework selector, stats cards, policy list grouped by category with status badges
-- Org Profile: form with all questions, completion bar, save
-- Policy Detail: intake questions, generate button, content preview, approve/download
-- Wired into ComplianceDashboard as "Policy Generation" tab
+**Phase F: Transient Error Handling + Auth Standardization**
+- Fixed 4 cron routes (publish-scheduled, generate-blog, fetch-content, process-scheduled-offboards) to return 200 for transient errors
+- Created shared `checkSecretAuth()` helper in `src/lib/api-auth.ts`
+- Migrated 4 diagnostic routes to use checkSecretAuth (header + query param)
+- Added AbortController to MonitoringDashboard + CustomerDashboard
 
-## Previous Session Work (preserved)
+### Key Metrics
+| Metric | Before | After |
+|--------|--------|-------|
+| Unit tests | 15 | 51 |
+| E2e test files | 15 | 17 (~40 new tests) |
+| Error boundaries | 2 | 4 |
+| Rate-limited auth endpoints | 2 | 4 |
+| Cron routes with transient handling | 2 | 9 (all that need it) |
+| Components with AbortController | ~2 | 7 |
+| Silent error-swallowing routes fixed | 0 | 3 |
 
-### Critical Fix: Cross-Customer Data Isolation + Platform Mapping
-- Platform Mapping system, all 9 MSP collectors updated
-- Policy Coverage Logic fixes, evaluator improvements
-- Unicode fixes, UI improvements
+## Key Decisions
+- Did NOT force all cron routes into cronHandler — routes already using resilience.ts patterns (autotask-sync, soc-triage) were left in place since they already handle transient errors correctly
+- Did NOT modify query-param auth on report job routes that already support both header + query — only migrated routes that were query-param-only
+- Created `api-auth.ts` as shared helper for gradual adoption rather than mass-rewriting all 22 routes
 
-## Architecture Notes (new)
-- Policy catalog is code-defined (not DB) — add new policy types in `catalog.ts`
-- Framework mappings in `framework-mappings.ts` — add new frameworks by appending to array
-- Generated policies stored in existing `compliance_policies` table with `source='generated'`
-- Version history is immutable — every generation creates a new `policy_versions` row
-- Questionnaire is two-tier: org profile (global) + policy-specific (per-policy)
-- Export uses lightweight Markdown→HTML converter (no external dependencies)
-- Storage provider interface ready for SharePoint/IT Glue integration
+## Outstanding Work
+See `docs/current-tasks.md` for full list. Key remaining items:
+1. Migrate remaining ~18 query-param-only secret routes to `checkSecretAuth`
+2. Add AbortController to remaining ~55 client fetch components
+3. Standardize API response format using `api-response.ts` across all routes
+4. Add workflow-level e2e tests with authenticated sessions
+5. Wire CSRF protection on mutation endpoints
+6. Add schema drift detection CI check

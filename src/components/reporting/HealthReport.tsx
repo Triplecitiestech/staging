@@ -64,19 +64,20 @@ export default function HealthReport() {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [search, setSearch] = useState('')
 
-  const fetchData = useCallback(async () => {
+  const fetchDataImpl = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)
     setError(null)
     try {
       const params = new URLSearchParams(searchParams.toString())
       if (!params.has('preset')) params.set('preset', 'last_30_days')
-      const res = await fetch(`/api/reports/customer-health?${params.toString()}`)
+      const res = await fetch(`/api/reports/customer-health?${params.toString()}`, { signal })
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}))
         throw new Error(errData.error || `Failed to load health data (HTTP ${res.status})`)
       }
       setData(await res.json())
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
       const msg = err instanceof Error ? err.message : 'Unknown error'
       console.error('[HealthReport] Failed to load:', msg)
       setError(msg)
@@ -84,7 +85,13 @@ export default function HealthReport() {
     setLoading(false)
   }, [searchParams])
 
-  useEffect(() => { fetchData() }, [fetchData])
+  const fetchData = useCallback(() => fetchDataImpl(), [fetchDataImpl])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    fetchDataImpl(controller.signal)
+    return () => controller.abort()
+  }, [fetchDataImpl])
 
   if (loading) {
     return (
