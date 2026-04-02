@@ -1,6 +1,6 @@
 // Security utilities for Triple Cities Tech
 
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import crypto from 'crypto'
 
 // CSRF Token Management
@@ -335,13 +335,44 @@ export function logSecurityEvent(
     details,
     source: 'security'
   }
-  
+
   // In production, this should be sent to a proper logging service
   console.log(`[SECURITY-${severity.toUpperCase()}] ${JSON.stringify(logEntry)}`)
-  
+
   // For critical events, you might want to send alerts
   if (severity === 'critical') {
     // Send alert to monitoring service
     console.error(`[CRITICAL SECURITY EVENT] ${event}`, details)
   }
+}
+
+/**
+ * Quick rate-limit check for any API route.
+ * Returns a 429 NextResponse if the limit is exceeded, or null if allowed.
+ *
+ * Usage in a route handler:
+ *   const blocked = checkRateLimit(request)
+ *   if (blocked) return blocked
+ */
+export function checkRateLimit(
+  request: NextRequest,
+  { strict = false }: { strict?: boolean } = {}
+): NextResponse | null {
+  const ip = getClientIP(request)
+  if (!RateLimiter.checkLimit(ip, strict)) {
+    const remaining = RateLimiter.getRemainingRequests(ip, strict)
+    const resetTime = RateLimiter.getResetTime(ip)
+    logSecurityEvent('rate_limit_exceeded', { ip, path: request.nextUrl.pathname }, 'medium')
+    return NextResponse.json(
+      { error: 'Too many requests. Please try again later.' },
+      {
+        status: 429,
+        headers: {
+          'Retry-After': String(Math.ceil((resetTime - Date.now()) / 1000)),
+          'X-RateLimit-Remaining': String(remaining),
+        },
+      }
+    )
+  }
+  return null
 }

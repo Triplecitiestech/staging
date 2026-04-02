@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getPool } from '@/lib/db-pool'
+import { checkRateLimit } from '@/lib/security'
 
 const pool = getPool()
 
@@ -19,6 +20,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  const blocked = checkRateLimit(request, { strict: true })
+  if (blocked) return blocked
+
   let email = ''
   const contentType = request.headers.get('content-type') || ''
   const isJsonRequest = contentType.includes('application/json')

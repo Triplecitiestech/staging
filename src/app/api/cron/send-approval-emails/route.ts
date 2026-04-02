@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { cronHandler } from '@/lib/cron-wrapper';
 import { generateBlogApprovalEmail, generateBlogApprovalEmailText } from '@/lib/email-templates/blog-approval';
 import { Resend } from 'resend';
 
@@ -9,43 +9,11 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
 /**
  * Send approval emails for posts scheduled to publish in 24 hours
  * Triggered daily via Vercel Cron
- *
- * POST /api/cron/send-approval-emails
- * Authorization: Bearer <BLOG_CRON_SECRET>
  */
-export async function GET(request: NextRequest) {
-  return handleSendApprovalEmails(request);
-}
-
-export async function POST(request: NextRequest) {
-  return handleSendApprovalEmails(request);
-}
-
-async function handleSendApprovalEmails(request: NextRequest) {
-  try {
+export const GET = cronHandler(
+  { name: 'send-approval-emails', timeoutMs: 25000 },
+  async () => {
     const { prisma } = await import('@/lib/prisma');
-
-    // Verify cron secret (supports both Vercel's CRON_SECRET and custom BLOG_CRON_SECRET)
-    const authHeader = request.headers.get('authorization');
-    const cronSecret = process.env.CRON_SECRET;
-    const blogCronSecret = process.env.BLOG_CRON_SECRET;
-
-    if (!cronSecret && !blogCronSecret) {
-      console.warn('⚠️ No cron secret configured — skipping auth check');
-    } else if (authHeader) {
-      const isValid =
-        (cronSecret && authHeader === `Bearer ${cronSecret}`) ||
-        (blogCronSecret && authHeader === `Bearer ${blogCronSecret}`);
-      if (!isValid) {
-        console.error('❌ Invalid cron secret');
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-      }
-    } else {
-      console.error('❌ Missing Authorization header');
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    console.log('📧 Checking for posts needing approval emails...');
 
     // Find posts scheduled to publish in 24 hours that haven't been sent for approval yet
     const tomorrow = new Date();
@@ -62,30 +30,27 @@ async function handleSendApprovalEmails(request: NextRequest) {
         status: 'DRAFT',
         scheduledFor: {
           gte: tomorrowStart,
-          lte: tomorrowEnd
+          lte: tomorrowEnd,
         },
-        sentForApproval: null
+        sentForApproval: null,
       },
       include: {
-        category: true
-      }
+        category: true,
+      },
     });
 
     if (postsNeedingApproval.length === 0) {
-      console.log('✅ No posts need approval emails today');
-      return NextResponse.json({
+      return {
         success: true,
         message: 'No posts need approval emails',
-        count: 0
-      });
+        data: { count: 0 },
+      };
     }
-
-    console.log(`📬 Sending approval emails for ${postsNeedingApproval.length} post(s)`);
 
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.triplecitiestech.com';
     const approvalEmail = process.env.APPROVAL_EMAIL || 'kurtis@triplecitiestech.com';
-    const emailsSent = [];
-    const emailsFailed = [];
+    const emailsSent: string[] = [];
+    const emailsFailed: string[] = [];
 
     for (const post of postsNeedingApproval) {
       try {
@@ -107,8 +72,8 @@ async function handleSendApprovalEmails(request: NextRequest) {
           socialMedia: {
             facebook: { title: '', description: '', hashtags: [] },
             instagram: { caption: '', hashtags: [] },
-            linkedin: { title: '', content: '', hashtags: [] }
-          }
+            linkedin: { title: '', content: '', hashtags: [] },
+          },
         };
 
         const emailProps = {
@@ -117,7 +82,7 @@ async function handleSendApprovalEmails(request: NextRequest) {
           previewUrl: `${baseUrl}/api/blog/approval/${post.approvalToken}/preview`,
           approveUrl: `${baseUrl}/api/blog/approval/${post.approvalToken}/approve`,
           rejectUrl: `${baseUrl}/api/blog/approval/${post.approvalToken}/reject`,
-          editUrl: `${baseUrl}/admin/blog/${post.id}/edit`
+          editUrl: `${baseUrl}/admin/blog/${post.id}/edit`,
         };
 
         if (!resend) {
@@ -127,9 +92,9 @@ async function handleSendApprovalEmails(request: NextRequest) {
         await resend.emails.send({
           from: 'Triple Cities Tech Blog <blog@triplecitiestech.com>',
           to: approvalEmail,
-          subject: `📝 Blog Post Ready for Review: "${post.title}" (Publishes Tomorrow)`,
+          subject: `Blog Post Ready for Review: "${post.title}" (Publishes Tomorrow)`,
           html: generateBlogApprovalEmail(emailProps),
-          text: generateBlogApprovalEmailText(emailProps)
+          text: generateBlogApprovalEmailText(emailProps),
         });
 
         // Mark as sent for approval
@@ -137,41 +102,23 @@ async function handleSendApprovalEmails(request: NextRequest) {
           where: { id: post.id },
           data: {
             status: 'PENDING_APPROVAL',
-            sentForApproval: new Date()
-          }
+            sentForApproval: new Date(),
+          },
         });
 
-        emailsSent.push({
-          title: post.title,
-          scheduledFor: post.scheduledFor
-        });
-
-        console.log(`✉️ Approval email sent for: "${post.title}"`);
+        emailsSent.push(post.title);
       } catch (error) {
-        console.error(`❌ Failed to send email for "${post.title}":`, error);
-        emailsFailed.push({
-          title: post.title,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        });
+        emailsFailed.push(`${post.title}: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
     }
 
-    return NextResponse.json({
-      success: true,
-      emailsSent: emailsSent.length,
-      emailsFailed: emailsFailed.length,
-      sent: emailsSent,
-      failed: emailsFailed
-    });
+    return {
+      success: emailsFailed.length === 0,
+      message: `Sent ${emailsSent.length} emails, ${emailsFailed.length} failed`,
+      data: { emailsSent: emailsSent.length, emailsFailed: emailsFailed.length },
+      warnings: emailsFailed.length > 0 ? emailsFailed : undefined,
+    };
+  },
+);
 
-  } catch (error) {
-    console.error('❌ Error sending approval emails:', error);
-    return NextResponse.json(
-      {
-        error: 'Failed to send approval emails',
-        details: error instanceof Error ? error.message : 'Unknown error'
-      },
-      { status: 500 }
-    );
-  }
-}
+export const POST = GET;
