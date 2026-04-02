@@ -683,6 +683,10 @@ evaluators['cis-v8-11.1'] = (ctx: EvaluationContext): EvaluationResult => {
   const hasBcdr = bcdrData?.matched && (bcdrData?.deviceDetails ?? []).length > 0
   const hasSaas = saasData?.matched && (saasData?.totalSeats ?? 0) > 0
 
+  // Check if BCDR is explicitly marked as not used in platform mapping
+  const bcdrNotUsed = ctx.environment?.onPremServers === 'no_servers'
+    || ctx.environment?.scope?.backup === 'm365_only'
+
   if (hasBcdr && hasSaas) {
     const unprotected = saasData?.unprotectedSeats ?? 0
     if (unprotected === 0) {
@@ -696,21 +700,29 @@ evaluators['cis-v8-11.1'] = (ctx: EvaluationContext): EvaluationResult => {
       `Protect the ${unprotected} unprotected SaaS backup seat(s) to ensure complete data recovery coverage.`)
   }
   if (hasBcdr) {
-    return result('cis-v8-11.1', ctx, 'partial', 'medium',
-      `BCDR backup active with ${(bcdrData?.deviceDetails ?? []).length} device(s). No SaaS backup data found for this customer.`,
-      ['datto_bcdr_backup'], ['datto_saas_backup'],
-      'Ensure SaaS backup (M365/Google) is also configured for complete data recovery.')
+    return result('cis-v8-11.1', ctx, bcdrNotUsed ? 'pass' : 'partial', 'medium',
+      `BCDR backup active with ${(bcdrData?.deviceDetails ?? []).length} device(s).`,
+      ['datto_bcdr_backup'], bcdrNotUsed ? [] : ['datto_saas_backup'],
+      bcdrNotUsed ? null : 'Deploy Datto SaaS Protect for M365 cloud data backup.')
   }
   if (hasSaas) {
+    const unprotected = saasData?.unprotectedSeats ?? 0
+    // If customer has no on-prem servers / BCDR not used, SaaS-only is complete coverage
+    if (bcdrNotUsed) {
+      return result('cis-v8-11.1', ctx, unprotected === 0 ? 'pass' : 'partial', unprotected === 0 ? 'high' : 'medium',
+        `SaaS backup active: ${saasData?.totalSeats} seat(s) (${saasData?.activeSeats ?? 0} active${unprotected > 0 ? `, ${unprotected} unprotected` : ', all protected'}). No on-prem servers — BCDR not required.`,
+        ['datto_saas_backup'], [],
+        unprotected > 0 ? `Protect the ${unprotected} unprotected seat(s).` : null)
+    }
     return result('cis-v8-11.1', ctx, 'partial', 'medium',
-      `SaaS backup active with ${saasData?.totalSeats} seat(s). No BCDR backup devices found for this customer.`,
+      `SaaS backup active with ${saasData?.totalSeats} seat(s). No BCDR backup devices found.`,
       ['datto_saas_backup'], ['datto_bcdr_backup'],
-      'Ensure server/endpoint backup (BCDR) is also configured for complete data recovery.')
+      'Deploy BCDR for on-premises server/workstation backup.')
   }
   return result('cis-v8-11.1', ctx, 'needs_review', 'low',
-    'Backup integrations are available but no matching devices/seats found for this customer. Verify company name mapping.',
+    'Backup integrations are available but no matching devices/seats found for this customer.',
     ['datto_bcdr_backup', 'datto_saas_backup'], [],
-    'Verify that the company name in Datto BCDR/SaaS Protect matches the company name in TCT.')
+    'Verify company name mapping in Platform Mapping.')
 }
 
 // --- 11.2 Perform Automated Backups ---
@@ -742,8 +754,17 @@ evaluators['cis-v8-11.2'] = (ctx: EvaluationContext): EvaluationResult => {
       sources, [])
   }
   if (backupLayers.length === 1) {
+    // Check if the missing layer is intentionally not used
+    const bcdrNotUsed = ctx.environment?.onPremServers === 'no_servers'
+      || ctx.environment?.scope?.backup === 'm365_only'
+    if (!hasBcdr && bcdrNotUsed) {
+      // SaaS-only is sufficient — no on-prem to back up
+      return result('cis-v8-11.2', ctx, 'pass', 'medium',
+        `Automated backup active: ${backupLayers[0]} No on-prem servers — BCDR not required.`,
+        sources, [])
+    }
     return result('cis-v8-11.2', ctx, 'partial', 'medium',
-      `Automated backup active: ${backupLayers[0]}. ${!hasBcdr ? 'On-premises/server backup (BCDR) not detected.' : 'Cloud/SaaS backup not detected.'}`,
+      `Automated backup active: ${backupLayers[0]}`,
       sources, hasBcdr ? ['datto_saas_backup'] : ['datto_bcdr_backup'],
       !hasBcdr ? 'Deploy Datto BCDR for server/workstation backup coverage.' : 'Deploy Datto SaaS Protect for M365 data backup.')
   }
@@ -1738,36 +1759,80 @@ evaluators['cis-v8-10.3'] = (ctx: EvaluationContext): EvaluationResult => {
     sources, [], 'Create an Intune configuration profile to explicitly disable autorun and autoplay for removable media.')
 }
 
-// 11.3 Protect Recovery Data — Datto BCDR encrypts backup data
+// 11.3 Protect Recovery Data — encryption of backup data
 evaluators['cis-v8-11.3'] = (ctx: EvaluationContext): EvaluationResult => {
   const bcdr = ctx.evidence.get('datto_bcdr_backup')
-  if (!bcdr) return noEvidence('cis-v8-11.3', ['datto_bcdr_backup'], ctx)
+  const saas = ctx.evidence.get('datto_saas_backup')
+  const bcdrNotUsed = ctx.environment?.onPremServers === 'no_servers'
+    || ctx.environment?.scope?.backup === 'm365_only'
 
-  const data = bcdr.rawData as { matched?: boolean; totalDevices?: number; applianceCount?: number }
-  if (data.matched) {
+  if (!bcdr && !saas) return noEvidence('cis-v8-11.3', ['datto_bcdr_backup', 'datto_saas_backup'], ctx)
+
+  const layers: string[] = []
+  const sources: string[] = []
+
+  const bcdrData = bcdr?.rawData as { matched?: boolean; totalDevices?: number; applianceCount?: number } | undefined
+  if (bcdrData?.matched) {
+    layers.push(`Datto BCDR: AES-256 encryption at rest, TLS in transit. ${bcdrData.applianceCount ?? 0} appliance(s) with encrypted offsite cloud replication.`)
+    sources.push('datto_bcdr_backup')
+  }
+  const saasData = saas?.rawData as { matched?: boolean; totalSeats?: number } | undefined
+  if (saasData?.matched && (saasData?.totalSeats ?? 0) > 0) {
+    layers.push(`Datto SaaS Protect: M365 backup data encrypted at rest and in transit. ${saasData.totalSeats} seat(s) protected in Datto's secure cloud.`)
+    sources.push('datto_saas_backup')
+  }
+
+  if (layers.length > 0) {
     return result('cis-v8-11.3', ctx, 'pass', 'high',
-      `Datto BCDR protects recovery data with AES-256 encryption at rest and TLS in transit. ${data.applianceCount ?? 0} appliance(s) with ${data.totalDevices ?? 0} protected device(s). Offsite cloud replication is encrypted end-to-end.`,
-      ['datto_bcdr_backup'], [])
+      `Recovery data protected:\n${layers.map((l, i) => `${i + 1}. ${l}`).join('\n')}`,
+      sources, [])
+  }
+  if (bcdrNotUsed) {
+    return result('cis-v8-11.3', ctx, 'needs_review', 'low',
+      'No on-prem servers — BCDR not applicable. Verify SaaS Protect encryption settings.',
+      [], [])
   }
   return result('cis-v8-11.3', ctx, 'needs_review', 'low',
-    'BCDR evidence exists but no matched devices. Verify backup encryption settings.',
-    ['datto_bcdr_backup'], [])
+    'Backup evidence exists but no matched devices. Verify backup encryption settings.',
+    sources, [])
 }
 
-// 11.4 Isolated Recovery Data — Datto cloud offsite = isolated copy
+// 11.4 Isolated Recovery Data — offsite/air-gapped backup copy
 evaluators['cis-v8-11.4'] = (ctx: EvaluationContext): EvaluationResult => {
   const bcdr = ctx.evidence.get('datto_bcdr_backup')
-  if (!bcdr) return noEvidence('cis-v8-11.4', ['datto_bcdr_backup'], ctx)
+  const saas = ctx.evidence.get('datto_saas_backup')
+  const bcdrNotUsed = ctx.environment?.onPremServers === 'no_servers'
+    || ctx.environment?.scope?.backup === 'm365_only'
 
-  const data = bcdr.rawData as { matched?: boolean; applianceCount?: number }
-  if (data.matched) {
+  if (!bcdr && !saas) return noEvidence('cis-v8-11.4', ['datto_bcdr_backup', 'datto_saas_backup'], ctx)
+
+  const layers: string[] = []
+  const sources: string[] = []
+
+  const bcdrData = bcdr?.rawData as { matched?: boolean; applianceCount?: number } | undefined
+  if (bcdrData?.matched) {
+    layers.push(`Datto BCDR: Offsite cloud replication to Datto's geographically separate infrastructure with instant virtualization capability.`)
+    sources.push('datto_bcdr_backup')
+  }
+  const saasData = saas?.rawData as { matched?: boolean; totalSeats?: number } | undefined
+  if (saasData?.matched && (saasData?.totalSeats ?? 0) > 0) {
+    layers.push(`Datto SaaS Protect: M365 data backed up to Datto's cloud (separate from Microsoft infrastructure), providing isolated recovery independent of the production M365 tenant.`)
+    sources.push('datto_saas_backup')
+  }
+
+  if (layers.length > 0) {
     return result('cis-v8-11.4', ctx, 'pass', 'high',
-      `Datto BCDR maintains an isolated instance of recovery data via Datto Cloud offsite replication. ${data.applianceCount ?? 0} appliance(s) replicate to Datto's geographically separate cloud infrastructure, providing an air-gapped recovery option with instant virtualization capability.`,
-      ['datto_bcdr_backup'], [])
+      `Recovery data isolated:\n${layers.map((l, i) => `${i + 1}. ${l}`).join('\n')}`,
+      sources, [])
+  }
+  if (bcdrNotUsed) {
+    return result('cis-v8-11.4', ctx, 'needs_review', 'low',
+      'No on-prem servers — verify SaaS Protect provides isolated recovery.',
+      [], [])
   }
   return result('cis-v8-11.4', ctx, 'needs_review', 'low',
-    'BCDR evidence exists but no matched devices. Verify offsite replication is configured.',
-    ['datto_bcdr_backup'], [])
+    'Backup evidence exists but no matched devices. Verify offsite replication.',
+    sources, [])
 }
 
 // 12.1 Network Infrastructure Up-to-Date — Domotz + Ubiquiti monitor network devices
