@@ -7,15 +7,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { DattoRmmClient } from '@/lib/datto-rmm';
 import { matchesCompanyName } from '@/utils';
+import { checkSecretAuth } from '@/lib/api-auth';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
 export async function GET(request: NextRequest) {
-  const secret = request.nextUrl.searchParams.get('secret');
-  if (secret !== process.env.MIGRATION_SECRET) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const denied = checkSecretAuth(request);
+  if (denied) return denied;
 
   const results: Record<string, unknown> = {};
   const client = new DattoRmmClient();

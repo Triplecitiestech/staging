@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { classifyError } from '@/lib/resilience'
 import { getPool } from '@/lib/db-pool'
 import {
   createGraphClient,
@@ -329,9 +330,19 @@ async function handleCron(request: NextRequest) {
       results,
     })
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    console.error('[cron/process-scheduled] Cron error:', msg)
-    return NextResponse.json({ error: msg }, { status: 500 })
+    const classified = classifyError(err)
+    console.error('[cron/process-scheduled] Cron error:', classified.message)
+
+    if (classified.isTransient) {
+      return NextResponse.json({
+        success: false,
+        transient: true,
+        error: classified.message,
+        errorCategory: classified.category,
+      })
+    }
+
+    return NextResponse.json({ error: classified.message }, { status: 500 })
   } finally {
     client.release()
   }

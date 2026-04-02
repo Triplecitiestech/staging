@@ -1,18 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { checkSecretAuth } from '@/lib/api-auth';
 
 export const dynamic = 'force-dynamic';
 
 /**
  * Diagnostic endpoint to verify environment variable availability.
- * GET /api/reports/diagnose-env?secret=MIGRATION_SECRET
- *
- * Reports whether required env vars are set (never prints values).
+ * GET /api/reports/diagnose-env
+ * Authorization: Bearer <MIGRATION_SECRET>  (preferred)
+ * OR: ?secret=MIGRATION_SECRET  (legacy)
  */
 export async function GET(request: NextRequest) {
-  const secret = request.nextUrl.searchParams.get('secret');
-  if (!secret || secret !== process.env.MIGRATION_SECRET) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const denied = checkSecretAuth(request);
+  if (denied) return denied;
 
   const check = (name: string) => ({
     name,
