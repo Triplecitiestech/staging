@@ -226,6 +226,51 @@ export async function GET(request: NextRequest) {
         }
       }
       results.rawTests = rawTests
+    } else if (collector === 'rmm_patches') {
+      // Debug: probe per-device patch endpoint to see raw data structure
+      if (!process.env.DATTO_RMM_API_KEY || !process.env.DATTO_RMM_API_SECRET) {
+        return NextResponse.json({ ...results, error: 'Datto RMM not configured' })
+      }
+      const { DattoRmmClient } = await import('@/lib/datto-rmm')
+      const { matchesCompanyName } = await import('@/utils')
+      const client = new DattoRmmClient()
+      const sites = await client.getSites()
+      const matchedSites = sites.filter((s) => matchesCompanyName(companyName, s.name))
+      results.matchedSites = matchedSites.length
+
+      if (matchedSites.length > 0) {
+        const devices = await client.getSiteDevices(matchedSites[0].uid)
+        results.deviceCount = devices.length
+        // Get patch details for first 2 devices
+        const patchSamples: Array<{ hostname: string; deviceId: string; patchData: unknown }> = []
+        for (const d of devices.slice(0, 2)) {
+          try {
+            const patchData = await client.getDevicePatch(d.id)
+            patchSamples.push({
+              hostname: d.hostname,
+              deviceId: d.id,
+              patchData: JSON.stringify(patchData).substring(0, 2000),
+            })
+          } catch (err) {
+            patchSamples.push({
+              hostname: d.hostname,
+              deviceId: d.id,
+              patchData: `Error: ${err instanceof Error ? err.message : String(err)}`,
+            })
+          }
+        }
+        results.patchSamples = patchSamples
+        // Also show device-level patch summary
+        results.devicePatchSummary = devices.slice(0, 5).map((d) => ({
+          hostname: d.hostname,
+          deviceId: d.id,
+          os: d.operatingSystem,
+          patchStatus: d.patchStatus,
+          installed: d.patchesInstalled,
+          pending: d.patchesApprovedPending,
+          notApproved: d.patchesNotApproved,
+        }))
+      }
     } else if (collector === 'policies') {
       // Debug: check if controlDetails are populated in policy analyses
       const { getPool } = await import('@/lib/db-pool')
