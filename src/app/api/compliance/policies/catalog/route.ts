@@ -48,9 +48,41 @@ export async function GET(request: NextRequest) {
   }
 
   // With companyId: build a needs analysis
-  await ensureComplianceTables()
+  try { await ensureComplianceTables() } catch (e) {
+    console.warn('[compliance/policies/catalog] ensureComplianceTables failed:', e instanceof Error ? e.message : e)
+  }
+
   const pool = getPool()
-  const client = await pool.connect()
+  let client: import('pg').PoolClient | null = null
+
+  try {
+    client = await pool.connect()
+  } catch (connErr) {
+    // If DB connection fails, return catalog without per-company status
+    console.error('[compliance/policies/catalog] DB connection failed:', connErr instanceof Error ? connErr.message : connErr)
+    const controlCounts = getControlCountByPolicy(frameworkIds.length > 0 ? frameworkIds : ['cis-v8'])
+    const requiredPolicies: PolicyNeedItem[] = catalog.map((item) => ({
+      slug: item.slug,
+      name: item.name,
+      category: item.category,
+      requirement: 'required' as const,
+      frameworks: item.frameworkRelevance.map((r) => r.frameworkId),
+      status: 'missing' as PolicyGenStatus,
+      existingPolicyId: null,
+      controlCount: controlCounts.get(item.slug) ?? 0,
+      lastUpdated: null,
+    }))
+    return NextResponse.json({
+      success: true,
+      data: {
+        companyId,
+        companyName: 'Unknown',
+        selectedFrameworks: frameworkIds,
+        requiredPolicies,
+        stats: { totalRequired: requiredPolicies.length, existing: 0, missing: requiredPolicies.length, drafts: 0, approved: 0, intakeNeeded: 0 },
+      } satisfies PolicyNeedsAnalysis,
+    })
+  }
 
   try {
     // Get company name
@@ -159,7 +191,7 @@ export async function GET(request: NextRequest) {
       error: `Failed to load catalog: ${err instanceof Error ? err.message : String(err)}`,
     }, { status: 500 })
   } finally {
-    client.release()
+    client?.release()
   }
 }
 
