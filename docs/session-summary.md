@@ -1,56 +1,72 @@
 # Session Summary
 
-> Last updated: 2026-04-02 (Session 2 — final)
-> Branch: `claude/fix-unicode-compliance-engine-wnzk8`
-> Latest commit: `4e90c1d` — Improve 7.x evaluators with per-device detail
+> Last updated: 2026-04-02 (Session 3)
+> Branch: `claude/compliance-policy-generation-uaxkJ`
+> Latest commit: `cea3819` — Add compliance policy generation system (Phase 1)
 
 ## What Was Built This Session
 
+### Compliance Policy Generation System (Phase 1)
+
+Built a complete policy generation workflow system inside the compliance engine:
+
+**Core Data Model (`src/lib/compliance/policy-generation/`)**
+- **Master Policy Catalog** — 30+ policy types across 9 categories (governance, access-control, data-protection, operations, incident-response, human-resources, vendor-management, technical, compliance-specific)
+- **Framework-to-Policy Mappings** — ~120 mappings connecting CIS v8, HIPAA, NIST 800-171, CMMC L1/L2 controls to specific policy types with coverage type (full/partial/supporting)
+- **Type System** — Full TypeScript types for catalog items, framework mappings, questionnaire definitions, generation records, version history, export formats, and document storage provider interface
+
+**Questionnaire / Intake Engine**
+- **Organization Profile** — 30+ questions covering company identity, regulatory scope, operational context, security posture, governance, and technology (filled once, shared across all policies)
+- **Policy-Specific Questions** — Conditional questions for ~12 policy types (incident response contacts, HIPAA officers, VPN config, password requirements, etc.)
+- **Adaptive Logic** — Conditional display, pre-fill from org profile, completion percentage tracking
+- **Persistence** — `policy_org_profiles` and `policy_intake_answers` tables with upsert
+
+**AI Generation Engine**
+- Generates complete, company-specific policies using Claude Sonnet 4
+- System prompt enforces professional formatting, completeness, company-specific language
+- Builds detailed context from org profile + policy answers + framework controls
+- Supports 5 modes: new, improve, update-framework, standardize, fill-missing
+- Input hashing for change detection
+- Version tracking in `policy_versions` table
+
+**Export Pipeline**
+- HTML export with print-ready professional styling (header, metadata grid, footer)
+- Markdown export for raw text
+- Individual policy download
+- Full bundle download (all policies)
+- Document Storage Provider abstraction with stubs for SharePoint and IT Glue (Phase 2)
+
+**Database Tables (4 new, raw SQL via ensure-tables.ts)**
+- `policy_org_profiles` — company-wide questionnaire answers
+- `policy_intake_answers` — per-policy questionnaire answers
+- `policy_generation_records` — workflow state per company+policy
+- `policy_versions` — immutable version history with audit trail
+
+**API Routes (4 new)**
+- `GET /api/compliance/policies/catalog` — catalog + needs analysis with status per company
+- `GET/POST /api/compliance/policies/questionnaire` — load/save questionnaire answers
+- `POST/PATCH /api/compliance/policies/generate` — AI generation + status management (approve/reject)
+- `GET /api/compliance/policies/export` — download individual or bundle (HTML/MD)
+
+**UI Components**
+- **PolicyGenerationDashboard** — Full workspace with 3 views: overview, org-profile, policy-detail
+- Overview: framework selector, stats cards, policy list grouped by category with status badges
+- Org Profile: form with all questions, completion bar, save
+- Policy Detail: intake questions, generate button, content preview, approve/download
+- Wired into ComplianceDashboard as "Policy Generation" tab
+
+## Previous Session Work (preserved)
+
 ### Critical Fix: Cross-Customer Data Isolation + Platform Mapping
-- **Platform Mapping system** — New `compliance_platform_mappings` table, API, and UI tab. Admin explicitly maps each customer to their sites/orgs/devices in each platform. All 9 MSP collectors updated to use explicit mappings, falling back to name matching when unmapped. "Not Used" option skips collection entirely.
-- **Ubiquiti** — Was returning all 88 MSP sites. Now filters by mapped console/host name.
-- **BCDR** — Skipped when setup wizard says no on-prem servers. Shows individual devices in mapping.
-- **SaaS Protect** — Split into its own collector (was inside BCDR, died when BCDR skipped).
-- **EDR** — New collector with org-filtered alerts. Platform mapping uses `/Organizations` endpoint.
-- **DNSFilter** — Rewrote collector: uses orgs/networks/policies (traffic endpoints don't exist). Supports roaming clients.
-- **SaaS Alerts** — Blocked by Cloudflare. Built webhook receiver at `/api/compliance/webhooks/saas-alerts`. Support ticket submitted to Kaseya.
+- Platform Mapping system, all 9 MSP collectors updated
+- Policy Coverage Logic fixes, evaluator improvements
+- Unicode fixes, UI improvements
 
-### Policy Coverage Logic Fixes
-- `needs_review` controls upgrade to `pass` when uploaded policies satisfy them
-- `partial` documentation controls (IT Glue missing) upgrade when policies provide the documentation
-- Controls with technical evidence show full policy quotes (not just names)
-- Assessment results formatted with structured policy sections, numbered lists
-
-### Evaluator Improvements
-- **11.x**: SaaS-only passes for cloud customers (no BCDR recommendation when not used)
-- **11.3/11.4**: Now check both BCDR and SaaS Protect for encryption/isolation
-- **7.x**: Per-device patch detail (lists unpatched device hostnames with pending counts)
-- **10.2**: New evaluator for anti-malware signature updates
-- **9.2**: DNSFilter passes on org existence (roaming clients don't need network-level filtering)
-- **17.x**: Pass via uploaded SIRP/incident response policies
-
-### UI Fixes
-- Unicode entities fixed in PolicyManager
-- Policy analysis timestamps on cards
-- controlDetails with quotes shown in expanded policy view
-- FormattedReasoning component for assessment results
-- Re-analyze race condition fixed
-
-## Verified Working (EZ Red Assessment 4/1/2026)
-- EDR: "EZ Red" — 29 devices, 43 security events ✅
-- SaaS Protect: 57 seats (56 active, 0 unprotected) ✅
-- DNSFilter: "EZ Red" — org configured, 4 policies ✅
-- Datto RMM: 27 devices, per-device patch detail ✅
-- Ubiquiti: Filtered to customer console only ✅
-- BCDR: Correctly skipped (not used) ✅
-- 11.1-11.4: All pass with SaaS Protect evidence ✅
-- Policy quotes showing in assessment results ✅
-- Platform Mapping: All 9 platforms visible and mappable ✅
-
-## Architecture Notes
-- `compliance_platform_mappings` — explicit per-company bindings replace name matching
-- `compliance_webhook_events` — stores inbound webhook events (90-day TTL)
-- SaaS Protect collector is independent from BCDR collector
-- Environment context loaded in Phase 1 (was Phase 3) for collector decisions
-- `applyPolicyCoverage` checks `missingEvidence` source types to determine if partial→pass upgrade is allowed
-- TypeScript: always use `Array.from()` for Set iteration (no downlevelIteration)
+## Architecture Notes (new)
+- Policy catalog is code-defined (not DB) — add new policy types in `catalog.ts`
+- Framework mappings in `framework-mappings.ts` — add new frameworks by appending to array
+- Generated policies stored in existing `compliance_policies` table with `source='generated'`
+- Version history is immutable — every generation creates a new `policy_versions` row
+- Questionnaire is two-tier: org profile (global) + policy-specific (per-policy)
+- Export uses lightweight Markdown→HTML converter (no external dependencies)
+- Storage provider interface ready for SharePoint/IT Glue integration
