@@ -66,45 +66,55 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Company not found' }, { status: 404 })
       }
 
-      // Load org profile answers
-      const orgRes = await client.query<{ answers: Record<string, string | string[] | boolean> }>(
-        `SELECT answers FROM policy_org_profiles WHERE "companyId" = $1`,
-        [body.companyId]
-      )
-      const orgProfile = orgRes.rows[0]?.answers ?? {}
+      // Load org profile answers (graceful if table doesn't exist)
+      let orgProfile: Record<string, string | string[] | boolean> = {}
+      try {
+        const orgRes = await client.query<{ answers: Record<string, string | string[] | boolean> }>(
+          `SELECT answers FROM policy_org_profiles WHERE "companyId" = $1`,
+          [body.companyId]
+        )
+        orgProfile = orgRes.rows[0]?.answers ?? {}
+      } catch { /* table may not exist — use empty profile */ }
 
       // Pre-fill org_legal_name
       if (!orgProfile.org_legal_name) {
         orgProfile.org_legal_name = companyName
       }
 
-      // Load policy-specific answers
-      const policyRes = await client.query<{ answers: Record<string, string | string[] | boolean> }>(
-        `SELECT answers FROM policy_intake_answers WHERE "companyId" = $1 AND "policySlug" = $2`,
-        [body.companyId, body.policySlug]
-      )
-      const policyAnswers = policyRes.rows[0]?.answers ?? {}
+      // Load policy-specific answers (graceful if table doesn't exist)
+      let policyAnswers: Record<string, string | string[] | boolean> = {}
+      try {
+        const policyRes = await client.query<{ answers: Record<string, string | string[] | boolean> }>(
+          `SELECT answers FROM policy_intake_answers WHERE "companyId" = $1 AND "policySlug" = $2`,
+          [body.companyId, body.policySlug]
+        )
+        policyAnswers = policyRes.rows[0]?.answers ?? {}
+      } catch { /* table may not exist — use empty answers */ }
 
       // Load existing content if mode requires it
       let existingContent: string | undefined
       if (mode !== 'new') {
-        const existingRes = await client.query<{ content: string }>(
-          `SELECT cp.content FROM policy_generation_records pgr
-           JOIN compliance_policies cp ON cp.id = pgr."policyId"
-           WHERE pgr."companyId" = $1 AND pgr."policySlug" = $2 AND pgr."policyId" IS NOT NULL`,
-          [body.companyId, body.policySlug]
-        )
-        existingContent = existingRes.rows[0]?.content
+        try {
+          const existingRes = await client.query<{ content: string }>(
+            `SELECT cp.content FROM policy_generation_records pgr
+             JOIN compliance_policies cp ON cp.id = pgr."policyId"
+             WHERE pgr."companyId" = $1 AND pgr."policySlug" = $2 AND pgr."policyId" IS NOT NULL`,
+            [body.companyId, body.policySlug]
+          )
+          existingContent = existingRes.rows[0]?.content
+        } catch { /* table may not exist */ }
       }
 
-      // Update generation record to "generating"
-      await client.query(
-        `INSERT INTO policy_generation_records ("companyId", "policySlug", status, "updatedAt")
-         VALUES ($1, $2, 'generating', NOW())
-         ON CONFLICT ("companyId", "policySlug")
-         DO UPDATE SET status = 'generating', "updatedAt" = NOW()`,
-        [body.companyId, body.policySlug]
-      )
+      // Update generation record to "generating" (graceful if table doesn't exist)
+      try {
+        await client.query(
+          `INSERT INTO policy_generation_records ("companyId", "policySlug", status, "updatedAt")
+           VALUES ($1, $2, 'generating', NOW())
+           ON CONFLICT ("companyId", "policySlug")
+           DO UPDATE SET status = 'generating', "updatedAt" = NOW()`,
+          [body.companyId, body.policySlug]
+        )
+      } catch { /* table may not exist — skip status tracking */ }
 
       // Generate the policy
       const result = await generatePolicy({
@@ -133,41 +143,48 @@ export async function POST(request: NextRequest) {
       )
       const policyId = policyInsert.rows[0].id
 
-      // Get current version number
-      const versionRes = await client.query<{ version: number }>(
-        `SELECT COALESCE(MAX(version), 0) as version FROM policy_versions
-         WHERE "companyId" = $1 AND "policySlug" = $2`,
-        [body.companyId, body.policySlug]
-      )
-      const newVersion = (versionRes.rows[0]?.version ?? 0) + 1
+      // Track version and generation record (graceful if tables don't exist)
+      let newVersion = 1
+      try {
+        const versionRes = await client.query<{ version: number }>(
+          `SELECT COALESCE(MAX(version), 0) as version FROM policy_versions
+           WHERE "companyId" = $1 AND "policySlug" = $2`,
+          [body.companyId, body.policySlug]
+        )
+        newVersion = (versionRes.rows[0]?.version ?? 0) + 1
 
-      // Create version record
-      await client.query(
-        `INSERT INTO policy_versions ("companyId", "policySlug", version, "policyId", content, status, "inputSnapshot", "generatedAt", "generatedBy")
-         VALUES ($1, $2, $3, $4, $5, 'draft', $6::jsonb, NOW(), $7)`,
-        [
-          body.companyId, body.policySlug, newVersion, policyId,
-          result.content,
-          JSON.stringify({ orgProfile, policyAnswers, frameworks, mode }),
-          session.user.email,
-        ]
-      )
+        await client.query(
+          `INSERT INTO policy_versions ("companyId", "policySlug", version, "policyId", content, status, "inputSnapshot", "generatedAt", "generatedBy")
+           VALUES ($1, $2, $3, $4, $5, 'draft', $6::jsonb, NOW(), $7)`,
+          [
+            body.companyId, body.policySlug, newVersion, policyId,
+            result.content,
+            JSON.stringify({ orgProfile, policyAnswers, frameworks, mode }),
+            session.user.email,
+          ]
+        )
+      } catch (vErr) {
+        console.warn('[compliance/policies/generate] policy_versions write failed:', vErr instanceof Error ? vErr.message : vErr)
+      }
 
-      // Update generation record
-      await client.query(
-        `UPDATE policy_generation_records
-         SET status = 'draft', "policyId" = $1, version = $2,
-             "inputSnapshot" = $3::jsonb, "inputHash" = $4,
-             "generatedAt" = NOW(), "generatedBy" = $5, "updatedAt" = NOW()
-         WHERE "companyId" = $6 AND "policySlug" = $7`,
-        [
-          policyId, newVersion,
-          JSON.stringify({ orgProfile, policyAnswers, frameworks, mode }),
-          result.inputHash,
-          session.user.email,
-          body.companyId, body.policySlug,
-        ]
-      )
+      try {
+        await client.query(
+          `UPDATE policy_generation_records
+           SET status = 'draft', "policyId" = $1, version = $2,
+               "inputSnapshot" = $3::jsonb, "inputHash" = $4,
+               "generatedAt" = NOW(), "generatedBy" = $5, "updatedAt" = NOW()
+           WHERE "companyId" = $6 AND "policySlug" = $7`,
+          [
+            policyId, newVersion,
+            JSON.stringify({ orgProfile, policyAnswers, frameworks, mode }),
+            result.inputHash,
+            session.user.email,
+            body.companyId, body.policySlug,
+          ]
+        )
+      } catch (rErr) {
+        console.warn('[compliance/policies/generate] policy_generation_records write failed:', rErr instanceof Error ? rErr.message : rErr)
+      }
 
       return NextResponse.json({
         success: true,

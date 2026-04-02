@@ -218,9 +218,9 @@ export default function PolicyGenerationDashboard({
     setGeneratedContent(null)
     setError(null)
     try {
-      // Save answers first
-      await savePolicyAnswers()
-      await saveOrgProfile()
+      // Save answers first (ignore failures — tables may not exist yet)
+      try { await savePolicyAnswers() } catch { /* ignore */ }
+      try { await saveOrgProfile() } catch { /* ignore */ }
 
       const res = await fetch('/api/compliance/policies/generate', {
         method: 'POST',
@@ -232,6 +232,14 @@ export default function PolicyGenerationDashboard({
           frameworks: selectedFrameworks,
         }),
       })
+
+      // Handle non-JSON responses (Vercel error pages, timeouts)
+      const contentType = res.headers.get('content-type') ?? ''
+      if (!contentType.includes('application/json')) {
+        const text = await res.text()
+        throw new Error(`Server error (${res.status}): ${text.substring(0, 200)}`)
+      }
+
       const json = await res.json()
       if (!json.success) throw new Error(json.error)
       setGeneratedContent(json.data.content)
