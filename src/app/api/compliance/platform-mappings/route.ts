@@ -167,7 +167,32 @@ async function listPlatformSources(platform: string): Promise<SourceItem[]> {
     }
 
     case 'datto_edr': {
-      // EDR is MSP-wide — no per-customer selection needed, just mark as deployed or not used
+      if (!process.env.DATTO_EDR_API_TOKEN) throw new Error('Datto EDR not configured')
+      const edrToken = process.env.DATTO_EDR_API_TOKEN
+      const edrUrl = (process.env.DATTO_EDR_API_URL || 'https://triple5695.infocyte.com/api').replace(/\/$/, '')
+      const sep = '?'
+      const tokenParam = `access_token=${encodeURIComponent(edrToken)}`
+
+      // Try TargetGroups first (how Infocyte organizes customers/sites)
+      try {
+        const tgRes = await fetch(`${edrUrl}/TargetGroups${sep}${tokenParam}`, {
+          headers: { Authorization: edrToken, Accept: 'application/json' },
+          signal: AbortSignal.timeout(15_000),
+        })
+        if (tgRes.ok) {
+          const tgData = await tgRes.json() as Array<{ id?: string; name?: string; description?: string; agentCount?: number }>
+          if (Array.isArray(tgData) && tgData.length > 0) {
+            return tgData.map((tg) => ({
+              id: String(tg.id ?? tg.name ?? 'unknown'),
+              name: tg.name ?? 'Unknown',
+              type: 'target_group',
+              detail: tg.description || (tg.agentCount ? `${tg.agentCount} agent(s)` : undefined),
+            }))
+          }
+        }
+      } catch { /* continue to fallback */ }
+
+      // Fallback: MSP-wide single entry
       return [{ id: 'msp_wide', name: 'All Managed Endpoints (MSP-wide)', type: 'instance', detail: 'EDR covers all endpoints managed by TCT' }]
     }
 
