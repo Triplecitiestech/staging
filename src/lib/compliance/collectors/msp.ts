@@ -147,9 +147,9 @@ export async function collectDattoRmmEvidence(
             operatingSystem: d.operatingSystem,
             deviceType: d.deviceType,
             patchStatus: d.patchStatus,
+            patchesInstalled: d.patchesInstalled,
             patchesApprovedPending: d.patchesApprovedPending,
-            antivirusProduct: d.antivirusProduct,
-            antivirusStatus: d.antivirusStatus,
+            patchesNotApproved: d.patchesNotApproved,
             lastSeen: d.lastSeen,
             online: d.online,
             rebootRequired: d.rebootRequired,
@@ -162,6 +162,10 @@ export async function collectDattoRmmEvidence(
 
     const onlineDevices = allDevices.filter((d) => d.online)
     const patchedDevices = allDevices.filter((d) => d.patchesApprovedPending === 0)
+    const unpatchedDevices = allDevices.filter((d) => (d.patchesApprovedPending as number) > 0)
+    const rebootNeeded = allDevices.filter((d) => d.rebootRequired)
+
+    const patchRate = allDevices.length > 0 ? Math.round((patchedDevices.length / allDevices.length) * 100) : 0
 
     evidence.push(buildEvidence(assessmentId, companyId, 'datto_rmm_devices', {
       matched: true,
@@ -170,9 +174,19 @@ export async function collectDattoRmmEvidence(
       totalDevices: allDevices.length,
       onlineDevices: onlineDevices.length,
       patchedDevices: patchedDevices.length,
-      patchRate: allDevices.length > 0 ? Math.round((patchedDevices.length / allDevices.length) * 100) : 0,
-      devices: allDevices.slice(0, 50), // cap at 50 for storage
-    }, `${allDevices.length} devices across ${matchedSites.length} site(s). ${patchedDevices.length} fully patched (${allDevices.length > 0 ? Math.round((patchedDevices.length / allDevices.length) * 100) : 0}% patch rate).`))
+      unpatchedDevices: unpatchedDevices.length,
+      rebootRequired: rebootNeeded.length,
+      patchRate,
+      // Per-device detail for evidence transparency
+      unpatchedDeviceList: unpatchedDevices.slice(0, 20).map((d) => ({
+        hostname: d.hostname,
+        os: d.operatingSystem,
+        pending: d.patchesApprovedPending,
+        notApproved: d.patchesNotApproved,
+      })),
+      devices: allDevices.slice(0, 50),
+      note: 'Patch rate covers all RMM-managed patches (OS + third-party applications). Datto RMM manages both Windows Update and third-party application patching through unified patch policies.',
+    }, `${allDevices.length} devices, ${patchedDevices.length} fully patched (${patchRate}%). ${unpatchedDevices.length} with pending patches${rebootNeeded.length > 0 ? `, ${rebootNeeded.length} awaiting reboot` : ''}.`))
 
     return { evidence, errors }
   } catch (err) {
