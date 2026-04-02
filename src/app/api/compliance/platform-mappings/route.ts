@@ -177,18 +177,18 @@ async function listPlatformSources(platform: string): Promise<SourceItem[]> {
       const saasClient = new DattoSaasClient()
       const domains = await saasClient.getCustomerDomains()
       // Group by unique customer name
-      const customerMap = new Map<string, { id: number; domain: string; seats: number }>()
+      const customerMap = new Map<string, { id: number; domain: string }>()
       for (const d of domains) {
         const name = d.saasCustomerName || d.organizationName || 'Unknown'
         if (!customerMap.has(name)) {
-          customerMap.set(name, { id: d.saasCustomerId, domain: d.domain, seats: d.seatsUsed ?? 0 })
+          customerMap.set(name, { id: d.saasCustomerId, domain: d.domain })
         }
       }
       return Array.from(customerMap.entries()).map(([name, info]) => ({
         id: String(info.id),
         name,
         type: 'customer',
-        detail: `Domain: ${info.domain}${info.seats ? ` | ${info.seats} seats` : ''}`,
+        detail: `Domain: ${info.domain}`,
       }))
     }
 
