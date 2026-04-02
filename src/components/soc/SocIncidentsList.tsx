@@ -39,25 +39,29 @@ export default function SocIncidentsList() {
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
 
-  const fetchIncidents = useCallback(async () => {
+  const fetchIncidents = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)
     try {
       const params = new URLSearchParams({ page: String(page), limit: '25' })
       if (statusFilter) params.set('status', statusFilter)
-      const res = await fetch(`/api/soc/incidents?${params}`)
+      const res = await fetch(`/api/soc/incidents?${params}`, { signal })
       if (res.ok) {
         const data = await res.json()
         setIncidents(data.incidents || [])
         setTotalPages(data.pagination?.pages || 1)
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
     } finally {
       setLoading(false)
     }
   }, [page, statusFilter])
 
-  useEffect(() => { fetchIncidents() }, [fetchIncidents])
+  useEffect(() => {
+    const controller = new AbortController()
+    fetchIncidents(controller.signal)
+    return () => controller.abort()
+  }, [fetchIncidents])
 
   const verdictBadge = (verdict: string | null) => {
     const colors: Record<string, string> = {

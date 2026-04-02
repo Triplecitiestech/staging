@@ -70,17 +70,18 @@ export default function PipelineStatus() {
   const [lastRunResults, setLastRunResults] = useState<RunResult[] | null>(null)
   const [lastRunSummary, setLastRunSummary] = useState<string | null>(null)
 
-  const fetchData = useCallback(async () => {
+  const fetchDataImpl = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch('/api/reports/status')
+      const res = await fetch('/api/reports/status', { signal })
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}))
         throw new Error(errData.error || `Failed to load status (HTTP ${res.status})`)
       }
       setData(await res.json())
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
       const msg = err instanceof Error ? err.message : 'Unknown error'
       console.error('[PipelineStatus] Failed to load:', msg)
       setError(msg)
@@ -88,7 +89,13 @@ export default function PipelineStatus() {
     setLoading(false)
   }, [])
 
-  useEffect(() => { fetchData() }, [fetchData])
+  const fetchData = useCallback(() => fetchDataImpl(), [fetchDataImpl])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    fetchDataImpl(controller.signal)
+    return () => controller.abort()
+  }, [fetchDataImpl])
 
   const runSingleJob = async (jobName: string): Promise<RunResult> => {
     try {

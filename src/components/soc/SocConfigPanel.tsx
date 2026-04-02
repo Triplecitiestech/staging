@@ -32,20 +32,22 @@ export default function SocConfigPanel() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    const controller = new AbortController()
     const fetchConfig = async () => {
       try {
-        const res = await fetch('/api/soc/status')
+        const res = await fetch('/api/soc/status', { signal: controller.signal })
         if (res.ok) {
           const data = await res.json()
           setConfig(data.config || {})
         }
-      } catch {
-        // ignore
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return
       } finally {
         setLoading(false)
       }
     }
     fetchConfig()
+    return () => controller.abort()
   }, [])
 
   const handleSave = async (key: string, value: string) => {

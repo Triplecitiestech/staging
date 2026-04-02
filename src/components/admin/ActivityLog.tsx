@@ -19,12 +19,16 @@ export default function ActivityLog({ projectId }: { projectId: string }) {
 
   useEffect(() => {
     if (!isOpen) return
-    fetch(`/api/audit-log?projectId=${projectId}`)
+    const controller = new AbortController()
+    fetch(`/api/audit-log?projectId=${projectId}`, { signal: controller.signal })
       .then(r => r.json())
       .then(data => {
         if (Array.isArray(data)) setLogs(data)
       })
-      .catch(() => {})
+      .catch((err) => {
+        if (err instanceof DOMException && err.name === 'AbortError') return
+      })
+    return () => controller.abort()
   }, [isOpen, projectId])
 
   const getActionLabel = (action: string) => {
