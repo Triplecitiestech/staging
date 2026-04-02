@@ -39,7 +39,9 @@ interface PlatformMappingPanelProps {
 
 const PLATFORMS = [
   'datto_rmm',
+  'datto_edr',
   'datto_bcdr',
+  'datto_saas',
   'ubiquiti',
   'domotz',
   'it_glue',

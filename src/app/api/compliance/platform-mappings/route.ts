@@ -18,7 +18,9 @@ export const maxDuration = 30
 // Platform definitions — what each platform calls its grouping
 const PLATFORM_META: Record<string, { label: string; itemLabel: string }> = {
   datto_rmm: { label: 'Datto RMM', itemLabel: 'Site' },
+  datto_edr: { label: 'Datto EDR', itemLabel: 'Instance' },
   datto_bcdr: { label: 'Datto BCDR', itemLabel: 'Client / Device' },
+  datto_saas: { label: 'Datto SaaS Protect', itemLabel: 'Customer' },
   ubiquiti: { label: 'Ubiquiti UniFi', itemLabel: 'Console' },
   domotz: { label: 'Domotz', itemLabel: 'Agent' },
   it_glue: { label: 'IT Glue', itemLabel: 'Organization' },
@@ -161,6 +163,32 @@ async function listPlatformSources(platform: string): Promise<SourceItem[]> {
         name: s.name,
         type: 'site',
         detail: `${s.devicesCount ?? 0} devices`,
+      }))
+    }
+
+    case 'datto_edr': {
+      // EDR is MSP-wide — no per-customer selection needed, just mark as deployed or not used
+      return [{ id: 'msp_wide', name: 'All Managed Endpoints (MSP-wide)', type: 'instance', detail: 'EDR covers all endpoints managed by TCT' }]
+    }
+
+    case 'datto_saas': {
+      if (!process.env.DATTO_BCDR_PUBLIC_KEY || !process.env.DATTO_BCDR_PRIVATE_KEY) throw new Error('Datto SaaS Protect not configured (uses BCDR credentials)')
+      const { DattoSaasClient } = await import('@/lib/datto-saas')
+      const saasClient = new DattoSaasClient()
+      const domains = await saasClient.getCustomerDomains()
+      // Group by unique customer name
+      const customerMap = new Map<string, { id: number; domain: string; seats: number }>()
+      for (const d of domains) {
+        const name = d.saasCustomerName || d.organizationName || 'Unknown'
+        if (!customerMap.has(name)) {
+          customerMap.set(name, { id: d.saasCustomerId, domain: d.domain, seats: d.seatsUsed ?? 0 })
+        }
+      }
+      return Array.from(customerMap.entries()).map(([name, info]) => ({
+        id: String(info.id),
+        name,
+        type: 'customer',
+        detail: `Domain: ${info.domain}${info.seats ? ` | ${info.seats} seats` : ''}`,
       }))
     }
 

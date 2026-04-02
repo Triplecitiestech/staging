@@ -17,7 +17,7 @@ import { getPool } from '@/lib/db-pool'
 import type { PoolClient } from 'pg'
 import { ensureComplianceTables } from './ensure-tables'
 import { collectGraphEvidence } from './collectors/graph'
-import { collectDattoRmmEvidence, collectDattoBcdrEvidence, collectDnsFilterEvidence, collectDomotzEvidence, collectItGlueEvidence, collectSaasAlertsEvidence, collectUbiquitiEvidence, collectMyItProcessEvidence } from './collectors/msp'
+import { collectDattoRmmEvidence, collectDattoBcdrEvidence, collectDattoEdrEvidence, collectDnsFilterEvidence, collectDomotzEvidence, collectItGlueEvidence, collectSaasAlertsEvidence, collectUbiquitiEvidence, collectMyItProcessEvidence } from './collectors/msp'
 import { CIS_V8_FRAMEWORK, CIS_V8_EVALUATORS, applyPolicyCoverage } from './frameworks/cis-v8'
 import {
   compareControlIds,
@@ -646,6 +646,10 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
   if (availableConnectors.has('datto_rmm')) {
     collectors.push({ name: 'Datto RMM', connector: 'datto_rmm',
       fn: () => collectDattoRmmEvidence(assessment.companyId, assessmentId) })
+  }
+  if (availableConnectors.has('datto_edr')) {
+    collectors.push({ name: 'Datto EDR', connector: 'datto_edr',
+      fn: () => collectDattoEdrEvidence(assessment.companyId, assessmentId) })
   }
   if (availableConnectors.has('datto_bcdr')) {
     // Skip BCDR collection if setup wizard says no on-prem servers or backup scope is M365-only

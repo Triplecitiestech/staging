@@ -268,6 +268,56 @@ export async function collectDattoBcdrEvidence(
 }
 
 // ---------------------------------------------------------------------------
+// Datto EDR Collector — Endpoint Detection & Response
+// ---------------------------------------------------------------------------
+
+export async function collectDattoEdrEvidence(
+  companyId: string,
+  assessmentId: string
+): Promise<{ evidence: Array<Omit<EvidenceRecord, 'id' | 'collectedAt'>>; errors: string[] }> {
+  const evidence: Array<Omit<EvidenceRecord, 'id' | 'collectedAt'>> = []
+  const errors: string[] = []
+
+  if (!process.env.DATTO_EDR_API_TOKEN) {
+    return { evidence, errors: ['Datto EDR: DATTO_EDR_API_TOKEN not configured'] }
+  }
+
+  // Check if marked as not used
+  const mappings = await getPlatformMappings(companyId, 'datto_edr')
+  if (mappings && mappings.some((m) => m.externalId === '__none__')) {
+    console.log('[compliance][datto_edr] Marked as not used — skipping')
+    return { evidence: [], errors: [] }
+  }
+
+  try {
+    const { DattoEdrClient } = await import('@/lib/datto-edr')
+    const client = new DattoEdrClient()
+
+    const now = new Date()
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+    const summary = await client.buildSummary(thirtyDaysAgo, now)
+
+    if (!summary.available) {
+      return { evidence, errors: [summary.note ?? 'Datto EDR API unavailable'] }
+    }
+
+    // EDR is MSP-wide (covers all managed endpoints) — no per-customer filtering needed
+    // The presence of EDR is itself the evidence for anti-malware and monitoring controls
+    evidence.push(buildEvidence(assessmentId, companyId, 'datto_edr_alerts', {
+      totalEvents: summary.totalEvents,
+      eventsBySeverity: summary.eventsBySeverity,
+      eventsByType: summary.eventsByType,
+      topThreats: summary.topThreats.slice(0, 10),
+      note: summary.note ?? 'EDR covers all managed endpoints MSP-wide.',
+    }, `Datto EDR: ${summary.totalEvents} security events (30 days). ${summary.eventsBySeverity.length > 0 ? `Severity: ${summary.eventsBySeverity.map((s) => `${s.severity}=${s.count}`).join(', ')}` : 'No events detected.'}`))
+
+    return { evidence, errors }
+  } catch (err) {
+    return { evidence, errors: [`Datto EDR collection failed: ${err instanceof Error ? err.message : String(err)}`] }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // DNSFilter Collector
 // ---------------------------------------------------------------------------
 
