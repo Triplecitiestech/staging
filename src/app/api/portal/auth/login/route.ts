@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getPool } from '@/lib/db-pool'
 import crypto from 'crypto'
 import { signState } from '@/lib/portal-session'
+import { checkRateLimit } from '@/lib/security'
 
 // ---------------------------------------------------------------------------
 // Raw pg pool — same pattern as /api/hr/submit
@@ -14,6 +15,9 @@ const pool = getPool()
 // ---------------------------------------------------------------------------
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
+  const blocked = checkRateLimit(request)
+  if (blocked) return blocked
+
   const companySlug = request.nextUrl.searchParams.get('company')?.toLowerCase().trim()
   const returnTo = request.nextUrl.searchParams.get('returnTo')
   const loginHint = request.nextUrl.searchParams.get('login_hint')?.trim()
