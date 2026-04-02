@@ -104,6 +104,39 @@ This document maps every major subsystem to its primary source files. Use it to 
 | VisibilityEngine | `onboarding/VisibilityEngine.ts` | Conditional field visibility rule evaluation |
 | PasswordGate | `onboarding/PasswordGate.tsx` | Legacy — no longer rendered (portal is open) |
 
+### Compliance Engine
+| Component | File | Purpose |
+|-----------|------|---------|
+| ComplianceDashboard | `compliance/ComplianceDashboard.tsx` | Main dashboard with tabs: Assessments, Policy Analysis, Policy Generation, Platform Mapping |
+| PolicyManager | `compliance/PolicyManager.tsx` | Upload/paste/SharePoint policy import + AI analysis |
+| PolicyGenerationDashboard | `compliance/PolicyGenerationDashboard.tsx` | Policy generation workflow: catalog, intake, AI generation, review, export |
+| ToolCapabilityMap | `compliance/ToolCapabilityMap.tsx` | Tool registry + capability gap analysis |
+| PlatformMappingPanel | `compliance/PlatformMappingPanel.tsx` | Per-company platform site/org mappings |
+
+### Compliance Lib (`src/lib/compliance/`)
+| Module | Purpose |
+|--------|---------|
+| `engine.ts` | Assessment lifecycle, evidence collection, evaluation |
+| `ensure-tables.ts` | Bootstrap all compliance + policy generation tables |
+| `types.ts` | Core type definitions |
+| `frameworks/cis-v8.ts` | CIS v8 control definitions + 68 evaluators |
+| `collectors/graph.ts` | Microsoft 365 evidence collection |
+| `collectors/msp.ts` | Datto, DNSFilter, Domotz, IT Glue, SaaS Alerts collectors |
+| `registry/` | Tool definitions, capabilities, control-capability map, resolver |
+| `policy-generation/catalog.ts` | Master policy catalog (30+ types) |
+| `policy-generation/framework-mappings.ts` | CIS v8, HIPAA, NIST 800-171, CMMC mappings |
+| `policy-generation/questionnaire.ts` | Org profile + policy-specific intake questions |
+| `policy-generation/generator.ts` | AI policy generation via Claude API |
+| `policy-generation/export.ts` | HTML/Markdown document rendering + storage provider stubs |
+
+### Compliance API Routes (`src/app/api/compliance/`)
+| Route | Purpose |
+|-------|---------|
+| `policies/catalog/route.ts` | Policy catalog + needs analysis |
+| `policies/questionnaire/route.ts` | Questionnaire answers (org profile + policy-specific) |
+| `policies/generate/route.ts` | AI policy generation + status management |
+| `policies/export/route.ts` | Policy download (individual + bundle) |
+
 ### Tickets (shared across admin, SOC, customer portal, reporting)
 | Component | File | Purpose |
 |-----------|------|---------|

@@ -48,9 +48,41 @@ export async function GET(request: NextRequest) {
   }
 
   // With companyId: build a needs analysis
-  await ensureComplianceTables()
+  try { await ensureComplianceTables() } catch (e) {
+    console.warn('[compliance/policies/catalog] ensureComplianceTables failed:', e instanceof Error ? e.message : e)
+  }
+
   const pool = getPool()
-  const client = await pool.connect()
+  let client: import('pg').PoolClient | null = null
+
+  try {
+    client = await pool.connect()
+  } catch (connErr) {
+    // If DB connection fails, return catalog without per-company status
+    console.error('[compliance/policies/catalog] DB connection failed:', connErr instanceof Error ? connErr.message : connErr)
+    const controlCounts = getControlCountByPolicy(frameworkIds.length > 0 ? frameworkIds : ['cis-v8'])
+    const requiredPolicies: PolicyNeedItem[] = catalog.map((item) => ({
+      slug: item.slug,
+      name: item.name,
+      category: item.category,
+      requirement: 'required' as const,
+      frameworks: item.frameworkRelevance.map((r) => r.frameworkId),
+      status: 'missing' as PolicyGenStatus,
+      existingPolicyId: null,
+      controlCount: controlCounts.get(item.slug) ?? 0,
+      lastUpdated: null,
+    }))
+    return NextResponse.json({
+      success: true,
+      data: {
+        companyId,
+        companyName: 'Unknown',
+        selectedFrameworks: frameworkIds,
+        requiredPolicies,
+        stats: { totalRequired: requiredPolicies.length, existing: 0, missing: requiredPolicies.length, drafts: 0, approved: 0, intakeNeeded: 0 },
+      } satisfies PolicyNeedsAnalysis,
+    })
+  }
 
   try {
     // Get company name
@@ -59,28 +91,36 @@ export async function GET(request: NextRequest) {
     )
     const companyName = companyRes.rows[0]?.name ?? 'Unknown'
 
-    // Get existing generation records for this company
-    const genRecords = await client.query<{
-      policySlug: string; status: string; policyId: string | null; updatedAt: string
-    }>(
-      `SELECT "policySlug", status, "policyId", "updatedAt"
-       FROM policy_generation_records WHERE "companyId" = $1`,
-      [companyId]
-    )
-    const recordMap = new Map(genRecords.rows.map((r) => [r.policySlug, r]))
+    // Get existing generation records for this company (graceful if table missing)
+    let recordMap = new Map<string, { policySlug: string; status: string; policyId: string | null; updatedAt: string }>()
+    try {
+      const genRecords = await client.query<{
+        policySlug: string; status: string; policyId: string | null; updatedAt: string
+      }>(
+        `SELECT "policySlug", status, "policyId", "updatedAt"
+         FROM policy_generation_records WHERE "companyId" = $1`,
+        [companyId]
+      )
+      recordMap = new Map(genRecords.rows.map((r) => [r.policySlug, r]))
+    } catch (tableErr) {
+      // Table may not exist yet on first deploy — proceed without generation records
+      console.warn('[compliance/policies/catalog] policy_generation_records query failed (table may not exist):', tableErr instanceof Error ? tableErr.message : tableErr)
+    }
 
-    // Also check existing uploaded policies (source != 'generated')
-    const existingPolicies = await client.query<{ id: string; category: string; updatedAt: string }>(
-      `SELECT id, category, "updatedAt" FROM compliance_policies
-       WHERE "companyId" = $1`,
-      [companyId]
-    )
-
-    // Map uploaded policy categories to catalog slugs (fuzzy)
+    // Also check existing uploaded policies
     const existingByCategory = new Map<string, { id: string; updatedAt: string }>()
-    for (const p of existingPolicies.rows) {
-      const slug = categoryToSlug(p.category)
-      if (slug) existingByCategory.set(slug, { id: p.id, updatedAt: p.updatedAt })
+    try {
+      const existingPolicies = await client.query<{ id: string; category: string; updatedAt: string }>(
+        `SELECT id, category, "updatedAt" FROM compliance_policies
+         WHERE "companyId" = $1`,
+        [companyId]
+      )
+      for (const p of existingPolicies.rows) {
+        const slug = categoryToSlug(p.category)
+        if (slug) existingByCategory.set(slug, { id: p.id, updatedAt: p.updatedAt })
+      }
+    } catch {
+      // compliance_policies may not exist either — proceed without
     }
 
     // Build control counts
@@ -147,9 +187,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: true, data: analysis })
   } catch (err) {
     console.error('[compliance/policies/catalog] GET error:', err)
-    return NextResponse.json({ error: 'Failed to load catalog' }, { status: 500 })
+    return NextResponse.json({
+      error: `Failed to load catalog: ${err instanceof Error ? err.message : String(err)}`,
+    }, { status: 500 })
   } finally {
-    client.release()
+    client?.release()
   }
 }
 
