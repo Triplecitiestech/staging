@@ -43,12 +43,15 @@ const SYSTEM_EMAIL = 'autotask-sync@triplecitiestech.com';
  */
 export async function GET(request: NextRequest) {
   const secret = request.nextUrl.searchParams.get('secret');
+  const authHeader = request.headers.get('authorization');
   const expectedSecret = process.env.MIGRATION_SECRET;
   const isAdminSync = request.headers.get('x-admin-sync') === 'true';
 
-  // Allow auth via secret OR via admin session
+  // Allow auth via: Authorization header (preferred) > query param > admin session
   let isAuthorized = false;
-  if (secret && expectedSecret && secret === expectedSecret) {
+  if (authHeader && expectedSecret && authHeader === `Bearer ${expectedSecret}`) {
+    isAuthorized = true;
+  } else if (secret && expectedSecret && secret === expectedSecret) {
     isAuthorized = true;
   } else if (isAdminSync) {
     const session = await auth();

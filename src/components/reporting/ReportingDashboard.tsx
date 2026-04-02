@@ -78,7 +78,7 @@ export default function ReportingDashboard() {
   const [syncStatus, setSyncStatus] = useState<string | null>(null)
   const [syncError, setSyncError] = useState<string | null>(null)
 
-  const fetchData = useCallback(async () => {
+  const fetchDataImpl = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)
     setError(null)
     try {
@@ -87,7 +87,7 @@ export default function ReportingDashboard() {
       if (!params.has('trend')) params.set('trend', 'true')
       if (!params.has('breakdown')) params.set('breakdown', 'true')
 
-      const res = await fetch(`/api/reports/dashboard?${params.toString()}`)
+      const res = await fetch(`/api/reports/dashboard?${params.toString()}`, { signal })
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}))
         throw new Error(errData.error || `Reporting dashboard failed to load (HTTP ${res.status})`)
@@ -95,15 +95,21 @@ export default function ReportingDashboard() {
       const json = await res.json()
       setData(json)
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
       setError(err instanceof Error ? err.message : 'Unknown error loading reporting dashboard')
     } finally {
       setLoading(false)
     }
   }, [searchParams])
 
+  // Parameterless wrapper for button onClick
+  const fetchData = useCallback(() => fetchDataImpl(), [fetchDataImpl])
+
   useEffect(() => {
-    fetchData()
-  }, [fetchData])
+    const controller = new AbortController()
+    fetchDataImpl(controller.signal)
+    return () => controller.abort()
+  }, [fetchDataImpl])
 
   const runSync = async () => {
     setSyncing(true)
