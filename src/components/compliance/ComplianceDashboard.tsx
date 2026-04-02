@@ -25,6 +25,7 @@ import type {
 
 const PolicyManager = lazy(() => import('./PolicyManager'))
 const PlatformMappingPanel = lazy(() => import('./PlatformMappingPanel'))
+const PolicyGenerationDashboard = lazy(() => import('./PolicyGenerationDashboard'))
 
 interface Company {
   id: string
@@ -58,7 +59,7 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [selectedFramework, setSelectedFramework] = useState('cis-v8-ig1')
-  const [activeTab, setActiveTab] = useState<'assessments' | 'policies' | 'mapping'>('assessments')
+  const [activeTab, setActiveTab] = useState<'assessments' | 'policies' | 'policy-gen' | 'mapping'>('assessments')
 
   const loadDashboard = useCallback(async (companyId: string) => {
     setLoading(true)
@@ -190,6 +191,16 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
             Policy Analysis
           </button>
           <button
+            onClick={() => setActiveTab('policy-gen')}
+            className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+              activeTab === 'policy-gen'
+                ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
+                : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+            }`}
+          >
+            Policy Generation
+          </button>
+          <button
             onClick={() => setActiveTab('mapping')}
             className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-all ${
               activeTab === 'mapping'
@@ -206,6 +217,13 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
       {selectedCompany && dashboard && !loading && activeTab === 'policies' && (
         <Suspense fallback={<div className="text-center py-8"><div className="animate-spin w-6 h-6 border-2 border-cyan-400 border-t-transparent rounded-full mx-auto" /></div>}>
           <PolicyManager companyId={selectedCompany} companyName={dashboard.companyName} />
+        </Suspense>
+      )}
+
+      {/* Policy Generation Tab */}
+      {selectedCompany && dashboard && !loading && activeTab === 'policy-gen' && (
+        <Suspense fallback={<div className="text-center py-8"><div className="animate-spin w-6 h-6 border-2 border-cyan-400 border-t-transparent rounded-full mx-auto" /></div>}>
+          <PolicyGenerationDashboard companyId={selectedCompany} companyName={dashboard.companyName} />
         </Suspense>
       )}
 
