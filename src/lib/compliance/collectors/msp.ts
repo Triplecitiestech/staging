@@ -233,37 +233,69 @@ export async function collectDattoBcdrEvidence(
         note: summary.note ?? null,
       }, `${(summary.deviceDetails ?? []).length} backup device(s). ${summary.totalAlerts} alerts.`))
     }
-    // If no match, don't store evidence — the evaluator will use noEvidence()
-    // which correctly reports "not_assessed" or "needs_review" based on connector state
-
-    // SaaS Protect uses same credentials
-    try {
-      const { DattoSaasClient } = await import('@/lib/datto-saas')
-      const saasClient = new DattoSaasClient()
-      const saasSummary = await saasClient.buildSummary(companyName)
-
-      const hasSaas = saasSummary.totalCustomers > 0
-
-      // Only store SaaS evidence if there's an actual customer match
-      if (hasSaas) {
-        evidence.push(buildEvidence(assessmentId, companyId, 'datto_saas_backup', {
-          matched: true,
-          companyName,
-          totalCustomers: saasSummary.totalCustomers,
-          totalSeats: saasSummary.totalSeats,
-          activeSeats: saasSummary.activeSeats,
-          pausedSeats: saasSummary.pausedSeats,
-          unprotectedSeats: saasSummary.unprotectedSeats,
-          note: saasSummary.note ?? null,
-        }, `${saasSummary.totalSeats} SaaS backup seats. ${saasSummary.activeSeats} active, ${saasSummary.unprotectedSeats} unprotected.`))
-      }
-    } catch (err) {
-      errors.push(`Datto SaaS Protect: ${err instanceof Error ? err.message : String(err)}`)
-    }
+    // SaaS Protect is now a separate collector (collectDattoSaasEvidence)
+    // so it runs even when BCDR is skipped
 
     return { evidence, errors }
   } catch (err) {
     return { evidence, errors: [`Datto BCDR collection failed: ${err instanceof Error ? err.message : String(err)}`] }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Datto SaaS Protect Collector — M365 Backup (separate from BCDR)
+// ---------------------------------------------------------------------------
+
+export async function collectDattoSaasEvidence(
+  companyId: string,
+  assessmentId: string
+): Promise<{ evidence: Array<Omit<EvidenceRecord, 'id' | 'collectedAt'>>; errors: string[] }> {
+  const evidence: Array<Omit<EvidenceRecord, 'id' | 'collectedAt'>> = []
+  const errors: string[] = []
+
+  if (!process.env.DATTO_BCDR_PUBLIC_KEY || !process.env.DATTO_BCDR_PRIVATE_KEY) {
+    return { evidence, errors: ['Datto SaaS Protect: BCDR credentials not configured'] }
+  }
+
+  // Check platform mapping
+  const mappings = await getPlatformMappings(companyId, 'datto_saas')
+  if (mappings && mappings.some((m) => m.externalId === '__none__')) {
+    console.log('[compliance][datto_saas] Marked as not used — skipping')
+    return { evidence: [], errors: [] }
+  }
+
+  const companyName = await getCompanyDisplayName(companyId)
+  if (!companyName) {
+    return { evidence, errors: ['Company not found'] }
+  }
+
+  try {
+    const { DattoSaasClient } = await import('@/lib/datto-saas')
+    const saasClient = new DattoSaasClient()
+
+    // Use mapped customer name if available
+    const matchName = (mappings && mappings.length > 0)
+      ? mappings[0].externalName || companyName
+      : companyName
+
+    const saasSummary = await saasClient.buildSummary(matchName)
+
+    if (saasSummary.totalCustomers > 0) {
+      evidence.push(buildEvidence(assessmentId, companyId, 'datto_saas_backup', {
+        matched: true,
+        companyName: matchName,
+        totalCustomers: saasSummary.totalCustomers,
+        totalSeats: saasSummary.totalSeats,
+        activeSeats: saasSummary.activeSeats,
+        pausedSeats: saasSummary.pausedSeats,
+        unprotectedSeats: saasSummary.unprotectedSeats,
+        note: saasSummary.note ?? null,
+      }, `Datto SaaS Protect: ${saasSummary.totalSeats} backup seats (${saasSummary.activeSeats} active, ${saasSummary.unprotectedSeats} unprotected). Covers Exchange, OneDrive, SharePoint, Teams.`))
+    }
+
+    return { evidence, errors }
+  } catch (err) {
+    return { evidence, errors: [`Datto SaaS Protect collection failed: ${err instanceof Error ? err.message : String(err)}`] }
   }
 }
 
@@ -307,18 +339,50 @@ export async function collectDattoEdrEvidence(
       orgName = mappings[0].externalName || null
       orgFilter = `"organizationId":"${orgId}"`
 
-      // Get org device count
+      // Get org device count — try multiple approaches
       try {
-        const orgRes = await fetch(`${edrUrl}/Organizations/${orgId}?${tokenParam}`, {
+        // Try /Organizations/{id}/hosts/count (LoopBack count endpoint)
+        const countRes = await fetch(`${edrUrl}/hosts/count?where=${encodeURIComponent(JSON.stringify({ organizationId: orgId }))}&${tokenParam}`, {
           headers: { Authorization: edrToken, Accept: 'application/json' },
           signal: AbortSignal.timeout(10_000),
         })
-        if (orgRes.ok) {
-          const orgData = await orgRes.json() as { deviceCount?: number; name?: string }
-          orgDeviceCount = orgData.deviceCount ?? 0
-          if (!orgName) orgName = orgData.name ?? null
+        if (countRes.ok) {
+          const countData = await countRes.json() as { count?: number }
+          orgDeviceCount = countData.count ?? 0
         }
-      } catch { /* non-fatal */ }
+      } catch { /* try fallback */ }
+
+      // Fallback: fetch locations and sum devices
+      if (orgDeviceCount === 0) {
+        try {
+          const locRes = await fetch(`${edrUrl}/Organizations/${orgId}/locations?${tokenParam}`, {
+            headers: { Authorization: edrToken, Accept: 'application/json' },
+            signal: AbortSignal.timeout(10_000),
+          })
+          if (locRes.ok) {
+            const locs = await locRes.json() as Array<{ hostCount?: number; deviceCount?: number }>
+            if (Array.isArray(locs)) {
+              orgDeviceCount = locs.reduce((sum, l) => sum + (l.hostCount ?? l.deviceCount ?? 0), 0)
+            }
+          }
+        } catch { /* non-fatal */ }
+      }
+
+      // Fallback: get org details
+      if (orgDeviceCount === 0) {
+        try {
+          const orgRes = await fetch(`${edrUrl}/Organizations/${orgId}?${tokenParam}`, {
+            headers: { Authorization: edrToken, Accept: 'application/json' },
+            signal: AbortSignal.timeout(10_000),
+          })
+          if (orgRes.ok) {
+            const orgData = await orgRes.json() as Record<string, unknown>
+            // Try any field that might have device count
+            orgDeviceCount = (orgData.hostCount ?? orgData.deviceCount ?? orgData.agentCount ?? 0) as number
+            if (!orgName) orgName = (orgData.name as string) ?? null
+          }
+        } catch { /* non-fatal */ }
+      }
     }
 
     // Fetch alerts — with org filter if mapped
@@ -432,8 +496,21 @@ export async function collectDnsFilterEvidence(
       const matchedOrg = orgs.find((o) => o.id === mappedOrgId)
       customerOrgName = matchedOrg?.attributes?.name ?? mappings[0].externalName
       const orgIdNum = parseInt(mappedOrgId)
-      customerNetworks = networks.filter((n) => n.attributes?.organization_id === orgIdNum)
-      customerPolicies = policies.filter((p) => p.attributes?.organization_id === orgIdNum)
+      // Filter networks/policies by org ID — try both number and string comparison
+      customerNetworks = networks.filter((n) => {
+        const nOrgId = n.attributes?.organization_id
+        return nOrgId === orgIdNum || String(nOrgId) === mappedOrgId
+      })
+      customerPolicies = policies.filter((p) => {
+        const pOrgId = p.attributes?.organization_id
+        return pOrgId === orgIdNum || String(pOrgId) === mappedOrgId
+      })
+      // If no org-specific policies, check MSP-level policies (managed_by_msp)
+      if (customerPolicies.length === 0) {
+        // Roaming client customers often use MSP-level policies, not org-specific ones
+        customerPolicies = policies
+        console.log(`[compliance][dnsfilter] No org-specific policies for "${customerOrgName}", using MSP-level policies (${policies.length})`)
+      }
       console.log(`[compliance][dnsfilter] Using explicit mapping: org "${customerOrgName}" (${mappedOrgId}), ${customerNetworks.length} networks, ${customerPolicies.length} policies`)
     } else {
       // Use name matching as fallback

@@ -17,7 +17,7 @@ import { getPool } from '@/lib/db-pool'
 import type { PoolClient } from 'pg'
 import { ensureComplianceTables } from './ensure-tables'
 import { collectGraphEvidence } from './collectors/graph'
-import { collectDattoRmmEvidence, collectDattoBcdrEvidence, collectDattoEdrEvidence, collectDnsFilterEvidence, collectDomotzEvidence, collectItGlueEvidence, collectSaasAlertsEvidence, collectUbiquitiEvidence, collectMyItProcessEvidence } from './collectors/msp'
+import { collectDattoRmmEvidence, collectDattoBcdrEvidence, collectDattoEdrEvidence, collectDattoSaasEvidence, collectDnsFilterEvidence, collectDomotzEvidence, collectItGlueEvidence, collectSaasAlertsEvidence, collectUbiquitiEvidence, collectMyItProcessEvidence } from './collectors/msp'
 import { CIS_V8_FRAMEWORK, CIS_V8_EVALUATORS, applyPolicyCoverage } from './frameworks/cis-v8'
 import {
   compareControlIds,
@@ -661,6 +661,9 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
       collectors.push({ name: 'Datto BCDR', connector: 'datto_bcdr',
         fn: () => collectDattoBcdrEvidence(assessment.companyId, assessmentId) })
     }
+    // SaaS Protect always runs (even when BCDR is skipped — SaaS backup is for M365, not on-prem)
+    collectors.push({ name: 'Datto SaaS Protect', connector: 'datto_bcdr',
+      fn: () => collectDattoSaasEvidence(assessment.companyId, assessmentId) })
   }
   if (availableConnectors.has('dnsfilter')) {
     collectors.push({ name: 'DNSFilter', connector: 'dnsfilter',
