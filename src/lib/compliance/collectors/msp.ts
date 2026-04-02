@@ -399,9 +399,45 @@ export async function collectDnsFilterEvidence(
       (sum, p) => sum + (p.attributes?.blacklist_categories?.length ?? 0), 0
     )
 
+    // Try to fetch roaming clients count for the matched org
+    let roamingClientCount = 0
+    if (customerOrgName && mappings && mappings.length > 0) {
+      const mappedOrgId = mappings[0].externalId
+      try {
+        const rcRes = await fetch(`${baseUrl}/organizations/${mappedOrgId}/roaming_clients`, { headers, signal: AbortSignal.timeout(10_000) })
+        if (rcRes.ok) {
+          const rcJson = await rcRes.json() as { data?: Array<unknown> }
+          roamingClientCount = rcJson.data?.length ?? 0
+        }
+      } catch { /* endpoint may not exist */ }
+
+      // Also try user_agents endpoint (another name for roaming clients)
+      if (roamingClientCount === 0) {
+        try {
+          const uaRes = await fetch(`${baseUrl}/organizations/${mappedOrgId}/user_agents`, { headers, signal: AbortSignal.timeout(10_000) })
+          if (uaRes.ok) {
+            const uaJson = await uaRes.json() as { data?: Array<unknown> }
+            roamingClientCount = uaJson.data?.length ?? 0
+          }
+        } catch { /* endpoint may not exist */ }
+      }
+    }
+
     if (orgs.length === 0) {
       return { evidence, errors: ['DNSFilter: No organizations found. Verify API token permissions.'] }
     }
+
+    // DNS filtering is active if the org exists — filtering can be via:
+    // 1. Site networks (on-prem DNS forwarding)
+    // 2. Roaming clients (per-device agents) — most common for remote/hybrid workers
+    // 3. Both
+    const filteringMethod = customerNetworks.length > 0 && roamingClientCount > 0
+      ? 'network + roaming clients'
+      : customerNetworks.length > 0
+        ? 'site networks'
+        : roamingClientCount > 0
+          ? 'roaming clients'
+          : 'organization configured'
 
     evidence.push(buildEvidence(assessmentId, companyId, 'dnsfilter_dns', {
       totalOrganizations: orgs.length,
@@ -413,13 +449,15 @@ export async function collectDnsFilterEvidence(
         id: p.id, name: p.attributes?.name,
         blockedCategories: p.attributes?.blacklist_categories?.length ?? 0,
       })),
+      roamingClientCount,
       blockedCategoryCount,
+      filteringMethod,
       dnsFilteringActive: true,
       note: customerOrgName
-        ? `Matched to DNSFilter organization: ${customerOrgName}`
+        ? `Matched to DNSFilter organization: ${customerOrgName} (${filteringMethod})`
         : 'MSP-level DNSFilter data (no customer-specific org matched)',
     }, customerOrgName
-      ? `DNSFilter: "${customerOrgName}" — ${customerNetworks.length} network(s), ${customerPolicies.length} policy/policies with ${blockedCategoryCount} blocked categories.`
+      ? `DNSFilter: "${customerOrgName}" — ${filteringMethod}. ${customerNetworks.length} network(s), ${roamingClientCount} roaming client(s), ${customerPolicies.length} policy/policies.`
       : `DNSFilter: MSP-wide — ${orgs.length} organizations, ${networks.length} networks, DNS filtering active.`
     ))
 

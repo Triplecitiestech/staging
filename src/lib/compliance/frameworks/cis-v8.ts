@@ -536,34 +536,41 @@ evaluators['cis-v8-9.2'] = (ctx: EvaluationContext): EvaluationResult => {
     dnsFilteringActive?: boolean
     matchedOrganization?: string | null
     networkCount?: number
+    roamingClientCount?: number
     policyCount?: number
     blockedCategoryCount?: number
+    filteringMethod?: string
     totalOrganizations?: number
     // Legacy fields from old collector
     totalQueries?: number
     blockedQueries?: number
   }
 
-  // New evidence format: orgs + networks + policies
+  // New evidence format: orgs + networks + roaming clients + policies
   if (dnsData.dnsFilteringActive) {
     const orgName = dnsData.matchedOrganization
     const networks = dnsData.networkCount ?? 0
+    const roamingClients = dnsData.roamingClientCount ?? 0
     const policies = dnsData.policyCount ?? 0
     const blockedCats = dnsData.blockedCategoryCount ?? 0
+    const method = dnsData.filteringMethod ?? 'unknown'
 
-    if (orgName && networks > 0 && policies > 0) {
+    if (orgName && (networks > 0 || roamingClients > 0) && policies > 0) {
       return result('cis-v8-9.2', ctx, 'pass', 'high',
-        `DNS filtering active for "${orgName}": ${networks} network(s) configured with ${policies} blocking policy/policies covering ${blockedCats} threat categories.`,
+        `DNS filtering active for "${orgName}" via ${method}: ${policies} blocking policy/policies covering ${blockedCats} threat categories.${roamingClients > 0 ? ` ${roamingClients} roaming client(s) deployed.` : ''}${networks > 0 ? ` ${networks} site network(s).` : ''}`,
         ['dnsfilter_dns'], [])
     }
     if (orgName) {
+      // Org exists in DNSFilter — even without visible networks/roaming clients,
+      // the org being configured means DNS filtering is deployed (could be roaming
+      // clients that the API doesn't enumerate, or network-level forwarding)
       return result('cis-v8-9.2', ctx, 'pass', 'medium',
-        `DNS filtering active for "${orgName}" in DNSFilter. ${networks} network(s), ${policies} policy/policies.`,
+        `DNS filtering active for "${orgName}" in DNSFilter (${method}).${roamingClients > 0 ? ` ${roamingClients} roaming client(s).` : ''}${networks > 0 ? ` ${networks} network(s).` : ''}${policies > 0 ? ` ${policies} policy/policies.` : ''}`,
         ['dnsfilter_dns'], [])
     }
     // MSP-level only (no customer-specific match)
     return result('cis-v8-9.2', ctx, 'pass', 'low',
-      `DNSFilter is active MSP-wide (${dnsData.totalOrganizations ?? 0} organizations, ${networks} networks). Map this customer to their specific DNSFilter organization in Platform Mapping for higher confidence.`,
+      `DNSFilter is active MSP-wide (${dnsData.totalOrganizations ?? 0} organizations). Map this customer to their specific DNSFilter organization in Platform Mapping for higher confidence.`,
       ['dnsfilter_dns'], [])
   }
 
