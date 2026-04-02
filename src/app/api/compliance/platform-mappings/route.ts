@@ -172,26 +172,49 @@ async function listPlatformSources(platform: string): Promise<SourceItem[]> {
       const edrUrl = (process.env.DATTO_EDR_API_URL || 'https://triple5695.infocyte.com/api').replace(/\/$/, '')
       const tokenParam = `access_token=${encodeURIComponent(edrToken)}`
 
-      // Fetch Organizations from Infocyte LoopBack API
       try {
+        // Fetch organizations
         const orgRes = await fetch(`${edrUrl}/Organizations?${tokenParam}`, {
           headers: { Authorization: edrToken, Accept: 'application/json' },
           signal: AbortSignal.timeout(15_000),
         })
-        if (orgRes.ok) {
-          const orgData = await orgRes.json() as Array<{ id?: string; name?: string; description?: string; deviceCount?: number; locationCount?: number }>
-          if (Array.isArray(orgData) && orgData.length > 0) {
-            return orgData.map((o) => ({
+        if (!orgRes.ok) throw new Error(`Organizations: ${orgRes.status}`)
+        const orgData = await orgRes.json() as Array<{ id?: string; name?: string; description?: string }>
+        if (!Array.isArray(orgData) || orgData.length === 0) {
+          return [{ id: 'msp_wide', name: 'All Managed Endpoints (MSP-wide)', type: 'instance' }]
+        }
+
+        // Fetch device counts via Locations (Org → Locations → deviceCount)
+        const orgsWithCounts = await Promise.all(
+          orgData.map(async (o) => {
+            let deviceCount = 0
+            try {
+              const locRes = await fetch(
+                `${edrUrl}/Organizations/${o.id}/locations?${tokenParam}`,
+                { headers: { Authorization: edrToken, Accept: 'application/json' }, signal: AbortSignal.timeout(5_000) }
+              )
+              if (locRes.ok) {
+                const locs = await locRes.json() as Array<{ deviceCount?: number; hostCount?: number; name?: string }>
+                if (Array.isArray(locs)) {
+                  deviceCount = locs.reduce((sum, l) => sum + (l.deviceCount ?? l.hostCount ?? 0), 0)
+                }
+              }
+            } catch { /* non-fatal */ }
+            return {
               id: String(o.id ?? o.name ?? 'unknown'),
               name: o.name ?? 'Unknown',
-              type: 'organization',
-              detail: `${o.deviceCount ?? 0} devices, ${o.locationCount ?? 0} location(s)`,
-            }))
-          }
-        }
-      } catch { /* continue to fallback */ }
+              type: 'organization' as const,
+              detail: deviceCount > 0
+                ? `${deviceCount} device(s)`
+                : (o.description && o.description !== o.name ? o.description : undefined),
+            }
+          })
+        )
 
-      return [{ id: 'msp_wide', name: 'All Managed Endpoints (MSP-wide)', type: 'instance' }]
+        return orgsWithCounts
+      } catch (err) {
+        throw new Error(`EDR Organizations failed: ${err instanceof Error ? err.message : String(err)}`)
+      }
     }
 
     case 'datto_saas': {
