@@ -66,14 +66,19 @@ export default function PriorityBreakdownChart({ data }: PriorityBreakdownChartP
     const priorityNum = PRIORITY_TO_NUMBER[expandedPriority]
     if (!priorityNum) return
 
+    const controller = new AbortController()
     setDrilldownLoading(true)
     const params = new URLSearchParams(searchParams.toString())
     params.set('priority', String(priorityNum))
-    fetch(`/api/reports/priority-drilldown?${params.toString()}`)
+    fetch(`/api/reports/priority-drilldown?${params.toString()}`, { signal: controller.signal })
       .then(r => r.json())
       .then(d => setDrilldownData(d))
-      .catch(() => setDrilldownData(null))
+      .catch((err) => {
+        if (err instanceof DOMException && err.name === 'AbortError') return
+        setDrilldownData(null)
+      })
       .finally(() => setDrilldownLoading(false))
+    return () => controller.abort()
   }, [expandedPriority, searchParams])
 
   if (data.length === 0) return null

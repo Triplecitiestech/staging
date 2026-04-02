@@ -80,7 +80,7 @@ export default function TechnicianReport() {
   const [importing, setImporting] = useState<number | null>(null)
   const [importMsg, setImportMsg] = useState<string | null>(null)
 
-  const fetchData = useCallback(async () => {
+  const fetchDataImpl = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)
     setError(null)
     try {
@@ -88,13 +88,14 @@ export default function TechnicianReport() {
       if (!params.has('preset')) params.set('preset', 'last_30_days')
       if (!params.has('trend')) params.set('trend', 'true')
       if (!params.has('compare')) params.set('compare', 'true')
-      const res = await fetch(`/api/reports/technicians?${params.toString()}`)
+      const res = await fetch(`/api/reports/technicians?${params.toString()}`, { signal })
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}))
         throw new Error(errData.error || `Failed to load technician data (HTTP ${res.status})`)
       }
       setData(await res.json())
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
       const msg = err instanceof Error ? err.message : 'Unknown error'
       console.error('[TechnicianReport] Failed to load:', msg)
       setError(msg)
@@ -102,7 +103,13 @@ export default function TechnicianReport() {
     setLoading(false)
   }, [searchParams])
 
-  useEffect(() => { fetchData() }, [fetchData])
+  const fetchData = useCallback(() => fetchDataImpl(), [fetchDataImpl])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    fetchDataImpl(controller.signal)
+    return () => controller.abort()
+  }, [fetchDataImpl])
 
   // Auto-scroll to highlighted technician
   useEffect(() => {

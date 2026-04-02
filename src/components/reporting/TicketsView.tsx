@@ -22,19 +22,25 @@ export default function TicketsView() {
   const companyId = searchParams.get('companyId')
   const resourceId = searchParams.get('resourceId')
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)
     try {
       const params = new URLSearchParams(searchParams.toString())
       if (!params.has('preset')) params.set('preset', 'last_30_days')
       params.set('perspective', 'staff')
-      const res = await fetch(`/api/tickets?${params.toString()}`)
+      const res = await fetch(`/api/tickets?${params.toString()}`, { signal })
       if (res.ok) setData(await res.json())
-    } catch { /* ignore */ }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
+    }
     setLoading(false)
   }, [searchParams])
 
-  useEffect(() => { fetchData() }, [fetchData])
+  useEffect(() => {
+    const controller = new AbortController()
+    fetchData(controller.signal)
+    return () => controller.abort()
+  }, [fetchData])
 
   const fetchNotes = useCallback(async (ticketId: string, vis: NoteVisibilityFilters) => {
     setNotesLoading(true)
