@@ -84,9 +84,11 @@ export async function GET(request: NextRequest) {
         : (targetContact.customerRole || 'CLIENT_USER')
       : 'CLIENT_MANAGER'
 
+    const companyDisplayName = company.displayName ?? slug
+
     const sessionData: PortalSessionData = {
       email: targetContact?.email ?? adminEmail,
-      name: targetContact?.name ?? adminName,
+      name: targetContact?.name ?? `${companyDisplayName} (Admin View)`,
       companySlug: slug,
       role: targetRole,
       isManager: targetRole === 'CLIENT_MANAGER',
@@ -94,8 +96,8 @@ export async function GET(request: NextRequest) {
       impersonation: {
         adminEmail,
         adminName,
-        targetEmail: targetContact?.email ?? adminEmail,
-        targetName: targetContact?.name ?? company.displayName ?? slug,
+        targetEmail: targetContact?.email ?? 'No contacts on file',
+        targetName: targetContact?.name ?? companyDisplayName,
       },
     }
 

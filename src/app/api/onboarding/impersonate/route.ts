@@ -86,6 +86,7 @@ export async function POST(request: NextRequest) {
 
     const adminEmail = session.user?.email ?? 'admin@triplecitiestech.com'
     const adminName = session.user?.name ?? 'TCT Admin'
+    const companyDisplayName = company.displayName ?? company.slug
 
     // Determine the impersonated user's role
     const targetRole = targetContact
@@ -98,9 +99,10 @@ export async function POST(request: NextRequest) {
 
     // Build the session — use the target user's identity for authorization,
     // but store the admin's identity in the impersonation context for auditing
+    const hasRealTarget = !!targetContact
     const sessionData: PortalSessionData = {
       email: targetContact?.email ?? adminEmail,
-      name: targetContact?.name ?? adminName,
+      name: targetContact?.name ?? `${companyDisplayName} (Admin View)`,
       companySlug: company.slug,
       role: targetRole,
       isManager: targetIsManager,
@@ -108,8 +110,8 @@ export async function POST(request: NextRequest) {
       impersonation: {
         adminEmail,
         adminName,
-        targetEmail: targetContact?.email ?? adminEmail,
-        targetName: targetContact?.name ?? company.displayName ?? company.slug,
+        targetEmail: targetContact?.email ?? `No contacts on file`,
+        targetName: targetContact?.name ?? companyDisplayName,
       },
     }
 
