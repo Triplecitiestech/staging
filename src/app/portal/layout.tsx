@@ -1,4 +1,5 @@
 import { Metadata } from 'next'
+import { PortalErrorBoundary } from '@/components/onboarding/PortalErrorBoundary'
 
 export const metadata: Metadata = {
   title: 'Customer Support Portal | Triple Cities Tech',
@@ -7,5 +8,5 @@ export const metadata: Metadata = {
 }
 
 export default function PortalLayout({ children }: { children: React.ReactNode }) {
-  return children
+  return <PortalErrorBoundary>{children}</PortalErrorBoundary>
 }

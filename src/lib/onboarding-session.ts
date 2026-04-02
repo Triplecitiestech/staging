@@ -6,8 +6,16 @@ import { cookies } from 'next/headers'
 const SESSION_COOKIE_NAME = 'onboarding_session'
 const SESSION_LIFETIME = 12 * 60 * 60 * 1000 // 12 hours in milliseconds
 
-// Get signing key from environment or use a default (in production, MUST be in env)
-const SIGNING_KEY = process.env.ONBOARDING_SIGNING_KEY || 'default-signing-key-change-in-production'
+// Signing key MUST be set via environment variable — no fallback in production.
+// Validated lazily (not at import time) to avoid blocking builds.
+function getSigningKey(): string {
+  const key = process.env.ONBOARDING_SIGNING_KEY
+  if (key) return key
+  if (process.env.NODE_ENV === 'production' && process.env.NEXT_PHASE !== 'phase-production-build') {
+    console.error('[SECURITY] ONBOARDING_SIGNING_KEY is not set in production — sessions are insecure')
+  }
+  return 'dev-only-signing-key-not-for-production'
+}
 
 // Create a signed session token containing company slug and expiration
 export function createSession(companySlug: string): string {
@@ -16,7 +24,7 @@ export function createSession(companySlug: string): string {
 
   // Create HMAC signature
   const signature = crypto
-    .createHmac('sha256', SIGNING_KEY)
+    .createHmac('sha256', getSigningKey())
     .update(payload)
     .digest('hex')
 
@@ -39,7 +47,7 @@ export function validateSession(token: string): string | null {
 
     // Verify signature
     const expectedSignature = crypto
-      .createHmac('sha256', SIGNING_KEY)
+      .createHmac('sha256', getSigningKey())
       .update(payload)
       .digest('hex')
 

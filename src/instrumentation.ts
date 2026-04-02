@@ -1,6 +1,10 @@
 // This file runs once when the Next.js server starts
 export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
+    // Validate environment variables before anything else
+    const { validateEnvironment } = await import('@/lib/env-validation')
+    validateEnvironment()
+
     // Run migrations automatically on server startup (only in production)
     if (process.env.NODE_ENV === 'production') {
       await runMigrations().catch(err => {
