@@ -1754,28 +1754,55 @@ evaluators['cis-v8-9.1'] = (ctx: EvaluationContext): EvaluationResult => {
     sources, [])
 }
 
-// 10.3 Disable Autorun/Autoplay — Intune/GPO policy
+// 10.3 Disable Autorun/Autoplay — Intune device config profiles + compliance rate
 evaluators['cis-v8-10.3'] = (ctx: EvaluationContext): EvaluationResult => {
   const devices = ctx.evidence.get('microsoft_device_compliance')
   const score = ctx.evidence.get('microsoft_secure_score')
-  if (!devices && !score) return noEvidence('cis-v8-10.3', ['microsoft_device_compliance', 'microsoft_secure_score'], ctx)
+  const intuneConfig = ctx.evidence.get('microsoft_intune_config')
+  if (!devices && !score && !intuneConfig) return noEvidence('cis-v8-10.3', ['microsoft_device_compliance', 'microsoft_secure_score', 'microsoft_intune_config'], ctx)
 
   const devData = devices?.rawData as { complianceRate?: number; totalCount?: number } | undefined
   const scoreData = score?.rawData as { percentage?: number } | undefined
-  const sources = ['microsoft_device_compliance', 'microsoft_secure_score'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
+  const configData = intuneConfig?.rawData as {
+    configProfiles?: Array<{ name: string; description: string | null }>
+    configProfileCount?: number
+    profileNames?: string[]
+  } | undefined
+
+  const sources = (['microsoft_device_compliance', 'microsoft_secure_score', 'microsoft_intune_config'] as const)
+    .filter((s) => ctx.evidence.has(s as EvidenceSourceType))
+
+  // Check for autorun-specific configuration profiles
+  const autorunKeywords = ['autorun', 'autoplay', 'removable media', 'removable storage', 'usb']
+  const matchingProfiles: string[] = []
+  if (configData?.configProfiles) {
+    for (const profile of configData.configProfiles) {
+      const nameAndDesc = `${profile.name} ${profile.description ?? ''}`.toLowerCase()
+      if (autorunKeywords.some((kw) => nameAndDesc.includes(kw))) {
+        matchingProfiles.push(profile.name)
+      }
+    }
+  }
+
+  if (matchingProfiles.length > 0) {
+    // Found explicit autorun/removable media config profiles — high confidence
+    return result('cis-v8-10.3', ctx, 'pass', 'high',
+      `Intune configuration profile(s) specifically addressing autorun/removable media: ${matchingProfiles.join(', ')}. ${devData?.totalCount ? `${devData.totalCount} managed devices.` : ''} Compliance rate: ${devData?.complianceRate ?? 'N/A'}%.`,
+      sources, [])
+  }
 
   if ((devData?.complianceRate ?? 0) >= 90) {
     return result('cis-v8-10.3', ctx, 'pass', 'medium',
-      `${devData?.complianceRate}% device compliance across ${devData?.totalCount ?? 0} Intune-managed devices. Autorun/Autoplay can be disabled via Intune device configuration profile or GPO. Secure Score: ${scoreData?.percentage ?? 'N/A'}%.`,
-      sources, [])
+      `${devData?.complianceRate}% device compliance across ${devData?.totalCount ?? 0} Intune-managed devices. ${configData?.configProfileCount ? `${configData.configProfileCount} configuration profiles deployed` : 'No configuration profiles found'} (none specifically named for autorun — Windows 10/11 disables autorun by default). Secure Score: ${scoreData?.percentage ?? 'N/A'}%.`,
+      sources, [], 'Consider creating an explicit Intune configuration profile named "Disable Autorun" for audit clarity.')
   }
   if ((scoreData?.percentage ?? 0) >= 60) {
     return result('cis-v8-10.3', ctx, 'pass', 'low',
-      `Secure Score ${scoreData?.percentage}% suggests baseline policies are in place. Windows 10/11 disables autorun by default. Verify via Intune configuration profile.`,
-      sources, [])
+      `Secure Score ${scoreData?.percentage}% suggests baseline policies are in place. Windows 10/11 disables autorun by default. ${configData?.configProfileCount ? `${configData.configProfileCount} Intune profiles deployed.` : ''} Verify via Intune configuration profile.`,
+      sources, [], 'Create an explicit Intune configuration profile for autorun/autoplay to improve audit evidence.')
   }
   return result('cis-v8-10.3', ctx, 'needs_review', 'low',
-    'Verify autorun/autoplay is disabled via Intune device configuration profile or Group Policy.',
+    `No Intune configuration profile specifically targeting autorun/autoplay found. ${configData?.configProfileCount ? `${configData.configProfileCount} profiles exist but none match autorun keywords.` : 'No Intune configuration profiles detected.'} Windows 10/11 disables autorun by default, but explicit policy is recommended.`,
     sources, [], 'Create an Intune configuration profile to explicitly disable autorun and autoplay for removable media.')
 }
 

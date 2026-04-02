@@ -121,7 +121,8 @@ export async function POST(request: NextRequest) {
       // Trigger AI analysis if requested
       let analysis: PolicyAnalysis | null = null
       if (body.analyze !== false) {
-        analysis = await analyzePolicyWithAI(client, policyId, body.companyId, body.title, policyContent, session.user.email)
+        const analyzeFramework = body.frameworkIds?.[0] ?? 'cis-v8'
+        analysis = await analyzePolicyWithAI(client, policyId, body.companyId, body.title, policyContent, session.user.email, analyzeFramework)
       }
 
       return NextResponse.json({ success: true, policyId, analysis })
@@ -144,7 +145,7 @@ export async function PATCH(request: NextRequest) {
   }
 
   try {
-    const body = (await request.json()) as { policyId?: string; companyId?: string; reanalyzeAll?: boolean }
+    const body = (await request.json()) as { policyId?: string; companyId?: string; reanalyzeAll?: boolean; frameworkId?: string }
 
     await ensureComplianceTables()
     const pool = getPool()
@@ -176,7 +177,7 @@ export async function PATCH(request: NextRequest) {
         const p = policy.rows[0]
         // Delete old analyses
         await client.query(`DELETE FROM compliance_policy_analyses WHERE "policyId" = $1`, [p.id])
-        const analysis = await analyzePolicyWithAI(client, p.id, p.companyId, p.title, p.content, session.user.email)
+        const analysis = await analyzePolicyWithAI(client, p.id, p.companyId, p.title, p.content, session.user.email, body.frameworkId ?? 'cis-v8')
         return NextResponse.json({ success: true, analysis })
       }
 
@@ -194,13 +195,119 @@ export async function PATCH(request: NextRequest) {
 // AI Policy Analysis
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Framework-specific control lists for multi-framework policy analysis
+// ---------------------------------------------------------------------------
+
+interface FrameworkControlSet {
+  name: string
+  prefix: string
+  controls: string
+  idFormat: string
+}
+
+const FRAMEWORK_CONTROLS: Record<string, FrameworkControlSet> = {
+  'cis-v8': {
+    name: 'CIS Controls v8',
+    prefix: 'cis-v8',
+    idFormat: 'cis-v8-X.Y',
+    controls: `1.1 Asset Inventory, 1.2 Address Unauthorized Assets, 1.3 Active Discovery Tool, 1.4 DHCP Logging, 1.5 Passive Discovery,
+2.1 Software Inventory, 2.2 Authorized Software, 2.3 Address Unauthorized Software,
+3.1 Data Management Process, 3.2 Data Inventory, 3.3 Data Access Control, 3.4 Data Retention, 3.5 Data Disposal, 3.6 Encrypt End-User Devices,
+4.1 Secure Configuration Process, 4.2 Network Secure Config, 4.3 Session Locking, 4.4 Server Firewall, 4.5 Endpoint Firewall, 4.6 Encryption, 4.7 Default Accounts,
+5.1 Account Inventory, 5.2 Unique Passwords, 5.3 Disable Dormant Accounts, 5.4 Restrict Admin Privileges,
+6.1 Access Granting Process, 6.2 Access Revoking Process, 6.3 MFA for External Apps, 6.4 MFA for Remote Access, 6.5 MFA for Admin Access,
+7.1 Vulnerability Management, 7.2 Remediation Process, 7.3 OS Patch Management, 7.4 Application Patch Management,
+8.1 Audit Log Management Process, 8.2 Collect Audit Logs, 8.3 Audit Log Storage, 8.5 Detailed Audit Logs,
+9.1 Supported Browsers, 9.2 DNS Filtering,
+10.1 Anti-Malware, 10.2 Configure Anti-Malware, 10.3 Disable Autorun,
+11.1 Data Recovery Practice, 11.2 Automated Backups, 11.3 Protect Recovery Data, 11.4 Isolated Recovery Data,
+12.1 Network Infrastructure Up-to-Date, 12.6 Encryption in Transit,
+13.1 Centralized Security Alerting,
+14.1 Security Awareness Program, 14.2-14.8 Specific Training Topics,
+15.1 Service Provider Inventory, 15.2 Service Provider Management, 15.7 Decommission Service Providers,
+16.1 Secure Application Development,
+17.1 Incident Handling Personnel, 17.2 Incident Reporting Process, 17.3 Incident Response Plan`,
+  },
+  'cmmc-l2': {
+    name: 'CMMC Level 2',
+    prefix: 'cmmc',
+    idFormat: 'cmmc-AC.L2-3.1.1',
+    controls: `AC.L2-3.1.1 Authorized Access Control, AC.L2-3.1.2 Transaction & Function Control, AC.L2-3.1.3 CUI Flow Enforcement,
+AC.L2-3.1.5 Least Privilege, AC.L2-3.1.6 Non-Privileged Account Use, AC.L2-3.1.7 Privileged Functions,
+AC.L2-3.1.8 Unsuccessful Logon Attempts, AC.L2-3.1.12 Remote Access Control, AC.L2-3.1.13 Remote Access Encryption,
+AC.L2-3.1.14 Remote Access Routing, AC.L2-3.1.15 Privileged Remote Access, AC.L2-3.1.20 External Connections,
+AT.L2-3.2.1 Role-Based Awareness, AT.L2-3.2.2 Advanced Training,
+AU.L2-3.3.1 System Auditing, AU.L2-3.3.2 User Accountability, AU.L2-3.3.4 Audit Failure Alerting,
+AU.L2-3.3.5 Audit Correlation, AU.L2-3.3.6 Audit Reduction, AU.L2-3.3.8 Audit Protection, AU.L2-3.3.9 Audit Management,
+CM.L2-3.4.1 System Baseline, CM.L2-3.4.2 Security Configuration Enforcement, CM.L2-3.4.3 System Change Tracking,
+CM.L2-3.4.5 Access Restrictions for Change, CM.L2-3.4.6 Least Functionality, CM.L2-3.4.7 Nonessential Functionality,
+CM.L2-3.4.8 Application Execution Policy, CM.L2-3.4.9 User-Installed Software,
+IA.L2-3.5.1 Identification, IA.L2-3.5.2 Authentication, IA.L2-3.5.3 MFA,
+IA.L2-3.5.7 Password Complexity, IA.L2-3.5.8 Password Reuse, IA.L2-3.5.10 Cryptographic Authentication,
+IR.L2-3.6.1 Incident Handling, IR.L2-3.6.2 Incident Reporting, IR.L2-3.6.3 Incident Response Testing,
+MA.L2-3.7.1 Maintenance, MA.L2-3.7.2 System Maintenance Control, MA.L2-3.7.5 Nonlocal Maintenance,
+MP.L2-3.8.1 Media Protection, MP.L2-3.8.3 Media Disposal, MP.L2-3.8.5 Removable Media Access,
+PE.L2-3.10.1 Physical Access Limit, PE.L2-3.10.3 Escort Visitors, PE.L2-3.10.4 Physical Access Logs, PE.L2-3.10.5 Physical Access Control,
+RA.L2-3.11.1 Risk Assessments, RA.L2-3.11.2 Vulnerability Scan, RA.L2-3.11.3 Vulnerability Remediation,
+CA.L2-3.12.1 Security Assessments, CA.L2-3.12.4 System Security Plan,
+SC.L2-3.13.1 Boundary Protection, SC.L2-3.13.2 Architectural Designs, SC.L2-3.13.5 Public Access System Separation,
+SC.L2-3.13.8 CUI in Transit Encryption, SC.L2-3.13.11 CUI Encryption, SC.L2-3.13.16 CUI at Rest,
+SI.L2-3.14.1 Flaw Remediation, SI.L2-3.14.2 Malicious Code Protection, SI.L2-3.14.3 Security Alerts,
+SI.L2-3.14.6 Monitor Communications, SI.L2-3.14.7 Identify Unauthorized Use`,
+  },
+  'hipaa': {
+    name: 'HIPAA Security Rule',
+    prefix: 'hipaa',
+    idFormat: 'hipaa-164.312(a)(1)',
+    controls: `164.308(a)(1) Security Management Process, 164.308(a)(2) Assigned Security Responsibility,
+164.308(a)(3) Workforce Security, 164.308(a)(4) Information Access Management,
+164.308(a)(5) Security Awareness and Training, 164.308(a)(6) Security Incident Procedures,
+164.308(a)(7) Contingency Plan, 164.308(a)(8) Evaluation,
+164.310(a)(1) Facility Access Controls, 164.310(a)(2) Workstation Use,
+164.310(b) Workstation Security, 164.310(c) Device and Media Controls, 164.310(d)(1) Device and Media Controls Implementation,
+164.312(a)(1) Access Control, 164.312(a)(2) Audit Controls, 164.312(b) Audit Controls Implementation,
+164.312(c)(1) Integrity Controls, 164.312(d) Person or Entity Authentication,
+164.312(e)(1) Transmission Security, 164.312(e)(2) Encryption,
+164.314(a)(1) Business Associate Contracts, 164.316(a) Policies and Procedures,
+164.316(b)(1) Documentation Requirements`,
+  },
+  'nist-800-171': {
+    name: 'NIST SP 800-171 Rev 2',
+    prefix: 'nist171',
+    idFormat: 'nist171-3.1.1',
+    controls: `3.1.1 Limit System Access, 3.1.2 Limit System Access to Functions, 3.1.3 Control CUI Flow,
+3.1.5 Least Privilege, 3.1.6 Non-Privileged Accounts, 3.1.7 Prevent Non-Privileged Users,
+3.1.8 Limit Unsuccessful Logon, 3.1.12 Monitor Remote Access, 3.1.13 Cryptographic Mechanisms for Remote Access,
+3.1.20 Verify External Connections,
+3.2.1 Security Awareness, 3.2.2 Training for Roles, 3.2.3 Insider Threat Awareness,
+3.3.1 Create System Audit Records, 3.3.2 Trace Actions to Users, 3.3.5 Correlate Audit Processes,
+3.3.8 Protect Audit Information, 3.3.9 Limit Audit Management,
+3.4.1 Establish System Baselines, 3.4.2 Enforce Security Configurations, 3.4.3 Track Changes,
+3.4.5 Access Restrictions, 3.4.6 Least Functionality, 3.4.8 Application Allowlisting,
+3.5.1 Identify System Users, 3.5.2 Authenticate Users, 3.5.3 Multifactor Authentication,
+3.5.7 Minimum Password Complexity, 3.5.8 Password Reuse Prohibition,
+3.6.1 Establish Incident Response, 3.6.2 Track and Report Incidents, 3.6.3 Test Response Capability,
+3.7.1 Perform System Maintenance, 3.7.2 Control System Maintenance Tools,
+3.8.1 Protect System Media, 3.8.3 Sanitize Media, 3.8.9 Protect CUI Backups,
+3.10.1 Limit Physical Access, 3.10.3 Escort Visitors, 3.10.4 Maintain Physical Access Audit Logs,
+3.11.1 Periodically Assess Risk, 3.11.2 Scan for Vulnerabilities, 3.11.3 Remediate Vulnerabilities,
+3.12.1 Periodically Assess Security Controls, 3.12.4 Develop System Security Plan,
+3.13.1 Monitor at External Boundaries, 3.13.2 Employ Architectural Designs,
+3.13.8 Implement Cryptographic Mechanisms, 3.13.11 Employ FIPS-Validated Cryptography,
+3.14.1 Identify and Correct Flaws, 3.14.2 Provide Malicious Code Protection, 3.14.3 Monitor Security Alerts,
+3.14.6 Monitor Organizational Systems, 3.14.7 Identify Unauthorized Use`,
+  },
+}
+
 async function analyzePolicyWithAI(
   client: import('pg').PoolClient,
   policyId: string,
   companyId: string,
   title: string,
   content: string,
-  _actor: string
+  _actor: string,
+  frameworkId: string = 'cis-v8'
 ): Promise<PolicyAnalysis | null> {
   // Create pending analysis record
   const analysisRes = await client.query<{ id: string }>(
@@ -220,7 +327,9 @@ async function analyzePolicyWithAI(
       return null
     }
 
-    const prompt = `You are a compliance policy analyst for an MSP (Managed Service Provider). Analyze the following customer policy document against CIS Controls v8 requirements.
+    const fw = FRAMEWORK_CONTROLS[frameworkId] ?? FRAMEWORK_CONTROLS['cis-v8']
+
+    const prompt = `You are a compliance policy analyst for an MSP (Managed Service Provider). Analyze the following customer policy document against ${fw.name} requirements.
 
 Policy Title: ${title}
 
@@ -229,7 +338,7 @@ ${content.substring(0, 12000)}
 
 Analyze this policy and provide a JSON response with:
 1. "controlDetails" - array of objects for EACH relevant control with:
-   - "controlId": CIS v8 control ID (e.g. "cis-v8-3.4")
+   - "controlId": control ID (e.g. "${fw.idFormat}")
    - "status": "satisfied" | "partial" | "missing"
    - "reasoning": 1-2 sentence explanation of WHY this control is satisfied/partial/missing
    - "quote": exact quote from the policy text that addresses this control (null if missing)
@@ -243,26 +352,10 @@ Analyze this policy and provide a JSON response with:
 
 IMPORTANT: For each control in controlDetails, include an exact "quote" from the policy text that demonstrates compliance. Keep quotes under 200 characters. If the control is "missing", set quote to null.
 
-CIS v8 Controls to evaluate against:
-1.1 Asset Inventory, 1.2 Address Unauthorized Assets, 1.3 Active Discovery Tool, 1.4 DHCP Logging, 1.5 Passive Discovery,
-2.1 Software Inventory, 2.2 Authorized Software, 2.3 Address Unauthorized Software,
-3.1 Data Management Process, 3.2 Data Inventory, 3.3 Data Access Control, 3.4 Data Retention, 3.5 Data Disposal, 3.6 Encrypt End-User Devices,
-4.1 Secure Configuration Process, 4.2 Network Secure Config, 4.3 Session Locking, 4.4 Server Firewall, 4.5 Endpoint Firewall, 4.6 Encryption, 4.7 Default Accounts,
-5.1 Account Inventory, 5.2 Unique Passwords, 5.3 Disable Dormant Accounts, 5.4 Restrict Admin Privileges,
-6.1 Access Granting Process, 6.2 Access Revoking Process, 6.3 MFA for External Apps, 6.4 MFA for Remote Access, 6.5 MFA for Admin Access,
-7.1 Vulnerability Management, 7.2 Remediation Process, 7.3 OS Patch Management, 7.4 Application Patch Management,
-8.1 Audit Log Management Process, 8.2 Collect Audit Logs, 8.3 Audit Log Storage, 8.5 Detailed Audit Logs,
-9.1 Supported Browsers, 9.2 DNS Filtering,
-10.1 Anti-Malware, 10.2 Configure Anti-Malware, 10.3 Disable Autorun,
-11.1 Data Recovery Practice, 11.2 Automated Backups, 11.3 Protect Recovery Data, 11.4 Isolated Recovery Data,
-12.1 Network Infrastructure Up-to-Date, 12.6 Encryption in Transit,
-13.1 Centralized Security Alerting,
-14.1 Security Awareness Program, 14.2-14.8 Specific Training Topics,
-15.1 Service Provider Inventory, 15.2 Service Provider Management, 15.7 Decommission Service Providers,
-16.1 Secure Application Development,
-17.1 Incident Handling Personnel, 17.2 Incident Reporting Process, 17.3 Incident Response Plan
+${fw.name} Controls to evaluate against:
+${fw.controls}
 
-Use control IDs in format "cis-v8-X.Y" (e.g. "cis-v8-17.1", "cis-v8-6.3").
+Use control IDs in format "${fw.idFormat}" with prefix "${fw.prefix}-".
 Only include controls that are RELEVANT to this type of policy. A password policy shouldn't list backup controls as missing.
 
 Respond with ONLY valid JSON, no markdown.`
@@ -331,6 +424,11 @@ Respond with ONLY valid JSON, no markdown.`
       await client.query(`ALTER TABLE compliance_policy_analyses ADD COLUMN IF NOT EXISTS "controlDetails" JSONB DEFAULT '[]'`)
     } catch { /* column may already exist */ }
 
+    // Ensure frameworkId column exists
+    try {
+      await client.query(`ALTER TABLE compliance_policy_analyses ADD COLUMN IF NOT EXISTS "frameworkId" TEXT DEFAULT 'cis-v8'`)
+    } catch { /* column may already exist */ }
+
     await client.query(
       `UPDATE compliance_policy_analyses
        SET status = 'complete',
@@ -341,8 +439,9 @@ Respond with ONLY valid JSON, no markdown.`
            recommendations = $5::jsonb,
            "analysisText" = $6,
            "controlDetails" = $7::jsonb,
+           "frameworkId" = $8,
            "analyzedAt" = NOW()
-       WHERE id = $8`,
+       WHERE id = $9`,
       [
         JSON.stringify(parsed.satisfiedControls ?? []),
         JSON.stringify(parsed.partialControls ?? []),
@@ -351,6 +450,7 @@ Respond with ONLY valid JSON, no markdown.`
         JSON.stringify(parsed.recommendations ?? []),
         parsed.summary ?? text,
         JSON.stringify(parsed.controlDetails ?? []),
+        frameworkId,
         analysisId,
       ]
     )

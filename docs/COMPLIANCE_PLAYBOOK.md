@@ -190,13 +190,40 @@ Controls marked `not_applicable` or `not_assessed` are excluded from the total.
 
 ---
 
+## Override Persistence
+
+Reviewer overrides (N/A, manual pass, etc.) automatically carry forward to new assessments:
+- When `runAssessment()` runs, it queries the most recent completed assessment for the same company+framework
+- Any findings with non-null `overrideStatus` are carried forward to the new assessment
+- The `overrideReason` is prefixed with `[Carried forward]` for audit trail
+- Only the most recent override per control is used (deduped)
+- Overrides can be removed by setting them to null on the new assessment
+
+---
+
+## Multi-Framework Policy Analysis
+
+`analyzePolicyWithAI` supports four compliance frameworks:
+
+| Framework ID | Name | Control ID Format |
+|-------------|------|-------------------|
+| `cis-v8` | CIS Controls v8 | `cis-v8-X.Y` |
+| `cmmc-l2` | CMMC Level 2 | `cmmc-AC.L2-3.1.1` |
+| `hipaa` | HIPAA Security Rule | `hipaa-164.312(a)(1)` |
+| `nist-800-171` | NIST SP 800-171 Rev 2 | `nist171-3.1.1` |
+
+Pass `frameworkId` in the POST/PATCH body to `/api/compliance/policies`. Defaults to `cis-v8`.
+Only CIS v8 has technical evaluators — other frameworks are policy-analysis only (documentation coverage).
+
+---
+
 ## Data Flow
 
 ```
 1. detectConnectors() — reads company M365 creds + env vars → upserts connector rows
-2. runAssessment() Phase 1 — reads assessment + connectors (1 DB connection, released)
+2. runAssessment() Phase 1 — reads assessment + connectors + previous overrides (1 DB connection, released)
 3. runAssessment() Phase 2 — ALL collectors run IN PARALLEL (zero DB connections)
-4. runAssessment() Phase 3 — stores evidence → evaluates 65 controls → stores findings
+4. runAssessment() Phase 3 — stores evidence → evaluates 65 controls → applies overrides → stores findings
    - Each evaluator checks: evidence → env N/A → tool attestation → policy coverage
    - applyPolicyCoverage runs AFTER each evaluator (only upgrades no-evidence controls)
 ```
