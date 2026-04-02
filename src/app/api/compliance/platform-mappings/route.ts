@@ -170,30 +170,28 @@ async function listPlatformSources(platform: string): Promise<SourceItem[]> {
       if (!process.env.DATTO_EDR_API_TOKEN) throw new Error('Datto EDR not configured')
       const edrToken = process.env.DATTO_EDR_API_TOKEN
       const edrUrl = (process.env.DATTO_EDR_API_URL || 'https://triple5695.infocyte.com/api').replace(/\/$/, '')
-      const sep = '?'
       const tokenParam = `access_token=${encodeURIComponent(edrToken)}`
 
-      // Try TargetGroups first (how Infocyte organizes customers/sites)
+      // Fetch Organizations from Infocyte LoopBack API
       try {
-        const tgRes = await fetch(`${edrUrl}/TargetGroups${sep}${tokenParam}`, {
+        const orgRes = await fetch(`${edrUrl}/Organizations?${tokenParam}`, {
           headers: { Authorization: edrToken, Accept: 'application/json' },
           signal: AbortSignal.timeout(15_000),
         })
-        if (tgRes.ok) {
-          const tgData = await tgRes.json() as Array<{ id?: string; name?: string; description?: string; agentCount?: number }>
-          if (Array.isArray(tgData) && tgData.length > 0) {
-            return tgData.map((tg) => ({
-              id: String(tg.id ?? tg.name ?? 'unknown'),
-              name: tg.name ?? 'Unknown',
-              type: 'target_group',
-              detail: tg.description || (tg.agentCount ? `${tg.agentCount} agent(s)` : undefined),
+        if (orgRes.ok) {
+          const orgData = await orgRes.json() as Array<{ id?: string; name?: string; description?: string; deviceCount?: number; locationCount?: number }>
+          if (Array.isArray(orgData) && orgData.length > 0) {
+            return orgData.map((o) => ({
+              id: String(o.id ?? o.name ?? 'unknown'),
+              name: o.name ?? 'Unknown',
+              type: 'organization',
+              detail: `${o.deviceCount ?? 0} devices, ${o.locationCount ?? 0} location(s)`,
             }))
           }
         }
       } catch { /* continue to fallback */ }
 
-      // Fallback: MSP-wide single entry
-      return [{ id: 'msp_wide', name: 'All Managed Endpoints (MSP-wide)', type: 'instance', detail: 'EDR covers all endpoints managed by TCT' }]
+      return [{ id: 'msp_wide', name: 'All Managed Endpoints (MSP-wide)', type: 'instance' }]
     }
 
     case 'datto_saas': {

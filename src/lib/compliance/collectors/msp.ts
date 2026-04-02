@@ -290,26 +290,81 @@ export async function collectDattoEdrEvidence(
   }
 
   try {
-    const { DattoEdrClient } = await import('@/lib/datto-edr')
-    const client = new DattoEdrClient()
+    const edrToken = process.env.DATTO_EDR_API_TOKEN!
+    const edrUrl = (process.env.DATTO_EDR_API_URL || 'https://triple5695.infocyte.com/api').replace(/\/$/, '')
+    const tokenParam = `access_token=${encodeURIComponent(edrToken)}`
 
     const now = new Date()
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
-    const summary = await client.buildSummary(thirtyDaysAgo, now)
 
-    if (!summary.available) {
-      return { evidence, errors: [summary.note ?? 'Datto EDR API unavailable'] }
+    // If org is mapped, get org-specific device count and filter alerts
+    let orgName: string | null = null
+    let orgDeviceCount = 0
+    let orgFilter = ''
+
+    if (mappings && mappings.length > 0 && mappings[0].externalId !== 'msp_wide') {
+      const orgId = mappings[0].externalId
+      orgName = mappings[0].externalName || null
+      orgFilter = `"organizationId":"${orgId}"`
+
+      // Get org device count
+      try {
+        const orgRes = await fetch(`${edrUrl}/Organizations/${orgId}?${tokenParam}`, {
+          headers: { Authorization: edrToken, Accept: 'application/json' },
+          signal: AbortSignal.timeout(10_000),
+        })
+        if (orgRes.ok) {
+          const orgData = await orgRes.json() as { deviceCount?: number; name?: string }
+          orgDeviceCount = orgData.deviceCount ?? 0
+          if (!orgName) orgName = orgData.name ?? null
+        }
+      } catch { /* non-fatal */ }
     }
 
-    // EDR is MSP-wide (covers all managed endpoints) — no per-customer filtering needed
-    // The presence of EDR is itself the evidence for anti-malware and monitoring controls
+    // Fetch alerts — with org filter if mapped
+    const filter: Record<string, unknown> = {
+      where: {
+        createdOn: { gte: thirtyDaysAgo.toISOString(), lte: now.toISOString() },
+        ...(orgFilter ? { organizationId: mappings![0].externalId } : {}),
+      },
+      limit: 500,
+      order: 'createdOn DESC',
+    }
+
+    const alertsRes = await fetch(
+      `${edrUrl}/Alerts?filter=${encodeURIComponent(JSON.stringify(filter))}&${tokenParam}`,
+      { headers: { Authorization: edrToken, Accept: 'application/json' }, signal: AbortSignal.timeout(30_000) }
+    )
+
+    let totalEvents = 0
+    const eventsBySeverity: Record<string, number> = {}
+    const eventsByType: Record<string, number> = {}
+
+    if (alertsRes.ok) {
+      const alerts = await alertsRes.json() as Array<{
+        threatName?: string; threatScore?: number; flagName?: string; type?: string
+      }>
+      totalEvents = Array.isArray(alerts) ? alerts.length : 0
+      for (const a of (Array.isArray(alerts) ? alerts : [])) {
+        const sev = a.threatName ?? 'unknown'
+        eventsBySeverity[sev] = (eventsBySeverity[sev] ?? 0) + 1
+        const type = a.flagName ?? a.type ?? 'unknown'
+        eventsByType[type] = (eventsByType[type] ?? 0) + 1
+      }
+    }
+
+    const summaryText = orgName
+      ? `Datto EDR: "${orgName}" — ${orgDeviceCount} devices, ${totalEvents} security events (30 days).`
+      : `Datto EDR: ${totalEvents} security events (30 days, MSP-wide).`
+
     evidence.push(buildEvidence(assessmentId, companyId, 'datto_edr_alerts', {
-      totalEvents: summary.totalEvents,
-      eventsBySeverity: summary.eventsBySeverity,
-      eventsByType: summary.eventsByType,
-      topThreats: summary.topThreats.slice(0, 10),
-      note: summary.note ?? 'EDR covers all managed endpoints MSP-wide.',
-    }, `Datto EDR: ${summary.totalEvents} security events (30 days). ${summary.eventsBySeverity.length > 0 ? `Severity: ${summary.eventsBySeverity.map((s) => `${s.severity}=${s.count}`).join(', ')}` : 'No events detected.'}`))
+      matchedOrganization: orgName,
+      deviceCount: orgDeviceCount,
+      totalEvents,
+      eventsBySeverity,
+      eventsByType,
+      note: orgName ? `Filtered to "${orgName}" organization` : 'MSP-wide data',
+    }, summaryText))
 
     return { evidence, errors }
   } catch (err) {
