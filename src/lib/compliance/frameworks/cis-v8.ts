@@ -135,13 +135,20 @@ function applyPolicyCoverage(evalResult: EvaluationResult, ctx: EvaluationContex
   const partial = coverage.filter((c) => c.status === 'partial')
   const policyNames = coverage.map((c) => c.policyTitle)
 
-  // If the control has conclusive technical evidence (pass/partial/fail with evidenceIds),
-  // policies are supporting documentation only — don't change the status.
-  // But if the status is needs_review (evidence was checked but insufficient, e.g.
-  // "IT Glue has no data disposal procedures"), policies CAN upgrade because
-  // the uploaded policy IS the documentation the control requires.
+  // Determine if policies can upgrade this control's status.
+  // Policies CAN upgrade when:
+  //   - Status is needs_review (evidence checked but insufficient)
+  //   - Status is partial AND the missing piece is documentation (IT Glue, etc.)
+  //     e.g., "TCT handles incidents but no formal docs" → uploaded SIRP policy satisfies it
+  // Policies CANNOT upgrade when:
+  //   - Status is partial/fail from a technical measurement (BitLocker 73%, MFA rate, etc.)
+  //     Those require actual technical remediation, not documentation
+  const DOC_SOURCES = ['it_glue_documentation', 'manual_upload']
+  const missingIsDocumentation = evalResult.missingEvidence.length > 0
+    && evalResult.missingEvidence.every((s) => DOC_SOURCES.includes(s))
   const hasConclusiveTechnicalEvidence = evalResult.evidenceIds.length > 0
     && evalResult.status !== 'needs_review'
+    && !(evalResult.status === 'partial' && missingIsDocumentation)
 
   if (hasConclusiveTechnicalEvidence) {
     // Don't change status, confidence, or evidence — but show policy details with quotes
@@ -165,12 +172,12 @@ function applyPolicyCoverage(evalResult: EvaluationResult, ctx: EvaluationContex
     }
   }
 
-  // No technical evidence — this is a process/documentation control.
-  // Policies CAN upgrade these from needs_review to pass.
+  // No conclusive technical evidence — policies can upgrade.
+  // This covers: needs_review, not_assessed, and partial-with-missing-documentation.
 
   if (evalResult.status === 'pass') return evalResult // Already passing, nothing to do
 
-  if (satisfied.length > 0 && (evalResult.status === 'needs_review' || evalResult.status === 'not_assessed')) {
+  if (satisfied.length > 0 && (evalResult.status === 'needs_review' || evalResult.status === 'not_assessed' || evalResult.status === 'partial')) {
     // Build detailed reasoning with quotes from each satisfying policy
     const details = satisfied.map((c) => {
       let detail = `**${c.policyTitle}**`
@@ -190,7 +197,7 @@ function applyPolicyCoverage(evalResult: EvaluationResult, ctx: EvaluationContex
     }
   }
 
-  if (partial.length > 0 && (evalResult.status === 'needs_review' || evalResult.status === 'not_assessed')) {
+  if (partial.length > 0 && (evalResult.status === 'needs_review' || evalResult.status === 'not_assessed' || evalResult.status === 'partial')) {
     const details = partial.map((c) => {
       let detail = `**${c.policyTitle}**`
       if (c.section) detail += ` (${c.section})`
