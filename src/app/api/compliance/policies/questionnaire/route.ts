@@ -49,10 +49,10 @@ export async function GET(request: NextRequest) {
     const orgAnswers = orgRes.rows[0]?.answers ?? {}
 
     // Load company name for pre-fill
-    const companyRes = await client.query<{ name: string }>(
-      `SELECT name FROM companies WHERE id = $1`, [companyId]
+    const companyRes = await client.query<{ displayName: string }>(
+      `SELECT "displayName" FROM companies WHERE id = $1`, [companyId]
     )
-    const companyName = companyRes.rows[0]?.name ?? ''
+    const companyName = companyRes.rows[0]?.displayName ?? ''
 
     // Pre-fill org_legal_name if not already set
     if (!orgAnswers.org_legal_name && companyName) {

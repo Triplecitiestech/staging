@@ -85,11 +85,11 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Get company name
-    const companyRes = await client.query<{ name: string }>(
-      `SELECT name FROM companies WHERE id = $1`, [companyId]
+    // Get company name (Prisma column is "displayName", not "name")
+    const companyRes = await client.query<{ displayName: string }>(
+      `SELECT "displayName" FROM companies WHERE id = $1`, [companyId]
     )
-    const companyName = companyRes.rows[0]?.name ?? 'Unknown'
+    const companyName = companyRes.rows[0]?.displayName ?? 'Unknown'
 
     // Get existing generation records for this company (graceful if table missing)
     let recordMap = new Map<string, { policySlug: string; status: string; policyId: string | null; updatedAt: string }>()

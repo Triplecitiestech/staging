@@ -58,10 +58,10 @@ export async function POST(request: NextRequest) {
 
     try {
       // Load company name
-      const companyRes = await client.query<{ name: string }>(
-        `SELECT name FROM companies WHERE id = $1`, [body.companyId]
+      const companyRes = await client.query<{ displayName: string }>(
+        `SELECT "displayName" FROM companies WHERE id = $1`, [body.companyId]
       )
-      const companyName = companyRes.rows[0]?.name
+      const companyName = companyRes.rows[0]?.displayName
       if (!companyName) {
         return NextResponse.json({ error: 'Company not found' }, { status: 404 })
       }
