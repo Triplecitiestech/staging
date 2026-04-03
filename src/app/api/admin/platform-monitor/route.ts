@@ -1,5 +1,5 @@
-import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
+import { apiOk, apiError, generateRequestId } from '@/lib/api-response'
 
 export const dynamic = 'force-dynamic'
 
@@ -10,10 +10,11 @@ export const dynamic = 'force-dynamic'
  * Used by the monitoring dashboard for graphs and alerting.
  */
 export async function GET() {
+  const reqId = generateRequestId()
   try {
     const session = await auth()
     if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return apiError('Unauthorized', reqId, 401)
     }
 
     const { prisma } = await import('@/lib/prisma')
@@ -106,7 +107,7 @@ export async function GET() {
     const totalDbRows = tables.reduce((sum, t) => sum + Number(t.rowCount), 0)
     const totalDbBytes = tables.reduce((sum, t) => sum + Number(t.sizeBytes), 0)
 
-    return NextResponse.json({
+    return apiOk({
       aiUsage: {
         summary: aiUsageSummary.status === 'fulfilled' ? aiUsageSummary.value : [],
         byDay: aiUsageByDay.status === 'fulfilled' ? aiUsageByDay.value : [],
@@ -120,10 +121,10 @@ export async function GET() {
       },
       thresholds: thresholds.status === 'fulfilled' ? thresholds.value : [],
       errorTrend: recentErrors.status === 'fulfilled' ? recentErrors.value : [],
-    })
+    }, reqId)
   } catch (error) {
     console.error('[platform-monitor] Error:', error)
-    return NextResponse.json({ error: 'Failed to load platform metrics' }, { status: 500 })
+    return apiError('Failed to load platform metrics', reqId, 500)
   }
 }
 

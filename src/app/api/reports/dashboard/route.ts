@@ -1,20 +1,22 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { auth } from '@/auth';
 import { parseFiltersFromParams } from '@/lib/reporting/filters';
 import { getEnhancedDashboardReport } from '@/lib/reporting/enhanced-services';
+import { apiOk, apiError, generateRequestId } from '@/lib/api-response';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
+  const reqId = generateRequestId();
   const session = await auth();
   if (!session?.user?.email) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return apiError('Unauthorized', reqId, 401);
   }
 
   try {
     const filters = parseFiltersFromParams(request.nextUrl.searchParams);
     const result = await getEnhancedDashboardReport(filters);
-    return NextResponse.json(result);
+    return apiOk(result, reqId);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     console.error('[reports/dashboard] Failed to load dashboard:', message);
@@ -27,7 +29,7 @@ export async function GET(request: NextRequest) {
       message.includes('P2021') ||
       message.includes('P2010')
     ) {
-      return NextResponse.json({
+      return apiOk({
         summary: {
           totalTicketsCreated: 0,
           totalTicketsClosed: 0,
@@ -52,12 +54,9 @@ export async function GET(request: NextRequest) {
           ticketCount: 0,
         },
         _warning: 'Reporting data pipeline has not been run yet. Run sync jobs to populate data.',
-      });
+      }, reqId);
     }
 
-    return NextResponse.json(
-      { error: `Reporting dashboard failed to load: ${message}` },
-      { status: 500 },
-    );
+    return apiError(`Reporting dashboard failed to load: ${message}`, reqId, 500);
   }
 }

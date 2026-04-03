@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { auth } from '@/auth'
+import { apiOk, apiError, generateRequestId } from '@/lib/api-response'
 
 export const dynamic = 'force-dynamic'
 
@@ -9,10 +10,11 @@ export const dynamic = 'force-dynamic'
  * Returns paginated, sortable, searchable Autotask sync logs.
  */
 export async function GET(request: NextRequest) {
+  const reqId = generateRequestId()
   try {
     const session = await auth()
     if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return apiError('Unauthorized', reqId, 401)
     }
 
     const { searchParams } = new URL(request.url)
@@ -60,7 +62,7 @@ export async function GET(request: NextRequest) {
       `SELECT status, COUNT(*)::int as count FROM autotask_sync_logs WHERE "startedAt" >= NOW() - INTERVAL '30 days' GROUP BY status`
     ).catch(() => [])
 
-    return NextResponse.json({
+    return apiOk({
       logs: logs.map(log => ({
         ...log,
         errors: log.errors ? JSON.parse(log.errors) : [],
@@ -79,9 +81,9 @@ export async function GET(request: NextRequest) {
           {} as Record<string, number>
         ),
       },
-    })
+    }, reqId)
   } catch (error) {
     console.error('[sync-logs] Error:', error)
-    return NextResponse.json({ error: 'Failed to load sync logs' }, { status: 500 })
+    return apiError('Failed to load sync logs', reqId, 500)
   }
 }

@@ -1,16 +1,17 @@
-import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { getAutotaskWebUrl } from '@/lib/tickets/utils';
+import { apiOk, apiError, generateRequestId } from '@/lib/api-response';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 /** GET /api/soc/status — SOC agent status and summary stats */
 export async function GET() {
+  const reqId = generateRequestId();
   const session = await auth();
   if (!session?.user?.email) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return apiError('Unauthorized', reqId, 401);
   }
 
   try {
@@ -56,7 +57,7 @@ export async function GET() {
     const todayStats = todayStatsResult[0];
     const pending = pendingResult[0];
 
-    return NextResponse.json({
+    return apiOk({
       jobs,
       config,
       today: {
@@ -68,9 +69,9 @@ export async function GET() {
       pending: Number(pending.count),
       recentIncidents,
       autotaskWebUrl: getAutotaskWebUrl(),
-    });
+    }, reqId);
   } catch (err) {
     console.error('[soc/status]', err);
-    return NextResponse.json({ error: 'Failed to load status' }, { status: 500 });
+    return apiError('Failed to load status', reqId, 500);
   }
 }
