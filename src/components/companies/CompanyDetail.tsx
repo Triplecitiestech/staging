@@ -412,9 +412,10 @@ export default function CompanyDetail({ company, contacts: initialContacts, proj
               </p>
               <div className="space-y-2">
                 {(['onboarding', 'offboarding'] as const).map((type) => {
+                  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.triplecitiestech.com'
                   const url = demo.active
-                    ? `https://www.triplecitiestech.com/forms/demo-company/${type}`
-                    : `https://www.triplecitiestech.com/forms/${company.slug}/${type}`
+                    ? `${baseUrl}/forms/demo-company/${type}`
+                    : `${baseUrl}/forms/${company.slug}/${type}`
                   const isCopied = copiedLink === type
                   return (
                     <div key={type} className="flex items-center gap-2 p-3 bg-slate-900/40 border border-white/5 rounded-lg">

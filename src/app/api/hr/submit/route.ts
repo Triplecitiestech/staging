@@ -4,6 +4,7 @@ import { PoolClient } from 'pg'
 import { getPool } from '@/lib/db-pool'
 import { getPortalSession } from '@/lib/portal-session'
 import { withDbRetry } from '@/lib/resilience'
+import { checkCsrf } from '@/lib/security'
 
 // ---------------------------------------------------------------------------
 // Raw pg pool — bypasses Prisma entirely so schema mismatches can't cause 500s
@@ -28,6 +29,10 @@ interface SubmitRequestBody {
 // ---------------------------------------------------------------------------
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  // CSRF protection
+  const csrfBlocked = checkCsrf(request)
+  if (csrfBlocked) return csrfBlocked
+
   // 1. Parse body — catch empty/malformed body before anything else
   let body: SubmitRequestBody
   try {

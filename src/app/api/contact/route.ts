@@ -8,7 +8,8 @@ import {
   isValidPhone,
   RateLimiter,
   validateRequest,
-  logSecurityEvent
+  logSecurityEvent,
+  checkCsrf,
 } from '@/lib/security'
 
 // Initialize Resend only if API key is available
@@ -66,6 +67,10 @@ function containsSpamKeywords(text: string): boolean {
 }
 
 export async function POST(request: NextRequest) {
+  // CSRF protection: reject cross-origin form submissions
+  const csrfBlocked = checkCsrf(request)
+  if (csrfBlocked) return csrfBlocked
+
   try {
     // Security: Validate request
     const validation = validateRequest(request)

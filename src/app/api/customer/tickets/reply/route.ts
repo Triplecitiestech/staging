@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getPortalSession } from '@/lib/portal-session'
 import { prisma } from '@/lib/prisma'
+import { checkCsrf } from '@/lib/security'
 
 export const dynamic = 'force-dynamic'
 
@@ -10,6 +11,9 @@ export const dynamic = 'force-dynamic'
  * Body: { companySlug, ticketId, message }
  */
 export async function POST(request: NextRequest) {
+  const csrfBlocked = checkCsrf(request)
+  if (csrfBlocked) return csrfBlocked
+
   try {
     const body = await request.json()
     const { companySlug, ticketId, message } = body
