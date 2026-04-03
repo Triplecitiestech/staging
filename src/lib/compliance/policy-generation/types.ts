@@ -88,6 +88,10 @@ export interface QuestionDefinition {
   conditional?: { questionId: string; value: string | boolean }
   /** Pre-fill key: if this matches an org profile key, auto-fill */
   prefillKey?: string
+  /** Evidence engine source that can auto-fill this question (future auto-fill) */
+  autoFillSource?: string
+  /** Visual grouping label within a section (e.g. 'Endpoint Security', 'Governance Cadences') */
+  group?: string
   /** Sort order within section */
   sortOrder: number
 }
