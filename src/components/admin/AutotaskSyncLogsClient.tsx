@@ -45,7 +45,7 @@ export default function AutotaskSyncLogsClient() {
   const [searchInput, setSearchInput] = useState('')
   const [expandedLog, setExpandedLog] = useState<string | null>(null)
 
-  const fetchLogs = useCallback(async () => {
+  const fetchLogs = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)
     const params = new URLSearchParams({
       page: pagination.page.toString(),
@@ -57,18 +57,24 @@ export default function AutotaskSyncLogsClient() {
     if (search) params.set('search', search)
 
     try {
-      const res = await fetch(`/api/admin/sync-logs?${params}`)
+      const res = await fetch(`/api/admin/sync-logs?${params}`, { signal })
       if (res.ok) {
         const data = await res.json()
         setLogs(data.logs)
         setPagination(data.pagination)
         setStats(data.stats)
       }
-    } catch { /* handled by empty state */ }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
+    }
     setLoading(false)
   }, [pagination.page, sortBy, sortDir, statusFilter, search])
 
-  useEffect(() => { fetchLogs() }, [fetchLogs])
+  useEffect(() => {
+    const c = new AbortController()
+    fetchLogs(c.signal)
+    return () => c.abort()
+  }, [fetchLogs])
 
   const handleSort = (col: string) => {
     if (sortBy === col) {

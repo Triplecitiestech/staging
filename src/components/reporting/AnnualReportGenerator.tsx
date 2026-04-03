@@ -60,9 +60,9 @@ export default function AnnualReportGenerator() {
   const [sections, setSections] = useState<Record<SectionKey, boolean>>({ ...DEFAULT_SECTIONS })
   const [showSections, setShowSections] = useState(false)
 
-  const fetchCompanies = useCallback(async () => {
+  const fetchCompanies = useCallback(async (signal?: AbortSignal) => {
     try {
-      const res = await fetch('/api/reports/selectors')
+      const res = await fetch('/api/reports/selectors', { signal })
       if (!res.ok) throw new Error('Failed to load companies')
       const data = await res.json()
       const list = (data.companies || [])
@@ -76,26 +76,30 @@ export default function AnnualReportGenerator() {
         )
       setCompanies(list)
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
       console.error('Failed to load companies:', err)
     }
   }, [])
 
-  const fetchReports = useCallback(async () => {
+  const fetchReports = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)
     try {
-      const res = await fetch('/api/reports/annual-report')
+      const res = await fetch('/api/reports/annual-report', { signal })
       if (!res.ok) throw new Error('Failed to load reports')
       const data = await res.json()
       setReports(data.reports || [])
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
       console.error('Failed to load reports:', err)
     }
     setLoading(false)
   }, [])
 
   useEffect(() => {
-    fetchCompanies()
-    fetchReports()
+    const c = new AbortController()
+    fetchCompanies(c.signal)
+    fetchReports(c.signal)
+    return () => c.abort()
   }, [fetchCompanies, fetchReports])
 
   const toggleSection = (key: SectionKey) => {

@@ -219,24 +219,29 @@ export default function SocTicketDetail({ ticketId, onBack }: SocTicketDetailPro
   const [decidingAction, setDecidingAction] = useState<string | null>(null);
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());
 
-  const fetchAnalysis = useCallback(async () => {
+  const fetchAnalysis = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/soc/tickets/${ticketId}/analysis`);
+      const res = await fetch(`/api/soc/tickets/${ticketId}/analysis`, { signal });
       if (!res.ok) {
         setError(`Failed to load analysis (${res.status})`);
         return;
       }
       setData(await res.json());
-    } catch {
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
       setError('Network error loading analysis');
     } finally {
       setLoading(false);
     }
   }, [ticketId]);
 
-  useEffect(() => { fetchAnalysis(); }, [fetchAnalysis]);
+  useEffect(() => {
+    const c = new AbortController();
+    fetchAnalysis(c.signal);
+    return () => c.abort();
+  }, [fetchAnalysis]);
 
   const handleActionDecision = async (actionId: string, decision: 'approve' | 'reject') => {
     setDecidingAction(actionId);

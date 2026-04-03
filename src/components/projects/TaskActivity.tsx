@@ -45,12 +45,12 @@ export default function TaskActivity({ autotaskTaskId, taskId }: TaskActivityPro
   // Filter state
   const [showSystemNotes, setShowSystemNotes] = useState(true)
 
-  const fetchActivity = useCallback(async () => {
+  const fetchActivity = useCallback(async (signal?: AbortSignal) => {
     if (!autotaskTaskId) return
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`/api/autotask/activity?taskId=${autotaskTaskId}`)
+      const res = await fetch(`/api/autotask/activity?taskId=${autotaskTaskId}`, { signal })
       if (!res.ok) {
         const data = await res.json()
         throw new Error(data.error || 'Failed to fetch')
@@ -59,17 +59,23 @@ export default function TaskActivity({ autotaskTaskId, taskId }: TaskActivityPro
       setActivities(data.activities || [])
       setLoaded(true)
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
       setError(err instanceof Error ? err.message : 'Failed to load activity')
     } finally {
       setLoading(false)
     }
   }, [autotaskTaskId])
 
+  // Parameterless wrapper for button onClick
+  const refreshActivity = useCallback(() => fetchActivity(), [fetchActivity])
+
   // Fetch activity when expanded for the first time
   useEffect(() => {
     if (isExpanded && autotaskTaskId && !autoFetched) {
       setAutoFetched(true)
-      fetchActivity()
+      const c = new AbortController()
+      fetchActivity(c.signal)
+      return () => c.abort()
     }
   }, [isExpanded, autotaskTaskId, autoFetched, fetchActivity])
 
@@ -222,7 +228,7 @@ export default function TaskActivity({ autotaskTaskId, taskId }: TaskActivityPro
               Autotask
             </a>
             <button
-              onClick={fetchActivity}
+              onClick={refreshActivity}
               className="p-1.5 text-slate-500 hover:text-slate-300 transition-colors"
               title="Refresh activity"
             >
@@ -370,7 +376,7 @@ export default function TaskActivity({ autotaskTaskId, taskId }: TaskActivityPro
           {error && (
             <div className="py-3 px-3 bg-red-500/10 border border-red-500/20 rounded-lg">
               <p className="text-xs text-red-400">{error}</p>
-              <button onClick={fetchActivity} className="text-xs text-red-300 hover:text-red-200 mt-1 underline">
+              <button onClick={refreshActivity} className="text-xs text-red-300 hover:text-red-200 mt-1 underline">
                 Retry
               </button>
             </div>

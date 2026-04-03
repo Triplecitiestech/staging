@@ -128,7 +128,7 @@ export default function PolicyGenerationDashboard({
   const [savingPolicy, setSavingPolicy] = useState(false)
 
   // Load catalog / needs analysis
-  const loadAnalysis = useCallback(async () => {
+  const loadAnalysis = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)
     setError(null)
     try {
@@ -136,18 +136,23 @@ export default function PolicyGenerationDashboard({
       if (selectedFrameworks.length > 0) {
         params.set('frameworks', selectedFrameworks.join(','))
       }
-      const res = await fetch(`/api/compliance/policies/catalog?${params}`)
+      const res = await fetch(`/api/compliance/policies/catalog?${params}`, { signal })
       const json = await res.json()
       if (!json.success) throw new Error(json.error)
       setAnalysis(json.data)
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
       setError(err instanceof Error ? err.message : 'Failed to load policy catalog')
     } finally {
       setLoading(false)
     }
   }, [companyId, selectedFrameworks])
 
-  useEffect(() => { loadAnalysis() }, [loadAnalysis])
+  useEffect(() => {
+    const c = new AbortController()
+    loadAnalysis(c.signal)
+    return () => c.abort()
+  }, [loadAnalysis])
 
   // Load org profile questionnaire
   const loadOrgProfile = useCallback(async () => {

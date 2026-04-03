@@ -217,12 +217,12 @@ export function CustomerFormConfig({
   const [questionOverrides, setQuestionOverrides] = useState<QuestionOverride[]>([])
   const [previewOpen, setPreviewOpen] = useState(false)
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)
     try {
       const [configRes, schemasRes] = await Promise.all([
-        fetch(`/api/admin/companies/${companyId}/form-config`),
-        fetch(`/api/admin/forms/schemas?type=${activeTab}`),
+        fetch(`/api/admin/companies/${companyId}/form-config`, { signal }),
+        fetch(`/api/admin/forms/schemas?type=${activeTab}`, { signal }),
       ])
       if (configRes.ok) {
         const data = await configRes.json()
@@ -277,7 +277,9 @@ export function CustomerFormConfig({
   }, [companyId, activeTab])
 
   useEffect(() => {
-    loadData()
+    const c = new AbortController()
+    loadData(c.signal)
+    return () => c.abort()
   }, [loadData])
 
   const publishedSchema = schemas[0]
