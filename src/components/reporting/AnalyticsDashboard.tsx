@@ -53,18 +53,24 @@ export default function AnalyticsDashboard() {
   const [data, setData] = useState<AnalyticsData | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)
     try {
       const params = new URLSearchParams(searchParams.toString())
       if (!params.has('preset')) params.set('preset', 'last_30_days')
-      const res = await fetch(`/api/reports/analytics?${params.toString()}`)
+      const res = await fetch(`/api/reports/analytics?${params.toString()}`, { signal })
       if (res.ok) setData(await res.json())
-    } catch { /* ignore */ }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
+    }
     setLoading(false)
   }, [searchParams])
 
-  useEffect(() => { fetchData() }, [fetchData])
+  useEffect(() => {
+    const controller = new AbortController()
+    fetchData(controller.signal)
+    return () => controller.abort()
+  }, [fetchData])
 
   if (loading) {
     return (
