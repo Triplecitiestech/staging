@@ -1,10 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { getAutotaskWebUrl, isResolvedStatus, PRIORITY_LABELS } from '@/lib/tickets/utils';
 import { isSecurityTicket } from '@/lib/soc/rules';
 import type { SecurityTicket } from '@/lib/soc/types';
 import type { UnifiedTicketRow } from '@/types/tickets';
+import { apiOk, apiError, generateRequestId } from '@/lib/api-response';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -22,9 +23,10 @@ interface SocAnalysis {
  * Returns UnifiedTicketRow[] with SOC analysis data overlaid.
  */
 export async function GET(request: NextRequest) {
+  const reqId = generateRequestId();
   const session = await auth();
   if (!session?.user?.email) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return apiError('Unauthorized', reqId, 401);
   }
 
   try {
@@ -170,16 +172,16 @@ export async function GET(request: NextRequest) {
     const resolved = rows.filter(r => r.isResolved);
     const suspicious = rows.filter(r => r.socVerdict === 'suspicious' || r.socVerdict === 'escalate');
 
-    return NextResponse.json({
+    return apiOk({
       tickets: rows,
       totalTickets: rows.length,
       openCount: open.length,
       resolvedCount: resolved.length,
       suspiciousCount: suspicious.length,
       autotaskWebUrl,
-    });
+    }, reqId);
   } catch (err) {
     console.error('[soc/tickets]', err);
-    return NextResponse.json({ error: 'Failed to load tickets' }, { status: 500 });
+    return apiError('Failed to load tickets', reqId, 500);
   }
 }
