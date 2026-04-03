@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { getPortalSession } from '@/lib/portal-session';
 import { prisma } from '@/lib/prisma';
+import { apiOk, apiError, generateRequestId } from '@/lib/api-response';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,15 +14,16 @@ export const dynamic = 'force-dynamic';
  * - avgResolutionHours: average resolution time for closed tickets
  */
 export async function GET(request: NextRequest) {
+  const reqId = generateRequestId();
   const companySlug = request.nextUrl.searchParams.get('companySlug');
   if (!companySlug) {
-    return NextResponse.json({ error: 'companySlug is required' }, { status: 400 });
+    return apiError('companySlug is required', reqId, 400);
   }
 
   // Verify customer auth
   const session = await getPortalSession();
   if (!session || session.companySlug !== companySlug.toLowerCase().trim()) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return apiError('Unauthorized', reqId, 401);
   }
 
   try {
@@ -32,11 +34,11 @@ export async function GET(request: NextRequest) {
     });
 
     if (!company) {
-      return NextResponse.json({
+      return apiOk({
         hoursWorkedThisMonth: 0,
         ticketsClosedThisMonth: 0,
         avgResolutionHours: null,
-      });
+      }, reqId);
     }
 
     // Current month range
@@ -89,13 +91,13 @@ export async function GET(request: NextRequest) {
       avgResolutionHours = Math.round((totalMinutes / closedThisMonth.length / 60) * 10) / 10;
     }
 
-    return NextResponse.json({
+    return apiOk({
       hoursWorkedThisMonth: Math.round(hoursWorkedThisMonth * 10) / 10,
       ticketsClosedThisMonth,
       avgResolutionHours,
-    });
+    }, reqId);
   } catch (err) {
     console.error('[api/customer/metrics] Failed:', err instanceof Error ? err.message : err);
-    return NextResponse.json({ error: 'Failed to load metrics' }, { status: 500 });
+    return apiError('Failed to load metrics', reqId, 500);
   }
 }

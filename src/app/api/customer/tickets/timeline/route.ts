@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { getPortalSession } from '@/lib/portal-session'
 import { prisma } from '@/lib/prisma'
+import { apiOk, apiError, generateRequestId } from '@/lib/api-response'
 
 export const dynamic = 'force-dynamic'
 
@@ -21,25 +22,26 @@ interface TimelineEntry {
  * Only returns customer-visible (external) notes.
  */
 export async function GET(request: NextRequest) {
+  const reqId = generateRequestId()
   try {
     const companySlug = request.nextUrl.searchParams.get('companySlug')
     const ticketId = request.nextUrl.searchParams.get('ticketId')
 
     if (!companySlug || !ticketId) {
-      return NextResponse.json({ error: 'companySlug and ticketId required' }, { status: 400 })
+      return apiError('companySlug and ticketId required', reqId, 400)
     }
 
     // Verify customer is authenticated for this company
     const session = await getPortalSession()
     if (!session || session.companySlug !== companySlug.toLowerCase().trim()) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return apiError('Unauthorized', reqId, 401)
     }
 
     // Demo company: return synthetic timeline
     if (companySlug.toLowerCase().trim() === 'contoso-industries') {
       const { DEMO_TIMELINE } = await import('@/lib/demo-mode')
       const demoTimeline = DEMO_TIMELINE[parseInt(ticketId, 10) as keyof typeof DEMO_TIMELINE] || []
-      return NextResponse.json({ timeline: demoTimeline })
+      return apiOk({ timeline: demoTimeline }, reqId)
     }
 
     // Verify company has Autotask ID
@@ -49,12 +51,12 @@ export async function GET(request: NextRequest) {
     })
 
     if (!company?.autotaskCompanyId) {
-      return NextResponse.json({ timeline: [] })
+      return apiOk({ timeline: [] }, reqId)
     }
 
     const atTicketId = parseInt(ticketId, 10)
     if (isNaN(atTicketId)) {
-      return NextResponse.json({ timeline: [] })
+      return apiOk({ timeline: [] }, reqId)
     }
 
     // Fetch ticket notes and time entries from Autotask
@@ -143,12 +145,9 @@ export async function GET(request: NextRequest) {
       return dateA - dateB
     })
 
-    return NextResponse.json({ timeline })
+    return apiOk({ timeline }, reqId)
   } catch (error) {
     console.error('[Customer Ticket Timeline API] Error:', error)
-    return NextResponse.json(
-      { error: 'Unable to load ticket timeline. Please try again shortly.' },
-      { status: 502 }
-    )
+    return apiError('Unable to load ticket timeline. Please try again shortly.', reqId, 502)
   }
 }

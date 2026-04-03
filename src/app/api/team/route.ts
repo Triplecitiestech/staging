@@ -1,5 +1,5 @@
-import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { apiOk, apiError, generateRequestId } from '@/lib/api-response'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 3600 // Cache for 1 hour
@@ -18,6 +18,7 @@ const ROLE_TITLES: Record<string, string> = {
  * Only exposes name and role — no email or internal IDs.
  */
 export async function GET() {
+  const reqId = generateRequestId()
   try {
     const staff = await prisma.staffUser.findMany({
       where: { isActive: true },
@@ -39,9 +40,9 @@ export async function GET() {
         .slice(0, 2),
     }))
 
-    return NextResponse.json({ team })
+    return apiOk({ team }, reqId)
   } catch (err) {
     console.error('[api/team] Failed to fetch staff:', err instanceof Error ? err.message : err)
-    return NextResponse.json({ error: 'Failed to load team data' }, { status: 500 })
+    return apiError('Failed to load team data', reqId, 500)
   }
 }
