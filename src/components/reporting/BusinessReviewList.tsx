@@ -41,11 +41,11 @@ export default function BusinessReviewList() {
   const [variant, setVariant] = useState<'customer' | 'internal'>('customer')
   const [showForm, setShowForm] = useState(false)
 
-  const fetchReviews = useCallback(async () => {
+  const fetchReviewsImpl = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)
     setReviewsError(null)
     try {
-      const res = await fetch('/api/reports/business-review')
+      const res = await fetch('/api/reports/business-review', { signal })
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}))
         throw new Error(errData.error || `Failed to load reviews (HTTP ${res.status})`)
@@ -53,6 +53,7 @@ export default function BusinessReviewList() {
       const data = await res.json()
       setReviews(data.reviews || [])
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
       const msg = err instanceof Error ? err.message : 'Unknown error'
       console.error('[BusinessReviewList] Failed to load reviews:', msg)
       setReviewsError(msg)
@@ -60,12 +61,12 @@ export default function BusinessReviewList() {
     setLoading(false)
   }, [])
 
-  const fetchCompanies = useCallback(async () => {
+  const fetchReviews = useCallback(() => fetchReviewsImpl(), [fetchReviewsImpl])
+
+  const fetchCompaniesImpl = useCallback(async (signal?: AbortSignal) => {
     setCompaniesError(null)
     try {
-      // Use the selectors endpoint which reads from the base Company table,
-      // not from materialized reporting tables
-      const res = await fetch('/api/reports/selectors')
+      const res = await fetch('/api/reports/selectors', { signal })
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}))
         throw new Error(errData.error || `Failed to load companies (HTTP ${res.status})`)
@@ -77,23 +78,27 @@ export default function BusinessReviewList() {
           displayName: c.displayName,
           ticketCount: c.ticketCount || 0,
         }))
-        // Sort companies with ticket data first
         .sort((a: CompanyOption, b: CompanyOption) => b.ticketCount - a.ticketCount || a.displayName.localeCompare(b.displayName))
       setCompanies(companyList)
       if (companyList.length === 0) {
         setCompaniesError('No companies found. Ensure Autotask company sync has been run.')
       }
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
       const msg = err instanceof Error ? err.message : 'Unknown error'
       console.error('[BusinessReviewList] Failed to load companies:', msg)
       setCompaniesError(`Unable to load companies from Autotask data source: ${msg}`)
     }
   }, [])
 
+  const fetchCompanies = useCallback(() => fetchCompaniesImpl(), [fetchCompaniesImpl])
+
   useEffect(() => {
-    fetchReviews()
-    fetchCompanies()
-  }, [fetchReviews, fetchCompanies])
+    const controller = new AbortController()
+    fetchReviewsImpl(controller.signal)
+    fetchCompaniesImpl(controller.signal)
+    return () => controller.abort()
+  }, [fetchReviewsImpl, fetchCompaniesImpl])
 
   const generateReview = async () => {
     if (!selectedCompany) return

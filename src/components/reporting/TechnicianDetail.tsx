@@ -61,42 +61,53 @@ export default function TechnicianDetail({ resourceId }: TechnicianDetailProps) 
   const [notesLoading, setNotesLoading] = useState(false)
   const [noteVisibility, setNoteVisibility] = useState<NoteVisibilityFilters>(DEFAULT_STAFF_VISIBILITY)
 
-  const fetchTechData = useCallback(async () => {
+  const fetchTechData = useCallback(async (signal?: AbortSignal) => {
     setLoadingTech(true)
     try {
       const params = new URLSearchParams(searchParams.toString())
       if (!params.has('preset')) params.set('preset', 'last_30_days')
-      // Request comparison data for the chart
       params.set('compare', 'true')
       params.set('resourceId', resourceId)
-      const res = await fetch(`/api/reports/technicians?${params.toString()}`)
+      const res = await fetch(`/api/reports/technicians?${params.toString()}`, { signal })
       if (res.ok) {
         const json = await res.json()
         const tech = json.summary?.find((t: TechSummary) => String(t.resourceId) === resourceId)
         setTechData(tech || null)
-        // Get per-tech comparison data
         const tc = json.techComparison?.find((t: TechComparisonDetail) => String(t.resourceId) === resourceId)
         setTechComparison(tc || null)
       }
-    } catch { /* ignore */ }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
+    }
     setLoadingTech(false)
   }, [searchParams, resourceId])
 
-  const fetchTickets = useCallback(async () => {
+  const fetchTickets = useCallback(async (signal?: AbortSignal) => {
     setLoadingTickets(true)
     try {
       const params = new URLSearchParams(searchParams.toString())
       if (!params.has('preset')) params.set('preset', 'last_30_days')
       params.set('resourceId', resourceId)
       params.set('perspective', 'staff')
-      const res = await fetch(`/api/tickets?${params.toString()}`)
+      const res = await fetch(`/api/tickets?${params.toString()}`, { signal })
       if (res.ok) setTicketData(await res.json())
-    } catch { /* ignore */ }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
+    }
     setLoadingTickets(false)
   }, [searchParams, resourceId])
 
-  useEffect(() => { fetchTechData() }, [fetchTechData])
-  useEffect(() => { fetchTickets() }, [fetchTickets])
+  useEffect(() => {
+    const c = new AbortController()
+    fetchTechData(c.signal)
+    return () => c.abort()
+  }, [fetchTechData])
+
+  useEffect(() => {
+    const c = new AbortController()
+    fetchTickets(c.signal)
+    return () => c.abort()
+  }, [fetchTickets])
 
   const fetchNotes = useCallback(async (ticketId: string, vis: NoteVisibilityFilters) => {
     setNotesLoading(true)

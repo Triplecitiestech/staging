@@ -51,21 +51,25 @@ export default function SocRulesManager() {
   const [trends, setTrends] = useState<TrendsData | null>(null)
   const [trendsLoading, setTrendsLoading] = useState(false)
 
-  const fetchRules = useCallback(async () => {
+  const fetchRules = useCallback(async (signal?: AbortSignal) => {
     try {
-      const res = await fetch('/api/soc/rules')
+      const res = await fetch('/api/soc/rules', { signal })
       if (res.ok) {
         const data = await res.json()
         setRules(data.rules || [])
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
     } finally {
       setLoading(false)
     }
   }, [])
 
-  useEffect(() => { fetchRules() }, [fetchRules])
+  useEffect(() => {
+    const controller = new AbortController()
+    fetchRules(controller.signal)
+    return () => controller.abort()
+  }, [fetchRules])
 
   const fetchTrends = useCallback(async () => {
     setTrendsLoading(true)
