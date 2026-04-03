@@ -236,12 +236,34 @@ If step 3 or 4 fails, return to step 2. Never proceed with a broken build or fai
 
 ## 8. Error Handling Standards
 
-- Never silently catch and ignore errors
-- Always log error details for debugging
-- API routes must return structured error responses
-- Client-side errors must show user-friendly messages
-- Never use empty catch blocks: `try { } catch { }`
-- Autotask API errors must be reported, not swallowed
+### 8.1 API Route Error Rules (MANDATORY)
+
+- **NEVER return 200 with empty data in a catch block.** If an error occurs, return a 4xx/5xx status with `{ error: 'message' }`. Returning `{ tickets: [] }` or `{ data: [] }` in a catch block makes the UI silently show "no data" instead of an error — this is the #1 cause of "app appears broken" during demos.
+- **NEVER use empty catch blocks** (`catch { }` or `catch { /* ignore */ }`). At minimum, log the error. If it's on the critical path, return an error response.
+- **Cron routes must return 200 for transient errors.** Use `classifyError()` from `resilience.ts`. Return `{ success: false, transient: true }` for connection/timeout errors, 500 only for permanent failures. This prevents Vercel from flagging crons as broken.
+- Always log error details for debugging with `console.error('[route-name]', error)`.
+- API routes must return structured error responses: `{ error: 'Human-readable message' }`.
+- Use `apiSuccess()` and `apiError()` from `src/lib/api-response.ts` for new mutation routes.
+
+### 8.2 Client Component Error Rules (MANDATORY)
+
+- **Every useEffect that calls fetch() MUST use AbortController.** Create controller, pass signal to fetch, return cleanup that aborts. This prevents memory leaks and stale state updates when navigating between pages. Pattern:
+  ```typescript
+  useEffect(() => {
+    const controller = new AbortController()
+    fetchData(controller.signal)
+    return () => controller.abort()
+  }, [fetchData])
+  ```
+- **Catch blocks must check for AbortError:** `if (err instanceof DOMException && err.name === 'AbortError') return`
+- If the fetch function is also used as an `onClick` handler, create a parameterless wrapper to avoid type conflicts with `MouseEvent`.
+- Components that fetch data MUST show error states to the user, not silently show empty data. Add error state + retry button.
+
+### 8.3 Error Boundary Rules (MANDATORY)
+
+- Every major layout section must be wrapped in an error boundary (admin layout, portal layout).
+- When a component crash occurs, the error boundary shows a user-friendly message with a retry button — the rest of the page keeps working.
+- Use `AdminErrorBoundary` for admin pages, `PortalErrorBoundary` for portal pages.
 
 ---
 
@@ -252,8 +274,25 @@ If step 3 or 4 fails, return to step 2. Never proceed with a broken build or fai
 - Use parameterized queries (Prisma handles this)
 - CSP headers must be maintained in `next.config.js`
 - Honeypot fields on public forms
-- Rate limiting on sensitive endpoints
 - Never expose internal error details to end users
+
+### 9.1 Authentication Rules (MANDATORY)
+
+- **Every admin API route must call `auth()`** and check `session?.user`. The middleware does NOT cover API routes — auth must be enforced per-route.
+- **Use `checkSecretAuth()` from `src/lib/api-auth.ts`** for diagnostic/migration/cron routes. It accepts both `Authorization: Bearer <secret>` (preferred) and `?secret=` query params (legacy). Never write inline secret checks in new routes.
+- **Never use default/fallback signing keys.** Session signing keys must come from env vars. Hardcoded fallbacks are visible in source code.
+
+### 9.2 CSRF Protection (MANDATORY)
+
+- **All customer-facing mutation endpoints** (POST/PUT/PATCH/DELETE) must call `checkCsrf(request)` from `src/lib/security.ts` before processing the request. This validates Origin/Referer headers.
+- Currently protected: `/api/contact`, `/api/customer/tickets/reply`, `/api/customer/notes`, `/api/customer/comments`, `/api/hr/submit`.
+- **New customer-facing mutation endpoints MUST add checkCsrf.** This is a required step, not optional.
+
+### 9.3 Rate Limiting (MANDATORY)
+
+- **All login and auth endpoints must be rate-limited.** Use `checkRateLimit(request)` from `src/lib/security.ts`. Use `{ strict: true }` for sensitive endpoints (password attempts, email lookups).
+- Currently protected: portal auth login, portal auth discover, onboarding auth, contact form.
+- **New auth endpoints MUST add rate limiting.** This is a required step, not optional.
 
 ---
 
