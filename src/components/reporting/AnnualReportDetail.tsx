@@ -32,23 +32,25 @@ export default function AnnualReportDetail({ reportId }: Props) {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    const controller = new AbortController()
     async function load() {
       try {
-        const res = await fetch(`/api/reports/annual-report/${reportId}`)
+        const res = await fetch(`/api/reports/annual-report/${reportId}`, { signal: controller.signal })
         if (!res.ok) throw new Error('Failed to load report')
         const data = await res.json()
         const rec = data.review as ReportRecord
         setReport(rec)
 
-        // Parse stored data (handles legacy and new format) then process
         const { raw, config } = parseStoredReport(rec.reportData, rec.variant)
         setProcessed(processReport(raw, config))
       } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return
         setError(err instanceof Error ? err.message : 'Failed to load report')
       }
       setLoading(false)
     }
     load()
+    return () => controller.abort()
   }, [reportId])
 
   if (loading) {

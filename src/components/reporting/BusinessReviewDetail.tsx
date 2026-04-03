@@ -88,16 +88,22 @@ export default function BusinessReviewDetail({ reviewId }: Props) {
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState(false)
 
-  const fetchReview = useCallback(async () => {
+  const fetchReview = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)
     try {
-      const res = await fetch(`/api/reports/business-review/${reviewId}`)
+      const res = await fetch(`/api/reports/business-review/${reviewId}`, { signal })
       if (res.ok) setReview(await res.json())
-    } catch { /* ignore */ }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
+    }
     setLoading(false)
   }, [reviewId])
 
-  useEffect(() => { fetchReview() }, [fetchReview])
+  useEffect(() => {
+    const controller = new AbortController()
+    fetchReview(controller.signal)
+    return () => controller.abort()
+  }, [fetchReview])
 
   const updateStatus = async (status: string) => {
     setUpdating(true)
