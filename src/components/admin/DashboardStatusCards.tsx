@@ -113,19 +113,25 @@ function AutotaskSyncCard() {
 
   const [authFailed, setAuthFailed] = useState(false)
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (signal?: AbortSignal) => {
     try {
-      const res = await fetch('/api/autotask/status')
+      const res = await fetch('/api/autotask/status', { signal })
       if (res.status === 401) {
         setAuthFailed(true)
       } else if (res.ok) {
         setData(await res.json())
       }
-    } catch { /* handled by null state */ }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
+    }
     setLoading(false)
   }, [])
 
-  useEffect(() => { fetchData() }, [fetchData])
+  useEffect(() => {
+    const c = new AbortController()
+    fetchData(c.signal)
+    return () => c.abort()
+  }, [fetchData])
 
   if (loading) return <CardSkeleton title="Autotask PSA" />
 
@@ -228,15 +234,21 @@ function ReportingPipelineCard() {
   const [data, setData] = useState<ReportingData | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (signal?: AbortSignal) => {
     try {
-      const res = await fetch('/api/reports/status')
+      const res = await fetch('/api/reports/status', { signal })
       if (res.ok) setData(await res.json())
-    } catch { /* handled by null state */ }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
+    }
     setLoading(false)
   }, [])
 
-  useEffect(() => { fetchData() }, [fetchData])
+  useEffect(() => {
+    const c = new AbortController()
+    fetchData(c.signal)
+    return () => c.abort()
+  }, [fetchData])
 
   if (loading) return <CardSkeleton title="Reporting Pipeline" />
 
@@ -324,9 +336,9 @@ function AIUsageCard() {
   const [data, setData] = useState<AIUsageData | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (signal?: AbortSignal) => {
     try {
-      const res = await fetch('/api/admin/system-health')
+      const res = await fetch('/api/admin/system-health', { signal })
       if (!res.ok) return
       const health = await res.json()
 
@@ -335,7 +347,7 @@ function AIUsageCard() {
 
       setData({
         blogPostsGenerated: health.metrics?.totalBlogPosts ?? 0,
-        publishedPosts: 0, // Will show total from metrics
+        publishedPosts: 0,
         draftPosts: 0,
         lastGenerationJob: genJob ? {
           lastRun: genJob.lastRun,
@@ -344,11 +356,17 @@ function AIUsageCard() {
         } : null,
         aiServiceStatus: aiService?.status ?? 'unknown',
       })
-    } catch { /* handled by null state */ }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
+    }
     setLoading(false)
   }, [])
 
-  useEffect(() => { fetchData() }, [fetchData])
+  useEffect(() => {
+    const c = new AbortController()
+    fetchData(c.signal)
+    return () => c.abort()
+  }, [fetchData])
 
   if (loading) return <CardSkeleton title="AI Services" />
 
@@ -425,11 +443,11 @@ function MarketingCard() {
   const [data, setData] = useState<MarketingData | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (signal?: AbortSignal) => {
     try {
       const [campaignsRes, audiencesRes] = await Promise.all([
-        fetch('/api/marketing/campaigns'),
-        fetch('/api/marketing/audiences'),
+        fetch('/api/marketing/campaigns', { signal }),
+        fetch('/api/marketing/audiences', { signal }),
       ])
 
       let totalCampaigns = 0
@@ -452,11 +470,17 @@ function MarketingCard() {
       }
 
       setData({ totalCampaigns, activeCampaigns, totalAudiences })
-    } catch { /* handled by null state */ }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
+    }
     setLoading(false)
   }, [])
 
-  useEffect(() => { fetchData() }, [fetchData])
+  useEffect(() => {
+    const c = new AbortController()
+    fetchData(c.signal)
+    return () => c.abort()
+  }, [fetchData])
 
   if (loading) return <CardSkeleton title="Marketing" />
 

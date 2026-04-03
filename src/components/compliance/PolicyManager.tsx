@@ -78,22 +78,27 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
   // Expanded policy detail
   const [expandedPolicy, setExpandedPolicy] = useState<string | null>(null)
 
-  const loadPolicies = useCallback(async () => {
+  const loadPolicies = useCallback(async (signal?: AbortSignal) => {
     try {
-      const res = await fetch(`/api/compliance/policies?companyId=${companyId}`)
+      const res = await fetch(`/api/compliance/policies?companyId=${companyId}`, { signal })
       const json = await res.json()
       if (json.success) {
         setPolicies(json.data.policies ?? [])
         setAnalyses(json.data.analyses ?? [])
       }
-    } catch {
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
       setError('Failed to load policies')
     } finally {
       setLoading(false)
     }
   }, [companyId])
 
-  useEffect(() => { loadPolicies() }, [loadPolicies])
+  useEffect(() => {
+    const c = new AbortController()
+    loadPolicies(c.signal)
+    return () => c.abort()
+  }, [loadPolicies])
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]

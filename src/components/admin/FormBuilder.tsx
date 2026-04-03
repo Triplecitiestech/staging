@@ -66,21 +66,25 @@ export function FormBuilder() {
   const [previewOpen, setPreviewOpen] = useState(false)
 
   // Fetch schemas
-  const loadSchemas = useCallback(async () => {
+  const loadSchemas = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)
     try {
-      const res = await fetch(`/api/admin/forms/schemas?type=${activeTab}`)
+      const res = await fetch(`/api/admin/forms/schemas?type=${activeTab}`, { signal })
       if (res.ok) {
         const data = await res.json()
         setSchemas(data.schemas ?? [])
       }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
     } finally {
       setLoading(false)
     }
   }, [activeTab])
 
   useEffect(() => {
-    loadSchemas()
+    const c = new AbortController()
+    loadSchemas(c.signal)
+    return () => c.abort()
   }, [loadSchemas])
 
   // Load schema detail

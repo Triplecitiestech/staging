@@ -48,22 +48,24 @@ export default function DbLatencyGraph() {
   const [data, setData] = useState<LatencyResponse | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)
     try {
-      const res = await fetch(`/api/admin/platform-monitor/db-latency?range=${range}`)
+      const res = await fetch(`/api/admin/platform-monitor/db-latency?range=${range}`, { signal })
       if (res.ok) {
         setData(await res.json())
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
     } finally {
       setLoading(false)
     }
   }, [range])
 
   useEffect(() => {
-    fetchData()
+    const c = new AbortController()
+    fetchData(c.signal)
+    return () => c.abort()
   }, [fetchData])
 
   const chartData = data?.snapshots.map(s => ({

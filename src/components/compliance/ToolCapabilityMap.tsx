@@ -81,26 +81,32 @@ export default function ToolCapabilityMap({ companies }: Props) {
     } catch { /* ignore */ }
   }
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)
     try {
       const params = new URLSearchParams()
       if (selectedCompany) params.set('companyId', selectedCompany)
       if (selectedFramework) params.set('frameworkId', selectedFramework)
 
-      const res = await fetch(`/api/compliance/registry?${params}`)
+      const res = await fetch(`/api/compliance/registry?${params}`, { signal })
       const json = await res.json()
       if (json.success) {
         setTools(json.data.tools)
         setCapabilities(json.data.capabilities)
         setGapAnalysis(json.data.gapAnalysis)
       }
-    } catch { /* ignore */ }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
+    }
     finally { setLoading(false) }
     if (selectedCompany) loadCompanyTools(selectedCompany)
   }, [selectedCompany, selectedFramework, loadCompanyTools])
 
-  useEffect(() => { loadData() }, [loadData])
+  useEffect(() => {
+    const c = new AbortController()
+    loadData(c.signal)
+    return () => c.abort()
+  }, [loadData])
 
   const integratedTools = tools.filter((t) => t.integrationStatus === 'integrated')
   const knownTools = tools.filter((t) => t.integrationStatus !== 'integrated')
