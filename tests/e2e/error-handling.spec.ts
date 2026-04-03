@@ -140,6 +140,43 @@ test.describe('Secret Auth Routes Accept Headers', () => {
   })
 })
 
+test.describe('Standardized Response Envelope', () => {
+  // Routes migrated to apiOk/apiError should return consistent envelope shape
+  const standardizedRoutes = [
+    '/api/customer/tickets?companySlug=test',
+    '/api/customer/metrics?companySlug=test',
+    '/api/team',
+    '/api/soc/status',
+    '/api/soc/incidents',
+    '/api/soc/tickets',
+    '/api/reports/dashboard?preset=last_30_days',
+    '/api/reports/companies?preset=last_30_days',
+    '/api/reports/technicians?preset=last_30_days',
+    '/api/admin/sync-logs',
+    '/api/admin/platform-monitor',
+  ]
+
+  for (const path of standardizedRoutes) {
+    test(`${path} returns standard envelope with requestId`, async ({ request }) => {
+      const response = await request.get(path)
+      const body = await response.json()
+
+      // Every standardized response must have these fields
+      expect(body).toHaveProperty('success')
+      expect(body).toHaveProperty('requestId')
+      expect(typeof body.requestId).toBe('string')
+      expect(body.requestId).toMatch(/^req_/)
+
+      if (body.success) {
+        expect(body).toHaveProperty('data')
+      } else {
+        expect(body).toHaveProperty('error')
+        expect(typeof body.error).toBe('string')
+      }
+    })
+  }
+})
+
 test.describe('Environment Safety', () => {
   test('no secrets leaked in HTML responses', async ({ page }) => {
     const pages = ['/', '/services', '/contact', '/blog', '/portal']

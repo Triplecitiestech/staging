@@ -1,15 +1,17 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { getAutotaskWebUrl } from '@/lib/tickets/utils';
+import { apiOk, apiError, generateRequestId } from '@/lib/api-response';
 
 export const dynamic = 'force-dynamic';
 
 /** GET /api/soc/incidents — List SOC incidents */
 export async function GET(request: NextRequest) {
+  const reqId = generateRequestId();
   const session = await auth();
   if (!session?.user?.email) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return apiError('Unauthorized', reqId, 401);
   }
 
   const statusFilter = request.nextUrl.searchParams.get('status');
@@ -37,9 +39,9 @@ export async function GET(request: NextRequest) {
     `;
   }
 
-  return NextResponse.json({
+  return apiOk({
     incidents,
     pagination: { page, limit, total: Number(total.count), pages: Math.ceil(Number(total.count) / limit) },
     autotaskWebUrl: getAutotaskWebUrl(),
-  });
+  }, reqId);
 }
