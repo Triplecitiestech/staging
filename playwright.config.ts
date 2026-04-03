@@ -29,13 +29,31 @@ export default defineConfig({
     video: 'retain-on-failure',
   },
   projects: [
+    // Auth setup — runs first, creates session state for authenticated tests
+    {
+      name: 'setup',
+      testMatch: /auth\.setup\.ts/,
+    },
+    // Unauthenticated tests — no session needed
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+      testIgnore: /auth\.setup\.ts|authenticated/,
     },
     {
       name: 'mobile',
       use: { ...devices['iPhone 13'] },
+      testIgnore: /auth\.setup\.ts|authenticated/,
+    },
+    // Authenticated tests — depend on setup, use stored session
+    {
+      name: 'authenticated',
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: 'tests/e2e/.auth/admin.json',
+      },
+      dependencies: ['setup'],
+      testMatch: /authenticated/,
     },
   ],
   webServer: process.env.CI || process.env.PLAYWRIGHT_BASE_URL ? undefined : {
