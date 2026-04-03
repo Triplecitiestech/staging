@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { apiSuccess, apiError } from '@/lib/api-response'
+import { apiSuccess, apiError, apiOk, generateRequestId } from '@/lib/api-response'
 
 describe('apiSuccess', () => {
   it('returns a response with success: true and data with id + url', async () => {
@@ -45,5 +45,49 @@ describe('apiError', () => {
 
     expect(body.code).toBeUndefined()
     expect(body.error).toBe('Unauthorized')
+  })
+})
+
+describe('apiOk', () => {
+  it('returns success: true with arbitrary data shape', async () => {
+    const response = apiOk({ tickets: [{ id: '1' }], count: 1 }, 'req_ok_1')
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.success).toBe(true)
+    expect(body.data.tickets).toHaveLength(1)
+    expect(body.data.count).toBe(1)
+    expect(body.requestId).toBe('req_ok_1')
+  })
+
+  it('supports custom status codes', async () => {
+    const response = apiOk({ created: true }, 'req_ok_2', 201)
+    expect(response.status).toBe(201)
+  })
+
+  it('works with empty data', async () => {
+    const response = apiOk({ items: [] }, 'req_ok_3')
+    const body = await response.json()
+    expect(body.success).toBe(true)
+    expect(body.data.items).toEqual([])
+  })
+
+  it('does not require id or url (unlike apiSuccess)', async () => {
+    const response = apiOk({ name: 'test' }, 'req_ok_4')
+    const body = await response.json()
+    expect(body.data.name).toBe('test')
+    expect(body.data.id).toBeUndefined()
+    expect(body.data.url).toBeUndefined()
+  })
+})
+
+describe('generateRequestId', () => {
+  it('returns a string starting with req_', () => {
+    const id = generateRequestId()
+    expect(id).toMatch(/^req_[0-9a-f]{16}$/)
+  })
+
+  it('generates unique IDs', () => {
+    const ids = new Set(Array.from({ length: 100 }, () => generateRequestId()))
+    expect(ids.size).toBe(100)
   })
 })
