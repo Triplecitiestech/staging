@@ -3,42 +3,72 @@
 import { NextRequest, NextResponse } from 'next/server'
 import crypto from 'crypto'
 
-// CSRF Token Management
-export class CSRFProtection {
-  private static tokens = new Map<string, { token: string; expires: number }>()
-  private static readonly TOKEN_LIFETIME = 15 * 60 * 1000 // 15 minutes
+// CSRF Protection via Origin/Referer header validation
+// Works in serverless (stateless — no in-memory token storage needed).
+// Validates that mutation requests come from the same origin as the app.
 
-  static generateToken(): string {
-    return crypto.randomBytes(32).toString('hex')
+const ALLOWED_ORIGINS = new Set([
+  'https://www.triplecitiestech.com',
+  'https://triplecitiestech.com',
+])
+
+/**
+ * Check that a mutation request (POST/PUT/PATCH/DELETE) originates from our app.
+ * Returns null if the request is safe, or a 403 NextResponse if it's cross-origin.
+ *
+ * Skips check for:
+ * - Non-mutation methods (GET, HEAD, OPTIONS)
+ * - Requests with Authorization header (API/cron clients, not browser)
+ * - Development environment
+ *
+ * Usage:
+ *   const blocked = checkCsrf(request)
+ *   if (blocked) return blocked
+ */
+export function checkCsrf(request: NextRequest): NextResponse | null {
+  // Only check mutations
+  const method = request.method.toUpperCase()
+  if (['GET', 'HEAD', 'OPTIONS'].includes(method)) return null
+
+  // Skip for API clients that use Authorization headers (not browser-based)
+  if (request.headers.get('authorization')) return null
+
+  // Skip in development
+  if (process.env.NODE_ENV === 'development') return null
+
+  const origin = request.headers.get('origin')
+  const referer = request.headers.get('referer')
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL
+
+  // Build allowed origins dynamically (includes preview URLs)
+  const allowed = new Set(ALLOWED_ORIGINS)
+  if (baseUrl) allowed.add(new URL(baseUrl).origin)
+
+  // Check Origin header first (most reliable)
+  if (origin) {
+    if (allowed.has(origin)) return null
+    // Allow Vercel preview URLs
+    if (origin.endsWith('.vercel.app')) return null
+    logSecurityEvent('csrf_origin_mismatch', { origin, method, path: request.nextUrl.pathname }, 'high')
+    return NextResponse.json({ error: 'Forbidden: cross-origin request' }, { status: 403 })
   }
 
-  static storeToken(sessionId: string, token: string): void {
-    this.tokens.set(sessionId, {
-      token,
-      expires: Date.now() + this.TOKEN_LIFETIME
-    })
-  }
-
-  static validateToken(sessionId: string, token: string): boolean {
-    const stored = this.tokens.get(sessionId)
-    if (!stored) return false
-    
-    if (Date.now() > stored.expires) {
-      this.tokens.delete(sessionId)
-      return false
+  // Fall back to Referer header
+  if (referer) {
+    try {
+      const refOrigin = new URL(referer).origin
+      if (allowed.has(refOrigin)) return null
+      if (refOrigin.endsWith('.vercel.app')) return null
+    } catch {
+      // Invalid referer URL
     }
-    
-    return stored.token === token
+    logSecurityEvent('csrf_referer_mismatch', { referer, method, path: request.nextUrl.pathname }, 'high')
+    return NextResponse.json({ error: 'Forbidden: cross-origin request' }, { status: 403 })
   }
 
-  static cleanup(): void {
-    const now = Date.now()
-    this.tokens.forEach((data, sessionId) => {
-      if (now > data.expires) {
-        this.tokens.delete(sessionId)
-      }
-    })
-  }
+  // No Origin or Referer — allow (some browsers strip these for privacy)
+  // The SameSite=Lax cookie policy provides baseline protection
+  return null
 }
 
 // Enhanced Input Sanitization

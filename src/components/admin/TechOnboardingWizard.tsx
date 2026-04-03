@@ -414,7 +414,7 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
                     <br />
                     Set the <strong>Redirect URI</strong> to:
                     <code className="block bg-slate-900 border border-white/10 rounded px-3 py-2 text-xs text-teal-300 font-mono break-all select-all mt-1">
-                      https://www.triplecitiestech.com/api/portal/auth/callback
+                      {process.env.NEXT_PUBLIC_BASE_URL || 'https://www.triplecitiestech.com'}/api/portal/auth/callback
                     </code>
                     <span className="block text-xs text-blue-300 mt-1">Under &ldquo;Implicit grant and hybrid flows&rdquo;, check <strong>ID tokens</strong>.</span>
                   </li>
@@ -627,7 +627,7 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
 
               <InfoBox>
                 <p className="font-semibold text-blue-100">Portal URL for this customer:</p>
-                <CodeBlock>{`https://www.triplecitiestech.com/onboarding/${company.slug}`}</CodeBlock>
+                <CodeBlock>{`${process.env.NEXT_PUBLIC_BASE_URL || 'https://www.triplecitiestech.com'}/onboarding/${company.slug}`}</CodeBlock>
                 <p className="mt-2 font-semibold text-blue-100">Share with the customer's manager contact. They will:</p>
                 <ol className="list-decimal list-inside mt-1 space-y-1">
                   <li>Navigate to the portal URL</li>

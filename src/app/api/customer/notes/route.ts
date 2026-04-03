@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getPortalSession } from '@/lib/portal-session'
 import { auth } from '@/auth'
+import { checkCsrf } from '@/lib/security'
 
 // POST /api/customer/notes - Save a customer note on a phase or task
 export async function POST(request: NextRequest) {
+  const csrfBlocked = checkCsrf(request)
+  if (csrfBlocked) return csrfBlocked
+
   try {
     console.log('[Customer Notes API] Starting request')
     console.log('[Customer Notes API] Headers:', Object.fromEntries(request.headers.entries()))

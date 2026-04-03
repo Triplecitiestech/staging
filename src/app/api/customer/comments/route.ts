@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getPortalSession } from '@/lib/portal-session'
 import { auth } from '@/auth'
+import { checkCsrf } from '@/lib/security'
 
 export const dynamic = 'force-dynamic'
 
@@ -10,6 +11,9 @@ export const dynamic = 'force-dynamic'
  * Syncs to Autotask if task has autotaskTaskId.
  */
 export async function POST(request: NextRequest) {
+  const csrfBlocked = checkCsrf(request)
+  if (csrfBlocked) return csrfBlocked
+
   try {
     const body = await request.json()
     const { taskId, content } = body

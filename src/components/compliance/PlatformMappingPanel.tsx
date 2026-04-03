@@ -316,7 +316,7 @@ export default function PlatformMappingPanel({ companyId, companyName }: Platfor
                         <li>Go to Settings &rarr; API &rarr; Webhook API</li>
                         <li>Click &ldquo;+ Add new domain&rdquo;</li>
                         <li>Add domain: <code className="text-cyan-400 bg-slate-800 px-1 rounded">www.triplecitiestech.com</code></li>
-                        <li>Set webhook URL: <code className="text-cyan-400 bg-slate-800 px-1 rounded text-[10px]">https://www.triplecitiestech.com/api/compliance/webhooks/saas-alerts</code></li>
+                        <li>Set webhook URL: <code className="text-cyan-400 bg-slate-800 px-1 rounded text-[10px]">{process.env.NEXT_PUBLIC_BASE_URL || 'https://www.triplecitiestech.com'}/api/compliance/webhooks/saas-alerts</code></li>
                       </ol>
                       <p className="text-xs text-slate-500">
                         Once configured, events flow automatically. No customer mapping needed — events are MSP-wide.
