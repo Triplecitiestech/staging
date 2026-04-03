@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { classifyError } from '@/lib/resilience';
+import { checkSecretAuth } from '@/lib/api-auth';
 import { syncTickets, syncTimeEntries, syncTimeEntriesBulk, syncTicketNotes, syncResources } from '@/lib/reporting/sync';
 import { computeLifecycle } from '@/lib/reporting/lifecycle';
 import { aggregateTechnicianDaily, aggregateCompanyDaily } from '@/lib/reporting/aggregation';
@@ -101,13 +102,8 @@ async function runPipeline(jobName: string, days?: number, date?: Date) {
  * Secret-based trigger — no session needed, paste in browser URL bar.
  */
 export async function GET(request: NextRequest) {
-  const secret = request.nextUrl.searchParams.get('secret');
-  const isAuthorized =
-    secret === process.env.MIGRATION_SECRET ||
-    secret === process.env.CRON_SECRET;
-  if (!isAuthorized) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const denied = checkSecretAuth(request);
+  if (denied) return denied;
 
   const jobName = request.nextUrl.searchParams.get('job') || 'run_all';
   const days = request.nextUrl.searchParams.get('days')

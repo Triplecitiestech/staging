@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
+import { checkSecretAuth } from '@/lib/api-auth';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -101,11 +102,10 @@ export async function GET(request: NextRequest) {
 
 /** DELETE /api/soc/activity — Purge duplicate and broken activity entries */
 export async function DELETE(request: NextRequest) {
-  // Allow auth via session (ADMIN role) OR via MIGRATION_SECRET query param
-  const secret = request.nextUrl.searchParams.get('secret');
-  const isSecretAuth = secret === process.env.MIGRATION_SECRET;
+  // Allow auth via Authorization header, query param secret, OR admin session
+  const secretDenied = checkSecretAuth(request);
 
-  if (!isSecretAuth) {
+  if (secretDenied) {
     const session = await auth();
     if (!session?.user?.email || !['SUPER_ADMIN', 'ADMIN'].includes(session.user?.role as string)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });

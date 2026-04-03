@@ -19,6 +19,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getPool } from '@/lib/db-pool'
 import { ensureComplianceTables } from '@/lib/compliance/ensure-tables'
+import { checkSecretAuth } from '@/lib/api-auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -61,11 +62,9 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  // Stats endpoint — requires auth
-  const secret = request.nextUrl.searchParams.get('secret')
-  if (secret !== process.env.MIGRATION_SECRET) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  // Stats endpoint — requires auth via header (preferred) or query param
+  const denied = checkSecretAuth(request)
+  if (denied) return denied
 
   await ensureComplianceTables()
   const pool = getPool()
@@ -118,10 +117,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const secret = request.nextUrl.searchParams.get('secret')
-  if (secret !== process.env.MIGRATION_SECRET) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const denied = checkSecretAuth(request)
+  if (denied) return denied
 
   await ensureComplianceTables()
   const pool = getPool()

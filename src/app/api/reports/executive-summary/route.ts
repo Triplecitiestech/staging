@@ -13,6 +13,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { checkSecretAuth } from '@/lib/api-auth';
 import { DattoRmmClient, DattoAlert } from '@/lib/datto-rmm';
 import { getResolvedStatuses, PRIORITY_LABELS } from '@/lib/reporting/types';
 import { generateExecutiveSummaryHTML } from './html-generator';
@@ -69,15 +70,13 @@ export interface ExecutiveSummaryData {
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const secret = searchParams.get('secret');
   const companyQuery = searchParams.get('company');
   const days = parseInt(searchParams.get('days') || '365', 10);
   const format = searchParams.get('format') || 'html';
 
-  // Auth
-  if (secret !== process.env.MIGRATION_SECRET) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  // Auth — accepts Authorization header (preferred) or ?secret= query param
+  const denied = checkSecretAuth(request);
+  if (denied) return denied;
 
   if (!companyQuery) {
     return NextResponse.json({ error: 'Missing company parameter' }, { status: 400 });

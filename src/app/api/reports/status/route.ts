@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
+import { checkSecretAuth } from '@/lib/api-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,13 +33,9 @@ async function safeQuery<T>(fn: () => Promise<T>): Promise<T | null> {
  * Resilient to missing tables — returns zeros for tables that don't exist yet.
  */
 export async function GET(request: NextRequest) {
-  const secret = request.nextUrl.searchParams.get('secret');
-  const session = await auth();
-  const isAuthorized =
-    session?.user?.email ||
-    secret === process.env.MIGRATION_SECRET ||
-    secret === process.env.CRON_SECRET;
-  if (!isAuthorized) {
+  const secretOk = !checkSecretAuth(request);
+  const session = !secretOk ? await auth() : null;
+  if (!secretOk && !session?.user?.email) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
