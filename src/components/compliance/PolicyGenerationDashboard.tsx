@@ -321,21 +321,32 @@ export default function PolicyGenerationDashboard({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {orgQuestions.map((q) => {
-              if (q.conditional) {
-                const depVal = orgAnswers[q.conditional.questionId]
-                if (depVal !== q.conditional.value) return null
-              }
-              return (
-                <QuestionField
-                  key={q.id}
-                  question={q}
-                  value={orgAnswers[q.id]}
-                  onChange={(val) => setOrgAnswers((prev) => ({ ...prev, [q.id]: val }))}
-                />
-              )
-            })}
+          <div className="space-y-6">
+            {(() => {
+              let lastGroup = ''
+              return orgQuestions.map((q) => {
+                if (q.conditional) {
+                  const depVal = orgAnswers[q.conditional.questionId]
+                  if (depVal !== q.conditional.value) return null
+                }
+                const showGroupHeader = q.group && q.group !== lastGroup
+                if (q.group) lastGroup = q.group
+                return (
+                  <div key={q.id}>
+                    {showGroupHeader && (
+                      <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mt-4 mb-2 border-b border-white/5 pb-1">
+                        {q.group}
+                      </h3>
+                    )}
+                    <QuestionField
+                      question={q}
+                      value={orgAnswers[q.id]}
+                      onChange={(val) => setOrgAnswers((prev) => ({ ...prev, [q.id]: val }))}
+                    />
+                  </div>
+                )
+              })
+            })()}
           </div>
 
           <div className="mt-6 flex justify-end">

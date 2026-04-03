@@ -75,8 +75,16 @@ function buildGenerationPrompt(input: GenerationInput): string {
   // Build org context from profile answers
   const orgContext = buildOrgContext(input.orgProfile)
 
-  // Build policy-specific context
-  const policyContext = buildPolicyContext(input.policyAnswers)
+  // Build policy-specific context, injecting org profile data where needed
+  const enrichedPolicyAnswers = { ...input.policyAnswers }
+
+  // Incident Response: inject org_incident_contacts as escalation contacts
+  // (removed ir_escalation_contacts duplicate — org profile is the single source)
+  if (input.policySlug === 'incident-response-policy' && input.orgProfile.org_incident_contacts) {
+    enrichedPolicyAnswers['escalation_contacts'] = input.orgProfile.org_incident_contacts
+  }
+
+  const policyContext = buildPolicyContext(enrichedPolicyAnswers)
 
   // Mode-specific instructions
   const modeInstructions = getModeInstructions(input.mode, input.existingContent)
