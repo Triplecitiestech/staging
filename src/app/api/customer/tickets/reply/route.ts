@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { getPortalSession } from '@/lib/portal-session'
 import { prisma } from '@/lib/prisma'
 import { checkCsrf } from '@/lib/security'
+import { apiOk, apiError, generateRequestId } from '@/lib/api-response'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,29 +15,24 @@ export async function POST(request: NextRequest) {
   const csrfBlocked = checkCsrf(request)
   if (csrfBlocked) return csrfBlocked
 
+  const reqId = generateRequestId()
   try {
     const body = await request.json()
     const { companySlug, ticketId, message } = body
 
     if (!companySlug || !ticketId || !message?.trim()) {
-      return NextResponse.json(
-        { error: 'companySlug, ticketId, and message are required' },
-        { status: 400 }
-      )
+      return apiError('companySlug, ticketId, and message are required', reqId, 400)
     }
 
     // Verify customer is authenticated for this company
     const session = await getPortalSession()
     if (!session || session.companySlug !== companySlug.toLowerCase().trim()) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return apiError('Unauthorized', reqId, 401)
     }
 
     // Demo company: read-only access
     if (companySlug.toLowerCase().trim() === 'contoso-industries') {
-      return NextResponse.json(
-        { error: 'Demo portal is read-only. Write operations are disabled.' },
-        { status: 403 }
-      )
+      return apiError('Demo portal is read-only. Write operations are disabled.', reqId, 403)
     }
 
     // Look up company
@@ -46,15 +42,12 @@ export async function POST(request: NextRequest) {
     })
 
     if (!company?.autotaskCompanyId) {
-      return NextResponse.json(
-        { error: 'Company not linked to Autotask' },
-        { status: 400 }
-      )
+      return apiError('Company not linked to Autotask', reqId, 400)
     }
 
     const atTicketId = parseInt(ticketId, 10)
     if (isNaN(atTicketId)) {
-      return NextResponse.json({ error: 'Invalid ticket ID' }, { status: 400 })
+      return apiError('Invalid ticket ID', reqId, 400)
     }
 
     // Look up the customer contact's Autotask ID so the note is attributed to them
@@ -86,15 +79,9 @@ export async function POST(request: NextRequest) {
       creatorContactID: autotaskContactId,
     })
 
-    return NextResponse.json({
-      success: true,
-      noteId: note.id,
-    })
+    return apiOk({ noteId: note.id }, reqId)
   } catch (error) {
     console.error('[Customer Ticket Reply API] Error:', error)
-    return NextResponse.json(
-      { error: 'Failed to submit reply' },
-      { status: 500 }
-    )
+    return apiError('Failed to submit reply', reqId, 500)
   }
 }

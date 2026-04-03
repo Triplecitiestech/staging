@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
-import { apiError } from '@/lib/api-response'
+import { apiOk, apiError, generateRequestId } from '@/lib/api-response'
 
 export const dynamic = 'force-dynamic'
 
@@ -11,9 +11,10 @@ export const dynamic = 'force-dynamic'
  * Returns historical DB latency snapshots for graphing.
  */
 export async function GET(req: NextRequest) {
+  const reqId = generateRequestId()
   const session = await auth()
   if (!session?.user?.email) {
-    return apiError('Unauthorized', 'db-latency', 401)
+    return apiError('Unauthorized', reqId, 401)
   }
 
   const range = req.nextUrl.searchParams.get('range') || '1d'
@@ -39,7 +40,7 @@ export async function GET(req: NextRequest) {
       since
     )
 
-    return Response.json({
+    return apiOk({
       range,
       since: since.toISOString(),
       count: snapshots.length,
@@ -49,15 +50,15 @@ export async function GET(req: NextRequest) {
         overall: s.overallStatus,
         time: s.createdAt,
       })),
-    })
+    }, reqId)
   } catch {
     // Table may not exist yet
-    return Response.json({
+    return apiOk({
       range,
       since: since.toISOString(),
       count: 0,
       snapshots: [],
       warning: 'system_health_snapshots table may not exist. Run the migration endpoint.',
-    })
+    }, reqId)
   }
 }
