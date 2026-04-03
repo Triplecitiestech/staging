@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { getPortalSession } from '@/lib/portal-session'
 import { prisma } from '@/lib/prisma'
+import { apiOk, apiError, generateRequestId } from '@/lib/api-response'
 
 export const dynamic = 'force-dynamic'
 
@@ -9,22 +10,23 @@ export const dynamic = 'force-dynamic'
  * Returns last 30 days of Autotask tickets for the authenticated customer's company.
  */
 export async function GET(request: NextRequest) {
+  const reqId = generateRequestId()
   try {
     const companySlug = request.nextUrl.searchParams.get('companySlug')
     if (!companySlug) {
-      return NextResponse.json({ error: 'companySlug required' }, { status: 400 })
+      return apiError('companySlug required', reqId, 400)
     }
 
     // Verify customer is authenticated for this company
     const session = await getPortalSession()
     if (!session || session.companySlug !== companySlug.toLowerCase().trim()) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return apiError('Unauthorized', reqId, 401)
     }
 
     // Demo company: return synthetic tickets
     if (companySlug.toLowerCase().trim() === 'contoso-industries') {
       const { DEMO_TICKETS } = await import('@/lib/demo-mode')
-      return NextResponse.json({ tickets: DEMO_TICKETS })
+      return apiOk({ tickets: DEMO_TICKETS }, reqId)
     }
 
     // Look up the company's Autotask ID
@@ -34,12 +36,12 @@ export async function GET(request: NextRequest) {
     })
 
     if (!company?.autotaskCompanyId) {
-      return NextResponse.json({ tickets: [] })
+      return apiOk({ tickets: [] }, reqId)
     }
 
     const atCompanyId = parseInt(company.autotaskCompanyId, 10)
     if (isNaN(atCompanyId)) {
-      return NextResponse.json({ tickets: [] })
+      return apiOk({ tickets: [] }, reqId)
     }
 
     // Fetch tickets from Autotask
@@ -58,12 +60,9 @@ export async function GET(request: NextRequest) {
       priority: String(t.priority),
     }))
 
-    return NextResponse.json({ tickets })
+    return apiOk({ tickets }, reqId)
   } catch (error) {
     console.error('[Customer Tickets API] Error:', error)
-    return NextResponse.json(
-      { error: 'Unable to load tickets. Please try again shortly.' },
-      { status: 502 }
-    )
+    return apiError('Unable to load tickets. Please try again shortly.', reqId, 502)
   }
 }

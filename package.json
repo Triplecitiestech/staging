@@ -15,7 +15,8 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "debug:failures": "tsx scripts/debug-failures.ts",
-    "validate:reports": "tsx scripts/validate-reporting.ts"
+    "validate:reports": "tsx scripts/validate-reporting.ts",
+    "check:schema": "tsx scripts/check-schema-drift.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",
