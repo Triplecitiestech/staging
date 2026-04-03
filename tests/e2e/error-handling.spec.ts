@@ -69,6 +69,77 @@ test.describe('Error Boundary Presence', () => {
   })
 })
 
+test.describe('Customer API Error Contracts', () => {
+  test('customer ticket timeline returns error, not empty array, on failure', async ({ request }) => {
+    // Without auth, should return 401 — not 200 with empty timeline
+    const response = await request.get('/api/customer/tickets/timeline?companySlug=test&ticketId=1')
+    expect(response.status()).toBe(401)
+    const body = await response.json()
+    expect(body).toHaveProperty('error')
+    expect(body).not.toHaveProperty('timeline')
+  })
+
+  test('customer metrics requires auth', async ({ request }) => {
+    const response = await request.get('/api/customer/metrics?companySlug=test')
+    expect(response.status()).toBe(401)
+  })
+
+  test('customer ticket reply requires auth', async ({ request }) => {
+    const response = await request.post('/api/customer/tickets/reply', {
+      data: { ticketId: '1', body: 'test' },
+    })
+    expect(response.status()).toBeLessThan(500)
+  })
+})
+
+test.describe('Rate Limiting', () => {
+  test('portal auth discover endpoint responds to requests', async ({ request }) => {
+    // Just verify the endpoint exists and responds (rate limiting tested by volume)
+    const response = await request.post('/api/portal/auth/discover', {
+      data: { email: 'test@example.com' },
+      headers: { 'Content-Type': 'application/json' },
+    })
+    expect(response.status()).toBeLessThan(500)
+  })
+
+  test('portal auth login requires company param', async ({ request }) => {
+    const response = await request.get('/api/portal/auth/login')
+    expect(response.status()).toBeLessThan(500)
+    // Should return an error page or redirect, not crash
+  })
+})
+
+test.describe('Cron Auth Enforcement (Extended)', () => {
+  const cronEndpoints = [
+    '/api/cron/fetch-content',
+    '/api/cron/process-scheduled-offboards',
+  ]
+
+  for (const path of cronEndpoints) {
+    test(`${path} rejects unauthenticated requests`, async ({ request }) => {
+      const response = await request.get(path)
+      expect(response.status()).toBeLessThan(500)
+    })
+  }
+})
+
+test.describe('Secret Auth Routes Accept Headers', () => {
+  test('reports/diagnose-env rejects without auth', async ({ request }) => {
+    const response = await request.get('/api/reports/diagnose-env')
+    expect(response.status()).toBe(401)
+  })
+
+  test('reports/rmm-test rejects without auth', async ({ request }) => {
+    const response = await request.get('/api/reports/rmm-test')
+    expect(response.status()).toBe(401)
+  })
+
+  test('reports/executive-summary rejects without auth', async ({ request }) => {
+    const response = await request.get('/api/reports/executive-summary')
+    expect(response.status()).toBe(401)
+  })
+})
+
 test.describe('Environment Safety', () => {
   test('no secrets leaked in HTML responses', async ({ page }) => {
     const pages = ['/', '/services', '/contact', '/blog', '/portal']

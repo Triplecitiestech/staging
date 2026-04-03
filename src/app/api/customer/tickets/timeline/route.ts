@@ -146,6 +146,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ timeline })
   } catch (error) {
     console.error('[Customer Ticket Timeline API] Error:', error)
-    return NextResponse.json({ timeline: [] })
+    return NextResponse.json(
+      { error: 'Unable to load ticket timeline. Please try again shortly.' },
+      { status: 502 }
+    )
   }
 }
