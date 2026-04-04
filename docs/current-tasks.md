@@ -49,7 +49,7 @@ All items from the production stabilization audit have been implemented:
 ## Compliance Evidence Engine — Outstanding Work
 
 ### Blocked / Waiting
-- [ ] **SaaS Alerts integration** — Support ticket submitted to Kaseya
+- [ ] **SaaS Alerts integration** — **Confirmed blocked by Cloudflare.** All server-to-server API calls return Cloudflare "Just a moment..." 403 challenge pages regardless of auth headers (tested apikey, bearer, x-api-key, with and without Partner ID). Domain `www.triplecitiestech.com` is approved for webhooks. Webhook receiver at `/api/compliance/webhooks/saas-alerts` is ready. **Next step: Contact Kaseya support to ask how to configure webhook event delivery to our endpoint.** The SaaS Alerts webhook settings page only lets you approve domains, not specify a callback URL path.
 
 ### Evidence Quality
 - [ ] **CIS 10.3 (Autorun/Autoplay)** — Needs Intune profile data

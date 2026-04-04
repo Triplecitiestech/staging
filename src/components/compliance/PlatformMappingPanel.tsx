@@ -304,22 +304,24 @@ export default function PlatformMappingPanel({ companyId, companyName }: Platfor
                     </button>
                   )}
 
-                  {/* Webhook setup for SaaS Alerts */}
+                  {/* SaaS Alerts — webhook-only integration */}
                   {platform === 'saas_alerts' && (
-                    <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg space-y-2">
-                      <p className="text-xs font-medium text-blue-300">Webhook Setup Required</p>
+                    <div className="p-3 bg-slate-500/10 border border-slate-500/20 rounded-lg space-y-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-slate-400 animate-pulse" />
+                        <p className="text-xs font-medium text-slate-300">Pending Kaseya Configuration</p>
+                      </div>
                       <p className="text-xs text-slate-400">
-                        SaaS Alerts uses webhooks to push event data (their API is behind Cloudflare).
-                        Configure in <span className="text-cyan-400">manage.saasalerts.com</span>:
+                        SaaS Alerts API is behind Cloudflare bot protection and cannot be called server-to-server.
+                        Integration requires webhook-based event delivery, which needs Kaseya support to configure.
                       </p>
-                      <ol className="text-xs text-slate-400 space-y-1 list-decimal list-inside">
-                        <li>Go to Settings &rarr; API &rarr; Webhook API</li>
-                        <li>Click &ldquo;+ Add new domain&rdquo;</li>
-                        <li>Add domain: <code className="text-cyan-400 bg-slate-800 px-1 rounded">www.triplecitiestech.com</code></li>
-                        <li>Set webhook URL: <code className="text-cyan-400 bg-slate-800 px-1 rounded text-[10px]">{process.env.NEXT_PUBLIC_BASE_URL || 'https://www.triplecitiestech.com'}/api/compliance/webhooks/saas-alerts</code></li>
-                      </ol>
-                      <p className="text-xs text-slate-500">
-                        Once configured, events flow automatically. No customer mapping needed — events are MSP-wide.
+                      <div className="text-xs text-slate-500 space-y-1">
+                        <p><span className="text-green-400">&#10003;</span> Domain approved: <code className="text-cyan-400 bg-slate-800 px-1 rounded">www.triplecitiestech.com</code></p>
+                        <p><span className="text-green-400">&#10003;</span> Webhook receiver ready: <code className="text-cyan-400 bg-slate-800 px-1 rounded text-[10px]">/api/compliance/webhooks/saas-alerts</code></p>
+                        <p><span className="text-slate-500">&#9744;</span> Kaseya support ticket needed to activate webhook delivery to this endpoint</p>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Once Kaseya configures webhook delivery, events will flow automatically. No customer mapping needed — events are MSP-wide.
                       </p>
                     </div>
                   )}
