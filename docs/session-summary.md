@@ -1,44 +1,48 @@
 # Session Summary
 
-> Last updated: 2026-04-03 (Session 4 — Stabilization Audit + Documentation)
-> Branch: `claude/stabilize-production-app-gR4Qo`
+> Last updated: 2026-04-04 (Session 5 — Questionnaire UX + Compliance Workflow Planning)
+> Branch: `claude/improve-questionnaire-ux-5lOb0`
 
 ## What Was Done This Session
 
-### Full Production Stabilization + Documentation Hardening
+### Policy Questionnaire UX Cleanup
 
-Performed a comprehensive codebase audit (214+ API routes, 17 cron jobs, 150 client components, 37+ Prisma models) and implemented targeted fixes plus documentation updates to prevent regressions from recurring.
+Reviewed and streamlined the policy generation questionnaire at `/admin/companies/[id]/compliance`.
 
-### Final Metrics
-| Metric | Before | After | Delta |
-|--------|--------|-------|-------|
-| Unit tests | 15 | **58** | +43 |
-| E2e test files | 15 | **19** | +4 (~70 new tests) |
-| Error boundaries | 2 | **4** | +2 |
-| Rate-limited auth endpoints | 2 | **4** | +2 |
-| CSRF-protected mutation endpoints | 0 | **5** | +5 |
-| Cron routes with transient handling | 2 | **9** | +7 |
-| Components with AbortController | 2 | **33 (complete)** | +31 |
-| Routes with standardized auth | 0 | **10** | +10 |
-| Silent error routes fixed | 0 | **4** | +4 |
-| Hardcoded URLs fixed | 0 | **4** | +4 |
-| Admin loading.tsx skeletons | 4 | **8** | +4 |
-| Authenticated test infra | none | **full setup** | new |
+**Questions reduced: 74 → 62** (org profile 41→31, policy-specific 33→31)
 
-### Documentation Updates
-- **CLAUDE.md** — Added 12 new gotchas covering AbortController, silent errors, CSRF, rate limiting, error boundaries, signing keys, loading states, base URLs, and test auth
-- **CLAUDE.md** — Added 3 new Source of Truth entries (api-auth, api-response, env-validation)
-- **coding-standards.md** — Rewrote Section 8 (Error Handling) with mandatory API + client + error boundary rules; expanded Section 9 (Security) with auth, CSRF, and rate limiting requirements
-- **qa-standards.md** — Added stabilization rules section with checklists for new components, API routes, cron jobs; expanded pre-commit and API testing checklists
-- **current-tasks.md** — Updated with stabilization completion status and remaining low-priority items
+#### Removed (redundant / unused):
+- `org_handles_credit_cards` — never referenced in AI prompt, PCI DSS not a supported framework
+- `org_dba` — rarely affects policy content
+- `ir_escalation_contacts` — duplicate of `org_incident_contacts` (generator now injects automatically)
+- **7 security posture questions** (`org_edr_deployed`, `org_dns_filtering`, `org_siem_deployed`, `org_mfa_status`, `org_encryption_at_rest`, `org_backup_type`, `org_mdm_deployed`) — now derived automatically from platform mappings
+
+#### Security posture derivation:
+The generate API route now queries `compliance_platform_mappings` at generation time:
+- `datto_edr` mapped → EDR deployed
+- `dnsfilter` mapped → DNS filtering deployed
+- `saas_alerts` mapped → SIEM/SOC monitoring deployed
+- `microsoft_graph` mapped → encryption, MDM, MFA status from evidence data
+- `datto_bcdr`/`datto_saas` mapped → backup type derived (hybrid/cloud)
+- MFA status pulled from `compliance_evidence` microsoft_mfa data when available
+
+#### UX improvements:
+- Visual group headers in org profile form (Company Identity, Regulatory Scope, Operational Context, People & Roles, Review Cadences, Processes, AI & Technology, Vendor & Data)
+- Better help text on governance cadences, incident contacts, policy owner, states, VPN, RTO/RPO
+- `org_states` changed from text to textarea
+- Generator auto-injects `org_incident_contacts` into IR policy context
+- New `group` field on `QuestionDefinition` type + `getQuestionGroups()` helper
+
+### Compliance Guided Workflow — Planned (Not Yet Built)
+
+Designed a stepper-based guided compliance workflow to replace the current tab-based UI. See "Compliance Guided Workflow" section in `docs/current-tasks.md` for full plan.
 
 ### Key Decisions
-- Replaced broken in-memory CSRFProtection class with stateless Origin/Referer check (works in serverless)
-- Created shared utilities for patterns that were being duplicated (api-auth, checkRateLimit, checkCsrf)
-- Prioritized customer-facing and demo-critical fixes first, admin/internal last
-- Updated all three standards documents to make stabilization patterns mandatory for future work
+- Security posture questions belong in the evidence engine (tool data), not the questionnaire
+- Platform mappings are the single source of truth for "what tools does this customer have"
+- MSP Setup Wizard stays separate (MSP-level config, not per-customer)
+- Both M365 verification AND Autotask sync are prerequisites for compliance workflow
+- The guided stepper composes existing components — minimal refactoring of current code
 
 ## Outstanding Work
-See `docs/current-tasks.md` for full list. Low-priority remaining items:
-1. Standardize API response format across all 100+ routes
-2. Schema drift detection CI check
+See `docs/current-tasks.md` — the Compliance Guided Workflow is the next major build item.
