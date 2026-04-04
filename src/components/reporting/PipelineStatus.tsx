@@ -37,11 +37,10 @@ interface RunResult {
   error?: string
 }
 
-// All pipeline jobs in execution order
+// All pipeline jobs in execution order (scheduled crons only)
 const ALL_JOBS = [
   'sync_tickets',
   'sync_time_entries',
-  'sync_time_entries_bulk',
   'sync_ticket_notes',
   'sync_resources',
   'compute_lifecycle',
@@ -53,7 +52,7 @@ const ALL_JOBS = [
 const JOB_LABELS: Record<string, string> = {
   sync_tickets: 'Sync Tickets',
   sync_time_entries: 'Sync Time Entries',
-  sync_time_entries_bulk: 'Bulk Time Entry Sync',
+  sync_time_entries_bulk: 'Bulk Time Entry Sync (manual)',
   sync_ticket_notes: 'Sync Ticket Notes',
   sync_resources: 'Sync Resources',
   compute_lifecycle: 'Compute Lifecycle',
