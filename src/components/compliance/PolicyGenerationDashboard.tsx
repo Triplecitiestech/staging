@@ -55,6 +55,7 @@ interface QuestionDef {
   conditional?: { questionId: string; value: string | boolean }
   prefillKey?: string
   sortOrder: number
+  group?: string
 }
 
 // ---------------------------------------------------------------------------
