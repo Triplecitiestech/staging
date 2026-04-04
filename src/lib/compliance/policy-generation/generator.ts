@@ -131,25 +131,33 @@ function buildOrgContext(profile: Record<string, string | string[] | boolean>): 
     }
   }
 
+  // Company identity (from questionnaire)
   add('Legal Name', 'org_legal_name')
-  add('DBA / Trade Name', 'org_dba')
   add('Headquarters', 'org_address')
   add('States/Countries', 'org_states')
   add('Industry', 'org_industry')
   add('Employee Count', 'org_employee_count')
+
+  // Regulatory scope (from questionnaire)
   add('Handles PHI', 'org_handles_phi')
   add('Handles PII', 'org_handles_pii')
   add('Handles CUI', 'org_handles_cui')
+
+  // Operational context (from questionnaire)
   add('Remote Work', 'org_remote_work')
   add('BYOD Policy', 'org_byod_allowed')
   add('Uses Contractors', 'org_contractors')
-  add('MDM Deployed', 'org_mdm_deployed')
-  add('Backup Type', 'org_backup_type')
+
+  // Security posture (derived from platform mappings — verified by tool integrations)
   add('EDR Deployed', 'org_edr_deployed')
-  add('DNS Filtering', 'org_dns_filtering')
-  add('SIEM/SOC', 'org_siem_deployed')
-  add('MFA Status', 'org_mfa_status')
   add('Full-Disk Encryption', 'org_encryption_at_rest')
+  add('MDM Deployed', 'org_mdm_deployed')
+  add('DNS Filtering', 'org_dns_filtering')
+  add('SIEM/SOC Monitoring', 'org_siem_deployed')
+  add('MFA Status', 'org_mfa_status')
+  add('Backup Type', 'org_backup_type')
+
+  // Governance (from questionnaire)
   add('Security Officer', 'org_security_officer')
   add('Policy Owner', 'org_policy_owner')
   add('Policy Review Cycle', 'org_policy_review_cycle')

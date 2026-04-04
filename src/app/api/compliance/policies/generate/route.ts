@@ -81,6 +81,53 @@ export async function POST(request: NextRequest) {
         orgProfile.org_legal_name = companyName
       }
 
+      // Derive security posture from platform mappings
+      // Platform mappings tell us what tools are deployed for this company.
+      // If datto_edr is mapped → EDR is deployed, if dnsfilter → DNS filtering, etc.
+      try {
+        const mappingsRes = await client.query<{ platform: string }>(
+          `SELECT DISTINCT platform FROM compliance_platform_mappings WHERE "companyId" = $1`,
+          [body.companyId]
+        )
+        const mappedPlatforms = new Set(mappingsRes.rows.map((r) => r.platform))
+
+        // Inject derived security posture into org profile for the AI prompt
+        orgProfile.org_edr_deployed = mappedPlatforms.has('datto_edr')
+        orgProfile.org_dns_filtering = mappedPlatforms.has('dnsfilter')
+        orgProfile.org_siem_deployed = mappedPlatforms.has('saas_alerts')
+        orgProfile.org_encryption_at_rest = mappedPlatforms.has('microsoft_graph') // BitLocker data comes from Graph
+        orgProfile.org_mdm_deployed = mappedPlatforms.has('microsoft_graph') // Intune data comes from Graph
+
+        // Backup type derived from BCDR + SaaS Protect mappings
+        const hasBcdr = mappedPlatforms.has('datto_bcdr')
+        const hasSaas = mappedPlatforms.has('datto_saas')
+        if (hasBcdr && hasSaas) orgProfile.org_backup_type = 'hybrid'
+        else if (hasBcdr) orgProfile.org_backup_type = 'hybrid'
+        else if (hasSaas) orgProfile.org_backup_type = 'cloud'
+        // If no backup platform mapped, leave unset — AI will note gap
+
+        // MFA status: if Microsoft Graph is connected, try to get actual MFA data from evidence
+        if (mappedPlatforms.has('microsoft_graph')) {
+          try {
+            const mfaEvidence = await client.query<{ data: { mfaRate?: number } }>(
+              `SELECT "rawData" as data FROM compliance_evidence
+               WHERE "companyId" = $1 AND "sourceType" = 'microsoft_mfa'
+               ORDER BY "collectedAt" DESC LIMIT 1`,
+              [body.companyId]
+            )
+            const mfaRate = mfaEvidence.rows[0]?.data?.mfaRate
+            if (mfaRate !== undefined) {
+              if (mfaRate >= 95) orgProfile.org_mfa_status = 'full'
+              else if (mfaRate >= 50) orgProfile.org_mfa_status = 'partial'
+              else if (mfaRate > 0) orgProfile.org_mfa_status = 'admins'
+              else orgProfile.org_mfa_status = 'none'
+            }
+          } catch { /* evidence table may not exist — MFA status unknown */ }
+        }
+      } catch {
+        // compliance_platform_mappings table may not exist — skip derivation
+      }
+
       // Load policy-specific answers (graceful if table doesn't exist)
       let policyAnswers: Record<string, string | string[] | boolean> = {}
       try {

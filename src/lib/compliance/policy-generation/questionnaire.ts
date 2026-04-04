@@ -67,26 +67,13 @@ export const ORG_PROFILE_QUESTIONS: QuestionDefinition[] = [
   ]},
   { id: 'org_contractors', section: 'org-profile', group: 'Operational Context', label: 'Does the organization use contractors or temporary workers?', type: 'boolean', required: true, sortOrder: 22 },
 
-  // --- Security Posture: Endpoint Security ---
-  { id: 'org_edr_deployed', section: 'org-profile', group: 'Endpoint Security', label: 'Is Endpoint Detection and Response (EDR) deployed?', type: 'boolean', required: false, sortOrder: 30, autoFillSource: 'datto_edr_alerts' },
-  { id: 'org_encryption_at_rest', section: 'org-profile', group: 'Endpoint Security', label: 'Is full-disk encryption deployed on endpoints?', type: 'boolean', required: false, sortOrder: 31, autoFillSource: 'microsoft_bitlocker' },
-  { id: 'org_mdm_deployed', section: 'org-profile', group: 'Endpoint Security', label: 'Is a Mobile Device Management (MDM) solution deployed?', helpText: 'Intune, JAMF, or similar. Used for BYOD and device compliance policies.', type: 'boolean', required: false, sortOrder: 32, autoFillSource: 'microsoft_device_compliance', conditional: { questionId: 'org_byod_allowed', value: 'yes_managed' } },
-
-  // --- Security Posture: Network & Monitoring ---
-  { id: 'org_dns_filtering', section: 'org-profile', group: 'Network & Monitoring', label: 'Is DNS filtering deployed?', type: 'boolean', required: false, sortOrder: 35, autoFillSource: 'dnsfilter_dns' },
-  { id: 'org_siem_deployed', section: 'org-profile', group: 'Network & Monitoring', label: 'Is a SIEM or security monitoring platform deployed?', helpText: 'e.g., RocketCyber, Huntress, Blackpoint, SaaS Alerts — any tool providing centralized security event monitoring.', type: 'boolean', required: false, sortOrder: 36, autoFillSource: 'saas_alerts_monitoring' },
-  { id: 'org_mfa_status', section: 'org-profile', group: 'Network & Monitoring', label: 'MFA deployment status', type: 'select', required: true, sortOrder: 37, autoFillSource: 'microsoft_mfa', options: [
-    { value: 'full', label: 'MFA enabled for all users' },
-    { value: 'admins', label: 'MFA enabled for admins only' },
-    { value: 'partial', label: 'MFA partially deployed' },
-    { value: 'none', label: 'No MFA' },
-  ]},
-  { id: 'org_backup_type', section: 'org-profile', group: 'Network & Monitoring', label: 'What backup solution is in place?', type: 'select', required: false, sortOrder: 38, autoFillSource: 'datto_bcdr_backup', options: [
-    { value: 'cloud', label: 'Cloud-only backups (e.g., Datto SaaS Protection)' },
-    { value: 'hybrid', label: 'Hybrid (cloud + local/BCDR appliance)' },
-    { value: 'local', label: 'Local backups only' },
-    { value: 'none', label: 'No formal backup solution' },
-  ]},
+  // --- Security Posture ---
+  // NOTE: Security tool deployment (EDR, DNS filtering, SIEM, MFA, encryption,
+  // backup, MDM) is derived automatically from platform mappings at generation time.
+  // If datto_edr is mapped → EDR is deployed. If dnsfilter is mapped → DNS filtering
+  // is deployed. If microsoft_graph is mapped → MFA status, BitLocker, and MDM/Intune
+  // status are pulled from the evidence engine. No need to ask the tech manually.
+  // See the generate API route for the derivation logic.
 
   // --- Governance: People & Roles ---
   { id: 'org_security_officer', section: 'org-profile', group: 'People & Roles', label: 'Security Officer / CISO', helpText: 'Person or role responsible for information security. Appears in policy headers and responsibility sections.', type: 'text', required: false, sortOrder: 40 },
