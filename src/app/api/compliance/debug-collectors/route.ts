@@ -192,6 +192,7 @@ export async function GET(request: NextRequest) {
       results.devicesResponse = { status: devicesRes.status, bodyLength: devicesText.length, body: devicesText.substring(0, 2000) }
     } else if (collector === 'saas_alerts') {
       const apiKey = process.env.SAAS_ALERTS_API_KEY
+      const partnerId = process.env.SAAS_ALERTS_PARTNER_ID
       if (!apiKey) {
         return NextResponse.json({ ...results, error: 'SAAS_ALERTS_API_KEY not set' })
       }
@@ -199,17 +200,24 @@ export async function GET(request: NextRequest) {
       if (!baseUrl.endsWith('/api')) baseUrl += '/api'
       results.computedBaseUrl = baseUrl
       results.rawEnvUrl = process.env.SAAS_ALERTS_API_URL ?? '(not set)'
+      results.hasPartnerId = !!partnerId
 
-      // Test each endpoint + auth pattern combination directly
-      const testPaths = ['/reports/customers', '/customers', '/reports/tenants']
+      // Use the updated client's testConnection method
+      const { SaasAlertsClient } = await import('@/lib/saas-alerts')
+      const client = new SaasAlertsClient()
+      const connectionTest = await client.testConnection()
+      results.connectionTest = connectionTest
+
+      // Also do raw tests with Partner ID combinations
+      const testPaths = ['/reports/customers', '/customers', '/organizations']
       const authHeaders: Array<{ name: string; headers: Record<string, string> }> = [
-        { name: 'apikey', headers: { apikey: apiKey, Accept: 'application/json' } },
-        { name: 'x-api-key', headers: { 'x-api-key': apiKey, Accept: 'application/json' } },
-        { name: 'Bearer', headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' } },
-        { name: 'raw-auth', headers: { Authorization: apiKey, Accept: 'application/json' } },
+        { name: 'apikey+partnerid', headers: { apikey: apiKey, ...(partnerId ? { partnerid: partnerId } : {}), Accept: 'application/json' } },
+        { name: 'bearer+partnerid', headers: { Authorization: `Bearer ${apiKey}`, ...(partnerId ? { partnerid: partnerId } : {}), Accept: 'application/json' } },
+        { name: 'x-api-key+x-partner-id', headers: { 'x-api-key': apiKey, ...(partnerId ? { 'x-partner-id': partnerId } : {}), Accept: 'application/json' } },
+        { name: 'apikey-only', headers: { apikey: apiKey, Accept: 'application/json' } },
       ]
 
-      const rawTests: Array<{ path: string; auth: string; status: number; body: string }> = []
+      const rawTests: Array<{ path: string; auth: string; status: number; body: string; headers?: Record<string, string> }> = []
       for (const testPath of testPaths) {
         for (const auth of authHeaders) {
           try {
@@ -218,8 +226,9 @@ export async function GET(request: NextRequest) {
               signal: AbortSignal.timeout(10_000),
             })
             const body = await res.text()
-            rawTests.push({ path: testPath, auth: auth.name, status: res.status, body: body.substring(0, 300) })
-            // Stop testing auth patterns for this path if we got a non-auth error
+            const respHeaders: Record<string, string> = {}
+            res.headers.forEach((v, k) => { if (['server', 'cf-ray', 'content-type'].includes(k)) respHeaders[k] = v })
+            rawTests.push({ path: testPath, auth: auth.name, status: res.status, body: body.substring(0, 500), headers: respHeaders })
             if (res.status !== 401 && res.status !== 403) break
           } catch (err) {
             rawTests.push({ path: testPath, auth: auth.name, status: 0, body: err instanceof Error ? err.message : String(err) })
