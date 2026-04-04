@@ -217,7 +217,7 @@ async function getCronJobStatuses() {
     'sync-tickets': 'Every 2 hours',
     'sync_time_entries': 'Every 2 hours (+10min)',
     'sync-time-entries': 'Every 2 hours (+10min)',
-    'sync_time_entries_bulk': 'Every 2 hours (+10min)',
+    'sync_time_entries_bulk': 'Manual (backfill only)',
     'sync_ticket_notes': 'Every 2 hours (+20min)',
     'sync-ticket-notes': 'Every 2 hours (+20min)',
     'sync_resources': 'Daily midnight',
