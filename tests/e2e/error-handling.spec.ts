@@ -168,7 +168,8 @@ test.describe('Standardized Response Envelope', () => {
       expect(body.requestId).toMatch(/^req_/)
 
       if (body.success) {
-        expect(body).toHaveProperty('data')
+        // apiOk spreads data at top level (backward-compatible)
+        // so we just verify success + requestId are present
       } else {
         expect(body).toHaveProperty('error')
         expect(typeof body.error).toBe('string')

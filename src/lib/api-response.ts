@@ -54,18 +54,23 @@ export function generateRequestId(): string {
 
 /**
  * General-purpose success response. Works for any endpoint (read, update, delete).
- * Does NOT require id/url — use `apiSuccess()` for create endpoints that return those.
+ * Spreads data fields at the top level (backward-compatible with existing consumers)
+ * and adds success + requestId metadata.
+ *
+ * Response shape: { success: true, requestId: '...', ...data }
+ * This means existing code that reads `response.tickets` still works,
+ * while new code can also check `response.success` and `response.requestId`.
  */
-export function apiOk<T>(
+export function apiOk<T extends object>(
   data: T,
   requestId: string,
   status = 200
-): NextResponse<ApiOkResponse<T>> {
+): NextResponse {
   return NextResponse.json(
     {
       success: true as const,
-      data,
       requestId,
+      ...data,
     },
     { status }
   )
