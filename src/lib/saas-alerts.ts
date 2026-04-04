@@ -1,40 +1,52 @@
 /**
  * SaaS Alerts API Client
  *
- * SaaS security monitoring platform with three modules:
+ * SaaS security monitoring platform (Kaseya) with three modules:
  *   - Respond: Automated threat response (account lockdown, session termination)
  *   - Unify: Device-to-identity binding (ensures SaaS access from managed devices)
  *   - Fortify: Microsoft 365 security policy enforcement and Secure Score management
  *
- * API: 8 methods focused on event extraction
+ * Auth: API Key + Partner ID headers
  * Portal: manage.saasalerts.com
+ * Swagger: https://app.swaggerhub.com/apis/SaaS_Alerts/functions/0.18.0
  *
  * Required env vars:
- *   SAAS_ALERTS_API_KEY  — API key from manage.saasalerts.com > Settings > API
- *   SAAS_ALERTS_API_URL  — Base URL (defaults to https://manage.saasalerts.com/api)
+ *   SAAS_ALERTS_API_KEY     — API key from manage.saasalerts.com > Settings > API
+ *   SAAS_ALERTS_PARTNER_ID  — Partner ID from same page
+ *   SAAS_ALERTS_API_URL     — Base URL (defaults to https://manage.saasalerts.com/api)
  */
 
 export interface SaasAlertEvent {
-  eventId: string
-  time: string
-  user: { id?: string; name?: string }
-  ip: string
-  location: {
+  eventId?: string
+  id?: string
+  time?: string
+  timestamp?: string
+  user?: { id?: string; name?: string; email?: string } | string
+  ip?: string
+  location?: {
     country?: string
     region?: string
     city?: string
     lat?: number
     lon?: number
   } | null
-  alertStatus: string  // low, medium, high, critical
-  jointType: string    // e.g. login.failure, suspicious_login
-  jointDesc: string
-  jointDescAdditional: string | null
+  alertStatus?: string  // low, medium, high, critical
+  severity?: string
+  jointType?: string    // e.g. login.failure, suspicious_login
+  eventType?: string
+  type?: string
+  jointDesc?: string
+  jointDescAdditional?: string | null
+  description?: string
+  customerName?: string
+  customerId?: string
+  organizationId?: string
 }
 
 export interface SaasAlertCustomer {
   id: string
   name: string
+  tenantId?: string
 }
 
 export interface SaasAlertsSummary {
@@ -45,14 +57,18 @@ export interface SaasAlertsSummary {
   customers: SaasAlertCustomer[]
   recentEvents: SaasAlertEvent[]
   note: string | null
+  authMethod?: string
+  diagnostics?: Record<string, unknown>
 }
 
 export class SaasAlertsClient {
   private apiKey: string
+  private partnerId: string
   private baseUrl: string
 
   constructor() {
     this.apiKey = process.env.SAAS_ALERTS_API_KEY ?? ''
+    this.partnerId = process.env.SAAS_ALERTS_PARTNER_ID ?? ''
     // Ensure base URL always ends with /api
     let url = (process.env.SAAS_ALERTS_API_URL ?? 'https://manage.saasalerts.com/api').replace(/\/$/, '')
     if (!url.endsWith('/api')) url += '/api'
@@ -63,26 +79,81 @@ export class SaasAlertsClient {
     return !!this.apiKey
   }
 
+  hasPartnerId(): boolean {
+    return !!this.partnerId
+  }
+
   /**
-   * Make an API request. SaaS Alerts API auth format is not fully public,
-   * so we try multiple common patterns used by Kaseya products.
+   * Make an authenticated API request.
+   * Tries auth patterns in priority order:
+   * 1. apikey + partnerid headers (most likely for Kaseya products)
+   * 2. Authorization: Bearer + partnerid
+   * 3. x-api-key header
+   * 4. apikey header only (legacy fallback)
    */
-  private async request<T>(path: string, method: 'GET' | 'POST' = 'GET', body?: Record<string, unknown>): Promise<T> {
+  private async request<T>(
+    path: string,
+    method: 'GET' | 'POST' | 'DELETE' = 'GET',
+    body?: Record<string, unknown>
+  ): Promise<{ data: T; authMethod: string }> {
     const url = `${this.baseUrl}${path}`
 
-    // Try multiple auth header patterns (exact format not publicly documented)
-    const headerPatterns: Array<Record<string, string>> = [
-      { 'apikey': this.apiKey, 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      { 'x-api-key': this.apiKey, 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      { 'Authorization': `Bearer ${this.apiKey}`, 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      { 'Authorization': this.apiKey, 'Content-Type': 'application/json', 'Accept': 'application/json' },
-    ]
+    const headerPatterns: Array<{ headers: Record<string, string>; label: string }> = []
+
+    // If Partner ID is available, try it first (most likely to work)
+    if (this.partnerId) {
+      headerPatterns.push({
+        label: 'apikey+partnerid',
+        headers: {
+          'apikey': this.apiKey,
+          'partnerid': this.partnerId,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+      })
+      headerPatterns.push({
+        label: 'bearer+partnerid',
+        headers: {
+          'Authorization': `Bearer ${this.apiKey}`,
+          'partnerid': this.partnerId,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+      })
+      headerPatterns.push({
+        label: 'x-api-key+x-partner-id',
+        headers: {
+          'x-api-key': this.apiKey,
+          'x-partner-id': this.partnerId,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+      })
+    }
+
+    // Fallbacks without Partner ID
+    headerPatterns.push({
+      label: 'apikey-only',
+      headers: {
+        'apikey': this.apiKey,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+    })
+    headerPatterns.push({
+      label: 'bearer-only',
+      headers: {
+        'Authorization': `Bearer ${this.apiKey}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+    })
 
     let lastError: Error | null = null
+    const triedMethods: string[] = []
 
-    for (let i = 0; i < headerPatterns.length; i++) {
-      const headers = headerPatterns[i]
-      const authType = ['apikey', 'x-api-key', 'Bearer', 'raw'][i]
+    for (const { headers, label } of headerPatterns) {
+      triedMethods.push(label)
       try {
         const res = await fetch(url, {
           method,
@@ -91,9 +162,18 @@ export class SaasAlertsClient {
           signal: AbortSignal.timeout(30_000),
         })
 
+        // Auth failure — try next pattern
         if (res.status === 401 || res.status === 403) {
-          console.log(`[saas-alerts] ${path} auth pattern "${authType}" returned ${res.status}`)
-          continue // Try next auth pattern
+          const text = await res.text().catch(() => '')
+          console.log(`[saas-alerts] ${method} ${path} auth "${label}" → ${res.status}: ${text.substring(0, 100)}`)
+          lastError = new Error(`Auth failed (${label}): ${res.status}`)
+          continue
+        }
+
+        // Cloudflare block
+        if (res.status === 503 || (res.headers.get('server')?.includes('cloudflare') && !res.ok)) {
+          console.log(`[saas-alerts] ${method} ${path} blocked by Cloudflare (${res.status})`)
+          throw new Error(`Cloudflare blocked the request (${res.status}). SaaS Alerts API may not support server-to-server calls.`)
         }
 
         if (!res.ok) {
@@ -102,50 +182,58 @@ export class SaasAlertsClient {
         }
 
         const text = await res.text()
-        console.log(`[saas-alerts] ${method} ${path} (auth: ${authType}) → ${res.status}, body: ${text.substring(0, 300)}`)
-        if (!text || text.trim().length === 0) return {} as T
-        return JSON.parse(text) as T
+        console.log(`[saas-alerts] ${method} ${path} (auth: ${label}) → ${res.status}, body length: ${text.length}`)
+        if (!text || text.trim().length === 0) return { data: {} as T, authMethod: label }
+        return { data: JSON.parse(text) as T, authMethod: label }
       } catch (err) {
         if (err instanceof Error && (err.message.includes('401') || err.message.includes('403'))) {
           lastError = err
           continue
         }
+        // Non-auth error — don't try other patterns
         throw err
       }
     }
 
-    throw lastError ?? new Error('SaaS Alerts: All authentication methods failed')
+    throw new Error(
+      `SaaS Alerts: All auth methods failed (tried: ${triedMethods.join(', ')}). ` +
+      `Last error: ${lastError?.message ?? 'unknown'}`
+    )
   }
 
-  /** List customers/tenants — tries multiple endpoint paths */
-  async getCustomers(): Promise<SaasAlertCustomer[]> {
-    // Try documented paths in order
-    const paths = ['/reports/customers', '/customers', '/reports/tenants']
+  /** List customers/tenants */
+  async getCustomers(): Promise<{ customers: SaasAlertCustomer[]; authMethod: string }> {
+    const paths = ['/reports/customers', '/customers', '/organizations', '/reports/tenants']
     for (const path of paths) {
       try {
-        const data = await this.request<{ data?: SaasAlertCustomer[]; customers?: SaasAlertCustomer[] } | SaasAlertCustomer[]>(path)
-        if (Array.isArray(data) && data.length > 0) return data
-        const nested = (data as { data?: SaasAlertCustomer[]; customers?: SaasAlertCustomer[] })
-        const result = nested?.data ?? nested?.customers ?? []
-        if (result.length > 0) return result
-      } catch {
+        const { data, authMethod } = await this.request<
+          | SaasAlertCustomer[]
+          | { data?: SaasAlertCustomer[]; customers?: SaasAlertCustomer[]; organizations?: SaasAlertCustomer[] }
+        >(path)
+
+        if (Array.isArray(data) && data.length > 0) return { customers: data, authMethod }
+        const nested = data as Record<string, unknown>
+        const result = (nested?.data ?? nested?.customers ?? nested?.organizations ?? []) as SaasAlertCustomer[]
+        if (result.length > 0) return { customers: result, authMethod }
+      } catch (err) {
+        // If Cloudflare blocked, stop trying other paths
+        if (err instanceof Error && err.message.includes('Cloudflare')) throw err
         continue
       }
     }
-    return []
+    return { customers: [], authMethod: 'none-worked' }
   }
 
-  /** Query events — uses documented /reports/ endpoints */
+  /** Query events */
   async getEvents(params?: {
     customerId?: string
-    since?: string  // ISO date
-    until?: string  // ISO date
+    since?: string
+    until?: string
     severity?: string
     limit?: number
-  }): Promise<SaasAlertEvent[]> {
-    // Try POST /reports/event/query first (documented: posts JSON queries to data indexes)
+  }): Promise<{ events: SaasAlertEvent[]; authMethod: string }> {
+    // Try POST query first (Elasticsearch-style)
     try {
-      // Build Elasticsearch-style query body per API docs
       const must: Array<Record<string, unknown>> = []
       if (params?.since || params?.until) {
         const range: Record<string, string> = {}
@@ -165,57 +253,92 @@ export class SaasAlertsClient {
         ...(must.length > 0 ? { query: { bool: { must } } } : {}),
       }
 
-      const data = await this.request<{
-        data?: { events?: SaasAlertEvent[]; hits?: { hits?: Array<{ _source: SaasAlertEvent }> } }
-        events?: SaasAlertEvent[]
-        hits?: { hits?: Array<{ _source: SaasAlertEvent }> }
-      }>('/reports/event/query', 'POST', body)
+      const { data, authMethod } = await this.request<Record<string, unknown>>('/reports/event/query', 'POST', body)
 
-      // Handle various response shapes (direct events or Elasticsearch hits)
-      if (data?.hits?.hits) return data.hits.hits.map((h) => h._source)
-      if (data?.data?.hits?.hits) return data.data.hits.hits.map((h) => h._source)
-      if (data?.data?.events) return data.data.events
-      return data?.events ?? []
-    } catch {
-      // Fallback: try GET /reports/events
+      const events = extractEvents(data)
+      if (events.length > 0) return { events, authMethod }
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('Cloudflare')) throw err
+    }
+
+    // Fallback: GET /reports/events
+    try {
+      const qs = new URLSearchParams()
+      if (params?.since) qs.set('from', params.since)
+      if (params?.until) qs.set('to', params.until)
+      if (params?.limit) qs.set('size', String(params.limit))
+
+      const { data, authMethod } = await this.request<Record<string, unknown>>(
+        `/reports/events${qs.toString() ? '?' + qs.toString() : ''}`
+      )
+
+      return { events: extractEvents(data), authMethod }
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('Cloudflare')) throw err
+      return { events: [], authMethod: 'none-worked' }
+    }
+  }
+
+  /** Test connectivity — returns diagnostic info without failing */
+  async testConnection(): Promise<{
+    configured: boolean
+    hasPartnerId: boolean
+    baseUrl: string
+    results: Array<{ endpoint: string; status: string; authMethod?: string; error?: string; dataPreview?: string }>
+  }> {
+    const results: Array<{ endpoint: string; status: string; authMethod?: string; error?: string; dataPreview?: string }> = []
+
+    const testEndpoints = [
+      { path: '/reports/customers', label: 'List Customers' },
+      { path: '/customers', label: 'Customers (alt)' },
+      { path: '/organizations', label: 'Organizations' },
+    ]
+
+    for (const { path, label } of testEndpoints) {
       try {
-        const qs = new URLSearchParams()
-        if (params?.since) qs.set('from', params.since)
-        if (params?.until) qs.set('to', params.until)
-        if (params?.limit) qs.set('size', String(params.limit))
-
-        const data = await this.request<{ events?: SaasAlertEvent[] } | SaasAlertEvent[]>(
-          `/reports/events?${qs.toString()}`
-        )
-        if (Array.isArray(data)) return data
-        return (data as { events?: SaasAlertEvent[] }).events ?? []
-      } catch {
-        return []
+        const { data, authMethod } = await this.request<unknown>(path)
+        const preview = JSON.stringify(data).substring(0, 200)
+        results.push({ endpoint: `${label} (${path})`, status: 'success', authMethod, dataPreview: preview })
+      } catch (err) {
+        results.push({
+          endpoint: `${label} (${path})`,
+          status: 'failed',
+          error: err instanceof Error ? err.message : String(err),
+        })
       }
+    }
+
+    return {
+      configured: this.isConfigured(),
+      hasPartnerId: this.hasPartnerId(),
+      baseUrl: this.baseUrl,
+      results,
     }
   }
 
   /** Build summary of SaaS security events */
   async buildSummary(): Promise<SaasAlertsSummary> {
     if (!this.isConfigured()) {
-      return { available: false, totalEvents: 0, eventsBySeverity: {}, eventsByType: {}, customers: [], recentEvents: [], note: 'SaaS Alerts API not configured' }
+      return {
+        available: false, totalEvents: 0, eventsBySeverity: {}, eventsByType: {},
+        customers: [], recentEvents: [],
+        note: 'SaaS Alerts API not configured (SAAS_ALERTS_API_KEY not set)',
+      }
     }
 
     try {
-      // Get customers
-      const customers = await this.getCustomers()
+      const { customers, authMethod: custAuth } = await this.getCustomers()
 
-      // Get recent events (last 30 days)
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
-      const events = await this.getEvents({ since: thirtyDaysAgo, limit: 500 })
+      const { events, authMethod: evtAuth } = await this.getEvents({ since: thirtyDaysAgo, limit: 500 })
 
       const eventsBySeverity: Record<string, number> = {}
       const eventsByType: Record<string, number> = {}
 
       for (const event of events) {
-        const sev = event.alertStatus || 'unknown'
+        const sev = event.alertStatus ?? event.severity ?? 'unknown'
         eventsBySeverity[sev] = (eventsBySeverity[sev] ?? 0) + 1
-        const type = event.jointType || 'unknown'
+        const type = event.jointType ?? event.eventType ?? event.type ?? 'unknown'
         eventsByType[type] = (eventsByType[type] ?? 0) + 1
       }
 
@@ -226,11 +349,13 @@ export class SaasAlertsClient {
         eventsByType,
         customers,
         recentEvents: events.slice(0, 20),
+        authMethod: custAuth || evtAuth,
         note: events.length === 0 && customers.length === 0
-          ? 'SaaS Alerts API responded but returned no data. Verify API key permissions.'
+          ? 'SaaS Alerts API responded but returned no data. Verify API key permissions and Partner ID.'
           : null,
       }
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
       return {
         available: false,
         totalEvents: 0,
@@ -238,8 +363,44 @@ export class SaasAlertsClient {
         eventsByType: {},
         customers: [],
         recentEvents: [],
-        note: `SaaS Alerts API error: ${err instanceof Error ? err.message : String(err)}`,
+        note: `SaaS Alerts API error: ${message}`,
+        diagnostics: { error: message, hasPartnerId: this.hasPartnerId(), baseUrl: this.baseUrl },
       }
     }
   }
+}
+
+/** Extract events from various API response shapes */
+function extractEvents(data: unknown): SaasAlertEvent[] {
+  if (!data || typeof data !== 'object') return []
+  const d = data as Record<string, unknown>
+
+  // Direct array
+  if (Array.isArray(d)) return d
+
+  // Elasticsearch hits
+  if (d.hits && typeof d.hits === 'object') {
+    const hits = d.hits as Record<string, unknown>
+    if (Array.isArray(hits.hits)) {
+      return hits.hits.map((h: Record<string, unknown>) => (h._source ?? h) as SaasAlertEvent)
+    }
+  }
+
+  // Nested data.hits
+  if (d.data && typeof d.data === 'object') {
+    const nested = d.data as Record<string, unknown>
+    if (nested.hits && typeof nested.hits === 'object') {
+      const hits = nested.hits as Record<string, unknown>
+      if (Array.isArray(hits.hits)) {
+        return hits.hits.map((h: Record<string, unknown>) => (h._source ?? h) as SaasAlertEvent)
+      }
+    }
+    if (Array.isArray(nested.events)) return nested.events
+  }
+
+  // Direct events array
+  if (Array.isArray(d.events)) return d.events
+  if (Array.isArray(d.data)) return d.data
+
+  return []
 }

@@ -296,7 +296,7 @@ async function listPlatformSources(platform: string): Promise<SourceItem[]> {
       if (!process.env.SAAS_ALERTS_API_KEY) throw new Error('SaaS Alerts not configured')
       const { SaasAlertsClient } = await import('@/lib/saas-alerts')
       const client = new SaasAlertsClient()
-      const customers = await client.getCustomers()
+      const { customers } = await client.getCustomers()
       return customers.map((c) => ({
         id: c.id,
         name: c.name,
