@@ -49,13 +49,13 @@ describe('apiError', () => {
 })
 
 describe('apiOk', () => {
-  it('returns success: true with arbitrary data shape', async () => {
+  it('returns success: true with data fields spread at top level', async () => {
     const response = apiOk({ tickets: [{ id: '1' }], count: 1 }, 'req_ok_1')
     expect(response.status).toBe(200)
     const body = await response.json()
     expect(body.success).toBe(true)
-    expect(body.data.tickets).toHaveLength(1)
-    expect(body.data.count).toBe(1)
+    expect(body.tickets).toHaveLength(1)
+    expect(body.count).toBe(1)
     expect(body.requestId).toBe('req_ok_1')
   })
 
@@ -68,15 +68,15 @@ describe('apiOk', () => {
     const response = apiOk({ items: [] }, 'req_ok_3')
     const body = await response.json()
     expect(body.success).toBe(true)
-    expect(body.data.items).toEqual([])
+    expect(body.items).toEqual([])
   })
 
-  it('does not require id or url (unlike apiSuccess)', async () => {
+  it('is backward-compatible — fields are at top level, not nested in data', async () => {
     const response = apiOk({ name: 'test' }, 'req_ok_4')
     const body = await response.json()
-    expect(body.data.name).toBe('test')
-    expect(body.data.id).toBeUndefined()
-    expect(body.data.url).toBeUndefined()
+    expect(body.name).toBe('test')
+    // Should NOT be nested under body.data
+    expect(body.data).toBeUndefined()
   })
 })
 
