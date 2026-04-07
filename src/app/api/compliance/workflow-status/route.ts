@@ -29,11 +29,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'companyId is required' }, { status: 400 })
   }
 
-  await ensureComplianceTables()
-  const pool = getPool()
-  const client = await pool.connect()
+  let client: Awaited<ReturnType<ReturnType<typeof getPool>['connect']>> | null = null
 
   try {
+    await ensureComplianceTables()
+    const pool = getPool()
+    client = await pool.connect()
+
     // Step 1: Prerequisites — M365 + Autotask
     const companyRes = await client.query<{
       autotaskCompanyId: string | null
@@ -140,9 +142,10 @@ export async function GET(request: NextRequest) {
       },
     })
   } catch (err) {
-    console.error('[compliance/workflow-status] Error:', err)
-    return NextResponse.json({ error: 'Failed to load workflow status' }, { status: 500 })
+    const msg = err instanceof Error ? err.message : 'Unknown error'
+    console.error('[compliance/workflow-status] Error:', msg, err)
+    return NextResponse.json({ success: false, error: `Failed to load workflow status: ${msg}` }, { status: 500 })
   } finally {
-    client.release()
+    if (client) client.release()
   }
 }
