@@ -15,6 +15,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { getPool } from '@/lib/db-pool'
 import { ensureComplianceTables } from '@/lib/compliance/ensure-tables'
+import type { PoolClient } from 'pg'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,7 +30,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'companyId is required' }, { status: 400 })
   }
 
-  let client: Awaited<ReturnType<ReturnType<typeof getPool>['connect']>> | null = null
+  let client: PoolClient | null = null
 
   try {
     await ensureComplianceTables()
