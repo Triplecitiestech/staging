@@ -23,16 +23,25 @@ const globalForPrisma = globalThis as unknown as {
 // ---------------------------------------------------------------------------
 
 function createPool(): Pool {
+  // Append statement_timeout to connection string to prevent queries from hanging
+  // indefinitely on a stale connection. 30s is generous — most queries complete in <1s.
+  const connString = process.env.DATABASE_URL || ''
+  const separator = connString.includes('?') ? '&' : '?'
+  const connWithTimeout = connString.includes('statement_timeout')
+    ? connString
+    : `${connString}${separator}statement_timeout=30000`
+
   const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: connWithTimeout,
     ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
     // 15s connection timeout — generous for cold starts where the DB may
     // need to wake up (Neon/Supabase serverless databases have cold starts too)
     connectionTimeoutMillis: 15_000,
-    // Close idle connections after 30s — balances reuse vs resource cleanup.
-    // Serverless functions can be kept warm for 5-15 min, so idle connections
-    // may be reused across invocations within the same isolate.
-    idleTimeoutMillis: 30_000,
+    // Close idle connections after 20s. Vercel Postgres / Neon can drop idle
+    // connections server-side after ~30s, causing "Connection terminated due to
+    // connection timeout" when the pool hands out a dead connection. Closing
+    // client-side first (20s < 30s) prevents stale connection reuse.
+    idleTimeoutMillis: 20_000,
     // Max 5 connections per isolate. Vercel serverless functions share isolates
     // across invocations, so this limits total connections per function instance.
     max: 5,

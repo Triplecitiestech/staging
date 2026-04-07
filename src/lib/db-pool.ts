@@ -32,11 +32,18 @@ const globalForPool = globalThis as unknown as {
 export function getPool(): Pool {
   if (globalForPool.rawPool) return globalForPool.rawPool
 
+  // Append statement_timeout to prevent queries hanging on stale connections
+  const connString = process.env.DATABASE_URL || ''
+  const separator = connString.includes('?') ? '&' : '?'
+  const connWithTimeout = connString.includes('statement_timeout')
+    ? connString
+    : `${connString}${separator}statement_timeout=30000`
+
   const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: connWithTimeout,
     ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
     connectionTimeoutMillis: 15_000,  // 15s — generous for cold starts
-    idleTimeoutMillis: 30_000,        // 30s — matches prisma.ts pool
+    idleTimeoutMillis: 20_000,        // 20s — close before DB drops (Neon ~30s)
     max: 5,
     allowExitOnIdle: true,
     keepAlive: true,
