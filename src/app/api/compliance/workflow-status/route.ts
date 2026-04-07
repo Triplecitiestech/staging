@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
       autotaskCompanyId: string | null
       m365SetupStatus: string | null
     }>(
-      `SELECT "autotaskCompanyId", "m365SetupStatus" FROM company WHERE id = $1`,
+      `SELECT "autotaskCompanyId", "m365SetupStatus" FROM companies WHERE id = $1`,
       [companyId]
     )
     const company = companyRes.rows[0]
