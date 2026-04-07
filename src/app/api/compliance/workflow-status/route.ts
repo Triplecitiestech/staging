@@ -14,7 +14,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { getPool } from '@/lib/db-pool'
-import { ensureComplianceTables } from '@/lib/compliance/ensure-tables'
 import type { PoolClient } from 'pg'
 
 export const dynamic = 'force-dynamic'
@@ -33,7 +32,6 @@ export async function GET(request: NextRequest) {
   let client: PoolClient | null = null
 
   try {
-    await ensureComplianceTables()
     const pool = getPool()
     client = await pool.connect()
 
