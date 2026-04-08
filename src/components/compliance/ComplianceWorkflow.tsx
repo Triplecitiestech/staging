@@ -716,9 +716,9 @@ export default function ComplianceWorkflow({ companies }: { companies: Company[]
                 <div className="flex justify-end pt-4 border-t border-white/10 mt-6">
                   <button
                     onClick={goToNextStep}
-                    className="inline-flex items-center px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-white rounded-lg font-medium text-sm transition-all"
+                    className="inline-flex items-center justify-center px-4 sm:px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-white rounded-lg font-medium text-sm transition-all max-w-full"
                   >
-                    Continue to Final Assessment &rarr;
+                    <span className="truncate">Continue to Final Assessment</span> <span className="ml-1">&rarr;</span>
                   </button>
                 </div>
               </StepCard>
@@ -805,12 +805,12 @@ export default function ComplianceWorkflow({ companies }: { companies: Company[]
 
 function StepCard({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
   return (
-    <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-xl p-6">
+    <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-xl p-4 sm:p-6 min-w-0 overflow-hidden">
       <div className="mb-6">
         <h2 className="text-lg font-semibold text-white">{title}</h2>
         <p className="text-sm text-slate-400 mt-1">{subtitle}</p>
       </div>
-      {children}
+      <div className="min-w-0">{children}</div>
     </div>
   )
 }

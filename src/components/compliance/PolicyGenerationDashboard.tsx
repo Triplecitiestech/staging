@@ -425,7 +425,7 @@ export default function PolicyGenerationDashboard({
         <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg p-6">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-sm font-semibold text-white">AI Policy Generation</h3>
+              <h3 className="text-sm font-semibold text-white">Generate {activePolicy.name}</h3>
               <p className="text-xs text-slate-400 mt-1">
                 {orgCompletion < 50
                   ? 'Complete the Organization Profile first for best results.'
