@@ -1,14 +1,14 @@
 /**
- * /admin/compliance — Compliance Guided Workflow
+ * /admin/compliance — Compliance Evidence Engine Dashboard
  *
  * Server component that loads the company list and renders the
- * 6-step guided compliance workflow stepper.
+ * client-side compliance dashboard.
  */
 
 import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import AdminHeader from '@/components/admin/AdminHeader'
-import ComplianceWorkflow from '@/components/compliance/ComplianceWorkflow'
+import ComplianceDashboard from '@/components/compliance/ComplianceDashboard'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,13 +16,7 @@ export default async function CompliancePage() {
   const session = await auth()
   if (!session) redirect('/admin')
 
-  let companies: Array<{
-    id: string
-    name: string
-    slug: string
-    m365SetupStatus: string | null
-    autotaskCompanyId: string | null
-  }> = []
+  let companies: Array<{ id: string; name: string; slug: string; m365SetupStatus: string | null }> = []
 
   try {
     const { prisma } = await import('@/lib/prisma')
@@ -32,7 +26,6 @@ export default async function CompliancePage() {
         displayName: true,
         slug: true,
         m365SetupStatus: true,
-        autotaskCompanyId: true,
       },
       orderBy: { displayName: 'asc' },
     })
@@ -42,10 +35,10 @@ export default async function CompliancePage() {
       name: c.displayName,
       slug: c.slug,
       m365SetupStatus: c.m365SetupStatus ?? null,
-      autotaskCompanyId: c.autotaskCompanyId ?? null,
     }))
   } catch (err) {
     console.error('[compliance] Failed to load companies:', err)
+    // Continue with empty list rather than crashing
   }
 
   return (
@@ -56,21 +49,21 @@ export default async function CompliancePage() {
           <div>
             <h1 className="text-2xl font-bold text-white">Compliance Evidence Engine</h1>
             <p className="text-slate-400 mt-1">
-              Guided workflow to assess and document customer compliance posture
+              Assess customer compliance posture using real data from managed tools
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <a href="/admin/compliance/workflow"
+              className="inline-flex items-center px-3 py-2 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 rounded-lg text-sm transition-colors whitespace-nowrap">
+              Guided Workflow (Beta)
+            </a>
             <a href="/admin/compliance/setup"
               className="inline-flex items-center px-3 py-2 bg-slate-700/50 hover:bg-slate-600/50 text-slate-300 hover:text-white rounded-lg text-sm transition-colors whitespace-nowrap">
               MSP Setup
             </a>
-            <a href="/admin/compliance/tools"
-              className="inline-flex items-center px-3 py-2 bg-slate-700/50 hover:bg-slate-600/50 text-slate-300 hover:text-white rounded-lg text-sm transition-colors whitespace-nowrap">
-              Tool Map
-            </a>
           </div>
         </div>
-        <ComplianceWorkflow companies={companies} />
+        <ComplianceDashboard companies={companies} />
       </main>
     </div>
   )
