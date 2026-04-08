@@ -140,7 +140,7 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
   return (
     <div className="space-y-6">
       {/* Company Selector */}
-      <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg p-6">
+      <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg p-4 sm:p-6">
         <label className="block text-sm font-medium text-slate-300 mb-2">Select Customer</label>
         <select
           value={selectedCompany}
@@ -237,7 +237,7 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
       {dashboard && !loading && activeTab === 'assessments' && (
         <>
           {/* Connector Status */}
-          <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg p-6">
+          <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg p-4 sm:p-6">
             <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-white">Integration Connectors</h2>
             <a href="/admin/compliance/tools" className="text-xs text-cyan-400 hover:text-cyan-300">
@@ -259,27 +259,29 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
 
           {/* Score Trend */}
           {dashboard.scoreTrend.length > 1 && (
-            <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg p-6">
+            <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg p-4 sm:p-6">
               <h2 className="text-lg font-semibold text-white mb-4">Compliance Score Trend</h2>
-              <div className="flex items-end gap-2 h-32">
-                {dashboard.scoreTrend.map((point, i) => (
-                  <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                    <span className={`text-xs font-semibold ${getScoreColor(point.score)}`}>{point.score}%</span>
-                    <div
-                      className="w-full rounded-t bg-gradient-to-t from-cyan-600 to-cyan-400 min-h-[4px]"
-                      style={{ height: `${Math.max(point.score, 4)}%` }}
-                    />
-                    <span className="text-xs text-slate-500 truncate w-full text-center">
-                      {new Date(point.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                    </span>
-                  </div>
-                ))}
+              <div className="overflow-x-auto -mx-2 px-2">
+                <div className="flex items-end gap-2 h-32" style={{ minWidth: `${dashboard.scoreTrend.length * 48}px` }}>
+                  {dashboard.scoreTrend.map((point, i) => (
+                    <div key={i} className="flex-1 flex flex-col items-center gap-1 min-w-[40px]">
+                      <span className={`text-xs font-semibold ${getScoreColor(point.score)}`}>{point.score}%</span>
+                      <div
+                        className="w-full rounded-t bg-gradient-to-t from-cyan-600 to-cyan-400 min-h-[4px]"
+                        style={{ height: `${Math.max(point.score, 4)}%` }}
+                      />
+                      <span className="text-xs text-slate-500 truncate w-full text-center">
+                        {new Date(point.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           )}
 
           {/* Assessment Actions */}
-          <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg p-6">
+          <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg p-4 sm:p-6">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
               <div>
                 <h2 className="text-lg font-semibold text-white">Assessments</h2>
@@ -291,11 +293,11 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
                   </p>
                 )}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
                 <select
                   value={selectedFramework}
                   onChange={(e) => setSelectedFramework(e.target.value)}
-                  className="bg-slate-900/50 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+                  className="bg-slate-900/50 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50 min-w-0"
                 >
                   <optgroup label="CIS Controls v8">
                     <option value="cis-v8-ig1">CIS v8 — IG1 (Essential Hygiene)</option>
@@ -312,7 +314,7 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
                 <button
                   onClick={createAndRunAssessment}
                   disabled={running}
-                  className="inline-flex items-center px-4 py-2.5 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-white rounded-lg font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all whitespace-nowrap"
+                  className="inline-flex items-center justify-center px-4 py-2.5 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-white rounded-lg font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all whitespace-nowrap"
                 >
                   {running ? (
                     <>
@@ -330,22 +332,22 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
                   <div
                     key={a.id}
                     onClick={() => loadAssessment(a.id)}
-                    className={`flex items-center justify-between p-3 rounded-lg cursor-pointer transition-colors ${
+                    className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 rounded-lg cursor-pointer transition-colors ${
                       activeAssessment?.assessment.id === a.id
                         ? 'bg-cyan-500/10 border border-cyan-500/30'
                         : 'bg-slate-900/30 hover:bg-slate-700/30 border border-white/5'
                     }`}
                   >
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
                       <StatusBadge status={a.status} />
-                      <div>
-                        <p className="text-sm font-medium text-white">{getFrameworkLabel(a.frameworkId)}</p>
-                        <p className="text-xs text-slate-400">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-white truncate">{getFrameworkLabel(a.frameworkId)}</p>
+                        <p className="text-xs text-slate-400 truncate">
                           {new Date(a.createdAt).toLocaleString()} by {a.createdBy}
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-3 flex-shrink-0">
                       {a.status === 'complete' && (
                         <>
                           <ScorePill passed={a.passedControls} total={a.totalControls} />
@@ -497,7 +499,7 @@ function AssessmentResults({ detail, onExport, onUpdated }: { detail: Assessment
   }
 
   return (
-    <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg p-6">
+    <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg p-4 sm:p-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
           <h2 className="text-lg font-semibold text-white">{frameworkName} Results</h2>
@@ -779,24 +781,26 @@ function FindingRow({ finding, change, expanded, onToggle, assessmentId, onUpdat
 
   return (
     <div>
-      <button onClick={onToggle} className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/5 transition-colors text-left">
-        <div className="flex items-center gap-3 min-w-0">
-          <span className={`inline-flex items-center justify-center w-16 py-0.5 rounded text-xs font-bold ${config.bg} ${config.color}`}>
+      <button onClick={onToggle} className="w-full flex items-center justify-between gap-2 px-4 py-3 hover:bg-white/5 transition-colors text-left">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <span className={`inline-flex items-center justify-center w-16 py-0.5 rounded text-xs font-bold flex-shrink-0 ${config.bg} ${config.color}`}>
             {config.label}
           </span>
-          <div className="min-w-0">
-            <span className="text-sm text-white font-mono">{finding.controlId.replace('cis-v8-', '')}</span>
-            <span className="text-sm text-slate-400 ml-2 truncate">{getControlTitle(finding.controlId)}</span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-baseline gap-2 min-w-0">
+              <span className="text-sm text-white font-mono flex-shrink-0">{finding.controlId.replace('cis-v8-', '')}</span>
+              <span className="text-sm text-slate-400 truncate min-w-0">{getControlTitle(finding.controlId)}</span>
+            </div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-shrink-0">
           {change && changeIndicators[change] && (
             <span className={`text-sm font-bold ${changeIndicators[change].color}`}>
               {changeIndicators[change].icon}
             </span>
           )}
           {finding.overrideStatus && (
-            <span className="text-xs bg-violet-500/20 text-violet-300 px-2 py-0.5 rounded">Override</span>
+            <span className="hidden sm:inline-flex text-xs bg-violet-500/20 text-violet-300 px-2 py-0.5 rounded">Override</span>
           )}
           <ConfidenceDot confidence={finding.confidence} />
           <span className="text-slate-500 text-sm">{expanded ? '−' : '+'}</span>

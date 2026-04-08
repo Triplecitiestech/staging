@@ -320,14 +320,14 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+        <div className="min-w-0">
           <h2 className="text-xl font-bold text-white">Policy Analysis</h2>
           <p className="text-sm text-slate-400 mt-1">
             Upload or paste customer policies — AI analyzes them against CIS v8 controls
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-shrink-0 flex-wrap">
           {policies.length > 0 && (
             <button
               onClick={reanalyzeAll}
@@ -584,9 +584,9 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
                 {/* Policy Header */}
                 <div
                   onClick={() => setExpandedPolicy(isExpanded ? null : policy.id)}
-                  className="flex items-center justify-between p-4 cursor-pointer hover:bg-slate-700/30 transition-colors"
+                  className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 cursor-pointer hover:bg-slate-700/30 transition-colors"
                 >
-                  <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
                     <div className="flex-shrink-0">
                       {analysis?.status === 'complete' ? (
                         <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400 text-lg">
@@ -602,9 +602,9 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
                         </div>
                       )}
                     </div>
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <h4 className="text-sm font-medium text-white truncate">{policy.title}</h4>
-                      <p className="text-xs text-slate-400">
+                      <p className="text-xs text-slate-400 truncate">
                         {getSourceLabel(policy.source)}{policy.category ? ` · ${policy.category}` : ''} ·{' '}
                         Added {new Date(policy.createdAt).toLocaleDateString()}
                         {analysis?.analyzedAt && (
@@ -613,7 +613,7 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-4 flex-shrink-0">
+                  <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-4 flex-shrink-0 pl-13 sm:pl-0">
                     {analysis?.status === 'complete' && (
                       <div className="flex gap-3 text-xs">
                         <span className="text-emerald-400">{satisfied} satisfied</span>
