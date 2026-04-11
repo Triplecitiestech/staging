@@ -559,6 +559,158 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
         </div>
       )}
 
+      {/* ================================================================= */}
+      {/* Cross-Policy Control Coverage Summary                            */}
+      {/* ================================================================= */}
+      {policies.length > 0 && (() => {
+        // Aggregate control coverage across ALL policies
+        const completedAnalyses = analyses.filter((a) => a.status === 'complete')
+        if (completedAnalyses.length === 0) return null
+
+        // Build maps: controlId -> which policies satisfy/partial it
+        const satisfiedBy = new Map<string, string[]>()  // controlId -> [policyTitle, ...]
+        const partialBy = new Map<string, string[]>()
+        const allControlIds = new Set<string>()
+
+        for (const a of completedAnalyses) {
+          const policy = policies.find((p) => p.id === a.policyId)
+          const pTitle = policy?.title ?? 'Unknown'
+
+          for (const c of (a.satisfiedControls ?? [])) {
+            allControlIds.add(c)
+            if (!satisfiedBy.has(c)) satisfiedBy.set(c, [])
+            satisfiedBy.get(c)!.push(pTitle)
+          }
+          for (const c of (a.partialControls ?? [])) {
+            allControlIds.add(c)
+            if (!partialBy.has(c)) partialBy.set(c, [])
+            partialBy.get(c)!.push(pTitle)
+          }
+          for (const c of (a.missingControls ?? [])) {
+            allControlIds.add(c)
+          }
+        }
+
+        const fullyCovered = Array.from(allControlIds).filter((c) => satisfiedBy.has(c))
+        const partiallyCovered = Array.from(allControlIds).filter((c) => !satisfiedBy.has(c) && partialBy.has(c))
+        const noCoverage = Array.from(allControlIds).filter((c) => !satisfiedBy.has(c) && !partialBy.has(c))
+        const totalControls = allControlIds.size
+        const coveragePct = totalControls > 0 ? Math.round((fullyCovered.length / totalControls) * 100) : 0
+
+        // Sort control IDs numerically
+        const sortControls = (arr: string[]) => arr.sort((a, b) => {
+          const numA = a.replace(/^[a-z]+-[a-z0-9]+-/, '').split('.').map(Number)
+          const numB = b.replace(/^[a-z]+-[a-z0-9]+-/, '').split('.').map(Number)
+          for (let i = 0; i < Math.max(numA.length, numB.length); i++) {
+            const diff = (numA[i] ?? 0) - (numB[i] ?? 0)
+            if (diff !== 0) return diff
+          }
+          return 0
+        })
+
+        return (
+          <div className="bg-slate-800/50 border border-white/10 rounded-xl p-4 sm:p-6">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
+              <div>
+                <h3 className="text-base font-semibold text-white">Control Coverage Across All Policies</h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Combined view of {completedAnalyses.length} analyzed {completedAnalyses.length === 1 ? 'policy' : 'policies'} for {companyName}
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className={`text-2xl font-bold ${coveragePct >= 80 ? 'text-emerald-400' : coveragePct >= 50 ? 'text-cyan-400' : 'text-red-400'}`}>
+                  {coveragePct}%
+                </div>
+                <span className="text-xs text-slate-500">coverage</span>
+              </div>
+            </div>
+
+            {/* Stats */}
+            <div className="grid grid-cols-3 gap-3 mb-4">
+              <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3 text-center">
+                <p className="text-lg font-bold text-emerald-400">{fullyCovered.length}</p>
+                <p className="text-xs text-emerald-300/70">Fully Covered</p>
+              </div>
+              <div className="bg-violet-500/10 border border-violet-500/20 rounded-lg p-3 text-center">
+                <p className="text-lg font-bold text-violet-400">{partiallyCovered.length}</p>
+                <p className="text-xs text-violet-300/70">Partial Only</p>
+              </div>
+              <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 text-center">
+                <p className="text-lg font-bold text-red-400">{noCoverage.length}</p>
+                <p className="text-xs text-red-300/70">No Coverage</p>
+              </div>
+            </div>
+
+            {/* Progress bar */}
+            <div className="w-full bg-slate-700/50 rounded-full h-2.5 mb-4">
+              <div className="flex h-2.5 rounded-full overflow-hidden">
+                <div
+                  className="bg-emerald-500 transition-all"
+                  style={{ width: `${totalControls > 0 ? (fullyCovered.length / totalControls) * 100 : 0}%` }}
+                />
+                <div
+                  className="bg-violet-500 transition-all"
+                  style={{ width: `${totalControls > 0 ? (partiallyCovered.length / totalControls) * 100 : 0}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Gap details — controls with no coverage */}
+            {noCoverage.length > 0 && (
+              <details className="group">
+                <summary className="text-sm text-red-400 font-medium cursor-pointer hover:text-red-300 flex items-center gap-2">
+                  <span>{noCoverage.length} controls have no policy coverage</span>
+                  <span className="text-slate-500 group-open:rotate-90 transition-transform">&#9654;</span>
+                </summary>
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {sortControls(noCoverage).map((c) => (
+                    <span key={c} className="text-xs bg-red-500/10 text-red-300 px-2 py-1 rounded font-mono">
+                      {c.replace('cis-v8-', '')}
+                    </span>
+                  ))}
+                </div>
+              </details>
+            )}
+
+            {/* Partial coverage details */}
+            {partiallyCovered.length > 0 && (
+              <details className="group mt-3">
+                <summary className="text-sm text-violet-400 font-medium cursor-pointer hover:text-violet-300 flex items-center gap-2">
+                  <span>{partiallyCovered.length} controls only partially covered</span>
+                  <span className="text-slate-500 group-open:rotate-90 transition-transform">&#9654;</span>
+                </summary>
+                <div className="mt-3 space-y-1.5">
+                  {sortControls(partiallyCovered).map((c) => (
+                    <div key={c} className="text-xs bg-violet-500/10 text-violet-300 px-2.5 py-1.5 rounded flex items-baseline gap-2">
+                      <span className="font-mono font-medium flex-shrink-0">{c.replace('cis-v8-', '')}</span>
+                      <span className="text-slate-400">partially by: {partialBy.get(c)?.join(', ')}</span>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+
+            {/* Fully covered — collapsed by default */}
+            {fullyCovered.length > 0 && (
+              <details className="group mt-3">
+                <summary className="text-sm text-emerald-400 font-medium cursor-pointer hover:text-emerald-300 flex items-center gap-2">
+                  <span>{fullyCovered.length} controls fully covered</span>
+                  <span className="text-slate-500 group-open:rotate-90 transition-transform">&#9654;</span>
+                </summary>
+                <div className="mt-3 space-y-1.5">
+                  {sortControls(fullyCovered).map((c) => (
+                    <div key={c} className="text-xs bg-emerald-500/10 text-emerald-300 px-2.5 py-1.5 rounded flex items-baseline gap-2">
+                      <span className="font-mono font-medium flex-shrink-0">{c.replace('cis-v8-', '')}</span>
+                      <span className="text-slate-400">by: {satisfiedBy.get(c)?.join(', ')}</span>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+          </div>
+        )
+      })()}
+
       {/* Existing Policies */}
       {policies.length === 0 && !showAddForm ? (
         <div className="text-center py-12 bg-slate-800/30 border border-white/5 rounded-xl">
@@ -616,9 +768,9 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
                   <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-4 flex-shrink-0 pl-13 sm:pl-0">
                     {analysis?.status === 'complete' && (
                       <div className="flex gap-3 text-xs">
-                        <span className="text-emerald-400">{satisfied} satisfied</span>
+                        <span className="text-emerald-400">{satisfied} covered</span>
                         <span className="text-violet-400">{partial} partial</span>
-                        <span className="text-red-400">{missing} missing</span>
+                        <span className="text-slate-400">{missing} not in this</span>
                       </div>
                     )}
                     {analysis && (
@@ -683,9 +835,9 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
 
                       return (
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          {renderControlList(analysis.satisfiedControls ?? [], 'satisfied', 'Satisfied Controls', 'text-emerald-400', 'bg-emerald-500/10 text-emerald-300')}
+                          {renderControlList(analysis.satisfiedControls ?? [], 'satisfied', 'Covered by This Policy', 'text-emerald-400', 'bg-emerald-500/10 text-emerald-300')}
                           {renderControlList(analysis.partialControls ?? [], 'partial', 'Partially Addressed', 'text-violet-400', 'bg-violet-500/10 text-violet-300')}
-                          {renderControlList(analysis.missingControls ?? [], 'missing', 'Missing / Not Addressed', 'text-red-400', 'bg-red-500/10 text-red-300')}
+                          {renderControlList(analysis.missingControls ?? [], 'missing', 'Not in This Policy', 'text-slate-400', 'bg-slate-500/10 text-slate-300')}
                         </div>
                       )
                     })()}
