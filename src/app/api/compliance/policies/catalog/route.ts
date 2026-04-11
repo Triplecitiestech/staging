@@ -11,7 +11,6 @@ import { auth } from '@/auth'
 import { POLICY_CATALOG, getCatalogForFrameworks, getCategoryLabel } from '@/lib/compliance/policy-generation/catalog'
 import { getControlCountByPolicy } from '@/lib/compliance/policy-generation/framework-mappings'
 import { getPool } from '@/lib/db-pool'
-import { ensureComplianceTables } from '@/lib/compliance/ensure-tables'
 import type { PolicyGenStatus, PolicyNeedsAnalysis, PolicyNeedItem } from '@/lib/compliance/policy-generation/types'
 
 export const dynamic = 'force-dynamic'
@@ -48,10 +47,6 @@ export async function GET(request: NextRequest) {
   }
 
   // With companyId: build a needs analysis
-  try { await ensureComplianceTables() } catch (e) {
-    console.warn('[compliance/policies/catalog] ensureComplianceTables failed:', e instanceof Error ? e.message : e)
-  }
-
   const pool = getPool()
   let client: import('pg').PoolClient | null = null
 

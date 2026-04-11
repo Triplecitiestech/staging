@@ -13,7 +13,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { getPool } from '@/lib/db-pool'
-import { ensureComplianceTables } from '@/lib/compliance/ensure-tables'
 import {
   getOrgProfileQuestions,
   getPolicyQuestions,
@@ -36,7 +35,6 @@ export async function GET(request: NextRequest) {
 
   const policySlug = request.nextUrl.searchParams.get('policySlug')
 
-  await ensureComplianceTables()
   const pool = getPool()
   const client = await pool.connect()
 
@@ -123,7 +121,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'policySlug is required for policy type' }, { status: 400 })
     }
 
-    await ensureComplianceTables()
+    // Tables are created by bootstrap/setup — skip ensureComplianceTables on writes for speed
     const pool = getPool()
     const client = await pool.connect()
 

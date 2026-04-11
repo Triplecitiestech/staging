@@ -11,7 +11,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { getPool } from '@/lib/db-pool'
-import { ensureComplianceTables } from '@/lib/compliance/ensure-tables'
 import { renderPolicyHtml } from '@/lib/compliance/policy-generation/export'
 import { getCatalogItem } from '@/lib/compliance/policy-generation/catalog'
 import type { PolicyDocumentMetadata } from '@/lib/compliance/policy-generation/types'
@@ -37,7 +36,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'policySlug or bundle=true is required' }, { status: 400 })
   }
 
-  await ensureComplianceTables()
   const pool = getPool()
   const client = await pool.connect()
 

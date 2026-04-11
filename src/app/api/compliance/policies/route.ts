@@ -23,7 +23,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'companyId is required' }, { status: 400 })
   }
 
-  await ensureComplianceTables()
   const pool = getPool()
   const client = await pool.connect()
 
