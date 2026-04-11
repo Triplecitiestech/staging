@@ -1,97 +1,84 @@
 # Session Summary
 
-> Last updated: 2026-04-11 (Session 6 — Compliance Stepper UI + Policy Analysis Improvements)
-> Branch: `claude/build-compliance-stepper-ui-tJT3m`
+> Last updated: 2026-04-11 (Session 7 — Compliance Improvements: Auto-fill, Mass Generation, Gap-Filling)
+> Branch: `claude/compliance-improvements-session-7-FxpEz`
 
 ## What Was Done This Session
 
-### Compliance Guided Workflow Stepper (Beta)
+### 1. Auto-Fill Org Profile from Uploaded Policies
 
-Built a 6-step linear stepper at `/admin/compliance/workflow`:
-- Step 1: Prerequisites (M365 + Autotask verification)
-- Step 2: Tool Configuration (toggle MSP tools per customer)
-- Step 3: Platform Mapping (embed PlatformMappingPanel)
-- Step 4: Initial Assessment (run CIS assessment)
-- Step 5: Policies (existing uploaded + AI generation)
-- Step 6: Final Assessment (re-run, show improvement)
+When policies are uploaded and analyzed via the Policy Analysis tab, the AI analysis prompt now **also extracts structured org profile data** from the policy content:
+- Industry, employee count, data types handled (PHI/PII/CUI)
+- Remote work policy, BYOD policy, contractor usage
+- Policy review cadence, training cadence, disciplinary process
+- Security officer/CISO name, vendor review process, data retention period
+- AI tool usage policy, exception process
 
-**New files:**
-- `src/components/compliance/ComplianceWorkflow.tsx` (~900 lines)
-- `src/app/api/compliance/workflow-status/route.ts` — derives step completion from existing data
-- `src/app/admin/compliance/workflow/page.tsx` — beta route for the stepper
+**How it works:**
+- `analyzePolicyWithAI()` in `src/app/api/compliance/policies/route.ts` now requests `orgProfileExtraction` in the AI prompt
+- After analysis completes, `mergeExtractedOrgProfile()` merges extracted fields into `policy_org_profiles` table
+- Only fills **empty** fields — never overwrites user-provided answers
+- Tracks which fields were auto-filled via `_autoFilledFields` metadata key
+- Questionnaire API returns `autoFilledFields` array to the UI
+- PolicyGenerationDashboard shows "Auto-filled" badge on pre-filled questions
+- Info banner appears when auto-filled fields exist
 
-**Key decisions:**
-- Stepper is a BETA at `/admin/compliance/workflow`, not the primary UI
-- Primary `/admin/compliance` restored to tab-based ComplianceDashboard
-- "Guided Workflow (Beta)" link added to dashboard header
-- Existing components (PlatformMappingPanel, PolicyGenerationDashboard, PolicyManager) composed as-is via lazy loading
+**Key files changed:**
+- `src/app/api/compliance/policies/route.ts` — AI prompt + mergeExtractedOrgProfile function
+- `src/app/api/compliance/policies/questionnaire/route.ts` — returns autoFilledFields
+- `src/components/compliance/PolicyGenerationDashboard.tsx` — auto-fill badges in org profile view
 
-### Holistic Cross-Policy Control Coverage
+### 2. Mass Policy Generation
 
-**Major improvement to PolicyManager (Policy Analysis tab):**
-- Added "Control Coverage Across All Policies" summary card at the top
-- Aggregates satisfied/partial/missing controls ACROSS all uploaded policies
-- Shows overall coverage % with progress bar (green=fully covered, violet=partial, red=no coverage)
-- Expandable details: which controls have no coverage, which policies cover each control
-- This replaces the misleading per-policy view where every policy showed a long "missing" list
+Added "Generate All Missing" button in the Policy Generation tab that batch-generates all policies with status `missing`, `intake_needed`, or `ready_to_generate`:
+- Sequential generation (one at a time to stay within API limits)
+- Progress bar showing: current policy name, X/Y progress, completed count, failed count
+- Saves org profile before starting batch
+- Summary banner after completion showing results
+- Button disabled during generation and shows spinner
 
-**Per-policy label changes:**
-- "X satisfied" → "X covered" (clearer)
-- "X missing" → "X not in this" (clarifies it's per-policy, not per-customer)
-- Expanded detail: "Missing / Not Addressed" → "Not in This Policy" with gray styling instead of red
-- "Satisfied Controls" → "Covered by This Policy"
+**Key files changed:**
+- `src/components/compliance/PolicyGenerationDashboard.tsx` — mass generation UI + handler
 
-### Mobile Responsiveness Fixes
+### 3. Gap-Filling Policy Generation
 
-**ComplianceDashboard.tsx:**
-- Assessment runner: framework dropdown + Run button stack on mobile
-- Assessment list rows: stack title/badges, prevent overflow with min-w-0 + truncate
-- Finding rows: fix span-with-truncate (needs block elements for ellipsis)
-- Score trend chart: horizontal scroll for 9+ data points
-- Card padding: p-6 → p-4 sm:p-6
-- Auto-scroll to assessment detail on click (iPad fix)
+In the Policy Analysis tab's holistic control coverage summary, added "Generate Gap-Filling Policy" button for uncovered controls:
+- Appears in the expandable "controls have no policy coverage" section
+- Calls the generate endpoint with slug `gap-remediation-policy` and mode `fill-missing`
+- Passes the list of uncovered control IDs as context instructions
+- Generator creates a comprehensive "Supplemental Security Controls Policy" with subsections per control area
+- Shows success/failure message inline
 
-**PolicyManager.tsx:**
-- Header: stack title and action buttons on mobile
-- Policy cards: stack badges below title so names aren't truncated to 1-2 chars
+**Key files changed:**
+- `src/components/compliance/PolicyManager.tsx` — gap-filling button + handler
+- `src/app/api/compliance/policies/generate/route.ts` — allows `gap-remediation-policy` slug
+- `src/lib/compliance/policy-generation/generator.ts` — `buildGapRemediationPrompt()` function
 
-### Stuck Policy Generation Fix
+### 4. Workflow Stepper Refinement
 
-- Generate endpoint: auto-reset 'generating' records older than 5 minutes
-- UI: show "Retry — Previous Attempt Stalled" button when status is stuck
-- Fixed "AI Policy Generation" confusing label → "Generate {policyName}"
+Improved step completion logic in `/api/compliance/workflow-status`:
+- **Step 5 (Policies)**: Now requires org profile with ≥60% of key fields filled (not just "exists") AND at least one policy (uploaded or generated). Returns separate counts for uploaded vs generated policies and org profile completion %.
+- **Step 6 (Final Assessment)**: Now requires 2+ completed assessments AND the latest assessment must be newer than the latest policy change (ensures it's a post-policy reassessment, not the initial one).
+- Added `safeCount` helper for cleaner try/catch patterns
+- Returns richer step data for the UI (orgProfileCompletion, uploadedPolicyCount, generatedPolicyCount, hasPostPolicyAssessment)
 
-### API Fixes
-
-- workflow-status route: fixed table name (company→companies), column name (m365SetupStatus→m365_setup_status), removed ensureComplianceTables to avoid cold-start timeout, proper PoolClient type
+**Key files changed:**
+- `src/app/api/compliance/workflow-status/route.ts` — rewritten with improved logic
 
 ## Key Decisions
 
-- Stepper stays as beta — tab-based dashboard is primary until stepper is complete
-- Policy analysis should be holistic across ALL policies, not per-policy isolation
-- Per-policy "missing" is misleading — controls covered by other policies shouldn't show as gaps
-- The assessment engine already aggregates policy coverage; the UI was the gap
-- Stuck generation records get auto-cleared after 5 minutes on retry
-
-### Framework Selection in Org Profile
-- Added `org_target_frameworks` multi-select question to questionnaire
-- PolicyGenerationDashboard syncs frameworks from org profile on load
-- Persists per-company across sessions
-
-### 504 Timeout Fix
-- Removed `ensureComplianceTables()` from all read-only compliance policy endpoints
-- Affects: GET policies, GET questionnaire, GET catalog, GET export, POST questionnaire (save)
-- These tables already exist in production — ensureComplianceTables was unnecessary overhead causing cold-start pool exhaustion
-
-### iPad/Touch Fixes
-- Policy catalog rows converted from `<div>` to `<button>` for reliable touch events
-- Assessment detail auto-scrolls into view on click
+- Auto-fill only fills empty fields — user answers always take priority
+- `_autoFilledFields` metadata is stored alongside answers in the org profile JSONB
+- Gap-remediation-policy is a special slug handled outside the normal catalog
+- Mass generation is sequential (not parallel) to avoid Anthropic rate limits
+- Step 6 requires a post-policy assessment to ensure the tech runs a final assessment after completing policies
 
 ## Outstanding Work
 
-See `docs/current-tasks.md` for full list. Key items:
-- **Auto-fill org profile from uploaded policies** — when policies are uploaded and analyzed, extract org info (industry, data types, employee count, etc.) and pre-fill the org profile questionnaire. Goal: automate as much of the compliance process as possible.
-- **Mass policy generation** — generate all missing policies for a customer at once
-- **Generate gap-filling policies** for controls with no coverage across all uploaded policies
-- **Complete stepper Steps 4+6** — assessment viewer with evidence/comparison in the workflow
-- **Linear guided flow** — the compliance process should guide the tech step by step without confusion about which tab or page to use
+See `docs/current-tasks.md` for full list. Key items remaining:
+- **Embed AssessmentResults in stepper Steps 4 & 6** — show assessment details inline in the workflow
+- **Step 6 comparison delta** — show improvement from Step 4 baseline to Step 6 final
+- **Controls vs Policies unified view** — merge Policy Analysis (control coverage) with Policy Generation (document status) into one coherent view
+- **Policy editing** — allow inline editing of generated content before approving
+- **DOCX/PDF export** — native document exports beyond HTML/Markdown
+- **Multi-framework policy analysis** — analyzePolicyWithAI currently evaluates one framework at a time
