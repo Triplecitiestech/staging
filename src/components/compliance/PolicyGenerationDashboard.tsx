@@ -439,7 +439,13 @@ export default function PolicyGenerationDashboard({
                 className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-sm font-medium disabled:opacity-50 flex items-center gap-2"
               >
                 {generating && <span className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />}
-                {generating ? 'Generating...' : activePolicy.status === 'draft' ? 'Regenerate' : 'Generate Policy'}
+                {generating
+                  ? 'Generating...'
+                  : activePolicy.status === 'generating'
+                  ? 'Retry — Previous Attempt Stalled'
+                  : activePolicy.status === 'draft'
+                  ? 'Regenerate'
+                  : 'Generate Policy'}
               </button>
             </div>
           </div>

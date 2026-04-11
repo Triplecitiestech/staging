@@ -152,8 +152,13 @@ export async function POST(request: NextRequest) {
         } catch { /* table may not exist */ }
       }
 
-      // Update generation record to "generating" (graceful if table doesn't exist)
+      // Reset any stuck 'generating' records older than 5 minutes, then set current to 'generating'
       try {
+        await client.query(
+          `UPDATE policy_generation_records SET status = 'ready_to_generate', "updatedAt" = NOW()
+           WHERE "companyId" = $1 AND status = 'generating' AND "updatedAt" < NOW() - INTERVAL '5 minutes'`,
+          [body.companyId]
+        )
         await client.query(
           `INSERT INTO policy_generation_records ("companyId", "policySlug", status, "updatedAt")
            VALUES ($1, $2, 'generating', NOW())
