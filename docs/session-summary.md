@@ -1,48 +1,82 @@
 # Session Summary
 
-> Last updated: 2026-04-04 (Session 5 — Questionnaire UX + Compliance Workflow Planning)
-> Branch: `claude/improve-questionnaire-ux-5lOb0`
+> Last updated: 2026-04-11 (Session 6 — Compliance Stepper UI + Policy Analysis Improvements)
+> Branch: `claude/build-compliance-stepper-ui-tJT3m`
 
 ## What Was Done This Session
 
-### Policy Questionnaire UX Cleanup
+### Compliance Guided Workflow Stepper (Beta)
 
-Reviewed and streamlined the policy generation questionnaire at `/admin/companies/[id]/compliance`.
+Built a 6-step linear stepper at `/admin/compliance/workflow`:
+- Step 1: Prerequisites (M365 + Autotask verification)
+- Step 2: Tool Configuration (toggle MSP tools per customer)
+- Step 3: Platform Mapping (embed PlatformMappingPanel)
+- Step 4: Initial Assessment (run CIS assessment)
+- Step 5: Policies (existing uploaded + AI generation)
+- Step 6: Final Assessment (re-run, show improvement)
 
-**Questions reduced: 74 → 62** (org profile 41→31, policy-specific 33→31)
+**New files:**
+- `src/components/compliance/ComplianceWorkflow.tsx` (~900 lines)
+- `src/app/api/compliance/workflow-status/route.ts` — derives step completion from existing data
+- `src/app/admin/compliance/workflow/page.tsx` — beta route for the stepper
 
-#### Removed (redundant / unused):
-- `org_handles_credit_cards` — never referenced in AI prompt, PCI DSS not a supported framework
-- `org_dba` — rarely affects policy content
-- `ir_escalation_contacts` — duplicate of `org_incident_contacts` (generator now injects automatically)
-- **7 security posture questions** (`org_edr_deployed`, `org_dns_filtering`, `org_siem_deployed`, `org_mfa_status`, `org_encryption_at_rest`, `org_backup_type`, `org_mdm_deployed`) — now derived automatically from platform mappings
+**Key decisions:**
+- Stepper is a BETA at `/admin/compliance/workflow`, not the primary UI
+- Primary `/admin/compliance` restored to tab-based ComplianceDashboard
+- "Guided Workflow (Beta)" link added to dashboard header
+- Existing components (PlatformMappingPanel, PolicyGenerationDashboard, PolicyManager) composed as-is via lazy loading
 
-#### Security posture derivation:
-The generate API route now queries `compliance_platform_mappings` at generation time:
-- `datto_edr` mapped → EDR deployed
-- `dnsfilter` mapped → DNS filtering deployed
-- `saas_alerts` mapped → SIEM/SOC monitoring deployed
-- `microsoft_graph` mapped → encryption, MDM, MFA status from evidence data
-- `datto_bcdr`/`datto_saas` mapped → backup type derived (hybrid/cloud)
-- MFA status pulled from `compliance_evidence` microsoft_mfa data when available
+### Holistic Cross-Policy Control Coverage
 
-#### UX improvements:
-- Visual group headers in org profile form (Company Identity, Regulatory Scope, Operational Context, People & Roles, Review Cadences, Processes, AI & Technology, Vendor & Data)
-- Better help text on governance cadences, incident contacts, policy owner, states, VPN, RTO/RPO
-- `org_states` changed from text to textarea
-- Generator auto-injects `org_incident_contacts` into IR policy context
-- New `group` field on `QuestionDefinition` type + `getQuestionGroups()` helper
+**Major improvement to PolicyManager (Policy Analysis tab):**
+- Added "Control Coverage Across All Policies" summary card at the top
+- Aggregates satisfied/partial/missing controls ACROSS all uploaded policies
+- Shows overall coverage % with progress bar (green=fully covered, violet=partial, red=no coverage)
+- Expandable details: which controls have no coverage, which policies cover each control
+- This replaces the misleading per-policy view where every policy showed a long "missing" list
 
-### Compliance Guided Workflow — Planned (Not Yet Built)
+**Per-policy label changes:**
+- "X satisfied" → "X covered" (clearer)
+- "X missing" → "X not in this" (clarifies it's per-policy, not per-customer)
+- Expanded detail: "Missing / Not Addressed" → "Not in This Policy" with gray styling instead of red
+- "Satisfied Controls" → "Covered by This Policy"
 
-Designed a stepper-based guided compliance workflow to replace the current tab-based UI. See "Compliance Guided Workflow" section in `docs/current-tasks.md` for full plan.
+### Mobile Responsiveness Fixes
 
-### Key Decisions
-- Security posture questions belong in the evidence engine (tool data), not the questionnaire
-- Platform mappings are the single source of truth for "what tools does this customer have"
-- MSP Setup Wizard stays separate (MSP-level config, not per-customer)
-- Both M365 verification AND Autotask sync are prerequisites for compliance workflow
-- The guided stepper composes existing components — minimal refactoring of current code
+**ComplianceDashboard.tsx:**
+- Assessment runner: framework dropdown + Run button stack on mobile
+- Assessment list rows: stack title/badges, prevent overflow with min-w-0 + truncate
+- Finding rows: fix span-with-truncate (needs block elements for ellipsis)
+- Score trend chart: horizontal scroll for 9+ data points
+- Card padding: p-6 → p-4 sm:p-6
+- Auto-scroll to assessment detail on click (iPad fix)
+
+**PolicyManager.tsx:**
+- Header: stack title and action buttons on mobile
+- Policy cards: stack badges below title so names aren't truncated to 1-2 chars
+
+### Stuck Policy Generation Fix
+
+- Generate endpoint: auto-reset 'generating' records older than 5 minutes
+- UI: show "Retry — Previous Attempt Stalled" button when status is stuck
+- Fixed "AI Policy Generation" confusing label → "Generate {policyName}"
+
+### API Fixes
+
+- workflow-status route: fixed table name (company→companies), column name (m365SetupStatus→m365_setup_status), removed ensureComplianceTables to avoid cold-start timeout, proper PoolClient type
+
+## Key Decisions
+
+- Stepper stays as beta — tab-based dashboard is primary until stepper is complete
+- Policy analysis should be holistic across ALL policies, not per-policy isolation
+- Per-policy "missing" is misleading — controls covered by other policies shouldn't show as gaps
+- The assessment engine already aggregates policy coverage; the UI was the gap
+- Stuck generation records get auto-cleared after 5 minutes on retry
 
 ## Outstanding Work
-See `docs/current-tasks.md` — the Compliance Guided Workflow is the next major build item.
+
+See `docs/current-tasks.md` for full list. Key items:
+- Mass policy generation (generate all missing policies at once)
+- Generate gap-filling policies for controls with no coverage
+- Complete stepper Steps 4+6 (assessment viewer with evidence/comparison)
+- Fix 504 timeout on questionnaire endpoint (same cold-start pattern)
