@@ -57,6 +57,12 @@ IMPORTANT: Generate the FULL policy. Do not abbreviate, truncate, or use "[conti
 
 function buildGenerationPrompt(input: GenerationInput): string {
   const catalog = getCatalogItem(input.policySlug)
+
+  // Handle gap-remediation-policy (dynamically generated, not in catalog)
+  if (!catalog && input.policySlug === 'gap-remediation-policy') {
+    return buildGapRemediationPrompt(input)
+  }
+
   if (!catalog) {
     throw new Error(`Unknown policy slug: ${input.policySlug}`)
   }
@@ -120,6 +126,40 @@ ${modeInstructions}
 ${input.userInstructions ? `\n## Additional Instructions from User\n${input.userInstructions}` : ''}
 
 Generate the COMPLETE policy now. Include ALL sections listed above. Do not skip, truncate, or abbreviate any section.`
+}
+
+function buildGapRemediationPrompt(input: GenerationInput): string {
+  const orgContext = buildOrgContext(input.orgProfile)
+  const today = new Date().toISOString().split('T')[0]
+  const reviewDate = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+
+  return `Generate a comprehensive "Gap Remediation Policy" for ${input.companyName}.
+
+## Purpose
+This policy addresses specific compliance control gaps that are NOT covered by the customer's existing policies.
+It should complement (not duplicate) existing policies and provide concrete, actionable requirements for each uncovered control.
+
+## Company Context
+${orgContext}
+
+## Document Metadata
+- Company Name: ${input.companyName}
+- Effective Date: ${today}
+- Next Review Date: ${reviewDate}
+- Version: 1.0
+- Policy Owner: ${String(input.orgProfile.org_policy_owner || input.orgProfile.org_security_officer || 'IT Director')}
+- Approved By: ${String(input.orgProfile.org_policy_owner || 'Management')}
+
+## Expected Structure
+- Title: "Gap Remediation Policy" or "Supplemental Security Controls Policy"
+- Section per control area (group related controls into logical sections)
+- For each control: requirement statement, implementation guidance, responsible party, verification method
+- Enforcement and exceptions section
+- Review schedule
+
+${input.userInstructions ? `\n## Specific Controls to Address\n${input.userInstructions}` : ''}
+
+Generate the COMPLETE policy. Each uncovered control must have a dedicated subsection with specific, implementable requirements.`
 }
 
 function buildOrgContext(profile: Record<string, string | string[] | boolean>): string {
@@ -255,12 +295,12 @@ export async function generatePolicy(input: GenerationInput): Promise<GenerateRe
     throw new Error('Generated policy content is too short — generation may have failed')
   }
 
-  const catalog = getCatalogItem(input.policySlug)
+  const catalogForMeta = getCatalogItem(input.policySlug)
   const today = new Date().toISOString().split('T')[0]
   const reviewDate = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
 
   const metadata: PolicyDocumentMetadata = {
-    policyTitle: catalog?.name ?? input.policySlug,
+    policyTitle: catalogForMeta?.name ?? (input.policySlug === 'gap-remediation-policy' ? 'Gap Remediation Policy' : input.policySlug),
     companyName: input.companyName,
     effectiveDate: today,
     reviewDate,

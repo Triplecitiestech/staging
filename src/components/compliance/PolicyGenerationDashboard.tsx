@@ -119,6 +119,7 @@ export default function PolicyGenerationDashboard({
   const [orgAnswers, setOrgAnswers] = useState<Record<string, string | string[] | boolean>>({})
   const [orgCompletion, setOrgCompletion] = useState(0)
   const [savingOrg, setSavingOrg] = useState(false)
+  const [autoFilledFields, setAutoFilledFields] = useState<string[]>([])
 
   // Policy detail state
   const [policyQuestions, setPolicyQuestions] = useState<QuestionDef[]>([])
@@ -127,6 +128,10 @@ export default function PolicyGenerationDashboard({
   const [generatedContent, setGeneratedContent] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
   const [savingPolicy, setSavingPolicy] = useState(false)
+
+  // Mass generation state
+  const [massGenerating, setMassGenerating] = useState(false)
+  const [massProgress, setMassProgress] = useState({ current: 0, total: 0, currentName: '', completed: 0, failed: 0 })
 
   // Load catalog / needs analysis
   const loadAnalysis = useCallback(async (signal?: AbortSignal) => {
@@ -167,6 +172,7 @@ export default function PolicyGenerationDashboard({
       setOrgQuestions(json.data.orgProfile.questions)
       setOrgAnswers(json.data.orgProfile.answers)
       setOrgCompletion(json.data.orgProfile.completionPct)
+      setAutoFilledFields(json.data.orgProfile.autoFilledFields ?? [])
       // Sync framework selection from org profile
       const fw = json.data.orgProfile.answers?.org_target_frameworks
       if (Array.isArray(fw) && fw.length > 0) {
@@ -302,6 +308,61 @@ export default function PolicyGenerationDashboard({
     )
   }
 
+  // Mass generate all missing policies
+  const generateAllMissing = async () => {
+    if (!analysis) return
+    const missing = analysis.requiredPolicies.filter(
+      (p) => p.status === 'missing' || p.status === 'intake_needed' || p.status === 'ready_to_generate'
+    )
+    if (missing.length === 0) return
+
+    setMassGenerating(true)
+    setMassProgress({ current: 0, total: missing.length, currentName: '', completed: 0, failed: 0 })
+
+    // Save org profile first (ignore failures)
+    try { await saveOrgProfile() } catch { /* ignore */ }
+
+    let completed = 0
+    let failed = 0
+
+    for (let i = 0; i < missing.length; i++) {
+      const policy = missing[i]
+      setMassProgress({ current: i + 1, total: missing.length, currentName: policy.name, completed, failed })
+
+      try {
+        const res = await fetch('/api/compliance/policies/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            companyId,
+            policySlug: policy.slug,
+            mode: 'new',
+            frameworks: selectedFrameworks,
+          }),
+        })
+
+        const contentType = res.headers.get('content-type') ?? ''
+        if (!contentType.includes('application/json')) {
+          failed++
+          continue
+        }
+
+        const json = await res.json()
+        if (json.success) {
+          completed++
+        } else {
+          failed++
+        }
+      } catch {
+        failed++
+      }
+    }
+
+    setMassProgress({ current: missing.length, total: missing.length, currentName: '', completed, failed })
+    setMassGenerating(false)
+    await loadAnalysis()
+  }
+
   const activePolicy = analysis?.requiredPolicies.find((p) => p.slug === activePolicySlug)
 
   // ---------------------------------------------------------------------------
@@ -330,6 +391,16 @@ export default function PolicyGenerationDashboard({
             </div>
           </div>
 
+          {autoFilledFields.length > 0 && (
+            <div className="p-3 bg-cyan-500/10 border border-cyan-500/20 rounded-lg mb-2">
+              <p className="text-sm text-cyan-300">
+                {autoFilledFields.length} field{autoFilledFields.length === 1 ? ' was' : 's were'} auto-filled from uploaded policy analysis.
+                Fields marked with <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 ml-1">Auto-filled</span> were extracted from your policies.
+                You can edit them at any time.
+              </p>
+            </div>
+          )}
+
           <div className="space-y-6">
             {(() => {
               let lastGroup = ''
@@ -351,6 +422,7 @@ export default function PolicyGenerationDashboard({
                       question={q}
                       value={orgAnswers[q.id]}
                       onChange={(val) => setOrgAnswers((prev) => ({ ...prev, [q.id]: val }))}
+                      autoFilled={autoFilledFields.includes(q.id)}
                     />
                   </div>
                 )
@@ -560,14 +632,28 @@ export default function PolicyGenerationDashboard({
           </div>
 
           {/* Action Bar */}
-          <div className="flex items-center justify-between">
-            <button
-              onClick={() => { setView('org-profile'); loadOrgProfile() }}
-              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm font-medium flex items-center gap-2"
-            >
-              <span>Organization Profile</span>
-              <span className="text-xs text-slate-400">({orgCompletion}%)</span>
-            </button>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => { setView('org-profile'); loadOrgProfile() }}
+                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm font-medium flex items-center gap-2"
+              >
+                <span>Organization Profile</span>
+                <span className="text-xs text-slate-400">({orgCompletion}%)</span>
+              </button>
+              {analysis && analysis.stats.missing + analysis.stats.intakeNeeded > 0 && (
+                <button
+                  onClick={generateAllMissing}
+                  disabled={massGenerating || generating}
+                  className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-white rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {massGenerating && <span className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />}
+                  {massGenerating
+                    ? `Generating ${massProgress.current}/${massProgress.total}...`
+                    : `Generate All Missing (${analysis.stats.missing + analysis.stats.intakeNeeded})`}
+                </button>
+              )}
+            </div>
             <div className="flex gap-2">
               <button
                 onClick={() => downloadBundle('html')}
@@ -583,6 +669,35 @@ export default function PolicyGenerationDashboard({
               </button>
             </div>
           </div>
+
+          {/* Mass Generation Progress */}
+          {massGenerating && (
+            <div className="bg-slate-800/50 backdrop-blur-sm border border-cyan-500/30 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm text-white font-medium">
+                  Generating: {massProgress.currentName}
+                </span>
+                <span className="text-xs text-slate-400">
+                  {massProgress.current}/{massProgress.total} &middot; {massProgress.completed} done &middot; {massProgress.failed} failed
+                </span>
+              </div>
+              <div className="w-full bg-slate-700/50 rounded-full h-2">
+                <div
+                  className="bg-cyan-500 h-2 rounded-full transition-all"
+                  style={{ width: `${massProgress.total > 0 ? (massProgress.current / massProgress.total) * 100 : 0}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Mass Generation Complete Summary */}
+          {!massGenerating && massProgress.total > 0 && massProgress.current === massProgress.total && (
+            <div className={`border rounded-lg p-4 ${massProgress.failed > 0 ? 'bg-rose-500/10 border-rose-500/30' : 'bg-emerald-500/10 border-emerald-500/30'}`}>
+              <p className={`text-sm font-medium ${massProgress.failed > 0 ? 'text-rose-300' : 'text-emerald-300'}`}>
+                Batch generation complete: {massProgress.completed} generated, {massProgress.failed} failed out of {massProgress.total} policies.
+              </p>
+            </div>
+          )}
 
           {/* Policy List by Category */}
           {Object.entries(groupByCategory(analysis.requiredPolicies)).map(([cat, policies]) => (
@@ -669,10 +784,12 @@ function QuestionField({
   question,
   value,
   onChange,
+  autoFilled,
 }: {
   question: QuestionDef
   value: string | string[] | boolean | undefined
   onChange: (val: string | string[] | boolean) => void
+  autoFilled?: boolean
 }) {
   const baseInputClass = 'w-full bg-slate-900/50 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50'
 
@@ -681,6 +798,11 @@ function QuestionField({
       <label className="block text-xs font-medium text-slate-300 mb-1">
         {question.label}
         {question.required && <span className="text-red-400 ml-1">*</span>}
+        {autoFilled && (
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 ml-2">
+            Auto-filled
+          </span>
+        )}
       </label>
       {question.helpText && (
         <p className="text-[11px] text-slate-500 mb-1">{question.helpText}</p>
