@@ -73,10 +73,25 @@ Built a 6-step linear stepper at `/admin/compliance/workflow`:
 - The assessment engine already aggregates policy coverage; the UI was the gap
 - Stuck generation records get auto-cleared after 5 minutes on retry
 
+### Framework Selection in Org Profile
+- Added `org_target_frameworks` multi-select question to questionnaire
+- PolicyGenerationDashboard syncs frameworks from org profile on load
+- Persists per-company across sessions
+
+### 504 Timeout Fix
+- Removed `ensureComplianceTables()` from all read-only compliance policy endpoints
+- Affects: GET policies, GET questionnaire, GET catalog, GET export, POST questionnaire (save)
+- These tables already exist in production — ensureComplianceTables was unnecessary overhead causing cold-start pool exhaustion
+
+### iPad/Touch Fixes
+- Policy catalog rows converted from `<div>` to `<button>` for reliable touch events
+- Assessment detail auto-scrolls into view on click
+
 ## Outstanding Work
 
 See `docs/current-tasks.md` for full list. Key items:
-- Mass policy generation (generate all missing policies at once)
-- Generate gap-filling policies for controls with no coverage
-- Complete stepper Steps 4+6 (assessment viewer with evidence/comparison)
-- Fix 504 timeout on questionnaire endpoint (same cold-start pattern)
+- **Auto-fill org profile from uploaded policies** — when policies are uploaded and analyzed, extract org info (industry, data types, employee count, etc.) and pre-fill the org profile questionnaire. Goal: automate as much of the compliance process as possible.
+- **Mass policy generation** — generate all missing policies for a customer at once
+- **Generate gap-filling policies** for controls with no coverage across all uploaded policies
+- **Complete stepper Steps 4+6** — assessment viewer with evidence/comparison in the workflow
+- **Linear guided flow** — the compliance process should guide the tech step by step without confusion about which tab or page to use
