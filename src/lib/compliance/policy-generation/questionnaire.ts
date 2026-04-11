@@ -49,6 +49,15 @@ export const ORG_PROFILE_QUESTIONS: QuestionDefinition[] = [
     { value: '1000+', label: '1,000+' },
   ]},
 
+  // --- Compliance Frameworks ---
+  { id: 'org_target_frameworks', section: 'org-profile', group: 'Compliance Frameworks', label: 'Which compliance frameworks must this customer adhere to?', helpText: 'Select all that apply. This determines which controls, policies, and assessments are required.', type: 'multi-select', required: true, sortOrder: 8, options: [
+    { value: 'cis-v8', label: 'CIS Controls v8 (recommended for all)' },
+    { value: 'hipaa', label: 'HIPAA (healthcare / PHI)' },
+    { value: 'nist-800-171', label: 'NIST 800-171 (government contractors)' },
+    { value: 'cmmc-l1', label: 'CMMC Level 1 (DoD basic)' },
+    { value: 'cmmc-l2', label: 'CMMC Level 2 (DoD advanced)' },
+  ]},
+
   // --- Regulatory Scope ---
   { id: 'org_handles_phi', section: 'org-profile', group: 'Regulatory Scope', label: 'Does the organization handle Protected Health Information (PHI)?', type: 'boolean', required: true, sortOrder: 10 },
   { id: 'org_handles_pii', section: 'org-profile', group: 'Regulatory Scope', label: 'Does the organization handle Personally Identifiable Information (PII)?', type: 'boolean', required: true, sortOrder: 11 },
