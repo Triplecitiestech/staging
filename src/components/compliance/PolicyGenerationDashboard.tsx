@@ -152,10 +152,13 @@ export default function PolicyGenerationDashboard({
   useEffect(() => {
     const c = new AbortController()
     loadAnalysis(c.signal)
+    // Also load org profile to sync framework selection
+    loadOrgProfile()
     return () => c.abort()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadAnalysis])
 
-  // Load org profile questionnaire
+  // Load org profile questionnaire and sync frameworks
   const loadOrgProfile = useCallback(async () => {
     try {
       const res = await fetch(`/api/compliance/policies/questionnaire?companyId=${companyId}`)
@@ -164,6 +167,11 @@ export default function PolicyGenerationDashboard({
       setOrgQuestions(json.data.orgProfile.questions)
       setOrgAnswers(json.data.orgProfile.answers)
       setOrgCompletion(json.data.orgProfile.completionPct)
+      // Sync framework selection from org profile
+      const fw = json.data.orgProfile.answers?.org_target_frameworks
+      if (Array.isArray(fw) && fw.length > 0) {
+        setSelectedFrameworks(fw as string[])
+      }
     } catch { /* ignore */ }
   }, [companyId])
 
@@ -584,9 +592,10 @@ export default function PolicyGenerationDashboard({
               </div>
               <div className="divide-y divide-white/5">
                 {policies.map((policy) => (
-                  <div
+                  <button
                     key={policy.slug}
-                    className="px-4 py-3 flex items-center justify-between hover:bg-white/5 cursor-pointer transition-colors"
+                    type="button"
+                    className="w-full px-4 py-3 flex items-center justify-between hover:bg-white/5 cursor-pointer transition-colors text-left"
                     onClick={() => openPolicyDetail(policy.slug)}
                   >
                     <div className="flex-1 min-w-0">
@@ -613,7 +622,7 @@ export default function PolicyGenerationDashboard({
                         </button>
                       )}
                     </div>
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>

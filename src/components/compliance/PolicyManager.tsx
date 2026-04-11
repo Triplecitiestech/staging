@@ -629,15 +629,15 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
             <div className="grid grid-cols-3 gap-3 mb-4">
               <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3 text-center">
                 <p className="text-lg font-bold text-emerald-400">{fullyCovered.length}</p>
-                <p className="text-xs text-emerald-300/70">Fully Covered</p>
+                <p className="text-xs text-emerald-300/70">Controls Covered</p>
               </div>
               <div className="bg-violet-500/10 border border-violet-500/20 rounded-lg p-3 text-center">
                 <p className="text-lg font-bold text-violet-400">{partiallyCovered.length}</p>
-                <p className="text-xs text-violet-300/70">Partial Only</p>
+                <p className="text-xs text-violet-300/70">Controls Partial</p>
               </div>
               <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 text-center">
                 <p className="text-lg font-bold text-red-400">{noCoverage.length}</p>
-                <p className="text-xs text-red-300/70">No Coverage</p>
+                <p className="text-xs text-red-300/70">Controls Uncovered</p>
               </div>
             </div>
 
