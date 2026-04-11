@@ -45,7 +45,8 @@ export async function POST(request: NextRequest) {
     }
 
     const catalog = getCatalogItem(body.policySlug)
-    if (!catalog) {
+    // Allow gap-remediation-policy slug even if not in catalog
+    if (!catalog && body.policySlug !== 'gap-remediation-policy') {
       return NextResponse.json({ error: `Unknown policy slug: ${body.policySlug}` }, { status: 400 })
     }
 
@@ -181,6 +182,7 @@ export async function POST(request: NextRequest) {
       })
 
       // Store the generated policy in compliance_policies
+      const policyCategory = catalog?.category ?? 'governance'
       const policyInsert = await client.query<{ id: string }>(
         `INSERT INTO compliance_policies ("companyId", title, source, content, category, tags, "frameworkIds", "controlIds", "createdBy")
          VALUES ($1, $2, 'generated', $3, $4, '[]'::jsonb, $5::jsonb, '[]'::jsonb, $6) RETURNING id`,
@@ -188,7 +190,7 @@ export async function POST(request: NextRequest) {
           body.companyId,
           result.metadata.policyTitle,
           result.content,
-          catalog.category,
+          policyCategory,
           JSON.stringify(frameworks),
           session.user.email,
         ]

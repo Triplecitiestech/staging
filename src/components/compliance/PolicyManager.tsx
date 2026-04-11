@@ -67,6 +67,8 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
   const [submitting, setSubmitting] = useState(false)
   const [reanalyzing, setReanalyzing] = useState<string | null>(null) // policyId or 'all'
   const [reanalyzeProgress, setReanalyzeProgress] = useState({ current: 0, total: 0, currentTitle: '' })
+  const [generatingGapPolicy, setGeneratingGapPolicy] = useState(false)
+  const [gapPolicyResult, setGapPolicyResult] = useState<{ success: boolean; message: string } | null>(null)
 
   // SharePoint folder scan state
   const [spScanning, setSpScanning] = useState(false)
@@ -284,6 +286,38 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
     await loadPolicies()
     setReanalyzing(null)
     setReanalyzeProgress({ current: 0, total: 0, currentTitle: '' })
+  }
+
+  const generateGapFillingPolicy = async (uncoveredControls: string[]) => {
+    if (uncoveredControls.length === 0) return
+    setGeneratingGapPolicy(true)
+    setGapPolicyResult(null)
+    try {
+      const controlList = uncoveredControls.join(', ')
+      const res = await fetch('/api/compliance/policies/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyId,
+          policySlug: 'gap-remediation-policy',
+          mode: 'fill-missing',
+          frameworks: ['cis-v8'],
+          userInstructions: `Generate a comprehensive gap-remediation policy that specifically addresses the following uncovered controls: ${controlList}. This policy should complement the customer's existing policies and fill coverage gaps. Focus on practical, implementable language for each control.`,
+        }),
+      })
+      const contentType = res.headers.get('content-type') ?? ''
+      if (!contentType.includes('application/json')) {
+        throw new Error(`Server error (${res.status})`)
+      }
+      const json = await res.json()
+      if (!json.success) throw new Error(json.error)
+      setGapPolicyResult({ success: true, message: `Gap-filling policy generated covering ${uncoveredControls.length} controls. Check the Policy Generation tab.` })
+      await loadPolicies()
+    } catch (err) {
+      setGapPolicyResult({ success: false, message: err instanceof Error ? err.message : 'Failed to generate gap-filling policy' })
+    } finally {
+      setGeneratingGapPolicy(false)
+    }
   }
 
   const getAnalysisForPolicy = (policyId: string): PolicyAnalysis | undefined => {
@@ -668,6 +702,21 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
                       {c.replace('cis-v8-', '')}
                     </span>
                   ))}
+                </div>
+                <div className="mt-3">
+                  <button
+                    onClick={() => generateGapFillingPolicy(noCoverage)}
+                    disabled={generatingGapPolicy}
+                    className="inline-flex items-center px-3 py-1.5 bg-gradient-to-r from-rose-500/80 to-rose-600/80 hover:from-rose-400 hover:to-rose-500 text-white rounded text-xs font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  >
+                    {generatingGapPolicy && <span className="animate-spin w-3 h-3 border-2 border-white border-t-transparent rounded-full mr-2" />}
+                    {generatingGapPolicy ? 'Generating...' : `Generate Gap-Filling Policy (${noCoverage.length} controls)`}
+                  </button>
+                  {gapPolicyResult && (
+                    <p className={`text-xs mt-2 ${gapPolicyResult.success ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {gapPolicyResult.message}
+                    </p>
+                  )}
                 </div>
               </details>
             )}

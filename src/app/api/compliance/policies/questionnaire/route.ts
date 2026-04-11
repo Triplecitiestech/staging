@@ -57,6 +57,11 @@ export async function GET(request: NextRequest) {
       orgAnswers.org_legal_name = companyName
     }
 
+    // Extract auto-filled field tracking metadata
+    const autoFilledFields: string[] = Array.isArray(orgAnswers._autoFilledFields)
+      ? orgAnswers._autoFilledFields as string[]
+      : []
+
     const orgQuestions = getOrgProfileQuestions()
     const orgCompletion = computeCompletionPct(orgQuestions, orgAnswers)
 
@@ -65,6 +70,7 @@ export async function GET(request: NextRequest) {
         questions: orgQuestions,
         answers: orgAnswers,
         completionPct: orgCompletion,
+        autoFilledFields,
       },
     }
 

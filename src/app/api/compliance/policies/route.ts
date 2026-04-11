@@ -305,7 +305,7 @@ async function analyzePolicyWithAI(
   companyId: string,
   title: string,
   content: string,
-  _actor: string,
+  actor: string,
   frameworkId: string = 'cis-v8'
 ): Promise<PolicyAnalysis | null> {
   // Create pending analysis record
@@ -348,6 +348,25 @@ Analyze this policy and provide a JSON response with:
 5. "gaps" - array of strings describing specific gaps
 6. "recommendations" - array of specific actionable recommendations
 7. "summary" - a 2-3 sentence overall assessment
+8. "orgProfileExtraction" - extract organizational data from the policy text. Only include fields where the policy explicitly mentions the information. Return an object with any of these keys:
+   - "org_industry": one of "healthcare"|"manufacturing"|"finance"|"government"|"defense"|"education"|"legal"|"technology"|"retail"|"nonprofit"|"other"
+   - "org_employee_count": one of "1-25"|"26-100"|"101-500"|"501-1000"|"1000+"
+   - "org_handles_phi": boolean — true if policy mentions PHI, HIPAA, protected health information
+   - "org_handles_pii": boolean — true if policy mentions PII, personally identifiable information, personal data
+   - "org_handles_cui": boolean — true if policy mentions CUI, controlled unclassified information
+   - "org_remote_work": one of "no"|"hybrid"|"full_remote" — based on remote work mentions
+   - "org_byod_allowed": one of "no"|"yes_managed"|"yes_unmanaged" — based on BYOD/personal device mentions
+   - "org_contractors": boolean — true if policy mentions contractors, temporary workers, third-party staff
+   - "org_policy_review_cycle": one of "annual"|"semi-annual"|"quarterly" — if review cadence is mentioned
+   - "org_training_cadence": one of "monthly"|"quarterly"|"annual"|"onboarding_only"|"never" — if training frequency is mentioned
+   - "org_disciplinary_process": one of "progressive"|"hr_referral"|"not_defined" — if violation handling is described
+   - "org_exception_process": boolean — true if a formal exception/waiver process is mentioned
+   - "org_vendor_review_process": boolean — true if vendor security reviews are mentioned
+   - "org_data_retention_years": one of "1"|"3"|"5"|"7"|"10"|"varies" — if retention period is mentioned
+   - "org_legal_name": string — the company/organization name if explicitly stated
+   - "org_security_officer": string — name/role of security officer or CISO if mentioned
+   - "org_ai_tools_used": one of "yes_approved"|"yes_uncontrolled"|"no"|"evaluating" — if AI tool usage is mentioned
+   Only include keys where the policy text provides clear evidence. Do NOT guess.
 
 IMPORTANT: For each control in controlDetails, include an exact "quote" from the policy text that demonstrates compliance. Keep quotes under 200 characters. If the control is "missing", set quote to null.
 
@@ -391,6 +410,7 @@ Respond with ONLY valid JSON, no markdown.`
       gaps?: string[]
       recommendations?: string[]
       summary?: string
+      orgProfileExtraction?: Record<string, string | boolean>
     } = {}
 
     try {
@@ -454,6 +474,15 @@ Respond with ONLY valid JSON, no markdown.`
       ]
     )
 
+    // Auto-fill org profile from extracted data (only fill empty fields)
+    if (parsed.orgProfileExtraction && Object.keys(parsed.orgProfileExtraction).length > 0) {
+      try {
+        await mergeExtractedOrgProfile(client, companyId, parsed.orgProfileExtraction, actor)
+      } catch (mergeErr) {
+        console.warn('[compliance/policies] Failed to merge extracted org profile:', mergeErr instanceof Error ? mergeErr.message : mergeErr)
+      }
+    }
+
     // Fetch and return the completed analysis
     const result = await client.query<PolicyAnalysis>(
       `SELECT * FROM compliance_policy_analyses WHERE id = $1`, [analysisId]
@@ -465,6 +494,107 @@ Respond with ONLY valid JSON, no markdown.`
       [`Analysis failed: ${err instanceof Error ? err.message : String(err)}`, analysisId]
     )
     return null
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Org Profile Auto-Fill from Policy Analysis
+// ---------------------------------------------------------------------------
+
+/**
+ * Merge AI-extracted org profile data into the existing org profile.
+ * Only fills fields that are currently empty — never overwrites user-provided answers.
+ * Tracks which fields were auto-extracted via a metadata key.
+ */
+async function mergeExtractedOrgProfile(
+  client: import('pg').PoolClient,
+  companyId: string,
+  extracted: Record<string, string | boolean>,
+  actor: string
+): Promise<void> {
+  // Valid org profile field IDs that we accept from extraction
+  const VALID_FIELDS = new Set([
+    'org_industry', 'org_employee_count', 'org_handles_phi', 'org_handles_pii',
+    'org_handles_cui', 'org_remote_work', 'org_byod_allowed', 'org_contractors',
+    'org_policy_review_cycle', 'org_training_cadence', 'org_disciplinary_process',
+    'org_exception_process', 'org_vendor_review_process', 'org_data_retention_years',
+    'org_legal_name', 'org_security_officer', 'org_ai_tools_used',
+  ])
+
+  // Filter to only valid fields
+  const validExtracted: Record<string, string | boolean> = {}
+  for (const [key, value] of Object.entries(extracted)) {
+    if (VALID_FIELDS.has(key) && value !== null && value !== undefined && value !== '') {
+      validExtracted[key] = value
+    }
+  }
+
+  if (Object.keys(validExtracted).length === 0) return
+
+  // Load existing org profile
+  let existingAnswers: Record<string, string | string[] | boolean> = {}
+  try {
+    const orgRes = await client.query<{ answers: Record<string, string | string[] | boolean> }>(
+      `SELECT answers FROM policy_org_profiles WHERE "companyId" = $1`,
+      [companyId]
+    )
+    existingAnswers = orgRes.rows[0]?.answers ?? {}
+  } catch {
+    // Table may not exist — will be created by upsert
+  }
+
+  // Merge: only fill empty fields, track which were auto-filled
+  const autoFilledFields: string[] = existingAnswers._autoFilledFields
+    ? [...(existingAnswers._autoFilledFields as string[])]
+    : []
+
+  let fieldsAdded = 0
+  for (const [key, value] of Object.entries(validExtracted)) {
+    const existing = existingAnswers[key]
+    const isEmpty = existing === undefined || existing === null || existing === ''
+      || (Array.isArray(existing) && existing.length === 0)
+
+    if (isEmpty) {
+      existingAnswers[key] = value
+      if (!autoFilledFields.includes(key)) {
+        autoFilledFields.push(key)
+      }
+      fieldsAdded++
+    }
+  }
+
+  if (fieldsAdded === 0) return
+
+  // Store the tracking metadata
+  existingAnswers._autoFilledFields = autoFilledFields
+
+  // Upsert org profile
+  try {
+    await client.query(
+      `INSERT INTO policy_org_profiles ("companyId", answers, "updatedAt", "updatedBy")
+       VALUES ($1, $2::jsonb, NOW(), $3)
+       ON CONFLICT ("companyId")
+       DO UPDATE SET answers = $2::jsonb, "updatedAt" = NOW(), "updatedBy" = $3`,
+      [companyId, JSON.stringify(existingAnswers), actor]
+    )
+  } catch {
+    // Ensure table exists and retry
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS policy_org_profiles (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        "companyId" TEXT NOT NULL UNIQUE,
+        answers JSONB NOT NULL DEFAULT '{}',
+        "updatedAt" TIMESTAMPTZ DEFAULT NOW(),
+        "updatedBy" TEXT
+      )`
+    )
+    await client.query(
+      `INSERT INTO policy_org_profiles ("companyId", answers, "updatedAt", "updatedBy")
+       VALUES ($1, $2::jsonb, NOW(), $3)
+       ON CONFLICT ("companyId")
+       DO UPDATE SET answers = $2::jsonb, "updatedAt" = NOW(), "updatedBy" = $3`,
+      [companyId, JSON.stringify(existingAnswers), actor]
+    )
   }
 }
 
