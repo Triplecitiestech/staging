@@ -60,6 +60,7 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
   const [error, setError] = useState<string | null>(null)
   const [selectedFramework, setSelectedFramework] = useState('cis-v8-ig1')
   const [activeTab, setActiveTab] = useState<'assessments' | 'policies' | 'policy-gen' | 'mapping'>('assessments')
+  const assessmentDetailRef = useRef<HTMLDivElement>(null)
 
   const loadDashboard = useCallback(async (companyId: string) => {
     setLoading(true)
@@ -115,6 +116,10 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
       const json = await res.json()
       if (!json.success) throw new Error(json.error)
       setActiveAssessment(json.data)
+      // Scroll to assessment detail on load (important for iPad/mobile where detail is below fold)
+      setTimeout(() => {
+        assessmentDetailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 100)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load assessment')
     }
@@ -373,11 +378,13 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
 
           {/* Assessment Detail */}
           {activeAssessment && (
+            <div ref={assessmentDetailRef}>
             <AssessmentResults
               detail={activeAssessment}
               onExport={() => exportCsv(activeAssessment.assessment.id)}
               onUpdated={() => loadAssessment(activeAssessment.assessment.id)}
             />
+            </div>
           )}
         </>
       )}
