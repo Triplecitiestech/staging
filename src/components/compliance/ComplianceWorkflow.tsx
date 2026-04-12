@@ -183,6 +183,11 @@ export default function ComplianceWorkflow({ companies }: { companies: Company[]
   const [running, setRunning] = useState(false)
   const [latestScore, setLatestScore] = useState<number | null>(null)
 
+  // Track which sub-view the PolicyGenerationDashboard is showing so Step 5
+  // can hide sibling content (uploaded-policy management, Continue button)
+  // when the tech drills into a specific policy.
+  const [policyView, setPolicyView] = useState<'overview' | 'org-profile' | 'policy-detail'>('overview')
+
   const selectedCompanyObj = companies.find((c) => c.id === selectedCompany)
 
   // -----------------------------------------------------------------------
@@ -717,28 +722,35 @@ export default function ComplianceWorkflow({ companies }: { companies: Company[]
                   <PolicyGenerationDashboard
                     companyId={selectedCompany}
                     companyName={selectedCompanyObj.name}
+                    onViewChange={setPolicyView}
                   />
                 </Suspense>
 
-                <details className="mt-6 border border-white/10 rounded-lg">
-                  <summary className="px-4 py-3 cursor-pointer text-sm text-slate-400 hover:text-white hover:bg-white/5">
-                    View / manage uploaded customer policies
-                  </summary>
-                  <div className="p-4 border-t border-white/10">
-                    <Suspense fallback={<Spinner text="Loading uploaded policies..." />}>
-                      <PolicyManager companyId={selectedCompany} companyName={selectedCompanyObj.name} />
-                    </Suspense>
-                  </div>
-                </details>
+                {/* Hide sibling sections when the user is drilled into a specific
+                    policy, so the detail page stays focused on just that policy. */}
+                {policyView === 'overview' && (
+                  <>
+                    <details className="mt-6 border border-white/10 rounded-lg">
+                      <summary className="px-4 py-3 cursor-pointer text-sm text-slate-400 hover:text-white hover:bg-white/5">
+                        View / manage uploaded customer policies
+                      </summary>
+                      <div className="p-4 border-t border-white/10">
+                        <Suspense fallback={<Spinner text="Loading uploaded policies..." />}>
+                          <PolicyManager companyId={selectedCompany} companyName={selectedCompanyObj.name} />
+                        </Suspense>
+                      </div>
+                    </details>
 
-                <div className="flex justify-end pt-4 border-t border-white/10 mt-6">
-                  <button
-                    onClick={goToNextStep}
-                    className="inline-flex items-center justify-center px-4 sm:px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-white rounded-lg font-medium text-sm transition-all max-w-full"
-                  >
-                    <span className="truncate">Continue to Final Assessment</span> <span className="ml-1">&rarr;</span>
-                  </button>
-                </div>
+                    <div className="flex justify-end pt-4 border-t border-white/10 mt-6">
+                      <button
+                        onClick={goToNextStep}
+                        className="inline-flex items-center justify-center px-4 sm:px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-white rounded-lg font-medium text-sm transition-all max-w-full"
+                      >
+                        <span className="truncate">Continue to Final Assessment</span> <span className="ml-1">&rarr;</span>
+                      </button>
+                    </div>
+                  </>
+                )}
               </StepCard>
             )}
 

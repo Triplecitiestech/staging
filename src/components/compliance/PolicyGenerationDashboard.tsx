@@ -113,9 +113,14 @@ const CATEGORY_LABELS: Record<string, string> = {
 export default function PolicyGenerationDashboard({
   companyId,
   companyName,
+  onViewChange,
 }: {
   companyId: string
   companyName: string
+  /** Optional — parent (e.g. the workflow stepper) can use this to hide
+      sibling content when the user drills into a specific policy, so the
+      detail page stays focused. */
+  onViewChange?: (view: 'overview' | 'org-profile' | 'policy-detail') => void
 }) {
   const [selectedFrameworks, setSelectedFrameworks] = useState<string[]>(['cis-v8'])
   const [analysis, setAnalysis] = useState<NeedsAnalysis | null>(null)
@@ -125,6 +130,11 @@ export default function PolicyGenerationDashboard({
   // Active view state
   const [view, setView] = useState<'overview' | 'org-profile' | 'policy-detail'>('overview')
   const [activePolicySlug, setActivePolicySlug] = useState<string | null>(null)
+
+  // Notify parent on view changes so outer containers can hide sibling content
+  useEffect(() => {
+    onViewChange?.(view)
+  }, [view, onViewChange])
 
   // Org profile state
   const [orgQuestions, setOrgQuestions] = useState<QuestionDef[]>([])
@@ -145,6 +155,33 @@ export default function PolicyGenerationDashboard({
   // Mass generation state
   const [massGenerating, setMassGenerating] = useState(false)
   const [massProgress, setMassProgress] = useState({ current: 0, total: 0, currentName: '', completed: 0, failed: 0 })
+
+  // Filter state — drives which policies appear in the list when stat cards are clicked
+  type ListFilter = 'all' | 'covered' | 'partial' | 'notGenerated' | 'drafts' | 'approved'
+  const [listFilter, setListFilter] = useState<ListFilter>('all')
+
+  const filterLabel = (f: ListFilter): string => {
+    switch (f) {
+      case 'covered': return 'policies covered by existing uploads'
+      case 'partial': return 'partially-covered policies'
+      case 'notGenerated': return 'policies that need new AI generation'
+      case 'drafts': return 'drafts awaiting review'
+      case 'approved': return 'approved policies'
+      default: return 'all policies'
+    }
+  }
+
+  const matchesFilter = (p: PolicyNeedItem, f: ListFilter): boolean => {
+    const isUngenerated = p.status === 'missing' || p.status === 'intake_needed' || p.status === 'ready_to_generate'
+    switch (f) {
+      case 'covered': return isUngenerated && p.coverageStatus === 'covered'
+      case 'partial': return isUngenerated && p.coverageStatus === 'partial'
+      case 'notGenerated': return isUngenerated && p.coverageStatus === 'none'
+      case 'drafts': return p.status === 'draft'
+      case 'approved': return p.status === 'approved'
+      default: return true
+    }
+  }
 
   // Load catalog / needs analysis
   const loadAnalysis = useCallback(async (signal?: AbortSignal) => {
@@ -578,49 +615,109 @@ export default function PolicyGenerationDashboard({
           </div>
         )}
 
-        {/* Generate Button — contextual message based on current policy state */}
-        <div className={`backdrop-blur-sm border rounded-lg p-6 ${
-          activePolicy.status === 'draft' || activePolicy.status === 'approved'
+        {/* Generate action — adapts to current state.
+            - If already covered by uploads (>=80%): do NOT push user to generate.
+              Show "already handled" message and hide Generate behind an Advanced
+              collapsible so it's still available but not the default action.
+            - If partial coverage: offer Enhance (fills gaps) as primary.
+            - If missing + no coverage: primary Generate button.
+            - If draft/approved: show Regenerate option. */}
+        {(() => {
+          const isHandledByUploads = (activePolicy.status === 'missing'
+            || activePolicy.status === 'ready_to_generate'
+            || activePolicy.status === 'intake_needed')
+            && activePolicy.coverageStatus === 'covered'
+
+          const isPartial = (activePolicy.status === 'missing'
+            || activePolicy.status === 'ready_to_generate'
+            || activePolicy.status === 'intake_needed')
+            && activePolicy.coverageStatus === 'partial'
+
+          const isDraftOrApproved = activePolicy.status === 'draft' || activePolicy.status === 'approved'
+
+          if (isHandledByUploads) {
+            // Covered by uploaded content — no primary action needed. Offer optional
+            // AI generation inside an Advanced section so it's discoverable but not default.
+            return (
+              <details className="bg-slate-800/40 border border-white/10 rounded-lg">
+                <summary className="px-4 py-3 cursor-pointer text-sm text-slate-300 hover:text-white hover:bg-white/5 rounded-lg">
+                  Advanced: Optionally generate an AI version of this policy
+                </summary>
+                <div className="px-4 pb-4 pt-2 border-t border-white/10 mt-2">
+                  <p className="text-xs text-slate-400 mb-3">
+                    The customer already has policy content covering these controls. Generating a new AI version
+                    will create an additional standalone document and will not modify the uploaded policy. Only do
+                    this if you want a second draft for comparison or want to replace the customer&apos;s existing policy
+                    with an AI-written one.
+                  </p>
+                  <button
+                    onClick={generatePolicyHandler}
+                    disabled={generating}
+                    className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded text-xs font-medium disabled:opacity-50 flex items-center gap-2"
+                  >
+                    {generating && <span className="animate-spin w-3 h-3 border-2 border-white border-t-transparent rounded-full" />}
+                    {generating ? 'Generating\u2026' : 'Generate AI Version Anyway'}
+                  </button>
+                </div>
+              </details>
+            )
+          }
+
+          const bannerColor = isDraftOrApproved
             ? 'bg-emerald-500/5 border-emerald-500/20'
+            : isPartial
+            ? 'bg-violet-500/5 border-violet-500/30'
             : 'bg-rose-500/5 border-rose-500/20'
-        }`}>
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div className="min-w-0">
-              <h3 className="text-sm font-semibold text-white">
-                {activePolicy.status === 'draft' || activePolicy.status === 'approved'
-                  ? `${activePolicy.name} has been generated`
-                  : `${activePolicy.name} has not been generated yet`}
-              </h3>
-              <p className="text-xs text-slate-300 mt-1">
-                {activePolicy.status === 'generating'
-                  ? 'A previous attempt is running or stalled. Click below to retry.'
-                  : activePolicy.status === 'draft'
-                  ? 'The draft is shown below. Review the content and approve when ready, or regenerate with different inputs.'
-                  : activePolicy.status === 'approved'
-                  ? 'This policy is approved. You can regenerate a new version if needed.'
-                  : orgCompletion < 50
-                  ? 'Complete the Organization Profile first for best results.'
-                  : 'Click Generate to create this policy. The AI will use your org profile and policy answers below.'}
-              </p>
+
+          const heading = isDraftOrApproved
+            ? `${activePolicy.name} has been generated`
+            : isPartial
+            ? `${activePolicy.name} is partially covered \u2014 fill the gaps`
+            : `${activePolicy.name} has not been generated yet`
+
+          const subtext = activePolicy.status === 'generating'
+            ? 'A previous attempt is running or stalled. Click below to retry.'
+            : activePolicy.status === 'draft'
+            ? 'The draft is shown below. Review the content and approve when ready, or regenerate with different inputs.'
+            : activePolicy.status === 'approved'
+            ? 'This policy is approved. You can regenerate a new version if needed.'
+            : isPartial
+            ? `Uploaded policies cover ${activePolicy.coverageRatio}% of the required controls. Generating will produce a new standalone document that fills the remaining gaps.`
+            : orgCompletion < 50
+            ? 'Complete the Organization Profile first for best results.'
+            : 'Click Generate to create this policy. The AI will use your org profile and policy answers below.'
+
+          const btnLabel = generating
+            ? 'Generating\u2026'
+            : activePolicy.status === 'generating'
+            ? 'Retry Generation'
+            : isDraftOrApproved
+            ? 'Regenerate'
+            : isPartial
+            ? 'Generate Gap-Filling Version'
+            : 'Generate Policy'
+
+          return (
+            <div className={`backdrop-blur-sm border rounded-lg p-6 ${bannerColor}`}>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-semibold text-white">{heading}</h3>
+                  <p className="text-xs text-slate-300 mt-1">{subtext}</p>
+                </div>
+                <div className="flex gap-2 flex-shrink-0">
+                  <button
+                    onClick={generatePolicyHandler}
+                    disabled={generating}
+                    className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-sm font-medium disabled:opacity-50 flex items-center gap-2 whitespace-nowrap"
+                  >
+                    {generating && <span className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />}
+                    {btnLabel}
+                  </button>
+                </div>
+              </div>
             </div>
-            <div className="flex gap-2 flex-shrink-0">
-              <button
-                onClick={generatePolicyHandler}
-                disabled={generating}
-                className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-sm font-medium disabled:opacity-50 flex items-center gap-2 whitespace-nowrap"
-              >
-                {generating && <span className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />}
-                {generating
-                  ? 'Generating\u2026'
-                  : activePolicy.status === 'generating'
-                  ? 'Retry Generation'
-                  : activePolicy.status === 'draft' || activePolicy.status === 'approved'
-                  ? 'Regenerate'
-                  : 'Generate Policy'}
-              </button>
-            </div>
-          </div>
-        </div>
+          )
+        })()}
 
         {/* Generated Content Preview */}
         {(generatedContent || activePolicy.status === 'draft' || activePolicy.status === 'approved') && (
@@ -726,7 +823,7 @@ export default function PolicyGenerationDashboard({
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-white">Overall Progress</h3>
               <span className="text-sm text-slate-400">
-                {analysis.stats.drafts + analysis.stats.approved} of {analysis.stats.totalRequired} generated
+                {analysis.stats.coveredByExisting + analysis.stats.drafts + analysis.stats.approved} of {analysis.stats.totalRequired} handled
               </span>
             </div>
             <div className="w-full bg-slate-700/50 rounded-full h-2.5 mb-4 overflow-hidden">
@@ -737,9 +834,19 @@ export default function PolicyGenerationDashboard({
                   title={`${analysis.stats.approved} approved`}
                 />
                 <div
+                  className="bg-teal-500 transition-all"
+                  style={{ width: `${analysis.stats.totalRequired > 0 ? (analysis.stats.coveredByExisting / analysis.stats.totalRequired) * 100 : 0}%` }}
+                  title={`${analysis.stats.coveredByExisting} covered by uploaded policies`}
+                />
+                <div
                   className="bg-blue-500 transition-all"
                   style={{ width: `${analysis.stats.totalRequired > 0 ? (analysis.stats.drafts / analysis.stats.totalRequired) * 100 : 0}%` }}
                   title={`${analysis.stats.drafts} drafts`}
+                />
+                <div
+                  className="bg-violet-500 transition-all"
+                  style={{ width: `${analysis.stats.totalRequired > 0 ? (analysis.stats.needsEnhancement / analysis.stats.totalRequired) * 100 : 0}%` }}
+                  title={`${analysis.stats.needsEnhancement} partial coverage`}
                 />
                 <div
                   className="bg-cyan-500 animate-pulse transition-all"
@@ -748,13 +855,62 @@ export default function PolicyGenerationDashboard({
                 />
               </div>
             </div>
+            <p className="text-xs text-slate-500 mb-3">
+              &ldquo;Handled&rdquo; = covered by an uploaded policy, currently a draft, or approved. Click any card below to filter the list.
+            </p>
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-              <StatCard label="Covered by Existing" value={analysis.stats.coveredByExisting} color="text-emerald-400" hint="Uploaded policies already satisfy these controls" />
-              <StatCard label="Partial Coverage" value={analysis.stats.needsEnhancement} color="text-violet-400" hint="Some gaps \u2014 enhance existing" />
-              <StatCard label="Needs New Policy" value={analysis.stats.notGenerated} color="text-rose-400" hint="No uploaded coverage \u2014 must generate" />
-              <StatCard label="Drafts to Review" value={analysis.stats.drafts} color="text-blue-400" />
-              <StatCard label="Approved" value={analysis.stats.approved} color="text-emerald-400" />
+              <StatCard
+                label="Covered by Existing"
+                value={analysis.stats.coveredByExisting}
+                color="text-emerald-400"
+                hint="Uploaded policies already satisfy these controls"
+                active={listFilter === 'covered'}
+                onClick={() => setListFilter((f) => f === 'covered' ? 'all' : 'covered')}
+              />
+              <StatCard
+                label="Partial Coverage"
+                value={analysis.stats.needsEnhancement}
+                color="text-violet-400"
+                hint="Some gaps \u2014 enhance existing"
+                active={listFilter === 'partial'}
+                onClick={() => setListFilter((f) => f === 'partial' ? 'all' : 'partial')}
+              />
+              <StatCard
+                label="Needs New Policy"
+                value={analysis.stats.notGenerated}
+                color="text-rose-400"
+                hint="No uploaded coverage \u2014 must generate"
+                active={listFilter === 'notGenerated'}
+                onClick={() => setListFilter((f) => f === 'notGenerated' ? 'all' : 'notGenerated')}
+              />
+              <StatCard
+                label="Drafts to Review"
+                value={analysis.stats.drafts}
+                color="text-blue-400"
+                active={listFilter === 'drafts'}
+                onClick={() => setListFilter((f) => f === 'drafts' ? 'all' : 'drafts')}
+              />
+              <StatCard
+                label="Approved"
+                value={analysis.stats.approved}
+                color="text-emerald-400"
+                active={listFilter === 'approved'}
+                onClick={() => setListFilter((f) => f === 'approved' ? 'all' : 'approved')}
+              />
             </div>
+            {listFilter !== 'all' && (
+              <div className="mt-3 flex items-center justify-between bg-cyan-500/10 border border-cyan-500/30 rounded px-3 py-2">
+                <span className="text-xs text-cyan-300">
+                  Showing only <span className="font-semibold">{filterLabel(listFilter)}</span> below
+                </span>
+                <button
+                  onClick={() => setListFilter('all')}
+                  className="text-xs text-cyan-400 hover:text-cyan-300 underline"
+                >
+                  Clear filter
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Secondary Actions */}
@@ -814,7 +970,7 @@ export default function PolicyGenerationDashboard({
           )}
 
           {/* Policy List by Category */}
-          {Object.entries(groupByCategory(analysis.requiredPolicies)).map(([cat, policies]) => (
+          {Object.entries(groupByCategory(analysis.requiredPolicies.filter((p) => matchesFilter(p, listFilter)))).map(([cat, policies]) => (
             <div key={cat} className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg overflow-hidden">
               <div className="px-4 py-3 border-b border-white/5 bg-slate-800/30">
                 <h3 className="text-sm font-semibold text-slate-300">{CATEGORY_LABELS[cat] ?? cat}</h3>
@@ -830,7 +986,11 @@ export default function PolicyGenerationDashboard({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-medium text-white truncate">{policy.name}</span>
-                        <RequirementBadge requirement={policy.requirement} />
+                        {/* Hide Required/Recommended when the policy is already handled.
+                            Showing red "Required" next to green "Covered by Existing" is confusing. */}
+                        {policy.coverageStatus !== 'covered' && policy.status !== 'draft' && policy.status !== 'approved' && (
+                          <RequirementBadge requirement={policy.requirement} />
+                        )}
                       </div>
                       <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                         <span className="text-xs text-slate-500">{policy.controlCount} controls</span>
@@ -1032,12 +1192,32 @@ function NextStepBanner({
   )
 }
 
-function StatCard({ label, value, color, hint }: { label: string; value: number; color: string; hint?: string }) {
+function StatCard({ label, value, color, hint, active, onClick }: {
+  label: string
+  value: number
+  color: string
+  hint?: string
+  active?: boolean
+  onClick?: () => void
+}) {
+  const clickable = !!onClick
+  const base = 'backdrop-blur-sm border rounded-lg p-4 text-center transition-all'
+  const interactive = clickable
+    ? (active
+      ? 'bg-cyan-500/15 border-cyan-500/50 ring-2 ring-cyan-500/40 cursor-pointer'
+      : 'bg-slate-800/50 border-white/10 hover:bg-slate-800/80 hover:border-white/20 cursor-pointer')
+    : 'bg-slate-800/50 border-white/10'
   return (
-    <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg p-4 text-center" title={hint}>
+    <button
+      type="button"
+      disabled={!clickable || value === 0}
+      onClick={onClick}
+      className={`${base} ${interactive} w-full disabled:cursor-default disabled:hover:bg-slate-800/50 disabled:hover:border-white/10`}
+      title={hint}
+    >
       <div className={`text-2xl font-bold ${color}`}>{value}</div>
       <div className="text-xs text-slate-400 mt-1">{label}</div>
-    </div>
+    </button>
   )
 }
 
