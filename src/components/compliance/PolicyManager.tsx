@@ -351,14 +351,34 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
     )
   }
 
+  // Library summary: count uploaded vs AI-generated policies so the tech
+  // understands "where policies live" at a glance. Also used to flag
+  // potential conflicts when both sources cover the same category.
+  const uploadedCount = policies.filter((p) => p.source !== 'generated').length
+  const generatedCount = policies.filter((p) => p.source === 'generated').length
+
+  // Detect potential duplicates: categories that have both an uploaded AND a
+  // generated policy. The tech may want to keep both, delete the old one,
+  // or discard the new one \u2014 flag it so they don't miss the decision.
+  const categoriesWithBothSources = new Map<string, { uploaded: string[]; generated: string[] }>()
+  for (const p of policies) {
+    if (!p.category) continue
+    const entry = categoriesWithBothSources.get(p.category) ?? { uploaded: [], generated: [] }
+    if (p.source === 'generated') entry.generated.push(p.title)
+    else entry.uploaded.push(p.title)
+    categoriesWithBothSources.set(p.category, entry)
+  }
+  const duplicateCategories = Array.from(categoriesWithBothSources.entries())
+    .filter(([, v]) => v.uploaded.length > 0 && v.generated.length > 0)
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div className="min-w-0">
-          <h2 className="text-xl font-bold text-white">Policy Analysis</h2>
+          <h2 className="text-xl font-bold text-white">Policy Library</h2>
           <p className="text-sm text-slate-400 mt-1">
-            Upload or paste customer policies — AI analyzes them against CIS v8 controls
+            All policies for {companyName} \u2014 both customer uploads and AI-generated documents. AI analyzes them against CIS v8 controls.
           </p>
         </div>
         <div className="flex gap-2 flex-shrink-0 flex-wrap">
@@ -381,6 +401,43 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
           </button>
         </div>
       </div>
+
+      {/* Library summary */}
+      {policies.length > 0 && (
+        <div className="bg-slate-800/30 border border-white/10 rounded-lg p-4 space-y-2">
+          <div className="flex flex-wrap gap-4 text-sm">
+            <span className="text-slate-400">
+              <span className="text-white font-semibold">{policies.length}</span> total
+            </span>
+            <span className="text-slate-400">
+              <span className="text-cyan-300 font-semibold">{uploadedCount}</span> uploaded by customer
+            </span>
+            <span className="text-slate-400">
+              <span className="text-emerald-300 font-semibold">{generatedCount}</span> AI-generated
+            </span>
+          </div>
+          {duplicateCategories.length > 0 && (
+            <details className="mt-2">
+              <summary className="text-xs text-violet-300 cursor-pointer hover:text-violet-200">
+                {duplicateCategories.length} categor{duplicateCategories.length === 1 ? 'y has' : 'ies have'} both uploaded and generated versions \u2014 review for conflicts
+              </summary>
+              <ul className="mt-2 space-y-1 text-xs text-slate-300">
+                {duplicateCategories.map(([cat, v]) => (
+                  <li key={cat}>
+                    <span className="font-semibold text-white">{cat}</span>:{' '}
+                    <span className="text-cyan-300">uploaded &ldquo;{v.uploaded.join(', ')}&rdquo;</span>
+                    <span className="text-slate-500"> + </span>
+                    <span className="text-emerald-300">generated &ldquo;{v.generated.join(', ')}&rdquo;</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-xs text-slate-500 mt-2 italic">
+                Keep both (the AI version as a supplement), delete the older upload to use the AI version as a replacement, or delete the generated draft to stick with the customer&apos;s content. Use the expand arrows on each policy below to view and manage.
+              </p>
+            </details>
+          )}
+        </div>
+      )}
 
       {error && (
         <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
@@ -804,12 +861,23 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
                       )}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <h4 className="text-sm font-medium text-white truncate">{policy.title}</h4>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h4 className="text-sm font-medium text-white truncate">{policy.title}</h4>
+                        {policy.source === 'generated' ? (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium border bg-emerald-500/10 border-emerald-500/30 text-emerald-300 whitespace-nowrap">
+                            AI Generated
+                          </span>
+                        ) : (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium border bg-cyan-500/10 border-cyan-500/30 text-cyan-300 whitespace-nowrap">
+                            Customer Upload
+                          </span>
+                        )}
+                      </div>
                       <p className="text-xs text-slate-400 truncate">
-                        {getSourceLabel(policy.source)}{policy.category ? ` · ${policy.category}` : ''} ·{' '}
+                        {getSourceLabel(policy.source)}{policy.category ? ` \u00b7 ${policy.category}` : ''} \u00b7{' '}
                         Added {new Date(policy.createdAt).toLocaleDateString()}
                         {analysis?.analyzedAt && (
-                          <> · Analyzed {new Date(analysis.analyzedAt).toLocaleDateString()}</>
+                          <> \u00b7 Analyzed {new Date(analysis.analyzedAt).toLocaleDateString()}</>
                         )}
                       </p>
                     </div>
