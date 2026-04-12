@@ -201,13 +201,62 @@ export async function GET(request: NextRequest) {
       const actuallyDerivedKeys = derivedKeys.filter((k) => !(k in savedPolicyAnswers))
 
       const policyQuestions = getPolicyQuestions(policySlug)
+      const requiredCount = policyQuestions.filter((q) => q.required).length
+      const answeredCount = policyQuestions.filter((q) => {
+        const v = mergedAnswers[q.id]
+        if (v === undefined || v === null || v === '') return false
+        if (Array.isArray(v) && v.length === 0) return false
+        return true
+      }).length
       const policyCompletion = computeCompletionPct(policyQuestions, mergedAnswers)
+
+      // Load the latest generated draft content if one exists, so the detail
+      // page can show it immediately without a separate fetch (which was
+      // causing the "Loading..." placeholder to stick).
+      let latestContent: string | null = null
+      let latestVersion: number | null = null
+      try {
+        const contentRes = await client.query<{ content: string; version: number }>(
+          `SELECT pv.content, pv.version
+           FROM policy_versions pv
+           WHERE pv."companyId" = $1 AND pv."policySlug" = $2
+           ORDER BY pv.version DESC LIMIT 1`,
+          [companyId, policySlug]
+        )
+        if (contentRes.rows[0]) {
+          latestContent = contentRes.rows[0].content
+          latestVersion = contentRes.rows[0].version
+        }
+      } catch { /* policy_versions may not exist yet */ }
+
+      // Fallback: if policy_versions is empty but a generation record points at
+      // a compliance_policies row, fetch content directly from there.
+      if (!latestContent) {
+        try {
+          const fallbackRes = await client.query<{ content: string }>(
+            `SELECT cp.content
+             FROM policy_generation_records pgr
+             JOIN compliance_policies cp ON cp.id = pgr."policyId"
+             WHERE pgr."companyId" = $1 AND pgr."policySlug" = $2 AND pgr."policyId" IS NOT NULL
+             LIMIT 1`,
+            [companyId, policySlug]
+          )
+          if (fallbackRes.rows[0]) {
+            latestContent = fallbackRes.rows[0].content
+          }
+        } catch { /* ignore */ }
+      }
 
       result.policyIntake = {
         questions: policyQuestions,
         answers: mergedAnswers,
         completionPct: policyCompletion,
+        requiredCount,
+        answeredCount,
+        totalQuestions: policyQuestions.length,
         derivedFields: actuallyDerivedKeys,
+        latestContent,
+        latestVersion,
       }
     }
 

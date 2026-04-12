@@ -147,6 +147,9 @@ export default function PolicyGenerationDashboard({
   const [policyQuestions, setPolicyQuestions] = useState<QuestionDef[]>([])
   const [policyAnswers, setPolicyAnswers] = useState<Record<string, string | string[] | boolean>>({})
   const [policyCompletion, setPolicyCompletion] = useState(0)
+  const [policyRequiredCount, setPolicyRequiredCount] = useState(0)
+  const [policyAnsweredCount, setPolicyAnsweredCount] = useState(0)
+  const [policyTotalQuestions, setPolicyTotalQuestions] = useState(0)
   const [policyDerivedFields, setPolicyDerivedFields] = useState<string[]>([])
   const [generatedContent, setGeneratedContent] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
@@ -245,11 +248,23 @@ export default function PolicyGenerationDashboard({
         setPolicyQuestions(json.data.policyIntake.questions)
         setPolicyAnswers(json.data.policyIntake.answers)
         setPolicyCompletion(json.data.policyIntake.completionPct)
+        setPolicyRequiredCount(json.data.policyIntake.requiredCount ?? 0)
+        setPolicyAnsweredCount(json.data.policyIntake.answeredCount ?? 0)
+        setPolicyTotalQuestions(json.data.policyIntake.totalQuestions ?? json.data.policyIntake.questions.length)
         setPolicyDerivedFields(json.data.policyIntake.derivedFields ?? [])
+        // Pre-populate the content preview with the latest generated draft so
+        // the Policy Draft card shows the content immediately instead of
+        // getting stuck on "Loading...".
+        if (json.data.policyIntake.latestContent) {
+          setGeneratedContent(json.data.policyIntake.latestContent)
+        }
       } else {
         setPolicyQuestions([])
         setPolicyAnswers({})
         setPolicyCompletion(100)
+        setPolicyRequiredCount(0)
+        setPolicyAnsweredCount(0)
+        setPolicyTotalQuestions(0)
         setPolicyDerivedFields([])
       }
     } catch { /* ignore */ }
@@ -287,8 +302,9 @@ export default function PolicyGenerationDashboard({
   const generatePolicyHandler = async () => {
     if (!activePolicySlug) return
     setGenerating(true)
-    setGeneratedContent(null)
     setError(null)
+    // Don't clear generatedContent here — if generation fails, we want to keep
+    // showing the previous draft instead of going blank.
     try {
       // Save answers first (ignore failures — tables may not exist yet)
       try { await savePolicyAnswers() } catch { /* ignore */ }
@@ -305,10 +321,17 @@ export default function PolicyGenerationDashboard({
         }),
       })
 
-      // Handle non-JSON responses (Vercel error pages, timeouts)
+      // Handle non-JSON responses (Vercel error pages, timeouts).
+      // Surface a friendly message when we hit FUNCTION_INVOCATION_TIMEOUT
+      // (Vercel's 60s function timeout) rather than the raw HTML blurb.
       const contentType = res.headers.get('content-type') ?? ''
       if (!contentType.includes('application/json')) {
         const text = await res.text()
+        if (res.status === 504 || /INVOCATION_TIMEOUT/i.test(text)) {
+          throw new Error(
+            'AI generation took longer than 60 seconds and was cut short. This sometimes happens when the Anthropic API is slow. Try clicking Generate again — the second attempt usually succeeds. If this keeps happening, let the team know.'
+          )
+        }
         throw new Error(`Server error (${res.status}): ${text.substring(0, 200)}`)
       }
 
@@ -564,11 +587,29 @@ export default function PolicyGenerationDashboard({
               Uploaded polic{activePolicy.coveredBy.length === 1 ? 'y' : 'ies'} covering controls here:{' '}
               <span className="font-medium text-white">{activePolicy.coveredBy.join(', ')}</span>.
             </p>
-            <p className="text-xs text-slate-400 mt-2">
-              {activePolicy.coverageStatus === 'covered'
-                ? 'You usually do not need to generate a new policy. Generating here will create an additional standalone document that complements the existing one.'
-                : 'Consider enhancing the existing policy (adds missing sections without replacing it) rather than generating a brand new one.'}
-            </p>
+            <div className="mt-3 pt-3 border-t border-white/10">
+              <p className="text-xs font-semibold text-white mb-1">
+                {activePolicy.coverageStatus === 'covered'
+                  ? 'What happens if you generate anyway?'
+                  : 'What happens when you generate?'}
+              </p>
+              <ul className="text-xs text-slate-300 space-y-1 list-disc list-inside">
+                <li>A <span className="font-semibold">new, standalone AI-written policy document</span> is created.</li>
+                <li>
+                  The customer&apos;s uploaded polic{activePolicy.coveredBy.length === 1 ? 'y is' : 'ies are'}{' '}
+                  <span className="font-semibold text-emerald-300">never modified or replaced</span>.
+                </li>
+                <li>
+                  You can keep both (use the AI version as a supplement) or delete the old upload from the
+                  Policy Analysis tab and use the AI version as a replacement. That&apos;s up to the tech/customer.
+                </li>
+              </ul>
+              {activePolicy.coverageStatus === 'covered' && (
+                <p className="text-xs text-slate-400 mt-2 italic">
+                  Since controls here are already fully covered, most techs skip generation for this policy.
+                </p>
+              )}
+            </div>
           </div>
         )}
 
@@ -579,10 +620,19 @@ export default function PolicyGenerationDashboard({
         {/* Intake Questions (if any) */}
         {policyQuestions.length > 0 && (
           <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg p-6">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-2">
               <h3 className="text-sm font-semibold text-white">Policy-Specific Questions</h3>
-              <span className="text-xs text-slate-400">{policyCompletion}% complete</span>
+              <span className="text-xs text-slate-400">
+                {policyRequiredCount === 0
+                  ? `${policyAnsweredCount} of ${policyTotalQuestions} optional fields answered`
+                  : `${policyCompletion}% of required fields complete`}
+              </span>
             </div>
+            <p className="text-xs text-slate-500 mb-4">
+              {policyRequiredCount === 0
+                ? 'All questions below are optional. Leave blank for AI to use sensible defaults, or answer to customize the generated policy.'
+                : `Answer the required questions marked with a red asterisk. Optional fields let you further customize the generated policy.`}
+            </p>
             {policyDerivedFields.length > 0 && (
               <div className="p-2 bg-cyan-500/10 border border-cyan-500/20 rounded mb-3">
                 <p className="text-xs text-cyan-300">
