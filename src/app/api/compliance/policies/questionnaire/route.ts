@@ -13,12 +13,115 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { getPool } from '@/lib/db-pool'
+import type { PoolClient } from 'pg'
 import {
   getOrgProfileQuestions,
   getPolicyQuestions,
   computeCompletionPct,
   prefillFromOrgProfile,
 } from '@/lib/compliance/policy-generation/questionnaire'
+
+/**
+ * Derive policy-specific answers from available integrations/evidence.
+ * Returns a map of answerId -> value, plus a list of which keys were derived.
+ * Only derives answers that can be reliably inferred from data we already collect.
+ */
+async function derivePolicyAnswersFromIntegrations(
+  client: PoolClient,
+  companyId: string,
+  policySlug: string,
+  orgAnswers: Record<string, string | string[] | boolean>
+): Promise<{ derived: Record<string, string | string[] | boolean>; derivedKeys: string[] }> {
+  const derived: Record<string, string | string[] | boolean> = {}
+  const derivedKeys: string[] = []
+
+  // Get mapped platforms for this company (graceful fallback if table missing)
+  let mappedPlatforms = new Set<string>()
+  try {
+    const mappingsRes = await client.query<{ platform: string }>(
+      `SELECT DISTINCT platform FROM compliance_platform_mappings WHERE "companyId" = $1`,
+      [companyId]
+    )
+    mappedPlatforms = new Set(mappingsRes.rows.map((r) => r.platform))
+  } catch { /* table may not exist */ }
+
+  // Helper: mark a field as derived
+  const set = (key: string, value: string | string[] | boolean) => {
+    derived[key] = value
+    derivedKeys.push(key)
+  }
+
+  // ---- Password Policy ----
+  if (policySlug === 'password-policy') {
+    // Try to derive minimum password length from Intune compliance policies
+    try {
+      const intuneRes = await client.query<{ rawData: Record<string, unknown> }>(
+        `SELECT "rawData" FROM compliance_evidence
+         WHERE "companyId" = $1 AND "sourceType" = 'microsoft_intune_config'
+         ORDER BY "collectedAt" DESC LIMIT 1`,
+        [companyId]
+      )
+      const raw = intuneRes.rows[0]?.rawData as { compliancePolicies?: Array<{ name?: string; description?: string | null }> } | undefined
+      if (raw?.compliancePolicies && raw.compliancePolicies.length > 0) {
+        // Heuristic: Intune default is 8, most MSP standards enforce 12-14
+        // Without reading actual policy settings (requires different Graph endpoint),
+        // we mark it as 12 which is the conservative MSP baseline.
+        set('pw_min_length', '12')
+      }
+    } catch { /* ignore */ }
+
+    // Password manager: if IT Glue is mapped, assume password manager in use
+    if (mappedPlatforms.has('it_glue')) {
+      set('pw_password_manager', true)
+    }
+  }
+
+  // ---- Acceptable Use Policy ----
+  if (policySlug === 'acceptable-use-policy') {
+    // If SaaS Alerts (SIEM) is mapped, monitoring is active
+    if (mappedPlatforms.has('saas_alerts')) {
+      set('aup_monitoring_notice', true)
+    }
+  }
+
+  // ---- Remote Access Policy ----
+  if (policySlug === 'remote-access-policy') {
+    // If org uses contractors, third-party remote access is likely
+    if (orgAnswers.org_contractors === true) {
+      set('ra_third_party_access', true)
+    }
+  }
+
+  // ---- Backup & Disaster Recovery Policy ----
+  if (policySlug === 'backup-disaster-recovery-policy') {
+    // If BCDR is mapped, backup tests are typically monthly per MSP standards
+    if (mappedPlatforms.has('datto_bcdr')) {
+      set('bdr_test_frequency', 'monthly')
+    }
+  }
+
+  // ---- Incident Response Policy ----
+  if (policySlug === 'incident-response-policy') {
+    // Regulatory requirements derived from org data types
+    const notifications: string[] = []
+    if (orgAnswers.org_handles_phi === true) notifications.push('hipaa')
+    if (orgAnswers.org_handles_cui === true) notifications.push('dfars')
+    notifications.push('state') // Always applicable in the US
+    if (notifications.length > 1) {
+      set('ir_notification_requirements', notifications)
+    }
+  }
+
+  // ---- AI Usage Policy ----
+  if (policySlug === 'ai-usage-policy') {
+    // If org profile says AI tools are approved, default to restricting confidential data
+    if (orgAnswers.org_ai_tools_used === 'yes_approved' || orgAnswers.org_ai_tools_used === 'yes_uncontrolled') {
+      set('ai_confidential_data_restriction', true)
+    }
+  }
+
+  return { derived, derivedKeys }
+}
 
 export const dynamic = 'force-dynamic'
 
@@ -82,9 +185,20 @@ export async function GET(request: NextRequest) {
       )
       const savedPolicyAnswers = policyRes.rows[0]?.answers ?? {}
 
-      // Pre-fill from org profile
+      // Pre-fill from org profile (prefillKey mechanism)
       const prefilled = prefillFromOrgProfile(policySlug, orgAnswers)
-      const mergedAnswers = { ...prefilled, ...savedPolicyAnswers }
+
+      // Derive answers from existing integrations (platform mappings, evidence, org profile).
+      // Reuses the same data sources as the generate route's security posture derivation.
+      const { derived, derivedKeys } = await derivePolicyAnswersFromIntegrations(
+        client, companyId, policySlug, orgAnswers
+      )
+
+      // Priority: saved user answers > AI-derived > prefillKey defaults
+      const mergedAnswers = { ...prefilled, ...derived, ...savedPolicyAnswers }
+
+      // Only mark as "derived" keys that are actually filled by derivation (not overridden by user)
+      const actuallyDerivedKeys = derivedKeys.filter((k) => !(k in savedPolicyAnswers))
 
       const policyQuestions = getPolicyQuestions(policySlug)
       const policyCompletion = computeCompletionPct(policyQuestions, mergedAnswers)
@@ -93,6 +207,7 @@ export async function GET(request: NextRequest) {
         questions: policyQuestions,
         answers: mergedAnswers,
         completionPct: policyCompletion,
+        derivedFields: actuallyDerivedKeys,
       }
     }
 

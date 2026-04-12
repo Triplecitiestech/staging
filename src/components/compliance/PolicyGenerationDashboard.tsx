@@ -125,6 +125,7 @@ export default function PolicyGenerationDashboard({
   const [policyQuestions, setPolicyQuestions] = useState<QuestionDef[]>([])
   const [policyAnswers, setPolicyAnswers] = useState<Record<string, string | string[] | boolean>>({})
   const [policyCompletion, setPolicyCompletion] = useState(0)
+  const [policyDerivedFields, setPolicyDerivedFields] = useState<string[]>([])
   const [generatedContent, setGeneratedContent] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
   const [savingPolicy, setSavingPolicy] = useState(false)
@@ -195,10 +196,12 @@ export default function PolicyGenerationDashboard({
         setPolicyQuestions(json.data.policyIntake.questions)
         setPolicyAnswers(json.data.policyIntake.answers)
         setPolicyCompletion(json.data.policyIntake.completionPct)
+        setPolicyDerivedFields(json.data.policyIntake.derivedFields ?? [])
       } else {
         setPolicyQuestions([])
         setPolicyAnswers({})
         setPolicyCompletion(100)
+        setPolicyDerivedFields([])
       }
     } catch { /* ignore */ }
   }, [companyId])
@@ -311,6 +314,7 @@ export default function PolicyGenerationDashboard({
   // Mass generate all missing policies
   const generateAllMissing = async () => {
     if (!analysis) return
+    // Only include policies that genuinely need generation. Skip already-completed ones.
     const missing = analysis.requiredPolicies.filter(
       (p) => p.status === 'missing' || p.status === 'intake_needed' || p.status === 'ready_to_generate'
     )
@@ -329,6 +333,24 @@ export default function PolicyGenerationDashboard({
       const policy = missing[i]
       setMassProgress({ current: i + 1, total: missing.length, currentName: policy.name, completed, failed })
 
+      // Refresh analysis after every 3 policies to pick up any async completions
+      // from Vercel timeouts where the backend finished but the fetch timed out.
+      if (i > 0 && i % 3 === 0) {
+        try {
+          const refreshRes = await fetch(`/api/compliance/policies/catalog?companyId=${companyId}&frameworks=${selectedFrameworks.join(',')}`)
+          const refreshJson = await refreshRes.json()
+          if (refreshJson.success) {
+            const refreshed = refreshJson.data as NeedsAnalysis
+            const thisPolicy = refreshed.requiredPolicies.find((p) => p.slug === policy.slug)
+            if (thisPolicy && (thisPolicy.status === 'draft' || thisPolicy.status === 'approved')) {
+              // Already generated during background — skip
+              completed++
+              continue
+            }
+          }
+        } catch { /* ignore refresh errors */ }
+      }
+
       try {
         const res = await fetch('/api/compliance/policies/generate', {
           method: 'POST',
@@ -343,6 +365,8 @@ export default function PolicyGenerationDashboard({
 
         const contentType = res.headers.get('content-type') ?? ''
         if (!contentType.includes('application/json')) {
+          // Non-JSON response usually means Vercel timeout. The generation may still
+          // complete in the background. We'll verify on the next refresh.
           failed++
           continue
         }
@@ -360,6 +384,7 @@ export default function PolicyGenerationDashboard({
 
     setMassProgress({ current: missing.length, total: missing.length, currentName: '', completed, failed })
     setMassGenerating(false)
+    // Final refresh after batch — catches any background completions from timeouts
     await loadAnalysis()
   }
 
@@ -479,6 +504,15 @@ export default function PolicyGenerationDashboard({
               <h3 className="text-sm font-semibold text-white">Policy-Specific Questions</h3>
               <span className="text-xs text-slate-400">{policyCompletion}% complete</span>
             </div>
+            {policyDerivedFields.length > 0 && (
+              <div className="p-2 bg-cyan-500/10 border border-cyan-500/20 rounded mb-3">
+                <p className="text-xs text-cyan-300">
+                  {policyDerivedFields.length} answer{policyDerivedFields.length === 1 ? '' : 's'} auto-derived from platform mappings and org profile. Fields marked
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 mx-1">Auto-filled</span>
+                  were inferred from existing data &mdash; you can edit them below.
+                </p>
+              </div>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {policyQuestions.map((q) => (
                 <QuestionField
@@ -486,6 +520,7 @@ export default function PolicyGenerationDashboard({
                   question={q}
                   value={policyAnswers[q.id]}
                   onChange={(val) => setPolicyAnswers((prev) => ({ ...prev, [q.id]: val }))}
+                  autoFilled={policyDerivedFields.includes(q.id)}
                 />
               ))}
             </div>
