@@ -78,6 +78,9 @@ export async function GET(request: NextRequest) {
         selectedFrameworks: frameworkIds,
         requiredPolicies,
         stats: { totalRequired: requiredPolicies.length, existing: 0, missing: requiredPolicies.length, drafts: 0, approved: 0, intakeNeeded: 0, notGenerated: requiredPolicies.length, needsEnhancement: 0, coveredByExisting: 0, generating: 0 },
+        latestPolicyActivityAt: null,
+        latestAssessmentAt: null,
+        needsNewAssessment: false,
       } satisfies PolicyNeedsAnalysis,
     })
   }
@@ -296,12 +299,48 @@ export async function GET(request: NextRequest) {
       generating: requiredPolicies.filter((p) => p.status === 'generating').length,
     }
 
+    // Determine whether policies have changed since the customer's last
+    // completed assessment. If so, the UI nudges the tech to re-run the
+    // assessment to see the updated compliance score.
+    let latestPolicyActivityAt: string | null = null
+    let latestAssessmentAt: string | null = null
+    try {
+      const policyActivity = await client.query<{ latest: string | null }>(
+        `SELECT GREATEST(
+           COALESCE((SELECT MAX("updatedAt") FROM compliance_policies WHERE "companyId" = $1), 'epoch'::timestamptz),
+           COALESCE((SELECT MAX("updatedAt") FROM policy_generation_records WHERE "companyId" = $1), 'epoch'::timestamptz)
+         ) as latest`,
+        [companyId]
+      )
+      const raw = policyActivity.rows[0]?.latest
+      if (raw && raw !== '1970-01-01T00:00:00.000Z') {
+        latestPolicyActivityAt = new Date(raw).toISOString()
+      }
+    } catch { /* tables may not exist */ }
+
+    try {
+      const assessActivity = await client.query<{ latest: string | null }>(
+        `SELECT MAX("completedAt") as latest FROM compliance_assessments
+         WHERE "companyId" = $1 AND status = 'complete'`,
+        [companyId]
+      )
+      if (assessActivity.rows[0]?.latest) {
+        latestAssessmentAt = new Date(assessActivity.rows[0].latest).toISOString()
+      }
+    } catch { /* table may not exist */ }
+
+    const needsNewAssessment = latestPolicyActivityAt !== null
+      && (!latestAssessmentAt || new Date(latestPolicyActivityAt) > new Date(latestAssessmentAt))
+
     const analysis: PolicyNeedsAnalysis = {
       companyId,
       companyName,
       selectedFrameworks: frameworkIds,
       requiredPolicies,
       stats,
+      latestPolicyActivityAt,
+      latestAssessmentAt,
+      needsNewAssessment,
     }
 
     return NextResponse.json({ success: true, data: analysis })

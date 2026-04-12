@@ -227,6 +227,12 @@ export interface PolicyNeedsAnalysis {
     /** Policies currently generating */
     generating: number
   }
+  /** ISO timestamp of the most recent policy change (uploaded, generated, edited, approved) */
+  latestPolicyActivityAt: string | null
+  /** ISO timestamp of the most recent completed assessment */
+  latestAssessmentAt: string | null
+  /** True when policies have changed since the last assessment — UI should nudge to re-run */
+  needsNewAssessment: boolean
 }
 
 export interface PolicyNeedItem {

@@ -49,6 +49,9 @@ interface NeedsAnalysis {
     coveredByExisting: number
     generating: number
   }
+  latestPolicyActivityAt: string | null
+  latestAssessmentAt: string | null
+  needsNewAssessment: boolean
 }
 
 interface QuestionDef {
@@ -1017,6 +1020,16 @@ export default function PolicyGenerationDashboard({
             onGenerateAll={generateAllMissing}
           />
 
+          {/* Assessment re-run nudge — shown when policies have changed since
+              the last assessment. Points the tech to run a new assessment so
+              the customer can see their improved compliance score. */}
+          {analysis.needsNewAssessment && (
+            <AssessmentRerunBanner
+              latestPolicyActivityAt={analysis.latestPolicyActivityAt}
+              latestAssessmentAt={analysis.latestAssessmentAt}
+            />
+          )}
+
           {/* Progress Bar + Clean Stats Row */}
           <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg p-4 sm:p-6">
             <div className="flex items-center justify-between mb-3">
@@ -1387,6 +1400,55 @@ function NextStepBanner({
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function AssessmentRerunBanner({
+  latestPolicyActivityAt,
+  latestAssessmentAt,
+}: {
+  latestPolicyActivityAt: string | null
+  latestAssessmentAt: string | null
+}) {
+  const never = !latestAssessmentAt
+  const policyTs = latestPolicyActivityAt ? new Date(latestPolicyActivityAt) : null
+  const assessTs = latestAssessmentAt ? new Date(latestAssessmentAt) : null
+
+  const formatDate = (d: Date | null): string => {
+    if (!d) return 'never'
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+  }
+
+  return (
+    <div className="bg-gradient-to-br from-violet-500/10 to-blue-500/10 border border-violet-500/30 rounded-lg p-4 sm:p-5">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="min-w-0 flex items-start gap-3">
+          <div className="w-8 h-8 rounded-full bg-violet-500/30 flex items-center justify-center text-violet-200 text-sm flex-shrink-0 mt-0.5">
+            !
+          </div>
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold text-white">Policies have changed \u2014 run a new assessment</h3>
+            <p className="text-xs text-slate-300 mt-1">
+              {never ? (
+                <>No assessment has been run yet. Run one now to capture the customer&apos;s current CIS compliance score.</>
+              ) : (
+                <>
+                  Last policy change: <span className="text-violet-300">{formatDate(policyTs)}</span>.
+                  Last assessment: <span className="text-slate-400">{formatDate(assessTs)}</span>.
+                  Running a new assessment will pick up the latest uploaded and generated policies so the customer sees their updated score.
+                </>
+              )}
+            </p>
+          </div>
+        </div>
+        <a
+          href="/admin/compliance"
+          className="px-4 py-2 bg-violet-500 hover:bg-violet-400 text-white rounded-lg text-sm font-semibold flex-shrink-0 whitespace-nowrap"
+        >
+          Run New Assessment &rarr;
+        </a>
+      </div>
     </div>
   )
 }
