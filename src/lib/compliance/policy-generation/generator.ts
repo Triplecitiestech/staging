@@ -267,37 +267,66 @@ export async function generatePolicy(input: GenerationInput): Promise<GenerateRe
   // Compute input hash for change detection
   const inputHash = computeInputHash(input)
 
-  // Max tokens is deliberately 5000 (not 8000) and timeout is 50s (not 60s) so
-  // the total request stays within Vercel's 60s function timeout. The previous
-  // configuration occasionally produced FUNCTION_INVOCATION_TIMEOUT 504s when
-  // Anthropic's API was slow or the prompt was complex (e.g. gap-filling
-  // generation with multiple framework controls injected).
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 5000,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userPrompt }],
-    }),
-    signal: AbortSignal.timeout(50_000),
-  })
-
-  if (!res.ok) {
-    const errBody = await res.text().catch(() => '')
-    throw new Error(`Anthropic API error: ${res.status} ${errBody.substring(0, 200)}`)
+  // Generation strategy:
+  //   Attempt 1 \u2014 Sonnet (high quality) at up to 38s.
+  //   Attempt 2 (on timeout only) \u2014 Haiku (much faster) at up to 18s.
+  //
+  // Total budget: ~56s, leaving ~4s for DB writes within Vercel's 60s function
+  // timeout. Sonnet is preferred for policy prose quality; Haiku is a fallback
+  // so the tech gets *some* usable draft rather than a timeout error when the
+  // Anthropic API is slow.
+  const callAnthropic = async (model: string, timeoutMs: number, maxTokens: number): Promise<string> => {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: maxTokens,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userPrompt }],
+      }),
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    if (!r.ok) {
+      const errBody = await r.text().catch(() => '')
+      throw new Error(`Anthropic API error: ${r.status} ${errBody.substring(0, 200)}`)
+    }
+    const d = (await r.json()) as { content: Array<{ type: string; text: string }> }
+    return d.content?.[0]?.text ?? ''
   }
 
-  const data = (await res.json()) as { content: Array<{ type: string; text: string }> }
-  const content = data.content?.[0]?.text ?? ''
+  let content = ''
+  let usedFallback = false
+  try {
+    content = await callAnthropic('claude-sonnet-4-20250514', 38_000, 5000)
+  } catch (err) {
+    const isTimeout = err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError')
+    if (!isTimeout) {
+      throw err
+    }
+    // Sonnet timed out \u2014 try Haiku as a fast fallback so we at least deliver
+    // a draft the tech can review/edit rather than a hard failure.
+    console.warn('[compliance/generator] Sonnet timed out, falling back to Haiku')
+    try {
+      content = await callAnthropic('claude-haiku-4-5-20251001', 18_000, 4000)
+      usedFallback = true
+    } catch {
+      // Haiku also failed \u2014 surface the original Sonnet timeout to the client
+      // because the retry message tells them to try again shortly.
+      throw new Error('AI generation timed out on both primary and fallback models. Anthropic may be experiencing elevated latency. Please try again in a minute.')
+    }
+  }
 
   if (!content || content.length < 500) {
-    throw new Error('Generated policy content is too short — generation may have failed')
+    throw new Error('Generated policy content is too short \u2014 generation may have failed')
+  }
+
+  if (usedFallback) {
+    content = `${content}\n\n<!-- Note: This draft was produced by a fallback model due to Anthropic API latency. Consider regenerating for higher-quality output if time permits. -->`
   }
 
   const catalogForMeta = getCatalogItem(input.policySlug)
