@@ -218,6 +218,10 @@ export interface PolicyNeedsAnalysis {
     drafts: number
     approved: number
     intakeNeeded: number
+    /** Total policies not yet generated (missing + intake_needed + ready_to_generate). Use this for user-facing counts. */
+    notGenerated: number
+    /** Policies currently generating */
+    generating: number
   }
 }
 
