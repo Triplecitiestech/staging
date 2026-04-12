@@ -269,55 +269,124 @@ export async function generatePolicy(input: GenerationInput): Promise<GenerateRe
 
   // Generation strategy:
   //   Attempt 1 \u2014 Sonnet (high quality) at up to 38s.
-  //   Attempt 2 (on timeout only) \u2014 Haiku (much faster) at up to 18s.
+  //   Attempt 2 (on timeout/transient failure) \u2014 Haiku (much faster) at up to 18s.
   //
   // Total budget: ~56s, leaving ~4s for DB writes within Vercel's 60s function
   // timeout. Sonnet is preferred for policy prose quality; Haiku is a fallback
   // so the tech gets *some* usable draft rather than a timeout error when the
   // Anthropic API is slow.
+  //
+  // Errors from each attempt are captured with enough detail (model, status,
+  // elapsed ms, error class) so when both fail we can surface *why* rather
+  // than lying about "both timed out" when it's actually a 401/429/etc.
+  type AttemptFailure = {
+    model: string
+    kind: 'timeout' | 'http_error' | 'network' | 'other'
+    message: string
+    elapsedMs: number
+    status?: number
+  }
+
   const callAnthropic = async (model: string, timeoutMs: number, maxTokens: number): Promise<string> => {
-    const r = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
+    const started = Date.now()
+    try {
+      const r = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: maxTokens,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userPrompt }],
+        }),
+        signal: AbortSignal.timeout(timeoutMs),
+      })
+      if (!r.ok) {
+        const errBody = await r.text().catch(() => '')
+        const failure: AttemptFailure = {
+          model,
+          kind: 'http_error',
+          status: r.status,
+          message: `HTTP ${r.status}: ${errBody.substring(0, 300)}`,
+          elapsedMs: Date.now() - started,
+        }
+        console.error('[compliance/generator] Anthropic HTTP error', failure)
+        throw Object.assign(new Error(failure.message), { failure })
+      }
+      const d = (await r.json()) as { content: Array<{ type: string; text: string }> }
+      return d.content?.[0]?.text ?? ''
+    } catch (err) {
+      if ((err as { failure?: AttemptFailure }).failure) throw err
+      const elapsedMs = Date.now() - started
+      const isTimeout = err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError')
+      const failure: AttemptFailure = {
         model,
-        max_tokens: maxTokens,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: userPrompt }],
-      }),
-      signal: AbortSignal.timeout(timeoutMs),
-    })
-    if (!r.ok) {
-      const errBody = await r.text().catch(() => '')
-      throw new Error(`Anthropic API error: ${r.status} ${errBody.substring(0, 200)}`)
+        kind: isTimeout ? 'timeout' : (err instanceof TypeError ? 'network' : 'other'),
+        message: err instanceof Error ? err.message : String(err),
+        elapsedMs,
+      }
+      console.error('[compliance/generator] Anthropic call failed', failure)
+      throw Object.assign(new Error(failure.message), { failure })
     }
-    const d = (await r.json()) as { content: Array<{ type: string; text: string }> }
-    return d.content?.[0]?.text ?? ''
   }
 
   let content = ''
   let usedFallback = false
+  const failures: AttemptFailure[] = []
+
   try {
     content = await callAnthropic('claude-sonnet-4-20250514', 38_000, 5000)
   } catch (err) {
-    const isTimeout = err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError')
-    if (!isTimeout) {
-      throw err
+    const primaryFailure = (err as { failure?: AttemptFailure }).failure
+    if (primaryFailure) failures.push(primaryFailure)
+
+    // Only attempt fallback on timeout or transient failures (5xx, 429).
+    // For hard errors (401 bad API key, 400 malformed request, 404 unknown model)
+    // surfacing the real error is more useful than retrying the same way.
+    const shouldFallback = !primaryFailure
+      || primaryFailure.kind === 'timeout'
+      || primaryFailure.kind === 'network'
+      || (primaryFailure.kind === 'http_error' && (primaryFailure.status === 429 || (primaryFailure.status ?? 0) >= 500))
+
+    if (!shouldFallback && primaryFailure) {
+      throw new Error(
+        `Policy generation failed (${primaryFailure.model}): ${primaryFailure.message}. ` +
+        `Check that ANTHROPIC_API_KEY is valid and the model is available.`
+      )
     }
-    // Sonnet timed out \u2014 try Haiku as a fast fallback so we at least deliver
-    // a draft the tech can review/edit rather than a hard failure.
-    console.warn('[compliance/generator] Sonnet timed out, falling back to Haiku')
+
+    console.warn('[compliance/generator] Primary Sonnet call failed, trying Haiku fallback', primaryFailure)
     try {
       content = await callAnthropic('claude-haiku-4-5-20251001', 18_000, 4000)
       usedFallback = true
-    } catch {
-      // Haiku also failed \u2014 surface the original Sonnet timeout to the client
-      // because the retry message tells them to try again shortly.
-      throw new Error('AI generation timed out on both primary and fallback models. Anthropic may be experiencing elevated latency. Please try again in a minute.')
+    } catch (err2) {
+      const fallbackFailure = (err2 as { failure?: AttemptFailure }).failure
+      if (fallbackFailure) failures.push(fallbackFailure)
+
+      // Both failed \u2014 surface a message that reflects the actual causes.
+      const allTimedOut = failures.every((f) => f.kind === 'timeout')
+      const anyAuthError = failures.some((f) => f.kind === 'http_error' && f.status === 401)
+      const anyBadModel = failures.some((f) => f.kind === 'http_error' && f.status === 404)
+      const anyRateLimited = failures.some((f) => f.kind === 'http_error' && f.status === 429)
+
+      if (anyAuthError) {
+        throw new Error('Policy generation failed: Anthropic API key is invalid or unauthorized (401). Verify ANTHROPIC_API_KEY in Vercel environment variables.')
+      }
+      if (anyBadModel) {
+        throw new Error(`Policy generation failed: one of the Anthropic model IDs is no longer available (404). Failures: ${failures.map((f) => `${f.model} -> ${f.message}`).join(' | ')}`)
+      }
+      if (anyRateLimited) {
+        throw new Error('Policy generation failed: Anthropic API is rate-limiting requests (429). Wait a minute and try again, or generate policies one at a time instead of in batches.')
+      }
+      if (allTimedOut) {
+        throw new Error(`AI generation timed out on both primary and fallback models (Sonnet ${failures[0]?.elapsedMs}ms, Haiku ${failures[1]?.elapsedMs}ms). Anthropic API may be experiencing high latency. Please try again in a minute.`)
+      }
+      // Mixed / unclear \u2014 show both error messages verbatim so we can diagnose.
+      throw new Error(`Policy generation failed on both models. ${failures.map((f) => `[${f.model}] ${f.message}`).join(' \u2014 ')}`)
     }
   }
 
