@@ -686,7 +686,23 @@ export default function PolicyGenerationDashboard({
         )}
 
         {error && (
-          <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-300 text-sm">{error}</div>
+          <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="text-red-300 text-sm flex-1">{error}</div>
+              {/* Offer a prominent Retry for timeout/abort errors so the tech
+                  doesn't have to scroll back up and find the Generate button. */}
+              {(/timeout|aborted|INVOCATION_TIMEOUT|latency/i.test(error)) && (
+                <button
+                  onClick={generatePolicyHandler}
+                  disabled={generating}
+                  className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded text-xs font-medium disabled:opacity-50 flex items-center gap-2 whitespace-nowrap flex-shrink-0"
+                >
+                  {generating && <span className="animate-spin w-3 h-3 border-2 border-white border-t-transparent rounded-full" />}
+                  {generating ? 'Retrying\u2026' : 'Retry Generation'}
+                </button>
+              )}
+            </div>
+          </div>
         )}
 
         {/* Intake Questions (if any) */}
