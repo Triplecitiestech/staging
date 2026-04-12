@@ -27,6 +27,9 @@ interface PolicyNeedItem {
   existingPolicyId: string | null
   controlCount: number
   lastUpdated: string | null
+  coverageStatus: 'covered' | 'partial' | 'none'
+  coverageRatio: number
+  coveredBy: string[]
 }
 
 interface NeedsAnalysis {
@@ -42,6 +45,8 @@ interface NeedsAnalysis {
     approved: number
     intakeNeeded: number
     notGenerated: number
+    needsEnhancement: number
+    coveredByExisting: number
     generating: number
   }
 }
@@ -321,9 +326,13 @@ export default function PolicyGenerationDashboard({
   // Mass generate all missing policies
   const generateAllMissing = async () => {
     if (!analysis) return
-    // Only include policies that genuinely need generation. Skip already-completed ones.
+    // Only generate policies that are genuinely missing AND not already covered by
+    // uploaded content. Policies marked as "covered by existing" or "partial" are
+    // skipped — those require the tech to explicitly click Enhance on them, we don't
+    // want to clobber the customer's existing content.
     const missing = analysis.requiredPolicies.filter(
-      (p) => p.status === 'missing' || p.status === 'intake_needed' || p.status === 'ready_to_generate'
+      (p) => (p.status === 'missing' || p.status === 'intake_needed' || p.status === 'ready_to_generate')
+        && p.coverageStatus === 'none'
     )
     if (missing.length === 0) return
 
@@ -493,12 +502,38 @@ export default function PolicyGenerationDashboard({
             <div>
               <h2 className="text-lg font-semibold text-white">{activePolicy.name}</h2>
               <p className="text-sm text-slate-400 mt-1">
-                {activePolicy.frameworks.join(', ')} — {activePolicy.controlCount} controls
+                {activePolicy.frameworks.join(', ')} &mdash; {activePolicy.controlCount} controls
               </p>
             </div>
-            <StatusBadge status={activePolicy.status} />
+            <SmartStatusBadge policy={activePolicy} />
           </div>
         </div>
+
+        {/* Coverage-from-existing banner. Only shown when the tech hasn't
+            generated anything yet but uploads cover these controls. */}
+        {(activePolicy.status === 'missing' || activePolicy.status === 'ready_to_generate' || activePolicy.status === 'intake_needed')
+          && activePolicy.coverageStatus !== 'none' && (
+          <div className={`border rounded-lg p-4 ${
+            activePolicy.coverageStatus === 'covered'
+              ? 'bg-emerald-500/10 border-emerald-500/30'
+              : 'bg-violet-500/10 border-violet-500/30'
+          }`}>
+            <h3 className={`text-sm font-semibold ${activePolicy.coverageStatus === 'covered' ? 'text-emerald-300' : 'text-violet-300'}`}>
+              {activePolicy.coverageStatus === 'covered'
+                ? `This policy is already covered (${activePolicy.coverageRatio}%) by existing uploaded content`
+                : `Partial coverage (${activePolicy.coverageRatio}%) from existing uploads`}
+            </h3>
+            <p className="text-xs text-slate-300 mt-1">
+              Uploaded polic{activePolicy.coveredBy.length === 1 ? 'y' : 'ies'} covering controls here:{' '}
+              <span className="font-medium text-white">{activePolicy.coveredBy.join(', ')}</span>.
+            </p>
+            <p className="text-xs text-slate-400 mt-2">
+              {activePolicy.coverageStatus === 'covered'
+                ? 'You usually do not need to generate a new policy. Generating here will create an additional standalone document that complements the existing one.'
+                : 'Consider enhancing the existing policy (adds missing sections without replacing it) rather than generating a brand new one.'}
+            </p>
+          </div>
+        )}
 
         {error && (
           <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-300 text-sm">{error}</div>
@@ -713,9 +748,10 @@ export default function PolicyGenerationDashboard({
                 />
               </div>
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <StatCard label="Not Generated" value={analysis.stats.notGenerated} color="text-rose-400" />
-              <StatCard label="Generating" value={analysis.stats.generating} color="text-cyan-400" />
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              <StatCard label="Covered by Existing" value={analysis.stats.coveredByExisting} color="text-emerald-400" hint="Uploaded policies already satisfy these controls" />
+              <StatCard label="Partial Coverage" value={analysis.stats.needsEnhancement} color="text-violet-400" hint="Some gaps \u2014 enhance existing" />
+              <StatCard label="Needs New Policy" value={analysis.stats.notGenerated} color="text-rose-400" hint="No uploaded coverage \u2014 must generate" />
               <StatCard label="Drafts to Review" value={analysis.stats.drafts} color="text-blue-400" />
               <StatCard label="Approved" value={analysis.stats.approved} color="text-emerald-400" />
             </div>
@@ -792,20 +828,30 @@ export default function PolicyGenerationDashboard({
                     onClick={() => openPolicyDetail(policy.slug)}
                   >
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-medium text-white truncate">{policy.name}</span>
                         <RequirementBadge requirement={policy.requirement} />
                       </div>
-                      <div className="flex items-center gap-3 mt-0.5">
+                      <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                         <span className="text-xs text-slate-500">{policy.controlCount} controls</span>
                         <span className="text-xs text-slate-500">{policy.frameworks.join(', ')}</span>
                         {policy.lastUpdated && (
                           <span className="text-xs text-slate-500">Updated {new Date(policy.lastUpdated).toLocaleDateString()}</span>
                         )}
                       </div>
+                      {/* Coverage info — only show for pre-generation items where it matters */}
+                      {(policy.status === 'missing' || policy.status === 'ready_to_generate' || policy.status === 'intake_needed') && policy.coverageStatus !== 'none' && (
+                        <p className="text-xs text-slate-400 mt-1 truncate">
+                          {policy.coverageStatus === 'covered' ? (
+                            <span className="text-emerald-400">&#10003; {policy.coverageRatio}% covered by: {policy.coveredBy.slice(0, 2).join(', ')}{policy.coveredBy.length > 2 ? ` +${policy.coveredBy.length - 2}` : ''}</span>
+                          ) : (
+                            <span className="text-violet-400">~ {policy.coverageRatio}% covered by: {policy.coveredBy.slice(0, 2).join(', ')}{policy.coveredBy.length > 2 ? ` +${policy.coveredBy.length - 2}` : ''}</span>
+                          )}
+                        </p>
+                      )}
                     </div>
-                    <div className="flex items-center gap-3 ml-4">
-                      <StatusBadge status={policy.status} />
+                    <div className="flex items-center gap-3 ml-4 flex-shrink-0">
+                      <SmartStatusBadge policy={policy} />
                       {(policy.status === 'draft' || policy.status === 'approved') && (
                         <button
                           onClick={(e) => { e.stopPropagation(); downloadPolicy(policy.slug) }}
@@ -845,13 +891,15 @@ function NextStepBanner({
 }) {
   // Determine current phase and next action in priority order:
   // 1. Org profile incomplete → fill it first
-  // 2. Policies not generated → generate them
+  // 2. Policies not generated AND not covered by uploads → generate new ones
   // 3. Drafts exist → review them
-  // 4. All approved → done
-  let phase: 'profile' | 'generate' | 'review' | 'done' = 'done'
+  // 4. Partial-coverage items exist → offer enhancement
+  // 5. All approved → done
+  let phase: 'profile' | 'generate' | 'review' | 'enhance' | 'done' = 'done'
   if (orgCompletion < 60) phase = 'profile'
   else if (stats.notGenerated > 0) phase = 'generate'
   else if (stats.drafts > 0) phase = 'review'
+  else if (stats.needsEnhancement > 0) phase = 'enhance'
 
   const phases = [
     { key: 'profile', num: 1, label: 'Organization Profile' },
@@ -910,10 +958,23 @@ function NextStepBanner({
       {phase === 'generate' && (
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="min-w-0">
-            <h3 className="text-base font-semibold text-white">Step 2: Generate {stats.notGenerated} Missing Polic{stats.notGenerated === 1 ? 'y' : 'ies'}</h3>
+            <h3 className="text-base font-semibold text-white">Step 2: Generate {stats.notGenerated} New Polic{stats.notGenerated === 1 ? 'y' : 'ies'}</h3>
             <p className="text-sm text-slate-300 mt-1">
-              Your Organization Profile is ready ({orgCompletion}%). Click below to batch-generate all remaining policies.
-              They&apos;ll come back as drafts for your review.
+              {stats.coveredByExisting > 0 || stats.needsEnhancement > 0 ? (
+                <>
+                  The customer&apos;s uploaded policies already cover{' '}
+                  <span className="text-emerald-400 font-semibold">{stats.coveredByExisting}</span> catalog items
+                  {stats.needsEnhancement > 0 && (
+                    <> and partially cover <span className="text-violet-400 font-semibold">{stats.needsEnhancement}</span> more</>
+                  )}.{' '}
+                  Only <span className="text-rose-400 font-semibold">{stats.notGenerated}</span> need to be written from scratch.
+                </>
+              ) : (
+                <>
+                  Your Organization Profile is ready ({orgCompletion}%). Click below to batch-generate all remaining policies.
+                  They&apos;ll come back as drafts for your review.
+                </>
+              )}
             </p>
           </div>
           <button
@@ -922,8 +983,20 @@ function NextStepBanner({
             className="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-white rounded-lg text-sm font-semibold flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
             {massGenerating && <span className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />}
-            {massGenerating ? 'Generating\u2026' : `Generate ${stats.notGenerated} Polic${stats.notGenerated === 1 ? 'y' : 'ies'} \u2192`}
+            {massGenerating ? 'Generating\u2026' : `Generate ${stats.notGenerated} New Polic${stats.notGenerated === 1 ? 'y' : 'ies'} \u2192`}
           </button>
+        </div>
+      )}
+
+      {phase === 'enhance' && (
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="text-base font-semibold text-white">Optional: Enhance {stats.needsEnhancement} Partially-Covered Polic{stats.needsEnhancement === 1 ? 'y' : 'ies'}</h3>
+            <p className="text-sm text-slate-300 mt-1">
+              The customer&apos;s existing policies cover most of what&apos;s needed. For {stats.needsEnhancement} catalog item{stats.needsEnhancement === 1 ? '' : 's'} with
+              partial coverage, you can generate an enhanced version that fills the remaining gaps. Click a policy below to review and enhance.
+            </p>
+          </div>
         </div>
       )}
 
@@ -959,9 +1032,9 @@ function NextStepBanner({
   )
 }
 
-function StatCard({ label, value, color }: { label: string; value: number; color: string }) {
+function StatCard({ label, value, color, hint }: { label: string; value: number; color: string; hint?: string }) {
   return (
-    <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg p-4 text-center">
+    <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg p-4 text-center" title={hint}>
       <div className={`text-2xl font-bold ${color}`}>{value}</div>
       <div className="text-xs text-slate-400 mt-1">{label}</div>
     </div>
@@ -975,6 +1048,29 @@ function StatusBadge({ status }: { status: string }) {
       {config.label}
     </span>
   )
+}
+
+// Shows the most informative badge per policy. When a catalog item has no
+// generation record yet but is covered/partial by uploaded content, we surface
+// the coverage state instead of a generic "Not Generated" badge.
+function SmartStatusBadge({ policy }: { policy: PolicyNeedItem }) {
+  const isUngenerated = policy.status === 'missing' || policy.status === 'ready_to_generate' || policy.status === 'intake_needed'
+
+  if (isUngenerated && policy.coverageStatus === 'covered') {
+    return (
+      <span className="px-2 py-0.5 rounded text-xs font-medium border bg-emerald-500/10 border-emerald-500/30 text-emerald-400" title={`Covered by: ${policy.coveredBy.join(', ')}`}>
+        Covered by Existing
+      </span>
+    )
+  }
+  if (isUngenerated && policy.coverageStatus === 'partial') {
+    return (
+      <span className="px-2 py-0.5 rounded text-xs font-medium border bg-violet-500/10 border-violet-500/30 text-violet-400" title={`Partially covered by: ${policy.coveredBy.join(', ')}`}>
+        Partial {policy.coverageRatio}%
+      </span>
+    )
+  }
+  return <StatusBadge status={policy.status} />
 }
 
 function RequirementBadge({ requirement }: { requirement: string }) {

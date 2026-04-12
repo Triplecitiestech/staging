@@ -704,38 +704,32 @@ export default function ComplianceWorkflow({ companies }: { companies: Company[]
             )}
 
             {/* ============================================================= */}
-            {/* STEP 5: Policy Generation                                      */}
+            {/* STEP 5: Policies                                                */}
             {/* ============================================================= */}
             {currentStep === 5 && selectedCompanyObj && (
-              <StepCard title="Policies" subtitle="Review existing customer policies and generate any that are missing">
-                {/* Existing uploaded policies (PolicyManager) */}
-                <div className="mb-8">
-                  <div className="mb-4 pb-2 border-b border-white/10">
-                    <h3 className="text-base font-semibold text-white">Existing Customer Policies</h3>
-                    <p className="text-xs text-slate-400 mt-1">
-                      Policies uploaded or pasted for this customer. AI analyzes them against CIS v8 controls.
-                    </p>
-                  </div>
-                  <Suspense fallback={<Spinner text="Loading existing policies..." />}>
-                    <PolicyManager companyId={selectedCompany} companyName={selectedCompanyObj.name} />
-                  </Suspense>
-                </div>
+              <StepCard title="Policies" subtitle="The Policy Generation view below cross-references uploaded policies against the catalog. Items already covered by customer content are flagged so you don't regenerate them.">
+                {/* Policy Generation dashboard is the primary view — it now
+                    includes uploaded-policy coverage, so a separate section for
+                    PolicyManager is redundant. Uploaded policies are managed
+                    from the main /admin/compliance dashboard's "Policy
+                    Analysis" tab. */}
+                <Suspense fallback={<Spinner text="Loading policies..." />}>
+                  <PolicyGenerationDashboard
+                    companyId={selectedCompany}
+                    companyName={selectedCompanyObj.name}
+                  />
+                </Suspense>
 
-                {/* AI policy generation (PolicyGenerationDashboard) */}
-                <div>
-                  <div className="mb-4 pb-2 border-b border-white/10">
-                    <h3 className="text-base font-semibold text-white">Generate Missing Policies</h3>
-                    <p className="text-xs text-slate-400 mt-1">
-                      For policies the customer doesn&apos;t have yet, generate them with AI based on the org profile and CIS controls.
-                    </p>
+                <details className="mt-6 border border-white/10 rounded-lg">
+                  <summary className="px-4 py-3 cursor-pointer text-sm text-slate-400 hover:text-white hover:bg-white/5">
+                    View / manage uploaded customer policies
+                  </summary>
+                  <div className="p-4 border-t border-white/10">
+                    <Suspense fallback={<Spinner text="Loading uploaded policies..." />}>
+                      <PolicyManager companyId={selectedCompany} companyName={selectedCompanyObj.name} />
+                    </Suspense>
                   </div>
-                  <Suspense fallback={<Spinner text="Loading policy generation..." />}>
-                    <PolicyGenerationDashboard
-                      companyId={selectedCompany}
-                      companyName={selectedCompanyObj.name}
-                    />
-                  </Suspense>
-                </div>
+                </details>
 
                 <div className="flex justify-end pt-4 border-t border-white/10 mt-6">
                   <button
