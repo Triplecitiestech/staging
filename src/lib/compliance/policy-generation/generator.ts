@@ -267,18 +267,24 @@ export async function generatePolicy(input: GenerationInput): Promise<GenerateRe
   // Compute input hash for change detection
   const inputHash = computeInputHash(input)
 
-  // Generation strategy:
-  //   Attempt 1 \u2014 Sonnet (high quality) at up to 38s.
-  //   Attempt 2 (on timeout/transient failure) \u2014 Haiku (much faster) at up to 18s.
+  // Generation strategy (model + token budgeting):
+  //   Attempt 1 \u2014 Haiku 4.5 (fast, ~150 tok/s). 4000 max_tokens @ 32s timeout
+  //     = completes fully in ~27s, safely under the timeout.
+  //   Attempt 2 (on timeout/transient failure) \u2014 Sonnet 4 (higher quality,
+  //     ~70 tok/s). 2500 max_tokens @ 22s timeout = completes in ~36s worst
+  //     case, but at 2500 tokens typical policies finish in ~20-25s.
   //
-  // Total budget: ~56s, leaving ~4s for DB writes within Vercel's 60s function
-  // timeout. Sonnet is preferred for policy prose quality; Haiku is a fallback
-  // so the tech gets *some* usable draft rather than a timeout error when the
-  // Anthropic API is slow.
+  // Total budget: ~54s, leaving ~6s for DB writes within Vercel's 60s cap.
   //
-  // Errors from each attempt are captured with enough detail (model, status,
-  // elapsed ms, error class) so when both fail we can surface *why* rather
-  // than lying about "both timed out" when it's actually a 401/429/etc.
+  // This is inverted from the naive "Sonnet first for quality" approach
+  // because the /diagnose endpoint confirmed Anthropic is healthy \u2014 the
+  // issue was always our token budget. Sonnet generating 5000 tokens can
+  // exceed 60s even under normal load. Haiku 4.5 produces professional
+  // policy prose and fits comfortably in a single attempt; Sonnet only
+  // steps in if Haiku times out or returns an unusable-length draft.
+  //
+  // Errors are captured with enough detail (model, status, elapsed ms,
+  // error class) so when both fail the tech sees *why*.
   type AttemptFailure = {
     model: string
     kind: 'timeout' | 'http_error' | 'network' | 'other'
@@ -338,18 +344,25 @@ export async function generatePolicy(input: GenerationInput): Promise<GenerateRe
   let usedFallback = false
   const failures: AttemptFailure[] = []
 
+  // Attempt 1: Haiku 4.5 (fast primary)
   try {
-    content = await callAnthropic('claude-sonnet-4-20250514', 38_000, 5000)
+    content = await callAnthropic('claude-haiku-4-5-20251001', 32_000, 4000)
+    // Guard against an empty/truncated response \u2014 treat as failure so the
+    // Sonnet fallback runs.
+    if (!content || content.length < 500) {
+      throw Object.assign(new Error('Haiku returned a very short response'), {
+        failure: { model: 'claude-haiku-4-5-20251001', kind: 'other', message: 'short_response', elapsedMs: 0 },
+      })
+    }
   } catch (err) {
     const primaryFailure = (err as { failure?: AttemptFailure }).failure
     if (primaryFailure) failures.push(primaryFailure)
 
-    // Only attempt fallback on timeout or transient failures (5xx, 429).
-    // For hard errors (401 bad API key, 400 malformed request, 404 unknown model)
-    // surfacing the real error is more useful than retrying the same way.
+    // Only fall back on transient issues. Hard errors (401/404) surface directly.
     const shouldFallback = !primaryFailure
       || primaryFailure.kind === 'timeout'
       || primaryFailure.kind === 'network'
+      || primaryFailure.kind === 'other'
       || (primaryFailure.kind === 'http_error' && (primaryFailure.status === 429 || (primaryFailure.status ?? 0) >= 500))
 
     if (!shouldFallback && primaryFailure) {
@@ -359,19 +372,19 @@ export async function generatePolicy(input: GenerationInput): Promise<GenerateRe
       )
     }
 
-    console.warn('[compliance/generator] Primary Sonnet call failed, trying Haiku fallback', primaryFailure)
+    console.warn('[compliance/generator] Haiku primary failed, trying Sonnet fallback', primaryFailure)
+    // Attempt 2: Sonnet 4 (quality fallback, smaller token budget to fit remaining time)
     try {
-      content = await callAnthropic('claude-haiku-4-5-20251001', 18_000, 4000)
+      content = await callAnthropic('claude-sonnet-4-20250514', 22_000, 2500)
       usedFallback = true
     } catch (err2) {
       const fallbackFailure = (err2 as { failure?: AttemptFailure }).failure
       if (fallbackFailure) failures.push(fallbackFailure)
 
-      // Both failed \u2014 surface a message that reflects the actual causes.
-      const allTimedOut = failures.every((f) => f.kind === 'timeout')
       const anyAuthError = failures.some((f) => f.kind === 'http_error' && f.status === 401)
       const anyBadModel = failures.some((f) => f.kind === 'http_error' && f.status === 404)
       const anyRateLimited = failures.some((f) => f.kind === 'http_error' && f.status === 429)
+      const allTimedOut = failures.every((f) => f.kind === 'timeout')
 
       if (anyAuthError) {
         throw new Error('Policy generation failed: Anthropic API key is invalid or unauthorized (401). Verify ANTHROPIC_API_KEY in Vercel environment variables.')
@@ -383,9 +396,8 @@ export async function generatePolicy(input: GenerationInput): Promise<GenerateRe
         throw new Error('Policy generation failed: Anthropic API is rate-limiting requests (429). Wait a minute and try again, or generate policies one at a time instead of in batches.')
       }
       if (allTimedOut) {
-        throw new Error(`AI generation timed out on both primary and fallback models (Sonnet ${failures[0]?.elapsedMs}ms, Haiku ${failures[1]?.elapsedMs}ms). Anthropic API may be experiencing high latency. Please try again in a minute.`)
+        throw new Error(`AI generation timed out on both models (Haiku ${failures[0]?.elapsedMs}ms, Sonnet ${failures[1]?.elapsedMs}ms). Anthropic API may be experiencing high latency. Please try again in a minute.`)
       }
-      // Mixed / unclear \u2014 show both error messages verbatim so we can diagnose.
       throw new Error(`Policy generation failed on both models. ${failures.map((f) => `[${f.model}] ${f.message}`).join(' \u2014 ')}`)
     }
   }
@@ -395,7 +407,7 @@ export async function generatePolicy(input: GenerationInput): Promise<GenerateRe
   }
 
   if (usedFallback) {
-    content = `${content}\n\n<!-- Note: This draft was produced by a fallback model due to Anthropic API latency. Consider regenerating for higher-quality output if time permits. -->`
+    content = `${content}\n\n<!-- Note: Haiku (the fast primary model) failed; this draft was produced by Sonnet as a fallback. Content is high quality but may be slightly shorter than a typical Haiku draft. -->`
   }
 
   const catalogForMeta = getCatalogItem(input.policySlug)
