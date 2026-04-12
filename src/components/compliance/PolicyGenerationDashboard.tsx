@@ -41,6 +41,8 @@ interface NeedsAnalysis {
     drafts: number
     approved: number
     intakeNeeded: number
+    notGenerated: number
+    generating: number
   }
 }
 
@@ -70,12 +72,17 @@ const FRAMEWORK_OPTIONS = [
   { id: 'cmmc-l2', label: 'CMMC Level 2' },
 ]
 
+// Status labels — collapsed into clear user-facing states.
+// Before: "Missing"/"Ready"/"Intake Needed" all meant "not generated yet"
+// but the mixed colors (red/blue/violet) confused users who thought Blue "Ready" = done.
+// Now all three pre-generation states use the same rose label "Not Generated" so the
+// list and the count always tell the same story.
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
-  missing: { label: 'Missing', color: 'text-red-400', bg: 'bg-red-500/10 border-red-500/30' },
-  intake_needed: { label: 'Intake Needed', color: 'text-violet-400', bg: 'bg-violet-500/10 border-violet-500/30' },
-  ready_to_generate: { label: 'Ready', color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/30' },
-  generating: { label: 'Generating...', color: 'text-cyan-400', bg: 'bg-cyan-500/10 border-cyan-500/30' },
-  draft: { label: 'Draft', color: 'text-cyan-400', bg: 'bg-cyan-500/10 border-cyan-500/30' },
+  missing: { label: 'Not Generated', color: 'text-rose-400', bg: 'bg-rose-500/10 border-rose-500/30' },
+  intake_needed: { label: 'Needs Info', color: 'text-violet-400', bg: 'bg-violet-500/10 border-violet-500/30' },
+  ready_to_generate: { label: 'Not Generated', color: 'text-rose-400', bg: 'bg-rose-500/10 border-rose-500/30' },
+  generating: { label: 'Generating\u2026', color: 'text-cyan-400', bg: 'bg-cyan-500/10 border-cyan-500/30' },
+  draft: { label: 'Draft \u2014 Review', color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/30' },
   under_review: { label: 'Under Review', color: 'text-violet-400', bg: 'bg-violet-500/10 border-violet-500/30' },
   approved: { label: 'Approved', color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/30' },
   exported: { label: 'Exported', color: 'text-green-400', bg: 'bg-green-500/10 border-green-500/30' },
@@ -536,29 +543,43 @@ export default function PolicyGenerationDashboard({
           </div>
         )}
 
-        {/* Generate Button */}
-        <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-semibold text-white">Generate {activePolicy.name}</h3>
-              <p className="text-xs text-slate-400 mt-1">
-                {orgCompletion < 50
+        {/* Generate Button — contextual message based on current policy state */}
+        <div className={`backdrop-blur-sm border rounded-lg p-6 ${
+          activePolicy.status === 'draft' || activePolicy.status === 'approved'
+            ? 'bg-emerald-500/5 border-emerald-500/20'
+            : 'bg-rose-500/5 border-rose-500/20'
+        }`}>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="text-sm font-semibold text-white">
+                {activePolicy.status === 'draft' || activePolicy.status === 'approved'
+                  ? `${activePolicy.name} has been generated`
+                  : `${activePolicy.name} has not been generated yet`}
+              </h3>
+              <p className="text-xs text-slate-300 mt-1">
+                {activePolicy.status === 'generating'
+                  ? 'A previous attempt is running or stalled. Click below to retry.'
+                  : activePolicy.status === 'draft'
+                  ? 'The draft is shown below. Review the content and approve when ready, or regenerate with different inputs.'
+                  : activePolicy.status === 'approved'
+                  ? 'This policy is approved. You can regenerate a new version if needed.'
+                  : orgCompletion < 50
                   ? 'Complete the Organization Profile first for best results.'
-                  : 'Ready to generate. The AI will use your org profile and policy answers.'}
+                  : 'Click Generate to create this policy. The AI will use your org profile and policy answers below.'}
               </p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-shrink-0">
               <button
                 onClick={generatePolicyHandler}
                 disabled={generating}
-                className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-sm font-medium disabled:opacity-50 flex items-center gap-2"
+                className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-sm font-medium disabled:opacity-50 flex items-center gap-2 whitespace-nowrap"
               >
                 {generating && <span className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />}
                 {generating
-                  ? 'Generating...'
+                  ? 'Generating\u2026'
                   : activePolicy.status === 'generating'
-                  ? 'Retry — Previous Attempt Stalled'
-                  : activePolicy.status === 'draft'
+                  ? 'Retry Generation'
+                  : activePolicy.status === 'draft' || activePolicy.status === 'approved'
                   ? 'Regenerate'
                   : 'Generate Policy'}
               </button>
@@ -656,38 +677,60 @@ export default function PolicyGenerationDashboard({
 
       {analysis && !loading && (
         <>
-          {/* Stats Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-            <StatCard label="Total Required" value={analysis.stats.totalRequired} color="text-white" />
-            <StatCard label="Existing" value={analysis.stats.existing} color="text-blue-400" />
-            <StatCard label="Missing" value={analysis.stats.missing} color="text-red-400" />
-            <StatCard label="Drafts" value={analysis.stats.drafts} color="text-cyan-400" />
-            <StatCard label="Approved" value={analysis.stats.approved} color="text-emerald-400" />
-            <StatCard label="Intake Needed" value={analysis.stats.intakeNeeded} color="text-violet-400" />
+          {/* Next Step Banner — tells the user exactly what to do now */}
+          <NextStepBanner
+            orgCompletion={orgCompletion}
+            stats={analysis.stats}
+            massGenerating={massGenerating}
+            onOpenOrgProfile={() => { setView('org-profile'); loadOrgProfile() }}
+            onGenerateAll={generateAllMissing}
+          />
+
+          {/* Progress Bar + Clean Stats Row */}
+          <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg p-4 sm:p-6">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-white">Overall Progress</h3>
+              <span className="text-sm text-slate-400">
+                {analysis.stats.drafts + analysis.stats.approved} of {analysis.stats.totalRequired} generated
+              </span>
+            </div>
+            <div className="w-full bg-slate-700/50 rounded-full h-2.5 mb-4 overflow-hidden">
+              <div className="flex h-2.5">
+                <div
+                  className="bg-emerald-500 transition-all"
+                  style={{ width: `${analysis.stats.totalRequired > 0 ? (analysis.stats.approved / analysis.stats.totalRequired) * 100 : 0}%` }}
+                  title={`${analysis.stats.approved} approved`}
+                />
+                <div
+                  className="bg-blue-500 transition-all"
+                  style={{ width: `${analysis.stats.totalRequired > 0 ? (analysis.stats.drafts / analysis.stats.totalRequired) * 100 : 0}%` }}
+                  title={`${analysis.stats.drafts} drafts`}
+                />
+                <div
+                  className="bg-cyan-500 animate-pulse transition-all"
+                  style={{ width: `${analysis.stats.totalRequired > 0 ? (analysis.stats.generating / analysis.stats.totalRequired) * 100 : 0}%` }}
+                  title={`${analysis.stats.generating} generating`}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <StatCard label="Not Generated" value={analysis.stats.notGenerated} color="text-rose-400" />
+              <StatCard label="Generating" value={analysis.stats.generating} color="text-cyan-400" />
+              <StatCard label="Drafts to Review" value={analysis.stats.drafts} color="text-blue-400" />
+              <StatCard label="Approved" value={analysis.stats.approved} color="text-emerald-400" />
+            </div>
           </div>
 
-          {/* Action Bar */}
+          {/* Secondary Actions */}
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div className="flex flex-wrap gap-2">
               <button
                 onClick={() => { setView('org-profile'); loadOrgProfile() }}
-                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm font-medium flex items-center gap-2"
+                className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-medium flex items-center gap-2"
               >
-                <span>Organization Profile</span>
-                <span className="text-xs text-slate-400">({orgCompletion}%)</span>
+                <span>Edit Organization Profile</span>
+                <span className="text-slate-400">({orgCompletion}%)</span>
               </button>
-              {analysis && analysis.stats.missing + analysis.stats.intakeNeeded > 0 && (
-                <button
-                  onClick={generateAllMissing}
-                  disabled={massGenerating || generating}
-                  className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-white rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                >
-                  {massGenerating && <span className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />}
-                  {massGenerating
-                    ? `Generating ${massProgress.current}/${massProgress.total}...`
-                    : `Generate All Missing (${analysis.stats.missing + analysis.stats.intakeNeeded})`}
-                </button>
-              )}
             </div>
             <div className="flex gap-2">
               <button
@@ -786,6 +829,135 @@ export default function PolicyGenerationDashboard({
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
+
+function NextStepBanner({
+  orgCompletion,
+  stats,
+  massGenerating,
+  onOpenOrgProfile,
+  onGenerateAll,
+}: {
+  orgCompletion: number
+  stats: NeedsAnalysis['stats']
+  massGenerating: boolean
+  onOpenOrgProfile: () => void
+  onGenerateAll: () => void
+}) {
+  // Determine current phase and next action in priority order:
+  // 1. Org profile incomplete → fill it first
+  // 2. Policies not generated → generate them
+  // 3. Drafts exist → review them
+  // 4. All approved → done
+  let phase: 'profile' | 'generate' | 'review' | 'done' = 'done'
+  if (orgCompletion < 60) phase = 'profile'
+  else if (stats.notGenerated > 0) phase = 'generate'
+  else if (stats.drafts > 0) phase = 'review'
+
+  const phases = [
+    { key: 'profile', num: 1, label: 'Organization Profile' },
+    { key: 'generate', num: 2, label: 'Generate Policies' },
+    { key: 'review', num: 3, label: 'Review & Approve' },
+  ] as const
+
+  return (
+    <div className="bg-gradient-to-br from-cyan-500/10 to-blue-500/10 border border-cyan-500/30 rounded-lg p-4 sm:p-6">
+      {/* Phase indicator */}
+      <div className="flex items-center gap-2 mb-4">
+        {phases.map((p, i) => {
+          const isActive = p.key === phase
+          const isDone = phases.findIndex((x) => x.key === phase) > i
+          return (
+            <div key={p.key} className="flex items-center gap-2 flex-1 min-w-0">
+              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 border-2 ${
+                isDone ? 'bg-emerald-500 border-emerald-500 text-white'
+                  : isActive ? 'bg-cyan-500 border-cyan-500 text-white'
+                  : 'border-slate-600 text-slate-500'
+              }`}>
+                {isDone ? '\u2713' /* checkmark */ : p.num}
+              </div>
+              <span className={`text-xs font-medium truncate ${
+                isActive ? 'text-cyan-300' : isDone ? 'text-emerald-400' : 'text-slate-500'
+              }`}>
+                {p.label}
+              </span>
+              {i < phases.length - 1 && (
+                <div className={`flex-1 h-0.5 min-w-4 ${isDone ? 'bg-emerald-500' : 'bg-slate-700'}`} />
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Next step message + action */}
+      {phase === 'profile' && (
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="text-base font-semibold text-white">Step 1: Complete the Organization Profile</h3>
+            <p className="text-sm text-slate-300 mt-1">
+              The AI uses this to personalize every policy. You&apos;re <span className="font-semibold text-cyan-300">{orgCompletion}%</span> complete.
+              Fields are auto-filled from uploaded policies and platform mappings where possible.
+            </p>
+          </div>
+          <button
+            onClick={onOpenOrgProfile}
+            className="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-white rounded-lg text-sm font-semibold flex-shrink-0"
+          >
+            Open Profile &rarr;
+          </button>
+        </div>
+      )}
+
+      {phase === 'generate' && (
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="text-base font-semibold text-white">Step 2: Generate {stats.notGenerated} Missing Polic{stats.notGenerated === 1 ? 'y' : 'ies'}</h3>
+            <p className="text-sm text-slate-300 mt-1">
+              Your Organization Profile is ready ({orgCompletion}%). Click below to batch-generate all remaining policies.
+              They&apos;ll come back as drafts for your review.
+            </p>
+          </div>
+          <button
+            onClick={onGenerateAll}
+            disabled={massGenerating}
+            className="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-white rounded-lg text-sm font-semibold flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          >
+            {massGenerating && <span className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />}
+            {massGenerating ? 'Generating\u2026' : `Generate ${stats.notGenerated} Polic${stats.notGenerated === 1 ? 'y' : 'ies'} \u2192`}
+          </button>
+        </div>
+      )}
+
+      {phase === 'review' && (
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="text-base font-semibold text-white">Step 3: Review {stats.drafts} Draft Polic{stats.drafts === 1 ? 'y' : 'ies'}</h3>
+            <p className="text-sm text-slate-300 mt-1">
+              All policies are generated. Click on each draft below to review the content and approve it.
+              Approved policies are ready to share with the customer.
+            </p>
+          </div>
+          <div className="px-4 py-2 bg-blue-500/20 text-blue-300 border border-blue-500/30 rounded-lg text-sm font-medium flex-shrink-0">
+            {stats.drafts} awaiting review
+          </div>
+        </div>
+      )}
+
+      {phase === 'done' && (
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-emerald-500 flex items-center justify-center text-white text-lg flex-shrink-0">
+            &#10003;
+          </div>
+          <div className="min-w-0">
+            <h3 className="text-base font-semibold text-white">All Policies Approved</h3>
+            <p className="text-sm text-slate-300 mt-1">
+              {stats.approved} of {stats.totalRequired} policies are approved. Use the Download buttons below to deliver them to the customer.
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 function StatCard({ label, value, color }: { label: string; value: number; color: string }) {
   return (

@@ -74,7 +74,7 @@ export async function GET(request: NextRequest) {
         companyName: 'Unknown',
         selectedFrameworks: frameworkIds,
         requiredPolicies,
-        stats: { totalRequired: requiredPolicies.length, existing: 0, missing: requiredPolicies.length, drafts: 0, approved: 0, intakeNeeded: 0 },
+        stats: { totalRequired: requiredPolicies.length, existing: 0, missing: requiredPolicies.length, drafts: 0, approved: 0, intakeNeeded: 0, notGenerated: requiredPolicies.length, generating: 0 },
       } satisfies PolicyNeedsAnalysis,
     })
   }
@@ -175,6 +175,14 @@ export async function GET(request: NextRequest) {
       }
     })
 
+    // notGenerated includes all pre-generation states (what the user sees as "needs work")
+    // so counts match the list. Avoids the old mismatch where 'ready_to_generate'
+    // wasn't counted in Missing but still showed as a "Ready" badge in the list.
+    const notGenerated = requiredPolicies.filter(
+      (p) => (p.status === 'missing' || p.status === 'intake_needed' || p.status === 'ready_to_generate')
+        && !p.existingPolicyId
+    ).length
+
     const stats = {
       totalRequired: requiredPolicies.length,
       existing: requiredPolicies.filter((p) => p.existingPolicyId).length,
@@ -182,6 +190,8 @@ export async function GET(request: NextRequest) {
       drafts: requiredPolicies.filter((p) => p.status === 'draft').length,
       approved: requiredPolicies.filter((p) => p.status === 'approved').length,
       intakeNeeded: requiredPolicies.filter((p) => p.status === 'intake_needed').length,
+      notGenerated,
+      generating: requiredPolicies.filter((p) => p.status === 'generating').length,
     }
 
     const analysis: PolicyNeedsAnalysis = {
