@@ -234,10 +234,21 @@ export default function PolicyGenerationDashboard({
       setOrgAnswers(json.data.orgProfile.answers)
       setOrgCompletion(json.data.orgProfile.completionPct)
       setAutoFilledFields(json.data.orgProfile.autoFilledFields ?? [])
-      // Sync framework selection from org profile
+      // Sync framework selection from org profile.
+      // CRITICAL: only update state when the values actually differ. Passing a
+      // new array reference with identical contents causes React to re-render,
+      // which changes loadAnalysis's identity (via useCallback deps), which
+      // re-triggers the useEffect that calls loadOrgProfile again \u2014 an
+      // infinite re-fetch loop that shows "Loading policy analysis..." flashing.
       const fw = json.data.orgProfile.answers?.org_target_frameworks
       if (Array.isArray(fw) && fw.length > 0) {
-        setSelectedFrameworks(fw as string[])
+        const newFw = fw as string[]
+        setSelectedFrameworks((current) => {
+          if (current.length === newFw.length && current.every((v, i) => v === newFw[i])) {
+            return current // same content \u2014 keep existing reference, no re-render
+          }
+          return newFw
+        })
       }
     } catch { /* ignore */ }
   }, [companyId])
