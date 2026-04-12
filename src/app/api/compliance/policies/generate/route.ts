@@ -284,11 +284,17 @@ export async function PATCH(request: NextRequest) {
     const body = (await request.json()) as {
       companyId?: string
       policySlug?: string
-      action?: 'approve' | 'reject' | 'mark_review'
+      action?: 'approve' | 'reject' | 'mark_review' | 'edit'
+      /** Required when action === 'edit' — the new markdown content */
+      content?: string
     }
 
     if (!body.companyId || !body.policySlug || !body.action) {
       return NextResponse.json({ error: 'companyId, policySlug, and action are required' }, { status: 400 })
+    }
+
+    if (body.action === 'edit' && (!body.content || body.content.trim().length < 10)) {
+      return NextResponse.json({ error: 'content is required for edit action' }, { status: 400 })
     }
 
     await ensureComplianceTables()
@@ -296,12 +302,67 @@ export async function PATCH(request: NextRequest) {
     const client = await pool.connect()
 
     try {
+      // ---- EDIT: persist tech-authored content ----
+      // Updates the linked compliance_policies.content in place AND inserts a
+      // new policy_versions row so we keep an audit trail of manual edits.
+      // Sets the generation record status back to 'draft' (so an approved
+      // policy that's edited needs to be re-approved).
+      if (body.action === 'edit') {
+        // Find the linked policyId from the generation record
+        const recordRes = await client.query<{ policyId: string | null }>(
+          `SELECT "policyId" FROM policy_generation_records
+           WHERE "companyId" = $1 AND "policySlug" = $2`,
+          [body.companyId, body.policySlug]
+        )
+        const policyId = recordRes.rows[0]?.policyId
+        if (!policyId) {
+          return NextResponse.json({ error: 'No generated policy to edit. Generate it first.' }, { status: 404 })
+        }
+
+        await client.query(
+          `UPDATE compliance_policies SET content = $1, "updatedAt" = NOW() WHERE id = $2`,
+          [body.content, policyId]
+        )
+
+        // Insert a new version row for audit trail (best-effort)
+        try {
+          const versionRes = await client.query<{ version: number }>(
+            `SELECT COALESCE(MAX(version), 0) + 1 as version FROM policy_versions
+             WHERE "companyId" = $1 AND "policySlug" = $2`,
+            [body.companyId, body.policySlug]
+          )
+          const newVersion = versionRes.rows[0]?.version ?? 1
+          await client.query(
+            `INSERT INTO policy_versions ("companyId", "policySlug", version, "policyId", content, status, "inputSnapshot", "generatedAt", "generatedBy")
+             VALUES ($1, $2, $3, $4, $5, 'draft', '{"source":"manual_edit"}'::jsonb, NOW(), $6)`,
+            [body.companyId, body.policySlug, newVersion, policyId, body.content, session.user.email]
+          )
+          await client.query(
+            `UPDATE policy_generation_records
+             SET status = 'draft', version = $1, "updatedAt" = NOW()
+             WHERE "companyId" = $2 AND "policySlug" = $3`,
+            [newVersion, body.companyId, body.policySlug]
+          )
+        } catch (vErr) {
+          console.warn('[compliance/policies/generate] policy_versions write failed on edit:', vErr instanceof Error ? vErr.message : vErr)
+          // Still update the generation record status even if version write failed
+          await client.query(
+            `UPDATE policy_generation_records
+             SET status = 'draft', "updatedAt" = NOW()
+             WHERE "companyId" = $1 AND "policySlug" = $2`,
+            [body.companyId, body.policySlug]
+          )
+        }
+
+        return NextResponse.json({ success: true, status: 'draft', content: body.content })
+      }
+
       const statusMap = {
         approve: 'approved',
         reject: 'missing',
         mark_review: 'under_review',
-      }
-      const newStatus = statusMap[body.action]
+      } as const
+      const newStatus = statusMap[body.action as keyof typeof statusMap]
 
       const updateFields = body.action === 'approve'
         ? `, "approvedAt" = NOW(), "approvedBy" = '${session.user.email}'`

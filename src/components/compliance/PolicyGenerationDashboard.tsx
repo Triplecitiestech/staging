@@ -155,6 +155,14 @@ export default function PolicyGenerationDashboard({
   const [generating, setGenerating] = useState(false)
   const [savingPolicy, setSavingPolicy] = useState(false)
 
+  // Manual edit state for the Policy Draft card.
+  // isEditingDraft toggles between rendered preview and a textarea editor;
+  // editedDraft holds the tech's in-progress edits until they save/cancel.
+  const [isEditingDraft, setIsEditingDraft] = useState(false)
+  const [editedDraft, setEditedDraft] = useState('')
+  const [savingDraft, setSavingDraft] = useState(false)
+  const [draftSaveError, setDraftSaveError] = useState<string | null>(null)
+
   // Mass generation state
   const [massGenerating, setMassGenerating] = useState(false)
   const [massProgress, setMassProgress] = useState({ current: 0, total: 0, currentName: '', completed: 0, failed: 0 })
@@ -346,6 +354,55 @@ export default function PolicyGenerationDashboard({
     }
   }
 
+  // Save manually-edited draft content
+  const saveDraftEdit = async () => {
+    if (!activePolicySlug) return
+    if (!editedDraft || editedDraft.trim().length < 10) {
+      setDraftSaveError('Content is too short. Enter the full policy text before saving.')
+      return
+    }
+    setSavingDraft(true)
+    setDraftSaveError(null)
+    try {
+      const res = await fetch('/api/compliance/policies/generate', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyId,
+          policySlug: activePolicySlug,
+          action: 'edit',
+          content: editedDraft,
+        }),
+      })
+      const contentType = res.headers.get('content-type') ?? ''
+      if (!contentType.includes('application/json')) {
+        throw new Error(`Server error (${res.status})`)
+      }
+      const json = await res.json()
+      if (!json.success) throw new Error(json.error || 'Failed to save')
+      setGeneratedContent(editedDraft)
+      setIsEditingDraft(false)
+      await loadAnalysis()
+    } catch (err) {
+      setDraftSaveError(err instanceof Error ? err.message : 'Failed to save edit')
+    } finally {
+      setSavingDraft(false)
+    }
+  }
+
+  // Start editing: copy current content into the edit buffer
+  const startEditingDraft = () => {
+    setEditedDraft(generatedContent ?? '')
+    setDraftSaveError(null)
+    setIsEditingDraft(true)
+  }
+
+  const cancelEditingDraft = () => {
+    setIsEditingDraft(false)
+    setEditedDraft('')
+    setDraftSaveError(null)
+  }
+
   // Approve policy
   const approvePolicy = async () => {
     if (!activePolicySlug) return
@@ -363,6 +420,10 @@ export default function PolicyGenerationDashboard({
   const openPolicyDetail = (slug: string) => {
     setActivePolicySlug(slug)
     setGeneratedContent(null)
+    // Discard any in-progress manual edits — they belong to the previous policy.
+    setIsEditingDraft(false)
+    setEditedDraft('')
+    setDraftSaveError(null)
     setView('policy-detail')
     loadPolicyDetail(slug)
   }
@@ -769,45 +830,106 @@ export default function PolicyGenerationDashboard({
           )
         })()}
 
-        {/* Generated Content Preview */}
+        {/* Generated Content Preview (with inline edit) */}
         {(generatedContent || activePolicy.status === 'draft' || activePolicy.status === 'approved') && (
           <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-white">Policy Draft</h3>
-              <div className="flex gap-2">
-                {activePolicy.status === 'draft' && (
-                  <button
-                    onClick={approvePolicy}
-                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-medium"
-                  >
-                    Approve
-                  </button>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+              <div>
+                <h3 className="text-sm font-semibold text-white">Policy Draft</h3>
+                {isEditingDraft ? (
+                  <p className="text-xs text-cyan-400 mt-0.5">
+                    Editing \u2014 changes are saved as a new version when you click Save.
+                  </p>
+                ) : (
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Click Edit to make manual changes to the generated content.
+                  </p>
                 )}
-                <button
-                  onClick={() => downloadPolicy(activePolicySlug, 'html')}
-                  className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded text-xs"
-                >
-                  Download HTML
-                </button>
-                <button
-                  onClick={() => downloadPolicy(activePolicySlug, 'markdown')}
-                  className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded text-xs"
-                >
-                  Download MD
-                </button>
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                {isEditingDraft ? (
+                  <>
+                    <button
+                      onClick={cancelEditingDraft}
+                      disabled={savingDraft}
+                      className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded text-xs disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={saveDraftEdit}
+                      disabled={savingDraft}
+                      className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded text-xs font-medium disabled:opacity-50 flex items-center gap-2"
+                    >
+                      {savingDraft && <span className="animate-spin w-3 h-3 border-2 border-white border-t-transparent rounded-full" />}
+                      {savingDraft ? 'Saving\u2026' : 'Save Changes'}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={startEditingDraft}
+                      disabled={!generatedContent}
+                      className="px-3 py-1.5 bg-violet-500/20 text-violet-300 border border-violet-500/30 hover:bg-violet-500/30 rounded text-xs font-medium disabled:opacity-50"
+                    >
+                      Edit
+                    </button>
+                    {activePolicy.status === 'draft' && (
+                      <button
+                        onClick={approvePolicy}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-medium"
+                      >
+                        Approve
+                      </button>
+                    )}
+                    <button
+                      onClick={() => downloadPolicy(activePolicySlug, 'html')}
+                      className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded text-xs"
+                    >
+                      Download HTML
+                    </button>
+                    <button
+                      onClick={() => downloadPolicy(activePolicySlug, 'markdown')}
+                      className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded text-xs"
+                    >
+                      Download MD
+                    </button>
+                  </>
+                )}
               </div>
             </div>
-            <div className="bg-white/5 rounded-lg p-4 max-h-[600px] overflow-y-auto">
-              <div
-                className="prose prose-invert prose-sm max-w-none text-slate-300
-                  [&_h1]:text-lg [&_h1]:text-white [&_h1]:font-bold [&_h1]:mt-6 [&_h1]:mb-3
-                  [&_h2]:text-base [&_h2]:text-cyan-400 [&_h2]:font-semibold [&_h2]:mt-5 [&_h2]:mb-2
-                  [&_h3]:text-sm [&_h3]:text-slate-200 [&_h3]:font-semibold [&_h3]:mt-4 [&_h3]:mb-1
-                  [&_strong]:text-white [&_ul]:list-disc [&_ol]:list-decimal [&_li]:ml-4"
-              >
-                <MarkdownPreview content={generatedContent ?? 'Loading...'} />
+
+            {draftSaveError && (
+              <div className="mb-3 p-2 bg-red-500/10 border border-red-500/30 rounded text-xs text-red-300">
+                {draftSaveError}
               </div>
-            </div>
+            )}
+
+            {isEditingDraft ? (
+              <div>
+                <textarea
+                  value={editedDraft}
+                  onChange={(e) => setEditedDraft(e.target.value)}
+                  spellCheck
+                  className="w-full h-[600px] bg-slate-900/70 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-100 font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-cyan-500/50 resize-y"
+                />
+                <p className="text-xs text-slate-500 mt-1">
+                  Markdown supported. {editedDraft.length.toLocaleString()} characters.
+                </p>
+              </div>
+            ) : (
+              <div className="bg-white/5 rounded-lg p-4 max-h-[600px] overflow-y-auto">
+                <div
+                  className="prose prose-invert prose-sm max-w-none text-slate-300
+                    [&_h1]:text-lg [&_h1]:text-white [&_h1]:font-bold [&_h1]:mt-6 [&_h1]:mb-3
+                    [&_h2]:text-base [&_h2]:text-cyan-400 [&_h2]:font-semibold [&_h2]:mt-5 [&_h2]:mb-2
+                    [&_h3]:text-sm [&_h3]:text-slate-200 [&_h3]:font-semibold [&_h3]:mt-4 [&_h3]:mb-1
+                    [&_strong]:text-white [&_ul]:list-disc [&_ol]:list-decimal [&_li]:ml-4"
+                >
+                  <MarkdownPreview content={generatedContent ?? 'Loading...'} />
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
