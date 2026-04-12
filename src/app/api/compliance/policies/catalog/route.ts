@@ -89,6 +89,19 @@ export async function GET(request: NextRequest) {
     // Get existing generation records for this company (graceful if table missing)
     let recordMap = new Map<string, { policySlug: string; status: string; policyId: string | null; updatedAt: string }>()
     try {
+      // First, auto-reset any "generating" records older than 5 minutes — these are stuck
+      // due to Vercel 60s function timeout. This lets the UI show accurate state without
+      // requiring the user to manually re-trigger generation.
+      try {
+        await client.query(
+          `UPDATE policy_generation_records
+           SET status = CASE WHEN "policyId" IS NOT NULL THEN 'draft' ELSE 'ready_to_generate' END,
+               "updatedAt" = NOW()
+           WHERE "companyId" = $1 AND status = 'generating' AND "updatedAt" < NOW() - INTERVAL '5 minutes'`,
+          [companyId]
+        )
+      } catch { /* ignore if table doesn't exist */ }
+
       const genRecords = await client.query<{
         policySlug: string; status: string; policyId: string | null; updatedAt: string
       }>(
