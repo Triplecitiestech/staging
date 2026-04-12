@@ -218,8 +218,12 @@ export interface PolicyNeedsAnalysis {
     drafts: number
     approved: number
     intakeNeeded: number
-    /** Total policies not yet generated (missing + intake_needed + ready_to_generate). Use this for user-facing counts. */
+    /** Pre-generation catalog items with no uploaded coverage — must generate from scratch */
     notGenerated: number
+    /** Pre-generation catalog items with partial uploaded coverage — offer Enhance */
+    needsEnhancement: number
+    /** Pre-generation catalog items already covered (>=80%) by uploaded policies */
+    coveredByExisting: number
     /** Policies currently generating */
     generating: number
   }
@@ -241,6 +245,17 @@ export interface PolicyNeedItem {
   controlCount: number
   /** Last updated date if exists */
   lastUpdated: string | null
+  /**
+   * How well do existing uploaded policies cover this catalog item?
+   *   'covered' — uploaded policies satisfy >=80% of controls (don't regenerate, offer Enhance)
+   *   'partial' — some controls covered, some gaps (offer Enhance to fill gaps)
+   *   'none'    — no uploaded coverage (must Generate from scratch)
+   */
+  coverageStatus: 'covered' | 'partial' | 'none'
+  /** 0-100 — percentage of controls for this policy that are already covered by uploads */
+  coverageRatio: number
+  /** Titles of uploaded policies that contribute to this catalog item's coverage */
+  coveredBy: string[]
 }
 
 // ---------------------------------------------------------------------------

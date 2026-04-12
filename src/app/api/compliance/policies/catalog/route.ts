@@ -9,7 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { POLICY_CATALOG, getCatalogForFrameworks, getCategoryLabel } from '@/lib/compliance/policy-generation/catalog'
-import { getControlCountByPolicy } from '@/lib/compliance/policy-generation/framework-mappings'
+import { getControlCountByPolicy, FRAMEWORK_POLICY_MAPPINGS } from '@/lib/compliance/policy-generation/framework-mappings'
 import { getPool } from '@/lib/db-pool'
 import type { PolicyGenStatus, PolicyNeedsAnalysis, PolicyNeedItem } from '@/lib/compliance/policy-generation/types'
 
@@ -66,6 +66,9 @@ export async function GET(request: NextRequest) {
       existingPolicyId: null,
       controlCount: controlCounts.get(item.slug) ?? 0,
       lastUpdated: null,
+      coverageStatus: 'none' as const,
+      coverageRatio: 0,
+      coveredBy: [],
     }))
     return NextResponse.json({
       success: true,
@@ -74,7 +77,7 @@ export async function GET(request: NextRequest) {
         companyName: 'Unknown',
         selectedFrameworks: frameworkIds,
         requiredPolicies,
-        stats: { totalRequired: requiredPolicies.length, existing: 0, missing: requiredPolicies.length, drafts: 0, approved: 0, intakeNeeded: 0, notGenerated: requiredPolicies.length, generating: 0 },
+        stats: { totalRequired: requiredPolicies.length, existing: 0, missing: requiredPolicies.length, drafts: 0, approved: 0, intakeNeeded: 0, notGenerated: requiredPolicies.length, needsEnhancement: 0, coveredByExisting: 0, generating: 0 },
       } satisfies PolicyNeedsAnalysis,
     })
   }
@@ -115,42 +118,128 @@ export async function GET(request: NextRequest) {
       console.warn('[compliance/policies/catalog] policy_generation_records query failed (table may not exist):', tableErr instanceof Error ? tableErr.message : tableErr)
     }
 
-    // Also check existing uploaded policies
-    const existingByCategory = new Map<string, { id: string; updatedAt: string }>()
+    // Also check existing uploaded policies + their AI analyses for control coverage.
+    // This is how we determine whether a catalog policy is already covered by
+    // something the customer already has, so we don't ask the tech to regenerate
+    // 21 policies when 18 are already uploaded and cover most of the controls.
+    const existingByCategory = new Map<string, { id: string; title: string; updatedAt: string }>()
+    const uploadedPolicies: Array<{ id: string; title: string; category: string; updatedAt: string }> = []
     try {
-      const existingPolicies = await client.query<{ id: string; category: string; updatedAt: string }>(
-        `SELECT id, category, "updatedAt" FROM compliance_policies
+      const existingPolicies = await client.query<{ id: string; title: string; category: string; updatedAt: string }>(
+        `SELECT id, title, category, "updatedAt" FROM compliance_policies
          WHERE "companyId" = $1`,
         [companyId]
       )
       for (const p of existingPolicies.rows) {
+        uploadedPolicies.push(p)
         const slug = categoryToSlug(p.category)
-        if (slug) existingByCategory.set(slug, { id: p.id, updatedAt: p.updatedAt })
+        if (slug) existingByCategory.set(slug, { id: p.id, title: p.title, updatedAt: p.updatedAt })
       }
     } catch {
       // compliance_policies may not exist either — proceed without
+    }
+
+    // Load analyses so we can determine which controls are covered by each policy.
+    // We use actual control coverage (not just category matching) because a policy
+    // named "Written Information Security Policy" might cover many controls that
+    // span multiple catalog entries.
+    type AnalysisRow = {
+      policyId: string
+      satisfiedControls: string[] | null
+      partialControls: string[] | null
+    }
+    const analysesByPolicyId = new Map<string, AnalysisRow>()
+    try {
+      const analysesRes = await client.query<AnalysisRow>(
+        `SELECT "policyId", "satisfiedControls", "partialControls"
+         FROM compliance_policy_analyses
+         WHERE "companyId" = $1 AND status = 'complete'`,
+        [companyId]
+      )
+      for (const a of analysesRes.rows) {
+        analysesByPolicyId.set(a.policyId, a)
+      }
+    } catch { /* table may not exist yet */ }
+
+    // Build a map: controlId -> list of uploaded policies that satisfy/partially-cover it
+    const controlToExistingPolicies = new Map<string, Array<{ policyId: string; title: string; level: 'satisfied' | 'partial' }>>()
+    for (const p of uploadedPolicies) {
+      const a = analysesByPolicyId.get(p.id)
+      if (!a) continue
+      for (const c of a.satisfiedControls ?? []) {
+        if (!controlToExistingPolicies.has(c)) controlToExistingPolicies.set(c, [])
+        controlToExistingPolicies.get(c)!.push({ policyId: p.id, title: p.title, level: 'satisfied' })
+      }
+      for (const c of a.partialControls ?? []) {
+        if (!controlToExistingPolicies.has(c)) controlToExistingPolicies.set(c, [])
+        controlToExistingPolicies.get(c)!.push({ policyId: p.id, title: p.title, level: 'partial' })
+      }
     }
 
     // Build control counts
     const controlCounts = getControlCountByPolicy(frameworkIds.length > 0 ? frameworkIds : ['cis-v8'])
 
     // Build needs analysis
+    const activeFrameworks = frameworkIds.length > 0 ? frameworkIds : ['cis-v8']
     const requiredPolicies: PolicyNeedItem[] = catalog.map((item) => {
       const genRecord = recordMap.get(item.slug)
       const existing = existingByCategory.get(item.slug)
 
+      // --- Compute coverage from uploaded policies ---
+      // What controls does THIS catalog policy aim to cover?
+      const catalogControls = FRAMEWORK_POLICY_MAPPINGS
+        .filter((m) => m.policySlug === item.slug && activeFrameworks.includes(m.frameworkId))
+        .map((m) => m.controlId)
+      const uniqueCatalogControls = Array.from(new Set(catalogControls))
+
+      // Which of those are already covered by uploaded policies?
+      const satisfiedCovered = new Set<string>()
+      const partialCovered = new Set<string>()
+      const coveringPolicyTitles = new Set<string>()
+      for (const c of uniqueCatalogControls) {
+        const covers = controlToExistingPolicies.get(c) ?? []
+        let hasSatisfied = false
+        let hasPartial = false
+        for (const cov of covers) {
+          coveringPolicyTitles.add(cov.title)
+          if (cov.level === 'satisfied') hasSatisfied = true
+          else hasPartial = true
+        }
+        if (hasSatisfied) satisfiedCovered.add(c)
+        else if (hasPartial) partialCovered.add(c)
+      }
+      const totalControls = uniqueCatalogControls.length
+      const coveredRatio = totalControls > 0 ? satisfiedCovered.size / totalControls : 0
+      const anyCoverage = satisfiedCovered.size + partialCovered.size > 0
+
+      // Determine coverage status (existing uploaded content):
+      //   'covered' — existing policies satisfy >=80% of controls → offer Enhance, not Generate New
+      //   'partial' — some coverage but gaps → offer Enhance to fill gaps
+      //   'none'    — no uploaded policy covers these controls → must Generate New
+      let coverageStatus: 'covered' | 'partial' | 'none' = 'none'
+      if (coveredRatio >= 0.8) coverageStatus = 'covered'
+      else if (anyCoverage) coverageStatus = 'partial'
+
+      // Derive status with the existing uploaded content in mind.
+      // Priority: generation record (what the AI has done) > category match > coverage match.
       let status: PolicyGenStatus = 'missing'
       let existingPolicyId: string | null = null
       let lastUpdated: string | null = null
 
       if (genRecord) {
+        // AI has generated or is generating this policy — use that status
         status = genRecord.status as PolicyGenStatus
         existingPolicyId = genRecord.policyId
         lastUpdated = genRecord.updatedAt
       } else if (existing) {
-        status = 'missing' // Exists as uploaded but not as generated — still counts as "existing"
+        // Uploaded policy matches this catalog by category name
         existingPolicyId = existing.id
         lastUpdated = existing.updatedAt
+        status = 'missing'
+      } else if (coverageStatus !== 'none') {
+        // No direct category match but the customer has policies covering these controls
+        lastUpdated = null
+        status = 'missing'
       }
 
       // Determine highest requirement level
@@ -172,25 +261,38 @@ export async function GET(request: NextRequest) {
         existingPolicyId,
         controlCount: controlCounts.get(item.slug) ?? 0,
         lastUpdated,
+        coverageStatus,
+        coverageRatio: Math.round(coveredRatio * 100),
+        coveredBy: Array.from(coveringPolicyTitles),
       }
     })
 
-    // notGenerated includes all pre-generation states (what the user sees as "needs work")
-    // so counts match the list. Avoids the old mismatch where 'ready_to_generate'
-    // wasn't counted in Missing but still showed as a "Ready" badge in the list.
+    // Counts that reflect real user-visible work:
+    //   coveredByExisting — uploaded policies already satisfy most controls, nothing to generate
+    //   needsEnhancement  — partial coverage, user can choose to enhance
+    //   notGenerated      — truly missing (no uploaded coverage, no AI generation)
+    const isUngenerated = (p: PolicyNeedItem) =>
+      (p.status === 'missing' || p.status === 'intake_needed' || p.status === 'ready_to_generate')
+    const coveredByExisting = requiredPolicies.filter(
+      (p) => isUngenerated(p) && p.coverageStatus === 'covered'
+    ).length
+    const needsEnhancement = requiredPolicies.filter(
+      (p) => isUngenerated(p) && p.coverageStatus === 'partial'
+    ).length
     const notGenerated = requiredPolicies.filter(
-      (p) => (p.status === 'missing' || p.status === 'intake_needed' || p.status === 'ready_to_generate')
-        && !p.existingPolicyId
+      (p) => isUngenerated(p) && p.coverageStatus === 'none'
     ).length
 
     const stats = {
       totalRequired: requiredPolicies.length,
       existing: requiredPolicies.filter((p) => p.existingPolicyId).length,
-      missing: requiredPolicies.filter((p) => p.status === 'missing' && !p.existingPolicyId).length,
+      missing: requiredPolicies.filter((p) => p.status === 'missing' && !p.existingPolicyId && p.coverageStatus === 'none').length,
       drafts: requiredPolicies.filter((p) => p.status === 'draft').length,
       approved: requiredPolicies.filter((p) => p.status === 'approved').length,
       intakeNeeded: requiredPolicies.filter((p) => p.status === 'intake_needed').length,
       notGenerated,
+      needsEnhancement,
+      coveredByExisting,
       generating: requiredPolicies.filter((p) => p.status === 'generating').length,
     }
 
