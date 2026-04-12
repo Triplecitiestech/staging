@@ -267,6 +267,11 @@ export async function generatePolicy(input: GenerationInput): Promise<GenerateRe
   // Compute input hash for change detection
   const inputHash = computeInputHash(input)
 
+  // Max tokens is deliberately 5000 (not 8000) and timeout is 50s (not 60s) so
+  // the total request stays within Vercel's 60s function timeout. The previous
+  // configuration occasionally produced FUNCTION_INVOCATION_TIMEOUT 504s when
+  // Anthropic's API was slow or the prompt was complex (e.g. gap-filling
+  // generation with multiple framework controls injected).
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -276,11 +281,11 @@ export async function generatePolicy(input: GenerationInput): Promise<GenerateRe
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 8000,
+      max_tokens: 5000,
       system: systemPrompt,
       messages: [{ role: 'user', content: userPrompt }],
     }),
-    signal: AbortSignal.timeout(60_000),
+    signal: AbortSignal.timeout(50_000),
   })
 
   if (!res.ok) {
