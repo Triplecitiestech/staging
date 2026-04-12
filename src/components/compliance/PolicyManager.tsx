@@ -1021,8 +1021,60 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
 
                 {/* Error State */}
                 {isExpanded && analysis?.status === 'error' && (
-                  <div className="border-t border-white/5 p-4">
+                  <div className="border-t border-white/5 p-4 space-y-3">
                     <p className="text-sm text-red-400">{analysis.analysisText || 'Analysis failed'}</p>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); reanalyzePolicy(policy.id) }}
+                      disabled={reanalyzing !== null}
+                      className="text-xs px-3 py-1 bg-violet-500/20 text-violet-400 border border-violet-500/30 rounded hover:bg-violet-500/30 disabled:opacity-50 transition-all"
+                    >
+                      {reanalyzing === policy.id ? 'Retrying\u2026' : 'Retry analysis'}
+                    </button>
+                    <details className="group">
+                      <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-300">
+                        View policy content ({policy.content.length.toLocaleString()} chars)
+                      </summary>
+                      <pre className="mt-2 p-3 bg-slate-900/50 rounded-lg text-xs text-slate-400 whitespace-pre-wrap max-h-64 overflow-y-auto font-mono">
+                        {policy.content.substring(0, 5000)}
+                        {policy.content.length > 5000 && '\n\n[...truncated]'}
+                      </pre>
+                    </details>
+                  </div>
+                )}
+
+                {/* No Analysis Yet State \u2014 applies to freshly-generated AI
+                    policies and any policy that was added without analysis.
+                    Without this branch the expand arrow appeared non-functional. */}
+                {isExpanded && !analysis && (
+                  <div className="border-t border-white/5 p-4 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 p-3 bg-slate-900/40 rounded-lg">
+                      <div className="min-w-0">
+                        <p className="text-sm text-slate-300">
+                          This policy hasn&apos;t been analyzed against CIS v8 controls yet.
+                        </p>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {policy.source === 'generated'
+                            ? 'AI-generated policies are created to fit the catalog; analyzing confirms which specific controls they satisfy.'
+                            : 'Run analysis to map this policy to CIS v8 controls and see coverage gaps.'}
+                        </p>
+                      </div>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); reanalyzePolicy(policy.id) }}
+                        disabled={reanalyzing !== null}
+                        className="text-xs px-3 py-1.5 bg-violet-500/20 text-violet-300 border border-violet-500/30 rounded hover:bg-violet-500/30 disabled:opacity-50 transition-all whitespace-nowrap flex-shrink-0"
+                      >
+                        {reanalyzing === policy.id ? 'Analyzing\u2026' : 'Analyze Policy'}
+                      </button>
+                    </div>
+                    <details className="group" open>
+                      <summary className="text-xs text-slate-400 cursor-pointer hover:text-slate-200 font-medium">
+                        View policy content ({policy.content.length.toLocaleString()} chars)
+                      </summary>
+                      <pre className="mt-2 p-3 bg-slate-900/50 rounded-lg text-xs text-slate-300 whitespace-pre-wrap max-h-[400px] overflow-y-auto font-mono leading-relaxed">
+                        {policy.content.substring(0, 10000)}
+                        {policy.content.length > 10000 && '\n\n[\u2026truncated at 10,000 chars]'}
+                      </pre>
+                    </details>
                   </div>
                 )}
               </div>
