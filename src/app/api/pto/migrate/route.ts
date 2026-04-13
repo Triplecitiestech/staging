@@ -262,7 +262,37 @@ export async function GET(request: Request) {
     ]
     const present = tables.map((t) => t.table_name)
     const missing = expectedNames.filter((n) => !present.includes(n))
-    return NextResponse.json({ present, missing, ready: missing.length === 0 })
+
+    // Env var presence report (no values, just boolean presence) so an
+    // admin can diagnose misconfigurations without secrets leaking into logs.
+    const checkVar = (name: string) => {
+      const v = process.env[name]
+      return { set: !!v && v.length > 0, length: v ? v.length : 0 }
+    }
+    const env = {
+      GUSTO_ENV: process.env.GUSTO_ENV ?? '(unset)',
+      GUSTO_CLIENT_ID: checkVar('GUSTO_CLIENT_ID'),
+      GUSTO_CLIENT_SECRET: checkVar('GUSTO_CLIENT_SECRET'),
+      GUSTO_OAUTH_REDIRECT_URI: process.env.GUSTO_OAUTH_REDIRECT_URI ?? '(unset)',
+      PTO_CALENDAR_MAILBOX: process.env.PTO_CALENDAR_MAILBOX ?? '(unset)',
+      PTO_FROM_EMAIL: process.env.PTO_FROM_EMAIL ?? '(unset)',
+      PTO_HR_GROUP_MAIL: process.env.PTO_HR_GROUP_MAIL ?? '(unset)',
+      PTO_APPROVER_FALLBACK_EMAIL: process.env.PTO_APPROVER_FALLBACK_EMAIL ?? '(unset)',
+      AZURE_AD_TENANT_ID: checkVar('AZURE_AD_TENANT_ID'),
+      AZURE_AD_CLIENT_ID: checkVar('AZURE_AD_CLIENT_ID'),
+      AZURE_AD_CLIENT_SECRET: checkVar('AZURE_AD_CLIENT_SECRET'),
+      RESEND_API_KEY: checkVar('RESEND_API_KEY'),
+      NEXTAUTH_SECRET: checkVar('NEXTAUTH_SECRET'),
+      VERCEL_ENV: process.env.VERCEL_ENV ?? '(unset)',
+      VERCEL_GIT_COMMIT_SHA: (process.env.VERCEL_GIT_COMMIT_SHA ?? '(unset)').slice(0, 12),
+    }
+
+    return NextResponse.json({
+      present,
+      missing,
+      ready: missing.length === 0,
+      env,
+    })
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : String(err) },
