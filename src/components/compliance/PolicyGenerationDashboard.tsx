@@ -868,7 +868,7 @@ export default function PolicyGenerationDashboard({
                 <h3 className="text-sm font-semibold text-white">Policy Draft</h3>
                 {isEditingDraft ? (
                   <p className="text-xs text-cyan-400 mt-0.5">
-                    Editing \u2014 changes are saved as a new version when you click Save.
+                    Editing — changes are saved as a new version when you click Save.
                   </p>
                 ) : (
                   <p className="text-xs text-slate-500 mt-0.5">
@@ -1083,7 +1083,7 @@ export default function PolicyGenerationDashboard({
                 label="Partial Coverage"
                 value={analysis.stats.needsEnhancement}
                 color="text-violet-400"
-                hint="Some gaps \u2014 enhance existing"
+                hint="Some gaps — enhance existing"
                 active={listFilter === 'partial'}
                 onClick={() => setListFilter((f) => f === 'partial' ? 'all' : 'partial')}
               />
@@ -1091,7 +1091,7 @@ export default function PolicyGenerationDashboard({
                 label="Needs New Policy"
                 value={analysis.stats.notGenerated}
                 color="text-rose-400"
-                hint="No uploaded coverage \u2014 must generate"
+                hint="No uploaded coverage — must generate"
                 active={listFilter === 'notGenerated'}
                 onClick={() => setListFilter((f) => f === 'notGenerated' ? 'all' : 'notGenerated')}
               />
@@ -1428,7 +1428,7 @@ function AssessmentRerunBanner({
             !
           </div>
           <div className="min-w-0">
-            <h3 className="text-sm font-semibold text-white">Policies have changed \u2014 run a new assessment</h3>
+            <h3 className="text-sm font-semibold text-white">Policies have changed — run a new assessment</h3>
             <p className="text-xs text-slate-300 mt-1">
               {never ? (
                 <>No assessment has been run yet. Run one now to capture the customer&apos;s current CIS compliance score.</>

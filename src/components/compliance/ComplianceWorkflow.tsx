@@ -732,7 +732,7 @@ export default function ComplianceWorkflow({ companies }: { companies: Company[]
                   <>
                     <details className="mt-6 border border-white/10 rounded-lg">
                       <summary className="px-4 py-3 cursor-pointer text-sm text-slate-300 hover:text-white hover:bg-white/5">
-                        Policy Library \u2014 all policies for this customer (uploads + AI-generated)
+                        Policy Library — all policies for this customer (uploads + AI-generated)
                       </summary>
                       <div className="p-4 border-t border-white/10">
                         <Suspense fallback={<Spinner text="Loading policy library..." />}>

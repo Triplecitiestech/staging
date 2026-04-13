@@ -378,7 +378,7 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
         <div className="min-w-0">
           <h2 className="text-xl font-bold text-white">Policy Library</h2>
           <p className="text-sm text-slate-400 mt-1">
-            All policies for {companyName} \u2014 both customer uploads and AI-generated documents. AI analyzes them against CIS v8 controls.
+            All policies for {companyName} — both customer uploads and AI-generated documents. AI analyzes them against CIS v8 controls.
           </p>
         </div>
         <div className="flex gap-2 flex-shrink-0 flex-wrap">
@@ -419,7 +419,7 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
           {duplicateCategories.length > 0 && (
             <details className="mt-2">
               <summary className="text-xs text-violet-300 cursor-pointer hover:text-violet-200">
-                {duplicateCategories.length} categor{duplicateCategories.length === 1 ? 'y has' : 'ies have'} both uploaded and generated versions \u2014 review for conflicts
+                {duplicateCategories.length} categor{duplicateCategories.length === 1 ? 'y has' : 'ies have'} both uploaded and generated versions — review for conflicts
               </summary>
               <ul className="mt-2 space-y-1 text-xs text-slate-300">
                 {duplicateCategories.map(([cat, v]) => (
@@ -874,10 +874,10 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
                         )}
                       </div>
                       <p className="text-xs text-slate-400 truncate">
-                        {getSourceLabel(policy.source)}{policy.category ? ` \u00b7 ${policy.category}` : ''} \u00b7{' '}
+                        {getSourceLabel(policy.source)}{policy.category ? ` · ${policy.category}` : ''} ·{' '}
                         Added {new Date(policy.createdAt).toLocaleDateString()}
                         {analysis?.analyzedAt && (
-                          <> \u00b7 Analyzed {new Date(analysis.analyzedAt).toLocaleDateString()}</>
+                          <> · Analyzed {new Date(analysis.analyzedAt).toLocaleDateString()}</>
                         )}
                       </p>
                     </div>
@@ -1003,9 +1003,8 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
                       <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-300">
                         View policy content ({policy.content.length.toLocaleString()} chars)
                       </summary>
-                      <pre className="mt-2 p-3 bg-slate-900/50 rounded-lg text-xs text-slate-400 whitespace-pre-wrap max-h-64 overflow-y-auto font-mono">
-                        {policy.content.substring(0, 5000)}
-                        {policy.content.length > 5000 && '\n\n[...truncated]'}
+                      <pre className="mt-2 p-3 bg-slate-900/50 rounded-lg text-xs text-slate-400 whitespace-pre-wrap max-h-[600px] overflow-y-auto font-mono leading-relaxed">
+                        {policy.content}
                       </pre>
                     </details>
                   </div>
@@ -1034,9 +1033,8 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
                       <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-300">
                         View policy content ({policy.content.length.toLocaleString()} chars)
                       </summary>
-                      <pre className="mt-2 p-3 bg-slate-900/50 rounded-lg text-xs text-slate-400 whitespace-pre-wrap max-h-64 overflow-y-auto font-mono">
-                        {policy.content.substring(0, 5000)}
-                        {policy.content.length > 5000 && '\n\n[...truncated]'}
+                      <pre className="mt-2 p-3 bg-slate-900/50 rounded-lg text-xs text-slate-400 whitespace-pre-wrap max-h-[600px] overflow-y-auto font-mono leading-relaxed">
+                        {policy.content}
                       </pre>
                     </details>
                   </div>
@@ -1070,9 +1068,8 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
                       <summary className="text-xs text-slate-400 cursor-pointer hover:text-slate-200 font-medium">
                         View policy content ({policy.content.length.toLocaleString()} chars)
                       </summary>
-                      <pre className="mt-2 p-3 bg-slate-900/50 rounded-lg text-xs text-slate-300 whitespace-pre-wrap max-h-[400px] overflow-y-auto font-mono leading-relaxed">
-                        {policy.content.substring(0, 10000)}
-                        {policy.content.length > 10000 && '\n\n[\u2026truncated at 10,000 chars]'}
+                      <pre className="mt-2 p-3 bg-slate-900/50 rounded-lg text-xs text-slate-300 whitespace-pre-wrap max-h-[600px] overflow-y-auto font-mono leading-relaxed">
+                        {policy.content}
                       </pre>
                     </details>
                   </div>
