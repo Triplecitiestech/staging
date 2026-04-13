@@ -100,7 +100,7 @@ async function gustoFetch<T>(
       Accept: 'application/json',
       Authorization: `Bearer ${conn.accessToken}`,
       'Content-Type': 'application/json',
-      'X-Gusto-API-Version': '2024-04-01',
+      'X-Gusto-API-Version': process.env.GUSTO_API_VERSION || '2026-02-01',
       ...(init?.headers ?? {}),
     },
     signal: init?.signal ?? AbortSignal.timeout(30_000),
