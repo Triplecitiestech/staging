@@ -155,6 +155,10 @@
       "schedule": "*/30 * * * *"
     },
     {
+      "path": "/api/cron/saas-alerts-poll",
+      "schedule": "*/30 * * * *"
+    },
+    {
       "path": "/api/cron/process-scheduled-offboards",
       "schedule": "1 5 * * *"
     }

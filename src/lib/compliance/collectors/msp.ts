@@ -813,13 +813,20 @@ export async function collectSaasAlertsEvidence(
   // Instead, read from webhook events stored locally via /api/compliance/webhooks/saas-alerts.
   try {
     const { getPool } = await import('@/lib/db-pool')
+    const { SIGNAL_WEIGHTS, SIGNAL_LABELS } = await import('@/lib/compliance/saas-alerts-normalizer')
     const pool = getPool()
     const client = await pool.connect()
     try {
       // Read events from last 30 days
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
-      const res = await client.query<{ eventType: string; severity: string; rawData: Record<string, unknown> }>(
-        `SELECT "eventType", severity, "rawData"
+      const res = await client.query<{
+        eventType: string
+        severity: string
+        signalType: string | null
+        rawData: Record<string, unknown>
+        normalized: Record<string, unknown> | null
+      }>(
+        `SELECT "eventType", severity, "signalType", "rawData", normalized
          FROM compliance_webhook_events
          WHERE source = 'saas_alerts' AND "receivedAt" > $1 AND "expiresAt" > NOW()
          ORDER BY "receivedAt" DESC LIMIT 1000`,
@@ -843,18 +850,26 @@ export async function collectSaasAlertsEvidence(
       // Aggregate events
       const eventsBySeverity: Record<string, number> = {}
       const eventsByType: Record<string, number> = {}
-      const recentHigh: Array<{ time?: string; user?: string; type: string; description?: string; severity: string }> = []
+      const eventsBySignal: Record<string, number> = {}
+      let signalWeightSum = 0
+      const recentHigh: Array<{ time?: string; user?: string; type: string; signal: string; description?: string; severity: string }> = []
 
       for (const row of res.rows) {
         eventsBySeverity[row.severity] = (eventsBySeverity[row.severity] ?? 0) + 1
         eventsByType[row.eventType] = (eventsByType[row.eventType] ?? 0) + 1
+        const signal = (row.signalType ?? 'unknown') as keyof typeof SIGNAL_WEIGHTS
+        eventsBySignal[signal] = (eventsBySignal[signal] ?? 0) + 1
+        signalWeightSum += SIGNAL_WEIGHTS[signal] ?? 1
         if ((row.severity === 'critical' || row.severity === 'high') && recentHigh.length < 10) {
           const raw = row.rawData as Record<string, unknown>
+          const norm = row.normalized as Record<string, unknown> | null
+          const user = (norm?.user as { name?: string } | undefined)?.name ?? (raw.user as { name?: string } | undefined)?.name
           recentHigh.push({
-            time: raw.time as string | undefined,
-            user: (raw.user as { name?: string })?.name,
+            time: (norm?.occurredAt as string | undefined) ?? (raw.time as string | undefined),
+            user,
             type: row.eventType,
-            description: raw.jointDesc as string | undefined,
+            signal: SIGNAL_LABELS[signal] ?? signal,
+            description: (norm?.description as string | undefined) ?? (raw.jointDesc as string | undefined),
             severity: row.severity,
           })
         }
@@ -864,10 +879,12 @@ export async function collectSaasAlertsEvidence(
         totalEvents: res.rows.length,
         eventsBySeverity,
         eventsByType,
+        eventsBySignal,
+        signalWeightSum,
         recentHighSeverity: recentHigh,
         source: 'webhook',
         note: 'Data collected via SaaS Alerts webhook (real-time event push).',
-      }, `SaaS Alerts: ${res.rows.length} events (30 days, via webhook). Severity: ${Object.entries(eventsBySeverity).map(([k, v]) => `${k}=${v}`).join(', ') || 'none'}.`))
+      }, `SaaS Alerts: ${res.rows.length} events (30 days, via webhook). Severity: ${Object.entries(eventsBySeverity).map(([k, v]) => `${k}=${v}`).join(', ') || 'none'}. Top signals: ${Object.entries(eventsBySignal).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => `${k}=${v}`).join(', ') || 'none'}.`))
 
       return { evidence, errors }
     } finally {
