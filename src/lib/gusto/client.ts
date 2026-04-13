@@ -154,10 +154,25 @@ async function gustoPut<T, B extends object>(
 // High-level helpers
 // ---------------------------------------------------------------------------
 
-/** Get the OAuth'd user's Gusto profile (includes companies they admin) */
+/**
+ * Get the OAuth'd user's Gusto profile (includes companies they admin).
+ *
+ * Gusto deprecated `/v1/me` in API version 2026-02-01 in favor of
+ * `/v1/token_info`. We try the new endpoint first, then fall back to
+ * the old one if it 404s (for older API versions).
+ */
 export async function getMe(): Promise<GustoMe> {
   const conn = await getValidAccessToken()
-  return gustoGet<GustoMe>(conn, '/v1/me')
+  try {
+    return await gustoGet<GustoMe>(conn, '/v1/token_info')
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (msg.includes('(404)')) {
+      // Older API versions: /v1/me
+      return gustoGet<GustoMe>(conn, '/v1/me')
+    }
+    throw err
+  }
 }
 
 /** Get the first/primary company for this OAuth connection */
