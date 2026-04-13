@@ -1,17 +1,9 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { PTO_KIND_LABELS, type PtoKind, type PtoStatus } from '@/lib/pto/types'
 import StatusBadge from './StatusBadge'
-import SyncBadge from './SyncBadge'
-
-interface Balance {
-  policyUuid: string
-  policyName: string
-  policyType: string
-  balanceHours: number
-}
 
 interface RequestSummary {
   id: string
@@ -25,83 +17,27 @@ interface RequestSummary {
   notes: string | null
   coverage: string | null
   status: PtoStatus
+  intakeByName: string | null
+  intakeAt: string | null
+  intakeSkipped: boolean
   reviewedAt: string | null
   reviewedByName: string | null
   managerNotes: string | null
   createdAt: string
-  gustoSyncStatus: string | null
+  gustoRecordedAt: string | null
   graphSyncStatus: string | null
 }
 
-interface BalanceResponse {
-  connected: boolean
-  mapped?: boolean
-  balances: Balance[]
-  error?: string
-}
-
-export default function PtoClient({ canApprove }: { canApprove: boolean }) {
-  const [balances, setBalances] = useState<Balance[] | null>(null)
-  const [balanceState, setBalanceState] = useState<'loading' | 'ok' | 'unmapped' | 'disconnected' | 'error'>(
-    'loading'
-  )
-  const [balanceError, setBalanceError] = useState<string | null>(null)
+export default function PtoClient({
+  canApprove,
+  canIntake,
+}: {
+  canApprove: boolean
+  canIntake: boolean
+}) {
   const [requests, setRequests] = useState<RequestSummary[]>([])
   const [reqLoading, setReqLoading] = useState(true)
   const [formOpen, setFormOpen] = useState(false)
-
-  const loadBalance = useCallback(async (signal?: AbortSignal) => {
-    setBalanceState('loading')
-    try {
-      const res = await fetch('/api/pto/balance', { signal })
-      // Read body as text first so we can surface non-JSON responses clearly
-      const text = await res.text()
-      let data: (BalanceResponse & { code?: string }) | null = null
-      try {
-        data = text ? (JSON.parse(text) as BalanceResponse) : null
-      } catch {
-        // Non-JSON response
-      }
-
-      if (!res.ok || !data) {
-        const code = data?.code
-        if (code === 'pto_migration_missing') {
-          setBalanceState('error')
-          setBalanceError(
-            'Database tables for the PTO system have not been installed yet. An admin must run the PTO migration.'
-          )
-          setBalances([])
-          return
-        }
-        setBalanceState('error')
-        setBalanceError(
-          data?.error ??
-            `Server returned ${res.status} ${res.statusText || ''}`.trim()
-        )
-        setBalances([])
-        return
-      }
-
-      if (!data.connected) {
-        setBalanceState('disconnected')
-        setBalances([])
-      } else if (data.mapped === false) {
-        setBalanceState('unmapped')
-        setBalances([])
-      } else if (data.error) {
-        setBalanceState('error')
-        setBalanceError(data.error)
-        setBalances([])
-      } else {
-        setBalances(data.balances)
-        setBalanceState('ok')
-      }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') return
-      setBalanceState('error')
-      setBalanceError(err instanceof Error ? err.message : 'Failed to load balances')
-    }
-  }, [])
 
   const loadRequests = useCallback(async (signal?: AbortSignal) => {
     setReqLoading(true)
@@ -126,84 +62,30 @@ export default function PtoClient({ canApprove }: { canApprove: boolean }) {
 
   useEffect(() => {
     const controller = new AbortController()
-    loadBalance(controller.signal)
     loadRequests(controller.signal)
     return () => controller.abort()
-  }, [loadBalance, loadRequests])
+  }, [loadRequests])
 
   return (
     <div className="space-y-8">
-      {/* Balances */}
-      <section>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold text-white">My balances</h2>
-          {canApprove && (
-            <Link
-              href="/admin/pto/queue"
-              className="text-sm text-cyan-400 hover:text-cyan-300 font-medium"
-            >
-              Open approval queue →
+      {/* How it works explainer */}
+      <section className="rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-5">
+        <h2 className="text-sm font-semibold text-cyan-300 uppercase tracking-wide mb-2">
+          How PTO requests work
+        </h2>
+        <ol className="text-sm text-slate-200 space-y-1.5">
+          <li><span className="text-cyan-400 font-semibold">1.</span> You submit your request below.</li>
+          <li><span className="text-cyan-400 font-semibold">2.</span> HR (Rio) collects context — balance, history, coverage — and forwards to Kurtis.</li>
+          <li><span className="text-cyan-400 font-semibold">3.</span> Kurtis approves or denies.</li>
+          <li><span className="text-cyan-400 font-semibold">4.</span> If approved, the shared calendar is updated and you get a calendar invite.</li>
+        </ol>
+        {(canApprove || canIntake) && (
+          <p className="mt-3 text-xs text-slate-400">
+            You have HR access.{' '}
+            <Link href="/admin/pto/queue" className="text-cyan-400 hover:text-cyan-300 font-medium">
+              Open the approval queue →
             </Link>
-          )}
-        </div>
-
-        {balanceState === 'loading' && (
-          <div className="grid gap-3 md:grid-cols-3">
-            {[1, 2, 3].map((i) => (
-              <div
-                key={i}
-                className="h-24 rounded-lg bg-white/5 border border-white/10 animate-pulse"
-              />
-            ))}
-          </div>
-        )}
-
-        {balanceState === 'disconnected' && (
-          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-amber-100">
-            Gusto is not connected yet. An admin can connect Gusto at{' '}
-            <Link href="/admin/settings/integrations/gusto" className="underline font-medium">
-              Settings · Integrations · Gusto
-            </Link>
-            .
-          </div>
-        )}
-
-        {balanceState === 'unmapped' && (
-          <div className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 p-4 text-cyan-100">
-            Your account is not yet linked to a Gusto employee record. Contact an admin to map
-            your accounts before submitting a request.
-          </div>
-        )}
-
-        {balanceState === 'error' && (
-          <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-4 text-rose-100">
-            Could not load balances: {balanceError}
-          </div>
-        )}
-
-        {balanceState === 'ok' && balances && balances.length === 0 && (
-          <div className="rounded-lg border border-white/10 bg-white/5 p-4 text-slate-300">
-            No time-off policies are assigned to you in Gusto yet.
-          </div>
-        )}
-
-        {balanceState === 'ok' && balances && balances.length > 0 && (
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-            {balances.map((b) => (
-              <div
-                key={b.policyUuid}
-                className="rounded-lg border border-white/10 bg-gradient-to-br from-slate-900/60 to-slate-900/30 p-4"
-              >
-                <p className="text-xs uppercase tracking-wide text-slate-400">{b.policyType}</p>
-                <p className="text-sm font-semibold text-white mt-1">{b.policyName}</p>
-                <p className="text-3xl font-bold text-cyan-300 mt-2">
-                  {b.balanceHours.toFixed(2)}
-                  <span className="text-sm font-normal text-slate-400 ml-1">hrs</span>
-                </p>
-                <p className="text-xs text-slate-500 mt-1">≈ {(b.balanceHours / 8).toFixed(1)} days</p>
-              </div>
-            ))}
-          </div>
+          </p>
         )}
       </section>
 
@@ -221,11 +103,9 @@ export default function PtoClient({ canApprove }: { canApprove: boolean }) {
         </div>
         {formOpen && (
           <NewRequestForm
-            balances={balances}
             onSubmitted={() => {
               setFormOpen(false)
               loadRequests()
-              loadBalance()
             }}
           />
         )}
@@ -239,7 +119,6 @@ export default function PtoClient({ canApprove }: { canApprove: boolean }) {
           loading={reqLoading}
           onCancelled={() => {
             loadRequests()
-            loadBalance()
           }}
         />
       </section>
@@ -247,25 +126,16 @@ export default function PtoClient({ canApprove }: { canApprove: boolean }) {
   )
 }
 
-function NewRequestForm({
-  balances,
-  onSubmitted,
-}: {
-  balances: Balance[] | null
-  onSubmitted: () => void
-}) {
+function NewRequestForm({ onSubmitted }: { onSubmitted: () => void }) {
   const [kind, setKind] = useState<PtoKind>('VACATION')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [partial, setPartial] = useState(false)
   const [partialHours, setPartialHours] = useState('4')
-  const [policyUuid, setPolicyUuid] = useState('')
   const [notes, setNotes] = useState('')
   const [coverage, setCoverage] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  const policyOptions = useMemo(() => balances ?? [], [balances])
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -276,7 +146,6 @@ function NewRequestForm({
     }
     setSubmitting(true)
     try {
-      // Build hoursPerDay for partial day only when a single day + partial checked
       let hoursPerDay: Record<string, number> | undefined
       if (partial && startDate === endDate) {
         const n = Number.parseFloat(partialHours)
@@ -287,7 +156,6 @@ function NewRequestForm({
         }
         hoursPerDay = { [startDate]: n }
       }
-      const selected = policyOptions.find((p) => p.policyUuid === policyUuid)
       const res = await fetch('/api/pto/requests', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -298,8 +166,6 @@ function NewRequestForm({
           hoursPerDay,
           notes: notes || undefined,
           coverage: coverage || undefined,
-          gustoPolicyUuid: selected?.policyUuid,
-          gustoPolicyName: selected?.policyName,
         }),
       })
       const data = await res.json()
@@ -338,21 +204,7 @@ function NewRequestForm({
             ))}
           </select>
         </div>
-        <div>
-          <label className="block text-xs font-semibold text-slate-300 mb-1">Policy (from Gusto)</label>
-          <select
-            value={policyUuid}
-            onChange={(e) => setPolicyUuid(e.target.value)}
-            className="w-full rounded-md bg-slate-900 border border-white/10 text-white px-3 py-2 text-sm focus:outline-none focus:border-cyan-500"
-          >
-            <option value="">— None / will not deduct from Gusto —</option>
-            {policyOptions.map((p) => (
-              <option key={p.policyUuid} value={p.policyUuid}>
-                {p.policyName} ({p.balanceHours.toFixed(2)} hrs available)
-              </option>
-            ))}
-          </select>
-        </div>
+        <div className="hidden md:block" />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -408,7 +260,7 @@ function NewRequestForm({
 
       <div>
         <label className="block text-xs font-semibold text-slate-300 mb-1">
-          Who is covering your shift/work? (optional)
+          Who is covering your shift/work?
         </label>
         <input
           type="text"
@@ -469,7 +321,7 @@ function RequestsTable({
   if (requests.length === 0) {
     return (
       <div className="rounded-lg border border-white/10 bg-white/5 p-6 text-slate-400 text-sm">
-        You haven’t submitted any requests yet.
+        You haven&apos;t submitted any requests yet.
       </div>
     )
   }
@@ -494,8 +346,6 @@ function RequestsTable({
             <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Dates</th>
             <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Hours</th>
             <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Status</th>
-            <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Reviewer</th>
-            <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Sync</th>
             <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide text-right">
               Actions
             </th>
@@ -512,17 +362,6 @@ function RequestsTable({
               <td className="px-4 py-3">
                 <StatusBadge status={r.status} />
               </td>
-              <td className="px-4 py-3 text-slate-400 text-xs">
-                {r.reviewedByName ? `${r.reviewedByName}` : '—'}
-              </td>
-              <td className="px-4 py-3 space-x-1">
-                {r.status === 'APPROVED' && (
-                  <>
-                    <SyncBadge label="Gusto" status={r.gustoSyncStatus} />
-                    <SyncBadge label="M365" status={r.graphSyncStatus} />
-                  </>
-                )}
-              </td>
               <td className="px-4 py-3 text-right">
                 <Link
                   href={`/admin/pto/${r.id}`}
@@ -530,7 +369,9 @@ function RequestsTable({
                 >
                   View
                 </Link>
-                {r.status === 'PENDING' && (
+                {(r.status === 'PENDING_INTAKE' ||
+                  r.status === 'PENDING' ||
+                  r.status === 'PENDING_APPROVAL') && (
                   <button
                     type="button"
                     onClick={() => cancel(r.id)}

@@ -1,18 +1,31 @@
 /**
- * PTO workflow service.
+ * PTO workflow service — two-stage approval pipeline.
  *
- * High-level operations that coordinate our DB, Gusto, MS Graph, and email.
- * These are called from API routes.
+ * Flow:
+ *   1. Employee submits request → status = PENDING_INTAKE
+ *      → notifyIntakeTeam() emails intake assignees (e.g. Rio)
+ *   2. Intake person opens the request and fills in context (last time off,
+ *      current balance from Gusto, coverage confirmation, notes) then forwards
+ *      → status = PENDING_APPROVAL
+ *      → notifyFinalApprovers() emails final approvers (e.g. Kurtis)
+ *   3. Final approver approves or denies
+ *      → status = APPROVED / DENIED
+ *      → approved path: calendar event on shared mailbox + invite on employee
+ *      → employee notified either way
+ *   4. After approval, HR marks the PTO as "entered in Gusto" manually
+ *      (closes the loop).
+ *
+ * Bypass: a user with both `pto_intake` and `approve_pto` (or just
+ *   approve_pto acting via /skip-intake) can jump from PENDING_INTAKE
+ *   straight to PENDING_APPROVAL or approve without intake.
+ *
+ * Live Gusto sync is intentionally NOT wired into this flow. Gusto
+ * Direct-API access is closed to new partners; all Gusto balance /
+ * write-back is manual until access opens.
  */
 
 import { Resend } from 'resend'
 import { prisma } from '@/lib/prisma'
-import { getActiveConnection } from '@/lib/gusto/connection'
-import {
-  adjustEmployeeBalance,
-  getEmployeeBalances,
-  listEmployeeTimeOffActivities,
-} from '@/lib/gusto/client'
 import {
   createCalendarEvent,
   deleteCalendarEvent,
@@ -21,10 +34,13 @@ import {
 import {
   generateApprovalNotificationEmail,
   generateDenialNotificationEmail,
+  generateIntakeAssignedEmail,
   generateHrApprovalEmail,
   generateSubmittedConfirmationEmail,
 } from '@/lib/email-templates/pto'
 import type { PtoKind } from './types'
+import type { StaffRole } from '@prisma/client'
+import { hasPermission, parseOverrides } from '@/lib/permissions'
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null
 
@@ -32,6 +48,7 @@ const FROM_EMAIL = process.env.PTO_FROM_EMAIL || 'HumanResources@triplecitiestec
 const FROM_NAME = process.env.PTO_FROM_NAME || 'Triple Cities Tech HR'
 const SHARED_CALENDAR = process.env.PTO_CALENDAR_MAILBOX || 'timeoff@triplecitiestech.com'
 const FALLBACK_APPROVER = process.env.PTO_APPROVER_FALLBACK_EMAIL || 'kurtis@triplecitiestech.com'
+const INTAKE_FALLBACK_EMAIL = process.env.PTO_INTAKE_FALLBACK_EMAIL // optional
 
 function baseUrl(): string {
   return process.env.NEXT_PUBLIC_BASE_URL || 'https://www.triplecitiestech.com'
@@ -73,40 +90,128 @@ async function sendEmail(params: {
 }
 
 // ---------------------------------------------------------------------------
-// Notify approvers (HR group + fallback) after submission
+// Recipient resolution
 // ---------------------------------------------------------------------------
 
+/** Staff users with a specific permission (includes role + per-user overrides). */
+async function staffEmailsWithPermission(permission: 'pto_intake' | 'approve_pto'): Promise<string[]> {
+  const staff = await prisma.staffUser.findMany({
+    where: { isActive: true },
+    select: { email: true, role: true, permissionOverrides: true },
+  })
+  const out = new Set<string>()
+  for (const s of staff) {
+    if (hasPermission(s.role as StaffRole, permission, parseOverrides(s.permissionOverrides))) {
+      if (s.email) out.add(s.email.toLowerCase())
+    }
+  }
+  return Array.from(out)
+}
+
+/**
+ * Intake recipients: staff with pto_intake permission. Falls back to the HR
+ * M365 group + PTO_INTAKE_FALLBACK_EMAIL if no one has the permission yet.
+ */
+async function resolveIntakeEmails(): Promise<string[]> {
+  const set = new Set<string>()
+  const staffEmails = await staffEmailsWithPermission('pto_intake')
+  for (const e of staffEmails) set.add(e)
+  if (set.size === 0) {
+    try {
+      const members = await getHrGroupMembers()
+      for (const m of members) if (m.mail) set.add(m.mail.toLowerCase())
+    } catch (err) {
+      console.warn('[pto] HR group lookup failed for intake:', err)
+    }
+  }
+  if (INTAKE_FALLBACK_EMAIL) set.add(INTAKE_FALLBACK_EMAIL.toLowerCase())
+  return Array.from(set)
+}
+
+/**
+ * Final-approver recipients: staff with approve_pto permission. Falls back
+ * to the HR group + PTO_APPROVER_FALLBACK_EMAIL.
+ */
 async function resolveApproverEmails(): Promise<string[]> {
   const set = new Set<string>()
-  try {
-    const members = await getHrGroupMembers()
-    for (const m of members) if (m.mail) set.add(m.mail.toLowerCase())
-  } catch (err) {
-    console.warn('[pto] Failed to resolve HR group; using fallback:', err)
+  const staffEmails = await staffEmailsWithPermission('approve_pto')
+  for (const e of staffEmails) set.add(e)
+  if (set.size === 0) {
+    try {
+      const members = await getHrGroupMembers()
+      for (const m of members) if (m.mail) set.add(m.mail.toLowerCase())
+    } catch (err) {
+      console.warn('[pto] HR group lookup failed for approvers:', err)
+    }
   }
   if (FALLBACK_APPROVER) set.add(FALLBACK_APPROVER.toLowerCase())
   return Array.from(set)
 }
 
-export async function notifyApprovers(requestId: string): Promise<void> {
-  const req = await prisma.timeOffRequest.findUnique({
-    where: { id: requestId },
-    include: { mapping: true },
+// ---------------------------------------------------------------------------
+// Notification: submitter + intake team (stage 1)
+// ---------------------------------------------------------------------------
+
+export async function notifySubmitter(requestId: string): Promise<void> {
+  const req = await prisma.timeOffRequest.findUnique({ where: { id: requestId } })
+  if (!req) return
+  const { subject, html, text } = generateSubmittedConfirmationEmail({
+    employeeName: req.employeeName,
+    kind: req.kind,
+    startDate: ymd(req.startDate),
+    endDate: ymd(req.endDate),
+    totalHours: Number(req.totalHours),
+    requestUrl: `${baseUrl()}/admin/pto/${req.id}`,
   })
+  await sendEmail({ to: [req.employeeEmail], subject, html, text })
+  await prisma.timeOffRequest.update({
+    where: { id: req.id },
+    data: { submitterNotifiedAt: new Date() },
+  })
+}
+
+export async function notifyIntakeTeam(requestId: string): Promise<void> {
+  const req = await prisma.timeOffRequest.findUnique({ where: { id: requestId } })
   if (!req) return
 
-  // Fetch supporting context: balances + recent requests
-  let balances: Array<{ policyName: string; balanceHours: number }> = []
-  try {
-    const conn = await getActiveConnection()
-    if (conn?.companyUuid) {
-      const b = await getEmployeeBalances(conn.companyUuid, req.gustoEmployeeUuid)
-      balances = b.map((x) => ({ policyName: x.policyName, balanceHours: x.balanceHours }))
-    }
-  } catch (err) {
-    console.warn('[pto] Could not fetch balances for HR notification:', err)
-  }
+  const { subject, html, text } = generateIntakeAssignedEmail({
+    employeeName: req.employeeName,
+    employeeEmail: req.employeeEmail,
+    kind: req.kind,
+    startDate: ymd(req.startDate),
+    endDate: ymd(req.endDate),
+    totalHours: Number(req.totalHours),
+    notes: req.notes,
+    coverage: req.coverage,
+    reviewUrl: `${baseUrl()}/admin/pto/${req.id}`,
+  })
 
+  const recipients = await resolveIntakeEmails()
+  const send = await sendEmail({ to: recipients, subject, html, text, replyTo: req.employeeEmail })
+
+  await prisma.timeOffRequest.update({
+    where: { id: req.id },
+    data: { intakeNotifiedAt: new Date() },
+  })
+  await prisma.timeOffAuditLog.create({
+    data: {
+      requestId: req.id,
+      actorEmail: 'system',
+      action: 'notify_intake',
+      details: { recipients, result: send } as never,
+    },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Notification: final approvers (stage 2)
+// ---------------------------------------------------------------------------
+
+export async function notifyFinalApprovers(requestId: string): Promise<void> {
+  const req = await prisma.timeOffRequest.findUnique({ where: { id: requestId } })
+  if (!req) return
+
+  // Employee's recent request history for context
   const recent = await prisma.timeOffRequest.findMany({
     where: { employeeStaffId: req.employeeStaffId, NOT: { id: req.id } },
     orderBy: { createdAt: 'desc' },
@@ -123,7 +228,15 @@ export async function notifyApprovers(requestId: string): Promise<void> {
     totalHours: Number(req.totalHours),
     notes: req.notes,
     coverage: req.coverage,
-    balances,
+    intake: {
+      byName: req.intakeByName ?? null,
+      lastTimeOffNotes: req.intakeLastTimeOffNotes ?? null,
+      balanceNotes: req.intakeBalanceNotes ?? null,
+      coverageConfirmed: req.intakeCoverageConfirmed ?? null,
+      coverageNotes: req.intakeCoverageNotes ?? null,
+      additionalNotes: req.intakeAdditionalNotes ?? null,
+      skipped: req.intakeSkipped,
+    },
     recentRequests: recent.map((r) => ({
       kind: r.kind,
       startDate: ymd(r.startDate),
@@ -145,32 +258,108 @@ export async function notifyApprovers(requestId: string): Promise<void> {
       requestId: req.id,
       actorEmail: 'system',
       action: 'notify_approvers',
-      details: { recipients: approvers, result: send },
+      details: { recipients: approvers, result: send } as never,
     },
   })
 }
 
-export async function notifySubmitter(requestId: string): Promise<void> {
-  const req = await prisma.timeOffRequest.findUnique({ where: { id: requestId } })
-  if (!req) return
-  const { subject, html, text } = generateSubmittedConfirmationEmail({
-    employeeName: req.employeeName,
-    kind: req.kind,
-    startDate: ymd(req.startDate),
-    endDate: ymd(req.endDate),
-    totalHours: Number(req.totalHours),
-    requestUrl: `${baseUrl()}/admin/pto/my-requests`,
+// ---------------------------------------------------------------------------
+// Intake (stage 1 completion)
+// ---------------------------------------------------------------------------
+
+export interface IntakeParams {
+  requestId: string
+  actorStaffId: string
+  actorEmail: string
+  actorName: string
+  lastTimeOffNotes?: string | null
+  balanceNotes?: string | null
+  coverageConfirmed?: boolean | null
+  coverageNotes?: string | null
+  additionalNotes?: string | null
+}
+
+export async function completeIntake(p: IntakeParams) {
+  const req = await prisma.timeOffRequest.findUnique({ where: { id: p.requestId } })
+  if (!req) throw new Error('Request not found')
+  if (req.status !== 'PENDING_INTAKE' && req.status !== 'PENDING') {
+    throw new Error(`Request is already ${req.status}`)
+  }
+
+  const updated = await prisma.timeOffRequest.update({
+    where: { id: req.id },
+    data: {
+      status: 'PENDING_APPROVAL',
+      intakeByStaffId: p.actorStaffId,
+      intakeByName: p.actorName,
+      intakeAt: new Date(),
+      intakeLastTimeOffNotes: p.lastTimeOffNotes ?? null,
+      intakeBalanceNotes: p.balanceNotes ?? null,
+      intakeCoverageConfirmed: p.coverageConfirmed ?? null,
+      intakeCoverageNotes: p.coverageNotes ?? null,
+      intakeAdditionalNotes: p.additionalNotes ?? null,
+      intakeSkipped: false,
+    },
   })
-  await sendEmail({ to: [req.employeeEmail], subject, html, text })
+
+  await prisma.timeOffAuditLog.create({
+    data: {
+      requestId: req.id,
+      actorStaffId: p.actorStaffId,
+      actorEmail: p.actorEmail,
+      actorName: p.actorName,
+      action: 'intake_completed',
+      details: {
+        coverageConfirmed: p.coverageConfirmed,
+        balanceNotes: p.balanceNotes,
+      } as never,
+    },
+  })
+
+  notifyFinalApprovers(req.id).catch((err) =>
+    console.error('[pto] notifyFinalApprovers failed:', err)
+  )
+
+  return prisma.timeOffRequest.findUnique({ where: { id: updated.id } })
+}
+
+/** Final approver bypasses intake: jumps from PENDING_INTAKE to PENDING_APPROVAL */
+export async function skipIntake(params: {
+  requestId: string
+  actorStaffId: string
+  actorEmail: string
+  actorName: string
+}) {
+  const req = await prisma.timeOffRequest.findUnique({ where: { id: params.requestId } })
+  if (!req) throw new Error('Request not found')
+  if (req.status !== 'PENDING_INTAKE' && req.status !== 'PENDING') {
+    throw new Error(`Cannot skip intake — request is ${req.status}`)
+  }
+
   await prisma.timeOffRequest.update({
     where: { id: req.id },
-    data: { submitterNotifiedAt: new Date() },
+    data: { status: 'PENDING_APPROVAL', intakeSkipped: true },
   })
+  await prisma.timeOffAuditLog.create({
+    data: {
+      requestId: req.id,
+      actorStaffId: params.actorStaffId,
+      actorEmail: params.actorEmail,
+      actorName: params.actorName,
+      action: 'intake_skipped',
+    },
+  })
+  return prisma.timeOffRequest.findUnique({ where: { id: req.id } })
 }
 
 // ---------------------------------------------------------------------------
-// Approval workflow
+// Final approve / deny (stage 2)
 // ---------------------------------------------------------------------------
+
+function ensureApprovable(status: string) {
+  if (status === 'PENDING_APPROVAL' || status === 'PENDING_INTAKE' || status === 'PENDING') return
+  throw new Error(`Request is already ${status}`)
+}
 
 export interface ApproveParams {
   requestId: string
@@ -181,14 +370,16 @@ export interface ApproveParams {
 }
 
 export async function approveRequest(p: ApproveParams) {
-  const req = await prisma.timeOffRequest.findUnique({
-    where: { id: p.requestId },
-    include: { mapping: true },
-  })
+  const req = await prisma.timeOffRequest.findUnique({ where: { id: p.requestId } })
   if (!req) throw new Error('Request not found')
-  if (req.status !== 'PENDING') throw new Error(`Request is already ${req.status}`)
+  ensureApprovable(req.status)
 
-  // 1. Update DB status
+  // If still in intake, mark it skipped so the audit trail is clear
+  const extraIntakeFields =
+    req.status === 'PENDING_INTAKE' || req.status === 'PENDING'
+      ? { intakeSkipped: true }
+      : {}
+
   const updated = await prisma.timeOffRequest.update({
     where: { id: req.id },
     data: {
@@ -197,6 +388,7 @@ export async function approveRequest(p: ApproveParams) {
       reviewedByName: p.reviewerName,
       reviewedAt: new Date(),
       managerNotes: p.managerNotes ?? null,
+      ...extraIntakeFields,
     },
   })
 
@@ -207,17 +399,17 @@ export async function approveRequest(p: ApproveParams) {
       actorEmail: p.reviewerEmail,
       actorName: p.reviewerName,
       action: 'approved',
-      details: { managerNotes: p.managerNotes ?? null },
+      details: {
+        managerNotes: p.managerNotes ?? null,
+        bypassedIntake: req.status !== 'PENDING_APPROVAL',
+      } as never,
     },
   })
 
-  // 2. Gusto balance adjustment (best-effort; doesn't block approval)
-  await syncApprovalToGusto(updated.id)
-
-  // 3. Calendar sync (best-effort)
+  // Calendar sync (best-effort)
   await syncApprovalToCalendar(updated.id)
 
-  // 4. Notify employee
+  // Notify employee
   const reloaded = await prisma.timeOffRequest.findUnique({ where: { id: updated.id } })
   if (reloaded) {
     const { subject, html, text } = generateApprovalNotificationEmail({
@@ -228,7 +420,7 @@ export async function approveRequest(p: ApproveParams) {
       totalHours: Number(reloaded.totalHours),
       managerNotes: reloaded.managerNotes,
       managerName: p.reviewerName,
-      requestUrl: `${baseUrl()}/admin/pto/my-requests`,
+      requestUrl: `${baseUrl()}/admin/pto/${reloaded.id}`,
     })
     await sendEmail({ to: [reloaded.employeeEmail], subject, html, text })
     await prisma.timeOffRequest.update({
@@ -251,7 +443,7 @@ export interface DenyParams {
 export async function denyRequest(p: DenyParams) {
   const req = await prisma.timeOffRequest.findUnique({ where: { id: p.requestId } })
   if (!req) throw new Error('Request not found')
-  if (req.status !== 'PENDING') throw new Error(`Request is already ${req.status}`)
+  ensureApprovable(req.status)
 
   await prisma.timeOffRequest.update({
     where: { id: req.id },
@@ -270,7 +462,7 @@ export async function denyRequest(p: DenyParams) {
       actorEmail: p.reviewerEmail,
       actorName: p.reviewerName,
       action: 'denied',
-      details: { managerNotes: p.managerNotes ?? null },
+      details: { managerNotes: p.managerNotes ?? null } as never,
     },
   })
 
@@ -282,7 +474,7 @@ export async function denyRequest(p: DenyParams) {
     totalHours: Number(req.totalHours),
     managerNotes: p.managerNotes ?? null,
     managerName: p.reviewerName,
-    requestUrl: `${baseUrl()}/admin/pto/my-requests`,
+    requestUrl: `${baseUrl()}/admin/pto/${req.id}`,
   })
   await sendEmail({ to: [req.employeeEmail], subject, html, text })
   await prisma.timeOffRequest.update({
@@ -292,6 +484,10 @@ export async function denyRequest(p: DenyParams) {
 
   return prisma.timeOffRequest.findUnique({ where: { id: req.id } })
 }
+
+// ---------------------------------------------------------------------------
+// Cancel
+// ---------------------------------------------------------------------------
 
 export async function cancelRequest(params: {
   requestId: string
@@ -316,11 +512,10 @@ export async function cancelRequest(params: {
       actorEmail: params.actorEmail,
       actorName: params.actorName,
       action: 'cancelled',
-      details: { wasApproved },
+      details: { wasApproved } as never,
     },
   })
 
-  // Remove calendar events if the request had been approved
   if (wasApproved) {
     if (req.graphEventId) {
       try {
@@ -342,75 +537,48 @@ export async function cancelRequest(params: {
 }
 
 // ---------------------------------------------------------------------------
-// Gusto sync
+// Post-approval: mark PTO as entered in Gusto manually
 // ---------------------------------------------------------------------------
 
-export async function syncApprovalToGusto(requestId: string): Promise<void> {
-  const req = await prisma.timeOffRequest.findUnique({ where: { id: requestId } })
-  if (!req) return
-  if (req.status !== 'APPROVED') return
-  if (req.gustoSyncStatus === 'ok') return
+export async function markRecordedInGusto(params: {
+  requestId: string
+  actorStaffId: string
+  actorEmail: string
+  actorName: string
+  recorded: boolean
+}) {
+  const req = await prisma.timeOffRequest.findUnique({ where: { id: params.requestId } })
+  if (!req) throw new Error('Request not found')
+  if (req.status !== 'APPROVED') throw new Error('Only approved requests can be marked as recorded')
 
   await prisma.timeOffRequest.update({
     where: { id: req.id },
-    data: { gustoSyncStatus: 'pending', gustoSyncAttempts: req.gustoSyncAttempts + 1 },
-  })
-
-  try {
-    // We can only write to Gusto if a policy UUID is associated with the request.
-    if (!req.gustoPolicyUuid) {
-      await prisma.timeOffRequest.update({
-        where: { id: req.id },
-        data: {
-          gustoSyncStatus: 'skipped',
-          gustoSyncError: 'No Gusto policy associated with request',
+    data: params.recorded
+      ? {
+          gustoRecordedAt: new Date(),
+          gustoRecordedByStaffId: params.actorStaffId,
+          gustoRecordedByName: params.actorName,
+        }
+      : {
+          gustoRecordedAt: null,
+          gustoRecordedByStaffId: null,
+          gustoRecordedByName: null,
         },
-      })
-      return
-    }
-
-    const result = await adjustEmployeeBalance({
-      policyUuid: req.gustoPolicyUuid,
-      employeeUuid: req.gustoEmployeeUuid,
-      hoursUsed: Number(req.totalHours),
-    })
-
-    await prisma.timeOffRequest.update({
-      where: { id: req.id },
-      data: {
-        gustoSyncStatus: 'ok',
-        gustoSyncError: null,
-        gustoBalanceAdjustmentAt: new Date(),
-      },
-    })
-    await prisma.timeOffAuditLog.create({
-      data: {
-        requestId: req.id,
-        actorEmail: 'system',
-        action: 'gusto_sync',
-        details: { ...result, hoursUsed: Number(req.totalHours) },
-      },
-    })
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    await prisma.timeOffRequest.update({
-      where: { id: req.id },
-      data: { gustoSyncStatus: 'error', gustoSyncError: msg },
-    })
-    await prisma.timeOffAuditLog.create({
-      data: {
-        requestId: req.id,
-        actorEmail: 'system',
-        action: 'gusto_sync',
-        severity: 'error',
-        details: { error: msg },
-      },
-    })
-  }
+  })
+  await prisma.timeOffAuditLog.create({
+    data: {
+      requestId: req.id,
+      actorStaffId: params.actorStaffId,
+      actorEmail: params.actorEmail,
+      actorName: params.actorName,
+      action: params.recorded ? 'marked_recorded_in_gusto' : 'unmarked_recorded_in_gusto',
+    },
+  })
+  return prisma.timeOffRequest.findUnique({ where: { id: req.id } })
 }
 
 // ---------------------------------------------------------------------------
-// Calendar sync
+// Calendar sync (approval)
 // ---------------------------------------------------------------------------
 
 export async function syncApprovalToCalendar(requestId: string): Promise<void> {
@@ -434,7 +602,6 @@ ${req.notes ? `<p><em>Notes:</em> ${req.notes}</p>` : ''}
 ${req.coverage ? `<p><em>Shift coverage:</em> ${req.coverage}</p>` : ''}
 <p>Managed via the Triple Cities Tech time-off system.</p>`
 
-    // 1. Shared PTO calendar event (no attendees)
     const sharedEvent = await createCalendarEvent({
       calendarOwner: SHARED_CALENDAR,
       subject,
@@ -445,7 +612,6 @@ ${req.coverage ? `<p><em>Shift coverage:</em> ${req.coverage}</p>` : ''}
       categories: ['PTO', req.kind],
     })
 
-    // 2. Employee calendar invite on their own mailbox
     let inviteEventId: string | null = null
     try {
       const inviteEvent = await createCalendarEvent({
@@ -476,7 +642,7 @@ ${req.coverage ? `<p><em>Shift coverage:</em> ${req.coverage}</p>` : ''}
         requestId: req.id,
         actorEmail: 'system',
         action: 'calendar_sync',
-        details: { sharedEventId: sharedEvent.id, inviteEventId },
+        details: { sharedEventId: sharedEvent.id, inviteEventId } as never,
       },
     })
   } catch (err) {
@@ -491,86 +657,14 @@ ${req.coverage ? `<p><em>Shift coverage:</em> ${req.coverage}</p>` : ''}
         actorEmail: 'system',
         action: 'calendar_sync',
         severity: 'error',
-        details: { error: msg },
+        details: { error: msg } as never,
       },
     })
   }
 }
 
-// ---------------------------------------------------------------------------
-// Retry helpers
-// ---------------------------------------------------------------------------
-
 export async function retrySyncs(requestId: string): Promise<void> {
-  await syncApprovalToGusto(requestId)
   await syncApprovalToCalendar(requestId)
-}
-
-// ---------------------------------------------------------------------------
-// Dashboard helpers
-// ---------------------------------------------------------------------------
-
-export async function getEmployeeContext(staffUserId: string) {
-  const mapping = await prisma.ptoEmployeeMapping.findUnique({ where: { staffUserId } })
-  const conn = await getActiveConnection()
-
-  let balances: Array<{
-    policyUuid: string
-    policyName: string
-    policyType: string
-    balanceHours: number
-  }> = []
-  let activities: Array<{ start_date: string; end_date: string; hours: string; status: string; policy_name: string | null }> = []
-
-  if (mapping && conn?.companyUuid) {
-    try {
-      balances = await getEmployeeBalances(conn.companyUuid, mapping.gustoEmployeeUuid)
-    } catch (err) {
-      console.warn('[pto] balance fetch failed:', err)
-    }
-    try {
-      const raw = await listEmployeeTimeOffActivities(mapping.gustoEmployeeUuid)
-      activities = raw.map((a) => ({
-        start_date: a.start_date,
-        end_date: a.end_date,
-        hours: a.hours,
-        status: a.status,
-        policy_name: a.policy_name,
-      }))
-    } catch (err) {
-      console.warn('[pto] activity fetch failed:', err)
-    }
-  }
-
-  const requests = await prisma.timeOffRequest.findMany({
-    where: { employeeStaffId: staffUserId },
-    orderBy: { createdAt: 'desc' },
-    take: 25,
-  })
-
-  return { mapping, balances, activities, requests, gustoConnected: !!conn }
-}
-
-export async function logAudit(params: {
-  requestId: string
-  actorStaffId?: string | null
-  actorEmail: string
-  actorName?: string | null
-  action: string
-  details?: Record<string, unknown>
-  severity?: string
-}) {
-  await prisma.timeOffAuditLog.create({
-    data: {
-      requestId: params.requestId,
-      actorStaffId: params.actorStaffId ?? null,
-      actorEmail: params.actorEmail,
-      actorName: params.actorName ?? null,
-      action: params.action,
-      details: (params.details ?? {}) as never,
-      severity: params.severity ?? 'info',
-    },
-  })
 }
 
 // Re-export kind for route convenience

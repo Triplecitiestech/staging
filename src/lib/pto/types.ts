@@ -2,7 +2,13 @@
  * PTO domain types.
  */
 
-export type PtoStatus = 'PENDING' | 'APPROVED' | 'DENIED' | 'CANCELLED'
+export type PtoStatus =
+  | 'PENDING' // legacy (migrated to PENDING_INTAKE)
+  | 'PENDING_INTAKE'
+  | 'PENDING_APPROVAL'
+  | 'APPROVED'
+  | 'DENIED'
+  | 'CANCELLED'
 
 export type PtoKind =
   | 'VACATION'
