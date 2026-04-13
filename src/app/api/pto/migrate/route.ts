@@ -269,11 +269,24 @@ export async function GET(request: Request) {
       const v = process.env[name]
       return { set: !!v && v.length > 0, length: v ? v.length : 0 }
     }
+    // Surface any env key starting with GUSTO_ or containing REDIRECT so typos
+    // (GUSTO_REDIRECT_URL, GUSTO_OAUTH_REDIRECT_URL, trailing space, etc.) show up.
+    const gustoLikeKeys = Object.keys(process.env)
+      .filter((k) => k.startsWith('GUSTO') || k.toUpperCase().includes('REDIRECT'))
+      .sort()
+
+    // Resolve the redirect URI the same way the live code does
+    const { getGustoRedirectUri } = await import('@/lib/gusto/config')
+    const resolvedRedirectUri = getGustoRedirectUri()
+
     const env = {
       GUSTO_ENV: process.env.GUSTO_ENV ?? '(unset)',
       GUSTO_CLIENT_ID: checkVar('GUSTO_CLIENT_ID'),
       GUSTO_CLIENT_SECRET: checkVar('GUSTO_CLIENT_SECRET'),
       GUSTO_OAUTH_REDIRECT_URI: process.env.GUSTO_OAUTH_REDIRECT_URI ?? '(unset)',
+      NEXT_PUBLIC_BASE_URL: process.env.NEXT_PUBLIC_BASE_URL ?? '(unset)',
+      RESOLVED_REDIRECT_URI: resolvedRedirectUri,
+      GUSTO_LIKE_KEYS_PRESENT: gustoLikeKeys,
       PTO_CALENDAR_MAILBOX: process.env.PTO_CALENDAR_MAILBOX ?? '(unset)',
       PTO_FROM_EMAIL: process.env.PTO_FROM_EMAIL ?? '(unset)',
       PTO_HR_GROUP_MAIL: process.env.PTO_HR_GROUP_MAIL ?? '(unset)',

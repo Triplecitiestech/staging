@@ -5,10 +5,12 @@
  * Other Gusto env vars:
  *   - GUSTO_CLIENT_ID
  *   - GUSTO_CLIENT_SECRET
- *   - GUSTO_OAUTH_REDIRECT_URI (must exactly match what's registered in Gusto dev portal)
+ *   - GUSTO_OAUTH_REDIRECT_URI (optional — falls back to NEXT_PUBLIC_BASE_URL + canonical path)
  */
 
 export type GustoEnvironment = 'demo' | 'production'
+
+export const GUSTO_CALLBACK_PATH = '/api/admin/integrations/gusto/callback'
 
 export function getGustoEnvironment(): GustoEnvironment {
   const env = (process.env.GUSTO_ENV || 'demo').toLowerCase()
@@ -26,6 +28,27 @@ export function getGustoOAuthBase(env: GustoEnvironment = getGustoEnvironment())
   return getGustoApiBase(env)
 }
 
+/**
+ * Resolve the OAuth redirect URI. Order of precedence:
+ *   1. GUSTO_OAUTH_REDIRECT_URI (canonical)
+ *   2. GUSTO_OAUTH_REDIRECT (common variant; accepted as alias)
+ *   3. NEXT_PUBLIC_BASE_URL + /api/admin/integrations/gusto/callback
+ *   4. https://www.triplecitiestech.com + /api/admin/integrations/gusto/callback
+ *
+ * This MUST exactly match a redirect URI configured in the Gusto dev portal.
+ */
+export function getGustoRedirectUri(): string {
+  const explicit =
+    process.env.GUSTO_OAUTH_REDIRECT_URI ?? process.env.GUSTO_OAUTH_REDIRECT
+  if (explicit && explicit.trim()) return explicit.trim()
+
+  const base = (process.env.NEXT_PUBLIC_BASE_URL || 'https://www.triplecitiestech.com').replace(
+    /\/$/,
+    ''
+  )
+  return `${base}${GUSTO_CALLBACK_PATH}`
+}
+
 export function getGustoClientCredentials(): {
   clientId: string
   clientSecret: string
@@ -33,13 +56,12 @@ export function getGustoClientCredentials(): {
 } {
   const clientId = process.env.GUSTO_CLIENT_ID
   const clientSecret = process.env.GUSTO_CLIENT_SECRET
-  const redirectUri = process.env.GUSTO_OAUTH_REDIRECT_URI
 
-  if (!clientId || !clientSecret || !redirectUri) {
+  if (!clientId || !clientSecret) {
     throw new Error(
-      'Missing Gusto OAuth configuration. Set GUSTO_CLIENT_ID, GUSTO_CLIENT_SECRET, and GUSTO_OAUTH_REDIRECT_URI.'
+      'Missing Gusto OAuth configuration. Set GUSTO_CLIENT_ID and GUSTO_CLIENT_SECRET.'
     )
   }
 
-  return { clientId, clientSecret, redirectUri }
+  return { clientId, clientSecret, redirectUri: getGustoRedirectUri() }
 }
