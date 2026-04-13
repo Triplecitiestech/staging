@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { hasPermission } from '@/lib/permissions'
 import { prisma } from '@/lib/prisma'
+import { ptoRouteErrorResponse } from '@/lib/pto/route-errors'
 
 export const dynamic = 'force-dynamic'
 
 /** GET /api/pto/requests/[id] — returns request detail + audit log */
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
   const session = await auth()
   if (!session?.user?.email || !session.user.role || !session.user.staffId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -63,6 +65,9 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       createdAt: a.createdAt.toISOString(),
     })),
   })
+  } catch (err) {
+    return ptoRouteErrorResponse(err)
+  }
 }
 
 function toYmd(d: Date): string {

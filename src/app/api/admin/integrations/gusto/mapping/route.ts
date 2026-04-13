@@ -5,11 +5,13 @@ import { manuallyMap, unmap } from '@/lib/pto/mapping'
 import { prisma } from '@/lib/prisma'
 import { listEmployees } from '@/lib/gusto/client'
 import { getActiveConnection } from '@/lib/gusto/connection'
+import { ptoRouteErrorResponse } from '@/lib/pto/route-errors'
 
 export const dynamic = 'force-dynamic'
 
 /** GET — list all mappings plus unmatched staff + unmatched Gusto employees */
 export async function GET(_request: NextRequest) {
+  try {
   const session = await auth()
   if (!session?.user?.email || !session.user.role) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -64,6 +66,9 @@ export async function GET(_request: NextRequest) {
     unmatchedStaff: staff.filter((s) => !mappedStaffIds.has(s.id)),
     unmatchedGustoEmployees: gustoEmployees.filter((e) => !mappedGustoUuids.has(e.uuid)),
   })
+  } catch (err) {
+    return ptoRouteErrorResponse(err)
+  }
 }
 
 /** POST — { staffUserId, gustoEmployeeUuid } — manually map a staff user to a Gusto employee */

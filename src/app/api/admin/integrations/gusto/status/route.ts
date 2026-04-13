@@ -4,6 +4,7 @@ import { hasPermission } from '@/lib/permissions'
 import { getActiveConnection } from '@/lib/gusto/connection'
 import { verifyConnection } from '@/lib/gusto/client'
 import { getGustoEnvironment } from '@/lib/gusto/config'
+import { isMissingTableError } from '@/lib/pto/route-errors'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,7 +18,24 @@ export async function GET(_request: NextRequest) {
   }
 
   const env = getGustoEnvironment()
-  const conn = await getActiveConnection()
+  let conn: Awaited<ReturnType<typeof getActiveConnection>> = null
+  try {
+    conn = await getActiveConnection()
+  } catch (err) {
+    if (isMissingTableError(err)) {
+      return NextResponse.json({
+        connected: false,
+        environment: env,
+        migrationMissing: true,
+        error:
+          'PTO database tables are not installed yet. An admin must run the 20260413000000_add_pto_system migration.',
+      })
+    }
+    return NextResponse.json(
+      { connected: false, environment: env, error: err instanceof Error ? err.message : 'DB error' },
+      { status: 500 }
+    )
+  }
   if (!conn) {
     return NextResponse.json({ connected: false, environment: env })
   }
