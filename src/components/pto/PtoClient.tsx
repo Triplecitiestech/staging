@@ -54,7 +54,34 @@ export default function PtoClient({ canApprove }: { canApprove: boolean }) {
     setBalanceState('loading')
     try {
       const res = await fetch('/api/pto/balance', { signal })
-      const data = (await res.json()) as BalanceResponse
+      // Read body as text first so we can surface non-JSON responses clearly
+      const text = await res.text()
+      let data: (BalanceResponse & { code?: string }) | null = null
+      try {
+        data = text ? (JSON.parse(text) as BalanceResponse) : null
+      } catch {
+        // Non-JSON response
+      }
+
+      if (!res.ok || !data) {
+        const code = data?.code
+        if (code === 'pto_migration_missing') {
+          setBalanceState('error')
+          setBalanceError(
+            'Database tables for the PTO system have not been installed yet. An admin must run the PTO migration.'
+          )
+          setBalances([])
+          return
+        }
+        setBalanceState('error')
+        setBalanceError(
+          data?.error ??
+            `Server returned ${res.status} ${res.statusText || ''}`.trim()
+        )
+        setBalances([])
+        return
+      }
+
       if (!data.connected) {
         setBalanceState('disconnected')
         setBalances([])
@@ -80,11 +107,18 @@ export default function PtoClient({ canApprove }: { canApprove: boolean }) {
     setReqLoading(true)
     try {
       const res = await fetch('/api/pto/requests', { signal })
-      const data = await res.json()
+      const text = await res.text()
+      if (!res.ok) {
+        console.error('[pto] requests fetch failed:', res.status, text)
+        setRequests([])
+        return
+      }
+      const data = text ? JSON.parse(text) : { requests: [] }
       setRequests(data.requests ?? [])
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return
       console.error('[pto] failed to load requests', err)
+      setRequests([])
     } finally {
       setReqLoading(false)
     }
