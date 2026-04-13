@@ -61,7 +61,15 @@ export async function GET(request: NextRequest) {
     settingsUrl.searchParams.set('error', 'state_signature_invalid')
     return NextResponse.redirect(settingsUrl)
   }
-  const [stateFromCookie, userEmailFromCookie] = payload.split('.')
+  // Split on FIRST dot only: state is base64url (no dots), but the email after
+  // the separator may contain dots (e.g. user@example.com).
+  const firstDot = payload.indexOf('.')
+  if (firstDot === -1) {
+    settingsUrl.searchParams.set('error', 'state_payload_malformed')
+    return NextResponse.redirect(settingsUrl)
+  }
+  const stateFromCookie = payload.slice(0, firstDot)
+  const userEmailFromCookie = payload.slice(firstDot + 1)
   if (stateFromCookie !== state || userEmailFromCookie !== session.user.email) {
     settingsUrl.searchParams.set('error', 'state_mismatch')
     return NextResponse.redirect(settingsUrl)
