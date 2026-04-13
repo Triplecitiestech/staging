@@ -1,4 +1,26 @@
+import { cookies } from 'next/headers'
 import Link from 'next/link'
+
+export const dynamic = 'force-dynamic'
+
+interface SignInDebug {
+  reason?: string
+  detail?: string | null
+  ts?: string
+}
+
+function describeReason(reason: string | undefined): string {
+  switch (reason) {
+    case 'deactivated':
+      return "Your TCT staff account is marked inactive. Ask an admin to reactivate it."
+    case 'no_email':
+      return "Azure AD didn't include an email address for you. Ask an admin to verify the app registration has the 'email' scope."
+    case 'exception':
+      return 'The server hit an unexpected error while signing you in. The exact message appears below — please copy it to your admin.'
+    default:
+      return ''
+  }
+}
 
 export default async function AuthErrorPage({
   searchParams,
@@ -16,6 +38,17 @@ export default async function AuthErrorPage({
 
   const error = params.error || 'Default'
   const message = errorMessages[error] || errorMessages.Default
+
+  let debug: SignInDebug | null = null
+  try {
+    const store = await cookies()
+    const raw = store.get('tct_signin_debug')?.value
+    if (raw) debug = JSON.parse(raw)
+  } catch {
+    // ignore malformed debug cookie
+  }
+
+  const reasonExplain = describeReason(debug?.reason)
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
@@ -42,6 +75,28 @@ export default async function AuthErrorPage({
           </h1>
 
           <p className="text-gray-600 mb-6">{message}</p>
+
+          {debug && (
+            <div className="mb-6 rounded-md border border-red-200 bg-red-50 p-4 text-left text-sm">
+              <p className="font-semibold text-red-900 mb-1">Diagnostic (share with your admin):</p>
+              <p className="text-red-800">
+                <span className="font-medium">Reason:</span> {debug.reason}
+              </p>
+              {reasonExplain && (
+                <p className="text-red-800 mt-1">{reasonExplain}</p>
+              )}
+              {debug.detail && (
+                <pre className="mt-2 p-2 bg-red-100 rounded text-xs text-red-900 overflow-x-auto whitespace-pre-wrap break-words">
+                  {debug.detail}
+                </pre>
+              )}
+              {debug.ts && (
+                <p className="text-red-700 mt-2 text-xs">
+                  Captured at {debug.ts}
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="space-y-3">
             <Link

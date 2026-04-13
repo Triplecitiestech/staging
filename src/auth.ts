@@ -1,8 +1,29 @@
 import NextAuth from "next-auth"
 import AzureADProvider from "next-auth/providers/azure-ad"
 import { PrismaAdapter } from "@auth/prisma-adapter"
+import { cookies } from "next/headers"
 import { prisma } from "@/lib/prisma"
 import { parseOverrides } from "@/lib/permissions"
+
+async function setSignInDebug(reason: string, detail?: string) {
+  try {
+    const store = await cookies()
+    const payload = JSON.stringify({
+      reason,
+      detail: detail ?? null,
+      ts: new Date().toISOString(),
+    })
+    store.set('tct_signin_debug', payload, {
+      httpOnly: false, // readable by the error page client-side too
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 600, // 10 minutes
+    })
+  } catch {
+    // headers() may be read-only in some contexts — non-fatal
+  }
+}
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   adapter: PrismaAdapter(prisma),
@@ -14,23 +35,30 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     }),
   ],
   callbacks: {
-    async signIn({ user }) {
+    async signIn({ user, profile }) {
       // Allow sign-in for any Azure AD user in the tenant
       // Auto-provision as TECHNICIAN if not already in staff_users
-      if (!user.email) {
-        console.warn('[auth] Sign-in denied: no email on Azure AD user')
+      const rawEmail = user?.email ?? (profile as { email?: string; preferred_username?: string } | undefined)?.email
+      const rawUpn = (profile as { preferred_username?: string } | undefined)?.preferred_username ?? null
+
+      if (!rawEmail && !rawUpn) {
+        console.warn('[auth] Sign-in denied: no email on Azure AD user', { user, profile })
+        await setSignInDebug('no_email', `profile keys: ${Object.keys(profile ?? {}).join(',')}`)
         return false
       }
+
+      const email = (rawEmail ?? rawUpn)!.toLowerCase()
 
       try {
         // Case-insensitive lookup so "Ben@tct.com" matches "ben@tct.com"
         const staffUser = await prisma.staffUser.findFirst({
-          where: { email: { equals: user.email, mode: 'insensitive' } },
+          where: { email: { equals: email, mode: 'insensitive' } },
           select: { id: true, email: true, name: true, role: true, isActive: true },
         })
 
         if (staffUser && !staffUser.isActive) {
-          console.warn(`[auth] Sign-in denied for ${user.email}: account is deactivated (staffId=${staffUser.id})`)
+          console.warn(`[auth] Sign-in denied for ${email}: account is deactivated (staffId=${staffUser.id})`)
+          await setSignInDebug('deactivated', `staffId=${staffUser.id}`)
           return false
         }
 
@@ -38,14 +66,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           // Auto-provision new team members from Azure AD as TECHNICIAN
           const created = await prisma.staffUser.create({
             data: {
-              email: user.email.toLowerCase(),
-              name: user.name || user.email.split('@')[0],
+              email,
+              name: user?.name || email.split('@')[0],
               role: 'TECHNICIAN',
               isActive: true,
               lastLogin: new Date(),
             }
           })
-          console.log(`[auth] Auto-provisioned new staff user: ${user.email} as TECHNICIAN (id=${created.id})`)
+          console.log(`[auth] Auto-provisioned new staff user: ${email} as TECHNICIAN (id=${created.id})`)
         } else {
           // Update last login timestamp
           await prisma.staffUser.update({
@@ -56,7 +84,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         return true
       } catch (error) {
-        console.error(`[auth] Sign-in error for ${user.email}:`, error)
+        console.error(`[auth] Sign-in error for ${email}:`, error)
+        await setSignInDebug('exception', error instanceof Error ? error.message : String(error))
         return false
       }
     },

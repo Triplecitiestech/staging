@@ -31,12 +31,33 @@ function norm(email: string | null | undefined) {
   return email ? email.trim().toLowerCase() : null
 }
 
+/**
+ * Heal any legacy role values that Prisma no longer knows about so that
+ * subsequent queries selecting `role` don't crash with
+ *   "Value 'VIEWER' not found in enum 'StaffRole'"
+ * This is a side-effect of every call — raw SQL so it bypasses the
+ * Prisma enum deserializer.
+ */
+async function healLegacyRoles(): Promise<number> {
+  try {
+    const rows = await prisma.$executeRawUnsafe<number>(
+      `UPDATE "staff_users" SET "role" = 'TECHNICIAN' WHERE "role" NOT IN ('SUPER_ADMIN','ADMIN','BILLING_ADMIN','TECHNICIAN')`
+    )
+    return typeof rows === 'number' ? rows : 0
+  } catch (err) {
+    console.error('[staff-lookup] healLegacyRoles failed:', err)
+    return -1
+  }
+}
+
 export async function GET(request: NextRequest) {
   if (!authorize(request)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   const email = norm(request.nextUrl.searchParams.get('email'))
   if (!email) return NextResponse.json({ error: 'email query param required' }, { status: 400 })
+
+  const healedRows = await healLegacyRoles()
 
   try {
     // Case-insensitive lookup
@@ -54,7 +75,7 @@ export async function GET(request: NextRequest) {
         permissionOverrides: true,
       },
     })
-    return NextResponse.json({ email, exists: !!row, staff: row })
+    return NextResponse.json({ email, exists: !!row, staff: row, healedLegacyRoles: healedRows })
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'lookup failed' },
@@ -75,6 +96,8 @@ export async function POST(request: NextRequest) {
   if (typeof body?.isActive === 'boolean') data.isActive = body.isActive
   if (typeof body?.role === 'string') data.role = body.role
 
+  const healedRows = await healLegacyRoles()
+
   try {
     const existing = await prisma.staffUser.findFirst({
       where: { email: { equals: email, mode: 'insensitive' } },
@@ -91,18 +114,18 @@ export async function POST(request: NextRequest) {
           isActive: data.isActive ?? true,
         },
       })
-      return NextResponse.json({ ok: true, created: true, staff: created })
+      return NextResponse.json({ ok: true, created: true, staff: created, healedLegacyRoles: healedRows })
     }
 
     if (Object.keys(data).length === 0) {
-      return NextResponse.json({ ok: true, changed: false, message: 'No changes requested' })
+      return NextResponse.json({ ok: true, changed: false, message: 'No changes requested', healedLegacyRoles: healedRows })
     }
 
     const updated = await prisma.staffUser.update({
       where: { id: existing.id },
       data: data as never,
     })
-    return NextResponse.json({ ok: true, updated: true, staff: updated })
+    return NextResponse.json({ ok: true, updated: true, staff: updated, healedLegacyRoles: healedRows })
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'update failed' },
