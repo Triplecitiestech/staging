@@ -23,6 +23,9 @@ const ADMIN_PAGES = [
   '/admin/reporting/companies',
   '/admin/reporting/health',
   '/admin/soc',
+  '/admin/pto',
+  '/admin/pto/queue',
+  '/admin/settings/integrations/gusto',
 ]
 
 test.describe('Admin Pages — No Server Crashes', () => {
