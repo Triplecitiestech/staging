@@ -107,11 +107,19 @@ export async function POST(request: NextRequest) {
   }
 
   const envToken = process.env.SAAS_ALERTS_WEBHOOK_TOKEN
+
+  // The API requires at least one of alertStatuses or eventTypes — it returns
+  // 500 "At least one of the following fields must be present" otherwise,
+  // despite the Swagger marking both as optional. Default to all three
+  // severities (= effectively "all events") when neither filter is supplied.
+  const hasFilter = (body.alertStatuses && body.alertStatuses.length > 0) || (body.eventTypes && body.eventTypes.length > 0)
+  const defaultAlertStatuses: SaasAlertsSubscriptionCreateParams['alertStatuses'] = ['critical', 'medium', 'low']
+
   const params: SaasAlertsSubscriptionCreateParams = {
     url: body.url ?? receiverUrl(),
     token: body.token ?? envToken ?? undefined,
     enabled: body.enabled ?? true,
-    alertStatuses: body.alertStatuses,
+    alertStatuses: body.alertStatuses ?? (hasFilter ? undefined : defaultAlertStatuses),
     eventTypes: body.eventTypes,
     customerIds: body.customerIds,
     expiration: body.expiration,

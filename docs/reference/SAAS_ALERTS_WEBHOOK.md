@@ -169,6 +169,11 @@ Relevant endpoints:
 
 - `url` HTTPS only; no IP literal, no userinfo, no fragment; ≤ 256 chars.
 - `token` ≤ 128 chars.
+- **At least one of `alertStatuses` or `eventTypes` must be set.** The API
+  returns 500 "At least one of the following fields must be present" if both
+  are omitted, despite the Swagger marking each optional. The admin route
+  defaults to `alertStatuses: ['critical','medium','low']` when neither is
+  supplied, which is effectively "all events" for this tenant.
 - `alertStatuses` ∈ `{ critical, medium, low }` — mutually exclusive with
   `eventTypes`.
 - `customerIds` ≤ 50 entries.
