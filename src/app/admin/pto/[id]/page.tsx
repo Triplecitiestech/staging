@@ -20,6 +20,11 @@ export default async function PtoDetailPage({
     'approve_pto',
     session.user?.permissionOverrides
   )
+  const canIntake = hasPermission(
+    session.user?.role,
+    'pto_intake',
+    session.user?.permissionOverrides
+  )
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-gray-900 to-slate-950">
@@ -31,6 +36,7 @@ export default async function PtoDetailPage({
         <PtoDetailClient
           id={id}
           canApprove={canApprove}
+          canIntake={canIntake}
           currentStaffId={session.user?.staffId ?? null}
         />
       </main>

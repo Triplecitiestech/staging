@@ -53,6 +53,7 @@ export type Permission =
   | 'view_assigned_tasks'
   // PTO / Time off
   | 'approve_pto'
+  | 'pto_intake'
   | 'manage_pto_integrations'
 
 // Permission definitions per role
@@ -88,6 +89,7 @@ const ROLE_PERMISSIONS: Record<StaffRole, Permission[]> = {
     'add_notes',
     'view_assigned_tasks',
     'approve_pto',
+    'pto_intake',
     'manage_pto_integrations',
   ],
   ADMIN: [
@@ -115,6 +117,7 @@ const ROLE_PERMISSIONS: Record<StaffRole, Permission[]> = {
     'add_notes',
     'view_assigned_tasks',
     'approve_pto',
+    'pto_intake',
   ],
   BILLING_ADMIN: [
     'view_staff',
@@ -233,7 +236,7 @@ export const ALL_PERMISSIONS: Permission[] = [
   'view_reports', 'view_billing', 'manage_billing',
   'system_settings', 'run_migrations', 'view_audit_log', 'autotask_sync',
   'update_task_status', 'add_notes', 'view_assigned_tasks',
-  'approve_pto', 'manage_pto_integrations',
+  'approve_pto', 'pto_intake', 'manage_pto_integrations',
 ]
 
 /**
@@ -269,7 +272,8 @@ export const PERMISSION_META: Record<Permission, { label: string; category: stri
   update_task_status: { label: 'Update Tasks', category: 'Tasks', description: 'Change task status' },
   add_notes: { label: 'Add Notes', category: 'Tasks', description: 'Add notes to tasks and projects' },
   view_assigned_tasks: { label: 'View Assigned Tasks', category: 'Tasks', description: 'View tasks assigned to you' },
-  approve_pto: { label: 'Approve PTO', category: 'PTO', description: 'Review, approve, and deny time-off requests' },
+  approve_pto: { label: 'Approve PTO', category: 'PTO', description: 'Final approval — approve or deny time-off requests' },
+  pto_intake: { label: 'PTO Intake', category: 'PTO', description: 'Gather context for PTO requests (balance, history, coverage) and forward to final approver' },
   manage_pto_integrations: { label: 'Manage PTO Integrations', category: 'PTO', description: 'Connect Gusto, manage employee mappings, configure PTO settings' },
 }
 

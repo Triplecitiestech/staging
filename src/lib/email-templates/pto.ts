@@ -63,7 +63,15 @@ export interface ApprovalEmailContext {
   totalHours: number
   notes: string | null
   coverage: string | null
-  balances: Array<{ policyName: string; balanceHours: number }>
+  intake: {
+    byName: string | null
+    lastTimeOffNotes: string | null
+    balanceNotes: string | null
+    coverageConfirmed: boolean | null
+    coverageNotes: string | null
+    additionalNotes: string | null
+    skipped: boolean
+  }
   recentRequests: Array<{ kind: string; startDate: string; endDate: string; status: string }>
   reviewUrl: string
 }
@@ -75,18 +83,33 @@ export function generateHrApprovalEmail(ctx: ApprovalEmailContext): {
 } {
   const subject = `PTO Request: ${ctx.employeeName} — ${formatDateRange(ctx.startDate, ctx.endDate)}`
 
-  const balancesHtml = ctx.balances.length
-    ? ctx.balances
-        .map(
-          (b) =>
-            `<tr><td style="padding:6px 12px 6px 0;color:#475569;">${escapeHtml(
-              b.policyName
-            )}</td><td style="padding:6px 0;color:#0f172a;font-weight:600;text-align:right;">${b.balanceHours.toFixed(
-              2
-            )} hrs</td></tr>`
-        )
-        .join('')
-    : '<tr><td colspan="2" style="padding:6px 0;color:#94a3b8;">No balance data</td></tr>'
+  const intakeRow = (label: string, value: string | null) =>
+    value && value.trim()
+      ? `<tr><td style="padding:6px 12px 6px 0;color:#475569;vertical-align:top;width:40%;">${label}</td><td style="padding:6px 0;color:#0f172a;">${escapeHtml(
+          value
+        )}</td></tr>`
+      : ''
+
+  const intakeBlock = ctx.intake.skipped
+    ? `<div style="background:#fff7ed;border-left:3px solid #f97316;padding:12px 16px;margin-bottom:16px;border-radius:4px;"><p style="margin:0;color:#0f172a;font-size:14px;"><strong>Intake skipped.</strong> No HR context was gathered before forwarding.</p></div>`
+    : `<div style="background:#f8fafc;padding:16px;border-radius:6px;margin-bottom:16px;">
+         <p style="margin:0 0 8px;font-size:13px;font-weight:600;color:#475569;">INTAKE CONTEXT${
+           ctx.intake.byName ? ` — from ${escapeHtml(ctx.intake.byName)}` : ''
+         }</p>
+         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;">
+           ${intakeRow('PTO balance', ctx.intake.balanceNotes)}
+           ${intakeRow('Last time off', ctx.intake.lastTimeOffNotes)}
+           ${intakeRow(
+             'Coverage confirmed',
+             ctx.intake.coverageConfirmed === true
+               ? `Yes${ctx.intake.coverageNotes ? ` — ${ctx.intake.coverageNotes}` : ''}`
+               : ctx.intake.coverageConfirmed === false
+               ? `No${ctx.intake.coverageNotes ? ` — ${ctx.intake.coverageNotes}` : ''}`
+               : ctx.intake.coverageNotes
+           )}
+           ${intakeRow('Additional notes', ctx.intake.additionalNotes)}
+         </table>
+       </div>`
 
   const recentHtml = ctx.recentRequests.length
     ? ctx.recentRequests
@@ -134,10 +157,7 @@ export function generateHrApprovalEmail(ctx: ApprovalEmailContext): {
             : ''
         }
 
-        <div style="background:#f8fafc;padding:16px;border-radius:6px;margin-bottom:16px;">
-          <p style="margin:0 0 8px;font-size:13px;font-weight:600;color:#475569;">CURRENT BALANCES (from Gusto)</p>
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;">${balancesHtml}</table>
-        </div>
+        ${intakeBlock}
 
         <div style="background:#f8fafc;padding:16px;border-radius:6px;margin-bottom:24px;">
           <p style="margin:0 0 8px;font-size:13px;font-weight:600;color:#475569;">RECENT REQUESTS</p>
@@ -161,8 +181,16 @@ Dates: ${formatDateRange(ctx.startDate, ctx.endDate)}
 Total hours: ${ctx.totalHours.toFixed(2)}
 ${ctx.coverage ? `\nShift coverage: ${ctx.coverage}` : ''}${ctx.notes ? `\nNotes: ${ctx.notes}` : ''}
 
-Current balances:
-${ctx.balances.map((b) => `  ${b.policyName}: ${b.balanceHours.toFixed(2)} hrs`).join('\n') || '  (no data)'}
+Intake context${ctx.intake.byName ? ` (from ${ctx.intake.byName})` : ''}:
+${ctx.intake.skipped ? '  (intake was skipped)' : ''}${
+    ctx.intake.balanceNotes ? `\n  PTO balance: ${ctx.intake.balanceNotes}` : ''
+  }${ctx.intake.lastTimeOffNotes ? `\n  Last time off: ${ctx.intake.lastTimeOffNotes}` : ''}${
+    ctx.intake.coverageConfirmed !== null
+      ? `\n  Coverage confirmed: ${ctx.intake.coverageConfirmed ? 'Yes' : 'No'}${
+          ctx.intake.coverageNotes ? ` — ${ctx.intake.coverageNotes}` : ''
+        }`
+      : ''
+  }${ctx.intake.additionalNotes ? `\n  Additional notes: ${ctx.intake.additionalNotes}` : ''}
 
 Recent requests:
 ${ctx.recentRequests
@@ -171,6 +199,81 @@ ${ctx.recentRequests
   .join('\n') || '  (none)'}
 
 Review: ${ctx.reviewUrl}`
+
+  return { subject, html: shell(subject, body), text }
+}
+
+// ---------------------------------------------------------------------------
+// HR intake assignment email (sent when a new request needs context)
+// ---------------------------------------------------------------------------
+
+export interface IntakeAssignedEmailContext {
+  employeeName: string
+  employeeEmail: string
+  kind: string
+  startDate: string
+  endDate: string
+  totalHours: number
+  notes: string | null
+  coverage: string | null
+  reviewUrl: string
+}
+
+export function generateIntakeAssignedEmail(ctx: IntakeAssignedEmailContext): {
+  subject: string
+  html: string
+  text: string
+} {
+  const subject = `PTO intake needed: ${ctx.employeeName} — ${formatDateRange(ctx.startDate, ctx.endDate)}`
+  const body = `
+      <tr><td style="padding:32px;">
+        <div style="background:#eff6ff;border:1px solid #3b82f6;padding:14px 16px;border-radius:6px;margin-bottom:20px;">
+          <p style="margin:0;color:#1e3a8a;font-size:14px;font-weight:600;">Action required: gather context before forwarding</p>
+        </div>
+        <p style="margin:0 0 12px;font-size:15px;color:#0f172a;">${escapeHtml(ctx.employeeName)} has submitted a PTO request.</p>
+
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;font-size:14px;">
+          <tr><td style="padding:4px 0;color:#475569;width:40%;">Employee</td><td style="padding:4px 0;color:#0f172a;font-weight:600;">${escapeHtml(ctx.employeeName)} &lt;${escapeHtml(ctx.employeeEmail)}&gt;</td></tr>
+          <tr><td style="padding:4px 0;color:#475569;">Type</td><td style="padding:4px 0;color:#0f172a;font-weight:600;">${escapeHtml(ctx.kind)}</td></tr>
+          <tr><td style="padding:4px 0;color:#475569;">Dates</td><td style="padding:4px 0;color:#0f172a;font-weight:600;">${escapeHtml(formatDateRange(ctx.startDate, ctx.endDate))}</td></tr>
+          <tr><td style="padding:4px 0;color:#475569;">Total hours</td><td style="padding:4px 0;color:#0f172a;font-weight:600;">${ctx.totalHours.toFixed(2)} hrs</td></tr>
+        </table>
+
+        ${ctx.coverage ? `<div style="background:#f0f9ff;border-left:3px solid #0ea5e9;padding:12px 16px;margin-bottom:16px;border-radius:4px;"><p style="margin:0 0 4px;font-size:12px;font-weight:600;color:#0369a1;">COVERAGE (from employee)</p><p style="margin:0;color:#0f172a;font-size:14px;">${escapeHtml(ctx.coverage)}</p></div>` : ''}
+        ${ctx.notes ? `<div style="background:#f8fafc;border-left:3px solid #94a3b8;padding:12px 16px;margin-bottom:16px;border-radius:4px;"><p style="margin:0 0 4px;font-size:12px;font-weight:600;color:#475569;">EMPLOYEE NOTES</p><p style="margin:0;color:#0f172a;font-size:14px;">${escapeHtml(ctx.notes)}</p></div>` : ''}
+
+        <p style="margin:16px 0 24px;color:#475569;font-size:14px;line-height:1.6;">
+          Please open the request and fill in:
+          <ul style="margin:8px 0 0;padding-left:20px;color:#334155;font-size:14px;">
+            <li>Current PTO balance (look up in Gusto)</li>
+            <li>Prior time-off history notes</li>
+            <li>Coverage confirmation</li>
+            <li>Any other context the final approver should know</li>
+          </ul>
+        </p>
+
+        <table role="presentation" cellpadding="0" cellspacing="0">
+          <tr><td>
+            <a href="${escapeHtml(ctx.reviewUrl)}" style="display:inline-block;background:#0891b2;color:#ffffff;padding:12px 28px;border-radius:6px;font-weight:600;font-size:14px;text-decoration:none;">Open intake form</a>
+          </td></tr>
+        </table>
+      </td></tr>`
+
+  const text = `PTO intake needed
+
+Employee: ${ctx.employeeName} <${ctx.employeeEmail}>
+Type: ${ctx.kind}
+Dates: ${formatDateRange(ctx.startDate, ctx.endDate)}
+Total hours: ${ctx.totalHours.toFixed(2)}
+${ctx.coverage ? `\nCoverage (employee): ${ctx.coverage}` : ''}${ctx.notes ? `\nEmployee notes: ${ctx.notes}` : ''}
+
+Please open the request and fill in:
+  - Current PTO balance (look up in Gusto)
+  - Prior time-off history
+  - Coverage confirmation
+  - Any other context for the final approver
+
+Open intake form: ${ctx.reviewUrl}`
 
   return { subject, html: shell(subject, body), text }
 }

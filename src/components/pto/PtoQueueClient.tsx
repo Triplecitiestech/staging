@@ -14,38 +14,66 @@ interface RequestRow {
   startDate: string
   endDate: string
   totalHours: number
-  notes: string | null
-  coverage: string | null
   status: PtoStatus
+  intakeByName: string | null
+  intakeAt: string | null
+  intakeSkipped: boolean
   reviewedByName: string | null
   reviewedAt: string | null
+  gustoRecordedAt: string | null
   createdAt: string
-  gustoSyncStatus: string | null
-  graphSyncStatus: string | null
 }
 
-const TABS: Array<{ label: string; status: PtoStatus | 'ALL' }> = [
-  { label: 'Pending', status: 'PENDING' },
-  { label: 'Approved', status: 'APPROVED' },
-  { label: 'Denied', status: 'DENIED' },
-  { label: 'Cancelled', status: 'CANCELLED' },
-  { label: 'All', status: 'ALL' },
+type TabId = 'my_queue' | 'intake' | 'approval' | 'approved' | 'denied' | 'cancelled' | 'all'
+
+const TABS: Array<{ id: TabId; label: string }> = [
+  { id: 'my_queue', label: 'My queue' },
+  { id: 'intake', label: 'Pending HR intake' },
+  { id: 'approval', label: 'Pending final approval' },
+  { id: 'approved', label: 'Approved' },
+  { id: 'denied', label: 'Denied' },
+  { id: 'cancelled', label: 'Cancelled' },
+  { id: 'all', label: 'All' },
 ]
 
-export default function PtoQueueClient() {
+export default function PtoQueueClient({
+  canIntake,
+  canApprove,
+}: {
+  canIntake: boolean
+  canApprove: boolean
+}) {
   const [rows, setRows] = useState<RequestRow[]>([])
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState<PtoStatus | 'ALL'>('PENDING')
+  const [tab, setTab] = useState<TabId>('my_queue')
 
   const load = useCallback(
-    async (status: PtoStatus | 'ALL', signal?: AbortSignal) => {
+    async (id: TabId, signal?: AbortSignal) => {
       setLoading(true)
       try {
         const qs = new URLSearchParams({ scope: 'all' })
-        if (status !== 'ALL') qs.set('status', status)
+        if (id === 'intake') qs.set('status', 'PENDING_INTAKE')
+        else if (id === 'approval') qs.set('status', 'PENDING_APPROVAL')
+        else if (id === 'approved') qs.set('status', 'APPROVED')
+        else if (id === 'denied') qs.set('status', 'DENIED')
+        else if (id === 'cancelled') qs.set('status', 'CANCELLED')
+        // 'my_queue' and 'all' don't pre-filter server-side
+
         const res = await fetch(`/api/pto/requests?${qs}`, { signal })
         const data = await res.json()
-        setRows(data.requests ?? [])
+        let list: RequestRow[] = data.requests ?? []
+
+        if (id === 'my_queue') {
+          list = list.filter((r) => {
+            if (canIntake && (r.status === 'PENDING_INTAKE' || r.status === 'PENDING')) return true
+            if (canApprove && r.status === 'PENDING_APPROVAL') return true
+            // Approved but not yet recorded in Gusto — still on HR's to-do list
+            if ((canIntake || canApprove) && r.status === 'APPROVED' && !r.gustoRecordedAt) return true
+            return false
+          })
+        }
+
+        setRows(list)
       } catch (err) {
         if (err instanceof DOMException && err.name === 'AbortError') return
         console.error('[pto] queue load failed', err)
@@ -53,7 +81,7 @@ export default function PtoQueueClient() {
         setLoading(false)
       }
     },
-    []
+    [canIntake, canApprove]
   )
 
   useEffect(() => {
@@ -67,11 +95,11 @@ export default function PtoQueueClient() {
       <div className="flex flex-wrap gap-2 border-b border-white/10 pb-3">
         {TABS.map((t) => (
           <button
-            key={t.status}
+            key={t.id}
             type="button"
-            onClick={() => setTab(t.status)}
+            onClick={() => setTab(t.id)}
             className={`px-3 py-1.5 rounded-md text-sm font-medium ${
-              tab === t.status
+              tab === t.id
                 ? 'bg-cyan-500 text-white'
                 : 'text-slate-300 hover:text-white hover:bg-white/5'
             }`}
@@ -85,11 +113,13 @@ export default function PtoQueueClient() {
         <div className="rounded-lg border border-white/10 bg-white/5 p-6 text-slate-400">Loading…</div>
       ) : rows.length === 0 ? (
         <div className="rounded-lg border border-white/10 bg-white/5 p-6 text-slate-400">
-          No requests match this filter.
+          {tab === 'my_queue'
+            ? 'Nothing needs your attention right now.'
+            : 'No requests match this filter.'}
         </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-white/10 bg-white/5">
-          <table className="w-full min-w-[820px] text-sm">
+          <table className="w-full min-w-[900px] text-sm">
             <thead className="bg-white/5 text-left">
               <tr>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Employee</th>
@@ -97,6 +127,7 @@ export default function PtoQueueClient() {
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Dates</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Hours</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Status</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Gusto</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Submitted</th>
                 <th className="px-4 py-3"></th>
               </tr>
@@ -116,6 +147,17 @@ export default function PtoQueueClient() {
                   <td className="px-4 py-3">
                     <StatusBadge status={r.status} />
                   </td>
+                  <td className="px-4 py-3 text-xs">
+                    {r.status === 'APPROVED' ? (
+                      r.gustoRecordedAt ? (
+                        <span className="text-emerald-300">Recorded</span>
+                      ) : (
+                        <span className="text-amber-300">Needs entry</span>
+                      )
+                    ) : (
+                      <span className="text-slate-500">—</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-xs text-slate-400">
                     {new Date(r.createdAt).toLocaleDateString()}
                   </td>
@@ -124,7 +166,11 @@ export default function PtoQueueClient() {
                       href={`/admin/pto/${r.id}`}
                       className="text-cyan-400 hover:text-cyan-300 text-xs font-medium"
                     >
-                      Review →
+                      {r.status === 'PENDING_INTAKE' || r.status === 'PENDING'
+                        ? 'Intake →'
+                        : r.status === 'PENDING_APPROVAL'
+                        ? 'Review →'
+                        : 'Open →'}
                     </Link>
                   </td>
                 </tr>

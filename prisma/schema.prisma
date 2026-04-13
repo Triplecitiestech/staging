@@ -1484,7 +1484,9 @@ model PtoEmployeeMapping {
 }
 
 enum TimeOffRequestStatus {
-  PENDING
+  PENDING           // legacy — migrated to PENDING_INTAKE
+  PENDING_INTAKE    // waiting for HR intake (e.g. Rio) to gather context
+  PENDING_APPROVAL  // waiting for final approver (e.g. Kurtis)
   APPROVED
   DENIED
   CANCELLED
@@ -1502,13 +1504,13 @@ enum TimeOffRequestKind {
 
 model TimeOffRequest {
   id                  String               @id @default(uuid())
-  mappingId           String
+  mappingId           String?              // optional — kept for future Gusto re-wiring
   employeeStaffId     String               // StaffUser.id of requester
   employeeEmail       String
   employeeName        String
-  gustoEmployeeUuid   String
+  gustoEmployeeUuid   String?              // optional — future Gusto sync
   kind                TimeOffRequestKind   @default(VACATION)
-  gustoPolicyUuid     String?              // Which Gusto time-off policy this applies to
+  gustoPolicyUuid     String?              // future Gusto sync
   gustoPolicyName     String?
   startDate           DateTime             @db.Date
   endDate             DateTime             @db.Date
@@ -1517,15 +1519,31 @@ model TimeOffRequest {
   totalHours          Decimal              @db.Decimal(7, 2)
   notes               String?              @db.Text
   coverage            String?              @db.Text  // who covers their shift
-  status              TimeOffRequestStatus @default(PENDING)
+  status              TimeOffRequestStatus @default(PENDING_INTAKE)
 
-  // Review details
+  // HR intake (stage 1) — e.g. Rio fills this in, then forwards to final approver
+  intakeByStaffId         String?
+  intakeByName            String?
+  intakeAt                DateTime?
+  intakeLastTimeOffNotes  String?          @db.Text  // previous time-off context
+  intakeBalanceNotes      String?          @db.Text  // current PTO balance as pulled from Gusto manually
+  intakeCoverageConfirmed Boolean?                    // did Rio verify coverage?
+  intakeCoverageNotes     String?          @db.Text
+  intakeAdditionalNotes   String?          @db.Text
+  intakeSkipped           Boolean          @default(false)  // true when final approver bypassed intake
+
+  // Review / final approval (stage 2) details
   reviewedByStaffId   String?
   reviewedByName      String?
   reviewedAt          DateTime?
   managerNotes        String?              @db.Text
 
-  // Gusto sync
+  // Post-approval: manual confirmation that HR has entered the PTO into Gusto
+  gustoRecordedAt           DateTime?
+  gustoRecordedByStaffId    String?
+  gustoRecordedByName       String?
+
+  // Gusto sync (currently unused — reserved for when Gusto API access opens)
   gustoBalanceAdjustmentAt DateTime?
   gustoSyncStatus     String?              // "pending" | "ok" | "error" | "skipped"
   gustoSyncError      String?              @db.Text
@@ -1539,14 +1557,15 @@ model TimeOffRequest {
   graphSyncAttempts   Int                  @default(0)
 
   // Notification tracking
-  submitterNotifiedAt DateTime?
-  approversNotifiedAt DateTime?
-  employeeNotifiedAt  DateTime?
+  submitterNotifiedAt  DateTime?
+  intakeNotifiedAt     DateTime?   // intake assignees notified (stage 1)
+  approversNotifiedAt  DateTime?   // final approvers notified (stage 2)
+  employeeNotifiedAt   DateTime?
 
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
 
-  mapping    PtoEmployeeMapping @relation(fields: [mappingId], references: [id], onDelete: Cascade)
+  mapping    PtoEmployeeMapping? @relation(fields: [mappingId], references: [id], onDelete: SetNull)
   auditLogs  TimeOffAuditLog[]
 
   @@map("time_off_requests")

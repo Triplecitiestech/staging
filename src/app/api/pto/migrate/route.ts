@@ -49,6 +49,19 @@ export async function POST(request: Request) {
     `)
     applied.push('enum: TimeOffRequestKind')
 
+    // Extend enum with two-stage workflow values (idempotent)
+    await prisma.$executeRawUnsafe(`
+      DO $$ BEGIN
+        ALTER TYPE "TimeOffRequestStatus" ADD VALUE IF NOT EXISTS 'PENDING_INTAKE';
+      EXCEPTION WHEN duplicate_object THEN null; END $$;
+    `)
+    await prisma.$executeRawUnsafe(`
+      DO $$ BEGIN
+        ALTER TYPE "TimeOffRequestStatus" ADD VALUE IF NOT EXISTS 'PENDING_APPROVAL';
+      EXCEPTION WHEN duplicate_object THEN null; END $$;
+    `)
+    applied.push('enum values: PENDING_INTAKE, PENDING_APPROVAL')
+
     // -------------------------------------------------------------------
     // gusto_connections
     // -------------------------------------------------------------------
@@ -175,6 +188,30 @@ export async function POST(request: Request) {
       `CREATE INDEX IF NOT EXISTS "time_off_requests_startDate_endDate_idx" ON "time_off_requests"("startDate", "endDate")`
     )
     applied.push('table: time_off_requests')
+
+    // -------------------------------------------------------------------
+    // Two-stage workflow columns (intake + gusto-recorded) — idempotent
+    // -------------------------------------------------------------------
+    await prisma.$executeRawUnsafe(`ALTER TABLE "time_off_requests" ALTER COLUMN "mappingId" DROP NOT NULL`).catch(() => {})
+    await prisma.$executeRawUnsafe(`ALTER TABLE "time_off_requests" ALTER COLUMN "gustoEmployeeUuid" DROP NOT NULL`).catch(() => {})
+    await prisma.$executeRawUnsafe(`ALTER TABLE "time_off_requests" ADD COLUMN IF NOT EXISTS "intakeByStaffId" TEXT`)
+    await prisma.$executeRawUnsafe(`ALTER TABLE "time_off_requests" ADD COLUMN IF NOT EXISTS "intakeByName" TEXT`)
+    await prisma.$executeRawUnsafe(`ALTER TABLE "time_off_requests" ADD COLUMN IF NOT EXISTS "intakeAt" TIMESTAMP(3)`)
+    await prisma.$executeRawUnsafe(`ALTER TABLE "time_off_requests" ADD COLUMN IF NOT EXISTS "intakeLastTimeOffNotes" TEXT`)
+    await prisma.$executeRawUnsafe(`ALTER TABLE "time_off_requests" ADD COLUMN IF NOT EXISTS "intakeBalanceNotes" TEXT`)
+    await prisma.$executeRawUnsafe(`ALTER TABLE "time_off_requests" ADD COLUMN IF NOT EXISTS "intakeCoverageConfirmed" BOOLEAN`)
+    await prisma.$executeRawUnsafe(`ALTER TABLE "time_off_requests" ADD COLUMN IF NOT EXISTS "intakeCoverageNotes" TEXT`)
+    await prisma.$executeRawUnsafe(`ALTER TABLE "time_off_requests" ADD COLUMN IF NOT EXISTS "intakeAdditionalNotes" TEXT`)
+    await prisma.$executeRawUnsafe(`ALTER TABLE "time_off_requests" ADD COLUMN IF NOT EXISTS "intakeSkipped" BOOLEAN NOT NULL DEFAULT false`)
+    await prisma.$executeRawUnsafe(`ALTER TABLE "time_off_requests" ADD COLUMN IF NOT EXISTS "intakeNotifiedAt" TIMESTAMP(3)`)
+    await prisma.$executeRawUnsafe(`ALTER TABLE "time_off_requests" ADD COLUMN IF NOT EXISTS "gustoRecordedAt" TIMESTAMP(3)`)
+    await prisma.$executeRawUnsafe(`ALTER TABLE "time_off_requests" ADD COLUMN IF NOT EXISTS "gustoRecordedByStaffId" TEXT`)
+    await prisma.$executeRawUnsafe(`ALTER TABLE "time_off_requests" ADD COLUMN IF NOT EXISTS "gustoRecordedByName" TEXT`)
+    // Migrate any legacy PENDING rows to PENDING_INTAKE
+    await prisma.$executeRawUnsafe(
+      `UPDATE "time_off_requests" SET "status" = 'PENDING_INTAKE' WHERE "status" = 'PENDING'`
+    ).catch(() => {})
+    applied.push('alter: two-stage workflow columns')
 
     // -------------------------------------------------------------------
     // time_off_audit_logs

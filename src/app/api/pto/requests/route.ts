@@ -4,7 +4,7 @@ import { hasPermission } from '@/lib/permissions'
 import { prisma } from '@/lib/prisma'
 import { getMappingForStaffId } from '@/lib/pto/mapping'
 import { computeTotalHours, validateHoursPerDay } from '@/lib/pto/hours'
-import { notifyApprovers, notifySubmitter } from '@/lib/pto/service'
+import { notifyIntakeTeam, notifySubmitter } from '@/lib/pto/service'
 import { ptoRouteErrorResponse } from '@/lib/pto/route-errors'
 import type { PtoKind } from '@/lib/pto/types'
 import type { TimeOffRequestKind, TimeOffRequestStatus } from '@prisma/client'
@@ -55,11 +55,14 @@ export async function GET(request: NextRequest) {
         notes: r.notes,
         coverage: r.coverage,
         status: r.status,
+        intakeByName: r.intakeByName,
+        intakeAt: r.intakeAt?.toISOString() ?? null,
+        intakeSkipped: r.intakeSkipped,
         reviewedAt: r.reviewedAt?.toISOString() ?? null,
         reviewedByName: r.reviewedByName,
         managerNotes: r.managerNotes,
+        gustoRecordedAt: r.gustoRecordedAt?.toISOString() ?? null,
         createdAt: r.createdAt.toISOString(),
-        gustoSyncStatus: r.gustoSyncStatus,
         graphSyncStatus: r.graphSyncStatus,
       })),
     })
@@ -103,38 +106,26 @@ export async function POST(request: NextRequest) {
     const notes = typeof body.notes === 'string' && body.notes.trim() ? body.notes.trim().slice(0, 2000) : null
     const coverage = typeof body.coverage === 'string' && body.coverage.trim() ? body.coverage.trim().slice(0, 2000) : null
 
+    // Gusto mapping is optional — if it exists we tag the request with the
+    // employee UUID so future live-sync can target the right Gusto employee,
+    // but it's no longer required for request submission.
     const mapping = await getMappingForStaffId(session.user.staffId)
-    if (!mapping) {
-      return NextResponse.json(
-        {
-          error:
-            'Your account is not yet mapped to Gusto. Contact an admin to link your staff profile to your Gusto employee.',
-          code: 'not_mapped',
-        },
-        { status: 409 }
-      )
-    }
-
-    const gustoPolicyUuid = typeof body.gustoPolicyUuid === 'string' ? body.gustoPolicyUuid : null
-    const gustoPolicyName = typeof body.gustoPolicyName === 'string' ? body.gustoPolicyName : null
 
     const created = await prisma.timeOffRequest.create({
       data: {
-        mappingId: mapping.id,
+        mappingId: mapping?.id ?? null,
         employeeStaffId: session.user.staffId,
         employeeEmail: session.user.email,
         employeeName: session.user.name ?? session.user.email,
-        gustoEmployeeUuid: mapping.gustoEmployeeUuid,
+        gustoEmployeeUuid: mapping?.gustoEmployeeUuid ?? null,
         kind: kind as TimeOffRequestKind,
-        gustoPolicyUuid,
-        gustoPolicyName,
         startDate: new Date(`${startDate}T00:00:00.000Z`),
         endDate: new Date(`${endDate}T00:00:00.000Z`),
         hoursPerDay: hoursPerDay as never,
         totalHours: total,
         notes,
         coverage,
-        status: 'PENDING',
+        status: 'PENDING_INTAKE',
       },
     })
 
@@ -150,7 +141,7 @@ export async function POST(request: NextRequest) {
     })
 
     // Fire-and-forget notifications
-    notifyApprovers(created.id).catch((err) => console.error('[pto] notifyApprovers failed:', err))
+    notifyIntakeTeam(created.id).catch((err) => console.error('[pto] notifyIntakeTeam failed:', err))
     notifySubmitter(created.id).catch((err) => console.error('[pto] notifySubmitter failed:', err))
 
     return NextResponse.json({ ok: true, id: created.id })

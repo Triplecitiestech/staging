@@ -6,16 +6,14 @@ import Link from 'next/link'
 import { PTO_KIND_LABELS } from '@/lib/pto/types'
 import StatusBadge from './StatusBadge'
 import SyncBadge from './SyncBadge'
+import PipelineStepper from './PipelineStepper'
 
 interface RequestDetail {
   id: string
   employeeStaffId: string
   employeeName: string
   employeeEmail: string
-  gustoEmployeeUuid: string
   kind: string
-  gustoPolicyUuid: string | null
-  gustoPolicyName: string | null
   startDate: string
   endDate: string
   totalHours: number
@@ -23,11 +21,20 @@ interface RequestDetail {
   notes: string | null
   coverage: string | null
   status: string
+  intakeByStaffId: string | null
+  intakeByName: string | null
+  intakeAt: string | null
+  intakeLastTimeOffNotes: string | null
+  intakeBalanceNotes: string | null
+  intakeCoverageConfirmed: boolean | null
+  intakeCoverageNotes: string | null
+  intakeAdditionalNotes: string | null
+  intakeSkipped: boolean
   reviewedByName: string | null
   reviewedAt: string | null
   managerNotes: string | null
-  gustoSyncStatus: string | null
-  gustoSyncError: string | null
+  gustoRecordedAt: string | null
+  gustoRecordedByName: string | null
   graphSyncStatus: string | null
   graphSyncError: string | null
   createdAt: string
@@ -43,59 +50,62 @@ interface AuditLogEntry {
   createdAt: string
 }
 
-interface BalanceItem {
-  policyName: string
-  balanceHours: number
-}
+type Action = null | 'intake' | 'skip' | 'approve' | 'deny' | 'cancel' | 'record' | 'unrecord'
 
 export default function PtoDetailClient({
   id,
   canApprove,
+  canIntake,
   currentStaffId,
 }: {
   id: string
   canApprove: boolean
+  canIntake: boolean
   currentStaffId: string | null
 }) {
   const router = useRouter()
   const [req, setReq] = useState<RequestDetail | null>(null)
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([])
-  const [balances, setBalances] = useState<BalanceItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [acting, setActing] = useState<Action>(null)
+
+  // Intake form state
+  const [intakeBalance, setIntakeBalance] = useState('')
+  const [intakeLastTimeOff, setIntakeLastTimeOff] = useState('')
+  const [intakeCoverageConfirmed, setIntakeCoverageConfirmed] = useState<'yes' | 'no' | 'unknown'>('unknown')
+  const [intakeCoverageNotes, setIntakeCoverageNotes] = useState('')
+  const [intakeAdditionalNotes, setIntakeAdditionalNotes] = useState('')
+
+  // Approval notes state
   const [managerNotes, setManagerNotes] = useState('')
-  const [acting, setActing] = useState<null | 'approve' | 'deny' | 'cancel' | 'retry'>(null)
 
-  const load = useCallback(async (signal?: AbortSignal) => {
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await fetch(`/api/pto/requests/${id}`, { signal })
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        throw new Error(data.error ?? `Request failed (${res.status})`)
-      }
-      const data = await res.json()
-      setReq(data.request)
-      setAuditLogs(data.auditLogs ?? [])
-
-      // Fetch balances for the requesting employee (approvers only)
-      if (canApprove && data.request?.employeeStaffId) {
-        const balRes = await fetch(`/api/pto/balance?staffUserId=${data.request.employeeStaffId}`, {
-          signal,
-        })
-        if (balRes.ok) {
-          const balData = await balRes.json()
-          setBalances(balData.balances ?? [])
+  const load = useCallback(
+    async (signal?: AbortSignal) => {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/pto/requests/${id}`, { signal })
+        const text = await res.text()
+        if (!res.ok) {
+          let msg = `Request failed (${res.status})`
+          try {
+            msg = (JSON.parse(text).error as string) || msg
+          } catch {}
+          throw new Error(msg)
         }
+        const data = text ? JSON.parse(text) : null
+        setReq(data?.request ?? null)
+        setAuditLogs(data?.auditLogs ?? [])
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return
+        setError(err instanceof Error ? err.message : 'Failed to load')
+      } finally {
+        setLoading(false)
       }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') return
-      setError(err instanceof Error ? err.message : 'Failed to load')
-    } finally {
-      setLoading(false)
-    }
-  }, [id, canApprove])
+    },
+    [id]
+  )
 
   useEffect(() => {
     const controller = new AbortController()
@@ -103,32 +113,51 @@ export default function PtoDetailClient({
     return () => controller.abort()
   }, [load])
 
-  const call = useCallback(
-    async (path: string, method = 'POST', body?: unknown): Promise<boolean> => {
-      try {
-        const res = await fetch(path, {
-          method,
-          headers: body ? { 'Content-Type': 'application/json' } : undefined,
-          body: body ? JSON.stringify(body) : undefined,
-        })
-        const data = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          alert(data.error ?? 'Action failed')
-          return false
-        }
-        return true
-      } catch (err) {
-        alert(err instanceof Error ? err.message : 'Action failed')
+  const call = useCallback(async (path: string, body?: unknown): Promise<boolean> => {
+    try {
+      const res = await fetch(path, {
+        method: 'POST',
+        headers: body ? { 'Content-Type': 'application/json' } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        alert(data.error ?? 'Action failed')
         return false
       }
-    },
-    []
-  )
+      return true
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Action failed')
+      return false
+    }
+  }, [])
 
+  const submitIntake = async () => {
+    if (!req) return
+    setActing('intake')
+    const ok = await call(`/api/pto/requests/${req.id}/intake`, {
+      balanceNotes: intakeBalance || null,
+      lastTimeOffNotes: intakeLastTimeOff || null,
+      coverageConfirmed:
+        intakeCoverageConfirmed === 'yes' ? true : intakeCoverageConfirmed === 'no' ? false : null,
+      coverageNotes: intakeCoverageNotes || null,
+      additionalNotes: intakeAdditionalNotes || null,
+    })
+    setActing(null)
+    if (ok) await load()
+  }
+  const skipIntakeNow = async () => {
+    if (!req) return
+    if (!confirm('Skip HR intake and go straight to final approval?')) return
+    setActing('skip')
+    const ok = await call(`/api/pto/requests/${req.id}/skip-intake`)
+    setActing(null)
+    if (ok) await load()
+  }
   const approve = async () => {
     if (!req) return
     setActing('approve')
-    const ok = await call(`/api/pto/requests/${req.id}/approve`, 'POST', { managerNotes })
+    const ok = await call(`/api/pto/requests/${req.id}/approve`, { managerNotes })
     setActing(null)
     if (ok) await load()
   }
@@ -136,7 +165,7 @@ export default function PtoDetailClient({
     if (!req) return
     if (!managerNotes.trim() && !confirm('Deny without a note?')) return
     setActing('deny')
-    const ok = await call(`/api/pto/requests/${req.id}/deny`, 'POST', { managerNotes })
+    const ok = await call(`/api/pto/requests/${req.id}/deny`, { managerNotes })
     setActing(null)
     if (ok) await load()
   }
@@ -144,17 +173,17 @@ export default function PtoDetailClient({
     if (!req) return
     if (!confirm('Cancel this request?')) return
     setActing('cancel')
-    const ok = await call(`/api/pto/requests/${req.id}/cancel`, 'POST')
+    const ok = await call(`/api/pto/requests/${req.id}/cancel`)
     setActing(null)
     if (ok) {
       await load()
       router.refresh()
     }
   }
-  const retry = async () => {
+  const markRecorded = async (recorded: boolean) => {
     if (!req) return
-    setActing('retry')
-    const ok = await call(`/api/pto/requests/${req.id}/retry-sync`, 'POST')
+    setActing(recorded ? 'record' : 'unrecord')
+    const ok = await call(`/api/pto/requests/${req.id}/mark-recorded`, { recorded })
     setActing(null)
     if (ok) await load()
   }
@@ -172,12 +201,28 @@ export default function PtoDetailClient({
   if (!req) return null
 
   const isOwner = currentStaffId === req.employeeStaffId
-  const canAct = canApprove && req.status === 'PENDING'
+  const canCompleteIntake =
+    (canIntake || canApprove) && (req.status === 'PENDING_INTAKE' || req.status === 'PENDING')
+  const canFinalApprove =
+    canApprove &&
+    (req.status === 'PENDING_APPROVAL' || req.status === 'PENDING_INTAKE' || req.status === 'PENDING')
 
   return (
     <div className="grid gap-6 lg:grid-cols-3">
       <div className="lg:col-span-2 space-y-6">
-        {/* Header */}
+        {/* Pipeline */}
+        <div className="rounded-lg border border-white/10 bg-white/5 p-6">
+          <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-4">
+            Request pipeline
+          </h3>
+          <PipelineStepper
+            status={req.status}
+            intakeSkipped={req.intakeSkipped}
+            gustoRecordedAt={req.gustoRecordedAt}
+          />
+        </div>
+
+        {/* Request summary */}
         <div className="rounded-lg border border-white/10 bg-white/5 p-6">
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -187,10 +232,7 @@ export default function PtoDetailClient({
               <h2 className="text-xl font-semibold text-white mt-1">
                 {req.startDate === req.endDate ? req.startDate : `${req.startDate} → ${req.endDate}`}
               </h2>
-              <p className="text-sm text-slate-400 mt-1">
-                {req.totalHours.toFixed(2)} hrs
-                {req.gustoPolicyName ? ` · ${req.gustoPolicyName}` : ''}
-              </p>
+              <p className="text-sm text-slate-400 mt-1">{req.totalHours.toFixed(2)} hrs</p>
             </div>
             <StatusBadge status={req.status} />
           </div>
@@ -209,7 +251,7 @@ export default function PtoDetailClient({
 
           {req.coverage && (
             <div className="mt-4 rounded-md border-l-2 border-cyan-500 bg-cyan-500/5 p-3">
-              <p className="text-xs font-semibold text-cyan-300 uppercase">Shift coverage</p>
+              <p className="text-xs font-semibold text-cyan-300 uppercase">Shift coverage (from employee)</p>
               <p className="text-sm text-slate-100 mt-1 whitespace-pre-wrap">{req.coverage}</p>
             </div>
           )}
@@ -219,42 +261,183 @@ export default function PtoDetailClient({
               <p className="text-sm text-slate-100 mt-1 whitespace-pre-wrap">{req.notes}</p>
             </div>
           )}
+        </div>
 
-          {req.status === 'APPROVED' && (
-            <div className="mt-4 flex flex-wrap gap-2">
-              <SyncBadge label="Gusto" status={req.gustoSyncStatus} error={req.gustoSyncError} />
-              <SyncBadge label="M365 Calendar" status={req.graphSyncStatus} error={req.graphSyncError} />
-              {canApprove && (req.gustoSyncStatus === 'error' || req.graphSyncStatus === 'error') && (
-                <button
-                  type="button"
-                  onClick={retry}
-                  disabled={acting === 'retry'}
-                  className="text-xs px-2 py-1 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/30"
-                >
-                  {acting === 'retry' ? 'Retrying…' : 'Retry sync'}
-                </button>
-              )}
-            </div>
-          )}
+        {/* Stage 1: HR Intake */}
+        {(req.status === 'PENDING_INTAKE' ||
+          req.status === 'PENDING' ||
+          req.intakeAt ||
+          req.intakeSkipped) && (
+          <div className="rounded-lg border border-white/10 bg-white/5 p-6">
+            <h3 className="text-sm font-semibold text-white uppercase tracking-wide mb-3">
+              Stage 1 · HR Intake
+            </h3>
 
-          {req.status !== 'PENDING' && req.reviewedByName && (
-            <div className="mt-4 text-xs text-slate-400">
-              {req.status === 'APPROVED' ? 'Approved' : req.status === 'DENIED' ? 'Denied' : 'Cancelled'} by{' '}
-              <span className="text-white font-medium">{req.reviewedByName}</span>{' '}
-              {req.reviewedAt && <span>on {new Date(req.reviewedAt).toLocaleString()}</span>}
-              {req.managerNotes && (
-                <div className="mt-2 p-3 rounded border border-white/10 bg-white/5 text-slate-100 whitespace-pre-wrap">
-                  <span className="text-slate-400">Manager notes:</span> {req.managerNotes}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Actions */}
-          <div className="mt-6 flex flex-wrap gap-2">
-            {canAct && (
+            {req.intakeAt || req.intakeSkipped ? (
+              <div className="space-y-3 text-sm">
+                {req.intakeSkipped ? (
+                  <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-amber-100">
+                    Intake was <strong>skipped</strong> by the final approver.
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-xs text-slate-400">
+                      Completed by{' '}
+                      <span className="text-white">{req.intakeByName ?? 'Unknown'}</span>{' '}
+                      {req.intakeAt && (
+                        <span className="text-slate-500">
+                          · {new Date(req.intakeAt).toLocaleString()}
+                        </span>
+                      )}
+                    </p>
+                    <IntakeField label="PTO balance (from Gusto)" value={req.intakeBalanceNotes} />
+                    <IntakeField label="Last time off" value={req.intakeLastTimeOffNotes} />
+                    <IntakeField
+                      label="Coverage confirmed"
+                      value={
+                        req.intakeCoverageConfirmed === true
+                          ? `Yes${req.intakeCoverageNotes ? ` — ${req.intakeCoverageNotes}` : ''}`
+                          : req.intakeCoverageConfirmed === false
+                          ? `No${req.intakeCoverageNotes ? ` — ${req.intakeCoverageNotes}` : ''}`
+                          : req.intakeCoverageNotes
+                      }
+                    />
+                    <IntakeField label="Additional notes" value={req.intakeAdditionalNotes} />
+                  </>
+                )}
+              </div>
+            ) : canCompleteIntake ? (
               <>
-                <div className="basis-full">
+                <p className="text-sm text-slate-400 mb-4">
+                  Gather context so the final approver can make an informed decision. Look up the employee&apos;s
+                  balance in Gusto and paste it below.
+                </p>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      Current PTO balance (from Gusto)
+                    </label>
+                    <input
+                      type="text"
+                      value={intakeBalance}
+                      onChange={(e) => setIntakeBalance(e.target.value)}
+                      maxLength={500}
+                      placeholder="e.g. Vacation: 48 hrs, Sick: 16 hrs"
+                      className="w-full rounded-md bg-slate-900 border border-white/10 text-white px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      Prior time off
+                    </label>
+                    <textarea
+                      value={intakeLastTimeOff}
+                      onChange={(e) => setIntakeLastTimeOff(e.target.value)}
+                      rows={2}
+                      maxLength={2000}
+                      placeholder="e.g. Last took PTO March 14–16 (vacation); no absences this quarter"
+                      className="w-full rounded-md bg-slate-900 border border-white/10 text-white px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      Coverage confirmed?
+                    </label>
+                    <div className="flex gap-2 mb-2">
+                      {(['yes', 'no', 'unknown'] as const).map((v) => (
+                        <button
+                          key={v}
+                          type="button"
+                          onClick={() => setIntakeCoverageConfirmed(v)}
+                          className={`px-3 py-1.5 rounded-md text-xs font-medium ${
+                            intakeCoverageConfirmed === v
+                              ? v === 'yes'
+                                ? 'bg-emerald-500 text-white'
+                                : v === 'no'
+                                ? 'bg-rose-500 text-white'
+                                : 'bg-slate-600 text-white'
+                              : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                          }`}
+                        >
+                          {v === 'yes' ? 'Yes' : v === 'no' ? 'No' : 'Unknown'}
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      type="text"
+                      value={intakeCoverageNotes}
+                      onChange={(e) => setIntakeCoverageNotes(e.target.value)}
+                      maxLength={500}
+                      placeholder="Who will cover? Any concerns?"
+                      className="w-full rounded-md bg-slate-900 border border-white/10 text-white px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      Anything else for the final approver
+                    </label>
+                    <textarea
+                      value={intakeAdditionalNotes}
+                      onChange={(e) => setIntakeAdditionalNotes(e.target.value)}
+                      rows={2}
+                      maxLength={4000}
+                      className="w-full rounded-md bg-slate-900 border border-white/10 text-white px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={submitIntake}
+                      disabled={acting !== null}
+                      className="px-4 py-2 rounded-lg bg-cyan-500 text-white text-sm font-semibold hover:bg-cyan-400 disabled:opacity-50"
+                    >
+                      {acting === 'intake' ? 'Sending…' : 'Forward to final approver'}
+                    </button>
+                    {canApprove && (
+                      <button
+                        type="button"
+                        onClick={skipIntakeNow}
+                        disabled={acting !== null}
+                        className="px-4 py-2 rounded-lg bg-slate-700 text-white text-sm font-semibold hover:bg-slate-600 disabled:opacity-50"
+                      >
+                        Skip intake
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-slate-400">Waiting on HR intake.</p>
+            )}
+          </div>
+        )}
+
+        {/* Stage 2: Final approval */}
+        {(req.status === 'PENDING_APPROVAL' ||
+          req.status === 'APPROVED' ||
+          req.status === 'DENIED') && (
+          <div className="rounded-lg border border-white/10 bg-white/5 p-6">
+            <h3 className="text-sm font-semibold text-white uppercase tracking-wide mb-3">
+              Stage 2 · Final Approval
+            </h3>
+            {req.reviewedAt ? (
+              <div className="text-sm text-slate-200">
+                <p className="text-xs text-slate-400 mb-1">
+                  {req.status === 'APPROVED' ? 'Approved by' : 'Denied by'}{' '}
+                  <span className="text-white">{req.reviewedByName ?? 'Unknown'}</span>{' '}
+                  <span className="text-slate-500">
+                    · {req.reviewedAt && new Date(req.reviewedAt).toLocaleString()}
+                  </span>
+                </p>
+                {req.managerNotes && (
+                  <div className="mt-2 p-3 rounded border border-white/10 bg-white/5 text-slate-100 whitespace-pre-wrap">
+                    <span className="text-slate-400 text-xs">Manager notes:</span> {req.managerNotes}
+                  </div>
+                )}
+              </div>
+            ) : canFinalApprove ? (
+              <div className="space-y-3">
+                <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
                     Manager notes (optional — sent to employee)
                   </label>
@@ -266,37 +449,125 @@ export default function PtoDetailClient({
                     className="w-full rounded-md bg-slate-900 border border-white/10 text-white px-3 py-2 text-sm"
                   />
                 </div>
-                <button
-                  type="button"
-                  onClick={approve}
-                  disabled={acting !== null}
-                  className="px-4 py-2 rounded-lg bg-emerald-500 text-white text-sm font-semibold hover:bg-emerald-400 disabled:opacity-50"
-                >
-                  {acting === 'approve' ? 'Approving…' : 'Approve'}
-                </button>
-                <button
-                  type="button"
-                  onClick={deny}
-                  disabled={acting !== null}
-                  className="px-4 py-2 rounded-lg bg-rose-500 text-white text-sm font-semibold hover:bg-rose-400 disabled:opacity-50"
-                >
-                  {acting === 'deny' ? 'Denying…' : 'Deny'}
-                </button>
-              </>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={approve}
+                    disabled={acting !== null}
+                    className="px-4 py-2 rounded-lg bg-emerald-500 text-white text-sm font-semibold hover:bg-emerald-400 disabled:opacity-50"
+                  >
+                    {acting === 'approve' ? 'Approving…' : 'Approve'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={deny}
+                    disabled={acting !== null}
+                    className="px-4 py-2 rounded-lg bg-rose-500 text-white text-sm font-semibold hover:bg-rose-400 disabled:opacity-50"
+                  >
+                    {acting === 'deny' ? 'Denying…' : 'Deny'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-slate-400">Waiting on final approver.</p>
             )}
-            {(isOwner && req.status === 'PENDING') ||
-            (canApprove && (req.status === 'PENDING' || req.status === 'APPROVED')) ? (
+          </div>
+        )}
+
+        {/* Stage 4: Recorded in Gusto */}
+        {req.status === 'APPROVED' && (
+          <div className="rounded-lg border border-white/10 bg-white/5 p-6">
+            <h3 className="text-sm font-semibold text-white uppercase tracking-wide mb-3">
+              Stage 4 · Recorded in Gusto (manual)
+            </h3>
+            <p className="text-sm text-slate-400 mb-3">
+              Live Gusto write-back isn&apos;t available yet. After approving, HR enters the PTO
+              hours in Gusto manually, then flips the switch below.
+            </p>
+            {req.gustoRecordedAt ? (
+              <div className="flex items-center justify-between gap-4">
+                <div className="text-sm">
+                  <span className="inline-flex items-center gap-2 px-3 py-1 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-medium">
+                    ✓ Recorded in Gusto
+                  </span>
+                  <span className="text-slate-400 ml-3">
+                    by {req.gustoRecordedByName ?? 'Unknown'}{' '}
+                    {req.gustoRecordedAt &&
+                      `on ${new Date(req.gustoRecordedAt).toLocaleString()}`}
+                  </span>
+                </div>
+                {(canIntake || canApprove) && (
+                  <button
+                    type="button"
+                    onClick={() => markRecorded(false)}
+                    disabled={acting !== null}
+                    className="text-xs text-slate-400 hover:text-white underline"
+                  >
+                    Undo
+                  </button>
+                )}
+              </div>
+            ) : (
+              canIntake || canApprove ? (
+                <button
+                  type="button"
+                  onClick={() => markRecorded(true)}
+                  disabled={acting !== null}
+                  className="px-4 py-2 rounded-lg bg-cyan-500 text-white text-sm font-semibold hover:bg-cyan-400 disabled:opacity-50"
+                >
+                  {acting === 'record' ? 'Marking…' : 'Mark as recorded in Gusto'}
+                </button>
+              ) : (
+                <p className="text-sm text-slate-400">
+                  Waiting on HR to enter this in Gusto.
+                </p>
+              )
+            )}
+          </div>
+        )}
+
+        {/* Sync badges + retry */}
+        {req.status === 'APPROVED' && (
+          <div className="flex flex-wrap gap-2 items-center">
+            <SyncBadge
+              label="Calendar"
+              status={req.graphSyncStatus}
+              error={req.graphSyncError}
+            />
+            {canApprove && req.graphSyncStatus === 'error' && (
               <button
                 type="button"
-                onClick={cancel}
-                disabled={acting !== null}
-                className="px-4 py-2 rounded-lg bg-slate-700 text-white text-sm font-semibold hover:bg-slate-600 disabled:opacity-50"
+                onClick={() =>
+                  fetch(`/api/pto/requests/${req.id}/retry-sync`, { method: 'POST' }).then(() =>
+                    load()
+                  )
+                }
+                className="text-xs px-2 py-1 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/30"
               >
-                {acting === 'cancel' ? 'Cancelling…' : 'Cancel request'}
+                Retry calendar sync
               </button>
-            ) : null}
+            )}
           </div>
-        </div>
+        )}
+
+        {/* Cancel */}
+        {((isOwner && (req.status === 'PENDING_INTAKE' || req.status === 'PENDING' || req.status === 'PENDING_APPROVAL')) ||
+          (canApprove &&
+            (req.status === 'PENDING_INTAKE' ||
+              req.status === 'PENDING' ||
+              req.status === 'PENDING_APPROVAL' ||
+              req.status === 'APPROVED'))) && (
+          <div>
+            <button
+              type="button"
+              onClick={cancel}
+              disabled={acting !== null}
+              className="px-4 py-2 rounded-lg bg-slate-700 text-white text-sm font-semibold hover:bg-slate-600 disabled:opacity-50"
+            >
+              {acting === 'cancel' ? 'Cancelling…' : 'Cancel request'}
+            </button>
+          </div>
+        )}
 
         {/* Audit log */}
         <div className="rounded-lg border border-white/10 bg-white/5 p-6">
@@ -314,7 +585,7 @@ export default function PtoDetailClient({
                         : 'bg-slate-500/20 text-slate-300'
                     }`}
                   >
-                    {a.action}
+                    {a.action.replace(/_/g, ' ')}
                   </span>
                   <span className="text-slate-400">{a.actorName ?? a.actorEmail}</span>{' '}
                   <span className="text-slate-500">· {new Date(a.createdAt).toLocaleString()}</span>
@@ -325,32 +596,32 @@ export default function PtoDetailClient({
         </div>
       </div>
 
-      <aside className="space-y-6">
-        {canApprove && (
-          <div className="rounded-lg border border-white/10 bg-white/5 p-5">
-            <h3 className="text-sm font-semibold text-white uppercase tracking-wide mb-3">
-              Employee balances (Gusto)
-            </h3>
-            {balances.length === 0 ? (
-              <p className="text-sm text-slate-400">No balance data.</p>
-            ) : (
-              <ul className="space-y-2">
-                {balances.map((b) => (
-                  <li key={b.policyName} className="flex justify-between text-sm">
-                    <span className="text-slate-300">{b.policyName}</span>
-                    <span className="text-white font-semibold">{b.balanceHours.toFixed(2)} hrs</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
+      <aside className="space-y-4">
+        <div className="rounded-lg border border-white/10 bg-white/5 p-5">
+          <h3 className="text-sm font-semibold text-white uppercase tracking-wide mb-3">How this works</h3>
+          <ol className="space-y-3 text-sm text-slate-300">
+            <li><span className="text-cyan-400 font-semibold">1.</span> Employee submits a PTO request.</li>
+            <li><span className="text-cyan-400 font-semibold">2.</span> HR intake collects context: current balance (from Gusto), history, coverage.</li>
+            <li><span className="text-cyan-400 font-semibold">3.</span> Final approver reviews everything and approves or denies.</li>
+            <li><span className="text-cyan-400 font-semibold">4.</span> Approved → calendar event + employee invite automatically. HR then manually enters the PTO in Gusto and marks it recorded here.</li>
+          </ol>
+        </div>
         <div>
           <Link href="/admin/pto" className="text-sm text-cyan-400 hover:text-cyan-300">
             ← Back to time off
           </Link>
         </div>
       </aside>
+    </div>
+  )
+}
+
+function IntakeField({ label, value }: { label: string; value: string | null }) {
+  if (!value) return null
+  return (
+    <div>
+      <p className="text-xs text-slate-400 uppercase tracking-wide">{label}</p>
+      <p className="text-slate-100 whitespace-pre-wrap text-sm mt-0.5">{value}</p>
     </div>
   )
 }
