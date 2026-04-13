@@ -36,10 +36,12 @@ export function ptoRouteErrorResponse(
   fallback: RouteErrorBody = { error: 'Unexpected server error' }
 ): NextResponse {
   if (isMissingTableError(err)) {
+    const detail = err instanceof Error ? err.message : String(err)
     return NextResponse.json(
       {
         error:
-          'PTO database tables are not installed yet. An admin must run the 20260413000000_add_pto_system migration.',
+          'PTO database schema is out of date. An admin must run the PTO migrate endpoint: POST /api/pto/migrate with Bearer MIGRATION_SECRET.',
+        detail,
         code: 'pto_migration_missing',
       },
       { status: 503 }
