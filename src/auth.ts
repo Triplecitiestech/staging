@@ -17,32 +17,35 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     async signIn({ user }) {
       // Allow sign-in for any Azure AD user in the tenant
       // Auto-provision as TECHNICIAN if not already in staff_users
-      if (!user.email) return false
+      if (!user.email) {
+        console.warn('[auth] Sign-in denied: no email on Azure AD user')
+        return false
+      }
 
       try {
-        // Use explicit select to avoid crashes from missing columns
-        const staffUser = await prisma.staffUser.findUnique({
-          where: { email: user.email },
+        // Case-insensitive lookup so "Ben@tct.com" matches "ben@tct.com"
+        const staffUser = await prisma.staffUser.findFirst({
+          where: { email: { equals: user.email, mode: 'insensitive' } },
           select: { id: true, email: true, name: true, role: true, isActive: true },
         })
 
         if (staffUser && !staffUser.isActive) {
-          console.log(`Sign-in denied for ${user.email} - account deactivated`)
+          console.warn(`[auth] Sign-in denied for ${user.email}: account is deactivated (staffId=${staffUser.id})`)
           return false
         }
 
         if (!staffUser) {
           // Auto-provision new team members from Azure AD as TECHNICIAN
-          await prisma.staffUser.create({
+          const created = await prisma.staffUser.create({
             data: {
-              email: user.email,
+              email: user.email.toLowerCase(),
               name: user.name || user.email.split('@')[0],
               role: 'TECHNICIAN',
               isActive: true,
               lastLogin: new Date(),
             }
           })
-          console.log(`Auto-provisioned new staff user: ${user.email} as TECHNICIAN`)
+          console.log(`[auth] Auto-provisioned new staff user: ${user.email} as TECHNICIAN (id=${created.id})`)
         } else {
           // Update last login timestamp
           await prisma.staffUser.update({
@@ -53,7 +56,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         return true
       } catch (error) {
-        console.error('Error during sign-in:', error)
+        console.error(`[auth] Sign-in error for ${user.email}:`, error)
         return false
       }
     },
