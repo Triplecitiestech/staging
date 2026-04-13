@@ -3,150 +3,93 @@
 Reference doc for how Triple Cities Tech ingests Kaseya SaaS Alerts
 "Processed Event" webhooks into the compliance engine.
 
-## TL;DR
+## TL;DR — how the pieces fit together
 
-- **Push-based, not polling.** SaaS Alerts POSTs events to our endpoint.
-- **REST API is Cloudflare-blocked** from server-to-server calls (403 for every
-  auth pattern we've tried). Polling exists only as a fallback heartbeat; it
-  logs the 403 and moves on.
-- **Endpoint:**
-  `https://www.triplecitiestech.com/api/compliance/webhooks/saas-alerts`
-- **Status check (domain validation):** plain `GET` returns 200.
-- **Events land in** the `compliance_webhook_events` table and are read by the
-  compliance collector (`collectSaasAlertsEvidence` in
-  `src/lib/compliance/collectors/msp.ts`).
+1. In the SaaS Alerts UI you **only** (a) approve a partner domain and (b)
+   reveal the Webhooks API Key. There is no UI field for the inbound webhook
+   URL, filters, or token — the UI alone does not complete the integration.
+2. The **Processed Event Webhooks** REST API (a separate host, `outgoingWebhookApi`
+   on Google Cloud Functions) is where subscriptions are managed. It accepts
+   `api_key: <Webhooks API Key>` and exposes `/subscriptions`, `/misc/sendTestEvent`,
+   `/queue`, etc. We call it from `/api/admin/compliance/saas-alerts/subscribe`.
+3. Once a subscription exists, SaaS Alerts POSTs events to our receiver at
+   `/api/compliance/webhooks/saas-alerts`. The receiver normalizes, dedupes,
+   stores, and feeds the compliance engine.
+4. Cloudflare blocks `manage.saasalerts.com/api` server-to-server, but does
+   **not** block `*.cloudfunctions.net` — so unlike the reporting API, the
+   subscription-management API works from Vercel.
 
-## Configuration in SaaS Alerts
+## End-to-end setup
 
-1. Sign in to <https://manage.saasalerts.com>.
-2. Settings → API → Webhooks API.
-3. Click **+ Add new domain** and register `www.triplecitiestech.com`.
-4. Confirm the domain passes validation (SaaS Alerts performs a GET against the
-   root; our endpoint already returns a 2xx on GET).
-5. Set the webhook URL to:
-   `https://www.triplecitiestech.com/api/compliance/webhooks/saas-alerts`
-6. (Strongly recommended) Generate a security token in the SaaS Alerts UI and
-   copy it. Set the same value as the `SAAS_ALERTS_WEBHOOK_TOKEN` environment
-   variable in Vercel. SaaS Alerts echoes the token back on every delivery.
+### 1. In SaaS Alerts (manage.saasalerts.com)
 
-## Environment variables
+1. Settings → API → **Webhook API** → **Add new domain** →
+   `www.triplecitiestech.com` → wait for "approved".
+2. Settings → API → Manage API → **Show Api Key** (this is the value we call
+   the "Webhooks API Key"). Copy it. Also optionally **Show Partner ID**.
+
+### 2. In Vercel environment variables
 
 | Variable | Required | Purpose |
 |----------|----------|---------|
-| `SAAS_ALERTS_WEBHOOK_TOKEN` | Optional (recommended) | Shared secret echoed back by SaaS Alerts on every webhook delivery. When set, deliveries missing / mismatching the token are rejected with 401. |
-| `SAAS_ALERTS_API_KEY` | Optional | Only used by the fallback polling cron. Most deployments leave this unset because the REST API is Cloudflare-blocked. |
-| `SAAS_ALERTS_PARTNER_ID` | Optional | Same — only used by the polling cron. |
-| `MIGRATION_SECRET` / `CRON_SECRET` | Required | Used by the stats/debug endpoints and the polling cron. |
+| `SAAS_ALERTS_WEBHOOKS_API_KEY` | **Yes** | The "Show Api Key" value. Used as the `api_key` header against the Cloud Functions-hosted Webhooks API. |
+| `SAAS_ALERTS_WEBHOOK_TOKEN` | Optional, **strongly recommended** | Partner-generated shared secret we register with the subscription. SaaS Alerts echoes it back on every delivery; the receiver rejects mismatches with 401. |
+| `SAAS_ALERTS_PARTNER_ID` | Optional | Only used by the test-event endpoint. |
+| `SAAS_ALERTS_WEBHOOKS_BASE_URL` | Optional | Override of the Cloud Functions base URL (for QA / dev SaaS Alerts instances). |
+| `MIGRATION_SECRET` / `CRON_SECRET` | Required | Gates all admin / stats / debug endpoints on our side. |
 
-## Endpoint behavior
+### 3. Register the subscription (one-time)
 
-| Method | Path | Auth | Purpose |
-|--------|------|------|---------|
-| `GET` | `/api/compliance/webhooks/saas-alerts` | None | Plain 200 for SaaS Alerts domain validation. |
-| `GET` | `/api/compliance/webhooks/saas-alerts?sample=1` | None | Returns a canonical sample payload for smoke tests. |
-| `GET` | `/api/compliance/webhooks/saas-alerts?stats=1` | `MIGRATION_SECRET` / `CRON_SECRET` | Ingest stats + 10 most recent events. |
-| `POST` | `/api/compliance/webhooks/saas-alerts` | Shared-token (optional) | Ingests one or more events. |
-| `POST` | `/api/compliance/webhooks/saas-alerts?debug=1` | `MIGRATION_SECRET` / `CRON_SECRET` | Ingests events **and** echoes normalized output. |
-| `DELETE` | `/api/compliance/webhooks/saas-alerts` | `MIGRATION_SECRET` / `CRON_SECRET` | Purges expired events (rows past `expiresAt`). |
-
-## How the receiver handles each request
-
-1. Reads the raw body first and logs length, source IP, content-type,
-   user-agent, and a 500-char preview.
-2. Captures all request headers. Authorization-like headers are redacted to
-   `[redacted]`; anything containing `token`, `secret`, `apikey`, or `api-key`
-   is stored as `first4…last2`.
-3. Optional token verification against `SAAS_ALERTS_WEBHOOK_TOKEN`. Token can
-   arrive via:
-   - `SaasAlerts-Token`, `X-SaasAlerts-Token`, `X-Webhook-Token`, or
-     `X-Webhook-Secret` headers.
-   - `?token=` query string.
-   - `token` / `webhookToken` field in the JSON body.
-4. Parses the payload. Three shapes are accepted:
-   - `{ partner, customer, product, events: [...] }` — the documented wrapper.
-   - `[ event, event, ... ]` — a bare array.
-   - `event` — a single bare event object.
-5. Normalizes each event via `src/lib/compliance/saas-alerts-normalizer.ts`:
-   - Stable external ID (`eventId` → `id` → sha256 hash).
-   - `severity` → `low | medium | high | critical`.
-   - `signalType` classification (see table below).
-6. Inserts into `compliance_webhook_events` with
-   `ON CONFLICT (source, externalId) DO NOTHING` for idempotency.
-7. Always returns `200` unless the token check explicitly rejects the request.
-   Storage errors are logged and ACKed so SaaS Alerts does not disable the
-   subscription over transient DB issues.
-
-## Signal classification
-
-The normalizer maps each event's `jointType` + description into one of the
-following compliance signals:
-
-| Signal | Weight | Example `jointType` values |
-|--------|--------|----------------------------|
-| `impossible_travel` | 10 | `alert.impossibletravel` |
-| `account_compromise` | 10 | `alert.compromise` |
-| `privilege_escalation` | 8 | `user.roleassign`, `admin.granted` |
-| `mfa_disabled` | 8 | `mfa.disabled`, `mfa.bypass` |
-| `suspicious_login` | 6 | `alert.foreignlogin`, `alert.risky*` |
-| `risky_ip` | 5 | `alert.maliciousip` |
-| `new_device` | 4 | `device.newdevice` |
-| `sharing_exposure` | 4 | `sharing.external` |
-| `policy_violation` | 4 | `policy.violation` |
-| `failed_login` | 2 | `login.failure` |
-| `unusual_activity` | 2 | generic `alert.*` |
-| `password_change` | 1 | `user.passwordchange` |
-| `configuration_change` | 1 | `config.change` |
-| `informational` | 0 | `login.success`, `audit.*` |
-| `unknown` | 1 | anything unclassified |
-
-Weights feed the compliance scoring engine — the collector exposes
-`signalWeightSum` in the evidence record.
-
-## Payload format (documented by Kaseya, not in Swagger)
-
-```json
-{
-  "partner":  { "id": "5000", "name": "Triple Cities Tech" },
-  "customer": { "id": "9001", "name": "Acme Industries" },
-  "product":  { "id": "m365", "name": "Microsoft 365" },
-  "token":    "optional-shared-token",
-  "events": [
-    {
-      "eventId": "evt_abc123",
-      "time": "2026-04-13T12:34:56Z",
-      "user": { "id": "u123", "name": "Jane User", "email": "jane@acme.com" },
-      "ip": "203.0.113.42",
-      "location": { "country": "US", "region": "NY", "city": "Binghamton" },
-      "alertStatus": "high",
-      "jointType": "login.failure",
-      "jointDesc": "IAM Event - Authentication Failure",
-      "jointDescAdditional": "Agent - Edge / Method - Unknown / Activity - OAuth2:Authorize"
-    }
-  ]
-}
-```
-
-## Testing from Postman / PowerShell
-
-### Fetch the sample payload
+This POST tells SaaS Alerts to start pushing events to our receiver.
 
 ```powershell
-Invoke-RestMethod -Uri "https://www.triplecitiestech.com/api/compliance/webhooks/saas-alerts?sample=1"
-```
-
-### POST a sample event (debug mode echoes normalization output)
-
-```powershell
-$sample = (Invoke-RestMethod -Uri "https://www.triplecitiestech.com/api/compliance/webhooks/saas-alerts?sample=1").sample
 Invoke-RestMethod `
-  -Uri "https://www.triplecitiestech.com/api/compliance/webhooks/saas-alerts?debug=1" `
+  -Uri "https://www.triplecitiestech.com/api/admin/compliance/saas-alerts/subscribe" `
   -Method POST `
   -Headers @{ "Authorization" = "Bearer $env:MIGRATION_SECRET" } `
   -ContentType "application/json" `
-  -Body ($sample | ConvertTo-Json -Depth 10)
+  -Body (@{
+      url = "https://www.triplecitiestech.com/api/compliance/webhooks/saas-alerts"
+      token = "<same string you set for SAAS_ALERTS_WEBHOOK_TOKEN>"
+      enabled = $true
+    } | ConvertTo-Json)
 ```
 
-### Inspect stats / recent events
+The response returns the `channelId` — save it; you'll need it for later
+`PATCH`/`DELETE` calls. The admin endpoint fills the URL and token from
+env vars automatically if the body is empty, so in practice this works:
+
+```powershell
+Invoke-RestMethod `
+  -Uri "https://www.triplecitiestech.com/api/admin/compliance/saas-alerts/subscribe" `
+  -Method POST `
+  -Headers @{ "Authorization" = "Bearer $env:MIGRATION_SECRET" } `
+  -ContentType "application/json" `
+  -Body "{}"
+```
+
+### 4. Verify the subscription
+
+```powershell
+Invoke-RestMethod `
+  -Uri "https://www.triplecitiestech.com/api/admin/compliance/saas-alerts/subscribe" `
+  -Headers @{ "Authorization" = "Bearer $env:MIGRATION_SECRET" }
+```
+
+Look for `receiverMatched: true` and your subscription in `active`.
+
+### 5. Fire a test event
+
+```powershell
+Invoke-RestMethod `
+  -Uri "https://www.triplecitiestech.com/api/admin/compliance/saas-alerts/test-event" `
+  -Method POST `
+  -Headers @{ "Authorization" = "Bearer $env:MIGRATION_SECRET" } `
+  -ContentType "application/json" `
+  -Body '{ "alertStatus": "low", "jointType": "login.success" }'
+```
+
+Then check the receiver stats:
 
 ```powershell
 Invoke-RestMethod `
@@ -154,41 +97,171 @@ Invoke-RestMethod `
   -Headers @{ "Authorization" = "Bearer $env:MIGRATION_SECRET" }
 ```
 
-## Fallback polling
+You should see the event count increment and the most recent delivery in
+`recentEvents`.
 
-`GET /api/cron/saas-alerts-poll` runs every 30 minutes via Vercel cron.
+### Fallback — register directly from your workstation
 
-- Reports webhook health: total events ever, events in the last 24h, minutes
-  since last event, `healthy | stale | never_received` status.
-- Attempts a direct API call to SaaS Alerts with `SAAS_ALERTS_API_KEY` if set.
-  When Cloudflare blocks the call (the normal case), it records
-  `polling.success = false` with a Cloudflare note and keeps the 200.
-- Never returns 500 for transient errors; classification comes from
-  `src/lib/resilience.ts`.
+If for any reason the admin route fails (e.g. Vercel redeploy in flight), run
+the same POST directly against SaaS Alerts' Cloud Functions host from your
+workstation — no infrastructure involved:
 
-## Known limitations
+```powershell
+$webhooksKey = "<paste the Webhooks API Key from the UI>"
+$token = "<match SAAS_ALERTS_WEBHOOK_TOKEN>"
+Invoke-RestMethod `
+  -Uri "https://us-central1-the-byway-248217.cloudfunctions.net/outgoingWebhookApi/api/v1/subscriptions" `
+  -Method POST `
+  -Headers @{ "api_key" = $webhooksKey } `
+  -ContentType "application/json" `
+  -Body (@{
+      url     = "https://www.triplecitiestech.com/api/compliance/webhooks/saas-alerts"
+      token   = $token
+      enabled = $true
+    } | ConvertTo-Json)
+```
 
-- **No signing**. SaaS Alerts does not sign payloads (no HMAC). The only
-  authenticity mechanism is the optional shared token, which we enforce when
-  configured. Treat the endpoint as public-but-authenticated.
-- **Retries are soft**. SaaS Alerts retries "a few times" before switching the
-  subscription off. Our receiver aggressively returns 200 to avoid tripping
-  the shut-off.
-- **Idempotency relies on `eventId`.** Events that arrive without an ID are
-  deduped via a deterministic hash of (type, time, user, ip, description).
-  Two identical events that truly happened (same user, same second, same IP)
-  would be collapsed — acceptable for compliance rollups.
-- **Data retention is 90 days** (see `compliance_webhook_events.expiresAt`).
-  Purge via `DELETE /api/compliance/webhooks/saas-alerts`.
+## Endpoint reference
+
+### Our receiver (inbound)
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| `GET` | `/api/compliance/webhooks/saas-alerts` | None | Plain 200 for SaaS Alerts domain validation. |
+| `GET` | `/api/compliance/webhooks/saas-alerts?sample=1` | None | Returns a canonical sample payload. |
+| `GET` | `/api/compliance/webhooks/saas-alerts?stats=1` | `MIGRATION_SECRET` | Stats + recent events. |
+| `POST` | `/api/compliance/webhooks/saas-alerts` | Shared-token (optional) | Ingest one or more events. |
+| `POST` | `/api/compliance/webhooks/saas-alerts?debug=1` | `MIGRATION_SECRET` | Ingest + echo normalized output. |
+| `DELETE` | `/api/compliance/webhooks/saas-alerts` | `MIGRATION_SECRET` | Purge expired events. |
+
+### Our subscription-management (outbound to SaaS Alerts)
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| `GET` | `/api/admin/compliance/saas-alerts/subscribe` | `MIGRATION_SECRET` | List active + disabled subscriptions. |
+| `POST` | `/api/admin/compliance/saas-alerts/subscribe` | `MIGRATION_SECRET` | Create a subscription (body optional — defaults to our receiver URL + env token). |
+| `PATCH` | `/api/admin/compliance/saas-alerts/subscribe?channelId=...` | `MIGRATION_SECRET` | Update a subscription. |
+| `DELETE` | `/api/admin/compliance/saas-alerts/subscribe?channelId=...` | `MIGRATION_SECRET` | Delete a subscription. |
+| `POST` | `/api/admin/compliance/saas-alerts/test-event` | `MIGRATION_SECRET` | Fire SaaS Alerts' `/misc/sendTestEvent`. |
+
+### Upstream SaaS Alerts API (reference)
+
+Base URL: `https://us-central1-the-byway-248217.cloudfunctions.net/outgoingWebhookApi/api/v1`
+
+Auth header: `api_key: <Webhooks API Key>` (or `x-api-key`).
+
+Relevant endpoints:
+
+| Method | Path | Notes |
+|--------|------|-------|
+| `GET` | `/subscriptions` | List active subscriptions. |
+| `GET` | `/subscriptions/disabled` | List disabled subscriptions (SaaS Alerts disables them after repeated delivery failures). |
+| `POST` | `/subscriptions` | Create. Body `{ url, token?, enabled?, alertStatuses?, eventTypes?, customerIds?, expiration?, channelId?, alertSettings?, skipSuppressed? }`. `alertStatuses` and `eventTypes` are mutually exclusive. Omit both for "all events". |
+| `PATCH` | `/subscriptions/{channelId}` | Update. |
+| `DELETE` | `/subscriptions/{channelId}` | Delete. |
+| `POST` | `/misc/sendTestEvent` | Synthetic event. Body `{ alertStatus?, jointType?, partnerId? }`. |
+| `GET` | `/misc/customers` | List customer/organization IDs. |
+| `GET` | `/misc/alertTypes` | List valid `jointType` values. |
+| `GET` | `/queue` | Events queued for redelivery. |
+| `GET` | `/domains` | Approved webhook domains. |
+
+## Subscription body constraints (client-validated before dispatch)
+
+- `url` HTTPS only; no IP literal, no userinfo, no fragment; ≤ 256 chars.
+- `token` ≤ 128 chars.
+- `alertStatuses` ∈ `{ critical, medium, low }` — mutually exclusive with
+  `eventTypes`.
+- `customerIds` ≤ 50 entries.
+- `alertSettings.recipients` ≤ 20 entries.
+
+## Payload received (from SaaS Alerts, documented in their Swagger)
+
+```json
+{
+  "partner":  { "id": "0FQzuh6qqNr9F8kpi3gN", "name": "Acme Corp" },
+  "customer": { "id": "Abc123def456ghi789jk", "name": "Customer Org" },
+  "product":  { "id": "MS", "name": "Microsoft 365" },
+  "events": [
+    {
+      "eventId": "abc123def456",
+      "time": "2021-05-16 21:00:00.000",
+      "user": { "id": "user123", "name": "user@example.com", "fullName": "…", "isLicensed": true, "accountEnabled": true },
+      "ip": "192.168.1.1",
+      "location": {
+        "country": "US",
+        "region": "NY",
+        "city": "Binghamton",
+        "ll": [42.1, -75.9],
+        "ipInfo": { "asn": { "name": "…", "asn": "AS…", "route": "…", "type": "…", "domain": "…" }, "threat": { "is_tor": false, "is_proxy": false, "scores": { "threat_score": 0, "trust_score": 100, "proxy_score": 0, "vpn_score": 0 } } }
+      },
+      "alertStatus": "low",
+      "jointType": "login.failure",
+      "jointDesc": "IAM Event - Authentication Failure",
+      "jointDescAdditional": "Agent - Chrome / Method - Unknown / Activity - OAuth2:Authorize"
+    }
+  ]
+}
+```
+
+Our receiver defensively accepts bare arrays and single-event objects too —
+the external-partner-api has shipped each shape in the past.
+
+## Signal classification (what the receiver derives)
+
+The normalizer at `src/lib/compliance/saas-alerts-normalizer.ts` maps each
+event's `jointType` + description into one of:
+
+| Signal | Weight | Notes |
+|--------|--------|-------|
+| `impossible_travel` | 10 | `alert.impossibletravel` |
+| `account_compromise` | 10 | Compromise / takeover / hijack |
+| `privilege_escalation` | 8 | Role grant, admin assign |
+| `mfa_disabled` | 8 | MFA turned off / bypassed |
+| `suspicious_login` | 6 | Foreign login, Tor, anonymous IP |
+| `risky_ip` | 5 | Malicious IP |
+| `new_device` | 4 | Unrecognized device |
+| `sharing_exposure` | 4 | External / anonymous sharing |
+| `policy_violation` | 4 | Policy violation |
+| `failed_login` | 2 | `login.failure` |
+| `unusual_activity` | 2 | Generic `alert.*` |
+| `password_change` | 1 | Password change / reset |
+| `configuration_change` | 1 | `config.change` |
+| `informational` | 0 | `login.success`, `audit.*` |
+| `unknown` | 1 | Anything unclassified |
+
+Weights are aggregated into the compliance evidence record as
+`signalWeightSum`.
+
+## Idempotency, storage, and retention
+
+- Inserts use `ON CONFLICT (source, externalId) DO NOTHING`. External IDs
+  prefer `eventId` → `id` → a deterministic sha256 of (type, time, user, ip,
+  description) so events that arrive without an ID still dedupe.
+- Retention: 90 days (`compliance_webhook_events.expiresAt`).
+- Purge expired rows with `DELETE /api/compliance/webhooks/saas-alerts`.
+
+## Known limitations / notes
+
+- **No payload signing.** SaaS Alerts does not HMAC-sign requests. The only
+  authenticity mechanism is the optional shared token that's echoed back.
+- **Soft retries.** SaaS Alerts retries a few times before disabling the
+  subscription. The receiver returns 200 aggressively to avoid tripping the
+  auto-disable. If a subscription ever goes to `/subscriptions/disabled`,
+  re-enable it by PATCH-ing `enabled: true`.
+- **AlertStatus enum is three values (`critical | medium | low`).** Our
+  internal severity taxonomy also includes `high`; the normalizer maps
+  incoming values through but outgoing subscription filters must stick to
+  the three API values.
+- **URL regex is strict.** No IP literals, no userinfo, no fragment. Preview
+  deployments with random subdomains still satisfy it, but `localhost`
+  doesn't.
 
 ## Troubleshooting
 
-- *Deliveries stop suddenly.* Check the Vercel function logs for 5xx and
-  confirm `SAAS_ALERTS_WEBHOOK_TOKEN` still matches the value in
-  `manage.saasalerts.com`. Then re-enable the subscription from the SaaS
-  Alerts UI (Kaseya disables auto after repeated failures).
-- *Domain validation fails.* Hit the root GET: it must return 2xx on
-  `https://www.triplecitiestech.com/api/compliance/webhooks/saas-alerts`.
-- *"No events in the last 30 days" in the compliance dashboard.* Run the
-  polling cron manually (`/api/cron/saas-alerts-poll?secret=...`) and
-  inspect `webhookHealth` — it tells you whether the webhook ever fired.
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| `POST /subscriptions` returns 403 | API key invalid / wrong key | Re-copy "Show Api Key" from the Webhook API UI into `SAAS_ALERTS_WEBHOOKS_API_KEY`. |
+| `POST /subscriptions` returns 400 with "domain" in body | Domain not approved | Add `www.triplecitiestech.com` under Webhook API → Add new domain and retry. |
+| Subscription created but no events arrive | No events match filters yet, or subscription disabled | `GET /api/admin/compliance/saas-alerts/subscribe` and inspect `disabled[]`. Fire a `sendTestEvent` to smoke-test. |
+| Receiver `?stats=1` never increments | Subscription URL wrong, or token mismatch rejecting | Compare `active[0].url` to the exact receiver URL; check function logs for "token verification failed". |
+| Vercel function logs show a signed-out `[redacted]` header | Normal — auth-shaped headers are redacted before logging. |
