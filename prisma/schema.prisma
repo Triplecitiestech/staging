@@ -1426,3 +1426,148 @@ model HrAuditLog {
 //     hrRequests HrRequest[]   // <-- ADD THIS LINE
 //   }
 // ============================================================
+
+// ============================================
+// PTO / TIME-OFF SYSTEM
+// ============================================
+// Gusto is the source of truth for balances and policies.
+// Our DB owns the request + approval workflow.
+// Microsoft 365 shared calendar displays approved absences.
+
+// Singleton-ish connection record for the TCT Gusto account.
+// Only one active connection at a time (enforced at application layer).
+model GustoConnection {
+  id                String    @id @default(uuid())
+  environment       String    // "demo" | "production"
+  companyUuid       String?   // Gusto company UUID (resolved after first API call)
+  companyName       String?   // Human-readable Gusto company name
+  accessToken       String    @db.Text
+  refreshToken      String    @db.Text
+  tokenExpiresAt    DateTime
+  scope             String?   @db.Text
+  connectedByEmail  String
+  connectedAt       DateTime  @default(now())
+  lastRefreshedAt   DateTime?
+  lastSyncAt        DateTime?
+  lastSyncStatus    String?   // "ok" | "error"
+  lastSyncError     String?   @db.Text
+  isActive          Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@map("gusto_connections")
+  @@index([isActive])
+}
+
+// Links a StaffUser to their Gusto employee record.
+// Populated via auto-match-by-email + admin override.
+model PtoEmployeeMapping {
+  id                   String    @id @default(uuid())
+  staffUserId          String    @unique
+  staffEmail           String    // denormalized for search
+  gustoEmployeeUuid    String    @unique
+  gustoWorkEmail       String?
+  gustoPersonalEmail   String?
+  gustoFirstName       String?
+  gustoLastName        String?
+  matchMethod          String    // "auto_email" | "manual" | "auto_name"
+  mappedByStaffId      String?
+  lastGustoSyncAt      DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  timeOffRequests TimeOffRequest[]
+
+  @@map("pto_employee_mappings")
+  @@index([staffEmail])
+  @@index([gustoEmployeeUuid])
+}
+
+enum TimeOffRequestStatus {
+  PENDING
+  APPROVED
+  DENIED
+  CANCELLED
+}
+
+enum TimeOffRequestKind {
+  VACATION
+  SICK
+  PERSONAL
+  BEREAVEMENT
+  JURY_DUTY
+  UNPAID
+  OTHER
+}
+
+model TimeOffRequest {
+  id                  String               @id @default(uuid())
+  mappingId           String
+  employeeStaffId     String               // StaffUser.id of requester
+  employeeEmail       String
+  employeeName        String
+  gustoEmployeeUuid   String
+  kind                TimeOffRequestKind   @default(VACATION)
+  gustoPolicyUuid     String?              // Which Gusto time-off policy this applies to
+  gustoPolicyName     String?
+  startDate           DateTime             @db.Date
+  endDate             DateTime             @db.Date
+  // For partial days: map of YYYY-MM-DD => hours. Null/missing = full day (8h)
+  hoursPerDay         Json?                @default("{}")
+  totalHours          Decimal              @db.Decimal(7, 2)
+  notes               String?              @db.Text
+  coverage            String?              @db.Text  // who covers their shift
+  status              TimeOffRequestStatus @default(PENDING)
+
+  // Review details
+  reviewedByStaffId   String?
+  reviewedByName      String?
+  reviewedAt          DateTime?
+  managerNotes        String?              @db.Text
+
+  // Gusto sync
+  gustoBalanceAdjustmentAt DateTime?
+  gustoSyncStatus     String?              // "pending" | "ok" | "error" | "skipped"
+  gustoSyncError      String?              @db.Text
+  gustoSyncAttempts   Int                  @default(0)
+
+  // Calendar sync
+  graphEventId        String?              // event id on the shared PTO calendar
+  graphInviteEventId  String?              // event id on the employee's calendar (invite)
+  graphSyncStatus     String?              // "pending" | "ok" | "error"
+  graphSyncError      String?              @db.Text
+  graphSyncAttempts   Int                  @default(0)
+
+  // Notification tracking
+  submitterNotifiedAt DateTime?
+  approversNotifiedAt DateTime?
+  employeeNotifiedAt  DateTime?
+
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  mapping    PtoEmployeeMapping @relation(fields: [mappingId], references: [id], onDelete: Cascade)
+  auditLogs  TimeOffAuditLog[]
+
+  @@map("time_off_requests")
+  @@index([employeeStaffId, status])
+  @@index([status, startDate])
+  @@index([startDate, endDate])
+}
+
+model TimeOffAuditLog {
+  id           String   @id @default(uuid())
+  requestId    String
+  actorStaffId String?
+  actorEmail   String
+  actorName    String?
+  action       String   // "submitted" | "approved" | "denied" | "cancelled" | "gusto_sync" | "calendar_sync" | "retry"
+  details      Json?
+  severity     String   @default("info")
+  createdAt    DateTime @default(now())
+
+  request TimeOffRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@map("time_off_audit_logs")
+  @@index([requestId, createdAt(sort: Desc)])
+}
