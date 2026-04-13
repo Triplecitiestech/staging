@@ -352,7 +352,14 @@ export async function ensureComplianceTables(): Promise<void> {
           severity        TEXT NOT NULL DEFAULT 'low',
           "rawData"       JSONB NOT NULL DEFAULT '{}',
           "receivedAt"    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          "expiresAt"     TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '90 days'
+          "expiresAt"     TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '90 days',
+          "externalId"    TEXT,
+          "partnerId"     TEXT,
+          "customerId"    TEXT,
+          "sourceIp"      TEXT,
+          headers         JSONB NOT NULL DEFAULT '{}',
+          normalized      JSONB NOT NULL DEFAULT '{}',
+          "signalType"    TEXT
         )
       `)
       await client.query(`
@@ -362,6 +369,33 @@ export async function ensureComplianceTables(): Promise<void> {
       await client.query(`
         CREATE INDEX IF NOT EXISTS idx_compliance_webhook_events_expires
         ON compliance_webhook_events ("expiresAt")
+      `)
+      await client.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_compliance_webhook_events_src_extid
+        ON compliance_webhook_events (source, "externalId")
+        WHERE "externalId" IS NOT NULL
+      `)
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_compliance_webhook_events_signal
+        ON compliance_webhook_events (source, "signalType", "receivedAt" DESC)
+      `)
+    } else {
+      // Self-heal: add columns on older installs
+      await client.query(`ALTER TABLE compliance_webhook_events ADD COLUMN IF NOT EXISTS "externalId" TEXT`)
+      await client.query(`ALTER TABLE compliance_webhook_events ADD COLUMN IF NOT EXISTS "partnerId" TEXT`)
+      await client.query(`ALTER TABLE compliance_webhook_events ADD COLUMN IF NOT EXISTS "customerId" TEXT`)
+      await client.query(`ALTER TABLE compliance_webhook_events ADD COLUMN IF NOT EXISTS "sourceIp" TEXT`)
+      await client.query(`ALTER TABLE compliance_webhook_events ADD COLUMN IF NOT EXISTS headers JSONB NOT NULL DEFAULT '{}'`)
+      await client.query(`ALTER TABLE compliance_webhook_events ADD COLUMN IF NOT EXISTS normalized JSONB NOT NULL DEFAULT '{}'`)
+      await client.query(`ALTER TABLE compliance_webhook_events ADD COLUMN IF NOT EXISTS "signalType" TEXT`)
+      await client.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_compliance_webhook_events_src_extid
+        ON compliance_webhook_events (source, "externalId")
+        WHERE "externalId" IS NOT NULL
+      `)
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_compliance_webhook_events_signal
+        ON compliance_webhook_events (source, "signalType", "receivedAt" DESC)
       `)
     }
 
