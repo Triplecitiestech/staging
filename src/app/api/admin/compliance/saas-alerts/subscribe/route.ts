@@ -70,9 +70,10 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const [active, disabled] = await Promise.all([
+    const [active, disabled, queue] = await Promise.all([
       client.listSubscriptions(),
       client.listDisabledSubscriptions().catch(() => [] as unknown[]),
+      client.listQueue().catch(() => [] as unknown[]),
     ])
     const receiver = receiverUrl()
     return NextResponse.json({
@@ -81,6 +82,7 @@ export async function GET(request: NextRequest) {
       receiverMatched: active.some((s) => s.url === receiver) || (disabled as Array<{ url?: string }>).some((s) => s.url === receiver),
       active,
       disabled,
+      queue, // events waiting to be delivered (or stuck due to failures)
     })
   } catch (err) {
     return handleError(err)
