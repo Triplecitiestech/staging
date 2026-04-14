@@ -20,6 +20,13 @@ interface RequestDetail {
   hoursPerDay: Record<string, number> | null | unknown
   notes: string | null
   coverage: string | null
+  coverageStaffId: string | null
+  coverageStaffName: string | null
+  coverageStaffEmail: string | null
+  coverageResponse: string | null
+  coverageRespondedAt: string | null
+  coverageResponseNotes: string | null
+  coverageRequestSentAt: string | null
   status: string
   intakeByStaffId: string | null
   intakeByName: string | null
@@ -249,7 +256,60 @@ export default function PtoDetailClient({
             </div>
           </div>
 
-          {req.coverage && (
+          {req.coverageStaffName && (
+            <div
+              className={`mt-4 rounded-md border p-3 ${
+                req.coverageResponse === 'accepted'
+                  ? 'border-emerald-500/30 bg-emerald-500/5'
+                  : req.coverageResponse === 'declined'
+                  ? 'border-rose-500/30 bg-rose-500/5'
+                  : 'border-amber-500/30 bg-amber-500/5'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-300">
+                  Coverage:{' '}
+                  <span
+                    className={
+                      req.coverageResponse === 'accepted'
+                        ? 'text-emerald-300'
+                        : req.coverageResponse === 'declined'
+                        ? 'text-rose-300'
+                        : 'text-amber-300'
+                    }
+                  >
+                    {req.coverageResponse === 'accepted'
+                      ? '✓ Accepted'
+                      : req.coverageResponse === 'declined'
+                      ? '✕ Declined'
+                      : '⏳ Awaiting response'}
+                  </span>
+                </p>
+                <p className="text-xs text-slate-400">
+                  {req.coverageRespondedAt
+                    ? `Responded ${new Date(req.coverageRespondedAt).toLocaleString()}`
+                    : req.coverageRequestSentAt
+                    ? `Requested ${new Date(req.coverageRequestSentAt).toLocaleString()}`
+                    : ''}
+                </p>
+              </div>
+              <p className="text-sm text-white mt-1 font-medium">{req.coverageStaffName}</p>
+              {req.coverageStaffEmail && (
+                <p className="text-xs text-slate-400">{req.coverageStaffEmail}</p>
+              )}
+              {req.coverageResponseNotes && (
+                <p className="text-sm text-slate-200 mt-2 whitespace-pre-wrap italic">
+                  &ldquo;{req.coverageResponseNotes}&rdquo;
+                </p>
+              )}
+              {req.coverage && (
+                <p className="text-xs text-slate-400 mt-2 whitespace-pre-wrap">
+                  Note from employee: {req.coverage}
+                </p>
+              )}
+            </div>
+          )}
+          {!req.coverageStaffName && req.coverage && (
             <div className="mt-4 rounded-md border-l-2 border-cyan-500 bg-cyan-500/5 p-3">
               <p className="text-xs font-semibold text-cyan-300 uppercase">Shift coverage (from employee)</p>
               <p className="text-sm text-slate-100 mt-1 whitespace-pre-wrap">{req.coverage}</p>
@@ -522,6 +582,26 @@ export default function PtoDetailClient({
                   Waiting on HR to enter this in Gusto.
                 </p>
               )
+            )}
+          </div>
+        )}
+
+        {/* Calendar sync — prominent banner on error */}
+        {req.status === 'APPROVED' && req.graphSyncStatus === 'error' && (
+          <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-4">
+            <p className="text-sm font-semibold text-rose-200">
+              Calendar sync failed
+            </p>
+            <p className="text-xs text-rose-100 mt-1">
+              The shared PTO calendar event and employee invite could not be created. Common
+              causes: the shared mailbox <code>{process.env.NEXT_PUBLIC_PTO_CALENDAR_MAILBOX ?? 'timeoff@triplecitiestech.com'}</code>{' '}
+              doesn&apos;t exist, or the Azure AD app is missing the{' '}
+              <code>Calendars.ReadWrite</code> application permission. Error below:
+            </p>
+            {req.graphSyncError && (
+              <pre className="mt-2 p-2 rounded bg-rose-500/10 text-xs text-rose-100 overflow-x-auto whitespace-pre-wrap break-words">
+                {req.graphSyncError}
+              </pre>
             )}
           </div>
         )}

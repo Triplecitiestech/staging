@@ -22,6 +22,9 @@ interface RequestRow {
   reviewedAt: string | null
   gustoRecordedAt: string | null
   createdAt: string
+  // Coverage approval (optional on queue list response)
+  coverageStaffName?: string | null
+  coverageResponse?: string | null
 }
 
 type TabId = 'my_queue' | 'intake' | 'approval' | 'approved' | 'denied' | 'cancelled' | 'all'
@@ -127,6 +130,7 @@ export default function PtoQueueClient({
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Dates</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Hours</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Status</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Coverage</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Gusto</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Submitted</th>
                 <th className="px-4 py-3"></th>
@@ -146,6 +150,28 @@ export default function PtoQueueClient({
                   <td className="px-4 py-3 text-slate-200">{r.totalHours.toFixed(2)}</td>
                   <td className="px-4 py-3">
                     <StatusBadge status={r.status} />
+                  </td>
+                  <td className="px-4 py-3 text-xs">
+                    {r.coverageStaffName ? (
+                      <span
+                        className={
+                          r.coverageResponse === 'accepted'
+                            ? 'text-emerald-300'
+                            : r.coverageResponse === 'declined'
+                            ? 'text-rose-300'
+                            : 'text-amber-300'
+                        }
+                        title={r.coverageStaffName}
+                      >
+                        {r.coverageResponse === 'accepted'
+                          ? `✓ ${r.coverageStaffName.split(' ')[0]}`
+                          : r.coverageResponse === 'declined'
+                          ? `✕ ${r.coverageStaffName.split(' ')[0]}`
+                          : `⏳ ${r.coverageStaffName.split(' ')[0]}`}
+                      </span>
+                    ) : (
+                      <span className="text-slate-500">—</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-xs">
                     {r.status === 'APPROVED' ? (

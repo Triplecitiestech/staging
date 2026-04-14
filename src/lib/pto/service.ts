@@ -33,11 +33,14 @@ import {
 } from '@/lib/graph-tct'
 import {
   generateApprovalNotificationEmail,
+  generateCoverageRequestEmail,
+  generateCoverageResponseEmail,
   generateDenialNotificationEmail,
   generateIntakeAssignedEmail,
   generateHrApprovalEmail,
   generateSubmittedConfirmationEmail,
 } from '@/lib/email-templates/pto'
+import crypto from 'crypto'
 import type { PtoKind } from './types'
 import type { StaffRole } from '@prisma/client'
 import { hasPermission, parseOverrides } from '@/lib/permissions'
@@ -170,6 +173,77 @@ export async function notifySubmitter(requestId: string): Promise<void> {
   })
 }
 
+// ---------------------------------------------------------------------------
+// Coverage: issue a token + send the accept/decline email
+// ---------------------------------------------------------------------------
+
+export function generateCoverageToken(): string {
+  return crypto.randomBytes(24).toString('base64url')
+}
+
+export async function sendCoverageRequest(requestId: string): Promise<void> {
+  const req = await prisma.timeOffRequest.findUnique({ where: { id: requestId } })
+  if (!req) return
+  if (!req.coverageStaffEmail || !req.coverageStaffName) return
+  if (!req.coverageToken) return
+
+  const { subject, html, text } = generateCoverageRequestEmail({
+    employeeName: req.employeeName,
+    employeeEmail: req.employeeEmail,
+    covererName: req.coverageStaffName,
+    kind: req.kind,
+    startDate: ymd(req.startDate),
+    endDate: ymd(req.endDate),
+    totalHours: Number(req.totalHours),
+    notes: req.notes,
+    respondUrl: `${baseUrl()}/pto/coverage/${encodeURIComponent(req.coverageToken)}`,
+  })
+
+  const send = await sendEmail({
+    to: [req.coverageStaffEmail],
+    subject,
+    html,
+    text,
+    replyTo: req.employeeEmail,
+  })
+
+  await prisma.timeOffRequest.update({
+    where: { id: req.id },
+    data: { coverageRequestSentAt: new Date() },
+  })
+  await prisma.timeOffAuditLog.create({
+    data: {
+      requestId: req.id,
+      actorEmail: 'system',
+      action: 'coverage_request_sent',
+      details: { to: req.coverageStaffEmail, result: send } as never,
+    },
+  })
+}
+
+export async function notifyCoverageResponse(requestId: string): Promise<void> {
+  const req = await prisma.timeOffRequest.findUnique({ where: { id: requestId } })
+  if (!req || !req.coverageResponse) return
+
+  const recipients = await resolveIntakeEmails()
+  // Also include the requesting employee so they know
+  if (req.employeeEmail) recipients.push(req.employeeEmail.toLowerCase())
+  const unique = Array.from(new Set(recipients))
+
+  const { subject, html, text } = generateCoverageResponseEmail({
+    employeeName: req.employeeName,
+    covererName: req.coverageStaffName ?? 'Covering teammate',
+    response: req.coverageResponse === 'accepted' ? 'accepted' : 'declined',
+    responseNotes: req.coverageResponseNotes,
+    kind: req.kind,
+    startDate: ymd(req.startDate),
+    endDate: ymd(req.endDate),
+    reviewUrl: `${baseUrl()}/admin/pto/${req.id}`,
+  })
+
+  await sendEmail({ to: unique, subject, html, text })
+}
+
 export async function notifyIntakeTeam(requestId: string): Promise<void> {
   const req = await prisma.timeOffRequest.findUnique({ where: { id: requestId } })
   if (!req) return
@@ -228,6 +302,15 @@ export async function notifyFinalApprovers(requestId: string): Promise<void> {
     totalHours: Number(req.totalHours),
     notes: req.notes,
     coverage: req.coverage,
+    coverageApproval: req.coverageStaffEmail
+      ? {
+          staffName: req.coverageStaffName,
+          staffEmail: req.coverageStaffEmail,
+          response: req.coverageResponse,
+          responseNotes: req.coverageResponseNotes,
+          respondedAt: req.coverageRespondedAt?.toISOString() ?? null,
+        }
+      : null,
     intake: {
       byName: req.intakeByName ?? null,
       lastTimeOffNotes: req.intakeLastTimeOffNotes ?? null,

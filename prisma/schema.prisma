@@ -1518,7 +1518,19 @@ model TimeOffRequest {
   hoursPerDay         Json?                @default("{}")
   totalHours          Decimal              @db.Decimal(7, 2)
   notes               String?              @db.Text
-  coverage            String?              @db.Text  // who covers their shift
+  coverage            String?              @db.Text  // free-form notes (legacy / fallback)
+
+  // Coverage approval (new): employee picks a covering teammate, they
+  // receive an email and accept/decline; HR sees the response before approving.
+  coverageStaffId       String?
+  coverageStaffName     String?
+  coverageStaffEmail    String?
+  coverageResponse      String?   // 'pending' | 'accepted' | 'declined' | null (not requested)
+  coverageRespondedAt   DateTime?
+  coverageResponseNotes String?   @db.Text
+  coverageToken         String?   @unique  // opaque signed token for accept/decline URL
+  coverageRequestSentAt DateTime?
+
   status              TimeOffRequestStatus @default(PENDING_INTAKE)
 
   // HR intake (stage 1) — e.g. Rio fills this in, then forwards to final approver
