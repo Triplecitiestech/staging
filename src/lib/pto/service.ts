@@ -50,6 +50,8 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
 const FROM_EMAIL = process.env.PTO_FROM_EMAIL || 'HumanResources@triplecitiestech.com'
 const FROM_NAME = process.env.PTO_FROM_NAME || 'Triple Cities Tech HR'
 const SHARED_CALENDAR = process.env.PTO_CALENDAR_MAILBOX || 'timeoff@triplecitiestech.com'
+const SHARED_CALENDAR_TYPE: 'user' | 'group' =
+  (process.env.PTO_CALENDAR_TYPE || 'user').toLowerCase() === 'group' ? 'group' : 'user'
 const FALLBACK_APPROVER = process.env.PTO_APPROVER_FALLBACK_EMAIL || 'kurtis@triplecitiestech.com'
 const INTAKE_FALLBACK_EMAIL = process.env.PTO_INTAKE_FALLBACK_EMAIL // optional
 
@@ -602,7 +604,7 @@ export async function cancelRequest(params: {
   if (wasApproved) {
     if (req.graphEventId) {
       try {
-        await deleteCalendarEvent(SHARED_CALENDAR, req.graphEventId)
+        await deleteCalendarEvent(SHARED_CALENDAR, req.graphEventId, SHARED_CALENDAR_TYPE)
       } catch (err) {
         console.warn('[pto] Failed to delete shared calendar event on cancel:', err)
       }
@@ -687,6 +689,7 @@ ${req.coverage ? `<p><em>Shift coverage:</em> ${req.coverage}</p>` : ''}
 
     const sharedEvent = await createCalendarEvent({
       calendarOwner: SHARED_CALENDAR,
+      calendarType: SHARED_CALENDAR_TYPE,
       subject,
       body: bodyHtml,
       startDate: startYmd,

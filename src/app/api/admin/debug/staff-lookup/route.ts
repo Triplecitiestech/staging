@@ -92,9 +92,17 @@ export async function POST(request: NextRequest) {
   const email = norm(body?.email)
   if (!email) return NextResponse.json({ error: 'email required' }, { status: 400 })
 
-  const data: { isActive?: boolean; role?: string } = {}
+  const data: { isActive?: boolean; role?: string; permissionOverrides?: unknown } = {}
   if (typeof body?.isActive === 'boolean') data.isActive = body.isActive
   if (typeof body?.role === 'string') data.role = body.role
+
+  // Optional grant/revoke of specific permissions
+  const grantPermissions: string[] = Array.isArray(body?.grantPermissions)
+    ? body.grantPermissions.filter((p: unknown): p is string => typeof p === 'string')
+    : []
+  const revokePermissions: string[] = Array.isArray(body?.revokePermissions)
+    ? body.revokePermissions.filter((p: unknown): p is string => typeof p === 'string')
+    : []
 
   const healedRows = await healLegacyRoles()
 
@@ -115,6 +123,32 @@ export async function POST(request: NextRequest) {
         },
       })
       return NextResponse.json({ ok: true, created: true, staff: created, healedLegacyRoles: healedRows })
+    }
+
+    // Apply permission override grants/revokes
+    if (grantPermissions.length > 0 || revokePermissions.length > 0) {
+      const current = await prisma.staffUser.findUnique({
+        where: { id: existing.id },
+        select: { permissionOverrides: true },
+      })
+      const existingOv = (current?.permissionOverrides ?? {}) as {
+        granted?: string[]
+        revoked?: string[]
+      }
+      const grantedSet = new Set(Array.isArray(existingOv.granted) ? existingOv.granted : [])
+      const revokedSet = new Set(Array.isArray(existingOv.revoked) ? existingOv.revoked : [])
+      for (const p of grantPermissions) {
+        grantedSet.add(p)
+        revokedSet.delete(p)
+      }
+      for (const p of revokePermissions) {
+        revokedSet.add(p)
+        grantedSet.delete(p)
+      }
+      data.permissionOverrides = {
+        granted: Array.from(grantedSet),
+        revoked: Array.from(revokedSet),
+      }
     }
 
     if (Object.keys(data).length === 0) {
