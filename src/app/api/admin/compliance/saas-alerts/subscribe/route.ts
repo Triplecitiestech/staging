@@ -117,9 +117,24 @@ export async function POST(request: NextRequest) {
   const hasFilter = (body.alertStatuses && body.alertStatuses.length > 0) || (body.eventTypes && body.eventTypes.length > 0)
   const defaultAlertStatuses: SaasAlertsSubscriptionCreateParams['alertStatuses'] = ['critical', 'medium', 'low']
 
+  const token = body.token ?? envToken ?? undefined
+
+  // Belt-and-suspenders: register the token as a `?token=` query param on the
+  // subscription URL so it arrives on every delivery regardless of whether
+  // SaaS Alerts echoes the body `token` field. Kaseya's Swagger is silent on
+  // which header/field carries the echo token in deliveries, so the URL
+  // query param is the only way to guarantee the receiver can verify.
+  const baseUrl = body.url ?? receiverUrl()
+  const finalUrl = (() => {
+    if (!token) return baseUrl
+    if (body.url) return body.url // caller-supplied URL is used verbatim
+    const sep = baseUrl.includes('?') ? '&' : '?'
+    return `${baseUrl}${sep}token=${encodeURIComponent(token)}`
+  })()
+
   const params: SaasAlertsSubscriptionCreateParams = {
-    url: body.url ?? receiverUrl(),
-    token: body.token ?? envToken ?? undefined,
+    url: finalUrl,
+    token,
     enabled: body.enabled ?? true,
     alertStatuses: body.alertStatuses ?? (hasFilter ? undefined : defaultAlertStatuses),
     eventTypes: body.eventTypes,
