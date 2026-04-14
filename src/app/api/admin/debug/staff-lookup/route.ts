@@ -96,13 +96,16 @@ export async function POST(request: NextRequest) {
   if (typeof body?.isActive === 'boolean') data.isActive = body.isActive
   if (typeof body?.role === 'string') data.role = body.role
 
-  // Optional grant/revoke of specific permissions
-  const grantPermissions: string[] = Array.isArray(body?.grantPermissions)
-    ? body.grantPermissions.filter((p: unknown): p is string => typeof p === 'string')
-    : []
-  const revokePermissions: string[] = Array.isArray(body?.revokePermissions)
-    ? body.revokePermissions.filter((p: unknown): p is string => typeof p === 'string')
-    : []
+  // Optional grant/revoke of specific permissions.
+  // Accept either a single string or an array (PowerShell's ConvertTo-Json
+  // serialises 1-element arrays as bare strings).
+  const toStringArray = (v: unknown): string[] => {
+    if (typeof v === 'string') return v.trim() ? [v.trim()] : []
+    if (Array.isArray(v)) return v.filter((p): p is string => typeof p === 'string')
+    return []
+  }
+  const grantPermissions: string[] = toStringArray(body?.grantPermissions)
+  const revokePermissions: string[] = toStringArray(body?.revokePermissions)
 
   const healedRows = await healLegacyRoles()
 
