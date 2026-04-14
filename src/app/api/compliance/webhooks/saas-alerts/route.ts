@@ -190,9 +190,24 @@ export async function POST(request: NextRequest) {
   // Verify after parsing so we can see a body token regardless of header.
   const tokenCheck = verifyToken(request, bodyToken)
   if (!tokenCheck.ok) {
+    // Emit enough detail to diagnose which location SaaS Alerts uses for the
+    // echo token. We log HEADER NAMES only (never values) plus the top-level
+    // body field names to avoid leaking the echoed secret itself.
+    const headerNames = Object.keys(headersCaptured).sort()
+    const bodyTopLevelKeys =
+      body && typeof body === 'object' && !Array.isArray(body)
+        ? Object.keys(body as Record<string, unknown>).sort()
+        : Array.isArray(body)
+          ? ['<array>']
+          : []
+    const querySeen = Array.from(request.nextUrl.searchParams.keys()).sort()
     console.warn('[webhook][saas-alerts] token verification failed', {
       reason: tokenCheck.reason,
       sourceIp,
+      headerNames,
+      bodyTopLevelKeys,
+      querySeen,
+      bodyTokenSeen: bodyToken ? 'yes' : 'no',
     })
     // Return 401 so bad actors see the rejection, but keep the body generic.
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
