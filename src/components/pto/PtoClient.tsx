@@ -68,25 +68,56 @@ export default function PtoClient({
 
   return (
     <div className="space-y-8">
+      {/* HR shortcut — big button at the top, only for HR staff */}
+      {(canApprove || canIntake) && (
+        <section className="rounded-lg border border-violet-500/30 bg-gradient-to-br from-violet-500/10 to-cyan-500/10 p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h2 className="text-sm font-semibold text-violet-300 uppercase tracking-wide">
+              HR access
+            </h2>
+            <p className="text-slate-200 text-sm mt-1">
+              Review pending requests, complete intake, and approve or deny.
+            </p>
+          </div>
+          <Link
+            href="/admin/pto/queue"
+            className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-lg bg-violet-500 text-white text-sm font-semibold hover:bg-violet-400 transition-colors shadow-lg shadow-violet-500/20 whitespace-nowrap"
+          >
+            Open PTO Queue
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+            </svg>
+          </Link>
+        </section>
+      )}
+
       {/* How it works explainer */}
       <section className="rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-5">
-        <h2 className="text-sm font-semibold text-cyan-300 uppercase tracking-wide mb-2">
+        <h2 className="text-sm font-semibold text-cyan-300 uppercase tracking-wide mb-3">
           How PTO requests work
         </h2>
-        <ol className="text-sm text-slate-200 space-y-1.5">
-          <li><span className="text-cyan-400 font-semibold">1.</span> You submit your request below.</li>
-          <li><span className="text-cyan-400 font-semibold">2.</span> HR (Rio) collects context — balance, history, coverage — and forwards to Kurtis.</li>
-          <li><span className="text-cyan-400 font-semibold">3.</span> Kurtis approves or denies.</li>
-          <li><span className="text-cyan-400 font-semibold">4.</span> If approved, the shared calendar is updated and you get a calendar invite.</li>
+        <ol className="text-sm text-slate-200 space-y-2">
+          <li>
+            <span className="text-cyan-400 font-semibold">Step 1 — Submit.</span>{' '}
+            Fill out the form below with dates, hours, and who you&apos;d like to cover your work.
+          </li>
+          <li>
+            <span className="text-cyan-400 font-semibold">Step 2 — HR intake.</span>{' '}
+            Rio looks up your current PTO balance in Gusto, confirms coverage, and forwards the request to Kurtis with context.
+          </li>
+          <li>
+            <span className="text-cyan-400 font-semibold">Step 3 — Coverage confirmation.</span>{' '}
+            The teammate you picked gets an email to accept or decline covering your work. HR and you both see their response.
+          </li>
+          <li>
+            <span className="text-cyan-400 font-semibold">Step 4 — Final approval.</span>{' '}
+            Kurtis reviews everything and approves or denies. You get an email with the decision.
+          </li>
+          <li>
+            <span className="text-cyan-400 font-semibold">Step 5 — Calendar + Gusto.</span>{' '}
+            If approved, the shared time-off calendar is updated automatically and you receive a calendar invite. HR manually enters the PTO in Gusto to close the loop.
+          </li>
         </ol>
-        {(canApprove || canIntake) && (
-          <p className="mt-3 text-xs text-slate-400">
-            You have HR access.{' '}
-            <Link href="/admin/pto/queue" className="text-cyan-400 hover:text-cyan-300 font-medium">
-              Open the approval queue →
-            </Link>
-          </p>
-        )}
       </section>
 
       {/* New request */}
