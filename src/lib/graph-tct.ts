@@ -174,9 +174,14 @@ export async function getHrGroupMembers(): Promise<HrGroupMember[]> {
 // ---------------------------------------------------------------------------
 
 export interface CreateCalendarEventInput {
-  /** Mailbox (UPN / email) that hosts the calendar to write to */
+  /**
+   * For type='user' (default): mailbox UPN/email that hosts the calendar.
+   * For type='group': M365 group email address.
+   */
   calendarOwner: string
-  /** Calendar id, or 'calendar' (default) for the primary calendar */
+  /** 'user' = /users/{owner}/events, 'group' = /groups/{id}/events */
+  calendarType?: 'user' | 'group'
+  /** Calendar id, or 'calendar' (default) for the primary calendar (user type only) */
   calendarId?: string
   subject: string
   body: string
@@ -220,6 +225,7 @@ export async function createCalendarEvent(
 ): Promise<CalendarEvent> {
   const {
     calendarOwner,
+    calendarType = 'user',
     calendarId,
     subject,
     body,
@@ -254,9 +260,24 @@ export async function createCalendarEvent(
     }))
   }
 
-  const path = calendarId
-    ? `/users/${encodeURIComponent(calendarOwner)}/calendars/${calendarId}/events`
-    : `/users/${encodeURIComponent(calendarOwner)}/events`
+  let path: string
+  if (calendarType === 'group') {
+    // Resolve group by mail → id, then create event on the group calendar
+    const byMail = await graphRequest<{ value: Array<{ id: string }> }>(
+      `/groups?$filter=mail eq '${encodeURIComponent(calendarOwner)}'&$select=id`
+    )
+    const groupId = byMail.value?.[0]?.id
+    if (!groupId) {
+      throw new Error(
+        `PTO calendar group '${calendarOwner}' not found. Either create a mailbox with that address or set PTO_CALENDAR_MAILBOX/PTO_CALENDAR_TYPE to a group you actually own.`
+      )
+    }
+    path = `/groups/${groupId}/events`
+  } else {
+    path = calendarId
+      ? `/users/${encodeURIComponent(calendarOwner)}/calendars/${calendarId}/events`
+      : `/users/${encodeURIComponent(calendarOwner)}/events`
+  }
 
   return withTimeout(
     () =>
@@ -316,13 +337,24 @@ export async function updateCalendarEvent(
 
 export async function deleteCalendarEvent(
   calendarOwner: string,
-  eventId: string
+  eventId: string,
+  calendarType: 'user' | 'group' = 'user'
 ): Promise<void> {
   await withRetry(
-    () =>
-      graphRequest<void>(`/users/${encodeURIComponent(calendarOwner)}/events/${eventId}`, {
-        method: 'DELETE',
-      }),
+    async () => {
+      let path: string
+      if (calendarType === 'group') {
+        const byMail = await graphRequest<{ value: Array<{ id: string }> }>(
+          `/groups?$filter=mail eq '${encodeURIComponent(calendarOwner)}'&$select=id`
+        )
+        const groupId = byMail.value?.[0]?.id
+        if (!groupId) return // Group gone? Nothing to delete.
+        path = `/groups/${groupId}/events/${eventId}`
+      } else {
+        path = `/users/${encodeURIComponent(calendarOwner)}/events/${eventId}`
+      }
+      await graphRequest<void>(path, { method: 'DELETE' })
+    },
     { maxRetries: 2, baseDelayMs: 500 }
   )
 }

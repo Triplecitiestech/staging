@@ -139,7 +139,6 @@ function NewRequestForm({ onSubmitted }: { onSubmitted: () => void }) {
   const [hoursPerWorkDay, setHoursPerWorkDay] = useState('8')
   const [notes, setNotes] = useState('')
   const [coverageStaffId, setCoverageStaffId] = useState('')
-  const [coverageNotes, setCoverageNotes] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -225,7 +224,6 @@ function NewRequestForm({ onSubmitted }: { onSubmitted: () => void }) {
           endDate,
           hoursPerDay,
           notes: notes || undefined,
-          coverage: coverageNotes || undefined,
           coverageStaffId: coverageStaffId || undefined,
         }),
       })
@@ -339,23 +337,21 @@ function NewRequestForm({ onSubmitted }: { onSubmitted: () => void }) {
             </option>
           ))}
         </select>
-        <input
-          type="text"
-          value={coverageNotes}
-          onChange={(e) => setCoverageNotes(e.target.value)}
-          maxLength={500}
-          placeholder="Optional context for them (what you want them to cover)"
-          className="w-full rounded-md bg-slate-900 border border-white/10 text-white px-3 py-2 text-sm mt-2"
-        />
       </div>
 
       <div>
-        <label className="block text-xs font-semibold text-slate-300 mb-1">Notes for HR (optional)</label>
+        <label className="block text-xs font-semibold text-slate-300 mb-1">
+          Notes{' '}
+          <span className="text-slate-500 font-normal">
+            — sent to HR, the coverer, and the final approver
+          </span>
+        </label>
         <textarea
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           rows={3}
           maxLength={2000}
+          placeholder="e.g. Heading out of town for a wedding. John, please cover my tickets. I'll be back Monday."
           className="w-full rounded-md bg-slate-900 border border-white/10 text-white px-3 py-2 text-sm focus:outline-none focus:border-cyan-500"
         />
       </div>
