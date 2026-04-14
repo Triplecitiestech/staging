@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { PTO_KIND_LABELS, type PtoKind, type PtoStatus } from '@/lib/pto/types'
 import StatusBadge from './StatusBadge'
@@ -126,16 +126,63 @@ export default function PtoClient({
   )
 }
 
+interface StaffListItem {
+  id: string
+  name: string
+  email: string
+}
+
 function NewRequestForm({ onSubmitted }: { onSubmitted: () => void }) {
   const [kind, setKind] = useState<PtoKind>('VACATION')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
-  const [partial, setPartial] = useState(false)
-  const [partialHours, setPartialHours] = useState('4')
+  const [hoursPerWorkDay, setHoursPerWorkDay] = useState('8')
   const [notes, setNotes] = useState('')
-  const [coverage, setCoverage] = useState('')
+  const [coverageStaffId, setCoverageStaffId] = useState('')
+  const [coverageNotes, setCoverageNotes] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const [staff, setStaff] = useState<StaffListItem[]>([])
+  const [staffLoading, setStaffLoading] = useState(true)
+
+  // Load staff for coverage dropdown
+  useEffect(() => {
+    const controller = new AbortController()
+    ;(async () => {
+      try {
+        const res = await fetch('/api/admin/staff/list', { signal: controller.signal })
+        const data = await res.json().catch(() => ({ staff: [] }))
+        setStaff(data.staff ?? [])
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return
+        console.warn('[pto] staff list load failed', err)
+      } finally {
+        setStaffLoading(false)
+      }
+    })()
+    return () => controller.abort()
+  }, [])
+
+  // Compute preview total hours
+  const previewTotal = useMemo(() => {
+    if (!startDate || !endDate) return null
+    const hrs = Number.parseFloat(hoursPerWorkDay)
+    if (!Number.isFinite(hrs) || hrs <= 0 || hrs > 24) return null
+    const [sy, sm, sd] = startDate.split('-').map(Number)
+    const [ey, em, ed] = endDate.split('-').map(Number)
+    const start = new Date(Date.UTC(sy, sm - 1, sd))
+    const end = new Date(Date.UTC(ey, em - 1, ed))
+    if (end.getTime() < start.getTime()) return null
+    let total = 0
+    const cur = new Date(start)
+    while (cur.getTime() <= end.getTime()) {
+      const dow = cur.getUTCDay()
+      if (dow >= 1 && dow <= 5) total += hrs
+      cur.setUTCDate(cur.getUTCDate() + 1)
+    }
+    return Math.round(total * 100) / 100
+  }, [startDate, endDate, hoursPerWorkDay])
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -144,18 +191,31 @@ function NewRequestForm({ onSubmitted }: { onSubmitted: () => void }) {
       setError('Start and end dates are required')
       return
     }
+    const hrs = Number.parseFloat(hoursPerWorkDay)
+    if (!Number.isFinite(hrs) || hrs <= 0 || hrs > 24) {
+      setError('Hours per work day must be between 0 and 24')
+      return
+    }
+
     setSubmitting(true)
     try {
-      let hoursPerDay: Record<string, number> | undefined
-      if (partial && startDate === endDate) {
-        const n = Number.parseFloat(partialHours)
-        if (!Number.isFinite(n) || n <= 0 || n > 24) {
-          setError('Partial hours must be between 0 and 24')
-          setSubmitting(false)
-          return
-        }
-        hoursPerDay = { [startDate]: n }
+      // Build per-day hours for every weekday in the range using the
+      // user's chosen hours-per-work-day.
+      const hoursPerDay: Record<string, number> = {}
+      const [sy, sm, sd] = startDate.split('-').map(Number)
+      const [ey, em, ed] = endDate.split('-').map(Number)
+      const start = new Date(Date.UTC(sy, sm - 1, sd))
+      const end = new Date(Date.UTC(ey, em - 1, ed))
+      const cur = new Date(start)
+      while (cur.getTime() <= end.getTime()) {
+        const dow = cur.getUTCDay()
+        const y = cur.getUTCFullYear()
+        const m = String(cur.getUTCMonth() + 1).padStart(2, '0')
+        const d = String(cur.getUTCDate()).padStart(2, '0')
+        if (dow >= 1 && dow <= 5) hoursPerDay[`${y}-${m}-${d}`] = hrs
+        cur.setUTCDate(cur.getUTCDate() + 1)
       }
+
       const res = await fetch('/api/pto/requests', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -165,7 +225,8 @@ function NewRequestForm({ onSubmitted }: { onSubmitted: () => void }) {
           endDate,
           hoursPerDay,
           notes: notes || undefined,
-          coverage: coverage || undefined,
+          coverage: coverageNotes || undefined,
+          coverageStaffId: coverageStaffId || undefined,
         }),
       })
       const data = await res.json()
@@ -182,12 +243,12 @@ function NewRequestForm({ onSubmitted }: { onSubmitted: () => void }) {
     }
   }
 
-  const singleDay = startDate && endDate && startDate === endDate
-
   return (
     <form
       onSubmit={onSubmit}
       className="rounded-lg border border-white/10 bg-white/5 p-5 space-y-4"
+      // force-dark so native date-picker popup is legible on dark theme
+      style={{ colorScheme: 'dark' }}
     >
       <div className="grid gap-4 md:grid-cols-2">
         <div>
@@ -204,7 +265,30 @@ function NewRequestForm({ onSubmitted }: { onSubmitted: () => void }) {
             ))}
           </select>
         </div>
-        <div className="hidden md:block" />
+        <div>
+          <label className="block text-xs font-semibold text-slate-300 mb-1">
+            Business hours per work day
+          </label>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min="0.5"
+              max="24"
+              step="0.5"
+              value={hoursPerWorkDay}
+              onChange={(e) => setHoursPerWorkDay(e.target.value)}
+              className="w-28 rounded-md bg-slate-900 border border-white/10 text-white px-3 py-2 text-sm"
+            />
+            <span className="text-xs text-slate-400">
+              {hoursPerWorkDay === '8' && 'Full day'}
+              {hoursPerWorkDay === '4' && 'Half day'}
+              {!['4', '8'].includes(hoursPerWorkDay) && 'Custom'}
+            </span>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-1">
+            Weekends count as 0. 4 = half day, 8 = full day.
+          </p>
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -215,7 +299,7 @@ function NewRequestForm({ onSubmitted }: { onSubmitted: () => void }) {
             required
             value={startDate}
             onChange={(e) => setStartDate(e.target.value)}
-            className="w-full rounded-md bg-slate-900 border border-white/10 text-white px-3 py-2 text-sm focus:outline-none focus:border-cyan-500"
+            className="w-full rounded-md bg-slate-900 border border-cyan-500/30 text-white px-3 py-2 text-sm focus:outline-none focus:border-cyan-500 [color-scheme:dark]"
           />
         </div>
         <div>
@@ -225,55 +309,48 @@ function NewRequestForm({ onSubmitted }: { onSubmitted: () => void }) {
             required
             value={endDate}
             onChange={(e) => setEndDate(e.target.value)}
-            className="w-full rounded-md bg-slate-900 border border-white/10 text-white px-3 py-2 text-sm focus:outline-none focus:border-cyan-500"
+            className="w-full rounded-md bg-slate-900 border border-cyan-500/30 text-white px-3 py-2 text-sm focus:outline-none focus:border-cyan-500 [color-scheme:dark]"
           />
         </div>
       </div>
 
-      {singleDay && (
-        <div className="rounded-md border border-white/10 bg-slate-900/50 p-3">
-          <label className="flex items-center gap-2 text-sm text-slate-200">
-            <input
-              type="checkbox"
-              checked={partial}
-              onChange={(e) => setPartial(e.target.checked)}
-              className="accent-cyan-500"
-            />
-            Partial day
-          </label>
-          {partial && (
-            <div className="mt-2 flex items-center gap-2">
-              <label className="text-xs text-slate-400">Hours</label>
-              <input
-                type="number"
-                min="0.5"
-                max="12"
-                step="0.5"
-                value={partialHours}
-                onChange={(e) => setPartialHours(e.target.value)}
-                className="w-24 rounded-md bg-slate-900 border border-white/10 text-white px-2 py-1 text-sm"
-              />
-            </div>
-          )}
+      {previewTotal !== null && (
+        <div className="rounded-md border border-cyan-500/20 bg-cyan-500/5 p-3 text-sm text-cyan-100">
+          <strong>{previewTotal.toFixed(2)} hours</strong> total across{' '}
+          {startDate === endDate ? '1 day' : `${startDate} → ${endDate}`} (weekdays only).
         </div>
       )}
 
       <div>
         <label className="block text-xs font-semibold text-slate-300 mb-1">
-          Who is covering your shift/work?
+          Who will cover your shift/work?{' '}
+          <span className="text-slate-500 font-normal">— they&apos;ll be emailed for confirmation</span>
         </label>
+        <select
+          value={coverageStaffId}
+          onChange={(e) => setCoverageStaffId(e.target.value)}
+          disabled={staffLoading}
+          className="w-full rounded-md bg-slate-900 border border-white/10 text-white px-3 py-2 text-sm focus:outline-none focus:border-cyan-500"
+        >
+          <option value="">— Pick a teammate —</option>
+          {staff.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name} ({s.email})
+            </option>
+          ))}
+        </select>
         <input
           type="text"
-          value={coverage}
-          onChange={(e) => setCoverage(e.target.value)}
+          value={coverageNotes}
+          onChange={(e) => setCoverageNotes(e.target.value)}
           maxLength={500}
-          placeholder="e.g. John will handle tickets; Sarah is on-call"
-          className="w-full rounded-md bg-slate-900 border border-white/10 text-white px-3 py-2 text-sm focus:outline-none focus:border-cyan-500"
+          placeholder="Optional context for them (what you want them to cover)"
+          className="w-full rounded-md bg-slate-900 border border-white/10 text-white px-3 py-2 text-sm mt-2"
         />
       </div>
 
       <div>
-        <label className="block text-xs font-semibold text-slate-300 mb-1">Notes (optional)</label>
+        <label className="block text-xs font-semibold text-slate-300 mb-1">Notes for HR (optional)</label>
         <textarea
           value={notes}
           onChange={(e) => setNotes(e.target.value)}

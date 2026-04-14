@@ -4,7 +4,12 @@ import { hasPermission } from '@/lib/permissions'
 import { prisma } from '@/lib/prisma'
 import { getMappingForStaffId } from '@/lib/pto/mapping'
 import { computeTotalHours, validateHoursPerDay } from '@/lib/pto/hours'
-import { notifyIntakeTeam, notifySubmitter } from '@/lib/pto/service'
+import {
+  generateCoverageToken,
+  notifyIntakeTeam,
+  notifySubmitter,
+  sendCoverageRequest,
+} from '@/lib/pto/service'
 import { ptoRouteErrorResponse } from '@/lib/pto/route-errors'
 import type { PtoKind } from '@/lib/pto/types'
 import type { TimeOffRequestKind, TimeOffRequestStatus } from '@prisma/client'
@@ -58,6 +63,8 @@ export async function GET(request: NextRequest) {
         intakeByName: r.intakeByName,
         intakeAt: r.intakeAt?.toISOString() ?? null,
         intakeSkipped: r.intakeSkipped,
+        coverageStaffName: r.coverageStaffName,
+        coverageResponse: r.coverageResponse,
         reviewedAt: r.reviewedAt?.toISOString() ?? null,
         reviewedByName: r.reviewedByName,
         managerNotes: r.managerNotes,
@@ -106,10 +113,29 @@ export async function POST(request: NextRequest) {
     const notes = typeof body.notes === 'string' && body.notes.trim() ? body.notes.trim().slice(0, 2000) : null
     const coverage = typeof body.coverage === 'string' && body.coverage.trim() ? body.coverage.trim().slice(0, 2000) : null
 
+    // Coverage staff picker: employee can select a teammate who will cover
+    const coverageStaffId = typeof body.coverageStaffId === 'string' && body.coverageStaffId ? body.coverageStaffId : null
+
+    let coverageStaff: { id: string; name: string; email: string } | null = null
+    if (coverageStaffId) {
+      const staff = await prisma.staffUser.findUnique({
+        where: { id: coverageStaffId },
+        select: { id: true, name: true, email: true, isActive: true },
+      }).catch(() => null)
+      if (staff && staff.isActive) {
+        if (staff.id === session.user.staffId) {
+          return NextResponse.json({ error: 'You cannot pick yourself as coverage' }, { status: 400 })
+        }
+        coverageStaff = { id: staff.id, name: staff.name, email: staff.email }
+      }
+    }
+
     // Gusto mapping is optional — if it exists we tag the request with the
     // employee UUID so future live-sync can target the right Gusto employee,
     // but it's no longer required for request submission.
     const mapping = await getMappingForStaffId(session.user.staffId)
+
+    const coverageToken = coverageStaff ? generateCoverageToken() : null
 
     const created = await prisma.timeOffRequest.create({
       data: {
@@ -125,6 +151,11 @@ export async function POST(request: NextRequest) {
         totalHours: total,
         notes,
         coverage,
+        coverageStaffId: coverageStaff?.id ?? null,
+        coverageStaffName: coverageStaff?.name ?? null,
+        coverageStaffEmail: coverageStaff?.email ?? null,
+        coverageResponse: coverageStaff ? 'pending' : null,
+        coverageToken,
         status: 'PENDING_INTAKE',
       },
     })
@@ -143,6 +174,11 @@ export async function POST(request: NextRequest) {
     // Fire-and-forget notifications
     notifyIntakeTeam(created.id).catch((err) => console.error('[pto] notifyIntakeTeam failed:', err))
     notifySubmitter(created.id).catch((err) => console.error('[pto] notifySubmitter failed:', err))
+    if (coverageStaff) {
+      sendCoverageRequest(created.id).catch((err) =>
+        console.error('[pto] sendCoverageRequest failed:', err)
+      )
+    }
 
     return NextResponse.json({ ok: true, id: created.id })
   } catch (err) {

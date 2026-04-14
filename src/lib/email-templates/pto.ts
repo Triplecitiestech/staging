@@ -51,6 +51,107 @@ function shell(subject: string, body: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Coverage request email (sent to the teammate the employee picked)
+// ---------------------------------------------------------------------------
+
+export interface CoverageRequestEmailContext {
+  employeeName: string
+  employeeEmail: string
+  covererName: string
+  kind: string
+  startDate: string
+  endDate: string
+  totalHours: number
+  notes: string | null
+  respondUrl: string
+}
+
+export function generateCoverageRequestEmail(ctx: CoverageRequestEmailContext): {
+  subject: string
+  html: string
+  text: string
+} {
+  const subject = `Can you cover for ${ctx.employeeName}? ${formatDateRange(ctx.startDate, ctx.endDate)}`
+  const body = `
+      <tr><td style="padding:32px;">
+        <p style="margin:0 0 12px;font-size:16px;color:#0f172a;">Hi ${escapeHtml(ctx.covererName)},</p>
+        <p style="margin:0 0 16px;font-size:14px;color:#334155;line-height:1.6;">
+          <strong>${escapeHtml(ctx.employeeName)}</strong> has requested time off and listed you as coverage. Please accept or decline below — HR will see your response before deciding on the request.
+        </p>
+
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;font-size:14px;">
+          <tr><td style="padding:4px 0;color:#475569;width:40%;">Out</td><td style="padding:4px 0;color:#0f172a;font-weight:600;">${escapeHtml(ctx.employeeName)}</td></tr>
+          <tr><td style="padding:4px 0;color:#475569;">Type</td><td style="padding:4px 0;color:#0f172a;font-weight:600;">${escapeHtml(ctx.kind)}</td></tr>
+          <tr><td style="padding:4px 0;color:#475569;">Dates</td><td style="padding:4px 0;color:#0f172a;font-weight:600;">${escapeHtml(formatDateRange(ctx.startDate, ctx.endDate))}</td></tr>
+          <tr><td style="padding:4px 0;color:#475569;">Hours</td><td style="padding:4px 0;color:#0f172a;font-weight:600;">${ctx.totalHours.toFixed(2)}</td></tr>
+        </table>
+
+        ${ctx.notes ? `<div style="background:#f8fafc;border-left:3px solid #94a3b8;padding:12px 16px;margin-bottom:20px;border-radius:4px;"><p style="margin:0 0 4px;font-size:12px;font-weight:600;color:#475569;">NOTES FROM ${escapeHtml(ctx.employeeName.toUpperCase())}</p><p style="margin:0;color:#0f172a;font-size:14px;">${escapeHtml(ctx.notes)}</p></div>` : ''}
+
+        <table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 16px;">
+          <tr>
+            <td style="padding-right:10px;">
+              <a href="${escapeHtml(ctx.respondUrl)}" style="display:inline-block;background:#10b981;color:#ffffff;padding:12px 28px;border-radius:6px;font-weight:600;font-size:14px;text-decoration:none;">Accept or Decline</a>
+            </td>
+          </tr>
+        </table>
+        <p style="margin:0;font-size:12px;color:#94a3b8;">If the button doesn&apos;t work, copy this URL into your browser:<br/>${escapeHtml(ctx.respondUrl)}</p>
+      </td></tr>`
+  const text = `Coverage request for ${ctx.employeeName}
+
+${ctx.employeeName} has asked you to cover their work while they're out.
+
+Type: ${ctx.kind}
+Dates: ${formatDateRange(ctx.startDate, ctx.endDate)}
+Hours: ${ctx.totalHours.toFixed(2)}
+${ctx.notes ? `\nNotes: ${ctx.notes}\n` : ''}
+Please accept or decline here: ${ctx.respondUrl}`
+  return { subject, html: shell(subject, body), text }
+}
+
+// ---------------------------------------------------------------------------
+// HR notification when covering employee responds
+// ---------------------------------------------------------------------------
+
+export interface CoverageResponseEmailContext {
+  employeeName: string
+  covererName: string
+  response: 'accepted' | 'declined'
+  responseNotes: string | null
+  kind: string
+  startDate: string
+  endDate: string
+  reviewUrl: string
+}
+
+export function generateCoverageResponseEmail(ctx: CoverageResponseEmailContext): {
+  subject: string
+  html: string
+  text: string
+} {
+  const verb = ctx.response === 'accepted' ? 'accepted' : 'declined'
+  const colour = ctx.response === 'accepted' ? '#10b981' : '#ef4444'
+  const tintBg = ctx.response === 'accepted' ? '#d1fae5' : '#fee2e2'
+  const tintBorder = ctx.response === 'accepted' ? '#065f46' : '#991b1b'
+  const subject = `Coverage ${verb}: ${ctx.covererName} for ${ctx.employeeName} — ${formatDateRange(ctx.startDate, ctx.endDate)}`
+  const body = `
+      <tr><td style="padding:32px;">
+        <div style="background:${tintBg};border:1px solid ${colour};padding:14px 16px;border-radius:6px;margin-bottom:20px;text-align:center;">
+          <p style="margin:0;color:${tintBorder};font-size:16px;font-weight:700;">Coverage ${verb.charAt(0).toUpperCase() + verb.slice(1)}</p>
+        </div>
+        <p style="margin:0 0 12px;font-size:14px;color:#0f172a;"><strong>${escapeHtml(ctx.covererName)}</strong> has ${verb} coverage for <strong>${escapeHtml(ctx.employeeName)}</strong>&apos;s ${escapeHtml(ctx.kind.toLowerCase())} request on ${escapeHtml(formatDateRange(ctx.startDate, ctx.endDate))}.</p>
+        ${ctx.responseNotes ? `<div style="background:#f8fafc;border-left:3px solid #0891b2;padding:12px 16px;margin-bottom:16px;border-radius:4px;"><p style="margin:0 0 4px;font-size:12px;font-weight:600;color:#475569;">COVERER NOTES</p><p style="margin:0;color:#0f172a;font-size:14px;">${escapeHtml(ctx.responseNotes)}</p></div>` : ''}
+        <p style="margin:16px 0 0;"><a href="${escapeHtml(ctx.reviewUrl)}" style="color:#0891b2;font-weight:600;text-decoration:none;">Open the request →</a></p>
+      </td></tr>`
+  const text = `Coverage ${verb}
+
+${ctx.covererName} has ${verb} coverage for ${ctx.employeeName}'s ${ctx.kind.toLowerCase()} request on ${formatDateRange(ctx.startDate, ctx.endDate)}.
+${ctx.responseNotes ? `\nCoverer notes: ${ctx.responseNotes}\n` : ''}
+Open: ${ctx.reviewUrl}`
+  return { subject, html: shell(subject, body), text }
+}
+
+// ---------------------------------------------------------------------------
 // HR approval email
 // ---------------------------------------------------------------------------
 
@@ -63,6 +164,13 @@ export interface ApprovalEmailContext {
   totalHours: number
   notes: string | null
   coverage: string | null
+  coverageApproval: {
+    staffName: string | null
+    staffEmail: string | null
+    response: string | null  // 'pending' | 'accepted' | 'declined' | null
+    responseNotes: string | null
+    respondedAt: string | null
+  } | null
   intake: {
     byName: string | null
     lastTimeOffNotes: string | null
@@ -142,7 +250,29 @@ export function generateHrApprovalEmail(ctx: ApprovalEmailContext): {
         </table>
 
         ${
-          ctx.coverage
+          ctx.coverageApproval && ctx.coverageApproval.staffName
+            ? (() => {
+                const ca = ctx.coverageApproval!
+                const r = ca.response
+                const headerBg =
+                  r === 'accepted' ? '#d1fae5' : r === 'declined' ? '#fee2e2' : '#fef3c7'
+                const headerBorder =
+                  r === 'accepted' ? '#10b981' : r === 'declined' ? '#ef4444' : '#f59e0b'
+                const label =
+                  r === 'accepted'
+                    ? '✓ ACCEPTED'
+                    : r === 'declined'
+                    ? '✕ DECLINED'
+                    : '⏳ PENDING RESPONSE'
+                return `<div style="background:${headerBg};border:1px solid ${headerBorder};padding:12px 16px;margin-bottom:16px;border-radius:4px;">
+                  <p style="margin:0 0 4px;font-size:12px;font-weight:700;color:#0f172a;">COVERAGE: ${label}</p>
+                  <p style="margin:0;color:#0f172a;font-size:14px;">${escapeHtml(
+                    ca.staffName ?? ''
+                  )}${ca.staffEmail ? ` &lt;${escapeHtml(ca.staffEmail)}&gt;` : ''}</p>
+                  ${ca.responseNotes ? `<p style="margin:6px 0 0;color:#334155;font-size:13px;"><em>${escapeHtml(ca.responseNotes)}</em></p>` : ''}
+                </div>`
+              })()
+            : ctx.coverage
             ? `<div style="background:#f0f9ff;border-left:3px solid #0ea5e9;padding:12px 16px;margin-bottom:16px;border-radius:4px;"><p style="margin:0 0 4px;font-size:12px;font-weight:600;color:#0369a1;">SHIFT COVERAGE</p><p style="margin:0;color:#0f172a;font-size:14px;">${escapeHtml(
                 ctx.coverage
               )}</p></div>`

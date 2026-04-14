@@ -207,6 +207,18 @@ export async function POST(request: Request) {
     await prisma.$executeRawUnsafe(`ALTER TABLE "time_off_requests" ADD COLUMN IF NOT EXISTS "gustoRecordedAt" TIMESTAMP(3)`)
     await prisma.$executeRawUnsafe(`ALTER TABLE "time_off_requests" ADD COLUMN IF NOT EXISTS "gustoRecordedByStaffId" TEXT`)
     await prisma.$executeRawUnsafe(`ALTER TABLE "time_off_requests" ADD COLUMN IF NOT EXISTS "gustoRecordedByName" TEXT`)
+    // Coverage approval flow columns
+    await prisma.$executeRawUnsafe(`ALTER TABLE "time_off_requests" ADD COLUMN IF NOT EXISTS "coverageStaffId" TEXT`)
+    await prisma.$executeRawUnsafe(`ALTER TABLE "time_off_requests" ADD COLUMN IF NOT EXISTS "coverageStaffName" TEXT`)
+    await prisma.$executeRawUnsafe(`ALTER TABLE "time_off_requests" ADD COLUMN IF NOT EXISTS "coverageStaffEmail" TEXT`)
+    await prisma.$executeRawUnsafe(`ALTER TABLE "time_off_requests" ADD COLUMN IF NOT EXISTS "coverageResponse" TEXT`)
+    await prisma.$executeRawUnsafe(`ALTER TABLE "time_off_requests" ADD COLUMN IF NOT EXISTS "coverageRespondedAt" TIMESTAMP(3)`)
+    await prisma.$executeRawUnsafe(`ALTER TABLE "time_off_requests" ADD COLUMN IF NOT EXISTS "coverageResponseNotes" TEXT`)
+    await prisma.$executeRawUnsafe(`ALTER TABLE "time_off_requests" ADD COLUMN IF NOT EXISTS "coverageToken" TEXT`)
+    await prisma.$executeRawUnsafe(`ALTER TABLE "time_off_requests" ADD COLUMN IF NOT EXISTS "coverageRequestSentAt" TIMESTAMP(3)`)
+    await prisma.$executeRawUnsafe(
+      `CREATE UNIQUE INDEX IF NOT EXISTS "time_off_requests_coverageToken_key" ON "time_off_requests"("coverageToken")`
+    )
     // Migrate any legacy PENDING rows to PENDING_INTAKE
     await prisma.$executeRawUnsafe(
       `UPDATE "time_off_requests" SET "status" = 'PENDING_INTAKE' WHERE "status" = 'PENDING'`

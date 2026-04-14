@@ -42,6 +42,14 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       hoursPerDay: req.hoursPerDay,
       notes: req.notes,
       coverage: req.coverage,
+      // Coverage approval
+      coverageStaffId: req.coverageStaffId,
+      coverageStaffName: req.coverageStaffName,
+      coverageStaffEmail: req.coverageStaffEmail,
+      coverageResponse: req.coverageResponse,
+      coverageRespondedAt: req.coverageRespondedAt?.toISOString() ?? null,
+      coverageResponseNotes: req.coverageResponseNotes,
+      coverageRequestSentAt: req.coverageRequestSentAt?.toISOString() ?? null,
       status: req.status,
       // Intake (stage 1)
       intakeByStaffId: req.intakeByStaffId,
