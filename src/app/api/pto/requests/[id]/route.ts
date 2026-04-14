@@ -25,7 +25,8 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 
   const isOwner = req.employeeStaffId === session.user.staffId
   const canApprove = hasPermission(session.user.role, 'approve_pto', session.user.permissionOverrides)
-  if (!isOwner && !canApprove) {
+  const canIntake = hasPermission(session.user.role, 'pto_intake', session.user.permissionOverrides)
+  if (!isOwner && !canApprove && !canIntake) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
