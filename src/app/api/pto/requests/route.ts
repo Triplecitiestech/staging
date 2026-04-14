@@ -33,8 +33,10 @@ export async function GET(request: NextRequest) {
     const scope = request.nextUrl.searchParams.get('scope')
     const status = request.nextUrl.searchParams.get('status') as TimeOffRequestStatus | null
     const canApprove = hasPermission(session.user.role, 'approve_pto', session.user.permissionOverrides)
+    const canIntake = hasPermission(session.user.role, 'pto_intake', session.user.permissionOverrides)
 
-    const isAllScope = scope === 'all' && canApprove
+    // HR-staff (intake or final approver) can see all requests via scope=all
+    const isAllScope = scope === 'all' && (canApprove || canIntake)
     const where = isAllScope
       ? status
         ? { status }

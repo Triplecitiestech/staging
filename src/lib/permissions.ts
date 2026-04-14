@@ -116,8 +116,9 @@ const ROLE_PERMISSIONS: Record<StaffRole, Permission[]> = {
     'update_task_status',
     'add_notes',
     'view_assigned_tasks',
-    'approve_pto',
-    'pto_intake',
+    // NOTE: approve_pto and pto_intake intentionally NOT in ADMIN's base.
+    // Grant them per-user via permissionOverrides so that non-HR admins
+    // (e.g. other managers) don't receive HR-intake notifications.
   ],
   BILLING_ADMIN: [
     'view_staff',
