@@ -225,7 +225,7 @@ function generateInviteEmailHtml(params: InviteEmailParams): string {
     <div class="content">
       <p class="greeting">Hi <strong>${contactName}</strong>,</p>
       <p class="intro">
-        Your customer portal is ready. This is your primary interface with Triple Cities Tech for managing IT services, tracking support requests, and staying connected with our team. Please log in and set up your account.
+        The new Triple Cities Tech Support Portal is ready for you to use. This is your primary interface with Triple Cities Tech for managing IT services, tracking support requests, and staying connected with our team. Please log in and set up your account.
       </p>
 
       <div class="cta-section">
@@ -243,8 +243,8 @@ function generateInviteEmailHtml(params: InviteEmailParams): string {
       </div>
     </div>
     <div class="footer">
-      <p>Triple Cities Tech &bull; Managed IT Services</p>
-      <p><a href="https://www.triplecitiestech.com">triplecitiestech.com</a> &bull; <a href="mailto:support@triplecitiestech.com">support@triplecitiestech.com</a></p>
+      <p>Triple Cities Tech</p>
+      <p><a href="https://www.triplecitiestech.com">www.triplecitiestech.com</a> &bull; <a href="mailto:support@triplecitiestech.com">support@triplecitiestech.com</a> &bull; 607-341-7500</p>
     </div>
   </div>
 </body>
