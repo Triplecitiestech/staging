@@ -31,6 +31,7 @@ interface OnboardingPortalProps {
   dbDegraded?: boolean
   portalFunction?: string
   impersonation?: ImpersonationContext
+  m365Configured?: boolean
 }
 
 export default function OnboardingPortal({
@@ -44,6 +45,7 @@ export default function OnboardingPortal({
   isManager,
   dbDegraded,
   impersonation,
+  m365Configured,
 }: OnboardingPortalProps) {
   const router = useRouter()
   const demo = useDemoMode()
@@ -186,6 +188,7 @@ export default function OnboardingPortal({
               userName={userName}
               isManager={isManager}
               impersonation={impersonation}
+              m365Configured={m365Configured}
             />
           </Container>
         )}

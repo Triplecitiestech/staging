@@ -85,6 +85,8 @@ interface CustomerDashboardProps {
   userName?: string
   isManager?: boolean
   impersonation?: ImpersonationContext
+  /** Whether the company has M365 credentials saved — gates the Employee Changes HR section */
+  m365Configured?: boolean
 }
 
 const DONE_STATUSES = ['REVIEWED_AND_DONE', 'NOT_APPLICABLE', 'ITG_DOCUMENTED']
@@ -146,7 +148,7 @@ function getProjectStatusLabel(status: string) {
 
 type TicketFilter = 'all' | 'open' | 'closed' | 'closed-this-month' | 'awaiting'
 
-export default function CustomerDashboard({ projects, companyName, companySlug, userEmail, userName, isManager, impersonation }: CustomerDashboardProps) {
+export default function CustomerDashboard({ projects, companyName, companySlug, userEmail, userName, isManager, impersonation, m365Configured }: CustomerDashboardProps) {
   const demo = useDemoMode()
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
   const [projectViewMode, setProjectViewMode] = useState<'vertical' | 'horizontal'>('vertical')
@@ -164,6 +166,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
   const [ticketSearch, setTicketSearch] = useState('')
   const [ticketFilter, setTicketFilter] = useState<TicketFilter>('all')
   const [ticketDisplayLimit, setTicketDisplayLimit] = useState(10)
+  const [projectFilter, setProjectFilter] = useState<'active' | 'closed' | 'all'>('active')
   const [complianceData, setComplianceData] = useState<CompliancePortalData | null>(null)
   const [complianceExpanded, setComplianceExpanded] = useState(false)
 
@@ -834,8 +837,8 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
         </button>
       </div>
 
-      {/* Employee Management — between stats and tickets */}
-      {companySlug && (
+      {/* Employee Management — only shown when company has an M365 integration set up */}
+      {companySlug && m365Configured && (
         <div className="mb-8">
           <HrRequestSection
             companySlug={companySlug}
@@ -1062,12 +1065,47 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
       </div>
 
       {/* Projects - hidden if no projects, single project gets full width */}
-      {projects.length > 0 && (
+      {projects.length > 0 && (() => {
+        const activeProjectList = projects.filter(p => p.status === 'ACTIVE' || p.status === 'IN_PROGRESS')
+        const closedProjectList = projects.filter(p => p.status === 'COMPLETED' || p.status === 'CANCELLED' || p.status === 'ON_HOLD')
+        const visibleProjects =
+          projectFilter === 'active' ? activeProjectList
+          : projectFilter === 'closed' ? closedProjectList
+          : projects
+
+        return (
         <>
           <div id="projects-section" />
-          <h2 className="text-xl font-bold text-white mb-4">Your Projects</h2>
-          <div className={`grid gap-4 mb-8 ${projects.length === 1 ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2'}`}>
-            {projects.map(project => {
+          <div className="flex items-center gap-3 mb-4 flex-wrap">
+            <h2 className="text-xl font-bold text-white">Your Projects</h2>
+            <div className="flex items-center gap-1 text-xs bg-gray-800/60 border border-white/10 rounded-lg p-1">
+              <button
+                onClick={() => setProjectFilter('active')}
+                className={`px-3 py-1 rounded transition-colors ${projectFilter === 'active' ? 'bg-cyan-500/20 text-cyan-300' : 'text-gray-400 hover:text-white'}`}
+              >
+                Active ({activeProjectList.length})
+              </button>
+              <button
+                onClick={() => setProjectFilter('closed')}
+                className={`px-3 py-1 rounded transition-colors ${projectFilter === 'closed' ? 'bg-cyan-500/20 text-cyan-300' : 'text-gray-400 hover:text-white'}`}
+              >
+                Closed ({closedProjectList.length})
+              </button>
+              <button
+                onClick={() => setProjectFilter('all')}
+                className={`px-3 py-1 rounded transition-colors ${projectFilter === 'all' ? 'bg-cyan-500/20 text-cyan-300' : 'text-gray-400 hover:text-white'}`}
+              >
+                All ({projects.length})
+              </button>
+            </div>
+          </div>
+          {visibleProjects.length === 0 ? (
+            <div className="bg-gray-800/30 border border-white/10 rounded-lg p-6 text-center text-sm text-gray-400 mb-8">
+              No {projectFilter} projects to display.
+            </div>
+          ) : (
+          <div className={`grid gap-4 mb-8 ${visibleProjects.length === 1 ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2'}`}>
+            {visibleProjects.map(project => {
               const totalTasks = project.phases.reduce((sum, ph) => sum + ph.tasks.length, 0)
               const doneTasks = project.phases.reduce((sum, ph) => sum + ph.tasks.filter(t => DONE_STATUSES.includes(t.status) || t.completed).length, 0)
               const progress = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0
@@ -1107,8 +1145,10 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
               )
             })}
           </div>
+          )}
         </>
-      )}
+        )
+      })()}
 
     </div>
   )
