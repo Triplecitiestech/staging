@@ -100,7 +100,7 @@ export default async function PortalFunctionPage({ params }: PageProps) {
 
       projects = await withRetry(() =>
         prisma.project.findMany({
-          where: { companyId: company.id },
+          where: { companyId: company.id, isVisibleToCustomer: true },
           include: {
             phases: {
               where: { isVisibleToCustomer: true },
@@ -130,7 +130,7 @@ export default async function PortalFunctionPage({ params }: PageProps) {
       if (projects === null) {
         projects = await withRetry(() =>
           prisma.project.findMany({
-            where: { companyId: company.id },
+            where: { companyId: company.id, isVisibleToCustomer: true },
             include: {
               phases: {
                 include: {

@@ -229,7 +229,7 @@ function generateInviteEmailHtml(params: InviteEmailParams): string {
       </p>
 
       <div class="cta-section">
-        <a href="${portalUrl}" class="cta-button">Log In to Your Portal</a>
+        <a href="${portalUrl}" class="cta-button" target="_blank" rel="noopener noreferrer">Log In to Your Portal</a>
       </div>
 
       <div class="features">

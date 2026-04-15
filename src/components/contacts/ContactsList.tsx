@@ -1010,7 +1010,7 @@ export default function ContactsList({ contacts, staffUsers: initialStaff, curre
                   srcDoc={previewHtml}
                   className="w-full h-[60vh] border-0"
                   title="Email Preview"
-                  sandbox="allow-same-origin"
+                  sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
                 />
               ) : (
                 <div className="flex items-center justify-center h-64">

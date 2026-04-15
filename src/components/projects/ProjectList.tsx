@@ -12,6 +12,7 @@ interface Project {
   createdAt: Date
   aiGenerated: boolean
   autotaskProjectId?: string | null
+  isVisibleToCustomer?: boolean
   company: { displayName: string; slug: string }
   phases: Array<{ status: string; tasks?: Array<{ status: string; completed: boolean }> }>
 }
@@ -22,6 +23,7 @@ type SortDir = 'asc' | 'desc'
 export default function ProjectList({ projects }: { projects: Project[] }) {
   const router = useRouter()
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [togglingVisibility, setTogglingVisibility] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('title')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
@@ -38,6 +40,24 @@ export default function ProjectList({ projects }: { projects: Project[] }) {
     } catch {
       alert('Failed to delete project')
       setDeleting(null)
+    }
+  }
+
+  const handleToggleVisibility = async (e: React.MouseEvent, id: string, currentlyVisible: boolean) => {
+    e.stopPropagation()
+    setTogglingVisibility(id)
+    try {
+      const res = await fetch(`/api/projects/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isVisibleToCustomer: !currentlyVisible }),
+      })
+      if (!res.ok) throw new Error('Failed to update visibility')
+      router.refresh()
+    } catch {
+      alert('Failed to update project visibility')
+    } finally {
+      setTogglingVisibility(null)
     }
   }
 
@@ -268,6 +288,14 @@ export default function ProjectList({ projects }: { projects: Project[] }) {
                               AT
                             </a>
                           )}
+                          <button
+                            onClick={(e) => handleToggleVisibility(e, project.id, project.isVisibleToCustomer !== false)}
+                            disabled={togglingVisibility === project.id}
+                            className={`text-sm font-medium disabled:opacity-50 ${project.isVisibleToCustomer === false ? 'text-slate-500 hover:text-slate-300' : 'text-cyan-400 hover:text-cyan-300'}`}
+                            title={project.isVisibleToCustomer === false ? 'Hidden from customer portal — click to show' : 'Visible on customer portal — click to hide'}
+                          >
+                            {togglingVisibility === project.id ? '...' : project.isVisibleToCustomer === false ? 'Hidden' : 'Visible'}
+                          </button>
                           <Link
                             href={`/admin/projects/${project.id}`}
                             onClick={e => e.stopPropagation()}
