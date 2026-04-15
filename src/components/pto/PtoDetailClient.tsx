@@ -534,7 +534,57 @@ export default function PtoDetailClient({
           </div>
         )}
 
-        {/* Stage 4: Recorded in Gusto */}
+        {/* Step 3: Calendar sync */}
+        {req.status === 'APPROVED' && (
+          <div className="rounded-lg border border-white/10 bg-white/5 p-6">
+            <h3 className="text-sm font-semibold text-white uppercase tracking-wide mb-3">
+              Step 3 · Calendar sync (automatic)
+            </h3>
+            {req.graphSyncStatus === 'ok' ? (
+              <div className="text-sm text-emerald-200">
+                ✓ Event created on the shared PTO calendar and an invite was sent to{' '}
+                {req.employeeEmail}.
+              </div>
+            ) : req.graphSyncStatus === 'error' ? (
+              <>
+                <div className="rounded-md border border-rose-500/30 bg-rose-500/10 p-4">
+                  <p className="text-sm font-semibold text-rose-200">Calendar sync failed</p>
+                  <p className="text-xs text-rose-100 mt-1">
+                    Common causes: the PTO calendar mailbox doesn&apos;t exist as a mailbox (set{' '}
+                    <code>PTO_CALENDAR_TYPE=group</code> to target an M365 group&apos;s calendar
+                    instead), or the Azure AD app is missing the <code>Calendars.ReadWrite</code>{' '}
+                    application permission / admin consent. Error below:
+                  </p>
+                  {req.graphSyncError && (
+                    <pre className="mt-2 p-2 rounded bg-rose-500/10 text-xs text-rose-100 overflow-x-auto whitespace-pre-wrap break-words">
+                      {req.graphSyncError}
+                    </pre>
+                  )}
+                </div>
+                {canApprove && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      fetch(`/api/pto/requests/${req.id}/retry-sync`, { method: 'POST' }).then(() =>
+                        load()
+                      )
+                    }
+                    className="mt-3 text-xs px-3 py-1.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/30"
+                  >
+                    Retry calendar sync
+                  </button>
+                )}
+              </>
+            ) : (
+              <div className="flex items-center gap-2 text-sm text-slate-400">
+                <SyncBadge label="Calendar" status={req.graphSyncStatus} error={req.graphSyncError} />
+                <span>Attempting to create event…</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Step 4: Recorded in Gusto */}
         {req.status === 'APPROVED' && (
           <div className="rounded-lg border border-white/10 bg-white/5 p-6">
             <h3 className="text-sm font-semibold text-white uppercase tracking-wide mb-3">
@@ -582,56 +632,6 @@ export default function PtoDetailClient({
                   Waiting on HR to enter this in Gusto.
                 </p>
               )
-            )}
-          </div>
-        )}
-
-        {/* Step 3: Calendar sync */}
-        {req.status === 'APPROVED' && (
-          <div className="rounded-lg border border-white/10 bg-white/5 p-6">
-            <h3 className="text-sm font-semibold text-white uppercase tracking-wide mb-3">
-              Step 3 · Calendar sync (automatic)
-            </h3>
-            {req.graphSyncStatus === 'ok' ? (
-              <div className="text-sm text-emerald-200">
-                ✓ Event created on the shared PTO calendar and an invite was sent to{' '}
-                {req.employeeEmail}.
-              </div>
-            ) : req.graphSyncStatus === 'error' ? (
-              <>
-                <div className="rounded-md border border-rose-500/30 bg-rose-500/10 p-4">
-                  <p className="text-sm font-semibold text-rose-200">Calendar sync failed</p>
-                  <p className="text-xs text-rose-100 mt-1">
-                    Common causes: the PTO calendar mailbox doesn&apos;t exist as a mailbox (set{' '}
-                    <code>PTO_CALENDAR_TYPE=group</code> to target an M365 group&apos;s calendar
-                    instead), or the Azure AD app is missing the <code>Calendars.ReadWrite</code>{' '}
-                    application permission / admin consent. Error below:
-                  </p>
-                  {req.graphSyncError && (
-                    <pre className="mt-2 p-2 rounded bg-rose-500/10 text-xs text-rose-100 overflow-x-auto whitespace-pre-wrap break-words">
-                      {req.graphSyncError}
-                    </pre>
-                  )}
-                </div>
-                {canApprove && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      fetch(`/api/pto/requests/${req.id}/retry-sync`, { method: 'POST' }).then(() =>
-                        load()
-                      )
-                    }
-                    className="mt-3 text-xs px-3 py-1.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/30"
-                  >
-                    Retry calendar sync
-                  </button>
-                )}
-              </>
-            ) : (
-              <div className="flex items-center gap-2 text-sm text-slate-400">
-                <SyncBadge label="Calendar" status={req.graphSyncStatus} error={req.graphSyncError} />
-                <span>Attempting to create event…</span>
-              </div>
             )}
           </div>
         )}
