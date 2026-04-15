@@ -337,6 +337,7 @@ export async function GET(request: Request) {
       RESOLVED_REDIRECT_URI: resolvedRedirectUri,
       GUSTO_LIKE_KEYS_PRESENT: gustoLikeKeys,
       PTO_CALENDAR_MAILBOX: process.env.PTO_CALENDAR_MAILBOX ?? '(unset)',
+      PTO_CALENDAR_TYPE: process.env.PTO_CALENDAR_TYPE ?? '(unset — defaults to user)',
       PTO_FROM_EMAIL: process.env.PTO_FROM_EMAIL ?? '(unset)',
       PTO_HR_GROUP_MAIL: process.env.PTO_HR_GROUP_MAIL ?? '(unset)',
       PTO_APPROVER_FALLBACK_EMAIL: process.env.PTO_APPROVER_FALLBACK_EMAIL ?? '(unset)',
