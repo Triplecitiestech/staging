@@ -61,11 +61,13 @@ export default async function PortalFunctionPage({ params }: PageProps) {
   let projects = null
   let companyDisplayName: string | null = null
   let dbDegraded = companyCheckFailed
+  let m365Configured = false
   const isDemoCompany = companySlug === 'contoso-industries'
 
   if (isAuthenticated && isDemoCompany) {
     companyDisplayName = DEMO_COMPANY.displayName
     projects = DEMO_PROJECTS
+    m365Configured = true // demo company always shows HR section
   } else if (isAuthenticated) {
     const { prisma } = await import('@/lib/prisma')
 
@@ -91,13 +93,16 @@ export default async function PortalFunctionPage({ params }: PageProps) {
     const company = await withRetry(() =>
       prisma.company.findUnique({
         where: { slug: companySlug },
-        select: { id: true, displayName: true }
+        select: { id: true, displayName: true, m365SetupStatus: true }
       })
     )
 
     if (company) {
       companyDisplayName = company.displayName
+      m365Configured = company.m365SetupStatus === 'credentials_saved' || company.m365SetupStatus === 'verified'
 
+      // Primary: filter by isVisibleToCustomer (new column). Falls back below if
+      // the column hasn't been migrated in this environment.
       projects = await withRetry(() =>
         prisma.project.findMany({
           where: { companyId: company.id, isVisibleToCustomer: true },
@@ -127,10 +132,44 @@ export default async function PortalFunctionPage({ params }: PageProps) {
         })
       )
 
+      // Fallback 1: if the isVisibleToCustomer column doesn't exist yet,
+      // retry without it so the portal still shows projects.
       if (projects === null) {
         projects = await withRetry(() =>
           prisma.project.findMany({
-            where: { companyId: company.id, isVisibleToCustomer: true },
+            where: { companyId: company.id },
+            include: {
+              phases: {
+                where: { isVisibleToCustomer: true },
+                include: {
+                  tasks: {
+                    where: { isVisibleToCustomer: true, parentTaskId: null },
+                    select: {
+                      id: true, taskText: true, completed: true, orderIndex: true,
+                      notes: true, status: true, autotaskTaskId: true,
+                      comments: {
+                        where: { isInternal: false },
+                        select: { id: true, content: true, authorName: true, createdAt: true },
+                        orderBy: { createdAt: 'desc' },
+                        take: 10,
+                      },
+                    },
+                    orderBy: { orderIndex: 'asc' }
+                  }
+                },
+                orderBy: { orderIndex: 'asc' }
+              }
+            },
+            orderBy: { createdAt: 'desc' }
+          })
+        )
+      }
+
+      // Fallback 2: minimal query, no new/optional columns touched.
+      if (projects === null) {
+        projects = await withRetry(() =>
+          prisma.project.findMany({
+            where: { companyId: company.id },
             include: {
               phases: {
                 include: {
@@ -169,6 +208,7 @@ export default async function PortalFunctionPage({ params }: PageProps) {
       dbDegraded={dbDegraded}
       portalFunction={portalFunction}
       impersonation={session.impersonation ?? undefined}
+      m365Configured={m365Configured}
     />
   )
 }

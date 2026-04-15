@@ -15,36 +15,60 @@ export default async function ProjectsPage() {
   }
 
   // Use explicit select to avoid "column does not exist" errors
-  // when schema fields haven't been migrated to production yet
-  const projects = await prisma.project.findMany({
-    select: {
-      id: true,
-      title: true,
-      status: true,
-      projectType: true,
-      createdAt: true,
-      aiGenerated: true,
-      autotaskProjectId: true,
-      isVisibleToCustomer: true,
-      company: {
-        select: {
-          displayName: true,
-          slug: true,
-        }
-      },
-      phases: {
-        select: {
-          status: true,
-          tasks: {
-            select: { status: true, completed: true },
-            where: { parentTaskId: null }
-          }
-        },
-        orderBy: { orderIndex: 'asc' as const }
+  // when schema fields haven't been migrated to production yet.
+  // We try with isVisibleToCustomer first, and fall back to a select
+  // without it if the column doesn't exist in the DB yet.
+  const baseSelect = {
+    id: true,
+    title: true,
+    status: true,
+    projectType: true,
+    createdAt: true,
+    aiGenerated: true,
+    autotaskProjectId: true,
+    company: {
+      select: {
+        displayName: true,
+        slug: true,
       }
     },
-    orderBy: { createdAt: 'desc' }
-  })
+    phases: {
+      select: {
+        status: true,
+        tasks: {
+          select: { status: true, completed: true },
+          where: { parentTaskId: null }
+        }
+      },
+      orderBy: { orderIndex: 'asc' as const }
+    }
+  } as const
+
+  let projects: Array<{
+    id: string
+    title: string
+    status: string
+    projectType: string
+    createdAt: Date
+    aiGenerated: boolean
+    autotaskProjectId: string | null
+    isVisibleToCustomer?: boolean
+    company: { displayName: string; slug: string }
+    phases: Array<{ status: string; tasks?: Array<{ status: string; completed: boolean }> }>
+  }> = []
+
+  try {
+    projects = (await prisma.project.findMany({
+      select: { ...baseSelect, isVisibleToCustomer: true },
+      orderBy: { createdAt: 'desc' }
+    })) as typeof projects
+  } catch (err) {
+    console.error('[ProjectsPage] Falling back to legacy select (isVisibleToCustomer column may not exist yet):', err instanceof Error ? err.message : err)
+    projects = (await prisma.project.findMany({
+      select: baseSelect,
+      orderBy: { createdAt: 'desc' }
+    })) as typeof projects
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-gray-900 to-slate-950">
