@@ -41,6 +41,7 @@ import {
   generateSubmittedConfirmationEmail,
 } from '@/lib/email-templates/pto'
 import crypto from 'crypto'
+import { buildIcsEvent } from './ics'
 import type { PtoKind } from './types'
 import type { StaffRole } from '@prisma/client'
 import { hasPermission, parseOverrides } from '@/lib/permissions'
@@ -72,6 +73,7 @@ async function sendEmail(params: {
   html: string
   text: string
   replyTo?: string
+  attachments?: Array<{ filename: string; content: string; contentType?: string }>
 }) {
   if (!resend) {
     console.warn('[pto] RESEND_API_KEY not set; skipping email', params.subject)
@@ -86,6 +88,17 @@ async function sendEmail(params: {
       html: params.html,
       text: params.text,
       replyTo: params.replyTo ?? FROM_EMAIL,
+      ...(params.attachments && params.attachments.length
+        ? {
+            attachments: params.attachments.map((a) => ({
+              filename: a.filename,
+              content: a.content,
+              // Resend accepts contentType; for .ics we set it explicitly so
+              // clients recognise it as a calendar invite.
+              ...(a.contentType ? { contentType: a.contentType } : {}),
+            })),
+          }
+        : {}),
     })
     if (result.error) return { ok: false, error: result.error.message }
     return { ok: true, id: result.data?.id }
@@ -494,7 +507,9 @@ export async function approveRequest(p: ApproveParams) {
   // Calendar sync (best-effort)
   await syncApprovalToCalendar(updated.id)
 
-  // Notify employee
+  // Notify employee — with an .ics attachment so they get a real
+  // one-click calendar invite regardless of whether Microsoft Graph
+  // sent one from the shared calendar.
   const reloaded = await prisma.timeOffRequest.findUnique({ where: { id: updated.id } })
   if (reloaded) {
     const { subject, html, text } = generateApprovalNotificationEmail({
@@ -507,7 +522,34 @@ export async function approveRequest(p: ApproveParams) {
       managerName: p.reviewerName,
       requestUrl: `${baseUrl()}/admin/pto/${reloaded.id}`,
     })
-    await sendEmail({ to: [reloaded.employeeEmail], subject, html, text })
+
+    const icsContent = buildIcsEvent({
+      uid: `pto-${reloaded.id}@triplecitiestech.com`,
+      startDate: ymd(reloaded.startDate),
+      endDate: ymd(reloaded.endDate),
+      summary: `Out of office — ${reloaded.kind}`,
+      description: `Approved by ${p.reviewerName}. ${reloaded.managerNotes ? `Notes: ${reloaded.managerNotes}` : ''}`.trim(),
+      organizerEmail: FROM_EMAIL,
+      organizerName: FROM_NAME,
+      attendeeEmail: reloaded.employeeEmail,
+      attendeeName: reloaded.employeeName,
+      method: 'REQUEST',
+      isAllDay: true,
+    })
+
+    await sendEmail({
+      to: [reloaded.employeeEmail],
+      subject,
+      html,
+      text,
+      attachments: [
+        {
+          filename: 'time-off.ics',
+          content: Buffer.from(icsContent, 'utf8').toString('base64'),
+          contentType: 'text/calendar; method=REQUEST; charset=UTF-8',
+        },
+      ],
+    })
     await prisma.timeOffRequest.update({
       where: { id: reloaded.id },
       data: { employeeNotifiedAt: new Date() },
@@ -696,23 +738,30 @@ ${req.coverage ? `<p><em>Shift coverage:</em> ${req.coverage}</p>` : ''}
       endDate: endYmd,
       isAllDay: true,
       categories: ['PTO', req.kind],
+      // Inviting the employee as an attendee triggers Microsoft Graph to
+      // email them a real meeting invitation with Accept/Decline/Tentative.
+      // Including the coverer as optional so they see it on their calendar
+      // too (only if they accepted coverage — we don't want to invite a
+      // declined coverer).
+      attendees: [
+        { email: req.employeeEmail, name: req.employeeName, type: 'required' },
+        ...(req.coverageStaffEmail && req.coverageResponse === 'accepted'
+          ? [
+              {
+                email: req.coverageStaffEmail,
+                name: req.coverageStaffName ?? req.coverageStaffEmail,
+                type: 'optional' as const,
+              },
+            ]
+          : []),
+      ],
     })
 
-    let inviteEventId: string | null = null
-    try {
-      const inviteEvent = await createCalendarEvent({
-        calendarOwner: req.employeeEmail,
-        subject: `Out of office — ${req.kind}`,
-        body: bodyHtml,
-        startDate: startYmd,
-        endDate: endYmd,
-        isAllDay: true,
-        categories: ['PTO'],
-      })
-      inviteEventId = inviteEvent.id
-    } catch (inviteErr) {
-      console.warn('[pto] Could not create invite on employee mailbox:', inviteErr)
-    }
+    // The invite email is sent automatically by Graph as part of the
+    // event creation above. No separate second event is needed on the
+    // employee's mailbox — once they Accept the invite, the event
+    // automatically appears on their own calendar.
+    const inviteEventId: string | null = null
 
     await prisma.timeOffRequest.update({
       where: { id: req.id },
