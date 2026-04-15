@@ -1066,8 +1066,21 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
 
       {/* Projects - hidden if no projects, single project gets full width */}
       {projects.length > 0 && (() => {
-        const activeProjectList = projects.filter(p => p.status === 'ACTIVE' || p.status === 'IN_PROGRESS')
-        const closedProjectList = projects.filter(p => p.status === 'COMPLETED' || p.status === 'CANCELLED' || p.status === 'ON_HOLD')
+        // A project is considered "closed" if its status marks it closed OR
+        // all of its tasks are complete (Autotask often leaves status=ACTIVE
+        // even after every task is done).
+        const isClosedProject = (p: Project) => {
+          if (p.status === 'COMPLETED' || p.status === 'CANCELLED' || p.status === 'ON_HOLD') return true
+          const totalTasks = p.phases.reduce((sum, ph) => sum + ph.tasks.length, 0)
+          if (totalTasks === 0) return false
+          const doneTasks = p.phases.reduce(
+            (sum, ph) => sum + ph.tasks.filter(t => DONE_STATUSES.includes(t.status) || t.completed).length,
+            0,
+          )
+          return doneTasks === totalTasks
+        }
+        const closedProjectList = projects.filter(isClosedProject)
+        const activeProjectList = projects.filter(p => !isClosedProject(p))
         const visibleProjects =
           projectFilter === 'active' ? activeProjectList
           : projectFilter === 'closed' ? closedProjectList
