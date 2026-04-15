@@ -25,6 +25,7 @@ export default async function ProjectsPage() {
       createdAt: true,
       aiGenerated: true,
       autotaskProjectId: true,
+      isVisibleToCustomer: true,
       company: {
         select: {
           displayName: true,

@@ -163,6 +163,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
   const [notesLoading, setNotesLoading] = useState(false)
   const [ticketSearch, setTicketSearch] = useState('')
   const [ticketFilter, setTicketFilter] = useState<TicketFilter>('all')
+  const [ticketDisplayLimit, setTicketDisplayLimit] = useState(10)
   const [complianceData, setComplianceData] = useState<CompliancePortalData | null>(null)
   const [complianceExpanded, setComplianceExpanded] = useState(false)
 
@@ -325,6 +326,15 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
     }
     return [...base].sort((a, b) => new Date(b.createDate).getTime() - new Date(a.createDate).getTime())
   })()
+
+  // Reset pagination when filter/search changes
+  useEffect(() => {
+    setTicketDisplayLimit(10)
+  }, [ticketFilter, ticketSearch])
+
+  // Only show the first N tickets until user clicks "Show More"
+  const visibleTickets = filteredTickets.slice(0, ticketDisplayLimit)
+  const hasMoreTickets = filteredTickets.length > ticketDisplayLimit
 
   // Toggle filter: clicking the same card again resets to 'all'
   const toggleFilter = (filter: TicketFilter) => {
@@ -1015,18 +1025,39 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
             </button>
           </div>
         ) : (
-          <TicketTable
-            tickets={filteredTickets}
-            perspective="customer"
-            onTicketClick={(ticketId) => {
-              const ticket = filteredTickets.find(t => t.ticketId === ticketId)
-              if (ticket) handleSelectTicket(ticket)
-            }}
-            compact
-            search={ticketSearch}
-            onSearchChange={setTicketSearch}
-            loading={ticketsLoading}
-          />
+          <>
+            <TicketTable
+              tickets={visibleTickets}
+              perspective="customer"
+              onTicketClick={(ticketId) => {
+                const ticket = filteredTickets.find(t => t.ticketId === ticketId)
+                if (ticket) handleSelectTicket(ticket)
+              }}
+              compact
+              search={ticketSearch}
+              onSearchChange={setTicketSearch}
+              loading={ticketsLoading}
+            />
+            {hasMoreTickets && (
+              <div className="mt-3 flex items-center justify-center gap-3">
+                <span className="text-xs text-gray-500">
+                  Showing {visibleTickets.length} of {filteredTickets.length} tickets
+                </span>
+                <button
+                  onClick={() => setTicketDisplayLimit(prev => prev + 10)}
+                  className="text-xs text-cyan-400 hover:text-cyan-300 border border-cyan-500/30 hover:border-cyan-400/60 rounded px-3 py-1 transition-colors"
+                >
+                  Show More
+                </button>
+                <button
+                  onClick={() => setTicketDisplayLimit(filteredTickets.length)}
+                  className="text-xs text-cyan-400 hover:text-cyan-300 border border-cyan-500/30 hover:border-cyan-400/60 rounded px-3 py-1 transition-colors"
+                >
+                  Show All
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
 
