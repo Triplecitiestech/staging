@@ -1603,3 +1603,87 @@ model TimeOffAuditLog {
   @@map("time_off_audit_logs")
   @@index([requestId, createdAt(sort: Desc)])
 }
+
+// ============================================
+// OVERTIME REQUESTS
+// ============================================
+// Parallel to PTO: two-stage approval (HR intake → final approval).
+// Simpler than PTO — no calendar sync, no coverage picker. After approval,
+// HR (e.g. Rio) records the overtime hours in payroll manually and flips
+// the "recorded in payroll" switch to close the loop.
+
+enum OvertimeRequestStatus {
+  PENDING_INTAKE
+  PENDING_APPROVAL
+  APPROVED
+  DENIED
+  CANCELLED
+}
+
+model OvertimeRequest {
+  id              String                @id @default(uuid())
+  employeeStaffId String
+  employeeEmail   String
+  employeeName    String
+
+  // When the overtime will be / was performed
+  workDate        DateTime              @db.Date
+  startTime       String?               // free-form e.g. "5:00 PM" or "17:00"
+  estimatedHours  Decimal               @db.Decimal(5, 2)
+
+  // Why (required)
+  reason          String                @db.Text
+
+  status          OvertimeRequestStatus @default(PENDING_INTAKE)
+
+  // HR intake (stage 1)
+  intakeByStaffId       String?
+  intakeByName          String?
+  intakeAt              DateTime?
+  intakeNotes           String?   @db.Text
+  intakeSkipped         Boolean   @default(false)
+  intakeNotifiedAt      DateTime?
+
+  // Final approval (stage 2)
+  reviewedByStaffId String?
+  reviewedByName    String?
+  reviewedAt        DateTime?
+  managerNotes      String?   @db.Text
+
+  // Post-approval: Rio enters in payroll + records actual hours
+  actualHoursWorked      Decimal?  @db.Decimal(5, 2)
+  payrollRecordedAt      DateTime?
+  payrollRecordedByStaffId String?
+  payrollRecordedByName  String?
+
+  // Notification tracking
+  submitterNotifiedAt  DateTime?
+  approversNotifiedAt  DateTime?
+  employeeNotifiedAt   DateTime?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  auditLogs OvertimeAuditLog[]
+
+  @@map("overtime_requests")
+  @@index([employeeStaffId, status])
+  @@index([status, workDate])
+}
+
+model OvertimeAuditLog {
+  id           String   @id @default(uuid())
+  requestId    String
+  actorStaffId String?
+  actorEmail   String
+  actorName    String?
+  action       String
+  details      Json?
+  severity     String   @default("info")
+  createdAt    DateTime @default(now())
+
+  request OvertimeRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@map("overtime_audit_logs")
+  @@index([requestId, createdAt(sort: Desc)])
+}
