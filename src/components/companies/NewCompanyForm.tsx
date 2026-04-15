@@ -87,7 +87,8 @@ export default function NewCompanyForm() {
           router.refresh()
         }, 1500)
       } else {
-        setStatus({ type: 'error', message: data.error || 'Import failed' })
+        const detail = data.details ? ` — ${data.details}` : ''
+        setStatus({ type: 'error', message: `${data.error || 'Import failed'}${detail}` })
       }
     } catch (err) {
       setStatus({ type: 'error', message: err instanceof Error ? err.message : 'Network error' })

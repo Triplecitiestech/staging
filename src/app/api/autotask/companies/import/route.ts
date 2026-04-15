@@ -28,6 +28,12 @@ export async function POST(request: NextRequest) {
 
     // Fetch company data from Autotask
     const atCompany = await client.getCompany(parseInt(autotaskCompanyId, 10));
+    if (!atCompany || !atCompany.companyName) {
+      return NextResponse.json(
+        { error: 'Failed to import company', details: 'Autotask returned no company data for that ID' },
+        { status: 404 }
+      );
+    }
 
     // Find or create local company
     let company;
@@ -49,10 +55,33 @@ export async function POST(request: NextRequest) {
       });
 
       if (!company) {
-        const slug = atCompany.companyName
+        // Generate a URL-safe slug, fall back to the AT ID if the name has no
+        // alphanumerics (e.g. exotic unicode-only names).
+        const baseSlug = atCompany.companyName
           .toLowerCase()
           .replace(/[^a-z0-9]+/g, '-')
-          .replace(/^-|-$/g, '');
+          .replace(/^-|-$/g, '') || `company-${atCompany.id}`;
+
+        // Ensure slug uniqueness — if something already owns this slug
+        // (e.g. a prior manual create), append a suffix.
+        let slug = baseSlug;
+        let attempt = 0;
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          const existing = await prisma.company.findUnique({
+            where: { slug },
+            select: { id: true },
+          });
+          if (!existing) break;
+          attempt++;
+          slug = `${baseSlug}-${attempt + 1}`;
+          if (attempt > 50) {
+            return NextResponse.json(
+              { error: 'Failed to import company', details: `Could not find a unique slug based on "${baseSlug}" after 50 attempts` },
+              { status: 409 }
+            );
+          }
+        }
 
         // Generate a random password hash for imported companies
         const bcrypt = await import('bcryptjs');
@@ -60,15 +89,26 @@ export async function POST(request: NextRequest) {
         const randomPassword = crypto.randomBytes(32).toString('hex');
         const passwordHash = await bcrypt.hash(randomPassword, 10);
 
-        company = await prisma.company.create({
-          data: {
-            displayName: atCompany.companyName,
-            slug,
-            autotaskCompanyId: String(atCompany.id),
-            passwordHash,
-          },
-          select: { id: true, displayName: true, slug: true, autotaskCompanyId: true },
-        });
+        try {
+          company = await prisma.company.create({
+            data: {
+              displayName: atCompany.companyName,
+              slug,
+              autotaskCompanyId: String(atCompany.id),
+              passwordHash,
+            },
+            select: { id: true, displayName: true, slug: true, autotaskCompanyId: true },
+          });
+        } catch (createErr) {
+          // Race: another request may have created the same AT-linked company.
+          // Re-fetch by autotaskCompanyId and fall through.
+          const fallback = await prisma.company.findFirst({
+            where: { autotaskCompanyId: String(atCompany.id) },
+            select: { id: true, displayName: true, slug: true, autotaskCompanyId: true },
+          });
+          if (!fallback) throw createErr;
+          company = fallback;
+        }
       }
     }
 
