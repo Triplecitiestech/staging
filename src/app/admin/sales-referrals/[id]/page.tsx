@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
+import { ensureSalesAgentTables } from '@/lib/sales-agents/ensure-tables'
 import AdminHeader from '@/components/admin/AdminHeader'
 import ReferralEditor from '@/components/admin/agents/ReferralEditor'
 
@@ -17,6 +18,8 @@ const STATUS_LABEL: Record<string, string> = {
 export default async function AdminReferralDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const session = await auth()
   if (!session) redirect('/admin')
+
+  await ensureSalesAgentTables()
 
   const { id } = await params
   const referral = await prisma.salesReferral.findUnique({

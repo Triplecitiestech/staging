@@ -6,6 +6,7 @@ import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
 import { prisma } from '@/lib/prisma'
 import { getCurrentAgentId } from '@/lib/agent-session'
+import { ensureSalesAgentTables } from '@/lib/sales-agents/ensure-tables'
 
 export type CurrentAgent = {
   id: string
@@ -18,6 +19,7 @@ export type CurrentAgent = {
 const PASSWORD_TOKEN_LIFETIME_MS = 48 * 60 * 60 * 1000 // 48 hours
 
 export async function getCurrentAgent(): Promise<CurrentAgent | null> {
+  await ensureSalesAgentTables()
   const agentId = await getCurrentAgentId()
   if (!agentId) return null
   const agent = await prisma.salesAgent.findUnique({

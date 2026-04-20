@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
+import { ensureSalesAgentTables } from '@/lib/sales-agents/ensure-tables'
 import AdminHeader from '@/components/admin/AdminHeader'
 
 export const dynamic = 'force-dynamic'
@@ -11,6 +12,8 @@ export const metadata = { title: 'Sales Agents · Triple Cities Tech Admin' }
 export default async function AdminSalesAgentsPage() {
   const session = await auth()
   if (!session) redirect('/admin')
+
+  await ensureSalesAgentTables()
 
   const agents = await prisma.salesAgent.findMany({
     orderBy: [{ isActive: 'desc' }, { createdAt: 'desc' }],

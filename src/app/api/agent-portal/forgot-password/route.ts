@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { generatePasswordToken, agentPortalUrl } from '@/lib/agent-auth'
 import { sendResetEmail } from '@/lib/agent-email'
+import { ensureSalesAgentTables } from '@/lib/sales-agents/ensure-tables'
 import { checkCsrf, checkRateLimit, logSecurityEvent } from '@/lib/security'
 
 export const dynamic = 'force-dynamic'
@@ -20,6 +21,8 @@ export async function POST(request: NextRequest) {
   }
   const email = (body.email || '').trim().toLowerCase()
   if (!email) return NextResponse.json({ error: 'Email is required.' }, { status: 400 })
+
+  await ensureSalesAgentTables()
 
   // Always respond identically — never confirm whether the email exists.
   const agent = await prisma.salesAgent.findUnique({

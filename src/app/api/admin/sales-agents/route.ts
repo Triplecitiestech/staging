@@ -3,6 +3,7 @@ import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { generatePasswordToken, agentPortalUrl } from '@/lib/agent-auth'
 import { sendWelcomeEmail } from '@/lib/agent-email'
+import { ensureSalesAgentTables } from '@/lib/sales-agents/ensure-tables'
 import { checkCsrf, isValidEmail, logSecurityEvent } from '@/lib/security'
 
 export const dynamic = 'force-dynamic'
@@ -15,6 +16,8 @@ export async function GET() {
   const session = await auth()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (!isAdmin(session.user?.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  await ensureSalesAgentTables()
 
   const agents = await prisma.salesAgent.findMany({
     orderBy: { createdAt: 'desc' },
@@ -74,6 +77,8 @@ export async function POST(request: NextRequest) {
   if (!email || !isValidEmail(email)) {
     return NextResponse.json({ error: 'A valid email address is required.' }, { status: 400 })
   }
+
+  await ensureSalesAgentTables()
 
   const existing = await prisma.salesAgent.findUnique({ where: { email }, select: { id: true } })
   if (existing) {
