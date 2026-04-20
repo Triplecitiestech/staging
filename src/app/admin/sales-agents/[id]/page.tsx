@@ -76,7 +76,13 @@ export default async function AdminAgentDetailPage({ params }: { params: Promise
             <h1 className="text-3xl font-bold text-white">{agent.firstName} {agent.lastName}</h1>
             <p className="text-slate-400 mt-1">{agent.email}</p>
           </div>
-          <AgentProfileActions agentId={agent.id} isActive={agent.isActive} hasPassword={hasPassword} />
+          <AgentProfileActions
+            agentId={agent.id}
+            agentName={`${agent.firstName} ${agent.lastName}`}
+            referralCount={referrals.length}
+            isActive={agent.isActive}
+            hasPassword={hasPassword}
+          />
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">

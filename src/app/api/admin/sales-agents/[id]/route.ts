@@ -102,3 +102,39 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   return NextResponse.json({ success: true, agent: updated })
 }
+
+// Hard-delete an agent. Only allowed when they have zero referrals — we never
+// silently cascade into referral history because paid-commission and audit
+// records must survive. The cascaded agent_agreements row is removed via the
+// FK ON DELETE CASCADE in the schema.
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const csrf = checkCsrf(request)
+  if (csrf) return csrf
+
+  const session = await auth()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!isAdmin(session.user?.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  await ensureSalesAgentTables()
+
+  const { id } = await params
+  const agent = await prisma.salesAgent.findUnique({
+    where: { id },
+    select: { id: true, email: true, _count: { select: { referrals: true } } },
+  })
+  if (!agent) return NextResponse.json({ error: 'Agent not found.' }, { status: 404 })
+
+  if (agent._count.referrals > 0) {
+    return NextResponse.json(
+      {
+        error: `This agent has ${agent._count.referrals} referral${agent._count.referrals === 1 ? '' : 's'} on file. Delete or reassign those first, or disable the account instead to preserve the commission audit trail.`,
+        referralCount: agent._count.referrals,
+      },
+      { status: 409 }
+    )
+  }
+
+  await prisma.salesAgent.delete({ where: { id } })
+
+  return NextResponse.json({ success: true, deleted: { id: agent.id, email: agent.email } })
+}
