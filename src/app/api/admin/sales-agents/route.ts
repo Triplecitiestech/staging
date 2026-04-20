@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (!isAdmin(session.user?.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  let body: { firstName?: string; lastName?: string; email?: string; phone?: string }
+  let body: { firstName?: string; lastName?: string; email?: string; phone?: string; agreementText?: string }
   try {
     body = await request.json()
   } catch {
@@ -70,12 +70,16 @@ export async function POST(request: NextRequest) {
   const lastName = (body.lastName || '').trim()
   const email = (body.email || '').trim().toLowerCase()
   const phone = (body.phone || '').trim() || null
+  const agreementText = typeof body.agreementText === 'string' ? body.agreementText.trim() : ''
 
   if (!firstName || !lastName) {
     return NextResponse.json({ error: 'First and last name are required.' }, { status: 400 })
   }
   if (!email || !isValidEmail(email)) {
     return NextResponse.json({ error: 'A valid email address is required.' }, { status: 400 })
+  }
+  if (agreementText && agreementText.length > 100_000) {
+    return NextResponse.json({ error: 'Agreement text exceeds the 100,000 character limit.' }, { status: 400 })
   }
 
   await ensureSalesAgentTables()
@@ -97,6 +101,16 @@ export async function POST(request: NextRequest) {
       passwordSetToken: token,
       passwordSetTokenExpires: expiresAt,
       createdByAdminEmail: adminEmail,
+      ...(agreementText
+        ? {
+            agreement: {
+              create: {
+                contentText: agreementText,
+                uploadedByAdminEmail: adminEmail || 'unknown',
+              },
+            },
+          }
+        : {}),
     },
     select: { id: true, email: true, firstName: true },
   })

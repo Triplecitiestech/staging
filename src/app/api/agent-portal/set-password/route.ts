@@ -75,5 +75,15 @@ export async function POST(request: NextRequest) {
   const sessionToken = createAgentSession(agent.id)
   await setAgentSessionCookie(sessionToken)
 
-  return NextResponse.json({ success: true })
+  // Send the agent to their agreement first if one is waiting for signature.
+  const agreement = await prisma.agentAgreement.findUnique({
+    where: { agentId: agent.id },
+    select: { contentText: true, signedAt: true },
+  })
+  const needsToSign = !!(agreement?.contentText && !agreement.signedAt)
+
+  return NextResponse.json({
+    success: true,
+    redirectTo: needsToSign ? '/agents/agreement' : '/agents/dashboard',
+  })
 }
