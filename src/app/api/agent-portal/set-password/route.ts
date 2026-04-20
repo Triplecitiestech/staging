@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { hashPassword, validatePasswordStrength } from '@/lib/agent-auth'
 import { createAgentSession, setAgentSessionCookie } from '@/lib/agent-session'
+import { ensureSalesAgentTables } from '@/lib/sales-agents/ensure-tables'
 import { checkCsrf, checkRateLimit, logSecurityEvent } from '@/lib/security'
 
 export const dynamic = 'force-dynamic'
@@ -10,6 +11,8 @@ export const dynamic = 'force-dynamic'
 export async function GET(request: NextRequest) {
   const token = request.nextUrl.searchParams.get('token')
   if (!token) return NextResponse.json({ valid: false, error: 'Missing token.' }, { status: 400 })
+
+  await ensureSalesAgentTables()
 
   const agent = await prisma.salesAgent.findUnique({
     where: { passwordSetToken: token },
@@ -42,6 +45,8 @@ export async function POST(request: NextRequest) {
   if (!token) return NextResponse.json({ error: 'Token is required.' }, { status: 400 })
   const pwError = validatePasswordStrength(password)
   if (pwError) return NextResponse.json({ error: pwError }, { status: 400 })
+
+  await ensureSalesAgentTables()
 
   const agent = await prisma.salesAgent.findUnique({
     where: { passwordSetToken: token },

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
+import { ensureSalesAgentTables } from '@/lib/sales-agents/ensure-tables'
 import { checkCsrf } from '@/lib/security'
 
 export const dynamic = 'force-dynamic'
@@ -23,6 +24,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const session = await auth()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (!isAdmin(session.user?.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  await ensureSalesAgentTables()
 
   const { id } = await params
   const agreement = await prisma.agentAgreement.findUnique({
@@ -52,6 +55,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const session = await auth()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (!isAdmin(session.user?.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  await ensureSalesAgentTables()
 
   const { id } = await params
   const agent = await prisma.salesAgent.findUnique({ where: { id }, select: { id: true } })

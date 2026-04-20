@@ -3,6 +3,7 @@ import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { generatePasswordToken, agentPortalUrl } from '@/lib/agent-auth'
 import { sendWelcomeEmail } from '@/lib/agent-email'
+import { ensureSalesAgentTables } from '@/lib/sales-agents/ensure-tables'
 import { checkCsrf } from '@/lib/security'
 
 export const dynamic = 'force-dynamic'
@@ -18,6 +19,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const session = await auth()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (!isAdmin(session.user?.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  await ensureSalesAgentTables()
 
   const { id } = await params
   const agent = await prisma.salesAgent.findUnique({

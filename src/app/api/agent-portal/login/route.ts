@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { verifyPassword } from '@/lib/agent-auth'
 import { createAgentSession, setAgentSessionCookie } from '@/lib/agent-session'
+import { ensureSalesAgentTables } from '@/lib/sales-agents/ensure-tables'
 import { checkCsrf, checkRateLimit, logSecurityEvent } from '@/lib/security'
 
 export const dynamic = 'force-dynamic'
@@ -25,6 +26,8 @@ export async function POST(request: NextRequest) {
   if (!email || !password) {
     return NextResponse.json({ error: 'Email and password are required.' }, { status: 400 })
   }
+
+  await ensureSalesAgentTables()
 
   // Always look up + run a hash compare to keep response time uniform whether
   // the email exists or not — avoids leaking which addresses are registered.
