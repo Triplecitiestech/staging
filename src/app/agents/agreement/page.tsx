@@ -50,15 +50,23 @@ export default async function MyAgreementPage() {
           <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg p-6 sm:p-8">
             <div className="flex items-center justify-between mb-4">
               <div className="text-xs uppercase tracking-wider text-slate-400">Referral Agent Agreement</div>
-              {isSigned ? (
-                <span className="text-xs px-2 py-0.5 rounded border bg-emerald-500/20 text-emerald-300 border-emerald-500/30">
-                  Signed {new Date(agreement!.signedAt as Date).toLocaleDateString()}
-                </span>
-              ) : (
-                <span className="text-xs px-2 py-0.5 rounded border bg-violet-500/20 text-violet-300 border-violet-500/30">
-                  Awaiting your signature
-                </span>
-              )}
+              <div className="flex items-center gap-2">
+                <Link
+                  href="/agents/agreement/full-terms"
+                  className="text-xs text-cyan-400 hover:text-cyan-300 underline decoration-dotted"
+                >
+                  View full terms
+                </Link>
+                {isSigned ? (
+                  <span className="text-xs px-2 py-0.5 rounded border bg-emerald-500/20 text-emerald-300 border-emerald-500/30">
+                    Signed {new Date(agreement!.signedAt as Date).toLocaleDateString()}
+                  </span>
+                ) : (
+                  <span className="text-xs px-2 py-0.5 rounded border bg-violet-500/20 text-violet-300 border-violet-500/30">
+                    Awaiting your signature
+                  </span>
+                )}
+              </div>
             </div>
 
             <article className="prose prose-invert max-w-none whitespace-pre-wrap text-slate-100 leading-relaxed bg-slate-950/40 border border-white/5 rounded-lg p-4 sm:p-6 text-sm sm:text-[0.95rem] max-h-[60vh] overflow-y-auto">

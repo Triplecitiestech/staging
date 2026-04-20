@@ -61,7 +61,10 @@ export default function SetPasswordForm({ token }: Props) {
         setSubmitting(false)
         return
       }
-      router.push('/agents/dashboard')
+      const target = typeof data.redirectTo === 'string' && data.redirectTo.startsWith('/agents/')
+        ? data.redirectTo
+        : '/agents/dashboard'
+      router.push(target)
       router.refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Network error.')
