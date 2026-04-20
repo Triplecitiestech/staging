@@ -41,7 +41,13 @@ export default async function AgentDashboardPage() {
     }),
     prisma.agentAgreement.findUnique({
       where: { agentId: agent.id },
-      select: { originalFilename: true, uploadedAt: true },
+      select: {
+        contentText: true,
+        originalFilename: true,
+        uploadedAt: true,
+        signedName: true,
+        signedAt: true,
+      },
     }),
   ])
 
@@ -70,7 +76,33 @@ export default async function AgentDashboardPage() {
           {/* My Agreement card */}
           <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg p-6">
             <h2 className="text-sm font-semibold text-cyan-300 uppercase tracking-wider mb-3">My Agreement</h2>
-            {agreement ? (
+            {agreement?.contentText ? (
+              agreement.signedAt ? (
+                <>
+                  <p className="text-white text-sm font-medium">Referral Agent Agreement</p>
+                  <p className="text-xs text-emerald-300 mt-1">
+                    Signed {new Date(agreement.signedAt).toLocaleDateString()}
+                  </p>
+                  <Link
+                    href="/agents/agreement"
+                    className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-slate-700/60 hover:bg-slate-700 border border-white/10 text-white rounded-lg text-sm transition-colors"
+                  >
+                    View / Download
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <p className="text-white text-sm font-medium">Referral Agent Agreement</p>
+                  <p className="text-xs text-violet-300 mt-1">Awaiting your signature</p>
+                  <Link
+                    href="/agents/agreement"
+                    className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-white rounded-lg text-sm font-medium transition-all"
+                  >
+                    Review & Sign
+                  </Link>
+                </>
+              )
+            ) : agreement?.originalFilename ? (
               <>
                 <p className="text-white text-sm font-medium truncate" title={agreement.originalFilename}>
                   {agreement.originalFilename}
@@ -86,13 +118,11 @@ export default async function AgentDashboardPage() {
                 </a>
               </>
             ) : (
-              <>
-                <p className="text-sm text-slate-300">
-                  Your signed referral agreement hasn't been uploaded yet. We'll get it loaded here shortly — reach out to{' '}
-                  <a href="mailto:sales@triplecitiestech.com" className="text-cyan-400 hover:text-cyan-300">sales@triplecitiestech.com</a>
-                  {' '}if you need a copy in the meantime.
-                </p>
-              </>
+              <p className="text-sm text-slate-300">
+                Your referral agreement hasn't been prepared yet. Reach out to{' '}
+                <a href="mailto:sales@triplecitiestech.com" className="text-cyan-400 hover:text-cyan-300">sales@triplecitiestech.com</a>
+                {' '}if you have questions.
+              </p>
             )}
           </div>
 

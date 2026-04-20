@@ -15,18 +15,17 @@ export async function GET() {
     select: { fileData: true, originalFilename: true, mimeType: true, fileSize: true },
   })
 
-  if (!agreement) {
-    return NextResponse.json({ error: 'No agreement on file. Contact sales@triplecitiestech.com.' }, { status: 404 })
+  if (!agreement || !agreement.fileData || !agreement.originalFilename || !agreement.mimeType) {
+    return NextResponse.json({ error: 'No uploaded agreement file on record.' }, { status: 404 })
   }
 
-  // Use ASCII-only fallback in Content-Disposition header to avoid encoding issues.
   const safeName = agreement.originalFilename.replace(/[^\x20-\x7e]/g, '_')
   const body = new Uint8Array(agreement.fileData)
   return new NextResponse(body, {
     status: 200,
     headers: {
       'Content-Type': agreement.mimeType,
-      'Content-Length': String(agreement.fileSize),
+      'Content-Length': String(agreement.fileSize ?? body.byteLength),
       'Content-Disposition': `attachment; filename="${safeName}"`,
       'Cache-Control': 'private, no-store',
     },

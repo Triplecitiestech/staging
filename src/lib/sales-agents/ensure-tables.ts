@@ -31,6 +31,8 @@ export async function ensureSalesAgentTables(): Promise<void> {
     const missing = REQUIRED_TABLES.filter((t) => !existingNames.includes(t))
 
     if (missing.length === 0) {
+      // Tables exist — patch in any newer columns idempotently.
+      await applyAgreementColumnPatches()
       tablesVerified = true
       return
     }
@@ -82,12 +84,18 @@ export async function ensureSalesAgentTables(): Promise<void> {
       CREATE TABLE IF NOT EXISTS "agent_agreements" (
         "id"                   TEXT NOT NULL DEFAULT gen_random_uuid(),
         "agentId"              TEXT NOT NULL,
-        "fileData"             BYTEA NOT NULL,
-        "originalFilename"     TEXT NOT NULL,
-        "mimeType"             TEXT NOT NULL,
-        "fileSize"             INTEGER NOT NULL,
+        "contentText"          TEXT,
+        "fileData"             BYTEA,
+        "originalFilename"     TEXT,
+        "mimeType"             TEXT,
+        "fileSize"             INTEGER,
+        "signedName"           TEXT,
+        "signedAt"             TIMESTAMP(3),
+        "signedIp"             TEXT,
+        "signedUserAgent"      TEXT,
         "uploadedByAdminEmail" TEXT NOT NULL,
         "uploadedAt"           TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt"            TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
         CONSTRAINT "agent_agreements_pkey" PRIMARY KEY ("id")
       )
     `)
@@ -169,10 +177,42 @@ export async function ensureSalesAgentTables(): Promise<void> {
       EXCEPTION WHEN duplicate_object THEN null; END $$;
     `)
 
+    // Patch any newer columns on existing tables (idempotent)
+    await applyAgreementColumnPatches()
+
     tablesVerified = true
     console.log('[sales-agents] ensureSalesAgentTables: created missing tables', missing)
   } catch (err) {
     console.error('[sales-agents] ensureSalesAgentTables failed:', err instanceof Error ? err.message : err)
     // Don't rethrow — let the caller's own Prisma query throw a clear error if still broken
+  }
+}
+
+// Idempotent ALTER TABLE patches for the agent_agreements table. Adds
+// columns introduced after the initial sales-agent-portal migration so
+// production keeps working even if later migrations didn't apply.
+async function applyAgreementColumnPatches(): Promise<void> {
+  const patches = [
+    `ALTER TABLE "agent_agreements" ALTER COLUMN "fileData" DROP NOT NULL`,
+    `ALTER TABLE "agent_agreements" ALTER COLUMN "originalFilename" DROP NOT NULL`,
+    `ALTER TABLE "agent_agreements" ALTER COLUMN "mimeType" DROP NOT NULL`,
+    `ALTER TABLE "agent_agreements" ALTER COLUMN "fileSize" DROP NOT NULL`,
+    `ALTER TABLE "agent_agreements" ADD COLUMN IF NOT EXISTS "contentText" TEXT`,
+    `ALTER TABLE "agent_agreements" ADD COLUMN IF NOT EXISTS "signedName" TEXT`,
+    `ALTER TABLE "agent_agreements" ADD COLUMN IF NOT EXISTS "signedAt" TIMESTAMP(3)`,
+    `ALTER TABLE "agent_agreements" ADD COLUMN IF NOT EXISTS "signedIp" TEXT`,
+    `ALTER TABLE "agent_agreements" ADD COLUMN IF NOT EXISTS "signedUserAgent" TEXT`,
+    `ALTER TABLE "agent_agreements" ADD COLUMN IF NOT EXISTS "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP`,
+  ]
+  for (const sql of patches) {
+    try {
+      await prisma.$executeRawUnsafe(sql)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      // Ignore "already exists" / "is already nullable" — this is idempotent
+      if (!/already|is already/i.test(msg)) {
+        console.error(`[sales-agents] column patch failed: ${sql} — ${msg.slice(0, 200)}`)
+      }
+    }
   }
 }

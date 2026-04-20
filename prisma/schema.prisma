@@ -1721,13 +1721,22 @@ model AgentAgreement {
   id                   String     @id @default(uuid())
   agentId              String     @unique
   agent                SalesAgent @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  // File content stored in DB column — keeps deploy simple, no extra blob infra
-  fileData             Bytes
-  originalFilename     String
-  mimeType             String
-  fileSize             Int
+  // One of two modes:
+  //   (a) text — admin pastes agreement text; agent e-signs via typed name
+  //   (b) file — admin uploads a pre-signed PDF/DOCX (legacy fallback)
+  contentText          String?    @db.Text
+  fileData             Bytes?
+  originalFilename     String?
+  mimeType             String?
+  fileSize             Int?
+  // E-signature metadata (only set for text agreements once the agent accepts)
+  signedName           String?
+  signedAt             DateTime?
+  signedIp             String?
+  signedUserAgent      String?    @db.Text
   uploadedByAdminEmail String
   uploadedAt           DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt @default(now())
 
   @@map("agent_agreements")
 }
