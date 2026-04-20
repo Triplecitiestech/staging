@@ -1687,3 +1687,108 @@ model OvertimeAuditLog {
   @@map("overtime_audit_logs")
   @@index([requestId, createdAt(sort: Desc)])
 }
+
+// ============================================
+// SALES AGENT PORTAL (referral program)
+// ============================================
+// Independent referral partners (NOT TCT employees, NOT M365 SSO).
+// Authenticate via email + password on /agents/* portal — completely
+// separate from staff M365 SSO at /admin.
+
+model SalesAgent {
+  id                       String    @id @default(uuid())
+  email                    String    @unique
+  passwordHash             String?   // null until agent sets it via emailed token
+  firstName                String
+  lastName                 String
+  phone                    String?
+  isActive                 Boolean   @default(true)
+  passwordSetToken         String?   @unique
+  passwordSetTokenExpires  DateTime?
+  lastLoginAt              DateTime?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+  // Captured from the M365 session of the admin who created the agent
+  createdByAdminEmail      String?
+
+  agreement AgentAgreement?
+  referrals SalesReferral[]
+
+  @@map("sales_agents")
+}
+
+model AgentAgreement {
+  id                   String     @id @default(uuid())
+  agentId              String     @unique
+  agent                SalesAgent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  // File content stored in DB column — keeps deploy simple, no extra blob infra
+  fileData             Bytes
+  originalFilename     String
+  mimeType             String
+  fileSize             Int
+  uploadedByAdminEmail String
+  uploadedAt           DateTime   @default(now())
+
+  @@map("agent_agreements")
+}
+
+model SalesReferral {
+  id                      String         @id @default(uuid())
+  agentId                 String
+  agent                   SalesAgent     @relation(fields: [agentId], references: [id], onDelete: Restrict)
+  businessName            String
+  contactName             String
+  contactEmail            String
+  contactPhone            String?
+  addressLine1            String?
+  city                    String?
+  state                   String?
+  zip                     String?
+  employeeCountRange      String?
+  industry                String?
+  notes                   String?        @db.Text
+  initialConversationDate DateTime?
+  status                  ReferralStatus @default(SUBMITTED)
+  contractMonthlyValue    Decimal?       @db.Decimal(10, 2)
+  commissionDueDate       DateTime?
+  commissionPaidDate      DateTime?
+  internalAdminNotes      String?        @db.Text
+  createdAt               DateTime       @default(now())
+  updatedAt               DateTime       @updatedAt
+
+  statusHistory SalesReferralStatusHistory[]
+
+  @@index([agentId])
+  @@index([status])
+  @@map("sales_referrals")
+}
+
+model SalesReferralStatusHistory {
+  id                  String          @id @default(uuid())
+  referralId          String
+  referral            SalesReferral   @relation(fields: [referralId], references: [id], onDelete: Cascade)
+  oldStatus           ReferralStatus?
+  newStatus           ReferralStatus
+  // 'agent' | 'admin' | 'system'
+  changedByType       String
+  // agent id or admin M365 email
+  changedByIdentifier String
+  note                String?         @db.Text
+  changedAt           DateTime        @default(now())
+
+  @@index([referralId])
+  @@map("sales_referral_status_history")
+}
+
+enum ReferralStatus {
+  SUBMITTED
+  CONTACTED
+  PROPOSAL_SENT
+  SIGNED
+  MONTH_1_PAID
+  MONTH_2_PAID
+  COMMISSION_DUE
+  COMMISSION_PAID
+  LOST
+  NOT_A_FIT
+}
