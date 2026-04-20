@@ -5,11 +5,13 @@ import { useRouter } from 'next/navigation'
 
 interface Props {
   agentId: string
+  agentName: string
+  referralCount: number
   isActive: boolean
   hasPassword: boolean
 }
 
-export default function AgentProfileActions({ agentId, isActive, hasPassword }: Props) {
+export default function AgentProfileActions({ agentId, agentName, referralCount, isActive, hasPassword }: Props) {
   const router = useRouter()
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -50,6 +52,34 @@ export default function AgentProfileActions({ agentId, isActive, hasPassword }: 
     }
   }
 
+  const deleteAgent = async () => {
+    if (referralCount > 0) {
+      setError(`This agent has ${referralCount} referral${referralCount === 1 ? '' : 's'} on file. Delete or reassign those first, or use "Disable account" to preserve the audit trail.`)
+      return
+    }
+    const ok = confirm(
+      `Permanently delete ${agentName}?\n\n` +
+      'This removes the agent record and their signed agreement. ' +
+      'It cannot be undone. Use "Disable account" instead if you just want to revoke access.'
+    )
+    if (!ok) return
+    setBusy('delete'); setError(null); setInfo(null)
+    try {
+      const res = await fetch(`/api/admin/sales-agents/${agentId}`, { method: 'DELETE' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(data.error || 'Delete failed.')
+        setBusy(null)
+        return
+      }
+      router.push('/admin/sales-agents')
+      router.refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Network error.')
+      setBusy(null)
+    }
+  }
+
   return (
     <div className="flex flex-col items-end gap-2">
       <div className="flex flex-wrap items-center gap-2 justify-end">
@@ -78,8 +108,18 @@ export default function AgentProfileActions({ agentId, isActive, hasPassword }: 
             {busy === 'activate' ? 'Enabling…' : 'Enable account'}
           </button>
         )}
+        <button
+          onClick={deleteAgent}
+          disabled={busy !== null || referralCount > 0}
+          className="px-3 py-1.5 text-sm bg-red-600/30 hover:bg-red-600/50 border border-red-500/40 text-red-100 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+          title={referralCount > 0
+            ? `Cannot delete — ${referralCount} referral${referralCount === 1 ? '' : 's'} on file. Disable instead.`
+            : 'Permanently remove this agent (cannot be undone)'}
+        >
+          {busy === 'delete' ? 'Deleting…' : 'Delete agent'}
+        </button>
       </div>
-      {error && <div className="px-3 py-1.5 text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded">{error}</div>}
+      {error && <div className="px-3 py-1.5 text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded max-w-md text-right">{error}</div>}
       {info && <div className="px-3 py-1.5 text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded max-w-md text-right">{info}</div>}
     </div>
   )
