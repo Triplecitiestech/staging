@@ -32,7 +32,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     where: { agentId: id },
     select: { fileData: true, originalFilename: true, mimeType: true, fileSize: true },
   })
-  if (!agreement) return NextResponse.json({ error: 'No agreement on file.' }, { status: 404 })
+  if (!agreement || !agreement.fileData || !agreement.originalFilename || !agreement.mimeType) {
+    return NextResponse.json({ error: 'No uploaded agreement file on record.' }, { status: 404 })
+  }
 
   const safeName = agreement.originalFilename.replace(/[^\x20-\x7e]/g, '_')
   const body = new Uint8Array(agreement.fileData)
@@ -40,7 +42,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     status: 200,
     headers: {
       'Content-Type': agreement.mimeType,
-      'Content-Length': String(agreement.fileSize),
+      'Content-Length': String(agreement.fileSize ?? body.byteLength),
       'Content-Disposition': `attachment; filename="${safeName}"`,
       'Cache-Control': 'private, no-store',
     },

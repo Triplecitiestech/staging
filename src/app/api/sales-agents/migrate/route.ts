@@ -77,15 +77,36 @@ export async function POST(request: Request) {
       CREATE TABLE IF NOT EXISTS "agent_agreements" (
         "id"                   TEXT NOT NULL DEFAULT gen_random_uuid(),
         "agentId"              TEXT NOT NULL,
-        "fileData"             BYTEA NOT NULL,
-        "originalFilename"     TEXT NOT NULL,
-        "mimeType"             TEXT NOT NULL,
-        "fileSize"             INTEGER NOT NULL,
+        "contentText"          TEXT,
+        "fileData"             BYTEA,
+        "originalFilename"     TEXT,
+        "mimeType"             TEXT,
+        "fileSize"             INTEGER,
+        "signedName"           TEXT,
+        "signedAt"             TIMESTAMP(3),
+        "signedIp"             TEXT,
+        "signedUserAgent"      TEXT,
         "uploadedByAdminEmail" TEXT NOT NULL,
         "uploadedAt"           TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt"            TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
         CONSTRAINT "agent_agreements_pkey" PRIMARY KEY ("id")
       )
     `)
+    // Idempotent column + nullability patches for pre-existing deployments
+    for (const sql of [
+      `ALTER TABLE "agent_agreements" ALTER COLUMN "fileData" DROP NOT NULL`,
+      `ALTER TABLE "agent_agreements" ALTER COLUMN "originalFilename" DROP NOT NULL`,
+      `ALTER TABLE "agent_agreements" ALTER COLUMN "mimeType" DROP NOT NULL`,
+      `ALTER TABLE "agent_agreements" ALTER COLUMN "fileSize" DROP NOT NULL`,
+      `ALTER TABLE "agent_agreements" ADD COLUMN IF NOT EXISTS "contentText" TEXT`,
+      `ALTER TABLE "agent_agreements" ADD COLUMN IF NOT EXISTS "signedName" TEXT`,
+      `ALTER TABLE "agent_agreements" ADD COLUMN IF NOT EXISTS "signedAt" TIMESTAMP(3)`,
+      `ALTER TABLE "agent_agreements" ADD COLUMN IF NOT EXISTS "signedIp" TEXT`,
+      `ALTER TABLE "agent_agreements" ADD COLUMN IF NOT EXISTS "signedUserAgent" TEXT`,
+      `ALTER TABLE "agent_agreements" ADD COLUMN IF NOT EXISTS "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP`,
+    ]) {
+      try { await prisma.$executeRawUnsafe(sql) } catch { /* idempotent — ignore */ }
+    }
     await prisma.$executeRawUnsafe(
       `CREATE UNIQUE INDEX IF NOT EXISTS "agent_agreements_agentId_key" ON "agent_agreements"("agentId")`
     )

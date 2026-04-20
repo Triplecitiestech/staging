@@ -5,7 +5,7 @@ import { prisma } from '@/lib/prisma'
 import { ensureSalesAgentTables } from '@/lib/sales-agents/ensure-tables'
 import AdminHeader from '@/components/admin/AdminHeader'
 import AgentProfileActions from '@/components/admin/agents/AgentProfileActions'
-import AgreementUpload from '@/components/admin/agents/AgreementUpload'
+import AgreementEditor from '@/components/admin/agents/AgreementEditor'
 
 export const dynamic = 'force-dynamic'
 
@@ -44,7 +44,17 @@ export default async function AdminAgentDetailPage({ params }: { params: Promise
   const [agreement, referrals] = await Promise.all([
     prisma.agentAgreement.findUnique({
       where: { agentId: id },
-      select: { id: true, originalFilename: true, mimeType: true, fileSize: true, uploadedAt: true, uploadedByAdminEmail: true },
+      select: {
+        id: true,
+        contentText: true,
+        originalFilename: true,
+        mimeType: true,
+        fileSize: true,
+        signedName: true,
+        signedAt: true,
+        uploadedAt: true,
+        uploadedByAdminEmail: true,
+      },
     }),
     prisma.salesReferral.findMany({
       where: { agentId: id },
@@ -93,24 +103,26 @@ export default async function AdminAgentDetailPage({ params }: { params: Promise
         </div>
 
         <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg p-6 mb-6">
-          <h2 className="text-sm font-semibold text-cyan-300 uppercase tracking-wider mb-3">Referral Agreement</h2>
-          {agreement ? (
-            <div className="mb-4 text-sm text-slate-200">
-              <div><strong className="text-white">{agreement.originalFilename}</strong> ({Math.round(agreement.fileSize / 1024)} KB)</div>
-              <div className="text-xs text-slate-400 mt-1">
-                Uploaded {agreement.uploadedAt.toLocaleString()} by {agreement.uploadedByAdminEmail}
-              </div>
-              <a
-                href={`/api/admin/sales-agents/${agent.id}/agreement`}
-                className="inline-flex items-center gap-2 mt-3 px-4 py-2 bg-slate-700/60 hover:bg-slate-700 border border-white/10 text-white rounded-lg text-sm transition-colors"
-              >
-                Download
-              </a>
-            </div>
-          ) : (
-            <p className="text-sm text-slate-400 mb-4">No agreement uploaded yet.</p>
-          )}
-          <AgreementUpload agentId={agent.id} hasExisting={!!agreement} />
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-cyan-300 uppercase tracking-wider">Referral Agreement</h2>
+            {agreement?.signedAt && agreement.signedName && (
+              <span className="text-xs px-2 py-0.5 rounded border bg-emerald-500/20 text-emerald-300 border-emerald-500/30">
+                Signed by {agreement.signedName} · {agreement.signedAt.toLocaleDateString()}
+              </span>
+            )}
+          </div>
+          <AgreementEditor
+            agentId={agent.id}
+            existing={agreement ? {
+              contentText: agreement.contentText,
+              originalFilename: agreement.originalFilename,
+              fileSize: agreement.fileSize,
+              uploadedAt: agreement.uploadedAt.toISOString(),
+              uploadedByAdminEmail: agreement.uploadedByAdminEmail,
+              signedName: agreement.signedName,
+              signedAt: agreement.signedAt ? agreement.signedAt.toISOString() : null,
+            } : null}
+          />
         </div>
 
         <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg overflow-hidden">
