@@ -25,6 +25,7 @@ export async function GET(request: NextRequest) {
         ok: true,
         ms: Date.now() - start,
         count: Array.isArray(value) ? value.length : value ? 1 : 0,
+        value,
       }
     } catch (e) {
       const err = e as { message?: string; code?: string; meta?: unknown }
@@ -172,6 +173,27 @@ export async function GET(request: NextRequest) {
   await probe('companies_columns', async () => {
     return prisma.$queryRawUnsafe<Array<{ column_name: string; data_type: string }>>(
       `SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'companies' ORDER BY ordinal_position`
+    )
+  })
+
+  // 6. Which schema(s) contain a 'projects' table? Helps detect search_path issues.
+  await probe('projects_tables_by_schema', async () => {
+    return prisma.$queryRawUnsafe<Array<{ table_schema: string; table_name: string }>>(
+      `SELECT table_schema, table_name FROM information_schema.tables WHERE table_name = 'projects'`
+    )
+  })
+
+  // 7. Current database + current_schema + search_path for this connection.
+  await probe('connection_context', async () => {
+    return prisma.$queryRawUnsafe<Array<Record<string, string>>>(
+      `SELECT current_database() as db, current_schema() as schema, current_setting('search_path') as search_path`
+    )
+  })
+
+  // 8. Explicit column check scoped to public schema.
+  await probe('public_projects_columns', async () => {
+    return prisma.$queryRawUnsafe<Array<{ column_name: string }>>(
+      `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'projects' AND column_name ILIKE 'isvisible%'`
     )
   })
 
