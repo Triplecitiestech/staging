@@ -183,6 +183,20 @@ export async function POST(request: Request) {
       results.push(`⚠️ phases.isVisibleToCustomer: ${err.message}`)
     }
 
+    // Add isVisibleToCustomer to projects. The migration file exists at
+    // prisma/migrations/20260415000000_add_project_customer_visibility/ but
+    // was never applied in this environment (shares a timestamp prefix with
+    // add_overtime_requests and appears to have been skipped by
+    // `prisma migrate deploy`). Applying it directly here unblocks admin +
+    // customer-portal project views that crash on projects.isVisibleToCustomer.
+    try {
+      await client.query('ALTER TABLE projects ADD COLUMN IF NOT EXISTS "isVisibleToCustomer" BOOLEAN NOT NULL DEFAULT true')
+      results.push('✅ Added isVisibleToCustomer column to projects')
+    } catch (error) {
+      const err = error as Error
+      results.push(`⚠️ projects.isVisibleToCustomer: ${err.message}`)
+    }
+
     // Create comments table
     try {
       await client.query(`
