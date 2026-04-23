@@ -197,5 +197,24 @@ export async function GET(request: NextRequest) {
     )
   })
 
+  // 9. Prisma migration tracking — which migrations has prisma migrate deploy applied?
+  await probe('prisma_migrations_recent', async () => {
+    return prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(
+      `SELECT migration_name, started_at, finished_at, rolled_back_at, applied_steps_count
+       FROM _prisma_migrations
+       ORDER BY started_at DESC
+       LIMIT 20`
+    )
+  })
+
+  // 10. Specifically look up the two Apr 15 migrations that share a timestamp prefix.
+  await probe('prisma_migrations_apr15', async () => {
+    return prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(
+      `SELECT migration_name, started_at, finished_at, rolled_back_at, applied_steps_count, logs
+       FROM _prisma_migrations
+       WHERE migration_name LIKE '20260415%' OR migration_name LIKE '%project_customer_visibility%' OR migration_name LIKE '%phase_customer_visibility%'`
+    )
+  })
+
   return NextResponse.json({ results }, { status: 200 })
 }
