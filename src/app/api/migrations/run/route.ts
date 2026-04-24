@@ -291,6 +291,29 @@ export async function POST(request: Request) {
       results.push(`⚠️ companies.onboarding_completed_at: ${err.message}`)
     }
 
+    // Add companyClassification to companies. Schema field has existed for a while
+    // (Autotask classification — "Platinum Managed Service", etc.) but the column
+    // was never created in this environment, so any `include: { company: true }`
+    // query crashes. Prisma migrate deploy has never run against this DB
+    // (_prisma_migrations table doesn't exist), so migrations are applied purely
+    // via this route's raw SQL.
+    try {
+      await client.query('ALTER TABLE "companies" ADD COLUMN IF NOT EXISTS "companyClassification" TEXT')
+      results.push('✅ Added companyClassification column to companies')
+    } catch (error) {
+      const err = error as Error
+      results.push(`⚠️ companies.companyClassification: ${err.message}`)
+    }
+
+    // Add compliancePortalEnabled to companies (same root cause as above).
+    try {
+      await client.query('ALTER TABLE "companies" ADD COLUMN IF NOT EXISTS "compliancePortalEnabled" BOOLEAN NOT NULL DEFAULT false')
+      results.push('✅ Added compliancePortalEnabled column to companies')
+    } catch (error) {
+      const err = error as Error
+      results.push(`⚠️ companies.compliancePortalEnabled: ${err.message}`)
+    }
+
     // Ensure StaffRole enum has all required values
     for (const roleVal of ['SUPER_ADMIN', 'BILLING_ADMIN', 'TECHNICIAN']) {
       try {
