@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Pre-commit hook: block commits containing known secret patterns.
+#
+# Enable per-developer with:
+#   git config core.hooksPath .githooks
+#
+# Works on Windows (Git Bash / WSL), macOS, and Linux. Requires gitleaks
+# on $PATH — install via `scoop install gitleaks` (Windows),
+# `brew install gitleaks` (Mac), or `go install github.com/gitleaks/gitleaks/v8@latest`.
+
+set -euo pipefail
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "[pre-commit] gitleaks not installed — skipping secret scan."
+  echo "             Install: https://github.com/gitleaks/gitleaks"
+  exit 0
+fi
+
+# --staged checks only what's about to be committed. --redact prevents the
+# matched secret from being printed to stderr.
+if ! gitleaks protect --staged --redact --config=.gitleaks.toml --no-banner; then
+  cat <<'EOF'
+
+[pre-commit] Secret-shaped content found in staged changes.
+             Fix: remove the value, rotate the credential if it ever
+             hit disk, and re-stage. To intentionally commit a false
+             positive, add it to the [allowlist] in .gitleaks.toml.
+EOF
+  exit 1
+fi

@@ -17,6 +17,8 @@
  *   policy_intake_answers    — per-policy questionnaire answers
  *   policy_generation_records — tracks policy generation workflow state per company+policy
  *   policy_versions          — version history of generated policies
+ *   integration_credentials  — per-tenant encrypted API credentials
+ *   integration_credential_access_log — audit log of credential reads
  */
 
 import { getPool } from '@/lib/db-pool'
@@ -48,7 +50,9 @@ export async function ensureComplianceTables(): Promise<void> {
            'policy_org_profiles',
            'policy_intake_answers',
            'policy_generation_records',
-           'policy_versions'
+           'policy_versions',
+           'integration_credentials',
+           'integration_credential_access_log'
          )`
     )
     const existingSet = new Set(existing.rows.map((r) => r.tablename))
@@ -528,6 +532,81 @@ export async function ensureComplianceTables(): Promise<void> {
     } catch (policyTableErr) {
       // Log but don't block — catalog route handles missing tables gracefully
       console.error('[ensure-tables] Policy generation table creation failed:', policyTableErr instanceof Error ? policyTableErr.message : policyTableErr)
+    }
+
+    // =========================================================================
+    // Integration credentials (per-tenant encrypted secrets)
+    // See src/lib/crypto.ts, src/lib/credentials.ts, and
+    // docs/runbooks/CREDENTIALS_MIGRATION.md.
+    // =========================================================================
+    try {
+      if (!existingSet.has('integration_credentials')) {
+        await client.query(`
+          CREATE TABLE IF NOT EXISTS integration_credentials (
+            id                TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+            "companyId"       TEXT NOT NULL,
+            "connectorType"   TEXT NOT NULL,
+            "encryptedValue"  TEXT NOT NULL,
+            metadata          JSONB NOT NULL DEFAULT '{}',
+            "lastRotatedAt"   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            "createdAt"       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            "createdBy"       TEXT NOT NULL DEFAULT '',
+            "updatedAt"       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            "updatedBy"       TEXT NOT NULL DEFAULT '',
+            UNIQUE ("companyId", "connectorType")
+          )
+        `)
+        await client.query(`
+          CREATE INDEX IF NOT EXISTS idx_integration_credentials_company
+          ON integration_credentials ("companyId")
+        `)
+        await client.query(`
+          DO $$ BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'integration_credentials_companyId_fkey') THEN
+              ALTER TABLE integration_credentials
+              ADD CONSTRAINT "integration_credentials_companyId_fkey"
+              FOREIGN KEY ("companyId") REFERENCES companies(id) ON DELETE CASCADE;
+            END IF;
+          END $$
+        `)
+      }
+
+      if (!existingSet.has('integration_credential_access_log')) {
+        await client.query(`
+          CREATE TABLE IF NOT EXISTS integration_credential_access_log (
+            id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+            "credentialId"  TEXT NOT NULL,
+            "companyId"     TEXT NOT NULL,
+            "connectorType" TEXT NOT NULL,
+            "accessedBy"    TEXT NOT NULL,
+            purpose         TEXT NOT NULL DEFAULT '',
+            "accessedAt"    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          )
+        `)
+        await client.query(`
+          CREATE INDEX IF NOT EXISTS idx_credential_access_credential
+          ON integration_credential_access_log ("credentialId", "accessedAt" DESC)
+        `)
+        await client.query(`
+          CREATE INDEX IF NOT EXISTS idx_credential_access_company
+          ON integration_credential_access_log ("companyId", "accessedAt" DESC)
+        `)
+        await client.query(`
+          DO $$ BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'integration_credential_access_log_credentialId_fkey') THEN
+              ALTER TABLE integration_credential_access_log
+              ADD CONSTRAINT "integration_credential_access_log_credentialId_fkey"
+              FOREIGN KEY ("credentialId") REFERENCES integration_credentials(id) ON DELETE CASCADE;
+            END IF;
+          END $$
+        `)
+      }
+    } catch (credentialTableErr) {
+      // Log but don't block — nothing reads from these tables yet.
+      console.error(
+        '[ensure-tables] Integration credential table creation failed:',
+        credentialTableErr instanceof Error ? credentialTableErr.message : credentialTableErr
+      )
     }
 
     tablesEnsured = true
