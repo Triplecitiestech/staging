@@ -1,6 +1,6 @@
 # Architecture
 
-> Last updated: 2026-03-14
+> Last updated: 2026-04-24
 
 ## System Overview
 
@@ -253,6 +253,95 @@ Admin UI (/admin/reporting)
 - `src/app/api/reports/` — 17 endpoints
 - `src/components/reporting/` — 18 components
 - Tables: `report_tickets`, `report_time_entries`, `report_ticket_notes`, `report_aggregations`, `report_schedules`, `report_targets` (raw SQL, not Prisma)
+
+## Compliance Evidence & Assessment Flow
+
+The largest single subsystem: ~14,000 LOC across `src/lib/compliance/` and `src/app/api/compliance/`. Automates CIS v8 assessments today; designed to extend to CMMC, NIST 800-171, HIPAA, PCI.
+
+```
+Admin UI                         /api/compliance/assessments (POST)
+┌─────────────────┐             ┌──────────────────────────────────┐
+│ Start assessment│ ──────────▶ │ engine.runAssessment             │
+│ for Company X   │              │ (src/lib/compliance/engine.ts)   │
+│  framework:     │              └──────────────────────────────────┘
+│   cis-v8        │                             │
+└─────────────────┘                             ▼
+                               ┌─────────────────────────────────────┐
+                               │ 1. ensureComplianceTables()         │
+                               │    self-healing raw SQL, creates    │
+                               │    13 tables if missing             │
+                               └─────────────────────────────────────┘
+                                               │
+                                               ▼
+                               ┌─────────────────────────────────────┐
+                               │ 2. Dispatch configured collectors   │
+                               │    (Promise.allSettled — parallel)  │
+                               │                                     │
+                               │  collectors/graph.ts  ──▶ M365 API  │
+                               │  collectors/msp.ts    ──▶ Datto,    │
+                               │                          DNSFilter, │
+                               │                          IT Glue,   │
+                               │                          Domotz,    │
+                               │                          SaaS Alerts│
+                               │                          Ubiquiti,  │
+                               │                          MyITProcess│
+                               └─────────────────────────────────────┘
+                                               │
+                                               ▼
+                               ┌─────────────────────────────────────┐
+                               │ 3. Store as EvidenceRecord          │
+                               │    (sourceType, rawData JSONB,      │
+                               │     summary, validForHours)         │
+                               │    → compliance_evidence            │
+                               └─────────────────────────────────────┘
+                                               │
+                                               ▼
+                               ┌─────────────────────────────────────┐
+                               │ 4. Evaluate each control            │
+                               │    CIS_V8_EVALUATORS[controlId](ctx)│
+                               │    → Finding {status, confidence,   │
+                               │       reasoning, remediation}       │
+                               │    → compliance_findings            │
+                               └─────────────────────────────────────┘
+                                               │
+                                               ▼
+                               ┌─────────────────────────────────────┐
+                               │ 5. Update assessment summary        │
+                               │    + compliance_audit_log entry     │
+                               └─────────────────────────────────────┘
+```
+
+**Key concepts:**
+- **Collector adapter**: each integration exposes `(companyId, assessmentId) => { evidence[], errors[] }`. Dispatch is currently `if (availableConnectors.has('x')) collectors.push(...)` in `engine.ts`.
+- **Evidence is tool-agnostic**: `EvidenceRecord` is the single shape — `sourceType`, `rawData` (JSONB snapshot), `summary` (human readable). Evaluators read by `sourceType`.
+- **Capability registry** (`src/lib/compliance/registry/`) catalogs which tools satisfy which capabilities (e.g., `mfa_status` → `microsoft_graph`). Currently informational — evaluators don't yet consume it. Planned operationalisation.
+- **Framework currently implemented**: CIS v8 only (65 controls, 65 evaluators in `frameworks/cis-v8.ts`). `FrameworkId` type declares CMMC / NIST / HIPAA / PCI; engine throws on them.
+- **Policy generation** is a parallel flow: `src/lib/compliance/policy-generation/` takes an org profile + policy-specific questionnaire + framework mappings, builds a Claude prompt, returns Markdown. Versioned in `policy_versions`.
+- **Credentials** for each integration come from either `process.env.*` (MSP-global — Datto, DNSFilter, etc.) or `companies.m365_client_secret` (M365 only, plaintext today). Migration to encrypted per-tenant storage is tracked in `docs/runbooks/CREDENTIALS_MIGRATION.md`.
+
+**Key files:**
+- `src/lib/compliance/engine.ts` — assessment lifecycle orchestrator (~1000+ LOC)
+- `src/lib/compliance/types.ts` — `FrameworkId`, `ControlDefinition`, `EvidenceRecord`, `Finding`, `EvaluationContext`
+- `src/lib/compliance/collectors/` — `graph.ts` (M365), `msp.ts` (Datto/DNSFilter/IT Glue/Domotz/SaaS Alerts/Ubiquiti/MyITProcess)
+- `src/lib/compliance/frameworks/cis-v8.ts` — 65 control definitions + 65 evaluator functions
+- `src/lib/compliance/registry/` — `capabilities.ts`, `tool-definitions.ts`, `control-capability-map.ts`, `resolver.ts`
+- `src/lib/compliance/policy-generation/` — `generator.ts`, `catalog.ts`, `framework-mappings.ts`, `questionnaire.ts`
+- `src/app/api/compliance/` — 13 route directories (assessments, connectors, policies, webhooks, registry, export, ai-assist, platform-mappings, workflow-status)
+
+**Tables (all raw SQL, not Prisma-managed, created by `src/lib/compliance/ensure-tables.ts`):**
+- `compliance_connectors` — per-company integration status
+- `compliance_assessments` — assessment instances + summary counters
+- `compliance_evidence` — collected evidence snapshots (JSONB rawData)
+- `compliance_findings` — per-control results (status, confidence, reasoning, overrides)
+- `compliance_audit_log` — every compliance-related action
+- `compliance_policies` + `compliance_policy_analyses` — policies and their gap analyses
+- `compliance_attestations` — customer testimony for manual controls
+- `compliance_platform_mappings` — explicit `company → external site/org/device` mapping
+- `compliance_webhook_events` — inbound webhook events (currently SaaS Alerts only, 90-day TTL)
+- `policy_org_profiles` + `policy_intake_answers` + `policy_generation_records` + `policy_versions` — policy generation pipeline
+- `integration_credentials` + `integration_credential_access_log` — encrypted per-tenant credentials + read audit (dormant; populated by Wave 2 of credentials migration)
+
+**Webhook receiver**: `/api/compliance/webhooks/saas-alerts` ingests Kaseya SaaS Alerts events. Validates the partner-echoed token (env var `SAAS_ALERTS_WEBHOOK_TOKEN`) when configured, always ACKs 200 to prevent Kaseya from disabling the subscription on transient errors.
 
 ## Unified Ticket System
 

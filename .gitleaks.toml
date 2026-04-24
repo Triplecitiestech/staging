@@ -1,0 +1,72 @@
+# gitleaks configuration for triplecitiestech/staging
+#
+# Detects committed secrets before they land in git history. Install locally:
+#   scoop install gitleaks      (Windows)
+#   brew install gitleaks       (Mac)
+#   go install github.com/gitleaks/gitleaks/v8@latest
+#
+# Run manually:
+#   gitleaks protect --staged --redact
+#
+# Pre-commit hook: see .githooks/pre-commit (optional — enable per-developer)
+
+title = "Triple Cities Tech secret scan"
+
+[extend]
+useDefault = true
+
+# ---------------------------------------------------------------------------
+# Project-specific rules
+# ---------------------------------------------------------------------------
+
+[[rules]]
+id        = "tct-migration-cron-secret"
+description = "Previously-committed MIGRATION_SECRET or CRON_SECRET literal"
+# These exact values were in CLAUDE.md before rotation. Catch any accidental
+# resurfacing in future commits.
+regex     = '''(Ty3svIEQ5Ehntq4xJzYjAUT5UptrYXOj7tseRTxHYDI=|a63d095dce16b3ad9d55cc79a3db7b9f600502272033b8c3284673e23d757cb1)'''
+tags      = ["secret", "tct"]
+
+[[rules]]
+id        = "tct-env-var-value-inline"
+description = "MIGRATION_SECRET / CRON_SECRET / ENCRYPTION_MASTER_KEY with an inline value (not a reference)"
+# Matches assignments where the right side is a long base64/hex string, which
+# is how secrets get accidentally pasted into docs. Ignores known reference
+# patterns like `process.env.MIGRATION_SECRET` or `<MIGRATION_SECRET>`.
+regex     = '''(MIGRATION_SECRET|CRON_SECRET|ENCRYPTION_MASTER_KEY[A-Z0-9_]*)\s*[:=]\s*["']?[A-Za-z0-9+/=]{24,}["']?'''
+tags      = ["secret", "tct"]
+
+[[rules]]
+id        = "tct-anthropic-key"
+description = "Anthropic API key"
+regex     = '''sk-ant-[A-Za-z0-9_-]{40,}'''
+tags      = ["secret", "ai"]
+
+[[rules]]
+id        = "tct-resend-key"
+description = "Resend API key"
+regex     = '''re_[A-Za-z0-9_-]{20,}'''
+tags      = ["secret", "email"]
+
+# ---------------------------------------------------------------------------
+# Allowlist — files that legitimately contain secret-shaped tokens
+# ---------------------------------------------------------------------------
+
+[allowlist]
+description = "Files intentionally containing placeholder/example secrets"
+paths = [
+  '''env\.example''',
+  '''\.env\.example''',
+  '''\.gitleaks\.toml''',
+  '''docs/.*\.md''',        # Docs reference env-var names, not values
+  '''CLAUDE\.md''',          # Contains env-var names only after rotation
+  '''package-lock\.json''',  # Hash-like strings in lockfiles
+]
+regexes = [
+  # Placeholders used throughout env.example
+  '''generate-32-bytes-(base64|hex)''',
+  '''change-me-generate-32-bytes-base64''',
+  '''replace-me''',
+  '''your-api-key-here''',
+  '''sk-ant-\.\.\.''',
+]

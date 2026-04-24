@@ -321,7 +321,7 @@ This ensures session continuity even when context is lost between sessions.
 
 This is the **primary external data source** for companies, projects, phases, and tasks. The owner considers Autotask data authoritative. See `AUTOTASK_SYNC.md` for full docs.
 
-**Sync endpoint**: `GET /api/autotask/trigger?secret=MIGRATION_SECRET&step=<step>`
+**Sync endpoint**: `GET /api/autotask/trigger?step=<step>` — authenticate with `Authorization: Bearer <MIGRATION_SECRET>` (preferred) or `?secret=<MIGRATION_SECRET>` (legacy, URL-logged — avoid)
 
 **Steps** (run in order):
 1. `cleanup` — delete AT-synced companies with no projects
@@ -496,12 +496,11 @@ docs/
 
 The following convenience-oriented practices currently exist in this documentation and codebase:
 
-1. **Hardcoded secrets in CLAUDE.md** — MIGRATION_SECRET and CRON_SECRET values are listed below for fast Claude session access. These must be removed from documentation before customer-facing production expands.
-2. **Auto-deploy from all branches** — Vercel auto-deploys preview environments from every push. This accelerates development but means any branch push creates a publicly accessible preview.
-3. **Auto-merge workflow** — Claude branches auto-merge to main via GitHub Actions, which triggers production deployment. This is fast but bypasses manual review.
-4. **Direct secret references in sync endpoints** — The Autotask sync trigger uses `?secret=MIGRATION_SECRET` in query params for convenience.
-5. **Impersonation endpoint** — `/api/onboarding/impersonate` allows staff to access customer portal sessions. Useful for development/support but requires audit before broader rollout.
-6. **Debug endpoints accessible** — `/admin/debug/failures`, `/admin/setup`, `/admin/run-migration`, `/blog/setup` are accessible with minimal auth guards.
+1. **Auto-deploy from all branches** — Vercel auto-deploys preview environments from every push. This accelerates development but means any branch push creates a publicly accessible preview.
+2. **Auto-merge workflow** — Claude branches auto-merge to main via GitHub Actions, which triggers production deployment. This is fast but bypasses manual review.
+3. **Query-param secret fallback in `checkSecretAuth()`** — The Autotask sync trigger still accepts `?secret=` in query params for convenience. Migrate callers to `Authorization: Bearer` before removing.
+4. **Impersonation endpoint** — `/api/onboarding/impersonate` allows staff to access customer portal sessions. Useful for development/support but requires audit before broader rollout.
+5. **Debug endpoints accessible** — `/admin/debug/failures`, `/admin/setup`, `/admin/run-migration`, `/blog/setup` are accessible with minimal auth guards.
 
 **Rules for Claude sessions:**
 - **Preserve** these shortcuts for now unless the user explicitly asks to remove them.
@@ -514,8 +513,10 @@ The following convenience-oriented practices currently exist in this documentati
 
 > **Checklist for hardening before broader customer-facing production access. This is a future task — not the immediate priority — but it must be completed before the platform is opened to customers beyond the current controlled group.**
 
-- [ ] **Remove secrets from documentation** — Remove MIGRATION_SECRET and CRON_SECRET values from CLAUDE.md. Reference environment variables only.
+- [x] **Remove secrets from documentation** — MIGRATION_SECRET and CRON_SECRET values purged from CLAUDE.md. Both should be rotated in Vercel before further customer rollout since they were in git history.
 - [ ] **Move all secrets to environment-variable-only handling** — Ensure no secret values appear in source code, documentation, or URL query parameters.
+- [ ] **Encrypt per-tenant integration credentials at rest** — M365 client secrets currently stored plaintext in `companies.m365_client_secret`. Migration path in `docs/runbooks/CREDENTIALS_MIGRATION.md`.
+- [ ] **Rotate MIGRATION_SECRET and CRON_SECRET in Vercel** — Prior values were committed to CLAUDE.md and are in git history. Follow the dual-accept rotation procedure documented in `docs/runbooks/CREDENTIALS_MIGRATION.md`.
 - [ ] **Review deployment and branch protection rules** — Add required reviews for main branch, restrict auto-merge to passing CI only.
 - [ ] **Review auto-deploy behavior** — Ensure customer-facing production deploys require explicit approval or at minimum passing e2e tests.
 - [ ] **Audit auth flows and impersonation** — Review `/api/onboarding/impersonate` for proper authorization, logging, and rate limiting. Consider adding audit trail for impersonation sessions.
@@ -530,12 +531,15 @@ The following convenience-oriented practices currently exist in this documentati
 
 ---
 
-## Known Secrets & API Endpoints
+## API Endpoints & Environment
 
-> **TEMPORARY DEVELOPMENT CONVENIENCE** — These values are listed here to speed up Claude sessions during active development. They must be removed before broader production rollout. See "Pre-Launch Cleanup Required" above.
+**Secrets are NOT stored in this file.** All credentials live in Vercel environment variables only:
+- `MIGRATION_SECRET` — required by `/api/migrations/*`, `/api/test-failures/migrate`, `/api/soc/migrate`, `/api/autotask/trigger`
+- `CRON_SECRET` — required by all `/api/cron/*` endpoints (Vercel sets the `Authorization: Bearer` header automatically)
+- `SAAS_ALERTS_WEBHOOK_TOKEN` — partner-echoed token for webhook authenticity verification
+- `ENCRYPTION_MASTER_KEY_V1` — 32-byte base64 key for encrypting per-tenant integration credentials (see `docs/runbooks/CREDENTIALS_MIGRATION.md`)
 
-**MIGRATION_SECRET**: `Ty3svIEQ5Ehntq4xJzYjAUT5UptrYXOj7tseRTxHYDI=`
-**CRON_SECRET**: `a63d095dce16b3ad9d55cc79a3db7b9f600502272033b8c3284673e23d757cb1`
+Fetch them from the Vercel dashboard or `vercel env pull` locally. If a Claude session needs one for a one-off command, ask the operator to paste it into that message — never commit it.
 
 **Production base URL**: `https://www.triplecitiestech.com`
 **Preview URL pattern**: `https://<branch-name>-triplecitiestech.vercel.app`
