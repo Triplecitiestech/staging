@@ -160,13 +160,13 @@ export async function GET(request: NextRequest) {
 
   // Extras — columns in the DB that the schema doesn't know about. Informational.
   const extras: Array<{ table: string; column: string }> = []
-  for (const [table, cols] of liveByTable) {
+  liveByTable.forEach((cols, table) => {
     const expectedCols = expectedColsByTable.get(table)
-    if (!expectedCols) continue // unknown table — ignore (might be raw-SQL tables like report_*)
-    for (const col of cols) {
+    if (!expectedCols) return // unknown table — ignore (might be raw-SQL tables like report_*)
+    cols.forEach((col) => {
       if (!expectedCols.has(col)) extras.push({ table, column: col })
-    }
-  }
+    })
+  })
 
   // Generate idempotent ALTER TABLE statements for every missing column.
   const alterStatements = missing.map((m) => {
