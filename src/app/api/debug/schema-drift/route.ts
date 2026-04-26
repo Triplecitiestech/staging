@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
   // generation. Covers everything currently in this schema.prisma.
   const pgType = (
     fieldType: string,
-    nativeType: { name: string; args: string[] } | null,
+    nativeType: { name: string; args: readonly string[] } | null,
     isList: boolean,
     kind: string
   ): string => {
