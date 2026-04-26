@@ -1354,25 +1354,25 @@ model ReportingJobStatus {
 // HR Request (Onboarding / Offboarding)
 model HrRequest {
   id                   String   @id @default(uuid())
-  companyId            String
-  companySlug          String
+  companyId            String   @map("company_id")
+  companySlug          String   @map("company_slug")
   type                 String   // "onboarding" | "offboarding"
   status               String   @default("pending")
-  submittedByEmail     String
-  submittedByName      String?
+  submittedByEmail     String   @map("submitted_by_email")
+  submittedByName      String?  @map("submitted_by_name")
   answers              Json     @default("{}")
-  resolvedActionPlan   Json?
-  autotaskTicketId     Int?
-  autotaskTicketNumber String?
-  targetUpn            String?
-  targetUserId         String?
-  idempotencyKey       String   @unique
-  errorMessage         String?
-  retryCount           Int      @default(0)
-  startedAt            DateTime?
-  completedAt          DateTime?
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  resolvedActionPlan   Json?    @map("resolved_action_plan")
+  autotaskTicketId     Int?     @map("autotask_ticket_id")
+  autotaskTicketNumber String?  @map("autotask_ticket_number")
+  targetUpn            String?  @map("target_upn")
+  targetUserId         String?  @map("target_user_id")
+  idempotencyKey       String   @unique @map("idempotency_key")
+  errorMessage         String?  @map("error_message")
+  retryCount           Int      @default(0) @map("retry_count")
+  startedAt            DateTime? @map("started_at")
+  completedAt          DateTime? @map("completed_at")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
 
   company   Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
   steps     HrRequestStep[]
@@ -1384,17 +1384,17 @@ model HrRequest {
 
 model HrRequestStep {
   id          String    @id @default(uuid())
-  requestId   String
-  stepKey     String
-  stepName    String
+  requestId   String    @map("request_id")
+  stepKey     String    @map("step_key")
+  stepName    String    @map("step_name")
   status      String    @default("pending")
   attempt     Int       @default(1)
   input       Json?
   output      Json?
   error       Json?
-  startedAt   DateTime?
-  completedAt DateTime?
-  createdAt   DateTime  @default(now())
+  startedAt   DateTime? @map("started_at")
+  completedAt DateTime? @map("completed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
 
   request HrRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
 
@@ -1404,14 +1404,14 @@ model HrRequestStep {
 
 model HrAuditLog {
   id         String    @id @default(uuid())
-  companyId  String
-  requestId  String?
+  companyId  String    @map("company_id")
+  requestId  String?   @map("request_id")
   actor      String
   action     String
   resource   String?
   details    Json?
   severity   String    @default("info")
-  createdAt  DateTime  @default(now())
+  createdAt  DateTime  @default(now()) @map("created_at")
 
   request HrRequest? @relation(fields: [requestId], references: [id])
 

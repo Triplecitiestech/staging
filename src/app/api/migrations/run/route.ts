@@ -338,6 +338,108 @@ export async function POST(request: Request) {
       results.push(`⚠️ SUPER_ADMIN promotion: ${err.message}`)
     }
 
+    // ============================================
+    // Bootstrap tables that the Prisma schema declares but no migration ever
+    // created in this DB (since prisma migrate deploy never ran here — see
+    // CLAUDE.md). All idempotent via IF NOT EXISTS.
+    // ============================================
+
+    // error_logs (matches the original 20260306_add_error_logs migration)
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS "error_logs" (
+          "id" TEXT NOT NULL,
+          "level" TEXT NOT NULL DEFAULT 'error',
+          "source" TEXT NOT NULL,
+          "message" TEXT NOT NULL,
+          "stack" TEXT,
+          "path" TEXT,
+          "method" TEXT,
+          "statusCode" INTEGER,
+          "userId" TEXT,
+          "metadata" JSONB,
+          "count" INTEGER NOT NULL DEFAULT 1,
+          "firstSeen" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "lastSeen" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "resolved" BOOLEAN NOT NULL DEFAULT false,
+          "resolvedAt" TIMESTAMP(3),
+          "resolvedBy" TEXT,
+          CONSTRAINT "error_logs_pkey" PRIMARY KEY ("id")
+        )
+      `)
+      await client.query(`CREATE INDEX IF NOT EXISTS "error_logs_source_level_idx" ON "error_logs"("source", "level")`)
+      await client.query(`CREATE INDEX IF NOT EXISTS "error_logs_lastSeen_idx" ON "error_logs"("lastSeen")`)
+      await client.query(`CREATE INDEX IF NOT EXISTS "error_logs_resolved_idx" ON "error_logs"("resolved")`)
+      await client.query(`CREATE INDEX IF NOT EXISTS "error_logs_message_idx" ON "error_logs"("message")`)
+      results.push('✅ Ensured error_logs table')
+    } catch (error) {
+      const err = error as Error
+      results.push(`⚠️ error_logs: ${err.message}`)
+    }
+
+    // deleted_records (used by soft-delete / restore endpoint)
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS "deleted_records" (
+          "id" TEXT NOT NULL,
+          "entityType" TEXT NOT NULL,
+          "entityId" TEXT NOT NULL,
+          "entityData" JSONB NOT NULL,
+          "relatedData" JSONB,
+          "deletedBy" TEXT NOT NULL,
+          "deletedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "restoredAt" TIMESTAMP(3),
+          "restoredBy" TEXT,
+          CONSTRAINT "deleted_records_pkey" PRIMARY KEY ("id")
+        )
+      `)
+      await client.query(`CREATE INDEX IF NOT EXISTS "deleted_records_entityType_entityId_idx" ON "deleted_records"("entityType", "entityId")`)
+      await client.query(`CREATE INDEX IF NOT EXISTS "deleted_records_deletedAt_idx" ON "deleted_records"("deletedAt")`)
+      results.push('✅ Ensured deleted_records table')
+    } catch (error) {
+      const err = error as Error
+      results.push(`⚠️ deleted_records: ${err.message}`)
+    }
+
+    // test_failures (e2e failure dashboard at /admin/debug/failures)
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS "test_failures" (
+          "id" TEXT NOT NULL,
+          "testName" TEXT NOT NULL,
+          "testFile" TEXT NOT NULL,
+          "url" TEXT,
+          "environment" TEXT NOT NULL DEFAULT 'local',
+          "errorMessage" TEXT NOT NULL,
+          "errorStack" TEXT,
+          "consoleErrors" JSONB,
+          "networkErrors" JSONB,
+          "screenshotPath" TEXT,
+          "tracePath" TEXT,
+          "commitSha" TEXT,
+          "branchName" TEXT,
+          "summary" TEXT,
+          "rootCauseHypothesis" TEXT,
+          "suggestedFix" TEXT,
+          "impactedFiles" JSONB,
+          "confidence" TEXT,
+          "status" TEXT NOT NULL DEFAULT 'open',
+          "resolvedAt" TIMESTAMP(3),
+          "resolvedBy" TEXT,
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "test_failures_pkey" PRIMARY KEY ("id")
+        )
+      `)
+      await client.query(`CREATE INDEX IF NOT EXISTS "test_failures_status_idx" ON "test_failures"("status")`)
+      await client.query(`CREATE INDEX IF NOT EXISTS "test_failures_createdAt_idx" ON "test_failures"("createdAt")`)
+      await client.query(`CREATE INDEX IF NOT EXISTS "test_failures_testFile_idx" ON "test_failures"("testFile")`)
+      results.push('✅ Ensured test_failures table')
+    } catch (error) {
+      const err = error as Error
+      results.push(`⚠️ test_failures: ${err.message}`)
+    }
+
     await client.end()
 
     return NextResponse.json({
