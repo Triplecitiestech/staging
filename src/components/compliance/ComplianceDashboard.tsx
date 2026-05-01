@@ -129,6 +129,14 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
     window.open(`/api/compliance/export?assessmentId=${assessmentId}`, '_blank')
   }
 
+  // Generates a Markdown worksheet keyed by CIS safeguard with pre-filled
+  // answers + justifications. The engineer hands the file to Claude Cowork
+  // (a browser agent) along with their MyITProcess URL; Cowork executes the
+  // clicks/typing in the Alignment review since MyITProcess has no write API.
+  const exportCoworkWorksheet = (assessmentId: string) => {
+    window.open(`/api/compliance/assessments/${assessmentId}/cowork-worksheet`, '_blank')
+  }
+
   const deleteAssessmentById = async (assessmentId: string) => {
     if (!confirm('Delete this assessment and all its evidence/findings? This cannot be undone.')) return
     try {
@@ -382,6 +390,7 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
             <AssessmentResults
               detail={activeAssessment}
               onExport={() => exportCsv(activeAssessment.assessment.id)}
+              onCoworkWorksheet={() => exportCoworkWorksheet(activeAssessment.assessment.id)}
               onUpdated={() => loadAssessment(activeAssessment.assessment.id)}
             />
             </div>
@@ -465,7 +474,7 @@ function getScoreColor(pct: number): string {
 // Assessment Results with comparison
 // ---------------------------------------------------------------------------
 
-function AssessmentResults({ detail, onExport, onUpdated }: { detail: AssessmentDetail; onExport: () => void; onUpdated: () => void }) {
+function AssessmentResults({ detail, onExport, onCoworkWorksheet, onUpdated }: { detail: AssessmentDetail; onExport: () => void; onCoworkWorksheet: () => void; onUpdated: () => void }) {
   const [expandedControls, setExpandedControls] = useState<Set<string>>(new Set())
   const [evidenceView, setEvidenceView] = useState<string | null>(null)
 
@@ -531,6 +540,13 @@ function AssessmentResults({ detail, onExport, onUpdated }: { detail: Assessment
           </button>
           <button onClick={onExport} className="inline-flex items-center px-3 py-2 bg-slate-700/50 hover:bg-slate-600/50 text-slate-300 hover:text-white rounded-lg text-sm transition-colors">
             Export CSV
+          </button>
+          <button
+            onClick={onCoworkWorksheet}
+            title="Download a Markdown worksheet with pre-filled MyITProcess Alignment answers and justifications, keyed by CIS safeguard. Hand the file to Claude Cowork along with your MyITProcess review URL — Cowork will fill in the answers in the browser for you, since MyITProcess has no write API."
+            className="inline-flex items-center px-3 py-2 bg-violet-500/20 hover:bg-violet-500/30 text-violet-300 hover:text-white border border-violet-500/30 rounded-lg text-sm transition-colors"
+          >
+            Cowork Worksheet
           </button>
           {detail.evidence && detail.evidence.length > 0 && (
             <button
