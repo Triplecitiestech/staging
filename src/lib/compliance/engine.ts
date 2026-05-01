@@ -19,6 +19,7 @@ import { ensureComplianceTables } from './ensure-tables'
 import { collectGraphEvidence } from './collectors/graph'
 import { collectDattoRmmEvidence, collectDattoBcdrEvidence, collectDattoEdrEvidence, collectDattoSaasEvidence, collectDnsFilterEvidence, collectDomotzEvidence, collectItGlueEvidence, collectSaasAlertsEvidence, collectUbiquitiEvidence, collectMyItProcessEvidence } from './collectors/msp'
 import { CIS_V8_FRAMEWORK, CIS_V8_EVALUATORS, applyPolicyCoverage } from './frameworks/cis-v8'
+import { CMMC_L1_FRAMEWORK, CMMC_L1_EVALUATORS } from './frameworks/cmmc-l1'
 import {
   compareControlIds,
   EVIDENCE_TO_CONNECTOR,
@@ -1238,12 +1239,14 @@ function getFrameworkDefinition(frameworkId: FrameworkId) {
 
   switch (frameworkId) {
     case 'cis-v8': return CIS_V8_FRAMEWORK
+    case 'cmmc-l1': return CMMC_L1_FRAMEWORK
     default: throw new Error(`Framework ${frameworkId} not yet implemented`)
   }
 }
 
 function getEvaluators(frameworkId: FrameworkId): Record<string, (ctx: EvaluationContext) => import('./types').EvaluationResult> {
   if (frameworkId.startsWith('cis-v8')) return CIS_V8_EVALUATORS
+  if (frameworkId === 'cmmc-l1') return CMMC_L1_EVALUATORS
   return {}
 }
 
