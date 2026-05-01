@@ -755,19 +755,42 @@ export default function ComplianceWorkflow({ companies }: { companies: Company[]
                   {assessments.length > 0 && (
                     <div className="space-y-3">
                       <h3 className="text-sm font-semibold text-white">Assessment History</h3>
-                      {assessments.map((a) => (
-                        <AssessmentRow key={a.id} assessment={a} getScoreColor={getScoreColor} />
+                      {groupIntoBatches(assessments).map((group, gi) => (
+                        <div key={gi} className="space-y-1.5">
+                          {/* Combined batch header when multiple frameworks ran together */}
+                          {group.batch.length > 1 && (
+                            <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-cyan-500/10 border border-cyan-500/20">
+                              <div>
+                                <p className="text-sm font-semibold text-cyan-200">{group.label}</p>
+                                <p className="text-xs text-slate-400">{new Date(group.batch[0].createdAt).toLocaleString()}</p>
+                              </div>
+                              <span className={`text-sm font-bold ${getScoreColor(group.combined.pct)}`}>
+                                {group.combined.passed}/{group.combined.total} ({group.combined.pct}%)
+                              </span>
+                            </div>
+                          )}
+                          {group.batch.map((a) => (
+                            <AssessmentRow key={a.id} assessment={a} getScoreColor={getScoreColor} />
+                          ))}
+                        </div>
                       ))}
                     </div>
                   )}
 
-                  {/* Latest score summary */}
-                  {latestScore !== null && (
-                    <div className="bg-slate-800/50 border border-white/10 rounded-lg p-6 text-center">
-                      <p className="text-sm text-slate-400 mb-1">Baseline Compliance Score</p>
-                      <p className={`text-4xl font-bold ${getScoreColor(latestScore)}`}>{latestScore}%</p>
-                    </div>
-                  )}
+                  {/* Latest score summary — uses combined score from latest batch */}
+                  {assessments.length > 0 && (() => {
+                    const batches = groupIntoBatches(assessments)
+                    if (batches.length === 0) return null
+                    const latest = batches[0]
+                    return (
+                      <div className="bg-slate-800/50 border border-white/10 rounded-lg p-6 text-center">
+                        <p className="text-sm text-slate-400 mb-1">
+                          Baseline Compliance Score{latest.batch.length > 1 ? ` (${latest.label})` : ''}
+                        </p>
+                        <p className={`text-4xl font-bold ${getScoreColor(latest.combined.pct)}`}>{latest.combined.pct}%</p>
+                      </div>
+                    )
+                  })()}
 
                   {/* Export + Cowork */}
                   {assessments.length > 0 && (
@@ -916,8 +939,23 @@ export default function ComplianceWorkflow({ companies }: { companies: Company[]
                   {assessments.length > 0 && (
                     <div className="space-y-3">
                       <h3 className="text-sm font-semibold text-white">All Assessments</h3>
-                      {assessments.map((a) => (
-                        <AssessmentRow key={a.id} assessment={a} getScoreColor={getScoreColor} />
+                      {groupIntoBatches(assessments).map((group, gi) => (
+                        <div key={gi} className="space-y-1.5">
+                          {group.batch.length > 1 && (
+                            <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-cyan-500/10 border border-cyan-500/20">
+                              <div>
+                                <p className="text-sm font-semibold text-cyan-200">{group.label}</p>
+                                <p className="text-xs text-slate-400">{new Date(group.batch[0].createdAt).toLocaleString()}</p>
+                              </div>
+                              <span className={`text-sm font-bold ${getScoreColor(group.combined.pct)}`}>
+                                {group.combined.passed}/{group.combined.total} ({group.combined.pct}%)
+                              </span>
+                            </div>
+                          )}
+                          {group.batch.map((a) => (
+                            <AssessmentRow key={a.id} assessment={a} getScoreColor={getScoreColor} />
+                          ))}
+                        </div>
                       ))}
                     </div>
                   )}
@@ -1004,13 +1042,56 @@ function ToolToggleCard({ tool, deployed, onToggle }: { tool: Tool; deployed: bo
   )
 }
 
+// Framework display-name map (also used for Cowork worksheet titles)
+const FRAMEWORK_LABELS: Record<string, string> = {
+  'cis-v8': 'CIS v8',
+  'cis-v8-ig1': 'CIS v8 — IG1',
+  'cis-v8-ig2': 'CIS v8 — IG2',
+  'cis-v8-ig3': 'CIS v8 — IG3',
+  'cmmc-l1': 'CMMC Level 1',
+  'cmmc-l2': 'CMMC Level 2',
+  'nist-800-171': 'NIST 800-171',
+  'hipaa': 'HIPAA',
+}
+
+/**
+ * Group assessments that were run within 2 minutes of each other into
+ * "batches" so that a CIS + CMMC run shows as one combined row with a
+ * merged score, not two unrelated rows.
+ */
+function groupIntoBatches(assessments: Assessment[]): Array<{ batch: Assessment[]; combined: { passed: number; total: number; pct: number }; label: string }> {
+  if (assessments.length === 0) return []
+
+  const sorted = [...assessments].sort((a, b) =>
+    new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  )
+
+  const batches: Array<{ batch: Assessment[] }> = []
+  let current: Assessment[] = [sorted[0]]
+
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = new Date(sorted[i - 1].createdAt).getTime()
+    const curr = new Date(sorted[i].createdAt).getTime()
+    if (Math.abs(prev - curr) < 2 * 60 * 1000) {
+      current.push(sorted[i])
+    } else {
+      batches.push({ batch: current })
+      current = [sorted[i]]
+    }
+  }
+  batches.push({ batch: current })
+
+  return batches.map(({ batch }) => {
+    const passed = batch.reduce((sum, a) => sum + a.passedControls, 0)
+    const total = batch.reduce((sum, a) => sum + a.totalControls, 0)
+    const pct = total > 0 ? Math.round((passed / total) * 100) : 0
+    const label = batch.map((a) => FRAMEWORK_LABELS[a.frameworkId] ?? a.frameworkId).join(' + ')
+    return { batch, combined: { passed, total, pct }, label }
+  })
+}
+
 function AssessmentRow({ assessment, getScoreColor }: { assessment: Assessment; getScoreColor: (pct: number) => string }) {
   const pct = assessment.totalControls > 0 ? Math.round((assessment.passedControls / assessment.totalControls) * 100) : 0
-  const frameworkLabels: Record<string, string> = {
-    'cis-v8-ig1': 'CIS v8 — IG1',
-    'cis-v8-ig2': 'CIS v8 — IG2',
-    'cis-v8-ig3': 'CIS v8 — IG3',
-  }
 
   return (
     <div className="flex items-center justify-between p-3 rounded-lg bg-slate-900/30 border border-white/5">
@@ -1021,7 +1102,7 @@ function AssessmentRow({ assessment, getScoreColor }: { assessment: Assessment; 
           {assessment.status}
         </span>
         <div>
-          <p className="text-sm font-medium text-white">{frameworkLabels[assessment.frameworkId] ?? assessment.frameworkId}</p>
+          <p className="text-sm font-medium text-white">{FRAMEWORK_LABELS[assessment.frameworkId] ?? assessment.frameworkId}</p>
           <p className="text-xs text-slate-400">{new Date(assessment.createdAt).toLocaleString()}</p>
         </div>
       </div>
