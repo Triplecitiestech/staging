@@ -814,19 +814,31 @@ export default function ComplianceWorkflow({ companies }: { companies: Company[]
 
                   {/* Export */}
                   {assessments.length > 0 && (
-                    <div className="flex items-center justify-between pt-4 border-t border-white/10">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-4 border-t border-white/10">
                       <p className="text-sm text-slate-400">
                         {assessments.filter((a) => a.status === 'complete').length} completed assessment{assessments.filter((a) => a.status === 'complete').length !== 1 ? 's' : ''}
                       </p>
-                      <button
-                        onClick={() => {
-                          const latest = assessments.find((a) => a.status === 'complete')
-                          if (latest) window.open(`/api/compliance/export?assessmentId=${latest.id}`, '_blank')
-                        }}
-                        className="inline-flex items-center px-4 py-2 bg-slate-700/50 hover:bg-slate-600/50 text-slate-300 hover:text-white rounded-lg text-sm transition-colors"
-                      >
-                        Export Latest CSV
-                      </button>
+                      <div className="flex gap-2 flex-wrap">
+                        <button
+                          onClick={() => {
+                            const latest = assessments.find((a) => a.status === 'complete')
+                            if (latest) window.open(`/api/compliance/export?assessmentId=${latest.id}`, '_blank')
+                          }}
+                          className="inline-flex items-center px-4 py-2 bg-slate-700/50 hover:bg-slate-600/50 text-slate-300 hover:text-white rounded-lg text-sm transition-colors"
+                        >
+                          Export CSV
+                        </button>
+                        <button
+                          onClick={() => {
+                            const latest = assessments.find((a) => a.status === 'complete')
+                            if (latest) window.open(`/api/compliance/assessments/${latest.id}/cowork-worksheet`, '_blank')
+                          }}
+                          title="Download a Markdown worksheet for Claude Cowork. Cowork uses it to auto-fill the MyITProcess Alignment review for this customer — click-by-click, safeguard-by-safeguard."
+                          className="inline-flex items-center px-4 py-2 bg-violet-500/20 hover:bg-violet-500/30 text-violet-300 hover:text-white border border-violet-500/30 rounded-lg text-sm transition-colors"
+                        >
+                          Cowork Worksheet (MyITProcess)
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
