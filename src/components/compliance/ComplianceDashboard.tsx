@@ -129,12 +129,6 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
     window.open(`/api/compliance/export?assessmentId=${assessmentId}`, '_blank')
   }
 
-  const exportMyItProcess = (assessmentId: string) => {
-    // CSV formatted for MyITProcess alignment-item bulk import. We open in
-    // a new tab so the file downloads while the dashboard stays put.
-    window.open(`/api/compliance/assessments/${assessmentId}/export-myitprocess`, '_blank')
-  }
-
   const deleteAssessmentById = async (assessmentId: string) => {
     if (!confirm('Delete this assessment and all its evidence/findings? This cannot be undone.')) return
     try {
@@ -388,7 +382,6 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
             <AssessmentResults
               detail={activeAssessment}
               onExport={() => exportCsv(activeAssessment.assessment.id)}
-              onExportMyItProcess={() => exportMyItProcess(activeAssessment.assessment.id)}
               onUpdated={() => loadAssessment(activeAssessment.assessment.id)}
             />
             </div>
@@ -472,7 +465,7 @@ function getScoreColor(pct: number): string {
 // Assessment Results with comparison
 // ---------------------------------------------------------------------------
 
-function AssessmentResults({ detail, onExport, onExportMyItProcess, onUpdated }: { detail: AssessmentDetail; onExport: () => void; onExportMyItProcess: () => void; onUpdated: () => void }) {
+function AssessmentResults({ detail, onExport, onUpdated }: { detail: AssessmentDetail; onExport: () => void; onUpdated: () => void }) {
   const [expandedControls, setExpandedControls] = useState<Set<string>>(new Set())
   const [evidenceView, setEvidenceView] = useState<string | null>(null)
 
@@ -538,13 +531,6 @@ function AssessmentResults({ detail, onExport, onExportMyItProcess, onUpdated }:
           </button>
           <button onClick={onExport} className="inline-flex items-center px-3 py-2 bg-slate-700/50 hover:bg-slate-600/50 text-slate-300 hover:text-white rounded-lg text-sm transition-colors">
             Export CSV
-          </button>
-          <button
-            onClick={onExportMyItProcess}
-            title="Download a CSV of failed and partial findings, formatted for bulk-import into MyITProcess as alignment items. Use Settings > Standards > Alignment > Bulk Import in MyITProcess to attach them to the customer's roadmap."
-            className="inline-flex items-center px-3 py-2 bg-violet-500/20 hover:bg-violet-500/30 text-violet-300 hover:text-white border border-violet-500/30 rounded-lg text-sm transition-colors"
-          >
-            Push to MyITProcess
           </button>
           {detail.evidence && detail.evidence.length > 0 && (
             <button
