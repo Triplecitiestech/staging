@@ -647,8 +647,12 @@ export default function ComplianceWorkflow({ companies }: { companies: Company[]
             {/* STEP 4: Initial Assessment                                     */}
             {/* ============================================================= */}
             {currentStep === 4 && (
-              <StepCard title="Initial Assessment" subtitle="Run a compliance assessment to establish a baseline">
+              <StepCard title="Initial Assessment" subtitle="Capture the customer's starting compliance score. You can run this even if no policies have been uploaded or generated yet — it's the baseline you'll compare against later.">
                 <div className="space-y-6">
+                  <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-lg p-3 text-xs text-cyan-200/90">
+                    <strong className="text-cyan-200">No policies needed for this step.</strong> The assessment evaluates the customer&apos;s technical configuration (M365, Datto, DNSFilter, etc.) against CIS controls. Running it before policies gives you a baseline number to show the customer; running it again after policies are added shows the improvement.
+                  </div>
+
                   {/* Run Assessment */}
                   <div className="flex flex-col sm:flex-row sm:items-center gap-4">
                     <select
