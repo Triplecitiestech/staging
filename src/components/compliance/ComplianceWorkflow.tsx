@@ -179,8 +179,9 @@ export default function ComplianceWorkflow({ companies }: { companies: Company[]
 
   // Step 4 & 6 state (assessments)
   const [assessments, setAssessments] = useState<Assessment[]>([])
-  const [selectedFramework, setSelectedFramework] = useState('cis-v8-ig1')
+  const [selectedFrameworks, setSelectedFrameworks] = useState<string[]>(['cis-v8-ig1'])
   const [running, setRunning] = useState(false)
+  const [runProgress, setRunProgress] = useState({ current: 0, total: 0, currentName: '' })
   const [latestScore, setLatestScore] = useState<number | null>(null)
 
   // Track which sub-view the PolicyGenerationDashboard is showing so Step 5
@@ -314,22 +315,60 @@ export default function ComplianceWorkflow({ companies }: { companies: Company[]
   // Run assessment handler (Step 4 & 6)
   // -----------------------------------------------------------------------
 
+  // Framework metadata for display
+  const FRAMEWORK_OPTIONS = [
+    { id: 'cis-v8-ig1', label: 'CIS v8 — IG1', description: 'Essential Hygiene' },
+    { id: 'cis-v8-ig2', label: 'CIS v8 — IG2', description: 'Includes IG1' },
+    { id: 'cis-v8-ig3', label: 'CIS v8 — IG3', description: 'Includes IG1 + IG2' },
+    { id: 'cmmc-l1', label: 'CMMC Level 1', description: 'FAR 52.204-21' },
+  ]
+
+  const toggleFramework = (id: string) => {
+    setSelectedFrameworks((prev) => {
+      // CIS IG levels are mutually exclusive — selecting IG2 deselects IG1/IG3
+      const isCis = id.startsWith('cis-v8-ig')
+      if (isCis) {
+        const withoutCis = prev.filter((f) => !f.startsWith('cis-v8-ig'))
+        // Toggle: if it was the only CIS selected, deselect it; otherwise select it
+        if (prev.includes(id)) {
+          const result = withoutCis
+          return result.length > 0 ? result : prev // Keep at least one framework
+        }
+        return [...withoutCis, id]
+      }
+      // Non-CIS frameworks toggle independently
+      if (prev.includes(id)) {
+        const result = prev.filter((f) => f !== id)
+        return result.length > 0 ? result : prev // Keep at least one
+      }
+      return [...prev, id]
+    })
+  }
+
   const runAssessment = async () => {
-    if (!selectedCompany) return
+    if (!selectedCompany || selectedFrameworks.length === 0) return
     setRunning(true)
     setError(null)
-    try {
-      const createRes = await fetch('/api/compliance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ companyId: selectedCompany, frameworkId: selectedFramework }),
-      })
-      const createJson = await createRes.json()
-      if (!createJson.success) throw new Error(createJson.error)
+    setRunProgress({ current: 0, total: selectedFrameworks.length, currentName: '' })
 
-      const runRes = await fetch(`/api/compliance/assessments/${createJson.assessmentId}`, { method: 'POST' })
-      const runJson = await runRes.json()
-      if (!runJson.success) throw new Error(runJson.error || runJson.data?.errors?.join('; '))
+    try {
+      for (let i = 0; i < selectedFrameworks.length; i++) {
+        const fw = selectedFrameworks[i]
+        const fwLabel = FRAMEWORK_OPTIONS.find((o) => o.id === fw)?.label ?? fw
+        setRunProgress({ current: i + 1, total: selectedFrameworks.length, currentName: fwLabel })
+
+        const createRes = await fetch('/api/compliance', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ companyId: selectedCompany, frameworkId: fw }),
+        })
+        const createJson = await createRes.json()
+        if (!createJson.success) throw new Error(`${fwLabel}: ${createJson.error}`)
+
+        const runRes = await fetch(`/api/compliance/assessments/${createJson.assessmentId}`, { method: 'POST' })
+        const runJson = await runRes.json()
+        if (!runJson.success) throw new Error(`${fwLabel}: ${runJson.error || runJson.data?.errors?.join('; ')}`)
+      }
 
       // Reload assessments and workflow status
       await Promise.all([
@@ -340,6 +379,7 @@ export default function ComplianceWorkflow({ companies }: { companies: Company[]
       setError(err instanceof Error ? err.message : 'Assessment failed')
     } finally {
       setRunning(false)
+      setRunProgress({ current: 0, total: 0, currentName: '' })
     }
   }
 
@@ -653,33 +693,45 @@ export default function ComplianceWorkflow({ companies }: { companies: Company[]
                     <strong className="text-cyan-200">No policies needed for this step.</strong> The assessment evaluates the customer&apos;s technical configuration (M365, Datto, DNSFilter, etc.) against CIS controls. Running it before policies gives you a baseline number to show the customer; running it again after policies are added shows the improvement.
                   </div>
 
-                  {/* Run Assessment */}
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-                    <select
-                      value={selectedFramework}
-                      onChange={(e) => setSelectedFramework(e.target.value)}
-                      className="bg-slate-900/50 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
-                    >
-                      <optgroup label="CIS Controls v8">
-                        <option value="cis-v8-ig1">CIS v8 — IG1 (Essential Hygiene)</option>
-                        <option value="cis-v8-ig2">CIS v8 — IG2 (includes IG1)</option>
-                        <option value="cis-v8-ig3">CIS v8 — IG3 (includes IG1 + IG2)</option>
-                      </optgroup>
-                      <optgroup label="CMMC">
-                        <option value="cmmc-l1">CMMC Level 1 (Foundational, FAR 52.204-21)</option>
-                      </optgroup>
-                    </select>
+                  {/* Framework Selector (multi-select toggle buttons) */}
+                  <div>
+                    <p className="text-xs text-slate-400 mb-2">Select one or more frameworks to assess against:</p>
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      {FRAMEWORK_OPTIONS.map((fw) => {
+                        const selected = selectedFrameworks.includes(fw.id)
+                        return (
+                          <button
+                            key={fw.id}
+                            type="button"
+                            onClick={() => toggleFramework(fw.id)}
+                            disabled={running}
+                            className={`px-3 py-2 rounded-lg text-sm font-medium border transition-all disabled:opacity-50 ${
+                              selected
+                                ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                                : 'bg-slate-800/50 text-slate-400 border-white/10 hover:border-white/20'
+                            }`}
+                          >
+                            <span className="font-semibold">{fw.label}</span>
+                            <span className="text-xs text-slate-500 ml-1.5">({fw.description})</span>
+                          </button>
+                        )
+                      })}
+                    </div>
                     <button
                       onClick={runAssessment}
-                      disabled={running}
+                      disabled={running || selectedFrameworks.length === 0}
                       className="inline-flex items-center px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-white rounded-lg font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                     >
                       {running ? (
                         <>
                           <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2" />
-                          Running Assessment...
+                          {runProgress.total > 1
+                            ? `Running ${runProgress.currentName} (${runProgress.current}/${runProgress.total})...`
+                            : `Running ${runProgress.currentName || 'Assessment'}...`}
                         </>
-                      ) : 'Run Assessment'}
+                      ) : selectedFrameworks.length > 1
+                        ? `Run ${selectedFrameworks.length} Assessments`
+                        : 'Run Assessment'}
                     </button>
                   </div>
 
@@ -802,33 +854,45 @@ export default function ComplianceWorkflow({ companies }: { companies: Company[]
                     <ImprovementBanner assessments={assessments} getScoreColor={getScoreColor} />
                   )}
 
-                  {/* Run final assessment */}
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-                    <select
-                      value={selectedFramework}
-                      onChange={(e) => setSelectedFramework(e.target.value)}
-                      className="bg-slate-900/50 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
-                    >
-                      <optgroup label="CIS Controls v8">
-                        <option value="cis-v8-ig1">CIS v8 — IG1 (Essential Hygiene)</option>
-                        <option value="cis-v8-ig2">CIS v8 — IG2 (includes IG1)</option>
-                        <option value="cis-v8-ig3">CIS v8 — IG3 (includes IG1 + IG2)</option>
-                      </optgroup>
-                      <optgroup label="CMMC">
-                        <option value="cmmc-l1">CMMC Level 1 (Foundational, FAR 52.204-21)</option>
-                      </optgroup>
-                    </select>
+                  {/* Framework selector + run button (same multi-select as Step 4) */}
+                  <div>
+                    <p className="text-xs text-slate-400 mb-2">Select frameworks to re-assess:</p>
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      {FRAMEWORK_OPTIONS.map((fw) => {
+                        const selected = selectedFrameworks.includes(fw.id)
+                        return (
+                          <button
+                            key={fw.id}
+                            type="button"
+                            onClick={() => toggleFramework(fw.id)}
+                            disabled={running}
+                            className={`px-3 py-2 rounded-lg text-sm font-medium border transition-all disabled:opacity-50 ${
+                              selected
+                                ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                                : 'bg-slate-800/50 text-slate-400 border-white/10 hover:border-white/20'
+                            }`}
+                          >
+                            <span className="font-semibold">{fw.label}</span>
+                            <span className="text-xs text-slate-500 ml-1.5">({fw.description})</span>
+                          </button>
+                        )
+                      })}
+                    </div>
                     <button
                       onClick={runAssessment}
-                      disabled={running}
+                      disabled={running || selectedFrameworks.length === 0}
                       className="inline-flex items-center px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-white rounded-lg font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                     >
                       {running ? (
                         <>
                           <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2" />
-                          Running Final Assessment...
+                          {runProgress.total > 1
+                            ? `Running ${runProgress.currentName} (${runProgress.current}/${runProgress.total})...`
+                            : `Running ${runProgress.currentName || 'Assessment'}...`}
                         </>
-                      ) : 'Run Final Assessment'}
+                      ) : selectedFrameworks.length > 1
+                        ? `Run ${selectedFrameworks.length} Assessments`
+                        : 'Run Final Assessment'}
                     </button>
                   </div>
 
