@@ -317,8 +317,10 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
                     <option value="cis-v8-ig2">CIS v8 — IG2 (includes IG1)</option>
                     <option value="cis-v8-ig3">CIS v8 — IG3 (includes IG1 + IG2)</option>
                   </optgroup>
+                  <optgroup label="CMMC">
+                    <option value="cmmc-l1">CMMC Level 1 (Foundational, FAR 52.204-21)</option>
+                  </optgroup>
                   <optgroup label="Coming Soon">
-                    <option value="cmmc-l1" disabled>CMMC Level 1</option>
                     <option value="cmmc-l2" disabled>CMMC Level 2</option>
                     <option value="nist-800-171" disabled>NIST 800-171</option>
                     <option value="hipaa" disabled>HIPAA</option>
