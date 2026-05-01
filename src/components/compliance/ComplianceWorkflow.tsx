@@ -352,29 +352,45 @@ export default function ComplianceWorkflow({ companies }: { companies: Company[]
     setRunProgress({ current: 0, total: selectedFrameworks.length, currentName: '' })
 
     try {
+      const errors: string[] = []
+
       for (let i = 0; i < selectedFrameworks.length; i++) {
         const fw = selectedFrameworks[i]
         const fwLabel = FRAMEWORK_OPTIONS.find((o) => o.id === fw)?.label ?? fw
         setRunProgress({ current: i + 1, total: selectedFrameworks.length, currentName: fwLabel })
 
-        const createRes = await fetch('/api/compliance', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ companyId: selectedCompany, frameworkId: fw }),
-        })
-        const createJson = await createRes.json()
-        if (!createJson.success) throw new Error(`${fwLabel}: ${createJson.error}`)
+        try {
+          const createRes = await fetch('/api/compliance', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ companyId: selectedCompany, frameworkId: fw }),
+          })
+          const createJson = await createRes.json()
+          if (!createJson.success) {
+            errors.push(`${fwLabel}: ${createJson.error}`)
+            continue
+          }
 
-        const runRes = await fetch(`/api/compliance/assessments/${createJson.assessmentId}`, { method: 'POST' })
-        const runJson = await runRes.json()
-        if (!runJson.success) throw new Error(`${fwLabel}: ${runJson.error || runJson.data?.errors?.join('; ')}`)
+          const runRes = await fetch(`/api/compliance/assessments/${createJson.assessmentId}`, { method: 'POST' })
+          const runJson = await runRes.json()
+          if (!runJson.success) {
+            errors.push(`${fwLabel}: ${runJson.error || runJson.data?.errors?.join('; ')}`)
+            continue
+          }
+        } catch (fwErr) {
+          errors.push(`${fwLabel}: ${fwErr instanceof Error ? fwErr.message : String(fwErr)}`)
+        }
       }
 
-      // Reload assessments and workflow status
+      // Reload even if some failed (others may have succeeded)
       await Promise.all([
         loadAssessments(selectedCompany),
         loadWorkflowStatus(selectedCompany),
       ])
+
+      if (errors.length > 0) {
+        setError(`Some assessments failed: ${errors.join(' | ')}`)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Assessment failed')
     } finally {
