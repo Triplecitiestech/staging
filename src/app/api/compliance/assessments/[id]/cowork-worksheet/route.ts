@@ -97,6 +97,32 @@ function cleanCategory(raw: string): string {
   return raw.replace(/^\d+\s*-\s*/, '').trim()
 }
 
+// Map raw evidence source types to human-readable names for the worksheet
+const SOURCE_DISPLAY: Record<string, string> = {
+  microsoft_secure_score: 'Microsoft Secure Score',
+  microsoft_conditional_access: 'Microsoft Conditional Access',
+  microsoft_mfa: 'Microsoft MFA',
+  microsoft_device_compliance: 'Microsoft Intune',
+  microsoft_bitlocker: 'Microsoft BitLocker',
+  microsoft_defender: 'Microsoft Defender',
+  microsoft_intune_config: 'Microsoft Intune Policies',
+  microsoft_users: 'Microsoft Entra ID (Users)',
+  microsoft_mail_transport: 'Microsoft Exchange Transport Rules',
+  microsoft_audit_log: 'Microsoft Audit Logs',
+  datto_rmm_devices: 'Datto RMM',
+  datto_rmm_patches: 'Datto RMM (Patches)',
+  datto_edr_alerts: 'Datto EDR',
+  datto_bcdr_backup: 'Datto BCDR',
+  datto_saas_backup: 'Datto SaaS Protection',
+  dnsfilter_dns: 'DNSFilter',
+  autotask_tickets: 'Autotask Tickets',
+  domotz_network_discovery: 'Domotz Network Discovery',
+  it_glue_documentation: 'IT Glue',
+  saas_alerts_monitoring: 'SaaS Alerts',
+  myitprocess_alignment: 'MyITProcess',
+  manual_upload: 'Manual Upload',
+}
+
 function buildJustification(
   status: FindingStatus,
   control: ControlDefinition,
@@ -104,8 +130,12 @@ function buildJustification(
 ): { text: string; needsReview: boolean } {
   const reasoning = (finding.reasoning ?? '').trim()
   const remediation = (finding.remediation ?? '').trim()
-  const evidence = finding.evidenceIds.length > 0
-    ? ` Evidence collected from: ${finding.evidenceIds.join(', ')}.`
+  // Use human-readable source names instead of UUID evidence IDs
+  const sourceNames = control.evidenceSources
+    .filter((s) => finding.evidenceIds.length > 0 || finding.missingEvidence.includes(s))
+    .map((s) => SOURCE_DISPLAY[s] ?? s)
+  const evidence = sourceNames.length > 0
+    ? ` Data sources: ${sourceNames.join(', ')}.`
     : ''
 
   switch (status) {
