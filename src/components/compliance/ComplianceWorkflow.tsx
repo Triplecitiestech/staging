@@ -17,6 +17,8 @@
 
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
 import Link from 'next/link'
+import { AssessmentResults, getScoreColor } from './AssessmentResults'
+import type { AssessmentDetail } from './AssessmentResults'
 
 const PlatformMappingPanel = lazy(() => import('./PlatformMappingPanel'))
 const PolicyGenerationDashboard = lazy(() => import('./PolicyGenerationDashboard'))
@@ -75,15 +77,6 @@ interface Assessment {
   createdAt: string
   completedAt: string | null
   createdBy: string
-}
-
-interface Finding {
-  controlId: string
-  status: string
-  confidence: string
-  reasoning: string
-  remediation: string | null
-  overrideStatus: string | null
 }
 
 type StepStatus = 'pending' | 'active' | 'complete'
@@ -193,10 +186,9 @@ export default function ComplianceWorkflow({ companies }: { companies: Company[]
   const [runProgress, setRunProgress] = useState({ current: 0, total: 0, currentName: '' })
   const [latestScore, setLatestScore] = useState<number | null>(null)
 
-  // Assessment detail drilldown — shows per-control findings inline
-  const [expandedAssessmentId, setExpandedAssessmentId] = useState<string | null>(null)
-  const [assessmentFindings, setAssessmentFindings] = useState<Finding[]>([])
-  const [loadingFindings, setLoadingFindings] = useState(false)
+  // Assessment detail drilldown — shows the full AssessmentResults inline
+  const [activeDetail, setActiveDetail] = useState<AssessmentDetail | null>(null)
+  const [loadingDetail, setLoadingDetail] = useState(false)
 
   // Track which sub-view the PolicyGenerationDashboard is showing so Step 5
   // can hide sibling content (uploaded-policy management, Continue button)
@@ -418,21 +410,19 @@ export default function ComplianceWorkflow({ companies }: { companies: Company[]
   // -----------------------------------------------------------------------
 
   const toggleAssessmentDetail = async (assessmentId: string) => {
-    if (expandedAssessmentId === assessmentId) {
-      setExpandedAssessmentId(null)
-      setAssessmentFindings([])
+    if (activeDetail?.assessment.id === assessmentId) {
+      setActiveDetail(null)
       return
     }
-    setExpandedAssessmentId(assessmentId)
-    setLoadingFindings(true)
+    setLoadingDetail(true)
     try {
-      const res = await fetch(`/api/compliance/assessments/${assessmentId}`)
+      const res = await fetch(`/api/compliance/assessments/${assessmentId}?evidence=true`)
       const json = await res.json()
       if (json.success) {
-        setAssessmentFindings(json.data.findings ?? [])
+        setActiveDetail(json.data)
       }
     } catch { /* ignore */ }
-    setLoadingFindings(false)
+    setLoadingDetail(false)
   }
 
   // -----------------------------------------------------------------------
@@ -468,12 +458,6 @@ export default function ComplianceWorkflow({ companies }: { companies: Company[]
   // -----------------------------------------------------------------------
   // Get score color
   // -----------------------------------------------------------------------
-
-  const getScoreColor = (pct: number): string => {
-    if (pct >= 80) return 'text-green-400'
-    if (pct >= 50) return 'text-cyan-400'
-    return 'text-red-400'
-  }
 
   // -----------------------------------------------------------------------
   // Render
@@ -809,12 +793,19 @@ export default function ComplianceWorkflow({ companies }: { companies: Company[]
                             <AssessmentRow
                               key={a.id}
                               assessment={a}
-                              getScoreColor={getScoreColor}
-                              expanded={expandedAssessmentId === a.id}
-                              findings={expandedAssessmentId === a.id ? assessmentFindings : undefined}
-                              loadingFindings={expandedAssessmentId === a.id && loadingFindings}
+                              expanded={activeDetail?.assessment.id === a.id}
+                              loadingDetail={loadingDetail && activeDetail?.assessment.id !== a.id}
                               onToggle={() => toggleAssessmentDetail(a.id)}
-                            />
+                            >
+                              {activeDetail?.assessment.id === a.id && (
+                                <AssessmentResults
+                                  detail={activeDetail}
+                                  onExport={() => window.open(`/api/compliance/export?assessmentId=${a.id}`, '_blank')}
+                                  onCoworkWorksheet={() => window.open(`/api/compliance/assessments/${a.id}/cowork-worksheet`, '_blank')}
+                                  onUpdated={() => toggleAssessmentDetail(a.id)}
+                                />
+                              )}
+                            </AssessmentRow>
                           ))}
                         </div>
                       ))}
@@ -938,7 +929,7 @@ export default function ComplianceWorkflow({ companies }: { companies: Company[]
                 <div className="space-y-6">
                   {/* Improvement comparison */}
                   {assessments.length >= 2 && (
-                    <ImprovementBanner assessments={assessments} getScoreColor={getScoreColor} />
+                    <ImprovementBanner assessments={assessments} />
                   )}
 
                   {/* Framework selector + run button (same multi-select as Step 4) */}
@@ -1004,12 +995,19 @@ export default function ComplianceWorkflow({ companies }: { companies: Company[]
                             <AssessmentRow
                               key={a.id}
                               assessment={a}
-                              getScoreColor={getScoreColor}
-                              expanded={expandedAssessmentId === a.id}
-                              findings={expandedAssessmentId === a.id ? assessmentFindings : undefined}
-                              loadingFindings={expandedAssessmentId === a.id && loadingFindings}
+                              expanded={activeDetail?.assessment.id === a.id}
+                              loadingDetail={loadingDetail && activeDetail?.assessment.id !== a.id}
                               onToggle={() => toggleAssessmentDetail(a.id)}
-                            />
+                            >
+                              {activeDetail?.assessment.id === a.id && (
+                                <AssessmentResults
+                                  detail={activeDetail}
+                                  onExport={() => window.open(`/api/compliance/export?assessmentId=${a.id}`, '_blank')}
+                                  onCoworkWorksheet={() => window.open(`/api/compliance/assessments/${a.id}/cowork-worksheet`, '_blank')}
+                                  onUpdated={() => toggleAssessmentDetail(a.id)}
+                                />
+                              )}
+                            </AssessmentRow>
                           ))}
                         </div>
                       ))}
@@ -1148,18 +1146,16 @@ function groupIntoBatches(assessments: Assessment[]): Array<{ batch: Assessment[
 
 function AssessmentRow({
   assessment,
-  getScoreColor,
   expanded,
-  findings,
-  loadingFindings,
+  loadingDetail,
   onToggle,
+  children,
 }: {
   assessment: Assessment
-  getScoreColor: (pct: number) => string
   expanded?: boolean
-  findings?: Finding[]
-  loadingFindings?: boolean
+  loadingDetail?: boolean
   onToggle?: () => void
+  children?: React.ReactNode
 }) {
   const pct = assessment.totalControls > 0 ? Math.round((assessment.passedControls / assessment.totalControls) * 100) : 0
   const clickable = assessment.status === 'complete' && !!onToggle
@@ -1195,97 +1191,23 @@ function AssessmentRow({
         </div>
       </button>
 
-      {/* Inline findings detail */}
+      {/* Inline detail — renders the full AssessmentResults (same one used in /admin/compliance dashboard) */}
       {expanded && (
         <div className="border-t border-white/5 p-4">
-          {loadingFindings ? (
-            <div className="text-center py-4">
-              <div className="animate-spin w-5 h-5 border-2 border-cyan-400 border-t-transparent rounded-full mx-auto" />
-              <p className="text-xs text-slate-400 mt-2">Loading findings...</p>
+          {loadingDetail ? (
+            <div className="text-center py-6">
+              <div className="animate-spin w-6 h-6 border-2 border-cyan-400 border-t-transparent rounded-full mx-auto" />
+              <p className="text-xs text-slate-400 mt-2">Loading assessment details...</p>
             </div>
-          ) : findings && findings.length > 0 ? (
-            <FindingsDetail findings={findings} getScoreColor={getScoreColor} />
-          ) : (
-            <p className="text-xs text-slate-400">No findings available.</p>
-          )}
+          ) : children}
         </div>
       )}
     </div>
   )
 }
 
-const FINDING_STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
-  pass: { label: 'Pass', color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
-  fail: { label: 'Fail', color: 'text-red-400', bg: 'bg-red-500/10' },
-  partial: { label: 'Partial', color: 'text-violet-400', bg: 'bg-violet-500/10' },
-  needs_review: { label: 'Needs Review', color: 'text-blue-400', bg: 'bg-blue-500/10' },
-  not_assessed: { label: 'Not Assessed', color: 'text-slate-400', bg: 'bg-slate-500/10' },
-  not_applicable: { label: 'N/A', color: 'text-slate-500', bg: 'bg-slate-500/10' },
-  collection_failed: { label: 'Collection Failed', color: 'text-rose-400', bg: 'bg-rose-500/10' },
-}
 
-function FindingsDetail({ findings, getScoreColor }: { findings: Finding[]; getScoreColor: (pct: number) => string }) {
-  const sorted = [...findings].sort((a, b) => {
-    const numA = a.controlId.replace(/^[a-z]+-[a-z0-9]+-?/i, '').split('.').map(Number)
-    const numB = b.controlId.replace(/^[a-z]+-[a-z0-9]+-?/i, '').split('.').map(Number)
-    for (let i = 0; i < Math.max(numA.length, numB.length); i++) {
-      const diff = (numA[i] ?? 0) - (numB[i] ?? 0)
-      if (diff !== 0) return diff
-    }
-    return 0
-  })
-
-  const passCount = findings.filter((f) => (f.overrideStatus ?? f.status) === 'pass').length
-  const failCount = findings.filter((f) => (f.overrideStatus ?? f.status) === 'fail').length
-  const partialCount = findings.filter((f) => (f.overrideStatus ?? f.status) === 'partial').length
-  const otherCount = findings.length - passCount - failCount - partialCount
-  const pct = findings.length > 0 ? Math.round((passCount / findings.length) * 100) : 0
-
-  return (
-    <div className="space-y-3">
-      {/* Summary stats */}
-      <div className="flex flex-wrap gap-3 text-xs">
-        <span className="text-emerald-400">{passCount} passed</span>
-        <span className="text-red-400">{failCount} failed</span>
-        <span className="text-violet-400">{partialCount} partial</span>
-        {otherCount > 0 && <span className="text-slate-400">{otherCount} other</span>}
-        <span className={`font-semibold ${getScoreColor(pct)}`}>{pct}% score</span>
-      </div>
-
-      {/* Findings list — collapsible, shows reasoning + remediation */}
-      <div className="space-y-1 max-h-[500px] overflow-y-auto">
-        {sorted.map((f) => {
-          const effectiveStatus = f.overrideStatus ?? f.status
-          const cfg = FINDING_STATUS_CONFIG[effectiveStatus] ?? { label: effectiveStatus, color: 'text-slate-400', bg: 'bg-slate-500/10' }
-          return (
-            <details key={f.controlId} className="group">
-              <summary className={`flex items-center justify-between px-3 py-2 rounded cursor-pointer hover:bg-white/5 ${cfg.bg}`}>
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className={`text-xs font-mono font-semibold ${cfg.color} w-20 flex-shrink-0`}>
-                    {f.controlId.replace(/^cis-v8-|^cmmc-/, '')}
-                  </span>
-                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${cfg.bg} ${cfg.color} border border-white/5`}>
-                    {cfg.label}
-                  </span>
-                </div>
-                <span className="text-slate-500 text-xs group-open:rotate-90 transition-transform">&#9654;</span>
-              </summary>
-              <div className="px-3 py-2 ml-[88px] text-xs space-y-1">
-                {f.reasoning && <p className="text-slate-300">{f.reasoning}</p>}
-                {f.remediation && (
-                  <p className="text-cyan-300/80">Remediation: {f.remediation}</p>
-                )}
-                <p className="text-slate-500">Confidence: {f.confidence}</p>
-              </div>
-            </details>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-function ImprovementBanner({ assessments, getScoreColor }: { assessments: Assessment[]; getScoreColor: (pct: number) => string }) {
+function ImprovementBanner({ assessments }: { assessments: Assessment[] }) {
   const completed = assessments.filter((a) => a.status === 'complete')
   if (completed.length < 2) return null
 
