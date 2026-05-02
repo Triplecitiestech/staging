@@ -621,9 +621,50 @@ evaluators['cis-v8-9.3'] = (ctx: EvaluationContext): EvaluationResult => {
 // TODO: when EasyDMARC connector is built, query DMARC/SPF/DKIM via API and
 // promote to pass/fail based on policy strictness.
 evaluators['cis-v8-9.5'] = (ctx: EvaluationContext): EvaluationResult => {
-  return result('cis-v8-9.5', ctx, 'needs_review', 'low',
-    'DMARC enforcement requires DNS verification of the customer\'s email domains. EasyDMARC integration is on the roadmap. Until then, manually verify DMARC, SPF, and DKIM records exist with policy=quarantine or reject.',
-    [], ['easydmarc_dmarc'])
+  const emailAuth = ctx.evidence.get('easydmarc_email_auth' as EvidenceSourceType)
+  if (!emailAuth) {
+    return result('cis-v8-9.5', ctx, 'needs_review', 'low',
+      'DMARC enforcement requires DNS verification. Configure EASYDMARC_API_KEY to auto-check, or manually verify DMARC/SPF/DKIM records.',
+      [], ['easydmarc_email_auth'])
+  }
+
+  const data = emailAuth.rawData as {
+    domain?: string
+    enforced?: boolean
+    dmarc?: { exists?: boolean; policy?: string; pct?: number; ruaConfigured?: boolean; valid?: boolean }
+    spf?: { exists?: boolean; allMechanism?: string; valid?: boolean }
+    dkim?: { exists?: boolean; selector?: string; publicKeyValid?: boolean }
+  }
+
+  const domain = data.domain ?? 'unknown'
+  const dmarcPolicy = data.dmarc?.policy ?? 'missing'
+  const spfValid = data.spf?.exists && data.spf.valid
+  const dkimPresent = data.dkim?.exists
+
+  // Fully enforced: DMARC quarantine/reject + SPF valid + DKIM present
+  if (data.enforced) {
+    return result('cis-v8-9.5', ctx, 'pass', 'high',
+      `DMARC is fully enforced for ${domain}: policy=${dmarcPolicy}${data.dmarc?.pct ? ` pct=${data.dmarc.pct}%` : ''}, SPF valid, DKIM published${data.dkim?.selector ? ` (selector: ${data.dkim.selector})` : ''}${data.dmarc?.ruaConfigured ? ', aggregate reporting configured' : ''}.`,
+      ['easydmarc_email_auth'], [])
+  }
+
+  // DMARC exists but not enforcing (policy=none or missing SPF/DKIM)
+  if (data.dmarc?.exists && data.dmarc.valid) {
+    const gaps: string[] = []
+    if (dmarcPolicy === 'none') gaps.push('DMARC policy is "none" (monitoring only)')
+    if (!spfValid) gaps.push('SPF record missing or invalid')
+    if (!dkimPresent) gaps.push('DKIM record not found')
+    return result('cis-v8-9.5', ctx, 'partial', 'high',
+      `DMARC record exists for ${domain} (policy=${dmarcPolicy}) but is not fully enforcing. Gaps: ${gaps.join('; ')}.`,
+      ['easydmarc_email_auth'], [],
+      `Upgrade DMARC policy to "quarantine" or "reject"${!spfValid ? ', fix SPF record' : ''}${!dkimPresent ? ', publish DKIM' : ''}.`)
+  }
+
+  // No DMARC at all
+  return result('cis-v8-9.5', ctx, 'fail', 'high',
+    `No valid DMARC record found for ${domain}. SPF: ${spfValid ? 'valid' : 'missing/invalid'}, DKIM: ${dkimPresent ? 'present' : 'missing'}.`,
+    ['easydmarc_email_auth'], [],
+    `Publish a DMARC record: _dmarc.${domain} TXT "v=DMARC1; p=quarantine; rua=mailto:dmarc@${domain}". Also ensure SPF and DKIM are configured.`)
 }
 
 // --- 10.1 Deploy and Maintain Anti-Malware Software ---
@@ -2325,14 +2366,13 @@ evaluators['cis-v8-12.2'] = (ctx) => {
   const unifi = ctx.evidence.get('ubiquiti_network')
   const domotz = ctx.evidence.get('domotz_network_discovery')
   const sources = ['ubiquiti_network', 'domotz_network_discovery'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
-  if (unifi && domotz) {
-    return result('cis-v8-12.2', ctx, 'pass', 'high',
-      'Secure network architecture is implemented via Ubiquiti UniFi (VLANs, firewall rules, traffic segmentation) and continuously monitored via Domotz network discovery.',
-      sources, [])
-  }
   if (unifi) {
-    return result('cis-v8-12.2', ctx, 'pass', 'medium',
-      'Network architecture is managed via Ubiquiti UniFi (VLANs, firewall rules, traffic segmentation).',
+    const netCfg = (unifi.rawData as { networkConfig?: { vlanCount?: number; guestNetworkConfigured?: boolean; guestIsolation?: boolean; networkSegmented?: boolean } }).networkConfig
+    const vlanDetail = netCfg
+      ? ` ${netCfg.vlanCount} VLANs configured${netCfg.guestNetworkConfigured ? ', guest network present' : ''}${netCfg.guestIsolation ? ' (isolated)' : ''}${netCfg.networkSegmented ? ' — network is segmented.' : '.'}`
+      : ' (VLAN config details unavailable — API endpoint may not support network config query).'
+    return result('cis-v8-12.2', ctx, 'pass', netCfg?.networkSegmented ? 'high' : 'medium',
+      `Secure network architecture managed via Ubiquiti UniFi.${vlanDetail}${domotz ? ' Continuously monitored via Domotz network discovery.' : ''}`,
       sources, [])
   }
   return noEvidence('cis-v8-12.2', ['ubiquiti_network', 'domotz_network_discovery'], ctx)

@@ -17,7 +17,7 @@ import { getPool } from '@/lib/db-pool'
 import type { PoolClient } from 'pg'
 import { ensureComplianceTables } from './ensure-tables'
 import { collectGraphEvidence } from './collectors/graph'
-import { collectDattoRmmEvidence, collectDattoBcdrEvidence, collectDattoEdrEvidence, collectDattoSaasEvidence, collectDnsFilterEvidence, collectDomotzEvidence, collectItGlueEvidence, collectSaasAlertsEvidence, collectUbiquitiEvidence, collectMyItProcessEvidence } from './collectors/msp'
+import { collectDattoRmmEvidence, collectDattoBcdrEvidence, collectDattoEdrEvidence, collectDattoSaasEvidence, collectDnsFilterEvidence, collectDomotzEvidence, collectItGlueEvidence, collectSaasAlertsEvidence, collectUbiquitiEvidence, collectMyItProcessEvidence, collectEasyDmarcEvidence } from './collectors/msp'
 import { CIS_V8_FRAMEWORK, CIS_V8_EVALUATORS, applyPolicyCoverage } from './frameworks/cis-v8'
 import { CMMC_L1_FRAMEWORK, CMMC_L1_EVALUATORS } from './frameworks/cmmc-l1'
 import {
@@ -167,6 +167,9 @@ export async function detectConnectors(companyId: string): Promise<ConnectorStat
     }
     if (process.env.UBIQUITI_API_KEY) {
       await upsert('ubiquiti', 'verified', null, 'env.UBIQUITI_*')
+    }
+    if (process.env.EASYDMARC_API_KEY) {
+      await upsert('easydmarc', 'verified', null, 'env.EASYDMARC_*')
     }
     if (process.env.MYITP_API_KEY) {
       await upsert('myitprocess', 'verified', null, 'env.MYITP_*')
@@ -772,6 +775,10 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
   if (availableConnectors.has('ubiquiti')) {
     collectors.push({ name: 'Ubiquiti', connector: 'ubiquiti',
       fn: () => collectUbiquitiEvidence(assessment.companyId, assessmentId, companyDisplayName) })
+  }
+  if (availableConnectors.has('easydmarc')) {
+    collectors.push({ name: 'EasyDMARC', connector: 'easydmarc',
+      fn: () => collectEasyDmarcEvidence(assessment.companyId, assessmentId, companyDisplayName) })
   }
   if (availableConnectors.has('myitprocess')) {
     collectors.push({ name: 'MyITProcess', connector: 'myitprocess',
