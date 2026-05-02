@@ -34,9 +34,8 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
-import { getAssessmentSummary } from '@/lib/compliance/engine'
-import { CIS_V8_FRAMEWORK } from '@/lib/compliance/frameworks/cis-v8'
-import type { Finding, FindingStatus, ControlDefinition } from '@/lib/compliance/types'
+import { getAssessmentSummary, getFrameworkDefinition } from '@/lib/compliance/engine'
+import type { Finding, FindingStatus, ControlDefinition, FrameworkId, FrameworkDefinition } from '@/lib/compliance/types'
 
 export const dynamic = 'force-dynamic'
 
@@ -155,7 +154,7 @@ function buildJustification(
 
 function buildWorksheetRows(
   findings: Finding[],
-  framework = CIS_V8_FRAMEWORK
+  framework: FrameworkDefinition
 ): WorksheetRow[] {
   // Build a lookup of findings by controlId for efficient join
   const findingByControl = new Map(findings.map((f) => [f.controlId, f]))
@@ -303,15 +302,55 @@ export async function GET(
   const format = request.nextUrl.searchParams.get('format') ?? 'markdown'
 
   try {
-    const summary = await getAssessmentSummary(assessmentId)
-    if (!summary) {
-      return NextResponse.json({ error: 'Assessment not found' }, { status: 404 })
+    // Support multiple assessments in one worksheet (for multi-framework batch runs).
+    // The primary assessment ID comes from the URL path; extras via ?includeIds=id1,id2
+    const includeParam = request.nextUrl.searchParams.get('includeIds')
+    const allIds = includeParam
+      ? Array.from(new Set([assessmentId, ...includeParam.split(',').map((s) => s.trim()).filter(Boolean)]))
+      : [assessmentId]
+
+    // Load all assessments and merge findings using each assessment's correct framework
+    const allRows: WorksheetRow[] = []
+    const frameworkNames: string[] = []
+    let companyId = ''
+    let latestDate = ''
+    let totalPassed = 0
+    let totalControls = 0
+
+    for (const id of allIds) {
+      const summary = await getAssessmentSummary(id)
+      if (!summary) continue
+      const { assessment, findings, frameworkName: fwName } = summary
+
+      // Look up the correct framework definition for this assessment
+      let framework: FrameworkDefinition
+      try {
+        framework = getFrameworkDefinition(assessment.frameworkId as FrameworkId)
+      } catch {
+        // Framework not registered — skip
+        continue
+      }
+
+      const rows = buildWorksheetRows(findings, framework)
+      allRows.push(...rows)
+      frameworkNames.push(fwName)
+      companyId = assessment.companyId
+      totalPassed += assessment.passedControls
+      totalControls += assessment.totalControls
+      const d = assessment.completedAt ?? assessment.createdAt
+      if (d > latestDate) latestDate = d
     }
 
-    const { assessment, findings, frameworkName } = summary
-    const rows = buildWorksheetRows(findings)
+    if (allRows.length === 0) {
+      return NextResponse.json({
+        error: 'No safeguard data found. Make sure you have completed assessments and are exporting from the correct assessment.',
+      }, { status: 404 })
+    }
 
-    // Resolve company name for the worksheet header
+    const combinedFrameworkName = frameworkNames.join(' + ')
+    const scorePercent = totalControls > 0 ? Math.round((totalPassed / totalControls) * 100) : null
+
+    // Resolve company name
     let companyName = 'this customer'
     try {
       const { getPool } = await import('@/lib/db-pool')
@@ -320,7 +359,7 @@ export async function GET(
       try {
         const r = await c.query<{ displayName: string }>(
           `SELECT "displayName" FROM companies WHERE id = $1`,
-          [assessment.companyId]
+          [companyId]
         )
         if (r.rows[0]) companyName = r.rows[0].displayName
       } finally {
@@ -328,34 +367,30 @@ export async function GET(
       }
     } catch { /* fall back to placeholder */ }
 
-    const scorePercent = assessment.totalControls > 0
-      ? Math.round((assessment.passedControls / assessment.totalControls) * 100)
-      : null
-
     if (format === 'json') {
       return NextResponse.json({
         success: true,
         data: {
           companyName,
-          frameworkName,
-          assessmentId,
-          assessmentDate: assessment.completedAt ?? assessment.createdAt,
+          frameworkName: combinedFrameworkName,
+          assessmentIds: allIds,
+          assessmentDate: latestDate,
           scorePercent,
-          totalSafeguards: rows.length,
-          rows,
+          totalSafeguards: allRows.length,
+          rows: allRows,
         },
       })
     }
 
     const md = renderMarkdown({
       companyName,
-      frameworkName,
-      assessmentDate: new Date(assessment.completedAt ?? assessment.createdAt).toISOString().slice(0, 10),
-      rows,
+      frameworkName: combinedFrameworkName,
+      assessmentDate: new Date(latestDate).toISOString().slice(0, 10),
+      rows: allRows,
       scorePercent,
     })
 
-    const filename = `myitp-cowork-worksheet-${companyName.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-${assessmentId.substring(0, 8)}.md`
+    const filename = `myitp-cowork-worksheet-${companyName.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-${allIds[0].substring(0, 8)}.md`
 
     return new NextResponse(md, {
       status: 200,
