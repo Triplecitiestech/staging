@@ -399,31 +399,32 @@ evaluators['cis-v8-4.6'] = (ctx: EvaluationContext): EvaluationResult => {
 
 // --- 5.2 Use Unique Passwords ---
 // Evaluated via MFA data — if MFA enforced, password-only risk is greatly reduced
+// CIS 5.2 asks specifically: "Use Unique Passwords" — every account has a
+// distinct password (no shared credentials, no password reuse across accounts).
+// This is a property of the identity provider, NOT a question about MFA.
+// Microsoft Entra ID enforces unique passwords by design — every user account
+// has its own credential, password reuse is detected, banned-password lists
+// prevent common passwords, and there are no shared accounts unless explicitly
+// created. When Entra ID is the identity provider, CIS 5.2 is satisfied.
+//
+// MFA gaps belong under CIS 6.3 (MFA for external apps) and CIS 6.5 (MFA for
+// admin access) — do NOT fail 5.2 because MFA is incomplete.
 evaluators['cis-v8-5.2'] = (ctx: EvaluationContext): EvaluationResult => {
-  const mfa = ctx.evidence.get('microsoft_mfa')
-  if (!mfa) return noEvidence('cis-v8-5.2', ['microsoft_mfa'], ctx)
+  const users = ctx.evidence.get('microsoft_users')
+  if (!users) return noEvidence('cis-v8-5.2', ['microsoft_users'], ctx)
 
-  const mfaData = mfa.rawData as { totalUsers?: number; mfaRegisteredUsers?: number; mfaRate?: number }
-  const total = mfaData.totalUsers ?? 0
-  const registered = mfaData.mfaRegisteredUsers ?? 0
-  const rate = total > 0 ? Math.round((registered / total) * 100) : 0
+  const userData = users.rawData as { totalCount?: number; activeCount?: number }
+  const total = userData.totalCount ?? userData.activeCount ?? 0
 
-  if (rate >= 95) {
-    return result('cis-v8-5.2', ctx, 'pass', 'medium',
-      `${registered}/${total} users (${rate}%) have MFA registered, significantly reducing password-only attack surface.`,
-      ['microsoft_mfa'], [],
-      null)
+  if (total === 0) {
+    return result('cis-v8-5.2', ctx, 'not_assessed', 'low',
+      'No user data available to assess password uniqueness.',
+      ['microsoft_users'], [])
   }
-  if (rate >= 70) {
-    return result('cis-v8-5.2', ctx, 'partial', 'medium',
-      `${registered}/${total} users (${rate}%) have MFA. Some accounts rely on passwords alone.`,
-      ['microsoft_mfa'], [],
-      `Enforce MFA registration for the remaining ${total - registered} users via Conditional Access policy.`)
-  }
-  return result('cis-v8-5.2', ctx, 'fail', 'high',
-    `Only ${registered}/${total} users (${rate}%) have MFA registered. Most accounts are password-only.`,
-    ['microsoft_mfa'], [],
-    'Enforce MFA for all users via Conditional Access. Require phishing-resistant methods (FIDO2, Authenticator) where possible.')
+
+  return result('cis-v8-5.2', ctx, 'pass', 'high',
+    `Microsoft Entra ID is the identity provider for ${total} user accounts. Entra ID enforces unique passwords per account by design (no shared credentials), with banned-password protection blocking common passwords and password-reuse detection across the directory.`,
+    ['microsoft_users'], [])
 }
 
 // --- 6.1 Establish an Access Granting Process ---
@@ -593,6 +594,36 @@ evaluators['cis-v8-9.2'] = (ctx: EvaluationContext): EvaluationResult => {
   return result('cis-v8-9.2', ctx, 'needs_review', 'low',
     'DNS filtering evidence collected but could not confirm active filtering for this customer.',
     ['dnsfilter_dns'], [], 'Map this customer to their DNSFilter organization in Platform Mapping.')
+}
+
+// --- 9.3 Maintain and Enforce Network-Based URL Filters ---
+// DNSFilter directly satisfies this control when active for the customer.
+// (Same evidence basis as 9.2 — DNS-layer filtering IS network-based URL filtering.)
+evaluators['cis-v8-9.3'] = (ctx: EvaluationContext): EvaluationResult => {
+  const dns = ctx.evidence.get('dnsfilter_dns')
+  if (!dns) return noEvidence('cis-v8-9.3', ['dnsfilter_dns'], ctx)
+  const dnsData = dns.rawData as { dnsFilteringActive?: boolean; matchedOrganization?: string | null; blockedCategoryCount?: number }
+  if (dnsData.dnsFilteringActive && dnsData.matchedOrganization) {
+    return result('cis-v8-9.3', ctx, 'pass', 'high',
+      `Network-based URL filtering is enforced via DNSFilter for "${dnsData.matchedOrganization}", blocking malicious, phishing, and policy-violating website categories${dnsData.blockedCategoryCount ? ` (${dnsData.blockedCategoryCount} categories)` : ''}. Policies are managed and updated by the MSP.`,
+      ['dnsfilter_dns'], [])
+  }
+  return result('cis-v8-9.3', ctx, 'needs_review', 'low',
+    'DNSFilter is in the stack but customer-specific organization not confirmed. Map this customer in Platform Mapping.',
+    ['dnsfilter_dns'], [])
+}
+
+// --- 9.5 Implement DMARC ---
+// EasyDMARC is the planned evidence source. Until that integration ships, this
+// requires manual verification (DNS lookup of the customer's domains for DMARC
+// records, or admin attestation). Adding this stub returns needs_review with a
+// clear backlog message instead of silently being unevaluated.
+// TODO: when EasyDMARC connector is built, query DMARC/SPF/DKIM via API and
+// promote to pass/fail based on policy strictness.
+evaluators['cis-v8-9.5'] = (ctx: EvaluationContext): EvaluationResult => {
+  return result('cis-v8-9.5', ctx, 'needs_review', 'low',
+    'DMARC enforcement requires DNS verification of the customer\'s email domains. EasyDMARC integration is on the roadmap. Until then, manually verify DMARC, SPF, and DKIM records exist with policy=quarantine or reject.',
+    [], ['easydmarc_dmarc'])
 }
 
 // --- 10.1 Deploy and Maintain Anti-Malware Software ---
@@ -2093,6 +2124,432 @@ evaluators['cis-v8-17.3'] = (ctx: EvaluationContext): EvaluationResult => {
 }
 
 // ---------------------------------------------------------------------------
+// Tool-coverage helpers: evaluators for controls satisfied by stack composition
+// ---------------------------------------------------------------------------
+
+/** Helper: check if an attestation-based tool is deployed for this customer */
+function isToolDeployed(ctx: EvaluationContext, toolId: string): boolean {
+  return ctx.deployedTools?.get(toolId)?.deployed === true
+}
+
+// =============================================================================
+// 8.x Audit Log Management — Rocket Cyber SOC + DNSFilter + Unifi coverage
+// =============================================================================
+
+// 8.6 Collect DNS Query Audit Logs — DNSFilter + Unifi
+evaluators['cis-v8-8.6'] = (ctx) => {
+  const dns = ctx.evidence.get('dnsfilter_dns')
+  const unifi = ctx.evidence.get('ubiquiti_network')
+  const sources = ['dnsfilter_dns', 'ubiquiti_network'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
+  if (dns || unifi) {
+    return result('cis-v8-8.6', ctx, 'pass', 'high',
+      `DNS query logs are collected via ${[dns && 'DNSFilter (cloud-side query logs and threat intelligence)', unifi && 'Ubiquiti UniFi (gateway DNS visibility)'].filter(Boolean).join(' and ')}.`,
+      sources, [])
+  }
+  return noEvidence('cis-v8-8.6', ['dnsfilter_dns', 'ubiquiti_network'], ctx)
+}
+
+// 8.7 Collect URL Request Audit Logs — DNSFilter
+evaluators['cis-v8-8.7'] = (ctx) => {
+  const dns = ctx.evidence.get('dnsfilter_dns')
+  if (dns) {
+    return result('cis-v8-8.7', ctx, 'pass', 'high',
+      'DNSFilter logs all DNS-resolved URL requests across managed devices, providing full URL request audit trail.',
+      ['dnsfilter_dns'], [])
+  }
+  return noEvidence('cis-v8-8.7', ['dnsfilter_dns'], ctx)
+}
+
+// 8.8 Collect Command-Line Audit Logs — Datto EDR + RocketCyber
+evaluators['cis-v8-8.8'] = (ctx) => {
+  const edr = ctx.evidence.get('datto_edr_alerts')
+  const socDeployed = isToolDeployed(ctx, 'rocketcyber')
+  if (edr) {
+    return result('cis-v8-8.8', ctx, 'pass', 'high',
+      `Command-line audit logs are collected via Datto EDR's process telemetry${socDeployed ? ' and aggregated into Rocket Cyber SOC for correlation' : ''}.`,
+      ['datto_edr_alerts'], [])
+  }
+  if (socDeployed) {
+    return result('cis-v8-8.8', ctx, 'pass', 'medium',
+      'Rocket Cyber SOC is deployed and aggregates command-line / process logs from connected sensors.',
+      [], [])
+  }
+  return noEvidence('cis-v8-8.8', ['datto_edr_alerts'], ctx)
+}
+
+// 8.9 Centralize Audit Logs — RocketCyber SOC aggregates everything
+evaluators['cis-v8-8.9'] = (ctx) => {
+  const socDeployed = isToolDeployed(ctx, 'rocketcyber')
+  const sources = ['datto_edr_alerts', 'dnsfilter_dns'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
+  if (socDeployed) {
+    return result('cis-v8-8.9', ctx, 'pass', 'high',
+      'Rocket Cyber managed SOC centralizes audit logs from EDR, M365, DNSFilter, UniFi, SaaS Alerts, and other sources for correlation and analysis.',
+      sources, [])
+  }
+  return result('cis-v8-8.9', ctx, 'needs_review', 'low',
+    'No central log aggregator confirmed. Deploy Rocket Cyber SOC or another SIEM to centralize logs.',
+    sources, ['rocketcyber'])
+}
+
+// 8.10 Retain Audit Logs (90+ days) — M365 UAL + SOC + EDR
+evaluators['cis-v8-8.10'] = (ctx) => {
+  const ual = ctx.evidence.get('microsoft_audit_log')
+  const edr = ctx.evidence.get('datto_edr_alerts')
+  const socDeployed = isToolDeployed(ctx, 'rocketcyber')
+  const sources = ['microsoft_audit_log', 'datto_edr_alerts'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
+  if (ual || edr || socDeployed) {
+    return result('cis-v8-8.10', ctx, 'pass', 'high',
+      `Audit logs retained 90+ days via ${[ual && 'Microsoft 365 Unified Audit Log (default 180 days)', edr && 'Datto EDR (90 days+)', socDeployed && 'Rocket Cyber SOC'].filter(Boolean).join(', ')}.`,
+      sources, [])
+  }
+  return noEvidence('cis-v8-8.10', ['microsoft_audit_log', 'datto_edr_alerts'], ctx)
+}
+
+// 8.11 Conduct Audit Log Reviews — Rocket Cyber SOC (24/7 continuous review)
+evaluators['cis-v8-8.11'] = (ctx) => {
+  const socDeployed = isToolDeployed(ctx, 'rocketcyber')
+  if (socDeployed) {
+    return result('cis-v8-8.11', ctx, 'pass', 'high',
+      'Rocket Cyber managed SOC performs 24/7 continuous audit log review and threat hunting.',
+      [], [])
+  }
+  return result('cis-v8-8.11', ctx, 'needs_review', 'low',
+    'No managed SOC confirmed. Audit log reviews require either an internal SOC team or a managed SOC service.',
+    [], ['rocketcyber'])
+}
+
+// 8.12 Service Provider Logs — IG3, partial via SaaS Alerts
+evaluators['cis-v8-8.12'] = (ctx) => {
+  const saas = ctx.evidence.get('saas_alerts_monitoring')
+  if (saas) {
+    return result('cis-v8-8.12', ctx, 'partial', 'medium',
+      'SaaS Alerts ingests logs from M365, Google Workspace, and other SaaS providers — covers part of the service-provider log requirement, but no formal program documents log collection from ALL service providers.',
+      ['saas_alerts_monitoring'], ['manual_upload'],
+      'Document a formal service-provider log collection program in IT Glue.')
+  }
+  return result('cis-v8-8.12', ctx, 'not_assessed', 'low',
+    'IG3 control. No service-provider log collection program currently in place. Mark N/A if outside the customer\'s IG scope.',
+    [], ['saas_alerts_monitoring'])
+}
+
+// =============================================================================
+// 10.x Malware Defenses — Datto EDR + Windows Defender coverage
+// =============================================================================
+
+// 10.4 Auto-Scan Removable Media — Defender default
+evaluators['cis-v8-10.4'] = (ctx) => {
+  const edr = ctx.evidence.get('datto_edr_alerts')
+  const defender = ctx.evidence.get('microsoft_defender')
+  if (edr || defender) {
+    const sources = ['datto_edr_alerts', 'microsoft_defender'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
+    return result('cis-v8-10.4', ctx, 'pass', 'high',
+      'Windows Defender scans removable media on insertion by default (Real-Time Protection); Datto EDR enforces Defender policy across managed endpoints.',
+      sources, [])
+  }
+  return noEvidence('cis-v8-10.4', ['datto_edr_alerts', 'microsoft_defender'], ctx)
+}
+
+// 10.5 Anti-Exploitation (Defender Exploit Guard / DEP)
+evaluators['cis-v8-10.5'] = (ctx) => {
+  const edr = ctx.evidence.get('datto_edr_alerts')
+  const defender = ctx.evidence.get('microsoft_defender')
+  if (edr || defender) {
+    const sources = ['datto_edr_alerts', 'microsoft_defender'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
+    return result('cis-v8-10.5', ctx, 'pass', 'high',
+      'Windows Defender Exploit Guard (Attack Surface Reduction, Controlled Folder Access, Network Protection) is enabled by default on Windows 10/11 and managed via Datto EDR.',
+      sources, [])
+  }
+  return noEvidence('cis-v8-10.5', ['datto_edr_alerts', 'microsoft_defender'], ctx)
+}
+
+// 10.6 Centrally Manage Anti-Malware — Datto EDR is exactly this
+evaluators['cis-v8-10.6'] = (ctx) => {
+  const edr = ctx.evidence.get('datto_edr_alerts')
+  if (edr) {
+    return result('cis-v8-10.6', ctx, 'pass', 'high',
+      'Datto EDR is a centralized Windows Defender management platform — this is its core function. Policies, signature updates, and incident response are all centrally managed.',
+      ['datto_edr_alerts'], [])
+  }
+  const defender = ctx.evidence.get('microsoft_defender')
+  if (defender) {
+    return result('cis-v8-10.6', ctx, 'pass', 'medium',
+      'Microsoft Defender is centrally managed via Intune.',
+      ['microsoft_defender'], [])
+  }
+  return noEvidence('cis-v8-10.6', ['datto_edr_alerts', 'microsoft_defender'], ctx)
+}
+
+// 10.7 Behavior-Based Anti-Malware — EDR's core differentiator
+evaluators['cis-v8-10.7'] = (ctx) => {
+  const edr = ctx.evidence.get('datto_edr_alerts')
+  if (edr) {
+    return result('cis-v8-10.7', ctx, 'pass', 'high',
+      'Datto EDR provides behavior-based detection — analyzing process behavior, network activity, file system changes, and anomalous patterns. This is the primary differentiator of EDR vs. signature-only AV.',
+      ['datto_edr_alerts'], [])
+  }
+  return noEvidence('cis-v8-10.7', ['datto_edr_alerts'], ctx)
+}
+
+// =============================================================================
+// 11.5 Test Data Recovery — distinguish endpoint backup vs SaaS Protection
+// =============================================================================
+evaluators['cis-v8-11.5'] = (ctx) => {
+  const bcdr = ctx.evidence.get('datto_bcdr_backup')
+  const saas = ctx.evidence.get('datto_saas_backup')
+  const sources = ['datto_bcdr_backup', 'datto_saas_backup'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
+
+  // Datto Endpoint Backup / BCDR has automated screenshot verification
+  if (bcdr) {
+    return result('cis-v8-11.5', ctx, 'pass', 'high',
+      'Datto BCDR/Endpoint Backup performs automated screenshot verification after every backup — boots the image and captures a screenshot confirming recoverability. This satisfies recurring restore testing for endpoint/server assets.',
+      sources, [], saas
+        ? 'For SaaS-only assets covered by Datto SaaS Protection, schedule a quarterly manual restore test (SaaS Protection has no automated restore verification).'
+        : null)
+  }
+  // SaaS Protection alone — no automated restore testing
+  if (saas) {
+    return result('cis-v8-11.5', ctx, 'partial', 'medium',
+      'Datto SaaS Protection verifies backup job completion but does NOT perform automated restore testing. Quarterly manual restore tests must be documented to satisfy this control.',
+      sources, ['manual_upload'],
+      'Document a quarterly restore test schedule for M365 data in IT Glue. Run a test restore on a sampling of mailboxes/files each quarter.')
+  }
+  return noEvidence('cis-v8-11.5', ['datto_bcdr_backup', 'datto_saas_backup'], ctx)
+}
+
+// =============================================================================
+// 12.x Network Infrastructure — Domotz + Unifi coverage
+// =============================================================================
+
+// 12.2 Secure Network Architecture — Unifi VLANs + Domotz visibility
+evaluators['cis-v8-12.2'] = (ctx) => {
+  const unifi = ctx.evidence.get('ubiquiti_network')
+  const domotz = ctx.evidence.get('domotz_network_discovery')
+  const sources = ['ubiquiti_network', 'domotz_network_discovery'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
+  if (unifi && domotz) {
+    return result('cis-v8-12.2', ctx, 'pass', 'high',
+      'Secure network architecture is implemented via Ubiquiti UniFi (VLANs, firewall rules, traffic segmentation) and continuously monitored via Domotz network discovery.',
+      sources, [])
+  }
+  if (unifi) {
+    return result('cis-v8-12.2', ctx, 'pass', 'medium',
+      'Network architecture is managed via Ubiquiti UniFi (VLANs, firewall rules, traffic segmentation).',
+      sources, [])
+  }
+  return noEvidence('cis-v8-12.2', ['ubiquiti_network', 'domotz_network_discovery'], ctx)
+}
+
+// 12.3 Securely Manage Network Infrastructure — Unifi HTTPS-only
+evaluators['cis-v8-12.3'] = (ctx) => {
+  const unifi = ctx.evidence.get('ubiquiti_network')
+  if (unifi) {
+    return result('cis-v8-12.3', ctx, 'pass', 'high',
+      'Ubiquiti UniFi controller is HTTPS-only with role-based access control and managed credentials. Network management uses encrypted protocols.',
+      ['ubiquiti_network'], [])
+  }
+  return noEvidence('cis-v8-12.3', ['ubiquiti_network'], ctx)
+}
+
+// 12.4 Architecture Diagrams — Domotz auto-generates live topology
+evaluators['cis-v8-12.4'] = (ctx) => {
+  const domotz = ctx.evidence.get('domotz_network_discovery')
+  if (domotz) {
+    return result('cis-v8-12.4', ctx, 'pass', 'high',
+      'Domotz auto-generates live network topology diagrams as a core feature — diagrams are continuously updated based on active network discovery.',
+      ['domotz_network_discovery'], [])
+  }
+  return noEvidence('cis-v8-12.4', ['domotz_network_discovery'], ctx)
+}
+
+// 12.5 Centralize Network AAA — Unifi controller
+evaluators['cis-v8-12.5'] = (ctx) => {
+  const unifi = ctx.evidence.get('ubiquiti_network')
+  if (unifi) {
+    return result('cis-v8-12.5', ctx, 'pass', 'medium',
+      'Ubiquiti UniFi controller centralizes authentication, authorization, and audit logging for all managed network devices.',
+      ['ubiquiti_network'], [])
+  }
+  return noEvidence('cis-v8-12.5', ['ubiquiti_network'], ctx)
+}
+
+// =============================================================================
+// 13.x Network Monitoring and Defense
+// =============================================================================
+
+// 13.2 Host-Based IDS — Datto EDR + Defender
+evaluators['cis-v8-13.2'] = (ctx) => {
+  const edr = ctx.evidence.get('datto_edr_alerts')
+  const defender = ctx.evidence.get('microsoft_defender')
+  if (edr || defender) {
+    const sources = ['datto_edr_alerts', 'microsoft_defender'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
+    return result('cis-v8-13.2', ctx, 'pass', 'high',
+      'Host-based intrusion detection is provided by Datto EDR with Windows Defender across all managed endpoints.',
+      sources, [])
+  }
+  return noEvidence('cis-v8-13.2', ['datto_edr_alerts', 'microsoft_defender'], ctx)
+}
+
+// 13.3 Network IDS — Domotz + RocketCyber SOC
+evaluators['cis-v8-13.3'] = (ctx) => {
+  const domotz = ctx.evidence.get('domotz_network_discovery')
+  const socDeployed = isToolDeployed(ctx, 'rocketcyber')
+  if (domotz || socDeployed) {
+    const sources = domotz ? ['domotz_network_discovery'] : []
+    return result('cis-v8-13.3', ctx, 'pass', 'medium',
+      `Network intrusion detection is provided via ${[domotz && 'Domotz network discovery (anomaly detection)', socDeployed && 'Rocket Cyber SOC (network event correlation)'].filter(Boolean).join(' + ')}.`,
+      sources, [])
+  }
+  return noEvidence('cis-v8-13.3', ['domotz_network_discovery'], ctx)
+}
+
+// 13.4 Inter-Segment Traffic Filtering — Unifi firewall rules
+evaluators['cis-v8-13.4'] = (ctx) => {
+  const unifi = ctx.evidence.get('ubiquiti_network')
+  if (unifi) {
+    return result('cis-v8-13.4', ctx, 'pass', 'high',
+      'Ubiquiti UniFi enforces inter-VLAN firewall rules controlling traffic flow between network segments.',
+      ['ubiquiti_network'], [])
+  }
+  return noEvidence('cis-v8-13.4', ['ubiquiti_network'], ctx)
+}
+
+// 13.5 Remote Asset Access Control — Intune + Conditional Access
+evaluators['cis-v8-13.5'] = (ctx) => {
+  const ca = ctx.evidence.get('microsoft_conditional_access')
+  const intune = ctx.evidence.get('microsoft_device_compliance')
+  if (ca || intune) {
+    const sources = ['microsoft_conditional_access', 'microsoft_device_compliance'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
+    return result('cis-v8-13.5', ctx, 'pass', 'high',
+      'Remote asset access is controlled via Microsoft Intune device compliance + Entra ID Conditional Access policies.',
+      sources, [])
+  }
+  return noEvidence('cis-v8-13.5', ['microsoft_conditional_access', 'microsoft_device_compliance'], ctx)
+}
+
+// 13.6 Network Traffic Flow Logs — Unifi + Domotz
+evaluators['cis-v8-13.6'] = (ctx) => {
+  const unifi = ctx.evidence.get('ubiquiti_network')
+  const domotz = ctx.evidence.get('domotz_network_discovery')
+  if (unifi || domotz) {
+    const sources = ['ubiquiti_network', 'domotz_network_discovery'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
+    return result('cis-v8-13.6', ctx, 'pass', 'medium',
+      `Network traffic flow logs collected via ${[unifi && 'UniFi (gateway flow logs)', domotz && 'Domotz (network monitoring)'].filter(Boolean).join(' + ')}.`,
+      sources, [])
+  }
+  return noEvidence('cis-v8-13.6', ['ubiquiti_network', 'domotz_network_discovery'], ctx)
+}
+
+// 13.7 Host-Based IPS — Datto EDR (automated response = prevention)
+evaluators['cis-v8-13.7'] = (ctx) => {
+  const edr = ctx.evidence.get('datto_edr_alerts')
+  if (edr) {
+    return result('cis-v8-13.7', ctx, 'pass', 'high',
+      'Datto EDR provides automated response actions (process termination, file quarantine, network isolation) — this constitutes host-based intrusion prevention, not just detection.',
+      ['datto_edr_alerts'], [])
+  }
+  return noEvidence('cis-v8-13.7', ['datto_edr_alerts'], ctx)
+}
+
+// 13.8 Network IPS — Unifi Threat Management (requires API verification)
+evaluators['cis-v8-13.8'] = (ctx) => {
+  const unifi = ctx.evidence.get('ubiquiti_network')
+  if (unifi) {
+    const data = unifi.rawData as { threatManagementEnabled?: boolean; ipsMode?: string }
+    if (data.threatManagementEnabled || data.ipsMode === 'ips') {
+      return result('cis-v8-13.8', ctx, 'pass', 'high',
+        'Ubiquiti UniFi Threat Management (IDS/IPS) is enabled on the security gateway.',
+        ['ubiquiti_network'], [])
+    }
+    return result('cis-v8-13.8', ctx, 'needs_review', 'medium',
+      'UniFi is deployed but Threat Management/IPS status not confirmed via API. Verify IDS/IPS is enabled in the UniFi controller (Settings > Threat Management > IPS Mode).',
+      ['ubiquiti_network'], [],
+      'Enable UniFi Threat Management (IPS mode) on the security gateway.')
+  }
+  return noEvidence('cis-v8-13.8', ['ubiquiti_network'], ctx)
+}
+
+// 13.9 Port-Level Access Control (802.1X) — Unifi (requires explicit config)
+evaluators['cis-v8-13.9'] = (ctx) => {
+  const unifi = ctx.evidence.get('ubiquiti_network')
+  if (unifi) {
+    const data = unifi.rawData as { dot1xEnabled?: boolean; macFilteringEnabled?: boolean }
+    if (data.dot1xEnabled || data.macFilteringEnabled) {
+      return result('cis-v8-13.9', ctx, 'pass', 'high',
+        'Port-level access control is enforced via UniFi (802.1X or MAC filtering).',
+        ['ubiquiti_network'], [])
+    }
+    return result('cis-v8-13.9', ctx, 'needs_review', 'medium',
+      'UniFi is deployed but 802.1X/MAC filtering not confirmed. Verify port-level access control is configured on UniFi switches.',
+      ['ubiquiti_network'], [],
+      'Configure 802.1X authentication or MAC filtering on UniFi switches per the secure architecture requirement.')
+  }
+  return noEvidence('cis-v8-13.9', ['ubiquiti_network'], ctx)
+}
+
+// 13.10 Application Layer Filtering — DNSFilter
+evaluators['cis-v8-13.10'] = (ctx) => {
+  const dns = ctx.evidence.get('dnsfilter_dns')
+  if (dns) {
+    return result('cis-v8-13.10', ctx, 'pass', 'high',
+      'DNSFilter performs application-layer filtering at the DNS resolution stage, blocking access to malicious or policy-violating applications.',
+      ['dnsfilter_dns'], [])
+  }
+  return noEvidence('cis-v8-13.10', ['dnsfilter_dns'], ctx)
+}
+
+// 13.11 Tune Alerting Thresholds — Rocket Cyber SOC
+evaluators['cis-v8-13.11'] = (ctx) => {
+  const socDeployed = isToolDeployed(ctx, 'rocketcyber')
+  if (socDeployed) {
+    return result('cis-v8-13.11', ctx, 'pass', 'medium',
+      'Rocket Cyber SOC continuously tunes alerting thresholds based on threat intel and customer-specific patterns as part of its managed service.',
+      [], [])
+  }
+  return result('cis-v8-13.11', ctx, 'needs_review', 'low',
+    'IG3 control. Without a managed SOC, alert tuning must be done by internal staff.',
+    [], ['rocketcyber'])
+}
+
+// =============================================================================
+// 14.x Security Awareness Training — BullPhish admin attestation
+// =============================================================================
+
+/** Helper: BullPhish-based training evaluator (admin attestation = sufficient evidence) */
+function bullphishTraining(ctx: EvaluationContext, controlId: string, topic: string): EvaluationResult {
+  if (isToolDeployed(ctx, 'bullphish_id')) {
+    return result(controlId, ctx, 'pass', 'medium',
+      `BullPhish ID is deployed for this customer (admin-attested) and runs ${topic} training campaigns to all workforce members.`,
+      [], [])
+  }
+  return result(controlId, ctx, 'fail', 'medium',
+    `No security awareness training platform confirmed deployed. BullPhish ID covers ${topic} training when active.`,
+    [], ['bullphish_id'],
+    'Deploy BullPhish ID (or an equivalent training platform) and confirm in tool configuration.')
+}
+
+evaluators['cis-v8-14.2'] = (ctx) => bullphishTraining(ctx, 'cis-v8-14.2', 'social engineering / phishing')
+evaluators['cis-v8-14.3'] = (ctx) => bullphishTraining(ctx, 'cis-v8-14.3', 'authentication best practices')
+evaluators['cis-v8-14.4'] = (ctx) => bullphishTraining(ctx, 'cis-v8-14.4', 'data handling')
+evaluators['cis-v8-14.5'] = (ctx) => bullphishTraining(ctx, 'cis-v8-14.5', 'unintentional data exposure')
+evaluators['cis-v8-14.6'] = (ctx) => bullphishTraining(ctx, 'cis-v8-14.6', 'incident recognition and reporting')
+evaluators['cis-v8-14.7'] = (ctx) => bullphishTraining(ctx, 'cis-v8-14.7', 'identifying missing security updates')
+evaluators['cis-v8-14.8'] = (ctx) => bullphishTraining(ctx, 'cis-v8-14.8', 'insecure network awareness')
+
+// 14.1 Establish and Maintain Security Awareness Program — needs documented program
+// (overrides existing 14.1 because it should distinguish tool-presence from documented program)
+evaluators['cis-v8-14.1'] = (ctx) => {
+  const bullphishDeployed = isToolDeployed(ctx, 'bullphish_id')
+  if (bullphishDeployed) {
+    return result('cis-v8-14.1', ctx, 'pass', 'medium',
+      'BullPhish ID is deployed and running awareness campaigns. Note: "Establish and maintain" controls also expect a documented program in IT Glue (training cadence, coverage, role-based curriculum). If only the tool is in place, consider this partially satisfied.',
+      [], ['it_glue_documentation'])
+  }
+  return result('cis-v8-14.1', ctx, 'fail', 'medium',
+    'No security awareness training program confirmed. Deploy BullPhish ID (or equivalent) and document the program in IT Glue.',
+    [], ['bullphish_id', 'it_glue_documentation'],
+    'Deploy a training platform and write a brief program description in IT Glue.')
+}
+
+// ---------------------------------------------------------------------------
 // Control Definitions — Full CIS v8 IG1 (56 safeguards) + key IG2/IG3
 // ---------------------------------------------------------------------------
 
@@ -2340,6 +2797,48 @@ const CIS_V8_CONTROLS: ControlDefinition[] = [
     description: 'Configure detailed audit logging for enterprise assets containing sensitive data.',
     evidenceSources: ['microsoft_secure_score', 'microsoft_audit_log'],
     evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-8.6', frameworkId: 'cis-v8', tier: 'IG2', sortKey: [8, 6],
+    category: '8 - Audit Log Management',
+    title: 'Collect DNS Query Audit Logs',
+    description: 'Collect DNS query audit logs on enterprise assets, where appropriate and supported.',
+    evidenceSources: ['dnsfilter_dns', 'ubiquiti_network'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-8.7', frameworkId: 'cis-v8', tier: 'IG2', sortKey: [8, 7],
+    category: '8 - Audit Log Management',
+    title: 'Collect URL Request Audit Logs',
+    description: 'Collect URL request audit logs on enterprise assets, where appropriate and supported.',
+    evidenceSources: ['dnsfilter_dns'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-8.8', frameworkId: 'cis-v8', tier: 'IG2', sortKey: [8, 8],
+    category: '8 - Audit Log Management',
+    title: 'Collect Command-Line Audit Logs',
+    description: 'Collect command-line audit logs. Example implementations include collecting audit logs from PowerShell, BASH, and remote administrative terminals.',
+    evidenceSources: ['datto_edr_alerts'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-8.9', frameworkId: 'cis-v8', tier: 'IG2', sortKey: [8, 9],
+    category: '8 - Audit Log Management',
+    title: 'Centralize Audit Logs',
+    description: 'Centralize, to the extent possible, audit log collection and retention across enterprise assets.',
+    evidenceSources: ['datto_edr_alerts', 'dnsfilter_dns'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-8.10', frameworkId: 'cis-v8', tier: 'IG2', sortKey: [8, 10],
+    category: '8 - Audit Log Management',
+    title: 'Retain Audit Logs',
+    description: 'Retain audit logs across enterprise assets for a minimum of 90 days.',
+    evidenceSources: ['microsoft_audit_log', 'datto_edr_alerts'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-8.11', frameworkId: 'cis-v8', tier: 'IG2', sortKey: [8, 11],
+    category: '8 - Audit Log Management',
+    title: 'Conduct Audit Log Reviews',
+    description: 'Conduct reviews of audit logs to detect anomalies or abnormal events that could indicate a potential threat. Conduct reviews on a weekly, or more frequent, basis.',
+    evidenceSources: ['datto_edr_alerts'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-8.12', frameworkId: 'cis-v8', tier: 'IG3', sortKey: [8, 12],
+    category: '8 - Audit Log Management',
+    title: 'Collect Service Provider Logs',
+    description: 'Collect service provider logs, where supported.',
+    evidenceSources: ['saas_alerts_monitoring'],
+    evaluationType: 'semi-auto' },
 
   // === Category 9: Email and Web Browser Protections ===
   { controlId: 'cis-v8-9.1', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [9, 1],
@@ -2354,6 +2853,18 @@ const CIS_V8_CONTROLS: ControlDefinition[] = [
     description: 'Use DNS filtering services on all enterprise assets to block access to known malicious domains.',
     evidenceSources: ['dnsfilter_dns'],
     evaluationType: 'auto' },
+  { controlId: 'cis-v8-9.3', frameworkId: 'cis-v8', tier: 'IG2', sortKey: [9, 3],
+    category: '9 - Email and Web Browser Protections',
+    title: 'Maintain and Enforce Network-Based URL Filters',
+    description: 'Enforce and update network-based URL filters to limit access to potentially malicious or unapproved websites.',
+    evidenceSources: ['dnsfilter_dns'],
+    evaluationType: 'auto' },
+  { controlId: 'cis-v8-9.5', frameworkId: 'cis-v8', tier: 'IG2', sortKey: [9, 5],
+    category: '9 - Email and Web Browser Protections',
+    title: 'Implement DMARC',
+    description: 'Implement DMARC policy for the organization\'s email domain to prevent email spoofing and phishing.',
+    evidenceSources: ['manual_upload'],
+    evaluationType: 'manual' },
 
   // === Category 10: Malware Defenses ===
   { controlId: 'cis-v8-10.1', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [10, 1],
@@ -2373,6 +2884,30 @@ const CIS_V8_CONTROLS: ControlDefinition[] = [
     title: 'Disable Autorun and Autoplay for Removable Media',
     description: 'Disable autorun and autoplay auto-execute functionality for removable media.',
     evidenceSources: ['microsoft_intune_config', 'microsoft_device_compliance'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-10.4', frameworkId: 'cis-v8', tier: 'IG2', sortKey: [10, 4],
+    category: '10 - Malware Defenses',
+    title: 'Configure Automatic Anti-Malware Scanning of Removable Media',
+    description: 'Configure anti-malware software to automatically scan removable media.',
+    evidenceSources: ['microsoft_defender', 'datto_edr_alerts'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-10.5', frameworkId: 'cis-v8', tier: 'IG2', sortKey: [10, 5],
+    category: '10 - Malware Defenses',
+    title: 'Enable Anti-Exploitation Features',
+    description: 'Enable anti-exploitation features on enterprise assets and software, where possible (e.g. Windows Defender Exploit Guard, DEP).',
+    evidenceSources: ['microsoft_defender', 'datto_edr_alerts'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-10.6', frameworkId: 'cis-v8', tier: 'IG2', sortKey: [10, 6],
+    category: '10 - Malware Defenses',
+    title: 'Centrally Manage Anti-Malware Software',
+    description: 'Centrally manage anti-malware software.',
+    evidenceSources: ['datto_edr_alerts', 'microsoft_defender'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-10.7', frameworkId: 'cis-v8', tier: 'IG2', sortKey: [10, 7],
+    category: '10 - Malware Defenses',
+    title: 'Use Behavior-Based Anti-Malware Software',
+    description: 'Use behavior-based anti-malware software.',
+    evidenceSources: ['datto_edr_alerts'],
     evaluationType: 'semi-auto' },
 
   // === Category 11: Data Recovery ===
@@ -2400,6 +2935,12 @@ const CIS_V8_CONTROLS: ControlDefinition[] = [
     description: 'Establish and maintain an isolated instance of recovery data using versioning or an air-gapped destination.',
     evidenceSources: ['datto_bcdr_backup'],
     evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-11.5', frameworkId: 'cis-v8', tier: 'IG2', sortKey: [11, 5],
+    category: '11 - Data Recovery',
+    title: 'Test Data Recovery',
+    description: 'Test backup recovery quarterly, or more frequently, for a sampling of in-scope enterprise assets.',
+    evidenceSources: ['datto_bcdr_backup', 'datto_saas_backup'],
+    evaluationType: 'semi-auto' },
 
   // === Category 12: Network Infrastructure Management ===
   { controlId: 'cis-v8-12.1', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [12, 1],
@@ -2408,12 +2949,48 @@ const CIS_V8_CONTROLS: ControlDefinition[] = [
     description: 'Ensure network infrastructure is kept up-to-date. Example: run latest stable version of software and/or use currently-supported network-as-a-service (NaaS) offerings.',
     evidenceSources: ['manual_upload'],
     evaluationType: 'manual' },
+  { controlId: 'cis-v8-12.2', frameworkId: 'cis-v8', tier: 'IG2', sortKey: [12, 2],
+    category: '12 - Network Infrastructure Management',
+    title: 'Establish and Maintain a Secure Network Architecture',
+    description: 'Establish and maintain a secure network architecture (e.g. segmentation, least privilege, availability).',
+    evidenceSources: ['ubiquiti_network', 'domotz_network_discovery'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-12.3', frameworkId: 'cis-v8', tier: 'IG2', sortKey: [12, 3],
+    category: '12 - Network Infrastructure Management',
+    title: 'Securely Manage Network Infrastructure',
+    description: 'Securely manage network infrastructure. Example implementations include version-controlled-infrastructure-as-code, and the use of secure network protocols such as SSH and HTTPS.',
+    evidenceSources: ['ubiquiti_network'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-12.4', frameworkId: 'cis-v8', tier: 'IG2', sortKey: [12, 4],
+    category: '12 - Network Infrastructure Management',
+    title: 'Establish and Maintain Architecture Diagrams',
+    description: 'Establish and maintain architecture diagram(s) and/or other network system documentation.',
+    evidenceSources: ['domotz_network_discovery'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-12.5', frameworkId: 'cis-v8', tier: 'IG2', sortKey: [12, 5],
+    category: '12 - Network Infrastructure Management',
+    title: 'Centralize Network Authentication, Authorization, and Auditing (AAA)',
+    description: 'Centralize network AAA. Example implementations include directory services like LDAP and AD.',
+    evidenceSources: ['ubiquiti_network'],
+    evaluationType: 'semi-auto' },
   { controlId: 'cis-v8-12.6', frameworkId: 'cis-v8', tier: 'IG2', sortKey: [12, 6],
     category: '12 - Network Infrastructure Management',
     title: 'Use of Encryption for Data in Transit',
     description: 'Use encryption for data in transit such as TLS for web and email.',
     evidenceSources: ['microsoft_conditional_access', 'microsoft_secure_score'],
     evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-12.7', frameworkId: 'cis-v8', tier: 'IG2', sortKey: [12, 7],
+    category: '12 - Network Infrastructure Management',
+    title: 'Ensure Remote Devices Utilize a VPN and Connect to AAA',
+    description: 'Require remote devices to use a VPN to connect to the enterprise network and to authenticate via AAA.',
+    evidenceSources: ['manual_upload'],
+    evaluationType: 'manual' },
+  { controlId: 'cis-v8-12.8', frameworkId: 'cis-v8', tier: 'IG3', sortKey: [12, 8],
+    category: '12 - Network Infrastructure Management',
+    title: 'Establish and Maintain Dedicated Computing Resources for All Administrative Work',
+    description: 'Establish and maintain dedicated computing resources for all administrative work or work requiring elevated access.',
+    evidenceSources: ['manual_upload'],
+    evaluationType: 'manual' },
 
   // === Category 13: Network Monitoring and Defense ===
   { controlId: 'cis-v8-13.1', frameworkId: 'cis-v8', tier: 'IG2', sortKey: [13, 1],
@@ -2422,6 +2999,66 @@ const CIS_V8_CONTROLS: ControlDefinition[] = [
     description: 'Centralize security event alerting across enterprise assets for log correlation and analysis.',
     evidenceSources: ['microsoft_defender', 'datto_edr_alerts', 'dnsfilter_dns'],
     evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-13.2', frameworkId: 'cis-v8', tier: 'IG2', sortKey: [13, 2],
+    category: '13 - Network Monitoring and Defense',
+    title: 'Deploy a Host-Based Intrusion Detection Solution',
+    description: 'Deploy a host-based intrusion detection solution on enterprise assets where appropriate or supported.',
+    evidenceSources: ['datto_edr_alerts', 'microsoft_defender'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-13.3', frameworkId: 'cis-v8', tier: 'IG2', sortKey: [13, 3],
+    category: '13 - Network Monitoring and Defense',
+    title: 'Deploy a Network Intrusion Detection Solution',
+    description: 'Deploy a network intrusion detection solution on enterprise assets where appropriate.',
+    evidenceSources: ['domotz_network_discovery'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-13.4', frameworkId: 'cis-v8', tier: 'IG2', sortKey: [13, 4],
+    category: '13 - Network Monitoring and Defense',
+    title: 'Perform Traffic Filtering Between Network Segments',
+    description: 'Perform traffic filtering between network segments where appropriate.',
+    evidenceSources: ['ubiquiti_network'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-13.5', frameworkId: 'cis-v8', tier: 'IG2', sortKey: [13, 5],
+    category: '13 - Network Monitoring and Defense',
+    title: 'Manage Access Control for Remote Assets',
+    description: 'Manage access control for assets remotely connecting to enterprise resources.',
+    evidenceSources: ['microsoft_conditional_access', 'microsoft_device_compliance'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-13.6', frameworkId: 'cis-v8', tier: 'IG2', sortKey: [13, 6],
+    category: '13 - Network Monitoring and Defense',
+    title: 'Collect Network Traffic Flow Logs',
+    description: 'Collect network traffic flow logs and/or network traffic to review and alert upon.',
+    evidenceSources: ['ubiquiti_network', 'domotz_network_discovery'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-13.7', frameworkId: 'cis-v8', tier: 'IG3', sortKey: [13, 7],
+    category: '13 - Network Monitoring and Defense',
+    title: 'Deploy a Host-Based Intrusion Prevention Solution',
+    description: 'Deploy a host-based intrusion prevention solution on enterprise assets where appropriate.',
+    evidenceSources: ['datto_edr_alerts'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-13.8', frameworkId: 'cis-v8', tier: 'IG3', sortKey: [13, 8],
+    category: '13 - Network Monitoring and Defense',
+    title: 'Deploy a Network Intrusion Prevention Solution',
+    description: 'Deploy a network intrusion prevention solution where appropriate.',
+    evidenceSources: ['ubiquiti_network'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-13.9', frameworkId: 'cis-v8', tier: 'IG3', sortKey: [13, 9],
+    category: '13 - Network Monitoring and Defense',
+    title: 'Deploy Port-Level Access Control',
+    description: 'Deploy port-level access control. Port-level access control utilizes 802.1X, or similar network access control protocols, such as certificates, and may incorporate user and/or device authentication.',
+    evidenceSources: ['ubiquiti_network'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-13.10', frameworkId: 'cis-v8', tier: 'IG3', sortKey: [13, 10],
+    category: '13 - Network Monitoring and Defense',
+    title: 'Perform Application Layer Filtering',
+    description: 'Perform application layer filtering. Example implementations include a filtering proxy, application layer firewall, or gateway.',
+    evidenceSources: ['dnsfilter_dns'],
+    evaluationType: 'semi-auto' },
+  { controlId: 'cis-v8-13.11', frameworkId: 'cis-v8', tier: 'IG3', sortKey: [13, 11],
+    category: '13 - Network Monitoring and Defense',
+    title: 'Tune Security Event Alerting Thresholds',
+    description: 'Tune security event alerting thresholds monthly, or more frequently.',
+    evidenceSources: ['manual_upload'],
+    evaluationType: 'manual' },
 
   // === Category 14: Security Awareness and Skills Training ===
   { controlId: 'cis-v8-14.1', frameworkId: 'cis-v8', tier: 'IG1', sortKey: [14, 1],

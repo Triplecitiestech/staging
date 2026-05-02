@@ -101,6 +101,80 @@ const CUSTOMER_ENV_QUESTIONS = [
       { value: 'customer_internal', label: 'Customer has internal IR team' },
     ],
   },
+
+  // === Access & Authorization (CMMC AC.1.2) ===
+  {
+    id: 'access_role_based',
+    category: 'Access & Authorization',
+    question: 'Is access to business applications restricted by role/job function, or do all users have equal access?',
+    options: [
+      { value: 'role_restricted', label: 'Role-based — restricted by job function' },
+      { value: 'partial', label: 'Some apps role-restricted, others open' },
+      { value: 'all_equal', label: 'All users have equal access' },
+    ],
+  },
+  {
+    id: 'restricted_apps',
+    category: 'Access & Authorization',
+    question: 'Which key business applications have role-restricted access? (free text — accounting, ERP, HR systems, etc.)',
+    options: [
+      { value: 'noted', label: 'Restricted apps noted in tech-support follow-up notes' },
+      { value: 'none', label: 'None — all users have equal access to all apps' },
+    ],
+  },
+  {
+    id: 'standard_user_admin_rights',
+    category: 'Access & Authorization',
+    question: 'Do standard (non-IT) employees have local administrator privileges on their devices?',
+    options: [
+      { value: 'no', label: 'No — admin rights restricted to IT staff' },
+      { value: 'mixed', label: 'Mixed — some users have local admin' },
+      { value: 'yes', label: 'Yes — most users have local admin' },
+    ],
+  },
+
+  // === Physical Security (CMMC PE.1, PE.2) ===
+  {
+    id: 'physical_access_control',
+    category: 'Physical Security',
+    question: 'Is physical access to your office, server room, and IT equipment restricted to authorized personnel?',
+    options: [
+      { value: 'restricted_locked', label: 'Yes — locked office + locked server room/cabinet' },
+      { value: 'restricted_partial', label: 'Office locked, but network equipment in shared area' },
+      { value: 'open', label: 'Open office — minimal physical restrictions' },
+    ],
+  },
+  {
+    id: 'physical_access_method',
+    category: 'Physical Security',
+    question: 'How is physical access controlled?',
+    options: [
+      { value: 'badge_keycard', label: 'Badge / keycard system' },
+      { value: 'key_locks', label: 'Key locks (physical keys)' },
+      { value: 'combination', label: 'Combination locks' },
+      { value: 'mixed', label: 'Mixed — different methods for different areas' },
+      { value: 'none', label: 'No formal access control' },
+    ],
+  },
+  {
+    id: 'visitor_escort',
+    category: 'Physical Security',
+    question: 'Are visitors escorted by an employee at all times?',
+    options: [
+      { value: 'always', label: 'Yes — visitors always escorted' },
+      { value: 'restricted_areas', label: 'Escorted in restricted areas only' },
+      { value: 'no', label: 'No formal escort policy' },
+    ],
+  },
+  {
+    id: 'visitor_log',
+    category: 'Physical Security',
+    question: 'Do you maintain a visitor log?',
+    options: [
+      { value: 'yes', label: 'Yes — visitor log maintained' },
+      { value: 'no', label: 'No visitor log' },
+    ],
+  },
 ]
 
 export async function GET(request: NextRequest) {

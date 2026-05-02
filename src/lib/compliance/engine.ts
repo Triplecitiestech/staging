@@ -885,6 +885,10 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
       client, assessment.companyId, assessment.frameworkId as FrameworkId, assessmentId
     )
 
+    // Per Fix 2: evaluate ALL controls regardless of selected IG, then post-process
+    // controls that aren't satisfied AND are above the target IG to N/A.
+    const targetIg = getTargetIgLevel(assessment.frameworkId as FrameworkId)
+
     const findings: Array<Omit<Finding, 'id'>> = []
     for (const control of framework.controls) {
       const evaluator = evaluators[control.controlId]
@@ -905,7 +909,27 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
       if (evaluator) {
         const rawResult = evaluator(ctx)
         // Apply policy coverage upgrade — upgrades needs_review/partial to pass if policy satisfies
-        const evalResult = applyPolicyCoverage(rawResult, ctx)
+        let evalResult = applyPolicyCoverage(rawResult, ctx)
+
+        // IG-scope override: if the control is OUT of the target IG scope AND
+        // not satisfied (fail/needs_review/not_assessed/collection_failed),
+        // mark it as not_applicable. Pass/partial results are kept regardless
+        // of IG — implemented controls are always credited.
+        if (targetIg && !isControlInIgScope(control.tier, targetIg)) {
+          const unsatisfied = evalResult.status === 'fail'
+            || evalResult.status === 'needs_review'
+            || evalResult.status === 'not_assessed'
+            || evalResult.status === 'collection_failed'
+          if (unsatisfied) {
+            evalResult = {
+              ...evalResult,
+              status: 'not_applicable',
+              reasoning: `This control (CIS ${control.tier}) is outside scope for this ${targetIg} assessment, and no implementation was confirmed. Mark as N/A.`,
+              confidence: 'medium',
+            }
+          }
+        }
+
         findings.push({
           assessmentId, controlId: evalResult.controlId, status: evalResult.status,
           confidence: evalResult.confidence, reasoning: evalResult.reasoning,
@@ -934,12 +958,18 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
     const notAssessed = findings.filter((f) => f.status === 'not_assessed').length
     const collectionFailed = findings.filter((f) => f.status === 'collection_failed').length
 
+    // Exclude N/A controls from the score denominator. Per Fix 2, controls
+    // marked N/A (out-of-IG-scope and not implemented, or genuinely not
+    // applicable) shouldn't count against the customer's score.
+    const applicableTotal = findings.length - notApplicable
+
     await client.query(
       `UPDATE compliance_assessments
        SET status = 'complete', "completedAt" = NOW(),
-           "passedControls" = $1, "failedControls" = $2, "manualReviewControls" = $3
-       WHERE id = $4`,
-      [passed, failed, partial + needsReview + notAssessed + notApplicable + collectionFailed, assessmentId]
+           "passedControls" = $1, "failedControls" = $2, "manualReviewControls" = $3,
+           "totalControls" = $4
+       WHERE id = $5`,
+      [passed, failed, partial + needsReview + notAssessed + collectionFailed, applicableTotal, assessmentId]
     )
 
     await logAudit(client, assessment.companyId, assessmentId, 'assessment_completed', actor, {
@@ -1251,18 +1281,33 @@ const IG_TIERS: Record<string, string[]> = {
   'IG3': ['IG1', 'IG2', 'IG3'],
 }
 
+/** Map a framework ID to the IG level the customer is being assessed against. */
+function getTargetIgLevel(frameworkId: FrameworkId): string | null {
+  const m = frameworkId.match(/^cis-v8-ig(\d)$/)
+  return m ? `IG${m[1]}` : null
+}
+
+/** True when a control's tier is BELOW or EQUAL to the target IG level. */
+export function isControlInIgScope(controlTier: string, targetIgLevel: string | null): boolean {
+  if (!targetIgLevel) return true // No IG selected → all controls in scope
+  const allowed = IG_TIERS[targetIgLevel] ?? ['IG1']
+  return allowed.includes(controlTier)
+}
+
 function getFrameworkDefinition(frameworkId: FrameworkId) {
-  // Handle IG-level variants: cis-v8-ig1, cis-v8-ig2, cis-v8-ig3
+  // For CIS IG variants: return ALL controls so that out-of-scope controls
+  // still get an evidence check. Per Fix 2 — if a control is implemented we
+  // should mark Yes even if it's IG2/IG3. Out-of-scope controls that are NOT
+  // implemented get post-processed to N/A in the evaluator pipeline (see
+  // applyIgScopeOverride).
   const igMatch = frameworkId.match(/^cis-v8-ig(\d)$/)
   if (igMatch) {
     const igLevel = `IG${igMatch[1]}`
-    const allowedTiers = IG_TIERS[igLevel] ?? ['IG1']
-    const filtered = CIS_V8_FRAMEWORK.controls.filter((c) => allowedTiers.includes(c.tier))
     return {
       ...CIS_V8_FRAMEWORK,
       id: frameworkId,
       name: `CIS Controls v8 — ${igLevel}`,
-      controls: filtered,
+      controls: CIS_V8_FRAMEWORK.controls,
     }
   }
 

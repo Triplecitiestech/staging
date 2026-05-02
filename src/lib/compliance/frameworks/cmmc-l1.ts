@@ -312,9 +312,33 @@ evaluators['cmmc-AC.L1-b.1.i'] = (ctx) =>
     'CMMC requires limiting access to authorized users.')
 
 // AC.L1-b.1.ii: function-level access -> CIS 5.4 (Restrict Admin Privileges)
-evaluators['cmmc-AC.L1-b.1.ii'] = (ctx) =>
-  delegateTo('cis-v8-5.4', 'cmmc-AC.L1-b.1.ii', ctx,
-    'CMMC requires limiting users to permitted transactions/functions.')
+// AC.L1-b.1.ii: transaction & function control. This is primarily about role-
+// based access — which is best confirmed via intake (Step 2 customer context)
+// rather than digital evidence alone. Falls back to CIS 5.4 if no intake answer.
+evaluators['cmmc-AC.L1-b.1.ii'] = (ctx) => {
+  const roleBased = ctx.environment?.rawAnswers?.access_role_based
+  const adminRights = ctx.environment?.rawAnswers?.standard_user_admin_rights
+  if (roleBased === 'role_restricted' && adminRights === 'no') {
+    return result('cmmc-AC.L1-b.1.ii', ctx, 'pass', 'high',
+      'Per intake: access to business applications is role-restricted by job function, and standard users do not have local administrator privileges. This satisfies CMMC AC.L1-b.1.ii via admin attestation.',
+      [], [])
+  }
+  if (roleBased === 'partial' || adminRights === 'mixed') {
+    return result('cmmc-AC.L1-b.1.ii', ctx, 'partial', 'medium',
+      `Partial role-based access control reported in intake (access: ${roleBased}, admin rights: ${adminRights}). Some applications restricted; others may not be.`,
+      [], [],
+      'Tighten role-based access controls and remove local admin privileges from standard users.')
+  }
+  if (roleBased === 'all_equal' || adminRights === 'yes') {
+    return result('cmmc-AC.L1-b.1.ii', ctx, 'fail', 'medium',
+      `Per intake: ${roleBased === 'all_equal' ? 'all users have equal access to all applications' : 'most users have local admin privileges'}. CMMC AC.L1-b.1.ii is not satisfied.`,
+      [], [],
+      'Implement role-based access controls; remove local admin privileges from non-IT staff.')
+  }
+  // No intake answer — fall back to digital evidence via CIS 5.4
+  return delegateTo('cis-v8-5.4', 'cmmc-AC.L1-b.1.ii', ctx,
+    'CMMC requires limiting users to permitted transactions/functions. Customer intake answers (Step 2) would provide the most authoritative evidence — none currently captured.')
+}
 
 // AC.L1-b.1.iii: external connections -> CIS 12.6 (Encryption in Transit) + 9.2 (DNS Filtering)
 evaluators['cmmc-AC.L1-b.1.iii'] = (ctx) => {
@@ -345,18 +369,88 @@ evaluators['cmmc-MP.L1-b.1.vii'] = (ctx) =>
     'Manual attestation required: confirm the organization sanitizes or destroys media containing FCI before disposal (e.g. NIST 800-88 sanitization, certified destruction service).')
 
 // Physical security — all manual
-evaluators['cmmc-PE.L1-b.1.viii'] = (ctx) =>
-  manual('cmmc-PE.L1-b.1.viii', ctx,
-    'Manual attestation required: physical access controls (door locks, badges, restricted server room access).')
-evaluators['cmmc-PE.L1-b.1.ix'] = (ctx) =>
-  manual('cmmc-PE.L1-b.1.ix', ctx,
-    'Manual attestation required: confirm visitors are escorted and their activity is monitored.')
-evaluators['cmmc-PE.L1-b.1.x'] = (ctx) =>
-  manual('cmmc-PE.L1-b.1.x', ctx,
-    'Manual attestation required: confirm physical-access audit logs are maintained (visitor logs, badge logs, surveillance retention).')
-evaluators['cmmc-PE.L1-b.1.xi'] = (ctx) =>
-  manual('cmmc-PE.L1-b.1.xi', ctx,
-    'Manual attestation required: confirm physical access devices (keys, badges, combinations) are inventoried, controlled, and recovered when no longer needed.')
+// PE.L1-b.1.viii — Physical Access Limit (PE.1)
+// Read intake answers (physical_access_control + physical_access_method) to
+// determine whether physical access is restricted to authorized personnel.
+evaluators['cmmc-PE.L1-b.1.viii'] = (ctx) => {
+  const access = ctx.environment?.rawAnswers?.physical_access_control
+  const method = ctx.environment?.rawAnswers?.physical_access_method
+  if (access === 'restricted_locked') {
+    return result('cmmc-PE.L1-b.1.viii', ctx, 'pass', 'high',
+      `Per intake: physical access to office and IT equipment is restricted (locked office + locked server room/cabinet). Access method: ${method ?? 'documented in intake'}.`,
+      [], [])
+  }
+  if (access === 'restricted_partial') {
+    return result('cmmc-PE.L1-b.1.viii', ctx, 'partial', 'medium',
+      'Per intake: office is locked but network equipment is in a shared area. Move network equipment to a locked enclosure for full coverage.',
+      [], [], 'Install a locked rack or cabinet for network equipment.')
+  }
+  if (access === 'open') {
+    return result('cmmc-PE.L1-b.1.viii', ctx, 'fail', 'medium',
+      'Per intake: open office with minimal physical restrictions. CMMC PE.L1 requires physical access controls.',
+      [], [], 'Implement office locks and restrict access to network/server equipment.')
+  }
+  return manual('cmmc-PE.L1-b.1.viii', ctx,
+    'Customer intake (Step 2 > Physical Security) is required to assess this control. Capture physical access controls in the customer environment questionnaire.')
+}
+
+// PE.L1-b.1.ix — Escort Visitors (PE.2)
+evaluators['cmmc-PE.L1-b.1.ix'] = (ctx) => {
+  const escort = ctx.environment?.rawAnswers?.visitor_escort
+  if (escort === 'always') {
+    return result('cmmc-PE.L1-b.1.ix', ctx, 'pass', 'high',
+      'Per intake: visitors are always escorted by an employee.',
+      [], [])
+  }
+  if (escort === 'restricted_areas') {
+    return result('cmmc-PE.L1-b.1.ix', ctx, 'partial', 'medium',
+      'Per intake: visitors are escorted only in restricted areas. CMMC requires monitoring of all visitor activity.',
+      [], [], 'Document visitor escort policy in IT Glue covering all areas with sensitive equipment or data.')
+  }
+  if (escort === 'no') {
+    return result('cmmc-PE.L1-b.1.ix', ctx, 'fail', 'medium',
+      'Per intake: no formal visitor escort policy. CMMC PE.L1 requires visitor escorting and monitoring.',
+      [], [], 'Implement and document a visitor escort policy.')
+  }
+  return manual('cmmc-PE.L1-b.1.ix', ctx,
+    'Customer intake (Step 2 > Physical Security > visitor escort) is required to assess this control.')
+}
+
+// PE.L1-b.1.x — Physical Access Logs
+evaluators['cmmc-PE.L1-b.1.x'] = (ctx) => {
+  const log = ctx.environment?.rawAnswers?.visitor_log
+  const method = ctx.environment?.rawAnswers?.physical_access_method
+  if (log === 'yes' || method === 'badge_keycard') {
+    return result('cmmc-PE.L1-b.1.x', ctx, 'pass', 'high',
+      `Per intake: physical access audit logs are maintained${method === 'badge_keycard' ? ' (badge/keycard system provides access logs)' : ' (visitor log)'}.`,
+      [], [])
+  }
+  if (log === 'no') {
+    return result('cmmc-PE.L1-b.1.x', ctx, 'fail', 'medium',
+      'Per intake: no visitor log maintained. CMMC PE.L1 requires audit logs of physical access.',
+      [], [], 'Implement a visitor log (paper or digital) and retain entries for at least 90 days.')
+  }
+  return manual('cmmc-PE.L1-b.1.x', ctx,
+    'Customer intake (Step 2 > Physical Security > visitor log) is required to assess this control.')
+}
+
+// PE.L1-b.1.xi — Manage Physical Access Devices
+evaluators['cmmc-PE.L1-b.1.xi'] = (ctx) => {
+  const method = ctx.environment?.rawAnswers?.physical_access_method
+  if (method === 'badge_keycard') {
+    return result('cmmc-PE.L1-b.1.xi', ctx, 'pass', 'medium',
+      'Per intake: badge/keycard system is in use. These systems inherently inventory and control physical access devices, with badge revocation on termination.',
+      [], [], null)
+  }
+  if (method === 'key_locks' || method === 'combination' || method === 'mixed') {
+    return result('cmmc-PE.L1-b.1.xi', ctx, 'needs_review', 'low',
+      `Per intake: ${method.replace('_', ' ')} in use. Confirm there is a documented inventory of physical access devices (keys, combinations) and a recovery process when employees leave.`,
+      [], ['it_glue_documentation'],
+      'Document key/combination inventory and recovery procedure in IT Glue.')
+  }
+  return manual('cmmc-PE.L1-b.1.xi', ctx,
+    'Customer intake (Step 2 > Physical Security > access method) is required to assess this control.')
+}
 
 // SC.L1-b.1.xii: boundary protection -> CIS 9.2 (DNS Filtering) + Conditional Access
 evaluators['cmmc-SC.L1-b.1.xii'] = (ctx) =>
