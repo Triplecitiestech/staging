@@ -165,7 +165,7 @@ export function AssessmentResults({ detail, onExport, onCoworkWorksheet, onUpdat
         {sortedCategories.map(([category, catFindings]) => (
           <div key={category} className="border border-white/5 rounded-lg overflow-hidden">
             <div className="bg-slate-900/50 px-4 py-2">
-              <h3 className="text-sm font-semibold text-slate-300">{CONTROL_CATEGORIES[category] ?? `Category ${category}`}</h3>
+              <h3 className="text-sm font-semibold text-slate-300">{CONTROL_CATEGORIES[category] ?? category}</h3>
             </div>
             <div className="divide-y divide-white/5">
               {catFindings.map((f) => (
@@ -751,94 +751,32 @@ export function getFrameworkLabel(frameworkId: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Control metadata
+// Control metadata — built dynamically from framework definitions so that
+// every registered framework (CIS, CMMC, future NIST/HIPAA) automatically
+// gets titles, descriptions, and category labels in the UI without needing
+// a separate hardcoded lookup table.
 // ---------------------------------------------------------------------------
 
-const CONTROL_TITLES: Record<string, string> = {
-  // 1 - Asset Inventory
-  'cis-v8-1.1': 'Establish and Maintain Detailed Enterprise Asset Inventory',
-  'cis-v8-1.2': 'Address Unauthorized Assets',
-  'cis-v8-1.3': 'Utilize an Active Discovery Tool',
-  'cis-v8-1.4': 'Use DHCP Logging',
-  'cis-v8-1.5': 'Use a Passive Asset Discovery Tool',
-  // 2 - Software Inventory
-  'cis-v8-2.1': 'Establish and Maintain a Software Inventory',
-  'cis-v8-2.2': 'Ensure Authorized Software is Currently Supported',
-  'cis-v8-2.3': 'Address Unauthorized Software',
-  // 3 - Data Protection
-  'cis-v8-3.1': 'Establish and Maintain a Data Management Process',
-  'cis-v8-3.2': 'Establish and Maintain a Data Inventory',
-  'cis-v8-3.3': 'Configure Data Access Control Lists',
-  'cis-v8-3.4': 'Enforce Data Retention',
-  'cis-v8-3.5': 'Securely Dispose of Data',
-  'cis-v8-3.6': 'Encrypt Data on End-User Devices',
-  // 4 - Secure Configuration
-  'cis-v8-4.1': 'Establish and Maintain a Secure Configuration Process',
-  'cis-v8-4.2': 'Secure Configuration for Network Infrastructure',
-  'cis-v8-4.3': 'Configure Automatic Session Locking',
-  'cis-v8-4.4': 'Implement and Manage a Firewall on Servers',
-  'cis-v8-4.5': 'Implement and Manage a Firewall on End-User Devices',
-  'cis-v8-4.6': 'Securely Manage Enterprise Assets (Encryption at Rest)',
-  'cis-v8-4.7': 'Manage Default Accounts',
-  // 5 - Account Management
-  'cis-v8-5.1': 'Establish and Maintain an Inventory of Accounts',
-  'cis-v8-5.2': 'Use Unique Passwords',
-  'cis-v8-5.3': 'Disable Dormant Accounts',
-  'cis-v8-5.4': 'Restrict Administrator Privileges to Dedicated Accounts',
-  // 6 - Access Control
-  'cis-v8-6.1': 'Establish an Access Granting Process',
-  'cis-v8-6.2': 'Establish an Access Revoking Process',
-  'cis-v8-6.3': 'Require MFA for Externally-Exposed Applications',
-  'cis-v8-6.4': 'Require MFA for Remote Network Access',
-  'cis-v8-6.5': 'Require MFA for Administrative Access',
-  // 7 - Vulnerability Management
-  'cis-v8-7.1': 'Establish and Maintain a Vulnerability Management Process',
-  'cis-v8-7.2': 'Establish and Maintain a Remediation Process',
-  'cis-v8-7.3': 'Perform Automated Operating System Patch Management',
-  'cis-v8-7.4': 'Perform Automated Application Patch Management',
-  // 8 - Audit Log Management
-  'cis-v8-8.1': 'Establish and Maintain an Audit Log Management Process',
-  'cis-v8-8.2': 'Collect Audit Logs',
-  'cis-v8-8.3': 'Ensure Adequate Audit Log Storage',
-  'cis-v8-8.5': 'Collect Detailed Audit Logs',
-  // 9 - Email and Web Browser
-  'cis-v8-9.1': 'Ensure Use of Only Fully Supported Browsers and Email Clients',
-  'cis-v8-9.2': 'Use DNS Filtering Services',
-  // 10 - Malware Defenses
-  'cis-v8-10.1': 'Deploy and Maintain Anti-Malware Software',
-  'cis-v8-10.2': 'Configure Automatic Anti-Malware Signature Updates',
-  'cis-v8-10.3': 'Disable Autorun and Autoplay for Removable Media',
-  // 11 - Data Recovery
-  'cis-v8-11.1': 'Establish and Maintain a Data Recovery Practice',
-  'cis-v8-11.2': 'Perform Automated Backups',
-  'cis-v8-11.3': 'Protect Recovery Data',
-  'cis-v8-11.4': 'Establish and Maintain an Isolated Instance of Recovery Data',
-  // 12 - Network Infrastructure
-  'cis-v8-12.1': 'Ensure Network Infrastructure is Up-to-Date',
-  'cis-v8-12.6': 'Use of Encryption for Data in Transit',
-  // 13 - Network Monitoring
-  'cis-v8-13.1': 'Centralize Security Event Alerting',
-  // 14 - Security Awareness
-  'cis-v8-14.1': 'Establish and Maintain a Security Awareness Program',
-  'cis-v8-14.2': 'Train Workforce to Recognize Social Engineering Attacks',
-  'cis-v8-14.3': 'Train Workforce on Authentication Best Practices',
-  'cis-v8-14.4': 'Train Workforce on Data Handling Best Practices',
-  'cis-v8-14.5': 'Train Workforce on Causes of Unintentional Data Exposure',
-  'cis-v8-14.6': 'Train Workforce on Recognizing and Reporting Security Incidents',
-  'cis-v8-14.7': 'Train Workforce on Identifying Missing Security Updates',
-  'cis-v8-14.8': 'Train Workforce on Dangers of Insecure Networks',
-  // 15 - Service Provider Management
-  'cis-v8-15.1': 'Establish and Maintain an Inventory of Service Providers',
-  'cis-v8-15.2': 'Establish and Maintain a Service Provider Management Policy',
-  'cis-v8-15.7': 'Securely Decommission Service Providers',
-  // 16 - Application Software Security
-  'cis-v8-16.1': 'Establish and Maintain a Secure Application Development Process',
-  // 17 - Incident Response
-  'cis-v8-17.1': 'Designate Personnel to Manage Incident Handling',
-  'cis-v8-17.2': 'Establish Contact Information for Reporting Security Incidents',
-  'cis-v8-17.3': 'Establish Enterprise Process for Reporting Incidents',
+import { CIS_V8_FRAMEWORK } from '@/lib/compliance/frameworks/cis-v8'
+import { CMMC_L1_FRAMEWORK } from '@/lib/compliance/frameworks/cmmc-l1'
+
+const ALL_FRAMEWORKS = [CIS_V8_FRAMEWORK, CMMC_L1_FRAMEWORK]
+
+const CONTROL_TITLES: Record<string, string> = {}
+const CONTROL_DESCRIPTIONS: Record<string, string> = {}
+const CONTROL_CATEGORY_MAP: Record<string, string> = {}
+
+for (const fw of ALL_FRAMEWORKS) {
+  for (const c of fw.controls) {
+    CONTROL_TITLES[c.controlId] = c.title
+    CONTROL_DESCRIPTIONS[c.controlId] = c.description
+    CONTROL_CATEGORY_MAP[c.controlId] = c.category
+  }
 }
 
+// Legacy CIS category labels for display (used in category headers)
+// CIS category number -> display label (used in category headers for CIS).
+// CMMC categories use the full category string from the framework definition.
 const CONTROL_CATEGORIES: Record<string, string> = {
   '1': '1 - Inventory and Control of Enterprise Assets',
   '2': '2 - Inventory and Control of Software Assets',
@@ -868,73 +806,8 @@ function getControlDescription(controlId: string): string {
 }
 
 function getCategoryForControl(controlId: string): string {
+  // Use the framework definition's category if available
+  if (CONTROL_CATEGORY_MAP[controlId]) return CONTROL_CATEGORY_MAP[controlId]
+  // Fallback for CIS: parse category number from controlId
   return controlId.replace('cis-v8-', '').split('.')[0]
-}
-
-const CONTROL_DESCRIPTIONS: Record<string, string> = {
-  'cis-v8-1.1': 'Establish and maintain an accurate, detailed, and up-to-date inventory of all enterprise assets with the potential to store or process data, including end-user devices, network devices, IoT devices, and servers.',
-  'cis-v8-1.2': 'Ensure that a process exists to address unauthorized assets on a weekly basis. The enterprise may choose to remove the asset from the network, deny the asset from connecting remotely, or quarantine the asset.',
-  'cis-v8-1.3': 'Utilize an active discovery tool to identify assets connected to the enterprise network. Configure the active discovery tool to execute daily, or more frequently.',
-  'cis-v8-1.4': 'Use DHCP logging on all DHCP servers or IP address management tools to update the enterprise asset inventory.',
-  'cis-v8-1.5': 'Use a passive discovery tool to identify assets connected to the enterprise network.',
-  'cis-v8-2.1': 'Establish and maintain a detailed inventory of all licensed software installed on enterprise assets.',
-  'cis-v8-2.2': 'Ensure that only currently supported software is designated as authorized in the software inventory for enterprise assets.',
-  'cis-v8-2.3': 'Ensure that unauthorized software is either removed from use on enterprise assets or receives a documented exception.',
-  'cis-v8-3.1': 'Establish and maintain a data management process including data sensitivity levels, data owner, handling requirements, data retention limits, and disposal requirements.',
-  'cis-v8-3.2': 'Establish and maintain a data inventory based on the enterprise\'s data management process. At a minimum, inventory sensitive data.',
-  'cis-v8-3.3': 'Configure data access control lists based on a user\'s need to know. Apply data access control lists to local and remote file systems, databases, and applications.',
-  'cis-v8-3.4': 'Retain data according to the enterprise\'s data management process. Data retention must include both minimum and maximum timelines.',
-  'cis-v8-3.5': 'Securely dispose of data as outlined in the enterprise\'s data management process. Ensure the disposal process and method are commensurate with the data sensitivity.',
-  'cis-v8-3.6': 'Encrypt data on end-user devices containing sensitive data. Example implementations can include Windows BitLocker, Apple FileVault, Linux dm-crypt.',
-  'cis-v8-4.1': 'Establish and maintain a secure configuration process for enterprise assets (end-user devices, including portable and mobile; network devices; non-computing/IoT devices; and servers) and software (operating systems and applications).',
-  'cis-v8-4.2': 'Establish and maintain a secure configuration process for network infrastructure including firewalls, routers, and switches.',
-  'cis-v8-4.3': 'Configure automatic session locking on enterprise assets after a defined period of inactivity. For general purpose operating systems, the period must not exceed 15 minutes. For mobile end-user devices, the period must not exceed 2 minutes.',
-  'cis-v8-4.4': 'Implement and manage a firewall on servers, where supported. Example implementations include a virtual firewall, operating system firewall, or a third-party firewall agent.',
-  'cis-v8-4.5': 'Implement and manage a host-based firewall or port-filtering tool on end-user devices, with a default-deny rule that drops all traffic except those services and ports that are explicitly allowed.',
-  'cis-v8-4.6': 'Securely manage enterprise assets and software. Use encryption for data at rest on enterprise assets containing sensitive data.',
-  'cis-v8-4.7': 'Manage default accounts on enterprise assets and software, such as root, administrator, and other pre-configured vendor default accounts. Example implementations can include disabling default accounts or making them unusable.',
-  'cis-v8-5.1': 'Establish and maintain an inventory of all accounts managed in the enterprise. The inventory must include both user and administrator accounts.',
-  'cis-v8-5.2': 'Use unique passwords for all enterprise assets. Best practice implementation includes, at a minimum, an 8-character password for accounts using MFA and a 14-character password for accounts not using MFA.',
-  'cis-v8-5.3': 'Delete or disable any dormant accounts after a period of 45 days of inactivity, where supported.',
-  'cis-v8-5.4': 'Restrict administrator privileges to dedicated administrator accounts on enterprise assets. Conduct general computing activities, such as internet browsing, email, and productivity suite use, from the user\'s primary, non-privileged account.',
-  'cis-v8-6.1': 'Establish and follow a process, preferably automated, for granting access to enterprise assets upon new hire, rights grant, or role change of a user.',
-  'cis-v8-6.2': 'Establish and follow a process, preferably automated, for revoking access to enterprise assets, through disabling accounts immediately upon termination, rights revocation, or role change of a user.',
-  'cis-v8-6.3': 'Require all externally-exposed enterprise or third-party applications to enforce multi-factor authentication, where supported. Enforcing MFA through a directory service or SSO provider is a satisfactory implementation of this safeguard.',
-  'cis-v8-6.4': 'Require MFA for remote network access.',
-  'cis-v8-6.5': 'Require MFA for all administrative access accounts, where supported, on all enterprise assets, whether managed on-site or through a third-party provider.',
-  'cis-v8-7.1': 'Establish and maintain a documented vulnerability management process for enterprise assets. Review and update documentation annually, or when significant enterprise changes occur that could impact this safeguard.',
-  'cis-v8-7.2': 'Establish and maintain a risk-based remediation strategy documented in a remediation process, with monthly, or more frequent, parsec of vulnerabilities, as review cadence.',
-  'cis-v8-7.3': 'Perform operating system updates on enterprise assets through automated patch management on a monthly, or more frequent, basis.',
-  'cis-v8-7.4': 'Perform application updates on enterprise assets through automated patch management on a monthly, or more frequent, basis.',
-  'cis-v8-8.1': 'Establish and maintain an audit log management process that defines the enterprise\'s logging requirements. At a minimum, address the collection, review, and retention of audit logs for enterprise assets.',
-  'cis-v8-8.2': 'Collect audit logs. Ensure that logging, per the enterprise\'s audit log management process, has been enabled across enterprise assets.',
-  'cis-v8-8.3': 'Ensure that logging destinations maintain adequate storage to comply with the enterprise\'s audit log management process.',
-  'cis-v8-8.5': 'Configure detailed audit logging for enterprise assets containing sensitive data. Include event source, date, username, timestamp, source addresses, destination addresses, and other useful elements that could assist in a forensic investigation.',
-  'cis-v8-9.1': 'Ensure only fully supported browsers and email clients are allowed to execute in the enterprise, only using the latest version of browsers and email clients provided through the vendor.',
-  'cis-v8-9.2': 'Use DNS filtering services on all enterprise assets to block access to known malicious domains.',
-  'cis-v8-10.1': 'Deploy and maintain anti-malware software on all enterprise assets.',
-  'cis-v8-10.2': 'Configure automatic updates for anti-malware signature files on all enterprise assets.',
-  'cis-v8-10.3': 'Disable autorun and autoplay auto-execute functionality for removable media.',
-  'cis-v8-11.1': 'Establish and maintain a data recovery practice. In the practice, address the scope, prioritization, and testing of recovery procedures for in-scope enterprise software and data.',
-  'cis-v8-11.2': 'Perform automated backups of in-scope enterprise assets. Run backups weekly, or more frequently, based on the sensitivity of the data.',
-  'cis-v8-11.3': 'Protect recovery data with equivalent controls to the original data. Reference encryption or data separation, based on requirements.',
-  'cis-v8-11.4': 'Establish and maintain an isolated instance of recovery data using versioning or an offline/air-gapped destination.',
-  'cis-v8-12.1': 'Ensure network infrastructure is kept up-to-date. Example implementations include running the latest stable release of software and/or using currently-supported network-as-a-service (NaaS) offerings.',
-  'cis-v8-12.6': 'Ensure all data in transit is encrypted using TLS 1.2+ for web traffic, encrypted email, and encrypted VPN connections.',
-  'cis-v8-13.1': 'Centralize security event alerting across enterprise assets for log correlation and analysis. Best practice implementation requires the use of a SIEM.',
-  'cis-v8-14.1': 'Establish and maintain a security awareness program. The purpose of a security awareness program is to educate the enterprise\'s workforce on how to interact with enterprise assets and data in a secure manner.',
-  'cis-v8-14.2': 'Train workforce members to recognize social engineering attacks, such as phishing, pre-texting, and tailgating.',
-  'cis-v8-14.3': 'Train workforce members on authentication best practices. Example topics include MFA, password composition, and credential management.',
-  'cis-v8-14.4': 'Train workforce members on how to identify and properly store, transfer, archive, and destroy sensitive data.',
-  'cis-v8-14.5': 'Train workforce members to be aware of causes for unintentional data exposure. Example topics include mis-delivery of sensitive data, losing a portable end-user device, or publishing data to unintended audiences.',
-  'cis-v8-14.6': 'Train workforce members to be able to recognize a potential incident and be able to report such an incident.',
-  'cis-v8-14.7': 'Train workforce to understand how to verify and report out-of-date software patches or any failures in automated processes and tools. Part of this training should include notifying IT personnel of any failures in automated processes and tools.',
-  'cis-v8-14.8': 'Train workforce members on the dangers of connecting to, and transmitting data over, insecure networks for enterprise activities.',
-  'cis-v8-15.1': 'Establish and maintain an inventory of service providers. The inventory is to list all known service providers, include classification(s), and designate an enterprise contact for each service provider.',
-  'cis-v8-15.2': 'Establish and maintain a service provider management policy. Ensure the policy addresses the classification, inventory, assessment, monitoring, and decommissioning of service providers.',
-  'cis-v8-15.7': 'Securely decommission service providers. Example considerations include user and service account deactivation, termination of data flows, and secure disposal of enterprise data within service provider systems.',
-  'cis-v8-16.1': 'Establish and maintain a documented secure application development process. In the process, address such items as: secure application design standards, secure coding practices, developer training, vulnerability management, security of third-party code, and application security testing procedures.',
-  'cis-v8-17.1': 'Designate one key person, and at least one backup, who will manage the enterprise\'s incident handling process. Management personnel are responsible for the coordination and documentation of incident response and recovery efforts.',
-  'cis-v8-17.2': 'Establish and maintain contact information for parties that need to be informed of security incidents. Contacts may include internal staff, third-party vendors, law enforcement, cyber insurance providers, relevant government agencies, ISAC partners, or other stakeholders.',
-  'cis-v8-17.3': 'Establish and maintain an enterprise process for the workforce to report security incidents. The process includes reporting timeframe, personnel to report to, mechanism for reporting, and the minimum information to be reported.',
 }
