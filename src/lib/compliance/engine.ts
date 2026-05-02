@@ -400,15 +400,44 @@ export async function deleteAssessment(assessmentId: string, actor: string): Pro
  * Load MSP setup wizard answers and derive environment context.
  * Maps setup question labels to structured flags for evaluators.
  */
-async function loadEnvironmentContext(existingClient?: PoolClient): Promise<EnvironmentContext | undefined> {
+async function loadEnvironmentContext(existingClient?: PoolClient, companyId?: string): Promise<EnvironmentContext | undefined> {
   const pool = getPool()
   const client = existingClient ?? await pool.connect()
   try {
-    const res = await client.query<{ answers: Array<{ questionId: string; toolId: string | null; notes: string }> }>(
-      `SELECT answers FROM compliance_msp_setup WHERE id = 'msp_setup'`
-    )
-    if (res.rows.length === 0) return undefined
-    const answers = res.rows[0].answers ?? []
+    // Try per-customer context first (compliance_customer_context table).
+    // Falls back to MSP-wide context (compliance_msp_setup) if no customer
+    // record exists, for backward compatibility.
+    let answers: Array<{ questionId: string; toolId?: string | null; notes?: string; value?: string }> = []
+
+    if (companyId) {
+      try {
+        const customerRes = await client.query<{ answers: Array<{ questionId: string; value: string }> }>(
+          `SELECT answers FROM compliance_customer_context WHERE "companyId" = $1`,
+          [companyId]
+        )
+        if (customerRes.rows[0]?.answers?.length) {
+          // Customer context uses { questionId, value } format
+          answers = customerRes.rows[0].answers.map((a) => ({
+            questionId: a.questionId,
+            toolId: null,
+            notes: a.value, // loadEnvironmentContext parses from `notes`
+          }))
+        }
+      } catch { /* table may not exist yet */ }
+    }
+
+    // Fall back to MSP-wide if no customer-specific context
+    if (answers.length === 0) {
+      try {
+        const mspRes = await client.query<{ answers: Array<{ questionId: string; toolId: string | null; notes: string }> }>(
+          `SELECT answers FROM compliance_msp_setup WHERE id = 'msp_setup'`
+        )
+        if (mspRes.rows[0]?.answers?.length) {
+          answers = mspRes.rows[0].answers
+        }
+      } catch { /* table may not exist */ }
+    }
+
     if (answers.length === 0) return undefined
 
     const rawAnswers: Record<string, string> = {}
@@ -665,7 +694,7 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
       companyDisplayName = companyRes.rows[0]?.displayName ?? ''
 
       // Load environment context early so we can skip irrelevant collectors in Phase 2
-      environmentContext = await loadEnvironmentContext(client)
+      environmentContext = await loadEnvironmentContext(client, assessment.companyId)
 
       await updateAssessmentStatus(client, assessmentId, 'collecting')
       await logAudit(client, assessment.companyId, assessmentId, 'collection_started', actor, {})
@@ -831,7 +860,7 @@ export async function runAssessment(assessmentId: string, actor: string): Promis
     const toolResolutions = resolveAllControls(controlIds, availableConnectors)
 
     // Reuse environment context loaded in Phase 1 (or reload if missing)
-    const environment = environmentContext ?? await loadEnvironmentContext(client)
+    const environment = environmentContext ?? await loadEnvironmentContext(client, assessment.companyId)
 
     // Load tool deployment toggles
     const deployedTools = await loadDeployedTools(assessment.companyId, client)
