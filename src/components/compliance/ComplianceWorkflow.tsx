@@ -810,10 +810,14 @@ export default function ComplianceWorkflow({ companies }: { companies: Company[]
                         </button>
                         <button
                           onClick={() => {
-                            const latest = assessments.find((a) => a.status === 'complete')
-                            if (latest) window.open(`/api/compliance/assessments/${latest.id}/cowork-worksheet`, '_blank')
+                            const batches = groupIntoBatches(assessments.filter((a) => a.status === 'complete'))
+                            if (batches.length === 0) return
+                            const latest = batches[0]
+                            const primary = latest.batch[0]
+                            const ids = latest.batch.map((a) => a.id).join(',')
+                            window.open(`/api/compliance/assessments/${primary.id}/cowork-worksheet?includeIds=${ids}`, '_blank')
                           }}
-                          title="Download a Markdown worksheet for Claude Cowork. Cowork uses it to auto-fill the MyITProcess Alignment review for this customer."
+                          title="Download a Markdown worksheet for Claude Cowork covering all frameworks from the latest assessment batch."
                           className="inline-flex items-center px-4 py-2 bg-violet-500/20 hover:bg-violet-500/30 text-violet-300 hover:text-white border border-violet-500/30 rounded-lg text-sm transition-colors"
                         >
                           Cowork Worksheet (MyITProcess)
