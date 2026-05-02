@@ -25,6 +25,9 @@ export function getScoreColor(pct: number): string {
 export function AssessmentResults({ detail, onExport, onCoworkWorksheet, onUpdated }: { detail: AssessmentDetail; onExport: () => void; onCoworkWorksheet: () => void; onUpdated: () => void }) {
   const [expandedControls, setExpandedControls] = useState<Set<string>>(new Set())
   const [evidenceView, setEvidenceView] = useState<string | null>(null)
+  // Stat card filter — click a card to show only that status
+  type StatusFilter = 'all' | 'pass' | 'fail' | 'needs_review'
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
 
   const { assessment, findings, frameworkName, comparison } = detail
 
@@ -134,13 +137,28 @@ export function AssessmentResults({ detail, onExport, onCoworkWorksheet, onUpdat
         </div>
       )}
 
-      {/* Summary stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <StatCard label="Passed" value={assessment.passedControls} color="text-green-400" />
-        <StatCard label="Failed" value={assessment.failedControls} color="text-red-400" />
-        <StatCard label="Needs Review" value={assessment.manualReviewControls} color="text-slate-400" />
-        <StatCard label="Total" value={assessment.totalControls} color="text-white" />
+      {/* Summary stats — clickable to filter */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-2">
+        <StatCard label="Passed" value={assessment.passedControls} color="text-green-400"
+          active={statusFilter === 'pass'} onClick={() => setStatusFilter((f) => f === 'pass' ? 'all' : 'pass')} />
+        <StatCard label="Failed" value={assessment.failedControls} color="text-red-400"
+          active={statusFilter === 'fail'} onClick={() => setStatusFilter((f) => f === 'fail' ? 'all' : 'fail')} />
+        <StatCard label="Needs Review" value={assessment.manualReviewControls} color="text-slate-400"
+          active={statusFilter === 'needs_review'} onClick={() => setStatusFilter((f) => f === 'needs_review' ? 'all' : 'needs_review')} />
+        <StatCard label="Total" value={assessment.totalControls} color="text-white"
+          active={statusFilter === 'all'} onClick={() => setStatusFilter('all')} />
       </div>
+      {statusFilter !== 'all' && (
+        <div className="flex items-center justify-between bg-cyan-500/10 border border-cyan-500/30 rounded px-3 py-2 mb-6">
+          <span className="text-xs text-cyan-300">
+            Showing only <span className="font-semibold">{statusFilter === 'pass' ? 'passed' : statusFilter === 'fail' ? 'failed' : 'needs review'}</span> controls
+          </span>
+          <button onClick={() => setStatusFilter('all')} className="text-xs text-cyan-400 hover:text-cyan-300 underline">
+            Clear filter
+          </button>
+        </div>
+      )}
+      {statusFilter === 'all' && <div className="mb-6" />}
 
       {/* Evidence viewer */}
       {evidenceView && detail.evidence && (
@@ -160,15 +178,26 @@ export function AssessmentResults({ detail, onExport, onCoworkWorksheet, onUpdat
         </div>
       )}
 
-      {/* Control findings by category — numerically sorted */}
+      {/* Control findings by category — numerically sorted, filtered by status card */}
       <div className="space-y-4">
-        {sortedCategories.map(([category, catFindings]) => (
+        {sortedCategories.map(([category, catFindings]) => {
+          const filtered = statusFilter === 'all'
+            ? catFindings
+            : catFindings.filter((f) => {
+                const effective = f.overrideStatus ?? f.status
+                if (statusFilter === 'pass') return effective === 'pass'
+                if (statusFilter === 'fail') return effective === 'fail'
+                if (statusFilter === 'needs_review') return effective === 'needs_review' || effective === 'not_assessed' || effective === 'collection_failed' || effective === 'partial'
+                return true
+              })
+          if (filtered.length === 0) return null
+          return (
           <div key={category} className="border border-white/5 rounded-lg overflow-hidden">
             <div className="bg-slate-900/50 px-4 py-2">
               <h3 className="text-sm font-semibold text-slate-300">{CONTROL_CATEGORIES[category] ?? category}</h3>
             </div>
             <div className="divide-y divide-white/5">
-              {catFindings.map((f) => (
+              {filtered.map((f) => (
                 <FindingRow
                   key={f.controlId}
                   finding={f}
@@ -189,18 +218,29 @@ export function AssessmentResults({ detail, onExport, onCoworkWorksheet, onUpdat
               ))}
             </div>
           </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )
 }
 
-function StatCard({ label, value, color }: { label: string; value: number; color: string }) {
+function StatCard({ label, value, color, active, onClick }: {
+  label: string; value: number; color: string; active?: boolean; onClick?: () => void
+}) {
   return (
-    <div className="bg-slate-900/30 border border-white/5 rounded-lg p-3 text-center">
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={value === 0 && !active}
+      className={`bg-slate-900/30 border rounded-lg p-3 text-center transition-all w-full
+        ${active ? 'border-cyan-500/50 ring-2 ring-cyan-500/30 bg-cyan-500/10' : 'border-white/5 hover:border-white/15 hover:bg-white/5'}
+        ${onClick ? 'cursor-pointer' : ''}
+        disabled:cursor-default disabled:hover:bg-slate-900/30 disabled:hover:border-white/5`}
+    >
       <p className={`text-2xl font-bold ${color}`}>{value}</p>
       <p className="text-xs text-slate-500 mt-1">{label}</p>
-    </div>
+    </button>
   )
 }
 
