@@ -359,11 +359,21 @@ export default function ComplianceWorkflow({ companies }: { companies: Company[]
 
     try {
       const errors: string[] = []
+      const now = Date.now()
 
       for (let i = 0; i < selectedFrameworks.length; i++) {
         const fw = selectedFrameworks[i]
         const fwLabel = FRAMEWORK_OPTIONS.find((o) => o.id === fw)?.label ?? fw
         setRunProgress({ current: i + 1, total: selectedFrameworks.length, currentName: fwLabel })
+
+        // Skip if this framework was already assessed in the last 5 minutes
+        const recentExisting = assessments.find(
+          (a) => a.frameworkId === fw && a.status === 'complete'
+            && (now - new Date(a.createdAt).getTime()) < 5 * 60 * 1000
+        )
+        if (recentExisting) {
+          continue // Already have a fresh assessment for this framework
+        }
 
         try {
           const createRes = await fetch('/api/compliance', {
@@ -427,6 +437,24 @@ export default function ComplianceWorkflow({ companies }: { companies: Company[]
 
   // -----------------------------------------------------------------------
   // Step navigation helpers
+  const deleteAssessment = async (assessmentId: string) => {
+    if (!confirm('Delete this assessment and all its findings? This cannot be undone.')) return
+    try {
+      const res = await fetch(`/api/compliance/assessments/${assessmentId}`, { method: 'DELETE' })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.error)
+      if (activeDetail?.assessment.id === assessmentId) setActiveDetail(null)
+      if (selectedCompany) {
+        await Promise.all([
+          loadAssessments(selectedCompany),
+          loadWorkflowStatus(selectedCompany),
+        ])
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete assessment')
+    }
+  }
+
   // -----------------------------------------------------------------------
 
   const getStepStatus = (stepNum: number): StepStatus => {
@@ -796,6 +824,7 @@ export default function ComplianceWorkflow({ companies }: { companies: Company[]
                               expanded={activeDetail?.assessment.id === a.id}
                               loadingDetail={loadingDetail && activeDetail?.assessment.id !== a.id}
                               onToggle={() => toggleAssessmentDetail(a.id)}
+                              onDelete={() => deleteAssessment(a.id)}
                             >
                               {activeDetail?.assessment.id === a.id && (
                                 <AssessmentResults
@@ -998,6 +1027,7 @@ export default function ComplianceWorkflow({ companies }: { companies: Company[]
                               expanded={activeDetail?.assessment.id === a.id}
                               loadingDetail={loadingDetail && activeDetail?.assessment.id !== a.id}
                               onToggle={() => toggleAssessmentDetail(a.id)}
+                              onDelete={() => deleteAssessment(a.id)}
                             >
                               {activeDetail?.assessment.id === a.id && (
                                 <AssessmentResults
@@ -1112,6 +1142,9 @@ const FRAMEWORK_LABELS: Record<string, string> = {
  * Group assessments that were run within 2 minutes of each other into
  * "batches" so that a CIS + CMMC run shows as one combined row with a
  * merged score, not two unrelated rows.
+ *
+ * Deduplicates within each batch: if the same frameworkId appears twice
+ * (e.g. user clicked Run twice rapidly), only the most recent one is kept.
  */
 function groupIntoBatches(assessments: Assessment[]): Array<{ batch: Assessment[]; combined: { passed: number; total: number; pct: number }; label: string }> {
   if (assessments.length === 0) return []
@@ -1120,7 +1153,7 @@ function groupIntoBatches(assessments: Assessment[]): Array<{ batch: Assessment[
     new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   )
 
-  const batches: Array<{ batch: Assessment[] }> = []
+  const rawBatches: Array<{ batch: Assessment[] }> = []
   let current: Assessment[] = [sorted[0]]
 
   for (let i = 1; i < sorted.length; i++) {
@@ -1129,18 +1162,25 @@ function groupIntoBatches(assessments: Assessment[]): Array<{ batch: Assessment[
     if (Math.abs(prev - curr) < 2 * 60 * 1000) {
       current.push(sorted[i])
     } else {
-      batches.push({ batch: current })
+      rawBatches.push({ batch: current })
       current = [sorted[i]]
     }
   }
-  batches.push({ batch: current })
+  rawBatches.push({ batch: current })
 
-  return batches.map(({ batch }) => {
-    const passed = batch.reduce((sum, a) => sum + a.passedControls, 0)
-    const total = batch.reduce((sum, a) => sum + a.totalControls, 0)
+  return rawBatches.map(({ batch }) => {
+    // Deduplicate: keep only the latest assessment per frameworkId
+    const seen = new Map<string, Assessment>()
+    for (const a of batch) {
+      if (!seen.has(a.frameworkId)) seen.set(a.frameworkId, a)
+    }
+    const deduped = Array.from(seen.values())
+
+    const passed = deduped.reduce((sum, a) => sum + a.passedControls, 0)
+    const total = deduped.reduce((sum, a) => sum + a.totalControls, 0)
     const pct = total > 0 ? Math.round((passed / total) * 100) : 0
-    const label = batch.map((a) => FRAMEWORK_LABELS[a.frameworkId] ?? a.frameworkId).join(' + ')
-    return { batch, combined: { passed, total, pct }, label }
+    const label = deduped.map((a) => FRAMEWORK_LABELS[a.frameworkId] ?? a.frameworkId).join(' + ')
+    return { batch: deduped, combined: { passed, total, pct }, label }
   })
 }
 
@@ -1149,12 +1189,14 @@ function AssessmentRow({
   expanded,
   loadingDetail,
   onToggle,
+  onDelete,
   children,
 }: {
   assessment: Assessment
   expanded?: boolean
   loadingDetail?: boolean
   onToggle?: () => void
+  onDelete?: () => void
   children?: React.ReactNode
 }) {
   const pct = assessment.totalControls > 0 ? Math.round((assessment.passedControls / assessment.totalControls) * 100) : 0
@@ -1184,6 +1226,16 @@ function AssessmentRow({
             <span className={`text-sm font-semibold ${getScoreColor(pct)}`}>
               {assessment.passedControls}/{assessment.totalControls} ({pct}%)
             </span>
+          )}
+          {onDelete && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onDelete() }}
+              className="text-slate-600 hover:text-red-400 text-xs px-1.5 py-0.5 rounded hover:bg-red-500/10 transition-colors"
+              title="Delete this assessment"
+            >
+              &#10005;
+            </button>
           )}
           {clickable && (
             <span className="text-slate-500 text-xs">{expanded ? '▲' : '▼'}</span>
