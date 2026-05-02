@@ -174,10 +174,15 @@ export default function ComplianceWorkflow({ companies }: { companies: Company[]
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Step 2 state (tool config)
+  // Step 2 state (tool config + customer environment context)
   const [tools, setTools] = useState<Tool[]>([])
   const [companyTools, setCompanyTools] = useState<CompanyToolStatus[]>([])
   const [toolsLoading, setToolsLoading] = useState(false)
+  const [customerContextQuestions, setCustomerContextQuestions] = useState<Array<{
+    id: string; category: string; question: string; options: Array<{ value: string; label: string }>
+  }>>([])
+  const [customerContextAnswers, setCustomerContextAnswers] = useState<Map<string, string>>(new Map())
+  const [savingContext, setSavingContext] = useState(false)
 
   // Step 4 & 6 state (assessments)
   const [assessments, setAssessments] = useState<Assessment[]>([])
@@ -266,6 +271,35 @@ export default function ComplianceWorkflow({ companies }: { companies: Company[]
     }
   }, [])
 
+  const loadCustomerContext = useCallback(async (companyId: string) => {
+    try {
+      const res = await fetch(`/api/compliance/customer-context?companyId=${companyId}`)
+      const json = await res.json()
+      if (json.success) {
+        setCustomerContextQuestions(json.data.questions ?? [])
+        const map = new Map<string, string>()
+        for (const a of (json.data.answers ?? []) as Array<{ questionId: string; value: string }>) {
+          map.set(a.questionId, a.value)
+        }
+        setCustomerContextAnswers(map)
+      }
+    } catch { /* ignore */ }
+  }, [])
+
+  const saveCustomerContext = async () => {
+    if (!selectedCompany) return
+    setSavingContext(true)
+    try {
+      const answers = Array.from(customerContextAnswers.entries()).map(([questionId, value]) => ({ questionId, value }))
+      await fetch('/api/compliance/customer-context', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId: selectedCompany, answers }),
+      })
+    } catch { /* ignore */ }
+    setSavingContext(false)
+  }
+
   // -----------------------------------------------------------------------
   // Company change handler
   // -----------------------------------------------------------------------
@@ -291,6 +325,7 @@ export default function ComplianceWorkflow({ companies }: { companies: Company[]
 
     if (currentStep === 2) {
       loadTools(selectedCompany, controller.signal)
+      loadCustomerContext(selectedCompany)
     } else if (currentStep === 4 || currentStep === 6) {
       loadAssessments(selectedCompany, controller.signal)
     }
@@ -702,13 +737,74 @@ export default function ComplianceWorkflow({ companies }: { companies: Company[]
                       </div>
                     )}
 
+                    {/* Customer Environment & Scope — per-customer, not MSP-wide */}
+                    {customerContextQuestions.length > 0 && (
+                      <div className="space-y-4">
+                        <div className="border-t border-white/10 pt-4">
+                          <h3 className="text-sm font-semibold text-white mb-1">Customer Environment & Compliance Scope</h3>
+                          <p className="text-xs text-slate-400 mb-4">
+                            These answers are specific to this customer and determine which controls are applicable or N/A during assessments. Different customers can have different environments.
+                          </p>
+                        </div>
+                        {(() => {
+                          const categories = Array.from(new Set(customerContextQuestions.map((q) => q.category)))
+                          return categories.map((cat) => (
+                            <div key={cat}>
+                              <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">{cat}</h4>
+                              <div className="space-y-3">
+                                {customerContextQuestions.filter((q) => q.category === cat).map((q) => (
+                                  <div key={q.id} className="bg-slate-900/30 border border-white/5 rounded-lg p-3">
+                                    <p className="text-sm text-white mb-2">{q.question}</p>
+                                    <div className="flex flex-wrap gap-2">
+                                      {q.options.map((opt) => {
+                                        const selected = customerContextAnswers.get(q.id) === opt.value
+                                        return (
+                                          <button
+                                            key={opt.value}
+                                            type="button"
+                                            onClick={() => {
+                                              setCustomerContextAnswers((prev) => {
+                                                const next = new Map(prev)
+                                                next.set(q.id, opt.value)
+                                                return next
+                                              })
+                                            }}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                                              selected
+                                                ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                                                : 'bg-slate-800/50 text-slate-400 border-white/10 hover:border-white/20'
+                                            }`}
+                                          >
+                                            {opt.label}
+                                          </button>
+                                        )
+                                      })}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ))
+                        })()}
+                        <div className="flex justify-end">
+                          <button
+                            onClick={saveCustomerContext}
+                            disabled={savingContext}
+                            className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded text-xs font-medium disabled:opacity-50"
+                          >
+                            {savingContext ? 'Saving...' : 'Save Environment Settings'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Summary + Continue */}
                     <div className="flex items-center justify-between pt-4 border-t border-white/10">
                       <p className="text-sm text-slate-400">
                         {companyTools.filter((t) => t.deployed).length} tool{companyTools.filter((t) => t.deployed).length !== 1 ? 's' : ''} deployed for this customer
                       </p>
                       <button
-                        onClick={goToNextStep}
+                        onClick={() => { saveCustomerContext(); goToNextStep() }}
                         className="inline-flex items-center px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-white rounded-lg font-medium text-sm transition-all"
                       >
                         Continue to Platform Mapping &rarr;
