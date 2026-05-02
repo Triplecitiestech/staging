@@ -967,6 +967,40 @@ export async function collectUbiquitiEvidence(
       devicesByModel[model] = (devicesByModel[model] ?? 0) + 1
     }
 
+    // Fetch VLAN/network config from matched sites for CIS 12.x / CMMC SC
+    let networkConfig: {
+      vlanCount: number
+      guestNetworkConfigured: boolean
+      guestIsolation: boolean
+      networkSegmented: boolean
+      networks: Array<{ name: string; purpose: string; vlanId: number | null; isolation: boolean }>
+    } | null = null
+    try {
+      const { buildSiteNetworkSummary } = await import('@/lib/ubiquiti')
+      // Try the first matched site (the customer's primary console)
+      const matchedSites = summary.sites.filter((s) =>
+        matchedHostNames.some((h) => s.name.includes(h) || h.includes(s.name))
+      )
+      if (matchedSites.length > 0) {
+        const netSummary = await buildSiteNetworkSummary(matchedSites[0].siteId, matchedSites[0].name)
+        if (netSummary.networks.length > 0) {
+          networkConfig = {
+            vlanCount: netSummary.vlanCount,
+            guestNetworkConfigured: netSummary.guestNetworkConfigured,
+            guestIsolation: netSummary.guestIsolation,
+            networkSegmented: netSummary.networkSegmented,
+            networks: netSummary.networks.map((n) => ({ name: n.name, purpose: n.purpose, vlanId: n.vlanId, isolation: n.isolation })),
+          }
+        }
+      }
+    } catch (netErr) {
+      console.warn('[compliance][ubiquiti] Network config fetch failed:', netErr instanceof Error ? netErr.message : netErr)
+    }
+
+    const networkNote = networkConfig
+      ? ` Network: ${networkConfig.vlanCount} VLANs, guest: ${networkConfig.guestNetworkConfigured ? 'yes' : 'no'}${networkConfig.guestIsolation ? ' (isolated)' : ''}, segmented: ${networkConfig.networkSegmented ? 'yes' : 'no'}.`
+      : ''
+
     evidence.push(buildEvidence(assessmentId, companyId, 'ubiquiti_network' as EvidenceSourceType, {
       matched: true,
       companyName: name,
@@ -983,7 +1017,9 @@ export async function collectUbiquitiEvidence(
         siteName: d.siteName,
         connectedClients: d.connectedClients,
       })),
-    }, `Ubiquiti: ${matchedDevices.length} network devices across ${matchedHostNames.length} console(s) for ${name}. Models: ${Object.entries(devicesByModel).map(([k, v]) => `${k} (${v})`).join(', ')}.`))
+      // Network configuration (VLANs, guest networks) for CIS 12.x + CMMC SC.1.2
+      networkConfig,
+    }, `Ubiquiti: ${matchedDevices.length} network devices across ${matchedHostNames.length} console(s) for ${name}. Models: ${Object.entries(devicesByModel).map(([k, v]) => `${k} (${v})`).join(', ')}.${networkNote}`))
 
     return { evidence, errors }
   } catch (err) {
@@ -1062,5 +1098,128 @@ export async function collectMyItProcessEvidence(
     const msg = `MyITProcess collection failed: ${err instanceof Error ? err.message : String(err)}`
     console.error(`[myitp] ${msg}`)
     return { evidence, errors: [msg] }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// EasyDMARC Collector — Email Authentication (DMARC, SPF, DKIM)
+// ---------------------------------------------------------------------------
+
+export async function collectEasyDmarcEvidence(
+  companyId: string,
+  assessmentId: string,
+  companyName?: string
+): Promise<{ evidence: Array<Omit<EvidenceRecord, 'id' | 'collectedAt'>>; errors: string[] }> {
+  const evidence: Array<Omit<EvidenceRecord, 'id' | 'collectedAt'>> = []
+  const errors: string[] = []
+
+  if (!process.env.EASYDMARC_API_KEY) {
+    return { evidence, errors: ['EasyDMARC: EASYDMARC_API_KEY not configured'] }
+  }
+
+  try {
+    // Determine the customer's primary email domain.
+    // Strategy: look for the company's contactEmail in the companies table,
+    // extract the domain. If unavailable, try to get M365 verified domains
+    // via Graph (requires the tenant to be connected).
+    let domain: string | null = null
+
+    // Try 1: company contactEmail domain
+    try {
+      const pool = (await import('@/lib/db-pool')).getPool()
+      const client = await pool.connect()
+      try {
+        const res = await client.query<{ contactEmail: string | null }>(
+          `SELECT "contactEmail" FROM companies WHERE id = $1`,
+          [companyId]
+        )
+        const email = res.rows[0]?.contactEmail
+        if (email && email.includes('@')) {
+          domain = email.split('@')[1].toLowerCase()
+        }
+      } finally {
+        client.release()
+      }
+    } catch { /* ignore */ }
+
+    // Try 2: M365 Graph verified domains (if available). Get tenant credentials
+    // and acquire a token, then query /domains for verified custom domains.
+    if (!domain) {
+      try {
+        const { getTenantCredentials } = await import('@/lib/graph')
+        const creds = await getTenantCredentials(companyId)
+        if (creds) {
+          const tokenUrl = `https://login.microsoftonline.com/${creds.tenantId}/oauth2/v2.0/token`
+          const tokenRes = await fetch(tokenUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+              grant_type: 'client_credentials',
+              client_id: creds.clientId,
+              client_secret: creds.clientSecret,
+              scope: 'https://graph.microsoft.com/.default',
+            }).toString(),
+            signal: AbortSignal.timeout(10_000),
+          })
+          if (tokenRes.ok) {
+            const tokenData = (await tokenRes.json()) as { access_token: string }
+            const domainsRes = await fetch('https://graph.microsoft.com/v1.0/domains?$select=id,isVerified,isDefault', {
+              headers: { Authorization: `Bearer ${tokenData.access_token}` },
+              signal: AbortSignal.timeout(10_000),
+            })
+            if (domainsRes.ok) {
+              const data = (await domainsRes.json()) as { value: Array<{ id: string; isVerified: boolean; isDefault: boolean }> }
+              const verifiedDomain = data.value?.find((d) => d.isVerified && !d.id.includes('.onmicrosoft.com'))
+              const defaultDomain = data.value?.find((d) => d.isDefault && d.isVerified)
+              domain = verifiedDomain?.id ?? defaultDomain?.id ?? null
+            }
+          }
+        }
+      } catch { /* Graph not available — continue without */ }
+    }
+
+    if (!domain) {
+      return { evidence, errors: ['EasyDMARC: could not determine customer email domain. Set contactEmail on the company record or connect M365.'] }
+    }
+
+    console.log(`[easydmarc] Checking email auth for domain: ${domain} (company: ${companyName ?? companyId})`)
+
+    const { buildEmailAuthSummary } = await import('@/lib/easydmarc')
+    const summary = await buildEmailAuthSummary(domain)
+
+    if (!summary) {
+      return { evidence, errors: ['EasyDMARC: API call returned no data'] }
+    }
+
+    const dmarcStatus = summary.dmarc?.policy ?? 'missing'
+    const spfStatus = summary.spf?.recordExists ? (summary.spf.valid ? 'valid' : 'invalid') : 'missing'
+    const dkimStatus = summary.dkim?.recordExists ? 'present' : 'missing'
+
+    evidence.push(buildEvidence(assessmentId, companyId, 'easydmarc_email_auth' as EvidenceSourceType, {
+      domain,
+      enforced: summary.enforced,
+      dmarc: {
+        exists: summary.dmarc?.recordExists ?? false,
+        policy: summary.dmarc?.policy,
+        pct: summary.dmarc?.pct,
+        ruaConfigured: !!summary.dmarc?.ruaUri,
+        valid: summary.dmarc?.valid ?? false,
+      },
+      spf: {
+        exists: summary.spf?.recordExists ?? false,
+        allMechanism: summary.spf?.allMechanism,
+        lookupCount: summary.spf?.lookupCount,
+        valid: summary.spf?.valid ?? false,
+      },
+      dkim: {
+        exists: summary.dkim?.recordExists ?? false,
+        selector: summary.dkim?.selector,
+        publicKeyValid: summary.dkim?.publicKeyValid ?? false,
+      },
+    }, `EasyDMARC: ${domain} — DMARC ${dmarcStatus}, SPF ${spfStatus}, DKIM ${dkimStatus}. ${summary.enforced ? 'All three present and enforcing.' : 'Not fully enforced.'}`))
+
+    return { evidence, errors }
+  } catch (err) {
+    return { evidence, errors: [`EasyDMARC collection failed: ${err instanceof Error ? err.message : String(err)}`] }
   }
 }

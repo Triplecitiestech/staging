@@ -248,3 +248,90 @@ export async function buildSummary(): Promise<UnifiSummary | null> {
 
   return summary
 }
+
+// ---------------------------------------------------------------------------
+// Site-level network configuration (VLANs, guest networks)
+// ---------------------------------------------------------------------------
+
+export interface UnifiNetworkConfig {
+  id: string
+  name: string
+  purpose: string // 'corporate' | 'guest' | 'remote-user-vpn' | 'vlan-only' | 'wan'
+  vlanId: number | null
+  isDefault: boolean
+  dhcpEnabled: boolean
+  ipSubnet: string | null
+  gatewayIp: string | null
+  isolation: boolean // guest isolation / client isolation
+}
+
+export interface UnifiSiteNetworkSummary {
+  siteId: string
+  siteName: string
+  networks: UnifiNetworkConfig[]
+  vlanCount: number
+  guestNetworkConfigured: boolean
+  guestIsolation: boolean
+  networkSegmented: boolean // true when 2+ VLANs exist
+}
+
+/**
+ * Fetch network configuration for a specific site.
+ * Uses the Site Manager API: GET /ea/sites/{siteId}/networks
+ * Falls back gracefully if the endpoint isn't available (newer API versions).
+ */
+export async function getSiteNetworks(siteId: string): Promise<UnifiNetworkConfig[]> {
+  const config = getConfig()
+  if (!config) return []
+
+  // Try the Site Manager EA API endpoint
+  const data = await unifiGet<{ data: Array<Record<string, unknown>> }>(
+    `/ea/sites/${siteId}/networks`, config.apiKey, config.baseUrl
+  )
+
+  if (!data?.data) {
+    // Try alternative path used by some API versions
+    const alt = await unifiGet<{ data: Array<Record<string, unknown>> }>(
+      `/v1/sites/${siteId}/networks`, config.apiKey, config.baseUrl
+    )
+    if (!alt?.data) return []
+    return parseNetworkConfigs(alt.data)
+  }
+
+  return parseNetworkConfigs(data.data)
+}
+
+function parseNetworkConfigs(raw: Array<Record<string, unknown>>): UnifiNetworkConfig[] {
+  return raw.map((n) => ({
+    id: String(n.id ?? n._id ?? ''),
+    name: String(n.name ?? 'Unnamed'),
+    purpose: String(n.purpose ?? n.network_type ?? 'corporate'),
+    vlanId: typeof n.vlan === 'number' ? n.vlan
+      : typeof n.vlan_id === 'number' ? n.vlan_id
+      : typeof n.networkgroup === 'string' && n.networkgroup !== 'LAN' ? parseInt(String(n.vlan ?? '0'), 10) || null
+      : null,
+    isDefault: !!n.is_default || n.name === 'Default',
+    dhcpEnabled: n.dhcpd_enabled === true || n.dhcp_enabled === true,
+    ipSubnet: typeof n.ip_subnet === 'string' ? n.ip_subnet : null,
+    gatewayIp: typeof n.gateway_ip === 'string' ? n.gateway_ip
+      : typeof n.gateway === 'string' ? n.gateway : null,
+    isolation: !!n.guest_isolation || !!n.isolation || n.purpose === 'guest',
+  }))
+}
+
+/**
+ * Build a network-config summary for a site, suitable for evidence rawData.
+ */
+export async function buildSiteNetworkSummary(siteId: string, siteName: string): Promise<UnifiSiteNetworkSummary> {
+  const networks = await getSiteNetworks(siteId)
+  const vlanCount = networks.filter((n) => n.vlanId != null && n.vlanId > 0).length
+  const guestNetworks = networks.filter((n) => n.purpose === 'guest')
+  const guestNetworkConfigured = guestNetworks.length > 0
+  const guestIsolation = guestNetworks.some((n) => n.isolation)
+  const networkSegmented = vlanCount >= 2 || (vlanCount >= 1 && guestNetworkConfigured)
+
+  return {
+    siteId, siteName, networks,
+    vlanCount, guestNetworkConfigured, guestIsolation, networkSegmented,
+  }
+}
