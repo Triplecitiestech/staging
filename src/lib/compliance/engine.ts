@@ -469,17 +469,23 @@ async function loadEnvironmentContext(existingClient?: PoolClient, companyId?: s
         else if (label.includes('hybrid')) remoteAccess = 'hybrid'
       }
       if (a.questionId === 'on_prem_servers') {
-        if (label.includes('no on-prem') || label.includes('fully cloud')) onPremServers = 'no_servers'
-        else if (label.includes('bcdr')) onPremServers = 'yes_bcdr'
+        if (label.includes('no on-prem') || label.includes('fully cloud') || label === 'no_servers') onPremServers = 'no_servers'
+        else if (label.includes('bcdr') || label === 'yes_bcdr') onPremServers = 'yes_bcdr'
+        else if (label === 'yes_mixed') onPremServers = 'yes_mixed'
         else onPremServers = 'yes_mixed'
       }
       if (a.questionId === 'custom_apps') {
-        customApps = label.includes('no') || label.includes('standard') ? 'no' : 'yes'
+        customApps = (label.includes('no') || label.includes('standard') || label === 'no') ? 'no' : 'yes'
       }
       if (a.questionId === 'byod_policy') {
-        if (label.includes('company-owned')) byodPolicy = 'company_owned'
-        else if (label.includes('no management') || label.includes('no mdm')) byodPolicy = 'byod_unmanaged'
+        if (label.includes('company-owned') || label === 'company_owned') byodPolicy = 'company_owned'
+        else if (label.includes('no management') || label.includes('no mdm') || label === 'byod_unmanaged') byodPolicy = 'byod_unmanaged'
         else byodPolicy = 'byod_managed'
+      }
+      if (a.questionId === 'remote_access') {
+        if (label.includes('cloud-only') || label.includes('no vpn') || label === 'cloud_only') remoteAccess = 'cloud_only'
+        else if (label.includes('vpn required') || label === 'vpn_required') remoteAccess = 'vpn_required'
+        else if (label.includes('hybrid') || label === 'hybrid') remoteAccess = 'hybrid'
       }
       // Scope definitions
       if (a.questionId === 'scope_endpoints') {

@@ -35,9 +35,33 @@ const CUSTOMER_ENV_QUESTIONS = [
     category: 'Customer Environment',
     question: 'Does this customer have on-premises servers?',
     options: [
-      { value: 'no_servers', label: 'No — fully cloud' },
-      { value: 'yes_bcdr', label: 'Yes — with BCDR backup' },
-      { value: 'yes_mixed', label: 'Yes — mixed backup' },
+      { value: 'no_servers', label: 'No — fully cloud, no on-prem servers' },
+      { value: 'yes_bcdr', label: 'Yes — dedicated server(s) with BCDR backup' },
+      { value: 'yes_mixed', label: 'Yes — dedicated server(s) with mixed/other backup' },
+    ],
+  },
+  {
+    id: 'workstation_as_server',
+    category: 'Customer Environment',
+    question: 'Does this customer have workstations that act as servers or store critical local data?',
+    options: [
+      { value: 'none', label: 'No — all data is cloud-based or on dedicated servers' },
+      { value: 'yes_backed_up', label: 'Yes — workstation(s) with critical data, backed up via Datto Endpoint Backup' },
+      { value: 'yes_not_backed_up', label: 'Yes — workstation(s) with critical data, NOT currently backed up' },
+    ],
+  },
+  {
+    id: 'critical_local_apps',
+    category: 'Customer Environment',
+    question: 'What critical applications run locally on workstations (not cloud/SaaS)?',
+    options: [
+      { value: 'none', label: 'None — all applications are cloud/SaaS' },
+      { value: 'quickbooks', label: 'QuickBooks Desktop' },
+      { value: 'accounting_other', label: 'Other desktop accounting/ERP (Sage, Peachtree, etc.)' },
+      { value: 'database', label: 'Local database (Access, SQL Express, FileMaker)' },
+      { value: 'cad_engineering', label: 'CAD / engineering (AutoCAD, SolidWorks, etc.)' },
+      { value: 'custom', label: 'Custom line-of-business application' },
+      { value: 'multiple', label: 'Multiple critical local apps' },
     ],
   },
   {
