@@ -36,6 +36,19 @@ export interface DattoSite {
   devicesCount: number;
 }
 
+export interface DattoSoftwareItem {
+  name: string;
+  version: string;
+  installDate: string | null;
+}
+
+interface RawSoftwareItem {
+  name?: string;
+  displayName?: string;
+  version?: string;
+  installDate?: string;
+}
+
 export interface DattoAlert {
   alertUid: string;
   alertType: string;
@@ -219,6 +232,22 @@ export class DattoRmmClient {
   /** Fetch patch status for a specific device. */
   async getDevicePatch(deviceUid: string): Promise<unknown> {
     return this.request<unknown>(`/api/v2/device/${deviceUid}/patch`);
+  }
+
+  /** Fetch installed software inventory for a device (audit data). */
+  async getDeviceSoftware(deviceUid: string): Promise<DattoSoftwareItem[]> {
+    try {
+      const data = await this.request<{ software: RawSoftwareItem[] }>(
+        `/api/v2/device/${deviceUid}/software`
+      );
+      return (data.software ?? []).map((s) => ({
+        name: s.name ?? s.displayName ?? '',
+        version: s.version ?? '',
+        installDate: s.installDate ?? null,
+      }));
+    } catch {
+      return [];
+    }
   }
 
   /** Fetch all alerts (paginated). Returns up to maxPages * 250 alerts. Default 200 pages = 50,000 alerts. */
