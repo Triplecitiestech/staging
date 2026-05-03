@@ -767,7 +767,12 @@ evaluators['cis-v8-11.1'] = (ctx: EvaluationContext): EvaluationResult => {
   const hasSaas = saasData?.matched && (saasData?.totalSeats ?? 0) > 0
   const hasEpBackup = epBackup.count > 0
 
-  const bcdrNotUsed = ctx.environment?.onPremServers === 'no_servers'
+  // "No on-prem servers" doesn't mean "no local backup needed" when
+  // workstations act as servers or have critical local data (e.g. QuickBooks)
+  const hasWorkstationData = ctx.environment?.rawAnswers?.workstation_as_server === 'yes_backed_up'
+    || ctx.environment?.rawAnswers?.workstation_as_server === 'yes_not_backed_up'
+    || ctx.environment?.rawAnswers?.critical_local_apps !== 'none'
+  const bcdrNotUsed = (ctx.environment?.onPremServers === 'no_servers' && !hasWorkstationData)
     || ctx.environment?.scope?.backup === 'm365_only'
 
   // Build the backup coverage summary including all three sources
