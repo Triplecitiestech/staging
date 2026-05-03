@@ -743,57 +743,69 @@ evaluators['cis-v8-10.2'] = (ctx: EvaluationContext): EvaluationResult => {
     sources, [], 'Deploy Datto EDR to ensure automatic signature updates across all endpoints.')
 }
 
+// Helper: extract Datto Endpoint Backup devices from RMM evidence
+function getEndpointBackupDevices(ctx: EvaluationContext): { count: number; hostnames: string[] } {
+  const rmm = ctx.evidence.get('datto_rmm_devices')
+  if (!rmm) return { count: 0, hostnames: [] }
+  const data = rmm.rawData as { endpoint_backup_devices?: Array<{ hostname: string }>; endpoint_backup_count?: number }
+  const devices = data.endpoint_backup_devices ?? []
+  return { count: data.endpoint_backup_count ?? devices.length, hostnames: devices.map((d) => d.hostname) }
+}
+
 // --- 11.1 Establish and Maintain a Data Recovery Practice ---
 evaluators['cis-v8-11.1'] = (ctx: EvaluationContext): EvaluationResult => {
   const bcdr = ctx.evidence.get('datto_bcdr_backup')
   const saas = ctx.evidence.get('datto_saas_backup')
-  if (!bcdr && !saas) return noEvidence('cis-v8-11.1', ['datto_bcdr_backup', 'datto_saas_backup'], ctx)
+  const epBackup = getEndpointBackupDevices(ctx)
+
+  if (!bcdr && !saas && epBackup.count === 0) return noEvidence('cis-v8-11.1', ['datto_bcdr_backup', 'datto_saas_backup', 'datto_rmm_devices'], ctx)
 
   const bcdrData = bcdr?.rawData as { matched?: boolean; totalAppliances?: number; totalAlerts?: number; deviceDetails?: unknown[] } | undefined
   const saasData = saas?.rawData as { matched?: boolean; totalSeats?: number; activeSeats?: number; unprotectedSeats?: number } | undefined
 
   const hasBcdr = bcdrData?.matched && (bcdrData?.deviceDetails ?? []).length > 0
   const hasSaas = saasData?.matched && (saasData?.totalSeats ?? 0) > 0
+  const hasEpBackup = epBackup.count > 0
 
-  // Check if BCDR is explicitly marked as not used in platform mapping
   const bcdrNotUsed = ctx.environment?.onPremServers === 'no_servers'
     || ctx.environment?.scope?.backup === 'm365_only'
 
-  if (hasBcdr && hasSaas) {
-    const unprotected = saasData?.unprotectedSeats ?? 0
-    if (unprotected === 0) {
-      return result('cis-v8-11.1', ctx, 'pass', 'high',
-        `Backup coverage confirmed: ${(bcdrData?.deviceDetails ?? []).length} BCDR device(s) and ${saasData?.totalSeats} SaaS backup seat(s) with zero unprotected.`,
-        ['datto_bcdr_backup', 'datto_saas_backup'], [])
-    }
-    return result('cis-v8-11.1', ctx, 'partial', 'medium',
-      `Backup systems active: ${(bcdrData?.deviceDetails ?? []).length} BCDR device(s), ${saasData?.totalSeats} SaaS seats. However, ${unprotected} seat(s) are unprotected.`,
-      ['datto_bcdr_backup', 'datto_saas_backup'], [],
-      `Protect the ${unprotected} unprotected SaaS backup seat(s) to ensure complete data recovery coverage.`)
-  }
+  // Build the backup coverage summary including all three sources
+  const layers: string[] = []
+  const sources: string[] = []
   if (hasBcdr) {
-    return result('cis-v8-11.1', ctx, bcdrNotUsed ? 'pass' : 'partial', 'medium',
-      `BCDR backup active with ${(bcdrData?.deviceDetails ?? []).length} device(s).`,
-      ['datto_bcdr_backup'], bcdrNotUsed ? [] : ['datto_saas_backup'],
-      bcdrNotUsed ? null : 'Deploy Datto SaaS Protect for M365 cloud data backup.')
+    layers.push(`${(bcdrData?.deviceDetails ?? []).length} BCDR device(s)`)
+    sources.push('datto_bcdr_backup')
+  }
+  if (hasEpBackup) {
+    layers.push(`${epBackup.count} Endpoint Backup device(s) (${epBackup.hostnames.join(', ')})`)
+    sources.push('datto_rmm_devices')
   }
   if (hasSaas) {
     const unprotected = saasData?.unprotectedSeats ?? 0
-    // If customer has no on-prem servers / BCDR not used, SaaS-only is complete coverage
-    if (bcdrNotUsed) {
-      return result('cis-v8-11.1', ctx, unprotected === 0 ? 'pass' : 'partial', unprotected === 0 ? 'high' : 'medium',
-        `SaaS backup active: ${saasData?.totalSeats} seat(s) (${saasData?.activeSeats ?? 0} active${unprotected > 0 ? `, ${unprotected} unprotected` : ', all protected'}). No on-prem servers — BCDR not required.`,
-        ['datto_saas_backup'], [],
-        unprotected > 0 ? `Protect the ${unprotected} unprotected seat(s).` : null)
+    layers.push(`${saasData?.totalSeats} SaaS backup seat(s)${unprotected > 0 ? ` (${unprotected} unprotected)` : ''}`)
+    sources.push('datto_saas_backup')
+  }
+
+  if (layers.length >= 2) {
+    return result('cis-v8-11.1', ctx, 'pass', 'high',
+      `Backup coverage confirmed across ${layers.length} layers: ${layers.join(', ')}.`,
+      sources, [])
+  }
+  if (layers.length === 1) {
+    if (bcdrNotUsed && (hasSaas || hasEpBackup)) {
+      return result('cis-v8-11.1', ctx, 'pass', 'medium',
+        `Backup active: ${layers[0]}. No on-prem servers — BCDR not required.`,
+        sources, [])
     }
     return result('cis-v8-11.1', ctx, 'partial', 'medium',
-      `SaaS backup active with ${saasData?.totalSeats} seat(s). No BCDR backup devices found.`,
-      ['datto_saas_backup'], ['datto_bcdr_backup'],
-      'Deploy BCDR for on-premises server/workstation backup.')
+      `Backup active: ${layers[0]}.`,
+      sources, hasBcdr || hasEpBackup ? ['datto_saas_backup'] : ['datto_bcdr_backup'],
+      !hasSaas ? 'Deploy Datto SaaS Protect for M365 cloud data backup.' : 'Deploy BCDR or Endpoint Backup for server/workstation backup.')
   }
   return result('cis-v8-11.1', ctx, 'needs_review', 'low',
     'Backup integrations are available but no matching devices/seats found for this customer.',
-    ['datto_bcdr_backup', 'datto_saas_backup'], [],
+    sources, [],
     'Verify company name mapping in Platform Mapping.')
 }
 
@@ -801,19 +813,24 @@ evaluators['cis-v8-11.1'] = (ctx: EvaluationContext): EvaluationResult => {
 evaluators['cis-v8-11.2'] = (ctx: EvaluationContext): EvaluationResult => {
   const bcdr = ctx.evidence.get('datto_bcdr_backup')
   const saas = ctx.evidence.get('datto_saas_backup')
-  if (!bcdr && !saas) return noEvidence('cis-v8-11.2', ['datto_bcdr_backup', 'datto_saas_backup'], ctx)
+  const epBackup = getEndpointBackupDevices(ctx)
 
-  const bcdrData = bcdr?.rawData as { matched?: boolean; totalAppliances?: number; deviceDetails?: Array<{ name?: string }> } | undefined
+  if (!bcdr && !saas && epBackup.count === 0) return noEvidence('cis-v8-11.2', ['datto_bcdr_backup', 'datto_saas_backup', 'datto_rmm_devices'], ctx)
+
+  const bcdrData = bcdr?.rawData as { matched?: boolean; deviceDetails?: Array<{ name?: string }> } | undefined
   const saasData = saas?.rawData as { matched?: boolean; totalSeats?: number; activeSeats?: number; unprotectedSeats?: number } | undefined
 
   const hasBcdr = bcdrData?.matched && (bcdrData?.deviceDetails ?? []).length > 0
   const hasSaas = saasData?.matched && (saasData?.totalSeats ?? 0) > 0
-  const sources = ['datto_bcdr_backup', 'datto_saas_backup'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
+  const sources = ['datto_bcdr_backup', 'datto_saas_backup', 'datto_rmm_devices'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
   const backupLayers: string[] = []
 
   if (hasBcdr) {
     const deviceNames = (bcdrData?.deviceDetails ?? []).map((d) => d.name).filter(Boolean).slice(0, 10)
-    backupLayers.push(`Datto BCDR: ${(bcdrData?.deviceDetails ?? []).length} protected server(s)/workstation(s) with automated backup schedules${deviceNames.length > 0 ? ` (${deviceNames.join(', ')})` : ''}. Backups run on configurable intervals (typically every 15min–1hr) with local + cloud replication.`)
+    backupLayers.push(`Datto BCDR: ${(bcdrData?.deviceDetails ?? []).length} protected server(s)/workstation(s) with automated backup schedules${deviceNames.length > 0 ? ` (${deviceNames.join(', ')})` : ''}. Backups run on configurable intervals (typically every 15min-1hr) with local + cloud replication.`)
+  }
+  if (epBackup.count > 0) {
+    backupLayers.push(`Datto Endpoint Backup: ${epBackup.count} device(s) (${epBackup.hostnames.join(', ')}) with automated backup agent. Backs up data to Datto cloud with configurable schedules.`)
   }
   if (hasSaas) {
     const unprotected = saasData?.unprotectedSeats ?? 0
@@ -826,24 +843,22 @@ evaluators['cis-v8-11.2'] = (ctx: EvaluationContext): EvaluationResult => {
       sources, [])
   }
   if (backupLayers.length === 1) {
-    // Check if the missing layer is intentionally not used
     const bcdrNotUsed = ctx.environment?.onPremServers === 'no_servers'
       || ctx.environment?.scope?.backup === 'm365_only'
-    if (!hasBcdr && bcdrNotUsed) {
-      // SaaS-only is sufficient — no on-prem to back up
+    if ((!hasBcdr && !epBackup.count) && bcdrNotUsed) {
       return result('cis-v8-11.2', ctx, 'pass', 'medium',
         `Automated backup active: ${backupLayers[0]} No on-prem servers — BCDR not required.`,
         sources, [])
     }
     return result('cis-v8-11.2', ctx, 'partial', 'medium',
       `Automated backup active: ${backupLayers[0]}`,
-      sources, hasBcdr ? ['datto_saas_backup'] : ['datto_bcdr_backup'],
-      !hasBcdr ? 'Deploy Datto BCDR for server/workstation backup coverage.' : 'Deploy Datto SaaS Protect for M365 data backup.')
+      sources, (hasBcdr || epBackup.count > 0) ? ['datto_saas_backup'] : ['datto_bcdr_backup'],
+      !hasSaas ? 'Deploy Datto SaaS Protect for M365 data backup.' : 'Deploy BCDR or Endpoint Backup for server/workstation backup.')
   }
   return result('cis-v8-11.2', ctx, 'needs_review', 'low',
     'Backup integrations connected but no matching devices/seats found for this customer.',
     sources, [],
-    'Verify company name mapping in Datto BCDR and SaaS Protect.')
+    'Verify company name mapping in Platform Mapping.')
 }
 
 // --- 12.6 Use of Encryption for Data in Transit ---
@@ -1882,10 +1897,11 @@ evaluators['cis-v8-10.3'] = (ctx: EvaluationContext): EvaluationResult => {
 evaluators['cis-v8-11.3'] = (ctx: EvaluationContext): EvaluationResult => {
   const bcdr = ctx.evidence.get('datto_bcdr_backup')
   const saas = ctx.evidence.get('datto_saas_backup')
+  const epBackup = getEndpointBackupDevices(ctx)
   const bcdrNotUsed = ctx.environment?.onPremServers === 'no_servers'
     || ctx.environment?.scope?.backup === 'm365_only'
 
-  if (!bcdr && !saas) return noEvidence('cis-v8-11.3', ['datto_bcdr_backup', 'datto_saas_backup'], ctx)
+  if (!bcdr && !saas && epBackup.count === 0) return noEvidence('cis-v8-11.3', ['datto_bcdr_backup', 'datto_saas_backup', 'datto_rmm_devices'], ctx)
 
   const layers: string[] = []
   const sources: string[] = []
@@ -1894,6 +1910,10 @@ evaluators['cis-v8-11.3'] = (ctx: EvaluationContext): EvaluationResult => {
   if (bcdrData?.matched) {
     layers.push(`Datto BCDR: AES-256 encryption at rest, TLS in transit. ${bcdrData.applianceCount ?? 0} appliance(s) with encrypted offsite cloud replication.`)
     sources.push('datto_bcdr_backup')
+  }
+  if (epBackup.count > 0) {
+    layers.push(`Datto Endpoint Backup: ${epBackup.count} device(s) (${epBackup.hostnames.join(', ')}) encrypted at rest and in transit to Datto cloud.`)
+    sources.push('datto_rmm_devices')
   }
   const saasData = saas?.rawData as { matched?: boolean; totalSeats?: number } | undefined
   if (saasData?.matched && (saasData?.totalSeats ?? 0) > 0) {
@@ -1920,10 +1940,11 @@ evaluators['cis-v8-11.3'] = (ctx: EvaluationContext): EvaluationResult => {
 evaluators['cis-v8-11.4'] = (ctx: EvaluationContext): EvaluationResult => {
   const bcdr = ctx.evidence.get('datto_bcdr_backup')
   const saas = ctx.evidence.get('datto_saas_backup')
+  const epBackup = getEndpointBackupDevices(ctx)
   const bcdrNotUsed = ctx.environment?.onPremServers === 'no_servers'
     || ctx.environment?.scope?.backup === 'm365_only'
 
-  if (!bcdr && !saas) return noEvidence('cis-v8-11.4', ['datto_bcdr_backup', 'datto_saas_backup'], ctx)
+  if (!bcdr && !saas && epBackup.count === 0) return noEvidence('cis-v8-11.4', ['datto_bcdr_backup', 'datto_saas_backup', 'datto_rmm_devices'], ctx)
 
   const layers: string[] = []
   const sources: string[] = []
@@ -1932,6 +1953,10 @@ evaluators['cis-v8-11.4'] = (ctx: EvaluationContext): EvaluationResult => {
   if (bcdrData?.matched) {
     layers.push(`Datto BCDR: Offsite cloud replication to Datto's geographically separate infrastructure with instant virtualization capability.`)
     sources.push('datto_bcdr_backup')
+  }
+  if (epBackup.count > 0) {
+    layers.push(`Datto Endpoint Backup: ${epBackup.count} device(s) (${epBackup.hostnames.join(', ')}) replicated to Datto cloud, isolated from production environment.`)
+    sources.push('datto_rmm_devices')
   }
   const saasData = saas?.rawData as { matched?: boolean; totalSeats?: number } | undefined
   if (saasData?.matched && (saasData?.totalSeats ?? 0) > 0) {
@@ -2337,14 +2362,23 @@ evaluators['cis-v8-10.7'] = (ctx) => {
 evaluators['cis-v8-11.5'] = (ctx) => {
   const bcdr = ctx.evidence.get('datto_bcdr_backup')
   const saas = ctx.evidence.get('datto_saas_backup')
-  const sources = ['datto_bcdr_backup', 'datto_saas_backup'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
+  const epBackup = getEndpointBackupDevices(ctx)
+  const sources = ['datto_bcdr_backup', 'datto_saas_backup', 'datto_rmm_devices'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
 
-  // Datto Endpoint Backup / BCDR has automated screenshot verification
+  // Datto BCDR has automated screenshot verification
   if (bcdr) {
     return result('cis-v8-11.5', ctx, 'pass', 'high',
-      'Datto BCDR/Endpoint Backup performs automated screenshot verification after every backup — boots the image and captures a screenshot confirming recoverability. This satisfies recurring restore testing for endpoint/server assets.',
+      'Datto BCDR performs automated screenshot verification after every backup — boots the image and captures a screenshot confirming recoverability.',
       sources, [], saas
         ? 'For SaaS-only assets covered by Datto SaaS Protection, schedule a quarterly manual restore test (SaaS Protection has no automated restore verification).'
+        : null)
+  }
+  // Datto Endpoint Backup also has screenshot verification
+  if (epBackup.count > 0) {
+    return result('cis-v8-11.5', ctx, 'pass', 'high',
+      `Datto Endpoint Backup on ${epBackup.count} device(s) (${epBackup.hostnames.join(', ')}) performs automated screenshot verification after every backup — confirms recoverability automatically.`,
+      sources, [], saas
+        ? 'For SaaS-only assets covered by Datto SaaS Protection, schedule a quarterly manual restore test.'
         : null)
   }
   // SaaS Protection alone — no automated restore testing
@@ -2352,9 +2386,9 @@ evaluators['cis-v8-11.5'] = (ctx) => {
     return result('cis-v8-11.5', ctx, 'partial', 'medium',
       'Datto SaaS Protection verifies backup job completion but does NOT perform automated restore testing. Quarterly manual restore tests must be documented to satisfy this control.',
       sources, ['manual_upload'],
-      'Document a quarterly restore test schedule for M365 data in IT Glue. Run a test restore on a sampling of mailboxes/files each quarter.')
+      'Document a quarterly restore test schedule for M365 data in IT Glue.')
   }
-  return noEvidence('cis-v8-11.5', ['datto_bcdr_backup', 'datto_saas_backup'], ctx)
+  return noEvidence('cis-v8-11.5', ['datto_bcdr_backup', 'datto_saas_backup', 'datto_rmm_devices'], ctx)
 }
 
 // =============================================================================

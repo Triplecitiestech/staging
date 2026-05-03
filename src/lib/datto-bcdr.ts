@@ -266,17 +266,55 @@ export class DattoBcdrClient {
     try {
       const devices = await this.getDevices();
 
-      // Filter by company name if provided
+      // Filter by company name if provided.
+      // Use EXACT case-insensitive match on clientCompanyName to prevent
+      // cross-customer data leaks. The old fuzzy matchesCompanyName() was
+      // returning false positives (e.g. BDR-KenneyGeo appearing in AllSpec
+      // Finishing's assessment). Only fall back to fuzzy matching if exact
+      // match produces zero results AND the caller explicitly provided a
+      // company name (not a device serial).
       let filtered = devices;
       if (companyName) {
-        filtered = devices.filter((d) => {
-          const matches = matchesCompanyName(companyName, d.clientCompanyName);
-          if (matches) {
-            console.log(`[DattoBCDR] Company "${companyName}" matched device "${d.name}" (client: "${d.clientCompanyName}")`);
+        const nameLower = companyName.toLowerCase().trim()
+
+        // Try 1: exact clientCompanyName match (case-insensitive)
+        filtered = devices.filter((d) =>
+          d.clientCompanyName.toLowerCase().trim() === nameLower
+        )
+
+        // Try 2: clientCompanyName contains the full company name (still strict)
+        if (filtered.length === 0) {
+          filtered = devices.filter((d) =>
+            d.clientCompanyName.toLowerCase().includes(nameLower)
+          )
+        }
+
+        // Try 3: fuzzy match as last resort — but log a warning so
+        // the tech knows the match is imprecise and should set up a
+        // Platform Mapping for this customer.
+        if (filtered.length === 0) {
+          filtered = devices.filter((d) => {
+            const matches = matchesCompanyName(companyName, d.clientCompanyName)
+            return matches
+          })
+          if (filtered.length > 0) {
+            console.warn(`[DattoBCDR] WARNING: Using fuzzy name match for "${companyName}" — matched ${filtered.length} device(s). Configure an explicit Platform Mapping for more accurate results.`)
           }
-          return matches;
-        });
-        console.log(`[DattoBCDR] Filtered ${devices.length} total devices → ${filtered.length} matching "${companyName}"`);
+        }
+
+        // Safety: reject results where matched devices have MULTIPLE distinct
+        // clientCompanyName values — this means the fuzzy match is too broad.
+        const distinctClients = new Set(filtered.map((d) => d.clientCompanyName.toLowerCase().trim()))
+        if (distinctClients.size > 1) {
+          console.warn(`[DattoBCDR] Cross-customer match detected for "${companyName}": matched ${distinctClients.size} distinct companies (${Array.from(distinctClients).join(', ')}). Discarding all — set up a Platform Mapping.`)
+          filtered = []
+        }
+
+        if (filtered.length > 0) {
+          console.log(`[DattoBCDR] Filtered ${devices.length} total devices → ${filtered.length} for "${companyName}" (client: "${filtered[0].clientCompanyName}")`)
+        } else {
+          console.log(`[DattoBCDR] No devices matched "${companyName}" among ${devices.length} total devices`)
+        }
       }
 
       const totalAgents = filtered.reduce((s, d) => s + d.agentCount, 0);

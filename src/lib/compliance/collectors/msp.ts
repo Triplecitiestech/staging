@@ -136,13 +136,14 @@ export async function collectDattoRmmEvidence(
       return { evidence: [], errors: [] }
     }
 
-    // Collect devices from matched sites
-    const allDevices: Array<Record<string, unknown>> = []
+    // Collect devices from matched sites (preserve uid for software queries)
+    const allDevices: Array<Record<string, unknown> & { uid: string }> = []
     for (const site of matchedSites.slice(0, 3)) { // limit to 3 sites
       try {
         const devices = await client.getSiteDevices(site.uid)
         for (const d of devices) {
           allDevices.push({
+            uid: d.id, // DattoDevice.id is mapped from raw uid
             hostname: d.hostname,
             operatingSystem: d.operatingSystem,
             deviceType: d.deviceType,
@@ -158,6 +159,31 @@ export async function collectDattoRmmEvidence(
       } catch (err) {
         errors.push(`RMM site ${site.name}: ${err instanceof Error ? err.message : String(err)}`)
       }
+    }
+
+    // Scan devices for Datto Endpoint Backup agent via software inventory.
+    // This detects backup coverage for devices NOT protected by BCDR appliance
+    // (e.g. workstations running as servers with Datto Endpoint Backup agent).
+    const BACKUP_AGENT_NAMES = ['datto endpoint backup', 'datto agent', 'datto backup', 'endpoint backup']
+    const endpointBackupDevices: Array<{ hostname: string; softwareName: string; version: string }> = []
+    for (const device of allDevices.slice(0, 15)) {
+      if (!device.uid) continue
+      try {
+        const software = await client.getDeviceSoftware(device.uid)
+        const backupSw = software.find((sw) =>
+          BACKUP_AGENT_NAMES.some((name) => sw.name.toLowerCase().includes(name))
+        )
+        if (backupSw) {
+          endpointBackupDevices.push({
+            hostname: String(device.hostname),
+            softwareName: backupSw.name,
+            version: backupSw.version || 'unknown',
+          })
+        }
+      } catch { /* continue — software endpoint may not be available */ }
+    }
+    if (endpointBackupDevices.length > 0) {
+      console.log(`[datto_rmm] Found ${endpointBackupDevices.length} device(s) with Datto Endpoint Backup: ${endpointBackupDevices.map((d) => d.hostname).join(', ')}`)
     }
 
     const onlineDevices = allDevices.filter((d) => d.online)
@@ -185,6 +211,9 @@ export async function collectDattoRmmEvidence(
         notApproved: d.patchesNotApproved,
       })),
       devices: allDevices.slice(0, 50),
+      // Datto Endpoint Backup detection (software inventory scan)
+      endpoint_backup_devices: endpointBackupDevices,
+      endpoint_backup_count: endpointBackupDevices.length,
       note: 'Patch rate covers all RMM-managed patches (OS + third-party applications). Datto RMM manages both Windows Update and third-party application patching through unified patch policies.',
     }, `${allDevices.length} devices, ${patchedDevices.length} fully patched (${patchRate}%). ${unpatchedDevices.length} with pending patches${rebootNeeded.length > 0 ? `, ${rebootNeeded.length} awaiting reboot` : ''}.`))
 
