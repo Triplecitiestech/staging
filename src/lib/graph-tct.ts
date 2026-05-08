@@ -10,10 +10,28 @@
  *   - AZURE_AD_CLIENT_SECRET
  *
  * Required Application permissions (Azure AD portal — admin consent):
- *   - Calendars.ReadWrite            (write PTO events to shared mailbox)
- *   - Calendars.ReadWrite.Shared     (for events with attendees/invites)
+ *   - User.Read.All                  (look up users by email)
  *   - Group.Read.All                 (resolve HumanResources group members)
- *   - User.Read.All                  (look up user by email)
+ *
+ * Plus ONE of the following depending on PTO_CALENDAR_TYPE:
+ *
+ *   PTO_CALENDAR_TYPE=user (writes to /users/{mailbox}/events):
+ *     - Calendars.ReadWrite          — required. Grants tenant-wide write
+ *                                       access to user/shared mailbox calendars.
+ *     - The PTO_CALENDAR_MAILBOX value MUST be a real M365 user or shared
+ *       mailbox; M365 group email addresses do NOT work with /users/.
+ *
+ *   PTO_CALENDAR_TYPE=group (writes to /groups/{id}/events):
+ *     - Group.ReadWrite.All          — required. `Calendars.ReadWrite` is NOT
+ *                                       sufficient for /groups/{id}/events; a
+ *                                       403 ErrorAccessDenied here means this
+ *                                       permission is missing or unconsented.
+ *     - PTO_CALENDAR_MAILBOX MUST be the M365 group's email (must be
+ *       mail-enabled, not a security-only group).
+ *
+ * After adding/changing application permissions in the Azure AD portal, a
+ * tenant admin MUST click "Grant admin consent for <tenant>" — without that,
+ * the permission shows up but Graph still returns 403.
  *
  * Used for:
  *   1. Creating calendar events on the shared PTO calendar
@@ -83,6 +101,51 @@ async function getAccessToken(): Promise<string> {
   return data.access_token
 }
 
+/**
+ * Build a hint appended to Graph error messages so the operator knows
+ * which Azure AD application permission is likely missing for this path.
+ * Only appended for 401/403 — other failures usually mean the resource is
+ * wrong, not the permission.
+ */
+function permissionHintFor(path: string, status: number): string {
+  if (status !== 401 && status !== 403) return ''
+
+  // Group calendar event endpoints — needs Group.ReadWrite.All, NOT Calendars.ReadWrite.
+  if (/^\/groups\/[^/]+\/events/.test(path)) {
+    return (
+      '\n\nHint: writing events to an M365 group calendar requires the ' +
+      '`Group.ReadWrite.All` Microsoft Graph application permission with ' +
+      'admin consent. `Calendars.ReadWrite` does NOT cover `/groups/{id}/events`. ' +
+      'Add Group.ReadWrite.All in the Azure AD app registration → API ' +
+      'permissions, click "Grant admin consent", then retry the calendar sync. ' +
+      'If you cannot add Group.ReadWrite.All, switch the PTO calendar to a ' +
+      'shared mailbox: set PTO_CALENDAR_TYPE=user and PTO_CALENDAR_MAILBOX ' +
+      'to a real M365 mailbox (Calendars.ReadWrite is enough for that path).'
+    )
+  }
+
+  // User mailbox calendar event endpoints — needs Calendars.ReadWrite.
+  if (/^\/users\/[^/]+\/(calendars\/[^/]+\/)?events/.test(path)) {
+    return (
+      '\n\nHint: writing events to a user/shared mailbox requires the ' +
+      '`Calendars.ReadWrite` Microsoft Graph application permission with ' +
+      'admin consent, AND the mailbox must exist as a real M365 user or ' +
+      'shared mailbox. If the address is an M365 group email, set ' +
+      'PTO_CALENDAR_TYPE=group and grant Group.ReadWrite.All instead.'
+    )
+  }
+
+  if (path.startsWith('/groups')) {
+    return '\n\nHint: reading groups requires the `Group.Read.All` application permission with admin consent.'
+  }
+
+  if (path.startsWith('/users')) {
+    return '\n\nHint: reading users requires the `User.Read.All` application permission with admin consent.'
+  }
+
+  return ''
+}
+
 async function graphRequest<T>(path: string, options?: RequestInit): Promise<T> {
   const token = await getAccessToken()
   const url = path.startsWith('https://') ? path : `https://graph.microsoft.com/v1.0${path}`
@@ -99,7 +162,7 @@ async function graphRequest<T>(path: string, options?: RequestInit): Promise<T> 
 
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(`TCT Graph ${path} failed (${res.status}): ${text}`)
+    throw new Error(`TCT Graph ${path} failed (${res.status}): ${text}${permissionHintFor(path, res.status)}`)
   }
 
   if (res.status === 204 || res.headers.get('content-length') === '0') {

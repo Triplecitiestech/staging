@@ -549,12 +549,50 @@ export default function PtoDetailClient({
               <>
                 <div className="rounded-md border border-rose-500/30 bg-rose-500/10 p-4">
                   <p className="text-sm font-semibold text-rose-200">Calendar sync failed</p>
-                  <p className="text-xs text-rose-100 mt-1">
-                    Common causes: the PTO calendar mailbox doesn&apos;t exist as a mailbox (set{' '}
-                    <code>PTO_CALENDAR_TYPE=group</code> to target an M365 group&apos;s calendar
-                    instead), or the Azure AD app is missing the <code>Calendars.ReadWrite</code>{' '}
-                    application permission / admin consent. Error below:
-                  </p>
+                  {(() => {
+                    const err = req.graphSyncError ?? ''
+                    const isGroupPath = /\/groups\/[^/]+\/events/.test(err)
+                    const isUserPath = /\/users\/[^/]+\/(calendars\/[^/]+\/)?events/.test(err)
+                    const is403 = /\((401|403)\)/.test(err) || /ErrorAccessDenied/i.test(err)
+
+                    if (is403 && isGroupPath) {
+                      return (
+                        <p className="text-xs text-rose-100 mt-1">
+                          The Azure AD app cannot write to this M365 group&apos;s calendar.
+                          Writing to <code>/groups/&#123;id&#125;/events</code> requires the{' '}
+                          <code>Group.ReadWrite.All</code> application permission with admin
+                          consent — <code>Calendars.ReadWrite</code> alone does not work for
+                          group calendars. Add <code>Group.ReadWrite.All</code> in the Azure AD
+                          app registration, click <em>Grant admin consent</em>, then retry. If
+                          that permission isn&apos;t allowed, switch to a shared mailbox: set{' '}
+                          <code>PTO_CALENDAR_TYPE=user</code> with{' '}
+                          <code>PTO_CALENDAR_MAILBOX</code> pointing at a real M365 mailbox.
+                        </p>
+                      )
+                    }
+                    if (is403 && isUserPath) {
+                      return (
+                        <p className="text-xs text-rose-100 mt-1">
+                          The Azure AD app cannot write to this mailbox. Confirm the address in{' '}
+                          <code>PTO_CALENDAR_MAILBOX</code> is a real M365 user or shared
+                          mailbox (not an M365 group), and that the app has the{' '}
+                          <code>Calendars.ReadWrite</code> application permission with admin
+                          consent. If the address is an M365 group, set{' '}
+                          <code>PTO_CALENDAR_TYPE=group</code> and grant{' '}
+                          <code>Group.ReadWrite.All</code> instead.
+                        </p>
+                      )
+                    }
+                    return (
+                      <p className="text-xs text-rose-100 mt-1">
+                        Common causes: the PTO calendar mailbox doesn&apos;t exist (set{' '}
+                        <code>PTO_CALENDAR_TYPE=group</code> to target an M365 group&apos;s
+                        calendar instead, or set <code>PTO_CALENDAR_MAILBOX</code> to a real
+                        mailbox), or the Azure AD app is missing the appropriate Microsoft
+                        Graph application permission / admin consent. Error below:
+                      </p>
+                    )
+                  })()}
                   {req.graphSyncError && (
                     <pre className="mt-2 p-2 rounded bg-rose-500/10 text-xs text-rose-100 overflow-x-auto whitespace-pre-wrap break-words">
                       {req.graphSyncError}
