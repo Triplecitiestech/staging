@@ -88,14 +88,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       companyId = ''
       finalSlug = ''
     } else {
-      // Per-company flow — use company's own M365 app credentials
+      // Per-company flow — branch on consent mode:
+      //   multi_tenant: use TCT's portal app credentials, customer's tenant
+      //   legacy:       use customer's per-tenant app credentials
       const companyRes = await client.query<{
         id: string
-        m365_tenant_id: string
-        m365_client_id: string
-        m365_client_secret: string
+        m365_tenant_id: string | null
+        m365_client_id: string | null
+        m365_client_secret: string | null
+        m365_consent_mode: string | null
       }>(
-        `SELECT id, m365_tenant_id, m365_client_id, m365_client_secret
+        `SELECT id, m365_tenant_id, m365_client_id, m365_client_secret, m365_consent_mode
          FROM companies
          WHERE slug = $1
          LIMIT 1`,
@@ -110,16 +113,37 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       }
 
       const company = companyRes.rows[0]
+      const isMultiTenant = company.m365_consent_mode === 'multi_tenant'
 
-      if (!company.m365_tenant_id || !company.m365_client_id || !company.m365_client_secret) {
+      if (!company.m365_tenant_id) {
         return new NextResponse(errorPage('SSO is not fully configured for this company.'), {
           status: 200,
           headers: { 'Content-Type': 'text/html' },
         })
       }
 
-      tokenClientId = company.m365_client_id
-      tokenClientSecret = company.m365_client_secret
+      if (isMultiTenant) {
+        const portalClientId = process.env.M365_PORTAL_CLIENT_ID
+        const portalClientSecret = process.env.M365_PORTAL_CLIENT_SECRET
+        if (!portalClientId || !portalClientSecret) {
+          return new NextResponse(
+            errorPage('SSO is not fully configured. Please contact Triple Cities Tech.'),
+            { status: 500, headers: { 'Content-Type': 'text/html' } }
+          )
+        }
+        tokenClientId = portalClientId
+        tokenClientSecret = portalClientSecret
+      } else {
+        if (!company.m365_client_id || !company.m365_client_secret) {
+          return new NextResponse(errorPage('SSO is not fully configured for this company.'), {
+            status: 200,
+            headers: { 'Content-Type': 'text/html' },
+          })
+        }
+        tokenClientId = company.m365_client_id
+        tokenClientSecret = company.m365_client_secret
+      }
+
       tokenTenantId = company.m365_tenant_id
       companyId = company.id
       finalSlug = companySlug!

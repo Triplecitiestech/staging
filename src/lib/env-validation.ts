@@ -23,6 +23,10 @@ const RECOMMENDED_VARS = [
   'RESEND_API_KEY',
   'TURNSTILE_SECRET_KEY',
   'CRON_SECRET',
+  // Multi-tenant M365 portal app — required to onboard new customers via
+  // admin-consent flow. Existing legacy-mode customers keep working without these.
+  'M365_PORTAL_CLIENT_ID',
+  'M365_PORTAL_CLIENT_SECRET',
 ] as const
 
 export function validateEnvironment(): { missing: string[]; warnings: string[] } {

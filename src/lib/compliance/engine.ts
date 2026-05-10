@@ -107,10 +107,13 @@ export async function detectConnectors(companyId: string): Promise<ConnectorStat
     const company = await client.query<{
       m365_tenant_id: string | null
       m365_client_id: string | null
+      m365_consent_mode: string | null
+      m365_consent_granted_at: Date | null
       m365_setup_status: string | null
       "autotaskCompanyId": string | null
     }>(
-      `SELECT m365_tenant_id, m365_client_id, m365_setup_status, "autotaskCompanyId"
+      `SELECT m365_tenant_id, m365_client_id, m365_consent_mode, m365_consent_granted_at,
+              m365_setup_status, "autotaskCompanyId"
        FROM companies WHERE id = $1`,
       [companyId]
     )
@@ -132,7 +135,16 @@ export async function detectConnectors(companyId: string): Promise<ConnectorStat
       )
     }
 
-    if (row.m365_tenant_id && row.m365_client_id) {
+    // Graph is "configured" when:
+    //   - multi_tenant mode: tenantId is set AND admin consent has been granted
+    //   - legacy mode:        tenantId AND clientId are both set
+    const graphConfigured =
+      !!row.m365_tenant_id &&
+      (row.m365_consent_mode === 'multi_tenant'
+        ? !!row.m365_consent_granted_at
+        : !!row.m365_client_id)
+
+    if (graphConfigured) {
       const status = row.m365_setup_status === 'verified' ? 'verified' : 'configured'
       await upsert('microsoft_graph', status, null, 'company.m365_*')
     }

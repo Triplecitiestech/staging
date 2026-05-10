@@ -1,13 +1,18 @@
 /**
- * Microsoft Graph API Client — Per-Tenant
+ * Microsoft Graph API Client — supports two onboarding modes per company:
  *
- * Each TCT customer has their own Azure AD app registration.
- * Credentials (tenantId, clientId, clientSecret) are stored
- * per-company in the database. This module:
+ *  1. 'legacy' (per-tenant app reg)
+ *     - Customer admin creates an app registration in their own Entra tenant
+ *     - tenantId + clientId + clientSecret all stored on companies row
  *
- *   1. Fetches credentials for a given companyId
- *   2. Obtains a client-credentials OAuth2 token (cached in-memory per tenant)
- *   3. Exposes typed helpers for every Graph call the HR system needs
+ *  2. 'multi_tenant' (TCT-published multi-tenant app + admin consent)
+ *     - Customer admin grants consent to the single TCT app registration
+ *     - Only tenantId stored on companies row
+ *     - At runtime, clientId+secret come from M365_PORTAL_CLIENT_ID /
+ *       M365_PORTAL_CLIENT_SECRET env vars on every call
+ *
+ * Both modes hit the customer's tenant-scoped token endpoint, so token caching
+ * (keyed by tenantId) is identical.
  *
  * REQUIRED Azure AD app permissions (Application, not Delegated):
  *   - User.ReadWrite.All
@@ -38,7 +43,16 @@ interface TokenEntry {
 
 const tokenCache = new Map<string, TokenEntry>()
 
-async function getAccessToken(
+/**
+ * Acquire a client-credentials access token for the customer's tenant.
+ * Cached per tenantId regardless of which app issued the token — both
+ * legacy and multi-tenant modes acquire tokens against the same audience
+ * (Microsoft Graph) for the same tenant, so caching by tenantId is correct.
+ *
+ * Exported so other modules (e.g. compliance collectors) can reuse the
+ * token cache instead of duplicating it.
+ */
+export async function getAccessToken(
   tenantId: string,
   clientId: string,
   clientSecret: string
@@ -85,31 +99,56 @@ export interface TenantCredentials {
   clientSecret: string
 }
 
+interface CompanyM365Row {
+  m365_tenant_id: string | null
+  m365_client_id: string | null
+  m365_client_secret: string | null
+  m365_consent_mode: string | null
+}
+
+/**
+ * Resolve a TenantCredentials object from a company row, branching on
+ * m365_consent_mode. Returns null if the company isn't connected in either
+ * mode (e.g. tenantId missing, or multi_tenant mode but TCT env vars unset).
+ */
+function resolveCreds(row: CompanyM365Row): TenantCredentials | null {
+  if (!row.m365_tenant_id) return null
+
+  const mode = row.m365_consent_mode === 'multi_tenant' ? 'multi_tenant' : 'legacy'
+
+  if (mode === 'multi_tenant') {
+    const clientId = process.env.M365_PORTAL_CLIENT_ID
+    const clientSecret = process.env.M365_PORTAL_CLIENT_SECRET
+    if (!clientId || !clientSecret) {
+      console.error(
+        '[graph] Company is in multi_tenant consent mode but M365_PORTAL_CLIENT_ID / ' +
+        'M365_PORTAL_CLIENT_SECRET env vars are not set. Cannot acquire Graph tokens.'
+      )
+      return null
+    }
+    return { tenantId: row.m365_tenant_id, clientId, clientSecret }
+  }
+
+  // Legacy mode — credentials stored per-company.
+  if (!row.m365_client_id || !row.m365_client_secret) return null
+  return {
+    tenantId: row.m365_tenant_id,
+    clientId: row.m365_client_id,
+    clientSecret: row.m365_client_secret,
+  }
+}
+
 export async function getTenantCredentials(companyId: string): Promise<TenantCredentials | null> {
   const client = await pool.connect()
   try {
-    const res = await client.query<{
-      m365_tenant_id: string | null
-      m365_client_id: string | null
-      m365_client_secret: string | null
-    }>(
-      `SELECT m365_tenant_id, m365_client_id, m365_client_secret
+    const res = await client.query<CompanyM365Row>(
+      `SELECT m365_tenant_id, m365_client_id, m365_client_secret, m365_consent_mode
        FROM companies WHERE id = $1 LIMIT 1`,
       [companyId]
     )
 
     if (res.rows.length === 0) return null
-    const row = res.rows[0]
-
-    if (!row.m365_tenant_id || !row.m365_client_id || !row.m365_client_secret) {
-      return null
-    }
-
-    return {
-      tenantId:     row.m365_tenant_id,
-      clientId:     row.m365_client_id,
-      clientSecret: row.m365_client_secret,
-    }
+    return resolveCreds(res.rows[0])
   } finally {
     client.release()
   }
@@ -118,30 +157,16 @@ export async function getTenantCredentials(companyId: string): Promise<TenantCre
 export async function getTenantCredentialsBySlug(companySlug: string): Promise<(TenantCredentials & { companyId: string }) | null> {
   const client = await pool.connect()
   try {
-    const res = await client.query<{
-      id: string
-      m365_tenant_id: string | null
-      m365_client_id: string | null
-      m365_client_secret: string | null
-    }>(
-      `SELECT id, m365_tenant_id, m365_client_id, m365_client_secret
+    const res = await client.query<CompanyM365Row & { id: string }>(
+      `SELECT id, m365_tenant_id, m365_client_id, m365_client_secret, m365_consent_mode
        FROM companies WHERE slug = $1 LIMIT 1`,
       [companySlug]
     )
 
     if (res.rows.length === 0) return null
-    const row = res.rows[0]
-
-    if (!row.m365_tenant_id || !row.m365_client_id || !row.m365_client_secret) {
-      return null
-    }
-
-    return {
-      companyId:    row.id,
-      tenantId:     row.m365_tenant_id,
-      clientId:     row.m365_client_id,
-      clientSecret: row.m365_client_secret,
-    }
+    const creds = resolveCreds(res.rows[0])
+    if (!creds) return null
+    return { companyId: res.rows[0].id, ...creds }
   } finally {
     client.release()
   }

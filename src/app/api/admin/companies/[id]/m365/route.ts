@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { getPool } from '@/lib/db-pool'
-import { createGraphClient } from '@/lib/graph'
+import { createGraphClient, getTenantCredentials } from '@/lib/graph'
 
 const pool = getPool()
 
@@ -86,6 +86,24 @@ export async function PUT(
 
   const client = await pool.connect()
   try {
+    // Refuse to overwrite a multi_tenant connection via the legacy PUT path —
+    // doing so would silently downgrade the company's connection mode.
+    const existing = await client.query<{ m365_consent_mode: string | null }>(
+      `SELECT m365_consent_mode FROM companies WHERE id = $1 LIMIT 1`,
+      [id]
+    )
+    if (existing.rows[0]?.m365_consent_mode === 'multi_tenant') {
+      return NextResponse.json(
+        {
+          error:
+            'This company is connected via admin consent (multi-tenant mode). ' +
+            'Saving legacy credentials would downgrade the connection. ' +
+            'If you really need to switch back, contact engineering.',
+        },
+        { status: 409 }
+      )
+    }
+
     if (keepSecret) {
       // Only update tenant/client IDs, preserve existing secret
       await client.query(
@@ -94,6 +112,7 @@ export async function PUT(
              m365_client_id    = $2,
              m365_setup_status = 'credentials_saved',
              m365_verified_at  = NULL,
+             m365_consent_mode = 'legacy',
              "updatedAt"       = NOW()
          WHERE id = $3`,
         [tenantId.trim(), clientId.trim(), id]
@@ -106,6 +125,7 @@ export async function PUT(
              m365_client_secret = $3,
              m365_setup_status  = 'credentials_saved',
              m365_verified_at   = NULL,
+             m365_consent_mode  = 'legacy',
              "updatedAt"        = NOW()
          WHERE id = $4`,
         [tenantId.trim(), clientId.trim(), clientSecret.trim(), id]
@@ -148,39 +168,18 @@ export async function POST(
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
   }
 
-  // Load credentials
-  const dbClient = await pool.connect()
-  let creds: { tenantId: string; clientId: string; clientSecret: string } | null = null
-  try {
-    const res = await dbClient.query<{
-      m365_tenant_id: string | null
-      m365_client_id: string | null
-      m365_client_secret: string | null
-    }>(
-      `SELECT m365_tenant_id, m365_client_id, m365_client_secret
-       FROM companies WHERE id = $1 LIMIT 1`,
-      [id]
+  // Resolve credentials via the central helper — handles both legacy (per-tenant
+  // app reg) and multi_tenant (TCT app via admin consent) modes transparently.
+  const creds = await getTenantCredentials(id)
+  if (!creds) {
+    return NextResponse.json(
+      {
+        error:
+          'No M365 credentials available. Either complete the admin consent flow ' +
+          'in Step 2 or save legacy credentials, then retry the test.',
+      },
+      { status: 400 }
     )
-
-    if (res.rows.length === 0) {
-      return NextResponse.json({ error: 'Company not found' }, { status: 404 })
-    }
-
-    const row = res.rows[0]
-    if (!row.m365_tenant_id || !row.m365_client_id || !row.m365_client_secret) {
-      return NextResponse.json(
-        { error: 'No M365 credentials configured. Save credentials first.' },
-        { status: 400 }
-      )
-    }
-
-    creds = {
-      tenantId:     row.m365_tenant_id,
-      clientId:     row.m365_client_id,
-      clientSecret: row.m365_client_secret,
-    }
-  } finally {
-    dbClient.release()
   }
 
   // Test the connection

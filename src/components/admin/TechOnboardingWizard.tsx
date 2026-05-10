@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useEffect, useState, useCallback } from 'react'
+import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 
 // ---------------------------------------------------------------------------
@@ -18,6 +19,8 @@ interface CompanyData {
   m365_client_secret_set: boolean
   m365_setup_status: string | null
   m365_verified_at: string | null
+  m365_consent_mode: string | null
+  m365_consent_granted_at: string | null
   onboarding_completed_at: string | null
 }
 
@@ -88,7 +91,17 @@ function CodeBlock({ children }: { children: string }) {
 // ---------------------------------------------------------------------------
 
 export default function TechOnboardingWizard({ company, hasManager }: TechOnboardingWizardProps) {
-  const [step, setStep] = useState(1)
+  const searchParams = useSearchParams()
+  const consentMode: 'legacy' | 'multi_tenant' =
+    company.m365_consent_mode === 'multi_tenant' ? 'multi_tenant' : 'legacy'
+  const isMultiTenant = consentMode === 'multi_tenant'
+
+  // Allow ?step=2 etc. from the consent callback to deep-link into a specific step
+  const stepFromUrl = parseInt(searchParams?.get('step') ?? '', 10)
+  const [step, setStep] = useState(
+    Number.isInteger(stepFromUrl) && stepFromUrl >= 1 && stepFromUrl <= 4 ? stepFromUrl : 1
+  )
+
   const [stepStatus, setStepStatus] = useState<Record<number, StepStatus>>({
     1: company.autotaskCompanyId ? 'complete' : 'pending',
     2: company.m365_setup_status === 'verified' ? 'complete' : 'pending',
@@ -96,7 +109,13 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
     4: company.onboarding_completed_at ? 'complete' : 'pending',
   })
 
-  // Step 2 — M365 credentials form
+  // Surface success / error from /api/admin/m365/consent/callback
+  const consentSuccess = searchParams?.get('m365_consent_success') === '1'
+  const consentError   = searchParams?.get('m365_consent_error')
+
+  // Step 2 — M365 credentials form (legacy mode only — kept for backwards compat
+  // and as an Advanced fallback when admin consent isn't an option)
+  const [showLegacyForm, setShowLegacyForm] = useState(!isMultiTenant && (company.m365_client_id !== null || company.m365_client_secret_set))
   const [tenantId, setTenantId]         = useState(company.m365_tenant_id ?? '')
   const [clientId, setClientId]         = useState(company.m365_client_id ?? '')
   const [clientSecret, setClientSecret] = useState('')
@@ -117,6 +136,13 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
   // Step 4 — complete
   const [completing, setCompleting]     = useState(false)
   const [completeError, setCompleteError] = useState<string | null>(null)
+
+  // If the consent callback redirected us with success, mark step 2 done
+  useEffect(() => {
+    if (consentSuccess) {
+      setStepStatus((prev) => ({ ...prev, 2: 'complete' }))
+    }
+  }, [consentSuccess])
 
   const markStep = useCallback((s: number, status: StepStatus) => {
     setStepStatus((prev) => ({ ...prev, [s]: status }))
@@ -344,165 +370,149 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
           {step === 2 && (
             <div className="bg-white/5 border border-white/10 rounded-xl p-6 space-y-5">
               <div>
-                <h2 className="text-lg font-semibold text-white">Step 2 — Microsoft 365 App Registration</h2>
+                <h2 className="text-lg font-semibold text-white">Step 2 — Microsoft 365 Connection</h2>
                 <p className="text-gray-400 text-sm mt-1">
-                  Create an App Registration in the customer's Entra ID tenant, grant it Graph API permissions, and enter the credentials below.
+                  The customer&apos;s Global Admin grants consent to the TCT Customer Portal once.
+                  No app registrations or secrets to copy.
                 </p>
               </div>
 
-              <InfoBox>
-                <p className="font-semibold text-blue-100">Before You Begin — License Check</p>
-                <p className="mt-1">Before setting up M365 integration, ensure this customer&apos;s tenant is in your Pax8 partner portal and the reseller relationship is established. If the tenant is not in Pax8:</p>
-                <ol className="list-decimal list-inside space-y-1 mt-2">
-                  <li>Log into <a href="https://app.pax8.com" target="_blank" rel="noopener noreferrer" className="underline text-teal-300">app.pax8.com</a></li>
-                  <li>Go to <strong>Customers → Add Customer</strong></li>
-                  <li>Link the customer&apos;s Microsoft tenant by entering their domain</li>
-                  <li>Establish the reseller relationship (CSP indirect or direct)</li>
-                  <li>Once linked, you can order and manage M365 licenses through Pax8</li>
-                </ol>
-                <p className="mt-2 text-yellow-300 text-xs font-medium">Without a Pax8 reseller relationship, license ordering for new employee onboarding will fail.</p>
-              </InfoBox>
-
-              <InfoBox>
-                <p className="font-semibold text-blue-100">Instructions — do this in the customer's Entra admin center:</p>
-                <ol className="list-decimal list-inside space-y-2 mt-2">
-                  <li>
-                    Sign into <strong>entra.microsoft.com</strong> as a Global Admin in the customer's tenant
-                  </li>
-                  <li>
-                    Go to <strong>Applications → App registrations → New registration</strong>
-                  </li>
-                  <li>
-                    Name it: <code className="text-teal-300">TCT Portal Integration</code>
-                    — choose <strong>Single tenant</strong>
-                  </li>
-                  <li>
-                    After creating, go to <strong>API permissions → Add a permission → Microsoft Graph → Application permissions</strong>
-                    <br />
-                    Add ALL of these:
-                    <ul className="list-disc list-inside ml-4 mt-1 space-y-0.5 text-teal-200 font-mono text-xs">
-                      <li>User.ReadWrite.All</li>
-                      <li>Group.ReadWrite.All</li>
-                      <li>GroupMember.ReadWrite.All</li>
-                      <li>Sites.ReadWrite.All</li>
-                      <li>Organization.Read.All</li>
-                      <li>DeviceManagementManagedDevices.Read.All</li>
-                      <li>Device.Read.All</li>
-                    </ul>
-                    <span className="block text-xs text-blue-300 mt-2 mb-1">Additional permissions for Compliance Evidence Engine:</span>
-                    <ul className="list-disc list-inside ml-4 mt-1 space-y-0.5 text-teal-200 font-mono text-xs">
-                      <li>SecurityEvents.Read.All</li>
-                      <li>Policy.Read.All</li>
-                      <li>Reports.Read.All</li>
-                      <li>Directory.Read.All</li>
-                      <li>UserAuthenticationMethod.Read.All</li>
-                    </ul>
-                  </li>
-                  <li>
-                    Still in <strong>API permissions → Add a permission → Microsoft Graph → Delegated permissions</strong>
-                    <br />
-                    Add these (for user SSO login to the customer portal):
-                    <ul className="list-disc list-inside ml-4 mt-1 space-y-0.5 text-teal-200 font-mono text-xs">
-                      <li>openid</li>
-                      <li>profile</li>
-                      <li>email</li>
-                    </ul>
-                  </li>
-                  <li>Click <strong>Grant admin consent</strong> for the tenant</li>
-                  <li>
-                    Go to <strong>Authentication → Add a platform → Web</strong>
-                    <br />
-                    Set the <strong>Redirect URI</strong> to:
-                    <code className="block bg-slate-900 border border-white/10 rounded px-3 py-2 text-xs text-teal-300 font-mono break-all select-all mt-1">
-                      {process.env.NEXT_PUBLIC_BASE_URL || 'https://www.triplecitiestech.com'}/api/portal/auth/callback
-                    </code>
-                    <span className="block text-xs text-blue-300 mt-1">Under &ldquo;Implicit grant and hybrid flows&rdquo;, check <strong>ID tokens</strong>.</span>
-                  </li>
-                  <li>
-                    Go to <strong>Certificates &amp; secrets → New client secret</strong>.
-                    Set expiry to 24 months.
-                    <div className="bg-red-500/10 border border-red-500/30 rounded px-3 py-2 mt-2 text-xs">
-                      <strong className="text-red-300">IMPORTANT:</strong>
-                      <span className="text-red-200"> Azure shows TWO columns — &ldquo;Value&rdquo; and &ldquo;Secret ID&rdquo;. You need the <strong>Value</strong> (starts with something like <code>OY58Q~...</code>). Do NOT copy the Secret ID (it looks like a GUID: <code>a8116ff3-2516-...</code>). The Value is only visible once — copy it immediately before navigating away.</span>
-                    </div>
-                  </li>
-                  <li>
-                    Copy the <strong>Directory (tenant) ID</strong> and <strong>Application (client) ID</strong>
-                    from the app overview page.
-                  </li>
-                </ol>
-              </InfoBox>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">
-                    Directory (Tenant) ID
-                  </label>
-                  <input
-                    type="text"
-                    value={tenantId}
-                    onChange={(e) => setTenantId(e.target.value)}
-                    placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                    className="w-full bg-slate-800 border border-white/10 rounded-lg px-4 py-2.5 text-white text-sm font-mono placeholder-gray-600 focus:outline-none focus:border-teal-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">
-                    Application (Client) ID
-                  </label>
-                  <input
-                    type="text"
-                    value={clientId}
-                    onChange={(e) => setClientId(e.target.value)}
-                    placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                    className="w-full bg-slate-800 border border-white/10 rounded-lg px-4 py-2.5 text-white text-sm font-mono placeholder-gray-600 focus:outline-none focus:border-teal-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">
-                    Client Secret Value <span className="text-xs text-slate-500 font-normal">(NOT the Secret ID)</span>
-                    {company.m365_client_secret_set && (
-                      <span className="ml-2 text-xs text-teal-400 font-normal">
-                        (already set — only enter if rotating)
-                      </span>
-                    )}
-                  </label>
-                  <input
-                    type="password"
-                    value={clientSecret}
-                    onChange={(e) => setClientSecret(e.target.value)}
-                    placeholder={company.m365_client_secret_set ? '●●●●●●●● (leave blank to keep existing)' : 'Paste the Value column (NOT Secret ID)'}
-                    className="w-full bg-slate-800 border border-white/10 rounded-lg px-4 py-2.5 text-white text-sm font-mono placeholder-gray-600 focus:outline-none focus:border-teal-500"
-                  />
-                </div>
-              </div>
-
-              {credsError && (
-                <div className="bg-red-950/40 border border-red-500/30 rounded-lg px-4 py-3 text-sm text-red-300">
-                  {credsError}
-                </div>
-              )}
-
-              {credsSaved && (
+              {consentSuccess && (
                 <div className="bg-green-950/40 border border-green-500/30 rounded-lg px-4 py-3 text-sm text-green-300">
-                  ✓ Credentials saved. Proceed to test the connection.
+                  ✓ Admin consent granted. Microsoft 365 is now connected for this customer.
                 </div>
               )}
 
-              <div className="flex justify-between gap-3">
+              {consentError && (
+                <div className="bg-red-950/40 border border-red-500/30 rounded-lg px-4 py-3 text-sm text-red-300">
+                  ✗ {consentError}
+                </div>
+              )}
+
+              {isMultiTenant && company.m365_tenant_id ? (
+                <div className="bg-slate-800/50 rounded-lg px-4 py-4 space-y-3">
+                  <div className="flex items-center gap-2 text-green-300 text-sm font-medium">
+                    <span>✓ Connected via admin consent</span>
+                  </div>
+                  <div className="text-xs text-gray-400 space-y-1">
+                    <div>Customer tenant ID: <span className="font-mono text-gray-300">{company.m365_tenant_id}</span></div>
+                    {company.m365_consent_granted_at && (
+                      <div>Consented: {new Date(company.m365_consent_granted_at).toLocaleString()}</div>
+                    )}
+                  </div>
+                  <a
+                    href={`/api/admin/m365/consent?companyId=${company.id}`}
+                    className="inline-block text-xs px-3 py-1.5 rounded bg-white/10 hover:bg-white/20 text-gray-200 transition-colors"
+                  >
+                    Re-run consent flow (e.g. after permission changes)
+                  </a>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <InfoBox>
+                    <p className="font-semibold text-blue-100">How this works:</p>
+                    <ol className="list-decimal list-inside space-y-1 mt-2 text-sm">
+                      <li>Click the button below — it opens Microsoft&apos;s consent prompt.</li>
+                      <li>The customer&apos;s Global Admin signs in to <strong>their</strong> tenant.</li>
+                      <li>They review the requested permissions and click <strong>Accept</strong>.</li>
+                      <li>Microsoft redirects back here and stamps this company as connected.</li>
+                    </ol>
+                    <p className="mt-3 text-xs text-yellow-300">
+                      The admin will see &ldquo;Unverified&rdquo; in the consent prompt until TCT completes
+                      Microsoft Publisher Verification — that&apos;s expected and the consent still works.
+                    </p>
+                  </InfoBox>
+
+                  <a
+                    href={`/api/admin/m365/consent?companyId=${company.id}`}
+                    className="block w-full text-center px-5 py-3 text-sm bg-teal-600 hover:bg-teal-500 text-white rounded-lg transition-colors font-medium"
+                  >
+                    Connect Microsoft 365 →
+                  </a>
+
+                  <button
+                    onClick={() => setShowLegacyForm((v) => !v)}
+                    className="text-xs text-gray-400 hover:text-white underline"
+                  >
+                    {showLegacyForm ? 'Hide' : 'Show'} advanced: enter app registration credentials manually (legacy)
+                  </button>
+                </div>
+              )}
+
+              {showLegacyForm && !isMultiTenant && (
+                <div className="border-t border-white/10 pt-5 space-y-4">
+                  <p className="text-xs text-gray-500">
+                    Legacy mode: only use this if the customer cannot grant admin consent to the multi-tenant app.
+                    You&apos;ll need to manually create an app registration in their tenant first.
+                  </p>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">Directory (Tenant) ID</label>
+                    <input
+                      type="text"
+                      value={tenantId}
+                      onChange={(e) => setTenantId(e.target.value)}
+                      placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                      className="w-full bg-slate-800 border border-white/10 rounded-lg px-4 py-2.5 text-white text-sm font-mono placeholder-gray-600 focus:outline-none focus:border-teal-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">Application (Client) ID</label>
+                    <input
+                      type="text"
+                      value={clientId}
+                      onChange={(e) => setClientId(e.target.value)}
+                      placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                      className="w-full bg-slate-800 border border-white/10 rounded-lg px-4 py-2.5 text-white text-sm font-mono placeholder-gray-600 focus:outline-none focus:border-teal-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">
+                      Client Secret Value <span className="text-xs text-slate-500 font-normal">(NOT the Secret ID)</span>
+                      {company.m365_client_secret_set && (
+                        <span className="ml-2 text-xs text-teal-400 font-normal">(already set — only enter if rotating)</span>
+                      )}
+                    </label>
+                    <input
+                      type="password"
+                      value={clientSecret}
+                      onChange={(e) => setClientSecret(e.target.value)}
+                      placeholder={company.m365_client_secret_set ? '●●●●●●●● (leave blank to keep existing)' : 'Paste the Value column (NOT Secret ID)'}
+                      className="w-full bg-slate-800 border border-white/10 rounded-lg px-4 py-2.5 text-white text-sm font-mono placeholder-gray-600 focus:outline-none focus:border-teal-500"
+                    />
+                  </div>
+                  {credsError && (
+                    <div className="bg-red-950/40 border border-red-500/30 rounded-lg px-4 py-3 text-sm text-red-300">{credsError}</div>
+                  )}
+                  {credsSaved && (
+                    <div className="bg-green-950/40 border border-green-500/30 rounded-lg px-4 py-3 text-sm text-green-300">
+                      ✓ Credentials saved. Proceed to test the connection.
+                    </div>
+                  )}
+                  <button
+                    onClick={handleSaveCreds}
+                    disabled={savingCreds}
+                    className="px-5 py-2 text-sm bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white rounded-lg transition-colors font-medium"
+                  >
+                    {savingCreds ? 'Saving...' : 'Save Legacy Credentials'}
+                  </button>
+                </div>
+              )}
+
+              <div className="flex justify-between gap-3 pt-3 border-t border-white/10">
                 <button
                   onClick={() => setStep(1)}
                   className="px-4 py-2 text-sm bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors"
                 >
                   ← Back
                 </button>
-                <button
-                  onClick={handleSaveCreds}
-                  disabled={savingCreds}
-                  className="px-5 py-2 text-sm bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white rounded-lg transition-colors font-medium"
-                >
-                  {savingCreds ? 'Saving...' : 'Save Credentials →'}
-                </button>
+                {(isMultiTenant || credsSaved) && (
+                  <button
+                    onClick={() => setStep(3)}
+                    className="px-5 py-2 text-sm bg-teal-600 hover:bg-teal-500 text-white rounded-lg transition-colors font-medium"
+                  >
+                    Continue →
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -517,25 +527,35 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
                 </p>
               </div>
 
-              {!credsSaved && !company.m365_client_secret_set && (
+              {!isMultiTenant && !credsSaved && !company.m365_client_secret_set && (
                 <div className="bg-yellow-950/40 border border-yellow-500/30 rounded-lg px-4 py-3 text-sm text-yellow-300">
-                  ⚠️ No credentials saved yet. Go back to Step 2 and save credentials first.
+                  ⚠️ No credentials saved yet. Go back to Step 2 and connect Microsoft 365 first.
                 </div>
               )}
 
               <div className="bg-slate-800/50 rounded-lg px-4 py-3 space-y-2 text-sm">
                 <div className="flex items-center justify-between">
+                  <span className="text-gray-400">Connection mode</span>
+                  <span className="text-gray-300 text-xs">
+                    {isMultiTenant ? 'Multi-tenant admin consent' : 'Per-tenant app reg (legacy)'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
                   <span className="text-gray-400">Tenant ID</span>
                   <span className="font-mono text-gray-300 text-xs">{tenantId || company.m365_tenant_id || '—'}</span>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-400">Client ID</span>
-                  <span className="font-mono text-gray-300 text-xs">{clientId || company.m365_client_id || '—'}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-gray-400">Client Secret</span>
-                  <span className="text-gray-300 text-xs">{(credsSaved || company.m365_client_secret_set) ? '●●●●●●●● (saved)' : 'Not set'}</span>
-                </div>
+                {!isMultiTenant && (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-400">Client ID</span>
+                      <span className="font-mono text-gray-300 text-xs">{clientId || company.m365_client_id || '—'}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-400">Client Secret</span>
+                      <span className="text-gray-300 text-xs">{(credsSaved || company.m365_client_secret_set) ? '●●●●●●●● (saved)' : 'Not set'}</span>
+                    </div>
+                  </>
+                )}
               </div>
 
               {testResult && (
@@ -576,7 +596,7 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
                 <div className="flex gap-3">
                   <button
                     onClick={handleTestConnection}
-                    disabled={testing || (!credsSaved && !company.m365_client_secret_set)}
+                    disabled={testing || (!isMultiTenant && !credsSaved && !company.m365_client_secret_set)}
                     className="px-5 py-2 text-sm bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white rounded-lg transition-colors font-medium"
                   >
                     {testing ? 'Testing...' : 'Test Connection'}
@@ -608,7 +628,12 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
                 {[
                   { label: 'Autotask contact sync run',             done: !!company.autotaskCompanyId },
                   { label: 'At least one contact set to CLIENT_MANAGER', done: hasManager, ...(!hasManager && { note: 'No active CLIENT_MANAGER found — set one in Contacts' }) },
-                  { label: 'M365 credentials saved',                done: credsSaved || !!company.m365_client_secret_set },
+                  {
+                    label: isMultiTenant ? 'Microsoft 365 admin consent granted' : 'M365 credentials saved',
+                    done: isMultiTenant
+                      ? !!company.m365_consent_granted_at
+                      : credsSaved || !!company.m365_client_secret_set,
+                  },
                   { label: 'Graph API connection verified',          done: testResult?.success ?? company.m365_setup_status === 'verified' },
                 ].map((item, i) => (
                   <div key={i} className="flex items-center gap-3 bg-slate-800/40 rounded-lg px-4 py-3">
