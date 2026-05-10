@@ -225,12 +225,19 @@ function generateInviteEmailHtml(params: InviteEmailParams): string {
     <div class="content">
       <p class="greeting">Hi <strong>${contactName}</strong>,</p>
       <p class="intro">
-        The new Triple Cities Tech Support Portal is ready for you to use. This is your primary interface with Triple Cities Tech for managing IT services, tracking support requests, and staying connected with our team. Please log in and set up your account.
+        You have been invited to the new Triple Cities Tech Support Portal &mdash; your primary interface with Triple Cities Tech for managing IT services, tracking support requests, and staying connected with our team.
+      </p>
+      <p class="intro">
+        <strong>Sign in with your Microsoft 365 credentials</strong> &mdash; the same email and password you use for Outlook, Teams, and other Microsoft 365 apps. No new password to create or remember.
       </p>
 
       <div class="cta-section">
-        <a href="${portalUrl}" class="cta-button" target="_blank" rel="noopener noreferrer">Log In to Your Portal</a>
+        <a href="${portalUrl}" class="cta-button" target="_blank" rel="noopener noreferrer">Sign In with Microsoft 365</a>
       </div>
+
+      <p class="intro" style="font-size: 14px; color: #64748b;">
+        If you run into any issues signing in or have questions about the portal, please reach out to us at <a href="mailto:support@triplecitiestech.com" style="color: #0891b2;">support@triplecitiestech.com</a> or 607-341-7500 and we&rsquo;ll get you sorted out.
+      </p>
 
       <div class="features">
         <h3>What You Can Do</h3>

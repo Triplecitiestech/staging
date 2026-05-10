@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useDemoMode } from '@/components/admin/DemoModeProvider'
 
 interface Contact {
@@ -196,8 +196,10 @@ const INVITE_STATUS: Record<string, { label: string; color: string; dotColor: st
 
 export default function ContactsList({ contacts, staffUsers: initialStaff, currentUserRole, currentUserId }: ContactsListProps) {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const demo = useDemoMode()
-  const [search, setSearch] = useState('')
+  // Allow deep-linking from the onboarding wizard (and elsewhere) via ?search=<term>
+  const [search, setSearch] = useState(searchParams?.get('search') ?? '')
   const [tab, setTab] = useState<'clients' | 'staff'>('clients')
   const [selectedContacts, setSelectedContacts] = useState<Set<string>>(new Set())
   const [sendingInvites, setSendingInvites] = useState(false)

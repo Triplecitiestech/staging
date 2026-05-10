@@ -133,6 +133,9 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
       : null
   )
 
+  // Step 2 — copy consent URL feedback
+  const [copiedConsentUrl, setCopiedConsentUrl] = useState(false)
+
   // Step 4 — complete
   const [completing, setCompleting]     = useState(false)
   const [completeError, setCompleteError] = useState<string | null>(null)
@@ -312,19 +315,29 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
                 <p className="font-semibold text-blue-100 mb-2">Follow these steps in order:</p>
                 <ol className="list-decimal list-inside space-y-2 mt-1">
                   <li>
-                    <strong>On this site (triplecitiestech.com):</strong> Go to{' '}
-                    <Link href="/admin/reporting/status" className="underline text-teal-300">Admin → More → Pipeline Status</Link>{' '}
+                    Open the{' '}
+                    <Link href="/admin/reporting/status" className="underline text-teal-300">Pipeline Status page</Link>{' '}
                     and click <strong>Run</strong> next to <em>Sync Tickets</em> — this also syncs contacts for all companies.
                   </li>
                   <li>
-                    <strong>On this site:</strong> Go to{' '}
-                    <Link href="/admin/contacts" className="underline text-teal-300">Admin → More → Contacts</Link>,
-                    search for this company, and confirm contacts were imported.
+                    Open the{' '}
+                    <Link
+                      href={`/admin/contacts?search=${encodeURIComponent(company.displayName)}`}
+                      className="underline text-teal-300"
+                    >
+                      Contacts page (filtered to {company.displayName})
+                    </Link>{' '}
+                    and confirm this company&rsquo;s contacts were imported.
                   </li>
                   <li>
-                    <strong>On this site — Contacts page:</strong> Find the contact who should be the portal manager.
-                    In the <strong>Portal Role</strong> column, click the colored role badge (e.g. &ldquo;User&rdquo;) next to their name — it turns into a dropdown. Select <strong>Manager</strong>.
-                    Their email address is what they will type to verify identity on the portal.
+                    On the{' '}
+                    <Link
+                      href={`/admin/contacts?search=${encodeURIComponent(company.displayName)}`}
+                      className="underline text-teal-300"
+                    >
+                      Contacts page
+                    </Link>
+                    , find the contact who should be the portal manager. In the <strong>Portal Role</strong> column, click the colored role badge (e.g. &ldquo;User&rdquo;) next to their name — it turns into a dropdown. Select <strong>Manager</strong>.
                     <em className="block text-blue-300 text-xs mt-0.5">Note: Portal roles are set here in the TCT admin, not inside Autotask.</em>
                   </li>
                   <li>
@@ -351,7 +364,7 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
                   Pipeline Status →
                 </Link>
                 <Link
-                  href="/admin/contacts"
+                  href={`/admin/contacts?search=${encodeURIComponent(company.displayName)}`}
                   className="px-4 py-2 text-sm bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors"
                 >
                   Contacts →
@@ -412,23 +425,60 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
                   <InfoBox>
                     <p className="font-semibold text-blue-100">How this works:</p>
                     <ol className="list-decimal list-inside space-y-1 mt-2 text-sm">
-                      <li>Click the button below — it opens Microsoft&apos;s consent prompt.</li>
-                      <li>The customer&apos;s Global Admin signs in to <strong>their</strong> tenant.</li>
+                      <li>Click the button below &mdash; it opens Microsoft&rsquo;s consent prompt.</li>
+                      <li>The customer&rsquo;s Global Admin signs in to <strong>their</strong> tenant.</li>
                       <li>They review the requested permissions and click <strong>Accept</strong>.</li>
                       <li>Microsoft redirects back here and stamps this company as connected.</li>
                     </ol>
                     <p className="mt-3 text-xs text-yellow-300">
                       The admin will see &ldquo;Unverified&rdquo; in the consent prompt until TCT completes
-                      Microsoft Publisher Verification — that&apos;s expected and the consent still works.
+                      Microsoft Publisher Verification &mdash; that&rsquo;s expected and the consent still works.
                     </p>
                   </InfoBox>
 
-                  <a
-                    href={`/api/admin/m365/consent?companyId=${company.id}`}
-                    className="block w-full text-center px-5 py-3 text-sm bg-teal-600 hover:bg-teal-500 text-white rounded-lg transition-colors font-medium"
-                  >
-                    Connect Microsoft 365 →
-                  </a>
+                  <div className="bg-violet-950/40 border border-violet-500/30 rounded-lg p-4 text-sm text-violet-200 space-y-2">
+                    <p className="font-semibold text-violet-100">Recommended: open this in an incognito browser</p>
+                    <p>
+                      Doing the consent flow in your normal browser will sign in the customer&rsquo;s
+                      Global Admin account into your Microsoft profile cache and can confuse Outlook,
+                      Teams, and SharePoint sessions afterwards.
+                    </p>
+                    <ol className="list-decimal list-inside text-xs space-y-1 mt-1">
+                      <li>Click <strong>Copy consent URL</strong> below.</li>
+                      <li>Open a new incognito / private window.</li>
+                      <li>Sign in to <code className="text-teal-300">triplecitiestech.com/admin</code> with your TCT account.</li>
+                      <li>Paste the consent URL in the address bar and press Enter.</li>
+                      <li>On Microsoft&rsquo;s prompt, sign in as the customer&rsquo;s Global Admin and click Accept.</li>
+                      <li>Close the incognito window when done.</li>
+                    </ol>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <a
+                      href={`/api/admin/m365/consent?companyId=${company.id}`}
+                      className="flex-1 block text-center px-5 py-3 text-sm bg-teal-600 hover:bg-teal-500 text-white rounded-lg transition-colors font-medium"
+                    >
+                      Connect Microsoft 365 (this browser) →
+                    </a>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const baseUrl = window.location.origin
+                        const url = `${baseUrl}/api/admin/m365/consent?companyId=${company.id}`
+                        try {
+                          await navigator.clipboard.writeText(url)
+                          setCopiedConsentUrl(true)
+                          setTimeout(() => setCopiedConsentUrl(false), 2500)
+                        } catch {
+                          // clipboard access can fail in non-secure contexts; show URL as a fallback
+                          window.prompt('Copy this URL and paste it in incognito:', url)
+                        }
+                      }}
+                      className="flex-1 px-5 py-3 text-sm bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors font-medium"
+                    >
+                      {copiedConsentUrl ? '✓ Copied — paste in incognito' : 'Copy consent URL (for incognito)'}
+                    </button>
+                  </div>
 
                   <button
                     onClick={() => setShowLegacyForm((v) => !v)}
@@ -651,16 +701,38 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
               </div>
 
               <InfoBox>
-                <p className="font-semibold text-blue-100">Portal URL for this customer:</p>
-                <CodeBlock>{`${process.env.NEXT_PUBLIC_BASE_URL || 'https://www.triplecitiestech.com'}/onboarding/${company.slug}`}</CodeBlock>
-                <p className="mt-2 font-semibold text-blue-100">Share with the customer's manager contact. They will:</p>
-                <ol className="list-decimal list-inside mt-1 space-y-1">
-                  <li>Navigate to the portal URL</li>
-                  <li>Sign in with their Microsoft 365 account (Azure AD SSO)</li>
-                  <li>Managers automatically get access to Employee Management</li>
-                  <li>Submit onboarding or offboarding requests</li>
+                <p className="font-semibold text-blue-100 mb-1">Send the welcome email to the customer&rsquo;s manager:</p>
+                <ol className="list-decimal list-inside mt-1 space-y-1.5 text-sm">
+                  <li>
+                    Open the{' '}
+                    <Link
+                      href={`/admin/contacts?search=${encodeURIComponent(company.displayName)}`}
+                      className="underline text-teal-300"
+                    >
+                      Contacts page (filtered to {company.displayName})
+                    </Link>
+                    .
+                  </li>
+                  <li>Find the manager contact you set in Step 1.</li>
+                  <li>
+                    Click the <strong>send invite</strong> envelope icon on their row (or check the box and click <strong>Send Invite</strong> in the toolbar above the table).
+                  </li>
+                  <li>
+                    The contact receives a welcome email instructing them to sign in with their Microsoft 365 credentials at{' '}
+                    <code className="text-teal-300 break-all">
+                      {`${process.env.NEXT_PUBLIC_BASE_URL || 'https://www.triplecitiestech.com'}/portal/${company.slug}/dashboard`}
+                    </code>
+                    .
+                  </li>
                 </ol>
               </InfoBox>
+
+              <Link
+                href={`/admin/contacts?search=${encodeURIComponent(company.displayName)}`}
+                className="block w-full text-center px-5 py-3 text-sm bg-teal-600 hover:bg-teal-500 text-white rounded-lg transition-colors font-medium"
+              >
+                Open Contacts page to send welcome email →
+              </Link>
 
               {completeError && (
                 <div className="bg-red-950/40 border border-red-500/30 rounded-lg px-4 py-3 text-sm text-red-300">
