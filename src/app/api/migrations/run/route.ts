@@ -440,6 +440,27 @@ export async function POST(request: Request) {
       results.push(`⚠️ test_failures: ${err.message}`)
     }
 
+    // M365 multi-tenant consent migration — supports the dual-mode rollout
+    // (legacy per-tenant app reg + new multi-tenant admin-consent flow).
+    try {
+      await client.query(`
+        ALTER TABLE companies
+          ADD COLUMN IF NOT EXISTS m365_tenant_id TEXT,
+          ADD COLUMN IF NOT EXISTS m365_client_id TEXT,
+          ADD COLUMN IF NOT EXISTS m365_client_secret TEXT,
+          ADD COLUMN IF NOT EXISTS m365_verified_at TIMESTAMPTZ,
+          ADD COLUMN IF NOT EXISTS m365_setup_status TEXT DEFAULT 'not_configured',
+          ADD COLUMN IF NOT EXISTS m365_consent_mode TEXT DEFAULT 'legacy',
+          ADD COLUMN IF NOT EXISTS m365_consent_granted_at TIMESTAMPTZ
+      `)
+      // Backfill: any company with legacy creds already saved is in 'legacy' mode (the default).
+      // No state change needed for existing rows.
+      results.push('✅ Ensured M365 consent columns on companies (legacy + multi_tenant modes)')
+    } catch (error) {
+      const err = error as Error
+      results.push(`⚠️ companies.m365_consent_*: ${err.message}`)
+    }
+
     await client.end()
 
     return NextResponse.json({

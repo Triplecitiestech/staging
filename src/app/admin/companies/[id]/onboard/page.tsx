@@ -30,6 +30,8 @@ export default async function TechOnboardingPage({
     m365_client_secret_set: boolean
     m365_setup_status: string | null
     m365_verified_at: string | null
+    m365_consent_mode: string | null
+    m365_consent_granted_at: string | null
     onboarding_completed_at: string | null
   } | null = null
   let hasManager = false
@@ -39,7 +41,9 @@ export default async function TechOnboardingPage({
       `SELECT id, slug, "displayName", "contactEmail", "autotaskCompanyId",
               m365_tenant_id, m365_client_id,
               CASE WHEN m365_client_secret IS NOT NULL AND m365_client_secret != '' THEN true ELSE false END AS m365_client_secret_set,
-              m365_setup_status, m365_verified_at, onboarding_completed_at
+              m365_setup_status, m365_verified_at,
+              m365_consent_mode, m365_consent_granted_at,
+              onboarding_completed_at
        FROM companies WHERE id = $1 LIMIT 1`,
       [id]
     )
@@ -58,6 +62,8 @@ export default async function TechOnboardingPage({
       m365_client_secret_set:  row.m365_client_secret_set,
       m365_setup_status:       row.m365_setup_status ?? 'not_configured',
       m365_verified_at:        row.m365_verified_at ? new Date(row.m365_verified_at).toISOString() : null,
+      m365_consent_mode:       row.m365_consent_mode ?? 'legacy',
+      m365_consent_granted_at: row.m365_consent_granted_at ? new Date(row.m365_consent_granted_at).toISOString() : null,
       onboarding_completed_at: row.onboarding_completed_at ? new Date(row.onboarding_completed_at).toISOString() : null,
     }
 

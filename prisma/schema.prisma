@@ -120,11 +120,16 @@ model Company {
   // Only companies with classification "Platinum Managed Service" get SLA reporting
 
   // M365 per-tenant app registration credentials (added via add_m365_tenant_credentials.sql)
+  // Two onboarding modes coexist:
+  //   - 'legacy': customer creates their own app reg in their tenant; clientId+secret stored here
+  //   - 'multi_tenant': customer admin grants consent to TCT's multi-tenant app; only tenantId stored
   m365TenantId          String?   @map("m365_tenant_id")
   m365ClientId          String?   @map("m365_client_id")
   m365ClientSecret      String?   @map("m365_client_secret")
   m365VerifiedAt        DateTime? @map("m365_verified_at")
   m365SetupStatus       String?   @default("not_configured") @map("m365_setup_status")
+  m365ConsentMode       String?   @default("legacy") @map("m365_consent_mode")
+  m365ConsentGrantedAt  DateTime? @map("m365_consent_granted_at")
   onboardingCompletedAt DateTime? @map("onboarding_completed_at")
 
   // Compliance portal visibility toggle

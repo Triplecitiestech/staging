@@ -23,48 +23,16 @@
  * appropriate error notes — they never crash.
  */
 
-import { getTenantCredentials, type TenantCredentials } from '@/lib/graph'
+import { getAccessToken, getTenantCredentials, type TenantCredentials } from '@/lib/graph'
 import type { EvidenceRecord, EvidenceSourceType } from '../types'
 
 // ---------------------------------------------------------------------------
-// Graph request helpers (reuse token management from graph.ts)
+// Token fetching delegates to the central cache in src/lib/graph.ts so we
+// don't have a second tokenCache that can drift out of sync.
 // ---------------------------------------------------------------------------
 
-interface TokenEntry {
-  accessToken: string
-  expiresAt: number
-}
-
-const tokenCache = new Map<string, TokenEntry>()
-
 async function getToken(creds: TenantCredentials): Promise<string> {
-  const cached = tokenCache.get(creds.tenantId)
-  if (cached && cached.expiresAt > Date.now()) return cached.accessToken
-
-  const url = `https://login.microsoftonline.com/${creds.tenantId}/oauth2/v2.0/token`
-  const body = new URLSearchParams({
-    grant_type: 'client_credentials',
-    client_id: creds.clientId,
-    client_secret: creds.clientSecret,
-    scope: 'https://graph.microsoft.com/.default',
-  })
-
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: body.toString(),
-    signal: AbortSignal.timeout(15_000),
-  })
-
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`Graph token fetch failed (${res.status}): ${text}`)
-  }
-
-  const data = (await res.json()) as { access_token: string; expires_in: number }
-  const expiresAt = Date.now() + (data.expires_in - 300) * 1000
-  tokenCache.set(creds.tenantId, { accessToken: data.access_token, expiresAt })
-  return data.access_token
+  return getAccessToken(creds.tenantId, creds.clientId, creds.clientSecret)
 }
 
 async function graphGet<T>(token: string, path: string, timeout = 30_000): Promise<T | null> {

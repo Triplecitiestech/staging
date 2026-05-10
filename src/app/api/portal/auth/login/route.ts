@@ -31,12 +31,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   const client = await pool.connect()
   try {
-    // Look up M365 credentials for this company
+    // Look up M365 connection mode for this company
     const res = await client.query<{
       m365_tenant_id: string | null
       m365_client_id: string | null
+      m365_consent_mode: string | null
     }>(
-      `SELECT m365_tenant_id, m365_client_id
+      `SELECT m365_tenant_id, m365_client_id, m365_consent_mode
        FROM companies
        WHERE slug = $1
        LIMIT 1`,
@@ -50,9 +51,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       })
     }
 
-    const { m365_tenant_id, m365_client_id } = res.rows[0]
+    const { m365_tenant_id, m365_client_id, m365_consent_mode } = res.rows[0]
+    const isMultiTenant = m365_consent_mode === 'multi_tenant'
 
-    if (!m365_tenant_id || !m365_client_id) {
+    // Pick the OAuth client_id for this company:
+    //   - multi_tenant: TCT's published portal app
+    //   - legacy:       customer's own per-tenant app reg
+    const oauthClientId = isMultiTenant
+      ? process.env.M365_PORTAL_CLIENT_ID
+      : m365_client_id
+
+    if (!m365_tenant_id || !oauthClientId) {
       return new NextResponse(
         errorPage(
           'Single sign-on has not been configured for this company yet. Please contact Triple Cities Tech to complete setup.'
@@ -65,14 +74,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const nonce = crypto.randomBytes(16).toString('hex')
     // Include returnTo in state if it's a valid relative path (prevent open redirect)
     const safeReturnTo = returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : null
-    const state = signState({ companySlug, nonce, ...(safeReturnTo ? { returnTo: safeReturnTo } : {}) })
+    const state = signState({
+      companySlug,
+      nonce,
+      consentMode: isMultiTenant ? 'multi_tenant' : 'legacy',
+      ...(safeReturnTo ? { returnTo: safeReturnTo } : {}),
+    })
 
     // Build Azure AD authorize URL
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.triplecitiestech.com'
     const redirectUri = `${baseUrl}/api/portal/auth/callback`
 
     const params = new URLSearchParams({
-      client_id: m365_client_id,
+      client_id: oauthClientId,
       response_type: 'code',
       redirect_uri: redirectUri,
       response_mode: 'query',
