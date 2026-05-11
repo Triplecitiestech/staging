@@ -1085,15 +1085,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         const graph = createGraphClient(creds)
 
         // --- Generate UPN ---
-        const firstName = (a.first_name ?? '').toLowerCase().replace(/[^a-z]/g, '')
-        const lastName = (a.last_name ?? '').toLowerCase().replace(/[^a-z]/g, '')
+        // Slugged forms for mailNickname only — original-case firstName/lastName
+        // (from outer scope, line ~704) are reserved for Graph givenName/surname.
+        const firstNameSlug = (a.first_name ?? '').toLowerCase().replace(/[^a-z]/g, '')
+        const lastNameSlug = (a.last_name ?? '').toLowerCase().replace(/[^a-z]/g, '')
         // Use desired_username if provided, otherwise fallback to firstname.lastname
         let mailNickname: string
         if (a.desired_username && a.desired_username.trim()) {
           // Strip domain if user typed full email
           mailNickname = a.desired_username.trim().split('@')[0].toLowerCase().replace(/[^a-z0-9.]/g, '')
         } else {
-          mailNickname = `${firstName}.${lastName}`
+          mailNickname = `${firstNameSlug}.${lastNameSlug}`
         }
 
         // Derive domain from existing users
@@ -1136,6 +1138,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               userPrincipalName: upn,
               mailNickname,
               password: tempPassword,
+              givenName: firstName || undefined,
+              surname: lastName || undefined,
               jobTitle: a.job_title ?? undefined,
               department: a.department ?? undefined,
               usageLocation,
@@ -1325,6 +1329,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           // --- Clone permissions + licenses from another user ---
           const clonedGroups: GraphGroup[] = []
           const clonedLicenseNames: string[] = []
+          // Per-item failures during cloning — surfaced to the ticket so manual
+          // remediation steps can be generated rather than silently swallowed.
+          const failedClonedLicenses: Array<{ name: string; reason: string }> = []
+          const skippedClonedGroupNames: Array<{ name: string; reason: string }> = []
           if (newUserId && a.clone_permissions === 'yes' && a.clone_from_user) {
             const cloneStart = new Date()
             try {
@@ -1338,9 +1346,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                 const sourceLicenses = await graph.getUserAssignedLicenses(sourceUser.id)
                 const allSkus = await graph.getLicenseSkus()
                 for (const srcLic of sourceLicenses) {
+                  const skuInfo = allSkus.find(s => s.skuId === srcLic.skuId)
+                  const licName = skuInfo?.displayName ?? skuInfo?.skuPartNumber ?? srcLic.skuId
+                  let pax8FailureNote: string | null = null
                   try {
-                    // Check if this SKU has available seats
-                    const skuInfo = allSkus.find(s => s.skuId === srcLic.skuId)
                     if (skuInfo) {
                       const availSeats = skuInfo.prepaidUnits.enabled - skuInfo.consumedUnits
                       if (availSeats <= 0) {
@@ -1354,28 +1363,38 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                         const procResult = await tryPax8AutoProcure(companyName, skuInfo.skuPartNumber, checkAvail)
                         if (procResult.success) {
                           await addTicketNote('License Auto-Procured via Pax8 (Clone)',
-                            `No seats for ${skuInfo.displayName ?? skuInfo.skuPartNumber}. ` +
+                            `No seats for ${licName}. ` +
                             `Pax8 subscription increased from ${procResult.previousQuantity} to ${procResult.newQuantity} seat(s). License confirmed available.`)
+                        } else {
+                          // Pax8 procurement failed — assignLicense will likely fail too.
+                          // Capture the reason so we can record it in failedClonedLicenses.
+                          pax8FailureNote = procResult.error ?? 'Pax8 auto-procurement failed'
                         }
-                        // If Pax8 fails, still try assignment — it will fail and be caught below
                       }
                     }
                     await graph.assignLicense(newUserId, srcLic.skuId)
-                    const licName = skuInfo?.displayName ?? skuInfo?.skuPartNumber ?? srcLic.skuId
                     clonedLicenseNames.push(licName)
                     provisioningResults.push(`License (cloned): ${licName}`)
-                  } catch {
-                    // License may not have available units — non-fatal
+                  } catch (err) {
+                    const msg = err instanceof Error ? err.message : String(err)
+                    const combinedReason = pax8FailureNote ? `${pax8FailureNote}; assignment failed: ${msg}` : msg
+                    failedClonedLicenses.push({ name: licName, reason: combinedReason })
+                    await addTicketNote('Cloned License Failed',
+                      `License: ${licName}\nSource user: ${a.clone_from_user}\nError: ${combinedReason}`)
                   }
                 }
                 if (clonedLicenseNames.length > 0) {
                   await addTicketNote('Licenses Cloned', `Cloned ${clonedLicenseNames.length} license(s) from ${a.clone_from_user}:\n${clonedLicenseNames.map(n => `  - ${n}`).join('\n')}`)
                   stepsCompleted.push('clone_licenses')
                 }
+                if (failedClonedLicenses.length > 0) {
+                  failedSteps.push('clone_licenses_partial')
+                }
               } catch (err) {
                 const msg = err instanceof Error ? err.message : String(err)
                 console.warn('[hr/process] License clone failed (non-fatal):', msg)
                 await addTicketNote('License Clone Failed', `Source: ${a.clone_from_user}\nError: ${msg}`)
+                failedSteps.push('clone_licenses')
               }
 
               // Clone groups from source user
@@ -1390,16 +1409,37 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                   await graph.addUserToGroup(sg.id, newUserId)
                   cloneSuccessCount++
                   clonedGroups.push(sg)
-                } catch {
-                  // Non-fatal per group — may already be a member
+                } catch (err) {
+                  const msg = err instanceof Error ? err.message : String(err)
+                  // "already exist" means user is already a member — count as success
+                  if (msg.includes('already exist')) {
+                    cloneSuccessCount++
+                    clonedGroups.push(sg)
+                  } else {
+                    skippedClonedGroupNames.push({ name: describeGroup(sg), reason: msg })
+                  }
                 }
               }
 
-              provisioningResults.push(`Clone Source: ${a.clone_from_user} (${cloneSuccessCount} groups cloned)`)
+              const groupSummary = skippedClonedGroupNames.length > 0
+                ? `${cloneSuccessCount}/${addableGroups.length} (${skippedClonedGroupNames.length} skipped)`
+                : `${cloneSuccessCount}/${addableGroups.length}`
+              provisioningResults.push(`Clone Source: ${a.clone_from_user} (${groupSummary} groups cloned)`)
               await logStep(client, hrRequest.id, 'clone_permissions', 'Clone User Permissions', 'completed', cloneStart,
-                { sourceUser: a.clone_from_user }, { groupsCloned: cloneSuccessCount, total: addableGroups.length, licensesCloned: clonedLicenseNames.length })
+                { sourceUser: a.clone_from_user },
+                {
+                  groupsCloned: cloneSuccessCount,
+                  total: addableGroups.length,
+                  licensesCloned: clonedLicenseNames.length,
+                  failedLicenses: failedClonedLicenses,
+                  skippedGroups: skippedClonedGroupNames,
+                })
               stepsCompleted.push('clone_permissions')
-              await addTicketNote('Permissions Cloned', `Source: ${a.clone_from_user}\nGroups cloned: ${cloneSuccessCount}/${addableGroups.length}`)
+              const skippedNoteLines = skippedClonedGroupNames.length > 0
+                ? ['', 'Skipped (dynamic/protected/error):', ...skippedClonedGroupNames.map(s => `  ⊘ ${s.name} — ${s.reason}`)]
+                : []
+              await addTicketNote('Permissions Cloned',
+                [`Source: ${a.clone_from_user}`, `Groups cloned: ${cloneSuccessCount}/${addableGroups.length}`, ...skippedNoteLines].join('\n'))
             } catch (err) {
               const msg = err instanceof Error ? err.message : String(err)
               await logStep(client, hrRequest.id, 'clone_permissions', 'Clone User Permissions', 'failed', cloneStart,
@@ -1411,11 +1451,156 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
           // --- Build provisioning results text for ticket ---
           if (primaryActionSucceeded) {
+            // Resolve credential delivery plan up front so it can be reflected in
+            // both the ticket description and the customer-visible completion note.
+            const submitterEmail = hrRequest.submitted_by_email || a.submitted_by_email
+            const credentialDelivery = a.credential_delivery || 'submitter'
+            const credentialRecipient: string | null =
+              credentialDelivery === 'personal_email' && a.personal_email
+                ? a.personal_email
+                : (submitterEmail || null)
+            const isPersonalEmail = credentialDelivery === 'personal_email' && !!a.personal_email
+            const startDateDisplay = startDate ? formatDateDisplay(startDate) : null
+
+            // Track credential email outcome — surfaced in resultLines and notes.
+            let credentialEmailSent = false
+            let credentialEmailError: string | null = null
+            if (!resend) {
+              credentialEmailError = 'RESEND_API_KEY not set on server'
+              console.warn('[hr/process] RESEND_API_KEY not set — skipping email notification')
+            } else if (!credentialRecipient) {
+              credentialEmailError = 'No recipient email available (submitter email missing and credential_delivery did not resolve a personal email)'
+            }
+
+            // Send email notification — moved BEFORE results-building so the
+            // ticket description and customer note accurately reflect whether
+            // credentials were delivered automatically.
+            if (resend && credentialRecipient) {
+              try {
+                const companyName = hrRequest.displayName || 'your organization'
+
+                const isCompanyComputer = a.computer_situation === 'existing_company' || a.computer_situation === 'new_computer'
+
+                // Build login instructions based on whether this goes to the new hire or the submitter
+                const loginInstructions = isPersonalEmail ? [
+                  '',
+                  '═══════════════════════════════════',
+                  'HOW TO GET STARTED',
+                  '═══════════════════════════════════',
+                  '',
+                  // Order sign-in instructions by scenario:
+                  // Company computer first if applicable, then browser access
+                  ...(isCompanyComputer ? [
+                    '1. SIGN IN ON YOUR COMPANY COMPUTER',
+                    '   From the Windows sign-in screen:',
+                    '     a. Click "Other user" (or "Switch user" if someone is already signed in)',
+                    `     b. Enter your email: ${upn}`,
+                    `     c. Enter your temporary password: ${tempPassword}`,
+                    '     d. You will be prompted to create a new password — choose something secure',
+                    '     e. Follow the prompts to set up Multi-Factor Authentication (MFA)',
+                    '',
+                    '2. SET UP MULTI-FACTOR AUTHENTICATION (MFA)',
+                    '   During sign-in, you will be prompted to set up MFA.',
+                    '   We recommend using the Microsoft Authenticator app:',
+                    '     a. Download "Microsoft Authenticator" from the App Store or Google Play',
+                    '     b. When prompted, choose "Add work or school account"',
+                    '     c. Scan the QR code shown on screen',
+                    '     d. You can also choose to receive a text or phone call instead',
+                    '',
+                    '3. ACCESS MICROSOFT 365 FROM A BROWSER',
+                    '   You can also access your apps from any web browser:',
+                    '     a. Go to https://portal.office.com',
+                    `     b. Sign in with: ${upn}`,
+                    '     c. Access Outlook, Teams, OneDrive, and all Microsoft 365 apps',
+                  ] : [
+                    '1. SIGN IN TO MICROSOFT 365',
+                    '   Go to https://portal.office.com',
+                    `   Email: ${upn}`,
+                    `   Password: ${tempPassword}`,
+                    '   You will be asked to change your password on first sign-in.',
+                    '',
+                    '2. SET UP MULTI-FACTOR AUTHENTICATION (MFA)',
+                    '   After changing your password, you will be prompted to set up MFA.',
+                    '   We recommend using the Microsoft Authenticator app:',
+                    '     a. Download "Microsoft Authenticator" from the App Store or Google Play',
+                    '     b. When prompted, choose "Add work or school account"',
+                    '     c. Scan the QR code shown on screen',
+                    '     d. You can also choose to receive a text or phone call instead',
+                    '',
+                  ]),
+                  '',
+                  '3. ACCESS YOUR APPS',
+                  '   • Outlook (email): https://outlook.office.com',
+                  '   • Microsoft Teams: https://teams.microsoft.com',
+                  '   • OneDrive (files): https://onedrive.live.com',
+                  '   • All apps: https://portal.office.com',
+                  '',
+                  'If you have any trouble signing in, contact your IT administrator.',
+                ] : [
+                  '',
+                  'Please share these credentials securely with the new employee.',
+                  isCompanyComputer
+                    ? 'They can sign in on their company computer from the Windows sign-in screen by clicking "Other user", or at https://portal.office.com'
+                    : 'They can sign in at https://portal.office.com',
+                  'They will be prompted to change their password and set up MFA on first sign-in.',
+                ]
+
+                const emailSubject = accountLocked
+                  ? (isPersonalEmail
+                    ? `Welcome to ${companyName} — Your Account Will Be Ready on ${startDateDisplay}`
+                    : `Employee Onboarding Scheduled — ${fullName} (starts ${startDateDisplay})`)
+                  : (isPersonalEmail
+                    ? `Welcome to ${companyName} — Your Microsoft 365 Account`
+                    : `Employee Onboarding Complete — ${fullName}`)
+
+                const emailIntro = accountLocked
+                  ? (isPersonalEmail
+                    ? [`Welcome to ${companyName}!`, '', `Your Microsoft 365 account has been created but is currently locked until your start date (${startDateDisplay}).`, `Your account will be automatically unlocked on ${startDateDisplay} and you will be able to sign in at that time.`]
+                    : ['Hello,', '', `A Microsoft 365 account has been created for ${fullName} for use with ${companyName}.`, '', `⏳ SCHEDULED START: The account is currently LOCKED and will be automatically unlocked on ${startDateDisplay} at 12:01 AM EST.`, 'Credentials are included below — please share them with the employee closer to their start date.'])
+                  : (isPersonalEmail
+                    ? [`Welcome to ${companyName}!`, '', `Your Microsoft 365 account has been created and is ready to use.`]
+                    : ['Hello,', '', `A Microsoft 365 account has been created for ${fullName} for use with ${companyName}.`])
+
+                await resend.emails.send({
+                  from: FROM_EMAIL,
+                  to: [credentialRecipient],
+                  subject: emailSubject,
+                  text: [
+                    ...emailIntro,
+                    '',
+                    `Email Address: ${upn}`,
+                    `Temporary Password: ${tempPassword}`,
+                    ...(accountLocked ? [
+                      '',
+                      `⚠️ Do NOT attempt to sign in before ${startDateDisplay} — the account will be locked.`,
+                    ] : loginInstructions),
+                    '',
+                    `Triple Cities Tech | Support Ticket: ${ticketNumber}`,
+                  ].filter((l) => l !== null).join('\n'),
+                })
+                credentialEmailSent = true
+              } catch (err) {
+                credentialEmailError = err instanceof Error ? err.message : String(err)
+                console.warn('[hr/process] Email notification failed (non-fatal):', credentialEmailError)
+              }
+            }
+
+            // ----- Build provisioning results text for the ticket description -----
             const resultLines: string[] = [
               '',
               '=== PROVISIONING RESULTS ===',
               `Work Email: ${upn}`,
             ]
+
+            // Surface account lock status — this is intentional behavior for
+            // future-dated start dates, but technicians need to see it in the
+            // description (not just in a separate note) to avoid manually
+            // unlocking the account.
+            if (accountLocked) {
+              resultLines.push(`Account Status: LOCKED — will be automatically unlocked on ${startDateDisplay} at 12:01 AM EST`)
+            } else {
+              resultLines.push('Account Status: Enabled')
+            }
 
             // License info
             if (a.license_type && !failedSteps.includes('assign_license')) {
@@ -1426,6 +1611,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                 if (sku?.displayName) licDisplayName = sku.displayName
               } catch { /* use raw part number */ }
               resultLines.push(`License: ${licDisplayName}`)
+            }
+
+            // Cloned licenses — surface both successes and failures explicitly
+            if (clonedLicenseNames.length > 0) {
+              resultLines.push(`Cloned Licenses (${clonedLicenseNames.length}):`)
+              for (const n of clonedLicenseNames) resultLines.push(`  - ${n}`)
+            }
+            if (failedClonedLicenses.length > 0) {
+              resultLines.push(`Cloned Licenses — FAILED (${failedClonedLicenses.length}):`)
+              for (const f of failedClonedLicenses) resultLines.push(`  ⚠ ${f.name} — ${f.reason}`)
             }
 
             // Groups added — use display names
@@ -1447,7 +1642,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             }
 
             if (a.clone_from_user && !failedSteps.includes('clone_permissions')) {
-              resultLines.push(`Clone Source: ${a.clone_from_user} (${clonedGroups.length} groups cloned)`)
+              const skippedSuffix = skippedClonedGroupNames.length > 0
+                ? ` (${skippedClonedGroupNames.length} skipped — see notes)`
+                : ''
+              resultLines.push(`Clone Source: ${a.clone_from_user} (${clonedGroups.length} groups cloned${skippedSuffix})`)
+            }
+
+            // Surface credential delivery outcome in the description
+            if (credentialEmailSent && credentialRecipient) {
+              resultLines.push(`Credentials Delivery: Sent automatically to ${credentialRecipient}`)
+            } else if (credentialRecipient) {
+              resultLines.push(`Credentials Delivery: FAILED to send automatically to ${credentialRecipient} — ${credentialEmailError ?? 'unknown error'}`)
+            } else {
+              resultLines.push(`Credentials Delivery: NOT SENT — ${credentialEmailError ?? 'no recipient resolved'}`)
             }
 
             // Build manual steps for TCT staff
@@ -1457,6 +1664,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             if (a.additional_notes && a.additional_notes.trim()) {
               manualSteps.push(`Review additional notes/software requirements — see "NOTES" section above`)
             }
+            // Cloned-license failures become explicit manual steps
+            for (const f of failedClonedLicenses) {
+              manualSteps.push(`Manually assign license "${f.name}" to ${upn} in Microsoft 365 Admin Center (auto-clone failed: ${f.reason})`)
+            }
+            // Cloned-group failures become explicit manual steps (skip if many — list separately)
+            for (const s of skippedClonedGroupNames) {
+              manualSteps.push(`Manually add ${upn} to cloned group: ${s.name} (${s.reason})`)
+            }
+            // Credential delivery failures become manual steps
+            if (!credentialEmailSent && credentialRecipient) {
+              manualSteps.push(`Send credentials manually to ${credentialRecipient} (UPN: ${upn}) — automatic email failed: ${credentialEmailError ?? 'unknown error'}`)
+            } else if (!credentialRecipient) {
+              manualSteps.push(`Determine credential delivery recipient and send credentials manually for ${upn} (no email recipient resolved)`)
+            }
+
             if (failedSteps.length > 0) {
               // Map failed step keys to clear manual action descriptions
               const onboardFailedDescriptions: Record<string, string> = {
@@ -1464,6 +1686,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                 create_user: `Manually create M365 user account for ${fullName} in Azure AD`,
                 assign_license: `Manually assign license "${displayNames[a.license_type] ?? a.license_type}" to ${upn} in Microsoft 365 Admin Center`,
                 clone_permissions: `Manually clone permissions from ${a.clone_from_user} to ${upn}`,
+                clone_licenses: `Manually clone licenses from ${a.clone_from_user} to ${upn}`,
+                clone_licenses_partial: 'See per-license failures above and assign manually',
               }
               for (const step of failedSteps) {
                 let desc: string
@@ -1476,7 +1700,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                 } else {
                   desc = onboardFailedDescriptions[step] ?? `Retry failed step: ${step}`
                 }
-                manualSteps.push(desc)
+                // Avoid duplicates (clone_licenses_partial already emitted per-SKU steps above)
+                if (step !== 'clone_licenses_partial' || manualSteps.length === 0) {
+                  manualSteps.push(desc)
+                }
               }
               const humanFailedSteps = failedSteps.map(s => {
                 if (s.startsWith('add_to_group_')) return `Add to ${displayNames[s.replace('add_to_group_', '')] ?? s.replace('add_to_group_', '')}`
@@ -1486,9 +1713,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               resultLines.push(`\nFailed Steps: ${humanFailedSteps.join(', ')}`)
               resultLines.push('Status: Completed with errors — manual steps required')
             } else if (manualSteps.length > 0) {
-              resultLines.push('Status: Automated steps complete — manual steps required')
+              resultLines.push(accountLocked
+                ? 'Status: Provisioned (account intentionally locked until start date) — manual steps required'
+                : 'Status: Automated steps complete — manual steps required')
             } else {
-              resultLines.push('Status: All actions completed successfully')
+              resultLines.push(accountLocked
+                ? 'Status: Provisioned (account intentionally locked until start date — auto-unlock by system)'
+                : 'Status: All actions completed successfully')
             }
 
             // Add "Next Steps for TCT Staff" section
@@ -1504,18 +1735,34 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
             const provisioningResultsText = resultLines.join('\n')
 
-            // PATCH ticket description
+            // PATCH ticket description — observable: if the PATCH fails (or the
+            // function is killed before it returns), fall back to posting the
+            // results as an internal note so technicians always see them somewhere.
+            let descriptionPatchOk = false
             try {
-              await fetch(`${baseUrl}/V1.0/Tickets`, {
+              const patchRes = await fetch(`${baseUrl}/V1.0/Tickets`, {
                 method: 'PATCH',
                 headers: autotaskHeaders,
                 body: JSON.stringify({
                   id: ticketId,
                   description: originalDescription + '\n\n' + provisioningResultsText,
                 }),
+                signal: AbortSignal.timeout(15_000),
               })
+              if (!patchRes.ok) {
+                const errText = await patchRes.text().catch(() => '')
+                console.warn(`[hr/process] Ticket description PATCH returned ${patchRes.status}: ${errText}`)
+              } else {
+                descriptionPatchOk = true
+              }
             } catch (err) {
               console.warn('[hr/process] Failed to update ticket description:', err instanceof Error ? err.message : err)
+            }
+
+            if (!descriptionPatchOk) {
+              // Fallback: post the provisioning results as an internal note so the
+              // technician still has the full record even if PATCH failed.
+              await addTicketNote('Provisioning Results (description update failed)', provisioningResultsText, 2)
             }
 
             // Internal note for manual steps
@@ -1527,7 +1774,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
             // Final customer-visible note (publish=1)
             const licDisplayForNote = a.license_type ? (displayNames[a.license_type] ?? a.license_type) : null
-            const startDateDisplay = startDate ? formatDateDisplay(startDate) : null
+            const credentialLine = credentialEmailSent && credentialRecipient
+              ? `Credentials were emailed automatically to ${credentialRecipient}.`
+              : 'Temporary password will be shared securely by your TCT technician.'
             const completionNote = [
               accountLocked
                 ? `Employee ${fullName} has been provisioned (account locked until ${startDateDisplay}):`
@@ -1539,7 +1788,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               '',
               accountLocked
                 ? `The account is currently LOCKED and will be automatically unlocked on ${startDateDisplay} at 12:01 AM EST.\nLogin credentials will be shared closer to the start date.`
-                : 'Temporary password will be shared securely by your TCT technician.',
+                : credentialLine,
             ].filter(Boolean).join('\n')
 
             await addTicketNote(
@@ -1548,126 +1797,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
             // Internal-only note with temp password (publish=2)
             await addTicketNote('Temporary Password (INTERNAL)', `UPN: ${upn}\nTemporary Password: ${tempPassword}`, 2)
-
-            // Send email notification
-            if (resend) {
-              const submitterEmail = hrRequest.submitted_by_email || a.submitted_by_email
-              const credentialDelivery = a.credential_delivery || 'submitter'
-              const recipientEmail = credentialDelivery === 'personal_email' && a.personal_email
-                ? a.personal_email
-                : submitterEmail
-
-              if (recipientEmail) {
-                const isPersonalEmail = credentialDelivery === 'personal_email' && a.personal_email
-                try {
-                  const companyName = hrRequest.displayName || 'your organization'
-
-                  const isCompanyComputer = a.computer_situation === 'existing_company' || a.computer_situation === 'new_computer'
-
-                  // Build login instructions based on whether this goes to the new hire or the submitter
-                  const loginInstructions = isPersonalEmail ? [
-                    '',
-                    '═══════════════════════════════════',
-                    'HOW TO GET STARTED',
-                    '═══════════════════════════════════',
-                    '',
-                    // Order sign-in instructions by scenario:
-                    // Company computer first if applicable, then browser access
-                    ...(isCompanyComputer ? [
-                      '1. SIGN IN ON YOUR COMPANY COMPUTER',
-                      '   From the Windows sign-in screen:',
-                      '     a. Click "Other user" (or "Switch user" if someone is already signed in)',
-                      `     b. Enter your email: ${upn}`,
-                      `     c. Enter your temporary password: ${tempPassword}`,
-                      '     d. You will be prompted to create a new password — choose something secure',
-                      '     e. Follow the prompts to set up Multi-Factor Authentication (MFA)',
-                      '',
-                      '2. SET UP MULTI-FACTOR AUTHENTICATION (MFA)',
-                      '   During sign-in, you will be prompted to set up MFA.',
-                      '   We recommend using the Microsoft Authenticator app:',
-                      '     a. Download "Microsoft Authenticator" from the App Store or Google Play',
-                      '     b. When prompted, choose "Add work or school account"',
-                      '     c. Scan the QR code shown on screen',
-                      '     d. You can also choose to receive a text or phone call instead',
-                      '',
-                      '3. ACCESS MICROSOFT 365 FROM A BROWSER',
-                      '   You can also access your apps from any web browser:',
-                      '     a. Go to https://portal.office.com',
-                      `     b. Sign in with: ${upn}`,
-                      '     c. Access Outlook, Teams, OneDrive, and all Microsoft 365 apps',
-                    ] : [
-                      '1. SIGN IN TO MICROSOFT 365',
-                      '   Go to https://portal.office.com',
-                      `   Email: ${upn}`,
-                      `   Password: ${tempPassword}`,
-                      '   You will be asked to change your password on first sign-in.',
-                      '',
-                      '2. SET UP MULTI-FACTOR AUTHENTICATION (MFA)',
-                      '   After changing your password, you will be prompted to set up MFA.',
-                      '   We recommend using the Microsoft Authenticator app:',
-                      '     a. Download "Microsoft Authenticator" from the App Store or Google Play',
-                      '     b. When prompted, choose "Add work or school account"',
-                      '     c. Scan the QR code shown on screen',
-                      '     d. You can also choose to receive a text or phone call instead',
-                      '',
-                    ]),
-                    '',
-                    '3. ACCESS YOUR APPS',
-                    '   • Outlook (email): https://outlook.office.com',
-                    '   • Microsoft Teams: https://teams.microsoft.com',
-                    '   • OneDrive (files): https://onedrive.live.com',
-                    '   • All apps: https://portal.office.com',
-                    '',
-                    'If you have any trouble signing in, contact your IT administrator.',
-                  ] : [
-                    '',
-                    'Please share these credentials securely with the new employee.',
-                    isCompanyComputer
-                      ? 'They can sign in on their company computer from the Windows sign-in screen by clicking "Other user", or at https://portal.office.com'
-                      : 'They can sign in at https://portal.office.com',
-                    'They will be prompted to change their password and set up MFA on first sign-in.',
-                  ]
-
-                  const emailSubject = accountLocked
-                    ? (isPersonalEmail
-                      ? `Welcome to ${companyName} — Your Account Will Be Ready on ${startDateDisplay}`
-                      : `Employee Onboarding Scheduled — ${fullName} (starts ${startDateDisplay})`)
-                    : (isPersonalEmail
-                      ? `Welcome to ${companyName} — Your Microsoft 365 Account`
-                      : `Employee Onboarding Complete — ${fullName}`)
-
-                  const emailIntro = accountLocked
-                    ? (isPersonalEmail
-                      ? [`Welcome to ${companyName}!`, '', `Your Microsoft 365 account has been created but is currently locked until your start date (${startDateDisplay}).`, `Your account will be automatically unlocked on ${startDateDisplay} and you will be able to sign in at that time.`]
-                      : ['Hello,', '', `A Microsoft 365 account has been created for ${fullName} for use with ${companyName}.`, '', `⏳ SCHEDULED START: The account is currently LOCKED and will be automatically unlocked on ${startDateDisplay} at 12:01 AM EST.`, 'Credentials are included below — please share them with the employee closer to their start date.'])
-                    : (isPersonalEmail
-                      ? [`Welcome to ${companyName}!`, '', `Your Microsoft 365 account has been created and is ready to use.`]
-                      : ['Hello,', '', `A Microsoft 365 account has been created for ${fullName} for use with ${companyName}.`])
-
-                  await resend.emails.send({
-                    from: FROM_EMAIL,
-                    to: [recipientEmail],
-                    subject: emailSubject,
-                    text: [
-                      ...emailIntro,
-                      '',
-                      `Email Address: ${upn}`,
-                      `Temporary Password: ${tempPassword}`,
-                      ...(accountLocked ? [
-                        '',
-                        `⚠️ Do NOT attempt to sign in before ${startDateDisplay} — the account will be locked.`,
-                      ] : loginInstructions),
-                      '',
-                      `Triple Cities Tech | Support Ticket: ${ticketNumber}`,
-                    ].filter((l) => l !== null).join('\n'),
-                  })
-                } catch (err) {
-                  console.warn('[hr/process] Email notification failed (non-fatal):', err instanceof Error ? err.message : err)
-                }
-              }
-            } else if (!resend) {
-              console.warn('[hr/process] RESEND_API_KEY not set — skipping email notification')
-            }
 
             // Future-dated onboarding: set request status to 'scheduled' so cron will unlock on start date
             if (accountLocked && primaryActionSucceeded) {
