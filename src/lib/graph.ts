@@ -465,6 +465,8 @@ export function createGraphClient(creds: TenantCredentials) {
       userPrincipalName: string
       mailNickname: string
       password: string
+      givenName?: string
+      surname?: string
       jobTitle?: string
       department?: string
       usageLocation?: string
@@ -481,6 +483,8 @@ export function createGraphClient(creds: TenantCredentials) {
             password: userData.password,
             forceChangePasswordNextSignIn: true,
           },
+          givenName: userData.givenName?.trim() ? userData.givenName.trim() : null,
+          surname: userData.surname?.trim() ? userData.surname.trim() : null,
           jobTitle: userData.jobTitle ?? null,
           department: userData.department ?? null,
           usageLocation: userData.usageLocation ?? null,
