@@ -256,6 +256,10 @@ function generateInviteEmailHtml(params: InviteEmailParams): string {
         <a href="${portalUrl}" class="cta-button" target="_blank" rel="noopener noreferrer">Sign In with Microsoft 365</a>
       </div>
 
+      <p class="intro" style="font-size: 14px; color: #475569; background: #f1f5f9; border-left: 3px solid #06b6d4; padding: 12px 16px; border-radius: 4px;">
+        <strong style="color: #0f172a;">Tip:</strong> Bookmark <a href="${portalUrl}" style="color: #0891b2;">${portalUrl}</a> so you can get back here anytime without digging through email.
+      </p>
+
       <p class="intro" style="font-size: 14px; color: #64748b;">
         If you run into any issues signing in or have questions about the portal, please reach out to us at <a href="mailto:support@triplecitiestech.com" style="color: #0891b2;">support@triplecitiestech.com</a> or 607-341-7500 and we&rsquo;ll get you sorted out.
       </p>
