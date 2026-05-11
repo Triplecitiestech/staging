@@ -13,6 +13,8 @@
 
 import { prisma } from '@/lib/prisma'
 import { AutotaskClient } from '@/lib/autotask'
+import { createJobTracker } from '@/lib/reporting/job-status'
+import { JOB_NAMES } from '@/lib/reporting/types'
 
 export interface ContactSyncResult {
   created: number
@@ -90,6 +92,10 @@ export async function syncAutotaskContacts(options?: {
   const errors: string[] = []
   let created = 0
   let updated = 0
+
+  // Only update Pipeline Status row for the "all companies" bulk run, not
+  // the per-company onboarding-flow variant (that one has its own UI feedback).
+  const finishJob = options?.companyId ? null : createJobTracker(JOB_NAMES.SYNC_CONTACTS)
 
   const companies = await prisma.company.findMany({
     where: {
@@ -199,6 +205,23 @@ export async function syncAutotaskContacts(options?: {
     })
   } catch {
     // Don't fail the sync if logging fails
+  }
+
+  // Update Pipeline Status row so "Sync Contacts" shows last-run time and status
+  if (finishJob) {
+    try {
+      await finishJob({
+        status: errors.length === 0 ? 'success' : 'partial',
+        ...(errors.length > 0 ? { error: errors.slice(0, 3).join('; ') } : {}),
+        meta: {
+          contactsCreated: created,
+          contactsUpdated: updated,
+          companiesProcessed: companies.length,
+        },
+      })
+    } catch {
+      // Tracker writes are best-effort — never fail the sync because of UI accounting
+    }
   }
 
   return { created, updated, companiesProcessed: companies.length, errors, durationMs }

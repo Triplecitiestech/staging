@@ -205,6 +205,7 @@ export const JOB_NAMES = {
   SYNC_TIME_ENTRIES_BULK: 'sync_time_entries_bulk',
   SYNC_TICKET_NOTES: 'sync_ticket_notes',
   SYNC_RESOURCES: 'sync_resources',
+  SYNC_CONTACTS: 'sync_contacts',
   COMPUTE_LIFECYCLE: 'compute_lifecycle',
   AGGREGATE_TECHNICIAN: 'aggregate_technician',
   AGGREGATE_COMPANY: 'aggregate_company',
