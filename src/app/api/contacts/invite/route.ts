@@ -2,8 +2,29 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { prisma } from '@/lib/prisma'
 import { Resend } from 'resend'
+import { hasPermission, parseOverrides, type Permission } from '@/lib/permissions'
 
 export const dynamic = 'force-dynamic'
+
+/**
+ * Resolve the live staff record (with permissionOverrides) for the session
+ * user, then check whether they hold the required granular permission.
+ * Returns true on allow, false on deny. Centralizes the check so PATCH/POST/GET
+ * stay consistent.
+ */
+async function staffCanDo(sessionEmail: string | null | undefined, permission: Permission): Promise<boolean> {
+  if (!sessionEmail) return false
+  try {
+    const staff = await prisma.staffUser.findUnique({
+      where: { email: sessionEmail },
+      select: { role: true, permissionOverrides: true, isActive: true },
+    })
+    if (!staff || !staff.isActive) return false
+    return hasPermission(staff.role as string, permission, parseOverrides(staff.permissionOverrides))
+  } catch {
+    return false
+  }
+}
 
 /**
  * Ensures the customer portal columns exist on company_contacts table.
@@ -38,8 +59,8 @@ async function ensureContactPortalColumns() {
 export async function GET(request: NextRequest) {
   const session = await auth()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (!['SUPER_ADMIN', 'ADMIN'].includes(session.user?.role as string)) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  if (!(await staffCanDo(session.user?.email, 'invite_customers'))) {
+    return NextResponse.json({ error: 'Forbidden — you need the "invite_customers" permission' }, { status: 403 })
   }
 
   const contactId = request.nextUrl.searchParams.get('contactId')
@@ -74,8 +95,8 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const session = await auth()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (!['SUPER_ADMIN', 'ADMIN'].includes(session.user?.role as string)) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  if (!(await staffCanDo(session.user?.email, 'invite_customers'))) {
+    return NextResponse.json({ error: 'Forbidden — you need the "invite_customers" permission' }, { status: 403 })
   }
 
   await ensureContactPortalColumns()
@@ -154,8 +175,8 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   const session = await auth()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (!['SUPER_ADMIN', 'ADMIN'].includes(session.user?.role as string)) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  if (!(await staffCanDo(session.user?.email, 'manage_customer_roles'))) {
+    return NextResponse.json({ error: 'Forbidden — you need the "manage_customer_roles" permission' }, { status: 403 })
   }
 
   await ensureContactPortalColumns()
