@@ -259,80 +259,115 @@ export default function NewCompanyForm() {
         )}
       </div>
 
-      <div className="relative flex items-center my-4">
-        <div className="flex-1 border-t border-white/10" />
-        <span className="px-3 text-xs text-slate-500">OR create manually</span>
-        <div className="flex-1 border-t border-white/10" />
-      </div>
+      {/*
+       * Manual creation is hidden whenever an Autotask company is selected.
+       * Previously both paths were visible, and clicking the prominent
+       * "Create Company" button after selecting an AT result created an
+       * orphan local record without autotaskCompanyId — the form's
+       * "Import & Sync" button is the only path that actually sets the
+       * AT link.
+       */}
+      {!selectedAtCompany && (
+        <>
+          <div className="relative flex items-center my-4">
+            <div className="flex-1 border-t border-white/10" />
+            <span className="px-3 text-xs text-slate-500">OR create manually (rare — use Autotask above when possible)</span>
+            <div className="flex-1 border-t border-white/10" />
+          </div>
 
-      <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-sm border border-white/10 rounded-lg p-6 space-y-6">
-        <div>
-          <label className="block text-sm font-medium text-slate-200 mb-2">Company Name *</label>
-          <input
-            type="text"
-            required
-            disabled={loading}
-            value={formData.displayName}
-            onChange={(e) => setFormData({ ...formData, displayName: e.target.value })}
-            className="w-full px-3 py-2 bg-slate-900/50 border border-white/20 rounded-lg text-white placeholder-slate-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 disabled:opacity-50"
-            placeholder="e.g., Acme Corporation"
-          />
+          <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-sm border border-white/10 rounded-lg p-6 space-y-6">
+            <div className="text-xs text-slate-400">
+              Use this only if the company genuinely doesn&rsquo;t exist in Autotask. Manually created
+              companies have no Autotask link and won&rsquo;t sync tickets, contacts, or projects until
+              you link them later from their company page.
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-200 mb-2">Company Name *</label>
+              <input
+                type="text"
+                required
+                disabled={loading}
+                value={formData.displayName}
+                onChange={(e) => setFormData({ ...formData, displayName: e.target.value })}
+                className="w-full px-3 py-2 bg-slate-900/50 border border-white/20 rounded-lg text-white placeholder-slate-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 disabled:opacity-50"
+                placeholder="e.g., Acme Corporation"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-200 mb-2">Primary Contact</label>
+              <input
+                type="text"
+                disabled={loading}
+                value={formData.primaryContact}
+                onChange={(e) => setFormData({ ...formData, primaryContact: e.target.value })}
+                className="w-full px-3 py-2 bg-slate-900/50 border border-white/20 rounded-lg text-white placeholder-slate-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 disabled:opacity-50"
+                placeholder="e.g., John Smith"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-200 mb-2">Contact Title</label>
+              <input
+                type="text"
+                disabled={loading}
+                value={formData.contactTitle}
+                onChange={(e) => setFormData({ ...formData, contactTitle: e.target.value })}
+                className="w-full px-3 py-2 bg-slate-900/50 border border-white/20 rounded-lg text-white placeholder-slate-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 disabled:opacity-50"
+                placeholder="e.g., CEO"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-200 mb-2">Contact Email</label>
+              <input
+                type="email"
+                disabled={loading}
+                value={formData.contactEmail}
+                onChange={(e) => setFormData({ ...formData, contactEmail: e.target.value })}
+                className="w-full px-3 py-2 bg-slate-900/50 border border-white/20 rounded-lg text-white placeholder-slate-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 disabled:opacity-50"
+                placeholder="e.g., john@acme.com"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => router.push('/admin/companies')}
+              disabled={loading}
+              className="px-4 py-2 border border-white/20 rounded-lg text-slate-300 hover:bg-white/10 hover:text-white transition-all disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="px-6 py-2 bg-gradient-to-r from-slate-600 to-slate-700 hover:from-slate-500 hover:to-slate-600 text-white rounded-lg transition-all disabled:opacity-50 font-medium"
+            >
+              {loading ? 'Creating...' : 'Create Manually (no Autotask link)'}
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* When an AT company is selected, the only forward action is the
+          'Import & Sync' button inside the green selected-company card above. */}
+      {selectedAtCompany && (
+        <div className="flex items-center justify-end gap-3">
+          <button
+            type="button"
+            onClick={() => router.push('/admin/companies')}
+            disabled={loading || importing}
+            className="px-4 py-2 border border-white/20 rounded-lg text-slate-300 hover:bg-white/10 hover:text-white transition-all disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <p className="text-xs text-slate-400">
+            Click <strong>Import &amp; Sync</strong> above to finish.
+          </p>
         </div>
-
-        <div>
-          <label className="block text-sm font-medium text-slate-200 mb-2">Primary Contact</label>
-          <input
-            type="text"
-            disabled={loading}
-            value={formData.primaryContact}
-            onChange={(e) => setFormData({ ...formData, primaryContact: e.target.value })}
-            className="w-full px-3 py-2 bg-slate-900/50 border border-white/20 rounded-lg text-white placeholder-slate-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 disabled:opacity-50"
-            placeholder="e.g., John Smith"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-slate-200 mb-2">Contact Title</label>
-          <input
-            type="text"
-            disabled={loading}
-            value={formData.contactTitle}
-            onChange={(e) => setFormData({ ...formData, contactTitle: e.target.value })}
-            className="w-full px-3 py-2 bg-slate-900/50 border border-white/20 rounded-lg text-white placeholder-slate-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 disabled:opacity-50"
-            placeholder="e.g., CEO"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-slate-200 mb-2">Contact Email</label>
-          <input
-            type="email"
-            disabled={loading}
-            value={formData.contactEmail}
-            onChange={(e) => setFormData({ ...formData, contactEmail: e.target.value })}
-            className="w-full px-3 py-2 bg-slate-900/50 border border-white/20 rounded-lg text-white placeholder-slate-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 disabled:opacity-50"
-            placeholder="e.g., john@acme.com"
-          />
-        </div>
-      </div>
-
-      <div className="flex items-center justify-end gap-3">
-        <button
-          type="button"
-          onClick={() => router.push('/admin/companies')}
-          disabled={loading}
-          className="px-4 py-2 border border-white/20 rounded-lg text-slate-300 hover:bg-white/10 hover:text-white transition-all disabled:opacity-50"
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          disabled={loading}
-          className="px-6 py-2 bg-gradient-to-r from-cyan-500 to-cyan-600 hover:from-cyan-400 hover:to-cyan-500 text-white rounded-lg transition-all disabled:opacity-50 font-medium"
-        >
-          {loading ? 'Creating...' : 'Create Company'}
-        </button>
-      </div>
+      )}
     </form>
   )
 }
