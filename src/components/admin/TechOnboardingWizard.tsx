@@ -144,6 +144,74 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
     message: string
   } | null>(null)
 
+  // Step 1 — link an existing local company to its Autotask counterpart.
+  // Used when the company was created via the manual form on /admin/companies/new
+  // without going through the "Import from Autotask" search-and-import path,
+  // so autotaskCompanyId ended up null.
+  interface AtCompanyMatch {
+    id: number
+    name: string
+    phone: string | null
+  }
+  const [atSearch, setAtSearch] = useState('')
+  const [atResults, setAtResults] = useState<AtCompanyMatch[]>([])
+  const [atSearching, setAtSearching] = useState(false)
+  const [linkingAt, setLinkingAt] = useState(false)
+  const [atLinkResult, setAtLinkResult] = useState<{ ok: boolean; message: string } | null>(null)
+
+  // Debounce the Autotask company search
+  useEffect(() => {
+    if (!atSearch || atSearch.length < 2) {
+      setAtResults([])
+      return
+    }
+    const controller = new AbortController()
+    const t = setTimeout(async () => {
+      setAtSearching(true)
+      try {
+        const res = await fetch(`/api/autotask/companies/search?q=${encodeURIComponent(atSearch)}`, {
+          signal: controller.signal,
+        })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const data = await res.json()
+        setAtResults(Array.isArray(data.companies) ? data.companies : [])
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return
+        // Search errors are silent — the search runs as the tech types
+      } finally {
+        setAtSearching(false)
+      }
+    }, 300)
+    return () => { controller.abort(); clearTimeout(t) }
+  }, [atSearch])
+
+  async function handleLinkAutotaskCompany(atCompanyId: number) {
+    setLinkingAt(true)
+    setAtLinkResult(null)
+    try {
+      const res = await fetch('/api/autotask/companies/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId: company.id, autotaskCompanyId: atCompanyId }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.success) {
+        const detail = data.details ? ` — ${data.details}` : ''
+        throw new Error((data.error || `HTTP ${res.status}`) + detail)
+      }
+      setAtLinkResult({
+        ok: true,
+        message: `Linked to Autotask. Refreshing to pick up the new Company ID…`,
+      })
+      // Hard reload so server-rendered company object reflects the new autotaskCompanyId
+      setTimeout(() => window.location.reload(), 1200)
+    } catch (err) {
+      setAtLinkResult({ ok: false, message: err instanceof Error ? err.message : 'Failed to link' })
+    } finally {
+      setLinkingAt(false)
+    }
+  }
+
   async function handleSyncCompanyContacts() {
     setSyncingContacts(true)
     setContactSyncResult(null)
@@ -448,12 +516,10 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
                 <p className="font-semibold text-blue-100 mb-2">Follow these steps in order:</p>
                 <ol className="list-decimal list-inside space-y-2 mt-1">
                   <li>
-                    <strong>Verify the Autotask Company ID above shows a number</strong> (not &quot;Not linked&quot;). If it&rsquo;s missing, the Autotask company sync hasn&rsquo;t run for this company yet &mdash; run it from{' '}
-                    <Link href="/admin/reporting/status" className="underline text-teal-300">Pipeline Status &rarr; Sync Tickets</Link>{' '}
-                    (which also syncs the company row) and refresh this page.
+                    <strong>Confirm the Autotask Company ID above shows a number</strong> (not &quot;Not linked&quot;). If it&rsquo;s missing, use the Autotask search box below to find and link this company &mdash; you can&rsquo;t sync contacts or tickets until this is set.
                   </li>
                   <li>
-                    <strong>Sync this company&rsquo;s contacts</strong> using the button below. This pulls contacts for {company.displayName} only and finishes in seconds. You can also pick the manager directly in <strong>Step 4</strong> of this wizard.
+                    <strong>Sync this company&rsquo;s contacts</strong> using the button below the search. This pulls contacts for {company.displayName} only and finishes in seconds. You can also pick the manager directly in <strong>Step 4</strong> of this wizard.
                   </li>
                   <li>
                     Open the{' '}
@@ -469,12 +535,68 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
               </InfoBox>
 
               {!company.autotaskCompanyId && (
-                <div className="bg-yellow-950/40 border border-yellow-500/30 rounded-lg p-4 text-sm text-yellow-200">
-                  ⚠️ This company has no Autotask Company ID linked. Go to{' '}
-                  <Link href={`/admin/companies/${company.id}`} className="underline">
-                    the company detail page
-                  </Link>{' '}
-                  and ensure the Autotask sync has run.
+                <div className="bg-violet-950/40 border border-violet-500/30 rounded-lg p-4 space-y-3 text-sm text-violet-200">
+                  <div>
+                    <p className="font-semibold text-violet-100">
+                      ⚠️ This company is not linked to Autotask yet.
+                    </p>
+                    <p className="text-xs text-violet-300 mt-1">
+                      It was likely created via the manual &ldquo;Create New Company&rdquo; form without using the
+                      &ldquo;Import from Autotask&rdquo; search. Search for it in Autotask below and link it &mdash; once linked,
+                      contacts, tickets, and other syncs will pull data for this company.
+                    </p>
+                  </div>
+
+                  <input
+                    type="text"
+                    value={atSearch}
+                    onChange={(e) => setAtSearch(e.target.value)}
+                    placeholder={`Search Autotask for "${company.displayName}"…`}
+                    className="w-full px-3 py-2 bg-slate-900 border border-white/10 rounded text-sm text-white placeholder:text-violet-400/60 focus:outline-none focus:border-violet-400"
+                  />
+
+                  {atSearching && (
+                    <p className="text-xs text-violet-300">Searching Autotask…</p>
+                  )}
+
+                  {!atSearching && atResults.length > 0 && (
+                    <div className="space-y-1 max-h-60 overflow-y-auto">
+                      {atResults.map((r) => (
+                        <button
+                          key={r.id}
+                          type="button"
+                          disabled={linkingAt}
+                          onClick={() => handleLinkAutotaskCompany(r.id)}
+                          className="w-full text-left px-3 py-2 bg-slate-900/60 hover:bg-slate-900 border border-white/10 rounded text-xs text-white transition-colors disabled:opacity-50 flex items-center justify-between gap-2"
+                        >
+                          <span>
+                            <span className="text-white font-medium">{r.name}</span>
+                            {r.phone && <span className="text-violet-300 ml-2">· {r.phone}</span>}
+                            <span className="text-violet-400/70 ml-2">(AT ID {r.id})</span>
+                          </span>
+                          <span className="text-violet-300 text-[10px]">Link →</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {!atSearching && atSearch.length >= 2 && atResults.length === 0 && !atLinkResult && (
+                    <p className="text-xs text-violet-300/80">
+                      No Autotask match for that name. If the company truly doesn&rsquo;t exist in Autotask, create it there first, then come back.
+                    </p>
+                  )}
+
+                  {atLinkResult && (
+                    <div
+                      className={`text-xs px-3 py-2 rounded ${
+                        atLinkResult.ok
+                          ? 'bg-green-950/40 border border-green-500/30 text-green-300'
+                          : 'bg-red-950/40 border border-red-500/30 text-red-300'
+                      }`}
+                    >
+                      {atLinkResult.ok ? '✓ ' : '✗ '}{atLinkResult.message}
+                    </div>
+                  )}
                 </div>
               )}
 
