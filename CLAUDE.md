@@ -82,6 +82,7 @@ These are the authoritative modules for each subsystem. Claude must use these �
 | Unified ticket system | `src/lib/tickets/` | Adapters, types, and utils consumed by all ticket views |
 | SOC engine | `src/lib/soc/` | Engine, correlation, rules, prompts, types |
 | Reporting engine | `src/lib/reporting/` | 20+ modules: sync, aggregation, analytics, health score, SLA, etc. |
+| Autotask contact sync | `src/lib/autotask-contact-sync.ts` | `syncAutotaskContacts({ companyId? })` — single source for the Autotask→DB contact pull. Called by `?step=contacts`, `/api/admin/companies/[id]/sync-contacts`, and Pipeline Status `sync_contacts` job. |
 | Blog generation | `src/lib/blog-generator.ts` | AI content generation via Claude API |
 | Demo mode | `src/lib/demo-mode.ts` | Contoso Industries demo data |
 | Error logging | `src/lib/error-logger.ts` | Centralized error logging to ErrorLog model |
@@ -262,7 +263,28 @@ Required: `DATABASE_URL`, `PRISMA_DATABASE_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_UR
 
 Autotask: `AUTOTASK_API_USERNAME`, `AUTOTASK_API_SECRET`, `AUTOTASK_API_INTEGRATION_CODE`, `AUTOTASK_API_BASE_URL`, `MIGRATION_SECRET`
 
+M365 multi-tenant portal app (for customers onboarded via admin consent): `M365_PORTAL_CLIENT_ID`, `M365_PORTAL_CLIENT_SECRET`, optional `M365_PORTAL_REDIRECT_URI` (defaults to `${NEXT_PUBLIC_BASE_URL}/api/admin/m365/consent/callback`). These are the TCT-published multi-tenant app reg, NOT a per-customer credential. See "M365 Multi-Tenant Onboarding" below.
+
 See `.env.example` for the full list including optional social media tokens.
+
+## M365 Multi-Tenant Onboarding
+
+Customer M365 integration supports two modes that coexist on the `companies` table:
+
+- **`legacy` (default for existing rows)** — customer creates their own app reg in their Entra tenant; `m365_tenant_id` + `m365_client_id` + `m365_client_secret` all stored on the company row.
+- **`multi_tenant` (default for new onboardings)** — customer Global Admin grants tenant-wide consent to TCT's published `TCT Customer Portal` app reg (in the TCT tenant). Only `m365_tenant_id` is stored; client_id/secret come from `M365_PORTAL_CLIENT_ID` / `M365_PORTAL_CLIENT_SECRET` env vars at runtime.
+
+The mode is `companies.m365_consent_mode`. `m365_consent_granted_at` is stamped by the consent callback.
+
+**Consent flow routes:**
+- `GET /api/admin/m365/consent?companyId=…` — initiates Microsoft `/adminconsent` (scoped to `organizations`, work tenants only). Requires TCT staff session.
+- `GET /api/admin/m365/consent/callback` — Microsoft redirect target. Validates HMAC state, blocks tenant double-binding, writes the tenant link + flips mode.
+
+**At runtime**, all Graph callers go through `getTenantCredentials(companyId)` / `getTenantCredentialsBySlug(slug)` in `src/lib/graph.ts`. The branch on `m365_consent_mode` is invisible to downstream callers (HR, cron, forms, compliance) — they just get a `TenantCredentials` object.
+
+**Customer portal SSO** (`/api/portal/auth/login` + `/callback`) branches on `m365_consent_mode`: multi-tenant uses `M365_PORTAL_CLIENT_ID/SECRET`, legacy uses the per-tenant fields.
+
+**The wizard** (`/admin/companies/[id]/onboard`) has 5 steps: Autotask Sync → M365 Connection (admin consent) → Test Connection → Manager & Invite → Finalize. Step 1 has an inline Autotask company search/link UI when `autotaskCompanyId` is null. Step 4 fetches contacts and chains role-update + send-invite in one click.
 
 ## Git Workflow
 
@@ -347,6 +369,13 @@ This is the **primary external data source** for companies, projects, phases, an
 
 ## Gotchas
 
+- **M365 customer credentials are NOT all stored per-tenant anymore**: Companies onboarded via the multi-tenant admin-consent flow only have `m365_tenant_id` stored locally — client_id/secret come from `M365_PORTAL_CLIENT_ID` / `M365_PORTAL_CLIENT_SECRET` env vars. `getTenantCredentials*` in `src/lib/graph.ts` is the only place that knows which mode to use; downstream Graph callers must NOT read the per-tenant columns directly. Check `m365_consent_mode` if you need to branch.
+- **`?step=companies` only syncs Autotask companies that have projects**: Customers without an active project in AT won't be pulled in via that step. Use the `/admin/companies/new` "Import from Autotask" search + Import & Sync button, or the wizard's Step 1 search/link box, to import a project-less company. `/api/autotask/companies/import` is the single endpoint that sets `autotaskCompanyId` from a manual flow.
+- **`/api/companies` POST does NOT set autotaskCompanyId**: The manual New Company create endpoint creates a local-only row with no AT link. The form at `/admin/companies/new` hides the manual section when an AT company is selected so users can't accidentally bypass `/api/autotask/companies/import`. Don't add new entry points to `/api/companies` POST without also taking the AT path into account, or you'll regress the orphan-company trap.
+- **Contact sync is NOT in the Pipeline Status "Run All"**: `sync_contacts` is registered in `JOB_MAP` and visible in the Pipeline Status UI as a single button, but it's intentionally excluded from `PIPELINE_ORDER`. Iterating every Autotask-linked company on a nightly schedule adds API cost for no benefit (contacts change rarely). Per-company sync via `POST /api/admin/companies/[id]/sync-contacts` is the recommended path for onboarding.
+- **ContactsList has a `mode` prop**: `'both' | 'clients-only' | 'staff-only'`. `/admin/contacts` uses `clients-only`, `/admin/staff` uses `staff-only`. Don't render ContactsList without a mode if you want only one tab visible — the legacy `'both'` mode still shows the tabs.
+- **TECHNICIAN role can invite customers and manage portal roles**: As of session 8, the TECHNICIAN role holds `invite_customers` and `manage_customer_roles` so techs running the onboarding wizard's Manager & Invite step don't hit Forbidden. Sensitive scopes (`impersonate_customer`, staff role management) remain admin-only. `/api/contacts/invite` GET/POST/PATCH use granular `hasPermission()` checks — not role arrays — so per-user `permissionOverrides` are honored.
+- **Wizard step status must derive from durable DB state**: stepStatus[N] initial values should reflect what's persisted (e.g. step 2 checks `m365_consent_granted_at` for multi_tenant, step 4 checks for an existing `CLIENT_MANAGER` contact with `INVITED/ACCEPTED`). Don't rely on in-session button clicks alone — the user will refresh, deep-link, or come back tomorrow and expect the sidebar to be accurate.
 - **All external API fetch() calls MUST have timeouts**: Every `fetch()` call to an external service (Autotask, Graph, Pax8, Datto, Resend, Anthropic, Turnstile, social media) MUST include `signal: AbortSignal.timeout(X)`. Without a timeout, a hung external API blocks the entire serverless function indefinitely. Use 15s for auth/token calls, 30s for data requests. The `src/lib/resilience.ts` module provides `withTimeout()` for wrapping non-fetch operations.
 - **Use `src/lib/resilience.ts` for all retry/timeout/circuit-breaker needs**: This module is the single source of truth for: `withRetry()` (exponential backoff), `withTimeout()`, `withCircuitBreaker()`, `withDbRetry()` (optimized for serverless cold starts), `classifyError()`, and `structuredLog`. Do NOT create ad-hoc retry loops elsewhere.
 - **Health monitor uses sliding window, NOT point-in-time checks**: The health monitor (`/api/cron/health-monitor`) requires 3 consecutive failures to alert and 2 consecutive healthy checks to resolve. It uses the `health_monitor_state` DB table (NOT `health_monitor_alerts` which is legacy). Do not reduce these thresholds — they prevent alert oscillation.
