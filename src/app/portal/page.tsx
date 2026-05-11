@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Image from 'next/image'
 
 export default function PortalRootPage() {
   const [email, setEmail] = useState('')
@@ -41,18 +42,54 @@ export default function PortalRootPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-gray-950 via-slate-900 to-gray-950">
-      <main className="flex-1 flex items-center justify-center px-6">
+      {/* Top brand bar — clear, persistent Triple Cities Tech identity */}
+      <header className="border-b border-white/5 bg-black/30 backdrop-blur-md">
+        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
+          <a href="https://www.triplecitiestech.com" className="flex items-center gap-3 group">
+            <Image
+              src="/logo/tctlogo.webp"
+              alt="Triple Cities Tech"
+              width={40}
+              height={40}
+              className="w-10 h-10 object-contain"
+              priority
+            />
+            <div className="leading-tight">
+              <p className="text-base font-bold text-white group-hover:text-cyan-300 transition-colors">
+                Triple Cities Tech
+              </p>
+              <p className="text-[11px] text-slate-400 uppercase tracking-widest">
+                Customer Support Portal
+              </p>
+            </div>
+          </a>
+          <a
+            href="https://www.triplecitiestech.com"
+            className="hidden sm:inline-block text-xs text-slate-400 hover:text-cyan-300 transition-colors"
+          >
+            ← Back to triplecitiestech.com
+          </a>
+        </div>
+      </header>
+
+      <main className="flex-1 flex items-center justify-center px-6 py-12">
         <div className="max-w-md w-full text-center">
           {/* Logo / Brand mark */}
           <div className="mb-8">
-            <div className="w-16 h-16 mx-auto bg-gradient-to-br from-cyan-500 to-cyan-600 rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-cyan-500/20">
-              <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
-              </svg>
+            <div className="w-20 h-20 mx-auto bg-white rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-cyan-500/20 p-3">
+              <Image
+                src="/logo/tctlogo.webp"
+                alt="Triple Cities Tech"
+                width={64}
+                height={64}
+                className="w-full h-full object-contain"
+                priority
+              />
             </div>
-            <h1 className="text-3xl font-bold text-white mb-2">Customer Support Portal</h1>
+            <h1 className="text-3xl font-bold text-white mb-2">Sign in to your portal</h1>
             <p className="text-slate-400 text-base leading-relaxed">
-              Enter your work email to sign in with Microsoft 365.
+              The Triple Cities Tech Customer Support Portal. Use the Microsoft 365 account your IT
+              administrator uses with TCT.
             </p>
           </div>
 
@@ -103,6 +140,17 @@ export default function PortalRootPage() {
           </p>
         </div>
       </main>
+
+      <footer className="border-t border-white/5 bg-black/20">
+        <div className="max-w-5xl mx-auto px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-500">
+          <p>&copy; {new Date().getFullYear()} Triple Cities Tech. All rights reserved.</p>
+          <p>
+            Need help? <a href="mailto:support@triplecitiestech.com" className="text-cyan-400 hover:text-cyan-300">support@triplecitiestech.com</a>
+            <span className="mx-2 text-slate-700">·</span>
+            <a href="tel:6073417500" className="text-cyan-400 hover:text-cyan-300">607-341-7500</a>
+          </p>
+        </div>
+      </footer>
     </div>
   )
 }
