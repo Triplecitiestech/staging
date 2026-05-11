@@ -28,6 +28,8 @@ export default async function CompanyDetailPage({
       createdAt: true,
       updatedAt: true,
       m365SetupStatus: true,
+      onboardingCompletedAt: true,
+      autotaskCompanyId: true,
       projects: {
         select: { id: true, title: true, status: true, projectType: true, createdAt: true },
         orderBy: { createdAt: 'desc' }
@@ -76,6 +78,8 @@ export default async function CompanyDetailPage({
           company={{
             ...company,
             m365SetupStatus: company.m365SetupStatus,
+            onboardingCompletedAt: company.onboardingCompletedAt ? company.onboardingCompletedAt.toISOString() : null,
+            autotaskCompanyId: company.autotaskCompanyId,
             createdAt: company.createdAt.toISOString(),
             updatedAt: company.updatedAt.toISOString(),
           }}

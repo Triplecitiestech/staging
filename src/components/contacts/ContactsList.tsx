@@ -36,6 +36,12 @@ interface ContactsListProps {
   staffUsers: StaffUser[]
   currentUserRole: string
   currentUserId: string
+  /**
+   * Which tabs to show. Defaults to 'both' for backwards compatibility
+   * with the legacy combined page. Use 'clients-only' for /admin/contacts
+   * (post-split) and 'staff-only' for /admin/staff.
+   */
+  mode?: 'both' | 'clients-only' | 'staff-only'
 }
 
 // Staff role display config with permission descriptions
@@ -194,13 +200,13 @@ const INVITE_STATUS: Record<string, { label: string; color: string; dotColor: st
   DECLINED: { label: 'Declined', color: 'text-rose-400', dotColor: 'bg-rose-400' },
 }
 
-export default function ContactsList({ contacts, staffUsers: initialStaff, currentUserRole, currentUserId }: ContactsListProps) {
+export default function ContactsList({ contacts, staffUsers: initialStaff, currentUserRole, currentUserId, mode = 'both' }: ContactsListProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const demo = useDemoMode()
   // Allow deep-linking from the onboarding wizard (and elsewhere) via ?search=<term>
   const [search, setSearch] = useState(searchParams?.get('search') ?? '')
-  const [tab, setTab] = useState<'clients' | 'staff'>('clients')
+  const [tab, setTab] = useState<'clients' | 'staff'>(mode === 'staff-only' ? 'staff' : 'clients')
   const [selectedContacts, setSelectedContacts] = useState<Set<string>>(new Set())
   const [sendingInvites, setSendingInvites] = useState(false)
   const [previewHtml, setPreviewHtml] = useState<string | null>(null)
@@ -424,28 +430,30 @@ export default function ContactsList({ contacts, staffUsers: initialStaff, curre
           />
         </div>
         <div className="flex items-center gap-3">
-          <div className="flex rounded-lg overflow-hidden border border-white/10">
-            <button
-              onClick={() => setTab('clients')}
-              className={`px-4 py-2 text-sm font-semibold transition-colors ${
-                tab === 'clients'
-                  ? 'bg-cyan-500 text-white'
-                  : 'bg-slate-800/50 text-slate-300 hover:bg-slate-700'
-              }`}
-            >
-              Client Contacts ({contacts.length})
-            </button>
-            <button
-              onClick={() => setTab('staff')}
-              className={`px-4 py-2 text-sm font-semibold transition-colors ${
-                tab === 'staff'
-                  ? 'bg-cyan-500 text-white'
-                  : 'bg-slate-800/50 text-slate-300 hover:bg-slate-700'
-              }`}
-            >
-              TCT Staff ({staffUsers.length})
-            </button>
-          </div>
+          {mode === 'both' && (
+            <div className="flex rounded-lg overflow-hidden border border-white/10">
+              <button
+                onClick={() => setTab('clients')}
+                className={`px-4 py-2 text-sm font-semibold transition-colors ${
+                  tab === 'clients'
+                    ? 'bg-cyan-500 text-white'
+                    : 'bg-slate-800/50 text-slate-300 hover:bg-slate-700'
+                }`}
+              >
+                Client Contacts ({contacts.length})
+              </button>
+              <button
+                onClick={() => setTab('staff')}
+                className={`px-4 py-2 text-sm font-semibold transition-colors ${
+                  tab === 'staff'
+                    ? 'bg-cyan-500 text-white'
+                    : 'bg-slate-800/50 text-slate-300 hover:bg-slate-700'
+                }`}
+              >
+                TCT Staff ({staffUsers.length})
+              </button>
+            </div>
+          )}
           {tab === 'clients' && selectedContacts.size > 0 && canInvite && (
             <button
               onClick={() => sendInvites(Array.from(selectedContacts))}

@@ -7,6 +7,7 @@ import { computeLifecycle } from '@/lib/reporting/lifecycle';
 import { aggregateTechnicianDaily, aggregateCompanyDaily } from '@/lib/reporting/aggregation';
 import { computeCustomerHealth } from '@/lib/reporting/health-score';
 import { ensureReportingTables } from '@/lib/reporting/ensure-tables';
+import { syncAutotaskContacts } from '@/lib/autotask-contact-sync';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -17,6 +18,7 @@ const JOB_MAP: Record<string, (date?: Date, days?: number) => Promise<unknown>> 
   sync_time_entries_bulk: (_date?: Date, days?: number) => syncTimeEntriesBulk(days || 90),
   sync_ticket_notes: () => syncTicketNotes(),
   sync_resources: () => syncResources(),
+  sync_contacts: () => syncAutotaskContacts(),
   compute_lifecycle: () => computeLifecycle(),
   aggregate_technician: (date?: Date) => aggregateTechnicianDaily(date),
   aggregate_company: (date?: Date) => aggregateCompanyDaily(date),

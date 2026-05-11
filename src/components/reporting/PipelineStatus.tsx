@@ -37,12 +37,16 @@ interface RunResult {
   error?: string
 }
 
-// All pipeline jobs in execution order (scheduled crons only)
+// All pipeline jobs visible in the UI. sync_contacts is included so techs can
+// manually trigger it during onboarding, but it's NOT in the scheduled "Run All"
+// pipeline (PIPELINE_ORDER in the API route) — contacts change rarely and the
+// per-company Autotask calls would slow every nightly cron.
 const ALL_JOBS = [
   'sync_tickets',
   'sync_time_entries',
   'sync_ticket_notes',
   'sync_resources',
+  'sync_contacts',
   'compute_lifecycle',
   'aggregate_technician',
   'aggregate_company',
@@ -55,6 +59,7 @@ const JOB_LABELS: Record<string, string> = {
   sync_time_entries_bulk: 'Bulk Time Entry Sync (manual)',
   sync_ticket_notes: 'Sync Ticket Notes',
   sync_resources: 'Sync Resources',
+  sync_contacts: 'Sync Contacts (Autotask → DB)',
   compute_lifecycle: 'Compute Lifecycle',
   aggregate_technician: 'Aggregate Technician',
   aggregate_company: 'Aggregate Company',
