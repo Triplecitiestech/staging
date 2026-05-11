@@ -142,6 +142,12 @@ const ROLE_PERMISSIONS: Record<StaffRole, Permission[]> = {
     'update_task_status',
     'add_notes',
     'view_assigned_tasks',
+    // Onboarding new customers is a routine tech responsibility — promoting a
+    // contact to CLIENT_MANAGER and sending the welcome email is part of that
+    // flow, so techs need both permissions. Anything more sensitive (managing
+    // staff roles, impersonating customers, etc.) stays admin-only.
+    'invite_customers',
+    'manage_customer_roles',
   ],
 }
 
