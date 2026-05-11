@@ -137,6 +137,40 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
   // Step 2 — copy consent URL feedback
   const [copiedConsentUrl, setCopiedConsentUrl] = useState(false)
 
+  // Step 1 — per-company contact sync (avoids the 60s global-sync timeout)
+  const [syncingContacts, setSyncingContacts] = useState(false)
+  const [contactSyncResult, setContactSyncResult] = useState<{
+    ok: boolean
+    message: string
+  } | null>(null)
+
+  async function handleSyncCompanyContacts() {
+    setSyncingContacts(true)
+    setContactSyncResult(null)
+    try {
+      const res = await fetch(`/api/admin/companies/${company.id}/sync-contacts`, {
+        method: 'POST',
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setContactSyncResult({ ok: false, message: data.error || `HTTP ${res.status}` })
+        return
+      }
+      const created = data.created ?? 0
+      const updated = data.updated ?? 0
+      const errs = data.errors as string[] | undefined
+      const summary = `${created} created, ${updated} updated.${errs?.length ? ` ${errs.length} error(s).` : ''}`
+      setContactSyncResult({ ok: !errs || errs.length === 0, message: summary })
+    } catch (err) {
+      setContactSyncResult({
+        ok: false,
+        message: err instanceof Error ? err.message : 'Network error',
+      })
+    } finally {
+      setSyncingContacts(false)
+    }
+  }
+
   // Step 4 — designate manager + send invite
   interface WizardContact {
     id: string
@@ -414,13 +448,12 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
                 <p className="font-semibold text-blue-100 mb-2">Follow these steps in order:</p>
                 <ol className="list-decimal list-inside space-y-2 mt-1">
                   <li>
-                    Open the{' '}
-                    <Link href="/admin/reporting/status" className="underline text-teal-300">Pipeline Status page</Link>{' '}
-                    and click <strong>Run</strong> on these jobs in order:
-                    <ul className="list-disc list-inside ml-4 mt-1 text-xs text-blue-200">
-                      <li><strong>Sync Tickets</strong> &mdash; pulls tickets and time entries for this company.</li>
-                      <li><strong>Sync Contacts (Autotask &rarr; DB)</strong> &mdash; pulls Autotask contacts into the local DB. (This step was missing before &mdash; if a previously onboarded company has no contacts, run this.)</li>
-                    </ul>
+                    <strong>Verify the Autotask Company ID above shows a number</strong> (not &quot;Not linked&quot;). If it&rsquo;s missing, the Autotask company sync hasn&rsquo;t run for this company yet &mdash; run it from{' '}
+                    <Link href="/admin/reporting/status" className="underline text-teal-300">Pipeline Status &rarr; Sync Tickets</Link>{' '}
+                    (which also syncs the company row) and refresh this page.
+                  </li>
+                  <li>
+                    <strong>Sync this company&rsquo;s contacts</strong> using the button below. This pulls contacts for {company.displayName} only and finishes in seconds. You can also pick the manager directly in <strong>Step 4</strong> of this wizard.
                   </li>
                   <li>
                     Open the{' '}
@@ -430,14 +463,7 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
                     >
                       Contacts page (filtered to {company.displayName})
                     </Link>{' '}
-                    and confirm this company&rsquo;s contacts were imported.
-                  </li>
-                  <li>
-                    On the same Contacts page, find the contact who should be the portal manager. In the <strong>Portal Role</strong> column, click the colored role badge (e.g. &ldquo;User&rdquo;) next to their name &mdash; it turns into a dropdown. Select <strong>Manager</strong>.
-                    <em className="block text-blue-300 text-xs mt-0.5">Note: Portal roles are set here in the TCT admin, not inside Autotask. You can also pick the manager in Step 5 of this wizard instead.</em>
-                  </li>
-                  <li>
-                    <strong>Verify above:</strong> The <em>Autotask Company ID</em> field above should show a number (not &quot;Not linked&quot;). If it&apos;s missing, the Autotask sync hasn&apos;t run for this company yet &mdash; re-run the sync.
+                    if you want to confirm the contacts came over or adjust portal roles manually.
                   </li>
                 </ol>
               </InfoBox>
@@ -451,6 +477,43 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
                   and ensure the Autotask sync has run.
                 </div>
               )}
+
+              {/*
+                Per-company contact sync — calls /api/admin/companies/[id]/sync-contacts
+                which only iterates this single company. The global Pipeline Status
+                "Sync Contacts" button iterates every company and can exceed Vercel's
+                60s function limit on larger tenants; use this one for onboarding flow.
+              */}
+              <div className="bg-slate-900/40 border border-white/10 rounded-lg p-4 space-y-3">
+                <p className="text-sm text-white font-semibold">
+                  Sync this company&rsquo;s contacts from Autotask
+                </p>
+                <p className="text-xs text-slate-400">
+                  Pulls only {company.displayName}&rsquo;s contacts from Autotask &mdash; fast
+                  ({company.autotaskCompanyId ? 'one API call' : 'requires Autotask Company ID first'}).
+                  The global Pipeline Status sync iterates every company and can time out on
+                  larger Autotask instances.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleSyncCompanyContacts}
+                  disabled={syncingContacts || !company.autotaskCompanyId}
+                  className="px-4 py-2 text-sm bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white rounded-lg transition-colors font-medium"
+                >
+                  {syncingContacts ? 'Syncing…' : `Sync ${company.displayName} Contacts`}
+                </button>
+                {contactSyncResult && (
+                  <div
+                    className={`text-xs px-3 py-2 rounded ${
+                      contactSyncResult.ok
+                        ? 'bg-green-950/40 border border-green-500/30 text-green-300'
+                        : 'bg-red-950/40 border border-red-500/30 text-red-300'
+                    }`}
+                  >
+                    {contactSyncResult.ok ? '✓ ' : '✗ '}{contactSyncResult.message}
+                  </div>
+                )}
+              </div>
 
               <div className="flex justify-end gap-3 flex-wrap">
                 <Link
