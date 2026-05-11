@@ -4,6 +4,7 @@ import FAQSchema from '@/components/seo/FAQSchema'
 import ServiceSchema from '@/components/seo/ServiceSchema'
 import AIMetadata from '@/components/seo/AIMetadata'
 import { SpeedInsights } from '@vercel/speed-insights/next'
+import { Analytics } from '@vercel/analytics/next'
 import GlobalErrorReporter from '@/components/GlobalErrorReporter'
 
 export const metadata: Metadata = {
@@ -235,6 +236,7 @@ export default function RootLayout({
         </div>
         <GlobalErrorReporter />
         <SpeedInsights />
+        <Analytics />
         <script
           dangerouslySetInnerHTML={{
             __html: `function initApollo(){var n=Math.random().toString(36).substring(7),o=document.createElement("script");o.src="https://assets.apollo.io/micro/website-tracker/tracker.iife.js?nocache="+n,o.async=!0,o.defer=!0,o.onload=function(){window.trackingFunctions.onLoad({appId:"69ba1abb41bd780021e1be2f"})},document.head.appendChild(o)}initApollo();`
