@@ -76,20 +76,19 @@ export default function PortalRootPage() {
         <div className="max-w-md w-full text-center">
           {/* Logo / Brand mark */}
           <div className="mb-8">
-            <div className="w-20 h-20 mx-auto bg-white rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-cyan-500/20 p-3">
+            <div className="w-20 h-20 mx-auto flex items-center justify-center mb-6">
               <Image
                 src="/logo/tctlogo.webp"
                 alt="Triple Cities Tech"
-                width={64}
-                height={64}
+                width={80}
+                height={80}
                 className="w-full h-full object-contain"
                 priority
               />
             </div>
-            <h1 className="text-3xl font-bold text-white mb-2">Sign in to your portal</h1>
+            <h1 className="text-3xl font-bold text-white mb-2">Customer Support Portal</h1>
             <p className="text-slate-400 text-base leading-relaxed">
-              The Triple Cities Tech Customer Support Portal. Use the Microsoft 365 account your IT
-              administrator uses with TCT.
+              Enter your work email to sign in with Microsoft 365.
             </p>
           </div>
 
