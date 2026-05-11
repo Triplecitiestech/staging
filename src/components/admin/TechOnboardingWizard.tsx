@@ -102,9 +102,18 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
     Number.isInteger(stepFromUrl) && stepFromUrl >= 1 && stepFromUrl <= 5 ? stepFromUrl : 1
   )
 
+  // Step 2 is "connection established", which is true when either:
+  //   - multi_tenant: customer admin has granted consent, OR
+  //   - legacy:       per-tenant credentials are saved (or already verified)
+  // Step 3 is "test passed", which only flips true when m365_setup_status === 'verified'.
+  const step2Complete =
+    (consentMode === 'multi_tenant' && !!company.m365_consent_granted_at) ||
+    company.m365_setup_status === 'credentials_saved' ||
+    company.m365_setup_status === 'verified'
+
   const [stepStatus, setStepStatus] = useState<Record<number, StepStatus>>({
     1: company.autotaskCompanyId ? 'complete' : 'pending',
-    2: company.m365_setup_status === 'verified' ? 'complete' : 'pending',
+    2: step2Complete ? 'complete' : 'pending',
     3: company.m365_setup_status === 'verified' ? 'complete' : 'pending',
     4: 'pending',
     5: company.onboarding_completed_at ? 'complete' : 'pending',
