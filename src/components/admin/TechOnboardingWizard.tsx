@@ -99,14 +99,15 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
   // Allow ?step=2 etc. from the consent callback to deep-link into a specific step
   const stepFromUrl = parseInt(searchParams?.get('step') ?? '', 10)
   const [step, setStep] = useState(
-    Number.isInteger(stepFromUrl) && stepFromUrl >= 1 && stepFromUrl <= 4 ? stepFromUrl : 1
+    Number.isInteger(stepFromUrl) && stepFromUrl >= 1 && stepFromUrl <= 5 ? stepFromUrl : 1
   )
 
   const [stepStatus, setStepStatus] = useState<Record<number, StepStatus>>({
     1: company.autotaskCompanyId ? 'complete' : 'pending',
     2: company.m365_setup_status === 'verified' ? 'complete' : 'pending',
     3: company.m365_setup_status === 'verified' ? 'complete' : 'pending',
-    4: company.onboarding_completed_at ? 'complete' : 'pending',
+    4: 'pending',
+    5: company.onboarding_completed_at ? 'complete' : 'pending',
   })
 
   // Surface success / error from /api/admin/m365/consent/callback
@@ -136,9 +137,106 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
   // Step 2 — copy consent URL feedback
   const [copiedConsentUrl, setCopiedConsentUrl] = useState(false)
 
-  // Step 4 — complete
+  // Step 4 — designate manager + send invite
+  interface WizardContact {
+    id: string
+    name: string
+    email: string
+    customerRole: string
+    inviteStatus: string
+  }
+  const [contactList, setContactList] = useState<WizardContact[]>([])
+  const [contactsLoading, setContactsLoading] = useState(false)
+  const [contactsError, setContactsError] = useState<string | null>(null)
+  const [selectedManagerId, setSelectedManagerId] = useState<string | null>(null)
+  const [managerSubmitting, setManagerSubmitting] = useState(false)
+  const [managerResult, setManagerResult] = useState<{ ok: boolean; message: string } | null>(null)
+
+  // Step 5 — finalize
   const [completing, setCompleting]     = useState(false)
   const [completeError, setCompleteError] = useState<string | null>(null)
+
+  // Load this company's contacts whenever Step 4 becomes active.
+  // We refetch on visit so any contacts the tech just added (via Sync Contacts or
+  // the Add Contact form on the company page) show up without a full page reload.
+  useEffect(() => {
+    if (step !== 4) return
+    let cancelled = false
+    const controller = new AbortController()
+    setContactsLoading(true)
+    setContactsError(null)
+    fetch(`/api/companies/${company.id}/contacts`, { signal: controller.signal })
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        return r.json()
+      })
+      .then((data) => {
+        if (cancelled) return
+        const list: WizardContact[] = (Array.isArray(data) ? data : data.contacts || []).map((c: WizardContact) => ({
+          id: c.id, name: c.name, email: c.email,
+          customerRole: c.customerRole || 'CLIENT_USER',
+          inviteStatus: c.inviteStatus || 'NOT_INVITED',
+        }))
+        setContactList(list)
+        // Default selection: existing manager if any, else first contact
+        const existingManager = list.find((c) => c.customerRole === 'CLIENT_MANAGER')
+        setSelectedManagerId(existingManager?.id ?? list[0]?.id ?? null)
+      })
+      .catch((err) => {
+        if (err instanceof DOMException && err.name === 'AbortError') return
+        setContactsError(err instanceof Error ? err.message : 'Failed to load contacts')
+      })
+      .finally(() => {
+        if (!cancelled) setContactsLoading(false)
+      })
+    return () => { cancelled = true; controller.abort() }
+  }, [step, company.id])
+
+  async function handleSetManagerAndInvite() {
+    if (!selectedManagerId) {
+      setManagerResult({ ok: false, message: 'Pick a contact first.' })
+      return
+    }
+    setManagerSubmitting(true)
+    setManagerResult(null)
+    try {
+      // 1. Promote to CLIENT_MANAGER
+      const roleRes = await fetch('/api/contacts/invite', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contactId: selectedManagerId, customerRole: 'CLIENT_MANAGER' }),
+      })
+      if (!roleRes.ok) {
+        const err = await roleRes.json().catch(() => ({}))
+        throw new Error(err.error || `Role update failed (HTTP ${roleRes.status})`)
+      }
+
+      // 2. Send the welcome email
+      const inviteRes = await fetch('/api/contacts/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contactIds: [selectedManagerId] }),
+      })
+      const inviteData = await inviteRes.json().catch(() => ({}))
+      if (!inviteRes.ok || inviteData.sent === 0) {
+        const failureDetail = inviteData.results?.[0]?.error || inviteData.error || `Invite failed (HTTP ${inviteRes.status})`
+        throw new Error(failureDetail)
+      }
+
+      setManagerResult({ ok: true, message: 'Manager designated and welcome email sent.' })
+      markStep(4, 'complete')
+      // Update local state so the badge updates without a refetch
+      setContactList((prev) => prev.map(c =>
+        c.id === selectedManagerId
+          ? { ...c, customerRole: 'CLIENT_MANAGER', inviteStatus: 'INVITED' }
+          : c
+      ))
+    } catch (err) {
+      setManagerResult({ ok: false, message: err instanceof Error ? err.message : 'Unexpected error' })
+    } finally {
+      setManagerSubmitting(false)
+    }
+  }
 
   // If the consent callback redirected us with success, mark step 2 done
   useEffect(() => {
@@ -235,7 +333,7 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
         setCompleteError(data.error ?? 'Failed to mark complete')
         return
       }
-      markStep(4, 'complete')
+      markStep(5, 'complete')
     } catch {
       setCompleteError('Network error — please try again')
     } finally {
@@ -244,10 +342,11 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
   }
 
   const STEPS = [
-    { label: 'Autotask Sync'       },
-    { label: 'M365 App Registration' },
-    { label: 'Test Connection'     },
-    { label: 'Portal Access'       },
+    { label: 'Autotask Sync'        },
+    { label: 'M365 Connection'      },
+    { label: 'Test Connection'      },
+    { label: 'Manager & Invite'     },
+    { label: 'Finalize'             },
   ]
 
   return (
@@ -317,7 +416,11 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
                   <li>
                     Open the{' '}
                     <Link href="/admin/reporting/status" className="underline text-teal-300">Pipeline Status page</Link>{' '}
-                    and click <strong>Run</strong> next to <em>Sync Tickets</em> — this also syncs contacts for all companies.
+                    and click <strong>Run</strong> on these jobs in order:
+                    <ul className="list-disc list-inside ml-4 mt-1 text-xs text-blue-200">
+                      <li><strong>Sync Tickets</strong> &mdash; pulls tickets and time entries for this company.</li>
+                      <li><strong>Sync Contacts (Autotask &rarr; DB)</strong> &mdash; pulls Autotask contacts into the local DB. (This step was missing before &mdash; if a previously onboarded company has no contacts, run this.)</li>
+                    </ul>
                   </li>
                   <li>
                     Open the{' '}
@@ -330,18 +433,11 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
                     and confirm this company&rsquo;s contacts were imported.
                   </li>
                   <li>
-                    On the{' '}
-                    <Link
-                      href={`/admin/contacts?search=${encodeURIComponent(company.displayName)}`}
-                      className="underline text-teal-300"
-                    >
-                      Contacts page
-                    </Link>
-                    , find the contact who should be the portal manager. In the <strong>Portal Role</strong> column, click the colored role badge (e.g. &ldquo;User&rdquo;) next to their name — it turns into a dropdown. Select <strong>Manager</strong>.
-                    <em className="block text-blue-300 text-xs mt-0.5">Note: Portal roles are set here in the TCT admin, not inside Autotask.</em>
+                    On the same Contacts page, find the contact who should be the portal manager. In the <strong>Portal Role</strong> column, click the colored role badge (e.g. &ldquo;User&rdquo;) next to their name &mdash; it turns into a dropdown. Select <strong>Manager</strong>.
+                    <em className="block text-blue-300 text-xs mt-0.5">Note: Portal roles are set here in the TCT admin, not inside Autotask. You can also pick the manager in Step 5 of this wizard instead.</em>
                   </li>
                   <li>
-                    <strong>Verify above:</strong> The <em>Autotask Company ID</em> field above should show a number (not &quot;Not linked&quot;). If it&apos;s missing, the Autotask sync hasn&apos;t run for this company yet — re-run the sync.
+                    <strong>Verify above:</strong> The <em>Autotask Company ID</em> field above should show a number (not &quot;Not linked&quot;). If it&apos;s missing, the Autotask sync hasn&apos;t run for this company yet &mdash; re-run the sync.
                   </li>
                 </ol>
               </InfoBox>
@@ -668,7 +764,123 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
           {step === 4 && (
             <div className="bg-white/5 border border-white/10 rounded-xl p-6 space-y-5">
               <div>
-                <h2 className="text-lg font-semibold text-white">Step 4 — Portal Access &amp; Final Checklist</h2>
+                <h2 className="text-lg font-semibold text-white">Step 4 &mdash; Designate Manager &amp; Send Welcome Email</h2>
+                <p className="text-gray-400 text-sm mt-1">
+                  Pick the contact who should be the portal manager. They&rsquo;ll get an email instructing them to sign in with their Microsoft 365 credentials.
+                </p>
+              </div>
+
+              {contactsLoading && (
+                <p className="text-sm text-slate-400">Loading contacts&hellip;</p>
+              )}
+
+              {contactsError && (
+                <div className="bg-red-950/40 border border-red-500/30 rounded-lg px-4 py-3 text-sm text-red-300">
+                  Failed to load contacts: {contactsError}
+                </div>
+              )}
+
+              {!contactsLoading && !contactsError && contactList.length === 0 && (
+                <div className="bg-violet-950/40 border border-violet-500/30 rounded-lg px-4 py-3 text-sm text-violet-200 space-y-2">
+                  <p>No contacts on file for this company yet.</p>
+                  <p className="text-xs">
+                    Go back to <strong>Step 1</strong> and run <strong>Sync Contacts</strong> in Pipeline Status, then return here. (Or add one manually on the{' '}
+                    <Link href={`/admin/companies/${company.id}`} className="underline">company detail page</Link>.)
+                  </p>
+                </div>
+              )}
+
+              {!contactsLoading && contactList.length > 0 && (
+                <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                  {contactList.map((c) => {
+                    const isSelected = selectedManagerId === c.id
+                    return (
+                      <label
+                        key={c.id}
+                        className={`flex items-start gap-3 px-4 py-3 rounded-lg border cursor-pointer transition-colors ${
+                          isSelected
+                            ? 'bg-teal-950/40 border-teal-500/50'
+                            : 'bg-slate-800/40 border-white/10 hover:bg-slate-800/60'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="managerContact"
+                          checked={isSelected}
+                          onChange={() => setSelectedManagerId(c.id)}
+                          className="mt-1"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-medium text-white">{c.name || '(no name)'}</span>
+                            {c.customerRole === 'CLIENT_MANAGER' && (
+                              <span className="px-1.5 py-0.5 text-[10px] font-bold bg-teal-500/20 text-teal-300 rounded border border-teal-500/30">CURRENT MANAGER</span>
+                            )}
+                            {c.inviteStatus === 'INVITED' && (
+                              <span className="px-1.5 py-0.5 text-[10px] font-bold bg-blue-500/20 text-blue-300 rounded border border-blue-500/30">INVITED</span>
+                            )}
+                            {c.inviteStatus === 'ACCEPTED' && (
+                              <span className="px-1.5 py-0.5 text-[10px] font-bold bg-green-500/20 text-green-300 rounded border border-green-500/30">ACCEPTED</span>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-400 truncate">{c.email}</p>
+                        </div>
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
+
+              {managerResult && (
+                <div className={`rounded-lg px-4 py-3 text-sm ${
+                  managerResult.ok
+                    ? 'bg-green-950/40 border border-green-500/30 text-green-300'
+                    : 'bg-red-950/40 border border-red-500/30 text-red-300'
+                }`}>
+                  {managerResult.ok ? '✓ ' : '✗ '}{managerResult.message}
+                </div>
+              )}
+
+              <p className="text-xs text-slate-500">
+                You can also manage roles and resend invites manually on the{' '}
+                <Link href={`/admin/contacts?search=${encodeURIComponent(company.displayName)}`} className="underline text-teal-300">
+                  Contacts page
+                </Link>.
+              </p>
+
+              <div className="flex justify-between gap-3">
+                <button
+                  onClick={() => setStep(3)}
+                  className="px-4 py-2 text-sm bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors"
+                >
+                  ← Back
+                </button>
+                <div className="flex gap-3 flex-wrap">
+                  <button
+                    onClick={handleSetManagerAndInvite}
+                    disabled={!selectedManagerId || managerSubmitting || contactList.length === 0}
+                    className="px-5 py-2 text-sm bg-teal-600 hover:bg-teal-500 disabled:opacity-40 text-white rounded-lg transition-colors font-medium"
+                  >
+                    {managerSubmitting ? 'Sending…' : 'Set as Manager + Send Invite'}
+                  </button>
+                  {stepStatus[4] === 'complete' && (
+                    <button
+                      onClick={() => setStep(5)}
+                      className="px-5 py-2 text-sm bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg transition-colors font-medium"
+                    >
+                      Continue →
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── STEP 5: Finalize ── */}
+          {step === 5 && (
+            <div className="bg-white/5 border border-white/10 rounded-xl p-6 space-y-5">
+              <div>
+                <h2 className="text-lg font-semibold text-white">Step 5 &mdash; Finalize</h2>
                 <p className="text-gray-400 text-sm mt-1">
                   Review the final checklist, then mark this customer as fully onboarded.
                 </p>
@@ -676,8 +888,8 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
 
               <div className="space-y-3">
                 {[
-                  { label: 'Autotask contact sync run',             done: !!company.autotaskCompanyId },
-                  { label: 'At least one contact set to CLIENT_MANAGER', done: hasManager, ...(!hasManager && { note: 'No active CLIENT_MANAGER found — set one in Contacts' }) },
+                  { label: 'Autotask synced',                       done: !!company.autotaskCompanyId },
+                  { label: 'At least one contact set to CLIENT_MANAGER', done: hasManager || stepStatus[4] === 'complete', ...(!hasManager && stepStatus[4] !== 'complete' && { note: 'Designate one in Step 4' }) },
                   {
                     label: isMultiTenant ? 'Microsoft 365 admin consent granted' : 'M365 credentials saved',
                     done: isMultiTenant
@@ -685,6 +897,7 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
                       : credsSaved || !!company.m365_client_secret_set,
                   },
                   { label: 'Graph API connection verified',          done: testResult?.success ?? company.m365_setup_status === 'verified' },
+                  { label: 'Welcome email sent',                     done: stepStatus[4] === 'complete' },
                 ].map((item, i) => (
                   <div key={i} className="flex items-center gap-3 bg-slate-800/40 rounded-lg px-4 py-3">
                     <div className={`w-5 h-5 rounded-full flex-shrink-0 border-2 flex items-center justify-center text-xs ${
@@ -701,38 +914,12 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
               </div>
 
               <InfoBox>
-                <p className="font-semibold text-blue-100 mb-1">Send the welcome email to the customer&rsquo;s manager:</p>
-                <ol className="list-decimal list-inside mt-1 space-y-1.5 text-sm">
-                  <li>
-                    Open the{' '}
-                    <Link
-                      href={`/admin/contacts?search=${encodeURIComponent(company.displayName)}`}
-                      className="underline text-teal-300"
-                    >
-                      Contacts page (filtered to {company.displayName})
-                    </Link>
-                    .
-                  </li>
-                  <li>Find the manager contact you set in Step 1.</li>
-                  <li>
-                    Click the <strong>send invite</strong> envelope icon on their row (or check the box and click <strong>Send Invite</strong> in the toolbar above the table).
-                  </li>
-                  <li>
-                    The contact receives a welcome email instructing them to sign in with their Microsoft 365 credentials at{' '}
-                    <code className="text-teal-300 break-all">
-                      {`${process.env.NEXT_PUBLIC_BASE_URL || 'https://www.triplecitiestech.com'}/portal/${company.slug}/dashboard`}
-                    </code>
-                    .
-                  </li>
-                </ol>
+                <p className="font-semibold text-blue-100">Customer portal URL:</p>
+                <CodeBlock>{`${process.env.NEXT_PUBLIC_BASE_URL || 'https://www.triplecitiestech.com'}/portal/${company.slug}/dashboard`}</CodeBlock>
+                <p className="mt-2 text-xs">
+                  The manager you designated in Step 4 was emailed this link automatically and instructed to sign in with their Microsoft 365 credentials.
+                </p>
               </InfoBox>
-
-              <Link
-                href={`/admin/contacts?search=${encodeURIComponent(company.displayName)}`}
-                className="block w-full text-center px-5 py-3 text-sm bg-teal-600 hover:bg-teal-500 text-white rounded-lg transition-colors font-medium"
-              >
-                Open Contacts page to send welcome email →
-              </Link>
 
               {completeError && (
                 <div className="bg-red-950/40 border border-red-500/30 rounded-lg px-4 py-3 text-sm text-red-300">
@@ -740,7 +927,7 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
                 </div>
               )}
 
-              {stepStatus[4] === 'complete' && (
+              {stepStatus[5] === 'complete' && (
                 <div className="bg-green-950/40 border border-green-500/30 rounded-lg px-4 py-3 text-sm text-green-300">
                   ✓ Onboarding complete. This customer is fully set up in the portal.
                 </div>
@@ -748,19 +935,19 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
 
               <div className="flex justify-between gap-3">
                 <button
-                  onClick={() => setStep(3)}
+                  onClick={() => setStep(4)}
                   className="px-4 py-2 text-sm bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors"
                 >
                   ← Back
                 </button>
                 <div className="flex gap-3">
-                  {stepStatus[4] !== 'complete' && (
+                  {stepStatus[5] !== 'complete' && (
                     <button
                       onClick={handleComplete}
                       disabled={completing}
                       className="px-5 py-2 text-sm bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white rounded-lg font-medium transition-colors"
                     >
-                      {completing ? 'Marking...' : '✓ Mark Onboarding Complete'}
+                      {completing ? 'Marking…' : '✓ Mark Onboarding Complete'}
                     </button>
                   )}
                   <Link

@@ -32,6 +32,8 @@ interface Company {
   contactTitle: string | null
   contactEmail: string | null
   m365SetupStatus: string | null
+  onboardingCompletedAt: string | null
+  autotaskCompanyId: string | null
   createdAt: string
   updatedAt: string
 }
@@ -133,33 +135,6 @@ export default function CompanyDetail({ company, contacts: initialContacts, proj
     }
   }
 
-  const handleSetPrimary = async (contactId: string) => {
-    try {
-      const res = await fetch(`/api/companies/${company.id}/contacts/${contactId}/primary`, {
-        method: 'PATCH',
-      })
-      if (!res.ok) throw new Error()
-      setContacts(contacts.map(c => ({ ...c, isPrimary: c.id === contactId })))
-      router.refresh()
-    } catch {
-      alert('Failed to set primary contact')
-    }
-  }
-
-  const handleDeleteContact = async (contactId: string) => {
-    if (!confirm('Remove this contact?')) return
-    try {
-      const res = await fetch(`/api/companies/${company.id}/contacts/${contactId}`, {
-        method: 'DELETE',
-      })
-      if (!res.ok) throw new Error()
-      setContacts(contacts.filter(c => c.id !== contactId))
-      router.refresh()
-    } catch {
-      alert('Failed to remove contact')
-    }
-  }
-
   // Project status colors mapped to Autotask: Inactive(0), Active(4), Complete(5)
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -181,6 +156,19 @@ export default function CompanyDetail({ company, contacts: initialContacts, proj
     }
   }
 
+  // Onboarding state for the banner below.
+  // We treat the customer as "fully onboarded" when onboardingCompletedAt is stamped.
+  // Otherwise we figure out the next obvious step and link to it.
+  const onboardingComplete = !!company.onboardingCompletedAt
+  let nextStepLabel = 'Start onboarding'
+  if (!company.autotaskCompanyId) {
+    nextStepLabel = 'Sync from Autotask first'
+  } else if (company.m365SetupStatus !== 'verified') {
+    nextStepLabel = 'Connect Microsoft 365'
+  } else {
+    nextStepLabel = 'Designate manager & send welcome email'
+  }
+
   return (
     <div>
       {/* Breadcrumb + Onboard button */}
@@ -197,6 +185,28 @@ export default function CompanyDetail({ company, contacts: initialContacts, proj
           🚀 Onboard Customer
         </Link>
       </div>
+
+      {/* Continue Onboarding banner — only shown when not yet complete */}
+      {!onboardingComplete && (
+        <Link
+          href={`/admin/companies/${company.id}/onboard`}
+          className="mb-6 block bg-violet-950/40 hover:bg-violet-950/60 border border-violet-500/30 rounded-lg px-5 py-4 transition-colors"
+        >
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <p className="text-sm font-semibold text-violet-100">
+                This customer is not fully onboarded yet.
+              </p>
+              <p className="text-xs text-violet-300/80 mt-0.5">
+                Next step: <span className="font-medium">{nextStepLabel}</span>
+              </p>
+            </div>
+            <span className="text-sm font-semibold text-violet-200 whitespace-nowrap">
+              Continue Onboarding &rarr;
+            </span>
+          </div>
+        </Link>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Company Info */}
@@ -335,46 +345,37 @@ export default function CompanyDetail({ company, contacts: initialContacts, proj
               </form>
             )}
 
+            {/*
+             * The full contacts list — with role editing, portal invites, primary
+             * toggle, and demo-mode anonymization — lives on /admin/contacts.
+             * This card shows a summary (count + a hint of who's in there) and
+             * deep-links to the global view filtered to this company so there's
+             * exactly one source of truth for the contacts UI.
+             */}
             {contacts.length === 0 ? (
-              <p className="text-sm text-slate-400 italic text-center py-6">No contacts yet. Add the first contact above.</p>
+              <div className="rounded-lg border border-dashed border-white/10 bg-slate-900/30 p-6 text-center">
+                <p className="text-sm text-slate-400 italic mb-2">No contacts yet.</p>
+                <p className="text-xs text-slate-500">
+                  Run <a href="/admin/reporting/status" className="underline text-cyan-400">Pipeline Status &rarr; Sync Contacts</a> to pull them from Autotask, or use the &ldquo;+ Add Contact&rdquo; button above to create one manually.
+                </p>
+              </div>
             ) : (
-              <div className="space-y-2">
-                {contacts.map(contact => (
-                  <div key={contact.id} className="flex items-center gap-3 p-3 bg-slate-900/40 border border-white/5 rounded-lg hover:bg-slate-900/60 transition-colors">
-                    <div className="w-9 h-9 rounded-full bg-violet-500/20 text-violet-300 flex items-center justify-center text-sm font-bold shrink-0">
-                      {demo.person(contact.name)[0]?.toUpperCase()}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-white truncate">{demo.person(contact.name)}</span>
-                        {contact.isPrimary && (
-                          <span className="px-1.5 py-0.5 text-[9px] font-bold bg-cyan-500/20 text-cyan-300 rounded-full border border-cyan-500/30">PRIMARY</span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-3 text-xs text-slate-400">
-                        <span>{demo.email(contact.email)}</span>
-                        {contact.title && <span>• {demo.active ? 'Staff' : contact.title}</span>}
-                        {contact.phone && <span>• {demo.active ? '(555) 000-0000' : contact.phone} ({contact.phoneType})</span>}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      {!contact.isPrimary && (
-                        <button onClick={() => handleSetPrimary(contact.id)} title="Set as primary"
-                          className="p-1.5 text-slate-400 hover:text-cyan-400 transition-colors rounded hover:bg-white/5">
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
-                          </svg>
-                        </button>
-                      )}
-                      <button onClick={() => handleDeleteContact(contact.id)} title="Remove contact"
-                        className="p-1.5 text-slate-400 hover:text-red-400 transition-colors rounded hover:bg-white/5">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-                ))}
+              <div className="rounded-lg bg-slate-900/40 border border-white/5 p-4 space-y-3">
+                <p className="text-xs text-slate-400">
+                  {contacts.length} contact{contacts.length === 1 ? '' : 's'} on file
+                  {(() => {
+                    const primary = contacts.find(c => c.isPrimary)
+                    return primary
+                      ? <> &mdash; primary: <span className="text-cyan-300">{demo.person(primary.name)}</span> ({demo.email(primary.email)})</>
+                      : null
+                  })()}
+                </p>
+                <a
+                  href={`/admin/contacts?search=${encodeURIComponent(company.displayName)}`}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 rounded-lg transition-colors"
+                >
+                  View &amp; manage all {contacts.length} contact{contacts.length === 1 ? '' : 's'} &rarr;
+                </a>
               </div>
             )}
           </div>

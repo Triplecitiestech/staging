@@ -12,18 +12,29 @@ export default function AdminHeader() {
   const pathname = usePathname()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
+  const [companiesOpen, setCompaniesOpen] = useState(false)
   const moreRef = useRef<HTMLDivElement>(null)
+  const companiesRef = useRef<HTMLDivElement>(null)
 
-  // Close dropdown on outside click
+  // Close dropdowns on outside click
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       if (moreRef.current && !moreRef.current.contains(e.target as Node)) {
         setMoreOpen(false)
       }
+      if (companiesRef.current && !companiesRef.current.contains(e.target as Node)) {
+        setCompaniesOpen(false)
+      }
     }
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
+
+  // Children of the "Companies" dropdown — client-side records
+  const companiesNav = [
+    { label: 'All Companies', href: '/admin/companies' },
+    { label: 'All Contacts',  href: '/admin/contacts' },
+  ]
 
   // Primary nav items — always visible in the top bar
   const primaryNav = [
@@ -33,15 +44,6 @@ export default function AdminHeader() {
       icon: (
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h4a1 1 0 011 1v5a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm10 0a1 1 0 011-1h4a1 1 0 011 1v3a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v3a1 1 0 01-1 1H5a1 1 0 01-1-1v-3zm10-2a1 1 0 011-1h4a1 1 0 011 1v5a1 1 0 01-1 1h-4a1 1 0 01-1-1v-5z" />
-        </svg>
-      ),
-    },
-    {
-      label: 'Companies',
-      href: '/admin/companies',
-      icon: (
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
         </svg>
       ),
     },
@@ -77,11 +79,11 @@ export default function AdminHeader() {
   // Secondary nav items — inside "More" dropdown
   const secondaryNav = [
     {
-      label: 'Contacts',
-      href: '/admin/contacts',
+      label: 'Staff',
+      href: '/admin/staff',
       icon: (
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
         </svg>
       ),
     },
@@ -159,7 +161,21 @@ export default function AdminHeader() {
     },
   ]
 
-  const allNav = [...primaryNav, ...secondaryNav]
+  // For the mobile menu we need a flat list of every navigable destination
+  const allNav = [
+    ...primaryNav,
+    // Companies dropdown items are rendered as plain links on mobile (no nested menu)
+    ...companiesNav.map(c => ({
+      label: c.label,
+      href: c.href,
+      icon: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5" />
+        </svg>
+      ),
+    })),
+    ...secondaryNav,
+  ]
 
   const isActive = (href: string) => {
     if (href === '/admin') return pathname === '/admin'
@@ -203,6 +219,45 @@ export default function AdminHeader() {
                 <span>{item.label}</span>
               </Link>
             ))}
+
+            {/* Companies Dropdown — All Companies + All Contacts */}
+            <div ref={companiesRef} className="relative">
+              <button
+                onClick={() => setCompaniesOpen(!companiesOpen)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                  companiesNav.some(c => isActive(c.href))
+                    ? 'bg-cyan-500 text-white'
+                    : 'text-slate-300 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                </svg>
+                <span>Companies</span>
+                <svg className={`w-3 h-3 transition-transform ${companiesOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+
+              {companiesOpen && (
+                <div className="absolute top-full left-0 mt-1 w-44 bg-slate-900 border border-white/10 rounded-lg shadow-xl py-1 z-50">
+                  {companiesNav.map((item) => (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={() => setCompaniesOpen(false)}
+                      className={`block px-3 py-2 text-sm transition-colors ${
+                        isActive(item.href)
+                          ? 'bg-cyan-500/10 text-cyan-400'
+                          : 'text-slate-300 hover:text-white hover:bg-white/5'
+                      }`}
+                    >
+                      {item.label}
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
 
             {/* More Dropdown */}
             <div ref={moreRef} className="relative">

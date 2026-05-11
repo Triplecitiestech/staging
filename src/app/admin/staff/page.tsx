@@ -6,57 +6,17 @@ import ContactsList from '@/components/contacts/ContactsList'
 
 export const dynamic = 'force-dynamic'
 
-export default async function ContactsPage() {
+/**
+ * /admin/staff — TCT internal staff user management.
+ *
+ * Renders the same ContactsList component as /admin/contacts but in
+ * 'staff-only' mode (no client contacts tab). Centralizes role editing,
+ * activation toggles, and permission overrides for TCT employees.
+ */
+export default async function StaffPage() {
   const session = await auth()
   if (!session) redirect('/admin')
 
-  // Fetch all contacts with their company info
-  let contacts: Array<{
-    id: string
-    name: string
-    email: string
-    title: string | null
-    phone: string | null
-    phoneType: string | null
-    isPrimary: boolean
-    isActive: boolean
-    companyId: string
-    customerRole: string
-    inviteStatus: string
-    invitedAt: Date | null
-    inviteAcceptedAt: Date | null
-    lastPortalLogin: Date | null
-    company: { id: string; displayName: string; slug: string }
-  }> = []
-
-  try {
-    const rawContacts = await prisma.companyContact.findMany({
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        title: true,
-        phone: true,
-        phoneType: true,
-        isPrimary: true,
-        isActive: true,
-        companyId: true,
-        customerRole: true,
-        inviteStatus: true,
-        invitedAt: true,
-        inviteAcceptedAt: true,
-        lastPortalLogin: true,
-        company: { select: { id: true, displayName: true, slug: true } },
-      },
-      orderBy: { name: 'asc' },
-    })
-
-    contacts = rawContacts
-  } catch {
-    // Table may not exist yet — contacts will be empty
-  }
-
-  // Fetch staff users
   let staffUsers: Array<{
     id: string
     name: string
@@ -74,7 +34,6 @@ export default async function ContactsPage() {
     })
     staffUsers = rawStaff.map(s => ({ ...s, role: s.role as string }))
   } catch {
-    // permissionOverrides column may not exist yet — try without it, then fall back to raw
     try {
       const rawStaff = await prisma.staffUser.findMany({
         select: { id: true, name: true, email: true, role: true, isActive: true, lastLogin: true },
@@ -94,7 +53,6 @@ export default async function ContactsPage() {
     }
   }
 
-  // Get current user info
   const currentStaff = staffUsers.find(s => s.email === session.user?.email)
 
   return (
@@ -103,27 +61,19 @@ export default async function ContactsPage() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-2xl font-bold text-white">All Contacts</h1>
-            <p className="text-sm text-slate-400 mt-1">Client-side contacts across every company. TCT staff are managed on the <a href="/admin/staff" className="underline">Staff page</a>.</p>
+            <h1 className="text-2xl font-bold text-white">Staff</h1>
+            <p className="text-sm text-slate-400 mt-1">TCT staff roles, permissions, and access. Client contacts live on the <a href="/admin/contacts" className="underline">All Contacts page</a>.</p>
           </div>
         </div>
 
         <ContactsList
-          mode="clients-only"
-          contacts={contacts.map(c => ({
-            ...c,
-            phoneType: c.phoneType as 'MOBILE' | 'WORK' | null,
-            customerRole: c.customerRole || 'CLIENT_USER',
-            inviteStatus: c.inviteStatus || 'NOT_INVITED',
-            invitedAt: c.invitedAt?.toISOString() || null,
-            inviteAcceptedAt: c.inviteAcceptedAt?.toISOString() || null,
-            lastPortalLogin: c.lastPortalLogin?.toISOString() || null,
-          }))}
+          mode="staff-only"
+          contacts={[]}
           staffUsers={staffUsers.map(s => ({
             ...s,
             lastLogin: s.lastLogin?.toISOString() || null,
             permissionOverrides: s.permissionOverrides || null,
-          }))}
+          })) as Parameters<typeof ContactsList>[0]['staffUsers']}
           currentUserRole={currentStaff?.role || 'TECHNICIAN'}
           currentUserId={currentStaff?.id || ''}
         />
