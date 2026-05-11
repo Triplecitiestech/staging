@@ -292,6 +292,12 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
         // Default selection: existing manager if any, else first contact
         const existingManager = list.find((c) => c.customerRole === 'CLIENT_MANAGER')
         setSelectedManagerId(existingManager?.id ?? list[0]?.id ?? null)
+        // If a manager has already been designated AND invited (or accepted),
+        // Step 4 is done. Without this the sidebar shows Step 4 as pending
+        // after a page refresh even though the work is complete in the DB.
+        if (existingManager && (existingManager.inviteStatus === 'INVITED' || existingManager.inviteStatus === 'ACCEPTED')) {
+          setStepStatus((prev) => ({ ...prev, 4: 'complete' }))
+        }
       })
       .catch((err) => {
         if (err instanceof DOMException && err.name === 'AbortError') return
