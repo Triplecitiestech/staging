@@ -166,9 +166,38 @@ export default function PolicyGenerationDashboard({
   const [savingDraft, setSavingDraft] = useState(false)
   const [draftSaveError, setDraftSaveError] = useState<string | null>(null)
 
-  // Mass generation state
+  // Mass generation state.
+  // `errors` captures per-policy failure messages so the tech can see WHY a
+  // policy failed instead of just a numeric count. `mode` distinguishes the
+  // "Generate New" batch from the "Enhance Partial" batch.
+  type MassError = { slug: string; name: string; message: string }
+  type MassProgress = {
+    current: number
+    total: number
+    currentName: string
+    completed: number
+    failed: number
+    errors: MassError[]
+    mode: 'new' | 'improve'
+  }
   const [massGenerating, setMassGenerating] = useState(false)
-  const [massProgress, setMassProgress] = useState({ current: 0, total: 0, currentName: '', completed: 0, failed: 0 })
+  const [massProgress, setMassProgress] = useState<MassProgress>({
+    current: 0, total: 0, currentName: '', completed: 0, failed: 0, errors: [], mode: 'new',
+  })
+
+  // Diagnose state — when batch generation fails, the tech can run a quick
+  // Anthropic API health check to figure out whether it's a config/API issue
+  // or a transient hiccup.
+  type DiagnoseResult = {
+    success: boolean
+    apiKeyConfigured: boolean
+    apiKeyPrefix?: string
+    summary: string
+    sonnet?: { model: string; ok: boolean; status?: number; elapsedMs: number; error?: string }
+    haiku?: { model: string; ok: boolean; status?: number; elapsedMs: number; error?: string }
+  }
+  const [diagnoseLoading, setDiagnoseLoading] = useState(false)
+  const [diagnoseResult, setDiagnoseResult] = useState<DiagnoseResult | null>(null)
 
   // Filter state — drives which policies appear in the list when stat cards are clicked
   type ListFilter = 'all' | 'covered' | 'partial' | 'notGenerated' | 'drafts' | 'approved'
@@ -417,17 +446,27 @@ export default function PolicyGenerationDashboard({
     setDraftSaveError(null)
   }
 
-  // Approve policy
+  // Approve policy. Surfaces failures to the tech so they don't think the
+  // policy was approved when the PATCH actually 500'd.
   const approvePolicy = async () => {
     if (!activePolicySlug) return
+    setError(null)
     try {
-      await fetch('/api/compliance/policies/generate', {
+      const res = await fetch('/api/compliance/policies/generate', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ companyId, policySlug: activePolicySlug, action: 'approve' }),
       })
+      const contentType = res.headers.get('content-type') ?? ''
+      if (!contentType.includes('application/json')) {
+        throw new Error(`Approve failed (HTTP ${res.status}). Try again or check server logs.`)
+      }
+      const json = await res.json()
+      if (!json.success) throw new Error(json.error || 'Approve failed')
       await loadAnalysis()
-    } catch { /* ignore */ }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to approve policy')
+    }
   }
 
   // Open policy detail
@@ -458,7 +497,70 @@ export default function PolicyGenerationDashboard({
     )
   }
 
-  // Mass generate all missing policies
+  // Shared per-policy generation helper used by both batch flows. Returns
+  // either `{ ok: true }` for success or `{ ok: false, message, retryable }`
+  // with a human-readable error message so the caller can decide whether to
+  // retry and/or show the error to the tech.
+  //
+  // `retryable` is true for transient failures (timeout, 5xx, 429, network).
+  // Hard errors (400, 401, 404, validation) return `retryable: false` so we
+  // don't waste time retrying something that will fail again.
+  type PolicyAttempt =
+    | { ok: true }
+    | { ok: false; message: string; retryable: boolean }
+
+  const generateOnePolicy = async (
+    policySlug: string,
+    mode: 'new' | 'improve',
+  ): Promise<PolicyAttempt> => {
+    try {
+      const res = await fetch('/api/compliance/policies/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyId,
+          policySlug,
+          mode,
+          frameworks: selectedFrameworks,
+        }),
+      })
+
+      const contentType = res.headers.get('content-type') ?? ''
+      if (!contentType.includes('application/json')) {
+        const text = await res.text().catch(() => '')
+        // Vercel's FUNCTION_INVOCATION_TIMEOUT shows up as an HTML error page.
+        if (res.status === 504 || /INVOCATION_TIMEOUT/i.test(text)) {
+          return {
+            ok: false,
+            retryable: true,
+            message: 'Took longer than 60s — the AI is busy. We’ll retry once; if it still fails, run Diagnose below.',
+          }
+        }
+        return {
+          ok: false,
+          retryable: res.status >= 500,
+          message: `Server returned non-JSON (HTTP ${res.status}). ${text.substring(0, 160)}`.trim(),
+        }
+      }
+
+      const json = await res.json()
+      if (json.success) return { ok: true }
+
+      const errMsg = String(json.error ?? 'Unknown error')
+      // Classify the error so the retry path doesn't burn cycles on hard fails.
+      const retryable = /timed out|rate-limit|429|503|502|504|Anthropic.*slow/i.test(errMsg)
+      return { ok: false, retryable, message: errMsg }
+    } catch (err) {
+      // Network-level failure (DNS, TCP reset, fetch abort). Always retryable.
+      return {
+        ok: false,
+        retryable: true,
+        message: err instanceof Error ? err.message : 'Network error',
+      }
+    }
+  }
+
+  // Mass generate all missing policies (new-from-scratch batch).
   const generateAllMissing = async () => {
     if (!analysis) return
     // Only generate policies that are genuinely missing AND not already covered by
@@ -470,19 +572,61 @@ export default function PolicyGenerationDashboard({
         && p.coverageStatus === 'none'
     )
     if (missing.length === 0) return
+    await runBatchGeneration(missing, 'new')
+  }
 
+  // Mass enhance all partial-coverage policies.
+  //
+  // We pass `mode: 'new'` (NOT 'improve') because the catalog flags a policy
+  // as "partial" when uploaded content covers some — but not all — of its
+  // controls. There is no prior AI-generated draft to "improve". Matching the
+  // single-policy Enhance flow (which also calls mode='new', see line ~341)
+  // produces a standalone AI policy alongside the customer's uploads. The
+  // batch progress label still says "Enhance" so the tech sees the right
+  // verb in the UI; the network call is just mode='new' under the hood.
+  const enhanceAllPartial = async () => {
+    if (!analysis) return
+    const partial = analysis.requiredPolicies.filter(
+      (p) => (p.status === 'missing' || p.status === 'intake_needed' || p.status === 'ready_to_generate')
+        && p.coverageStatus === 'partial'
+    )
+    if (partial.length === 0) return
+    if (!confirm(`Enhance ${partial.length} partially-covered polic${partial.length === 1 ? 'y' : 'ies'}? This generates a new AI version alongside the customer's existing uploads. The uploaded policies are NOT modified.`)) {
+      return
+    }
+    // Display label says 'improve' (= "Enhance"), but the API call uses 'new'.
+    await runBatchGeneration(partial, 'improve', 'new')
+  }
+
+  // Shared batch runner. Iterates `policies` one at a time so we don't
+  // overwhelm Anthropic or our own DB pool, retries once on transient
+  // failures, and records per-policy error messages so the tech can see WHY
+  // a generation failed (not just a count).
+  //
+  // `displayMode` drives the UI verb ("Generate" vs "Enhance") while
+  // `apiMode` is the actual value passed to the backend. They almost always
+  // match — the exception is partial-coverage Enhance, which calls the API
+  // with mode='new' (no prior AI draft to improve) but shows "Enhance" in
+  // the UI so the tech understands what's happening.
+  const runBatchGeneration = async (
+    policies: PolicyNeedItem[],
+    displayMode: 'new' | 'improve',
+    apiMode: 'new' | 'improve' = displayMode,
+  ) => {
     setMassGenerating(true)
-    setMassProgress({ current: 0, total: missing.length, currentName: '', completed: 0, failed: 0 })
+    setDiagnoseResult(null)
+    setMassProgress({ current: 0, total: policies.length, currentName: '', completed: 0, failed: 0, errors: [], mode: displayMode })
 
     // Save org profile first (ignore failures)
     try { await saveOrgProfile() } catch { /* ignore */ }
 
     let completed = 0
     let failed = 0
+    const errors: MassError[] = []
 
-    for (let i = 0; i < missing.length; i++) {
-      const policy = missing[i]
-      setMassProgress({ current: i + 1, total: missing.length, currentName: policy.name, completed, failed })
+    for (let i = 0; i < policies.length; i++) {
+      const policy = policies[i]
+      setMassProgress({ current: i + 1, total: policies.length, currentName: policy.name, completed, failed, errors, mode: displayMode })
 
       // Refresh analysis after every 3 policies to pick up any async completions
       // from Vercel timeouts where the backend finished but the fetch timed out.
@@ -502,41 +646,53 @@ export default function PolicyGenerationDashboard({
         } catch { /* ignore refresh errors */ }
       }
 
-      try {
-        const res = await fetch('/api/compliance/policies/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            companyId,
-            policySlug: policy.slug,
-            mode: 'new',
-            frameworks: selectedFrameworks,
-          }),
-        })
+      let attempt = await generateOnePolicy(policy.slug, apiMode)
 
-        const contentType = res.headers.get('content-type') ?? ''
-        if (!contentType.includes('application/json')) {
-          // Non-JSON response usually means Vercel timeout. The generation may still
-          // complete in the background. We'll verify on the next refresh.
-          failed++
-          continue
-        }
+      // One retry on transient failure — handles brief Anthropic latency
+      // spikes that often clear within a few seconds.
+      if (!attempt.ok && attempt.retryable) {
+        await new Promise((r) => setTimeout(r, 1500))
+        attempt = await generateOnePolicy(policy.slug, apiMode)
+      }
 
-        const json = await res.json()
-        if (json.success) {
-          completed++
-        } else {
-          failed++
-        }
-      } catch {
+      if (attempt.ok) {
+        completed++
+      } else {
         failed++
+        errors.push({ slug: policy.slug, name: policy.name, message: attempt.message })
+      }
+
+      // Small pacing delay between policies so we don't trip Anthropic
+      // rate limits during a 20+ policy batch. 400ms is invisible to the
+      // user but keeps us well under per-minute caps.
+      if (i < policies.length - 1) {
+        await new Promise((r) => setTimeout(r, 400))
       }
     }
 
-    setMassProgress({ current: missing.length, total: missing.length, currentName: '', completed, failed })
+    setMassProgress({ current: policies.length, total: policies.length, currentName: '', completed, failed, errors, mode: displayMode })
     setMassGenerating(false)
     // Final refresh after batch — catches any background completions from timeouts
     await loadAnalysis()
+  }
+
+  // Run the Anthropic API diagnostic and store the result for display.
+  const runDiagnose = async () => {
+    setDiagnoseLoading(true)
+    setDiagnoseResult(null)
+    try {
+      const res = await fetch('/api/compliance/policies/generate/diagnose')
+      const json = (await res.json()) as DiagnoseResult & { error?: string }
+      setDiagnoseResult(json)
+    } catch (err) {
+      setDiagnoseResult({
+        success: false,
+        apiKeyConfigured: false,
+        summary: err instanceof Error ? err.message : 'Diagnose request failed.',
+      })
+    } finally {
+      setDiagnoseLoading(false)
+    }
   }
 
   const activePolicy = analysis?.requiredPolicies.find((p) => p.slug === activePolicySlug)
@@ -1018,6 +1174,7 @@ export default function PolicyGenerationDashboard({
             massGenerating={massGenerating}
             onOpenOrgProfile={() => { setView('org-profile'); loadOrgProfile() }}
             onGenerateAll={generateAllMissing}
+            onEnhanceAll={enhanceAllPartial}
           />
 
           {/* Assessment re-run nudge — shown when policies have changed since
@@ -1157,7 +1314,7 @@ export default function PolicyGenerationDashboard({
             <div className="bg-slate-800/50 backdrop-blur-sm border border-cyan-500/30 rounded-lg p-4">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm text-white font-medium">
-                  Generating: {massProgress.currentName}
+                  {massProgress.mode === 'improve' ? 'Enhancing' : 'Generating'}: {massProgress.currentName}
                 </span>
                 <span className="text-xs text-slate-400">
                   {massProgress.current}/{massProgress.total} &middot; {massProgress.completed} done &middot; {massProgress.failed} failed
@@ -1174,10 +1331,66 @@ export default function PolicyGenerationDashboard({
 
           {/* Mass Generation Complete Summary */}
           {!massGenerating && massProgress.total > 0 && massProgress.current === massProgress.total && (
-            <div className={`border rounded-lg p-4 ${massProgress.failed > 0 ? 'bg-rose-500/10 border-rose-500/30' : 'bg-emerald-500/10 border-emerald-500/30'}`}>
+            <div className={`border rounded-lg p-4 space-y-3 ${massProgress.failed > 0 ? 'bg-rose-500/10 border-rose-500/30' : 'bg-emerald-500/10 border-emerald-500/30'}`}>
               <p className={`text-sm font-medium ${massProgress.failed > 0 ? 'text-rose-300' : 'text-emerald-300'}`}>
-                Batch generation complete: {massProgress.completed} generated, {massProgress.failed} failed out of {massProgress.total} policies.
+                {massProgress.mode === 'improve' ? 'Enhance' : 'Generate'} complete: {massProgress.completed} succeeded, {massProgress.failed} failed out of {massProgress.total} polic{massProgress.total === 1 ? 'y' : 'ies'}.
               </p>
+
+              {massProgress.errors.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs text-rose-200/80 font-semibold uppercase tracking-wider">Failures</p>
+                  <ul className="space-y-1.5">
+                    {massProgress.errors.map((e) => (
+                      <li key={e.slug} className="text-xs text-rose-200 bg-rose-500/5 border border-rose-500/20 rounded px-3 py-2">
+                        <span className="font-semibold text-white">{e.name}:</span> {e.message}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {massProgress.failed > 0 && (
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={runDiagnose}
+                    disabled={diagnoseLoading}
+                    className="px-3 py-1.5 bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-200 rounded text-xs font-medium disabled:opacity-50 inline-flex items-center gap-2"
+                  >
+                    {diagnoseLoading && <span className="animate-spin w-3 h-3 border-2 border-rose-200 border-t-transparent rounded-full" />}
+                    {diagnoseLoading ? 'Running diagnostic…' : 'Run Anthropic API Diagnostic'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={massProgress.mode === 'improve' ? enhanceAllPartial : generateAllMissing}
+                    className="px-3 py-1.5 bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 text-cyan-200 rounded text-xs font-medium"
+                  >
+                    Retry Failed
+                  </button>
+                </div>
+              )}
+
+              {diagnoseResult && (
+                <div className={`mt-3 border rounded p-3 text-xs space-y-1 ${diagnoseResult.success ? 'bg-emerald-500/5 border-emerald-500/30 text-emerald-200' : 'bg-rose-500/5 border-rose-500/30 text-rose-200'}`}>
+                  <p className="font-semibold">{diagnoseResult.summary}</p>
+                  {!diagnoseResult.apiKeyConfigured && (
+                    <p>ANTHROPIC_API_KEY is missing from the Vercel environment. Add it in Project Settings → Environment Variables and redeploy.</p>
+                  )}
+                  {diagnoseResult.apiKeyConfigured && diagnoseResult.apiKeyPrefix && (
+                    <p className="text-slate-400">API key prefix: <span className="font-mono">{diagnoseResult.apiKeyPrefix}</span></p>
+                  )}
+                  {diagnoseResult.haiku && (
+                    <p>
+                      Haiku ({diagnoseResult.haiku.model}): {diagnoseResult.haiku.ok ? `OK in ${diagnoseResult.haiku.elapsedMs}ms` : `FAIL — ${diagnoseResult.haiku.error}`}
+                    </p>
+                  )}
+                  {diagnoseResult.sonnet && (
+                    <p>
+                      Sonnet ({diagnoseResult.sonnet.model}): {diagnoseResult.sonnet.ok ? `OK in ${diagnoseResult.sonnet.elapsedMs}ms` : `FAIL — ${diagnoseResult.sonnet.error}`}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -1254,12 +1467,14 @@ function NextStepBanner({
   massGenerating,
   onOpenOrgProfile,
   onGenerateAll,
+  onEnhanceAll,
 }: {
   orgCompletion: number
   stats: NeedsAnalysis['stats']
   massGenerating: boolean
   onOpenOrgProfile: () => void
   onGenerateAll: () => void
+  onEnhanceAll: () => void
 }) {
   // Determine current phase and next action in priority order:
   // 1. Org profile incomplete → fill it first
@@ -1366,9 +1581,18 @@ function NextStepBanner({
             <h3 className="text-base font-semibold text-white">Optional: Enhance {stats.needsEnhancement} Partially-Covered Polic{stats.needsEnhancement === 1 ? 'y' : 'ies'}</h3>
             <p className="text-sm text-slate-300 mt-1">
               The customer&apos;s existing policies cover most of what&apos;s needed. For {stats.needsEnhancement} catalog item{stats.needsEnhancement === 1 ? '' : 's'} with
-              partial coverage, you can generate an enhanced version that fills the remaining gaps. Click a policy below to review and enhance.
+              partial coverage, you can generate an enhanced version that fills the remaining gaps. Click a single policy below to review one at a time,
+              or batch-enhance all of them in one click.
             </p>
           </div>
+          <button
+            onClick={onEnhanceAll}
+            disabled={massGenerating}
+            className="px-4 py-2 bg-violet-500 hover:bg-violet-400 text-white rounded-lg text-sm font-semibold flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          >
+            {massGenerating && <span className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />}
+            {massGenerating ? 'Enhancing…' : `Enhance All ${stats.needsEnhancement} →`}
+          </button>
         </div>
       )}
 
@@ -1443,8 +1667,9 @@ function AssessmentRerunBanner({
           </div>
         </div>
         <a
-          href="/admin/compliance"
+          href="/admin/compliance/workflow"
           className="px-4 py-2 bg-violet-500 hover:bg-violet-400 text-white rounded-lg text-sm font-semibold flex-shrink-0 whitespace-nowrap"
+          title="Opens the guided workflow at the Final Assessment step"
         >
           Run New Assessment &rarr;
         </a>
