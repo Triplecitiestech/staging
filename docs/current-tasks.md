@@ -50,18 +50,18 @@
 > The backlog below replaces the previous Priority 1–4 list. Old items that survived the redesign are folded in; items the redesign retired (e.g., "Step 6 comparison delta" — the comparison engine already exists) are removed from the active list but noted in the design docs.
 
 ### Priority 0: Pre-flight bug fixes (small, do first)
-- [ ] **P0-1** Add `compliance_company_tools` table to `src/lib/compliance/ensure-tables.ts` — queried by `/api/compliance/workflow-status` and `/api/compliance/registry/company-tools` but never created.
-- [ ] **P0-2** Add `customer_context_answers` table to `ensure-tables.ts` (interim) — queried by `/api/compliance/customer-context`. Removed entirely once consolidation lands.
-- [ ] **P0-3** Audit `PlatformMappingPanel.tsx` to confirm the UI exposes adding multiple rows per platform (schema supports 1:M; UI may not).
+- [x] **P0-1** Add `compliance_company_tools` table to `src/lib/compliance/ensure-tables.ts` — was self-healed inline by the company-tools route; centralized so workflow-status reads are race-free. ✅ 2026-05-13
+- [x] **P0-2** Add `compliance_customer_context` table to `ensure-tables.ts` (interim) — was self-healed inline by the customer-context route; centralized and inline DDL removed. Table will be retired entirely once consolidation lands (W16). ✅ 2026-05-13
+- [x] **P0-3** Audit `PlatformMappingPanel.tsx` for 1:M UI support — **already supported**. Each mapping renders as its own row with its own Remove button; `addMapping` is additive (no delete-then-insert); `alreadyMapped` set hides duplicates from the picker so users add new entities instead of re-adding existing ones; header badge shows the count. No code change required. ✅ 2026-05-13
 
 ### Priority 1: Customer Profile consolidation (Workflow Redesign §3)
 - [ ] **W3** Author `customer_profile` question-engine schema in code (new file: `src/lib/compliance/customer-profile-schema.ts`) and seed via existing question-engine seeder.
 - [ ] **W4** Backfill script: `policy_org_profiles.answers` JSONB → `form_responses` rows (new: `scripts/backfill-customer-profile.ts`).
-- [ ] **W5** Update engine N/A logic to read from question engine instead of `policy_org_profiles` / `customer_context_answers` (`src/lib/compliance/engine.ts`, `frameworks/cis-v8.ts`, `frameworks/cmmc-l1.ts`).
+- [ ] **W5** Update engine N/A logic to read from question engine instead of `policy_org_profiles` / `compliance_customer_context` (`src/lib/compliance/engine.ts`, `frameworks/cis-v8.ts`, `frameworks/cmmc-l1.ts`).
 - [ ] **W6** Update policy generator to read profile answers from question engine (`src/lib/compliance/policy-generation/generator.ts`).
 - [ ] **W13** Refactor `PolicyGenerationDashboard.tsx` to stop authoring profile questions inline — read from question engine instead.
 - [ ] **W15** Delete `ComplianceSetupWizard.tsx` once the new Customer Profile editor is live.
-- [ ] **W16** Drop `policy_org_profiles` and `customer_context_answers` tables (operator-gated, after one-release soak).
+- [ ] **W16** Drop `policy_org_profiles` and `compliance_customer_context` tables (operator-gated, after one-release soak).
 
 ### Priority 2: Bootstrap + Cockpit UI shell (Workflow Redesign §2)
 - [ ] **W7** Build per-customer cockpit page + single-fetch endpoint (`src/app/admin/compliance/[companyId]/page.tsx`, `src/app/api/compliance/[companyId]/cockpit/route.ts`).

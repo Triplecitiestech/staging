@@ -271,9 +271,7 @@ Admin UI                         /api/compliance/assessments (POST)
                                ┌─────────────────────────────────────┐
                                │ 1. ensureComplianceTables()         │
                                │    self-healing raw SQL, creates    │
-                               │    16 tables if missing             │
-                               │    (2 more referenced but missing — │
-                               │     see "Known gaps" below)         │
+                               │    18 tables if missing             │
                                └─────────────────────────────────────┘
                                                │
                                                ▼
@@ -351,12 +349,12 @@ Admin UI                         /api/compliance/assessments (POST)
 - `policy_org_profiles` + `policy_intake_answers` + `policy_generation_records` + `policy_versions` — policy generation pipeline
 - `integration_credentials` + `integration_credential_access_log` — encrypted per-tenant credentials + read audit (dormant; populated by Wave 2 of credentials migration)
 
-**Known gaps (tables referenced by code but not created by `ensure-tables.ts`):**
-- `compliance_company_tools` — queried by `/api/compliance/workflow-status` and `/api/compliance/registry/company-tools`. Step 2 of the workflow reads this; tenants without the table fall through to empty results. Fix: add to `ensure-tables.ts`.
-- `customer_context_answers` — queried by `/api/compliance/customer-context`. Used by the workflow Step 2 environment Q&A. Same fix, or migrate to the question engine per `COMPLIANCE_WORKFLOW_REDESIGN.md`.
+**Self-heal scope (tables historically created inline; now centralized as of 2026-05-13):**
+- `compliance_company_tools` — queried by `/api/compliance/workflow-status` and `/api/compliance/registry/company-tools`. Now created by `ensure-tables.ts` so workflow-status reads are race-free even before the company-tools route is hit.
+- `compliance_customer_context` — queried by `/api/compliance/customer-context`. Now created by `ensure-tables.ts`. Will be retired entirely once intake consolidates into the question engine per `COMPLIANCE_WORKFLOW_REDESIGN.md`.
 
 **Three intake stores collect overlapping data and need consolidation:**
-`policy_org_profiles.answers` (org profile), `customer_context_answers` (environment), and the in-page state of `ComplianceSetupWizard.tsx` (also environment). The redesign uses the HR question engine (`form_schemas`, `form_responses`) as the single Customer Profile store. See `docs/plans/COMPLIANCE_WORKFLOW_REDESIGN.md` §3.
+`policy_org_profiles.answers` (org profile), `compliance_customer_context` (environment), and the in-page state of `ComplianceSetupWizard.tsx` (also environment). The redesign uses the HR question engine (`form_schemas`, `form_responses`) as the single Customer Profile store. See `docs/plans/COMPLIANCE_WORKFLOW_REDESIGN.md` §3.
 
 **Webhook receiver**: `/api/compliance/webhooks/saas-alerts` ingests Kaseya SaaS Alerts events. Validates the partner-echoed token (env var `SAAS_ALERTS_WEBHOOK_TOKEN`) when configured, always ACKs 200 to prevent Kaseya from disabling the subscription on transient errors.
 

@@ -63,7 +63,7 @@ The single source of truth for "what does this customer look like": identity (na
 
 **Authoritative store:** the existing question engine (`form_schemas`, `form_sections`, `form_questions`, `customer_form_configs`). A new schema `type='customer_profile'` is authored in code and answered by TCT staff in the admin UI.
 
-Today this information is **fragmented across three stores** (`policy_org_profiles.answers`, `customer_context_answers`, the `ComplianceSetupWizard` UI). Consolidating them is the largest single piece of refactor work. See [COMPLIANCE_WORKFLOW_REDESIGN.md](./COMPLIANCE_WORKFLOW_REDESIGN.md) §3.
+Today this information is **fragmented across three stores** (`policy_org_profiles.answers`, `compliance_customer_context`, the `ComplianceSetupWizard` UI). Consolidating them is the largest single piece of refactor work. See [COMPLIANCE_WORKFLOW_REDESIGN.md](./COMPLIANCE_WORKFLOW_REDESIGN.md) §3.
 
 ### 2.2 Integration Connections
 Per-customer OAuth / API-key state for each integrated platform: Microsoft Graph (multi-tenant), Datto RMM, Datto EDR, Datto BCDR, DNSFilter, Autotask, Domotz, IT Glue, SaaS Alerts, Ubiquiti, EasyDMARC, MyITProcess.
@@ -166,12 +166,12 @@ All managed by `src/lib/compliance/ensure-tables.ts` (idempotent CREATE TABLE IF
 | `integration_credentials` | Encrypted per-tenant API credentials | See CREDENTIALS_MIGRATION runbook |
 | `integration_credential_access_log` | Audit log of credential reads | |
 
-### 3.2 Tables referenced but missing (bugs)
+### 3.2 Tables previously self-healed inline — now centralized (resolved 2026-05-13)
 
-| Table | Referenced by | Action |
-|-------|---------------|--------|
-| `compliance_company_tools` | `/api/compliance/workflow-status`, `/api/compliance/registry/company-tools` | **Add to `ensure-tables.ts`** |
-| `customer_context_answers` | `/api/compliance/customer-context` | Either add to `ensure-tables.ts` (short-term) or migrate to question engine (target state — see §3.4) |
+| Table | Referenced by | Resolution |
+|-------|---------------|------------|
+| `compliance_company_tools` | `/api/compliance/workflow-status`, `/api/compliance/registry/company-tools` | Now created by `ensure-tables.ts`. Inline DDL in the company-tools route retained as belt-and-suspenders. |
+| `compliance_customer_context` | `/api/compliance/customer-context` | Now created by `ensure-tables.ts`. Inline DDL in the customer-context route removed. Slated for retirement once intake consolidates into the question engine (§3.4). |
 
 ### 3.3 New tables required for the target state
 
@@ -189,7 +189,7 @@ Full DDL is in [CHANGE_MANAGEMENT_AND_REMEDIATION.md](./CHANGE_MANAGEMENT_AND_RE
 | Table | Retire because | Migrate to |
 |-------|----------------|------------|
 | `policy_org_profiles` | Duplicates the Customer Profile concept | A `customer_form_responses` row scoped to a `form_schema` of type `customer_profile` (the existing HR question engine) |
-| `customer_context_answers` (if it ever gets created) | Same: duplicates Customer Profile | Same |
+| `compliance_customer_context` (if it ever gets created) | Same: duplicates Customer Profile | Same |
 
 `policy_intake_answers` **stays** — its concern is genuinely per-policy refinement, not customer-wide profile.
 
@@ -301,7 +301,7 @@ When a finding is manually overridden (`overrideStatus`, `overrideReason`, `over
 The disposition (§2.7) and the override are **different things**: override changes how a control scores; disposition tracks what we are doing about a failed control. A finding can have both (e.g., overridden to `manual_review` AND disposition = `scheduled`).
 
 ### 8.3 Environment-aware N/A
-The Customer Profile's operational-context answers (on-prem servers? backup scope? remote work?) drive N/A logic in the engine. See [COMPLIANCE_PLAYBOOK.md](../COMPLIANCE_PLAYBOOK.md) for the per-control rules. The N/A logic must read from the Customer Profile, not from the legacy `customer_context_answers` or `policy_org_profiles` tables, once consolidation lands.
+The Customer Profile's operational-context answers (on-prem servers? backup scope? remote work?) drive N/A logic in the engine. See [COMPLIANCE_PLAYBOOK.md](../COMPLIANCE_PLAYBOOK.md) for the per-control rules. The N/A logic must read from the Customer Profile, not from the legacy `compliance_customer_context` or `policy_org_profiles` tables, once consolidation lands.
 
 ### 8.4 Audit
 Every state change writes to `compliance_audit_log` with `(companyId, action, actor, metadata, timestamp)`. The change-management lifecycle writes especially fine-grained audit (one row per status transition, communication, attestation, deployment, verification). See [CHANGE_MANAGEMENT_AND_REMEDIATION.md](./CHANGE_MANAGEMENT_AND_REMEDIATION.md) §8.

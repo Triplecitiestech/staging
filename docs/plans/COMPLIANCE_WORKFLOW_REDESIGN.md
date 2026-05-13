@@ -24,16 +24,15 @@ Problems:
 2. **Three intake surfaces collect overlapping data.**
    - `ComplianceSetupWizard.tsx` (separate page at `/admin/compliance/setup`) asks environment discovery questions
    - `policy_org_profiles.answers` (JSONB) collects 70+ org-profile questions via `PolicyGenerationDashboard.tsx`
-   - `customer_context_answers` (referenced via `/api/compliance/customer-context`) collects env-aware N/A inputs inside workflow Step 2
+   - `compliance_customer_context` (referenced via `/api/compliance/customer-context`) collects env-aware N/A inputs inside workflow Step 2
    - "Does customer have on-prem servers?" is asked in at least two of these.
 
 3. **Policy ingestion is missing from the workflow.** `PolicyManager.tsx` (upload + SharePoint + AI analysis) is only reachable from the legacy `/admin/compliance` tabbed dashboard, not from `/admin/compliance/workflow`. The initial assessment therefore runs **before** existing customer policies are loaded — so the assessment thinks the customer has no policy coverage when they actually have a SharePoint full of them.
 
 4. **Step status is computed, but UI presents it as if it were persisted state.** The visual progression implies "you have completed steps 1–4, do step 5 next". Underneath, status is re-derived from row counts on every load. This is fine in principle but the UI metaphor obscures it.
 
-5. **Two bugs in the underlying schema.**
-   - `compliance_company_tools` is queried by `/api/compliance/workflow-status` and `/api/compliance/registry/company-tools` but is not created by `src/lib/compliance/ensure-tables.ts`.
-   - `customer_context_answers` similarly absent from `ensure-tables.ts`.
+5. **Two pre-flight schema bugs (resolved 2026-05-13).**
+   - `compliance_company_tools` and `compliance_customer_context` were each self-healed inline by their respective routes but absent from `src/lib/compliance/ensure-tables.ts`, causing a race where `workflow-status` could query them before either route had been hit. Both are now centrally bootstrapped.
 
 6. **"Final assessment" is a phase concept, not a schema concept.** The engine has `compareAssessments(currentId, previousId)` returning deltas — there is no need for a "final" stage; latest-vs-baseline solves the same problem more flexibly.
 
@@ -124,7 +123,7 @@ If bootstrap is incomplete, the cockpit shows a bootstrap progress panel at the 
 | Store | Where it's populated | What's in it |
 |-------|----------------------|--------------|
 | `policy_org_profiles.answers` (JSONB) | `PolicyGenerationDashboard.tsx` org-profile tab | 70+ questions: identity, regulatory scope, operational context, people/roles, review cadences |
-| `customer_context_answers` (referenced, not created) | Workflow Step 2 sub-panel | Environment questions: on-prem servers, backup scope, customer type |
+| `compliance_customer_context` (referenced, not created) | Workflow Step 2 sub-panel | Environment questions: on-prem servers, backup scope, customer type |
 | `ComplianceSetupWizard.tsx` UI state | `/admin/compliance/setup` page | Environment toggles (no documented persistence target — likely lost) |
 
 Overlap: "operational context" in #1 includes "remote work allowed?", "BYOD?", "contractors?" — overlaps with #2's environment questions and #3's setup-wizard toggles.
@@ -144,7 +143,7 @@ New objects (no new tables):
 1. **Author the schema in code** (new file: `src/lib/compliance/customer-profile-schema.ts`) and seed it on app boot via the existing question-engine seeder.
 2. **Backfill from `policy_org_profiles.answers`** — one-time migration script that reads the JSONB blob, maps keys to the new question IDs, writes to `form_responses`. Old table stays in place during transition.
 3. **Update every consumer:**
-   - Engine N/A logic (`src/lib/compliance/engine.ts`) reads from question-engine responses instead of `policy_org_profiles` / `customer_context_answers`.
+   - Engine N/A logic (`src/lib/compliance/engine.ts`) reads from question-engine responses instead of `policy_org_profiles` / `compliance_customer_context`.
    - Policy generation (`src/lib/compliance/policy-generation/generator.ts`) reads from question-engine responses.
    - ComplianceSetupWizard either redirects to the new profile editor or is deleted.
 4. **Drop the old surfaces:**
@@ -171,7 +170,7 @@ The current `/api/compliance/workflow-status` route is the right idea (compute f
 | C. Policy Library | Every policy slug in `policy_catalog.ts` has either: an uploaded row in `compliance_policies`, or a `policy_generation_records` row with status ≥ drafted, or an explicit "not applicable" marker |
 | D. Baseline | At least one `compliance_assessments` row with `status = complete` |
 
-Action item: add `compliance_company_tools` to `ensure-tables.ts` so Stage B.2 doesn't query a missing table.
+~~Action item: add `compliance_company_tools` to `ensure-tables.ts` so Stage B.2 doesn't query a missing table.~~ ✅ Resolved 2026-05-13.
 
 ---
 
@@ -267,12 +266,12 @@ Net: delete 3 components (~111 KB), refactor 1 to remove duplicate profile autho
 
 Strict ordering matters here because production runs continuously and several of these tables are read by hot paths.
 
-1. **Pre-flight:** Add `compliance_company_tools` and `customer_context_answers` to `ensure-tables.ts` (fixes existing bugs). Run idempotent ensure on next deploy.
+1. **Pre-flight:** ~~Add `compliance_company_tools` and `compliance_customer_context` to `ensure-tables.ts`.~~ ✅ Resolved 2026-05-13.
 2. **Wave 1:** Author and seed the `customer_profile` question schema. Question engine starts answering reads via the new schema for *new* customers. Existing customers continue to read from `policy_org_profiles`.
 3. **Wave 2:** Backfill script copies every `policy_org_profiles.answers` blob into `form_responses` rows. Verify per-customer. Engine consumers are still reading from `policy_org_profiles` at this point.
-4. **Wave 3:** Switch engine N/A logic + policy generator to read from question engine. Old reads from `policy_org_profiles` and `customer_context_answers` removed. Soak for one release.
+4. **Wave 3:** Switch engine N/A logic + policy generator to read from question engine. Old reads from `policy_org_profiles` and `compliance_customer_context` removed. Soak for one release.
 5. **Wave 4:** Delete the legacy intake UIs (`ComplianceSetupWizard`, the org-profile tab inside `PolicyGenerationDashboard`). Build the new Customer Profile editor.
-6. **Wave 5:** Drop `policy_org_profiles` and `customer_context_answers` tables. **Operator-gated** — not done automatically.
+6. **Wave 5:** Drop `policy_org_profiles` and `compliance_customer_context` tables. **Operator-gated** — not done automatically.
 
 Audit log entries are written at every wave transition (`compliance_audit_log`).
 
@@ -295,8 +294,8 @@ Implementation backlog generated by this redesign. All carry forward into `docs/
 
 | # | Item | Where |
 |---|------|-------|
-| W1 | Add `compliance_company_tools` to `ensure-tables.ts` | `src/lib/compliance/ensure-tables.ts` |
-| W2 | Add `customer_context_answers` to `ensure-tables.ts` (interim) | same |
+| W1 | ✅ Add `compliance_company_tools` to `ensure-tables.ts` (done 2026-05-13) | `src/lib/compliance/ensure-tables.ts` |
+| W2 | ✅ Add `compliance_customer_context` to `ensure-tables.ts` (done 2026-05-13; interim — retire with W16) | same |
 | W3 | Author `customer_profile` schema in question engine | new: `src/lib/compliance/customer-profile-schema.ts` |
 | W4 | Backfill script for `policy_org_profiles.answers` → `form_responses` | new: `scripts/backfill-customer-profile.ts` |
 | W5 | Engine N/A logic reads question engine | `src/lib/compliance/engine.ts`, `frameworks/cis-v8.ts`, `frameworks/cmmc-l1.ts` |
@@ -306,10 +305,10 @@ Implementation backlog generated by this redesign. All carry forward into `docs/
 | W9 | Build Policies page (merged Library + Generate) | new: `src/app/admin/compliance/[companyId]/policies/page.tsx` |
 | W10 | Build Assessments / Findings pages | new: `src/app/admin/compliance/[companyId]/assessments/page.tsx`, `findings/page.tsx` |
 | W11 | Build Diagnostics page (TCT-only) | new: `src/app/admin/compliance/diagnostics/page.tsx` |
-| W12 | Audit PlatformMappingPanel for 1:M UI support | `src/components/compliance/PlatformMappingPanel.tsx` |
+| W12 | ✅ Audit PlatformMappingPanel for 1:M UI support — already supported (done 2026-05-13) | `src/components/compliance/PlatformMappingPanel.tsx` |
 | W13 | Refactor PolicyGenerationDashboard to stop authoring profile questions | same component |
 | W14 | Wire `engine.compareAssessments()` into cockpit UI | new + AssessmentResults.tsx |
 | W15 | Delete `ComplianceSetupWizard`, `ComplianceDashboard`, `ComplianceWorkflow` | after migration |
-| W16 | Drop `policy_org_profiles` and `customer_context_answers` tables | operator-gated |
+| W16 | Drop `policy_org_profiles` and `compliance_customer_context` tables | operator-gated |
 
 These are tracked in `docs/current-tasks.md` with priorities and dependencies.
