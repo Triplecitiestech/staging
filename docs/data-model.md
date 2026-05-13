@@ -384,7 +384,7 @@ These tables are created idempotently by `src/lib/compliance/ensure-tables.ts` o
 
 > **Active redesign in progress (2026-05-13).** The four "new" tables at the bottom of this list are designed in `docs/plans/CHANGE_MANAGEMENT_AND_REMEDIATION.md` but are not yet created. See also `docs/plans/COMPLIANCE_ARCHITECTURE.md` for the consolidated target data model.
 
-#### Currently in production (16 tables)
+#### Currently in production (18 tables)
 
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
@@ -402,15 +402,10 @@ These tables are created idempotently by `src/lib/compliance/ensure-tables.ts` o
 | `policy_intake_answers` | Per-policy refinement Q&A | `companyId`, `policySlug`, `answers` (JSONB); UNIQUE(`companyId`, `policySlug`) |
 | `policy_generation_records` | Per-policy generation state machine | `companyId`, `policySlug`, `status`, `mode` (`new`/`improve`/`update-framework`/`standardize`/`fill-missing`), `generatedContent`, `version`, `createdBy`, `publishedAt` |
 | `policy_versions` | Version history of generated policies | `policySlug`, `companyId`, `versionNumber`, `content`, `createdBy` |
+| `compliance_company_tools` | Per-company tool deployment status (toggle UI) | `companyId`, `toolId`, `deployed` (bool), `notes`, `deployedBy`, `deployedAt`; UNIQUE(`companyId`, `toolId`) |
+| `compliance_customer_context` | Per-customer environment Q&A (drives engine N/A logic) — slated for migration into the question engine | `companyId`, `answers` (JSONB) |
 | `integration_credentials` | Encrypted per-tenant API credentials (M365, Datto, etc.) — Wave 2 of credentials migration | `companyId`, `connectorType`, `encryptedValue` (BYTEA, AES-256-GCM), `metadata`, `lastRotatedAt`; UNIQUE(`companyId`, `connectorType`) |
 | `integration_credential_access_log` | Audit log of every credential read | `credentialId`, `companyId`, `connectorType`, `accessedBy`, `purpose`, `accessedAt` |
-
-#### Referenced by code but **not yet created** (bugs to fix)
-
-| Table | Referenced by | Fix |
-|-------|---------------|-----|
-| `compliance_company_tools` | `/api/compliance/workflow-status`, `/api/compliance/registry/company-tools` | Add to `ensure-tables.ts` |
-| `customer_context_answers` | `/api/compliance/customer-context` | Add to `ensure-tables.ts` (interim) or migrate to question engine |
 
 #### Designed but not yet implemented (target state)
 
@@ -425,7 +420,7 @@ These tables are created idempotently by `src/lib/compliance/ensure-tables.ts` o
 
 **Frameworks with full evaluators**: CIS v8 (65 controls, IG1/IG2/IG3 variants), CMMC L1. Type-stubbed only (assessments create rows but produce empty findings): CMMC L2, NIST 800-171, HIPAA, PCI.
 
-**Customer Profile consolidation**: `policy_org_profiles.answers`, `customer_context_answers`, and the in-page state of `ComplianceSetupWizard.tsx` all collect overlapping customer-environment / org-profile data. The redesign uses the HR question engine (`form_schemas`, `form_responses`) as the single Customer Profile store. See `docs/plans/COMPLIANCE_WORKFLOW_REDESIGN.md` §3.
+**Customer Profile consolidation**: `policy_org_profiles.answers`, `compliance_customer_context`, and the in-page state of `ComplianceSetupWizard.tsx` all collect overlapping customer-environment / org-profile data. The redesign uses the HR question engine (`form_schemas`, `form_responses`) as the single Customer Profile store. See `docs/plans/COMPLIANCE_WORKFLOW_REDESIGN.md` §3.
 
 ---
 

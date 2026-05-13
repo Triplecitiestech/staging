@@ -11,6 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { getPool } from '@/lib/db-pool'
+import { ensureComplianceTables } from '@/lib/compliance/ensure-tables'
 
 export const dynamic = 'force-dynamic'
 
@@ -212,19 +213,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'companyId required' }, { status: 400 })
   }
 
+  await ensureComplianceTables()
   const pool = getPool()
   const client = await pool.connect()
   try {
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS compliance_customer_context (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        "companyId" TEXT NOT NULL UNIQUE,
-        answers JSONB NOT NULL DEFAULT '[]',
-        "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        "updatedBy" TEXT
-      )
-    `)
-
     const res = await client.query<{ answers: CustomerContextAnswer[] }>(
       `SELECT answers FROM compliance_customer_context WHERE "companyId" = $1`,
       [companyId]
@@ -257,19 +249,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'companyId and answers required' }, { status: 400 })
     }
 
+    await ensureComplianceTables()
     const pool = getPool()
     const client = await pool.connect()
     try {
-      await client.query(`
-        CREATE TABLE IF NOT EXISTS compliance_customer_context (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          "companyId" TEXT NOT NULL UNIQUE,
-          answers JSONB NOT NULL DEFAULT '[]',
-          "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          "updatedBy" TEXT
-        )
-      `)
-
       await client.query(
         `INSERT INTO compliance_customer_context ("companyId", answers, "updatedAt", "updatedBy")
          VALUES ($1, $2::jsonb, NOW(), $3)

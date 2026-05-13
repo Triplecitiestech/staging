@@ -123,7 +123,7 @@ This document maps every major subsystem to its primary source files. Use it to 
 | Module | Purpose |
 |--------|---------|
 | `engine.ts` | Assessment lifecycle, evidence collection, evaluation, `compareAssessments()` delta logic, override carry-forward (~57 KB) |
-| `ensure-tables.ts` | Bootstrap all compliance + policy generation tables (idempotent CREATE TABLE IF NOT EXISTS). **Known gap: `compliance_company_tools` and `customer_context_answers` are referenced by other routes but not created here.** |
+| `ensure-tables.ts` | Bootstrap all compliance + policy generation tables (idempotent CREATE TABLE IF NOT EXISTS). 18 tables including `compliance_company_tools` and `compliance_customer_context` (centralized 2026-05-13 — previously self-healed inline by their respective routes). |
 | `types.ts` | Core type definitions: `FrameworkId`, `ControlDefinition`, `EvidenceRecord`, `Finding`, `EvaluationContext`, 21 `EvidenceSourceType` variants |
 | `frameworks/cis-v8.ts` | CIS v8 control definitions + 65 evaluators (with IG1/IG2/IG3 selectivity) + `applyPolicyCoverage` enhancement (186 KB, 3,258 lines) |
 | `frameworks/cmmc-l1.ts` | CMMC L1 framework + evaluators (full) |

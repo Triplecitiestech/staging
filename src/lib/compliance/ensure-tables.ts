@@ -13,6 +13,13 @@
  *   compliance_evidence      — collected evidence records (raw data snapshots)
  *   compliance_findings      — per-control evaluation results
  *   compliance_audit_log     — all compliance-related actions
+ *   compliance_policies      — uploaded + generated policies
+ *   compliance_policy_analyses — AI policy coverage analyses
+ *   compliance_attestations  — manual control attestations
+ *   compliance_platform_mappings — customer→platform-entity mappings (1:M)
+ *   compliance_webhook_events — inbound webhooks (SaaS Alerts)
+ *   compliance_company_tools — per-company tool deployment status (toggle UI)
+ *   compliance_customer_context — per-customer environment Q&A (drives engine N/A logic)
  *   policy_org_profiles      — org-wide questionnaire answers for policy generation
  *   policy_intake_answers    — per-policy questionnaire answers
  *   policy_generation_records — tracks policy generation workflow state per company+policy
@@ -47,6 +54,8 @@ export async function ensureComplianceTables(): Promise<void> {
            'compliance_attestations',
            'compliance_platform_mappings',
            'compliance_webhook_events',
+           'compliance_company_tools',
+           'compliance_customer_context',
            'policy_org_profiles',
            'policy_intake_answers',
            'policy_generation_records',
@@ -400,6 +409,75 @@ export async function ensureComplianceTables(): Promise<void> {
       await client.query(`
         CREATE INDEX IF NOT EXISTS idx_compliance_webhook_events_signal
         ON compliance_webhook_events (source, "signalType", "receivedAt" DESC)
+      `)
+    }
+
+    // --- compliance_company_tools ---
+    // Per-company tool deployment status. Tracks which tools (from the
+    // registry catalog) each customer has deployed, whether or not TCT
+    // has API access to verify. Drives engine N/A logic and tool-inventory
+    // UI. Also created inline by /api/compliance/registry/company-tools as
+    // a safety net; this central path makes workflow-status queries safe
+    // even before the company-tools route is hit.
+    if (!existingSet.has('compliance_company_tools')) {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS compliance_company_tools (
+          id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+          "companyId"     TEXT NOT NULL,
+          "toolId"        TEXT NOT NULL,
+          deployed        BOOLEAN NOT NULL DEFAULT false,
+          notes           TEXT,
+          "deployedBy"    TEXT,
+          "deployedAt"    TIMESTAMPTZ,
+          "createdAt"     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          "updatedAt"     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          UNIQUE ("companyId", "toolId")
+        )
+      `)
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_compliance_company_tools_company
+        ON compliance_company_tools ("companyId")
+      `)
+      await client.query(`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'compliance_company_tools_companyId_fkey') THEN
+            ALTER TABLE compliance_company_tools
+            ADD CONSTRAINT "compliance_company_tools_companyId_fkey"
+            FOREIGN KEY ("companyId") REFERENCES companies(id) ON DELETE CASCADE;
+          END IF;
+        END $$
+      `)
+    }
+
+    // --- compliance_customer_context ---
+    // Per-customer environment Q&A (remote access type, on-prem servers,
+    // BYOD policy, custom apps, compliance scope) that drives env-aware
+    // N/A logic in the assessment engine. Also created inline by
+    // /api/compliance/customer-context as a safety net. Slated for
+    // migration into the question engine — see
+    // docs/plans/COMPLIANCE_WORKFLOW_REDESIGN.md §3.
+    if (!existingSet.has('compliance_customer_context')) {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS compliance_customer_context (
+          id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          "companyId"     TEXT NOT NULL UNIQUE,
+          answers         JSONB NOT NULL DEFAULT '[]',
+          "updatedAt"     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          "updatedBy"     TEXT
+        )
+      `)
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_compliance_customer_context_company
+        ON compliance_customer_context ("companyId")
+      `)
+      await client.query(`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'compliance_customer_context_companyId_fkey') THEN
+            ALTER TABLE compliance_customer_context
+            ADD CONSTRAINT "compliance_customer_context_companyId_fkey"
+            FOREIGN KEY ("companyId") REFERENCES companies(id) ON DELETE CASCADE;
+          END IF;
+        END $$
       `)
     }
 
