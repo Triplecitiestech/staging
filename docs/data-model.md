@@ -378,6 +378,57 @@ These tables are created via `/api/soc/migrate` and managed with raw SQL queries
 
 ---
 
+### Compliance Tables (Raw SQL — NOT Prisma-managed)
+
+These tables are created idempotently by `src/lib/compliance/ensure-tables.ts` on first reach by any compliance API route. They power the assessment engine, policy generation, platform mapping, and (planned) Change Bundle remediation workflow.
+
+> **Active redesign in progress (2026-05-13).** The four "new" tables at the bottom of this list are designed in `docs/plans/CHANGE_MANAGEMENT_AND_REMEDIATION.md` but are not yet created. See also `docs/plans/COMPLIANCE_ARCHITECTURE.md` for the consolidated target data model.
+
+#### Currently in production (16 tables)
+
+| Table | Purpose | Key Columns |
+|-------|---------|-------------|
+| `compliance_connectors` | Per-company integration connection status (M365, Datto, DNSFilter, SaaS Alerts, etc.) | `companyId`, `connectorType`, `status` (`not_configured`/`available`/`configured`/`verified`/`error`), `lastCollectedAt`, `errorMessage`; UNIQUE(`companyId`, `connectorType`) |
+| `compliance_assessments` | Assessment runs — rerunnable, no `isFinal` column | `companyId`, `frameworkId`, `status`, `totalControls`, `passedControls`, `failedControls`, `manualReviewControls`, `createdAt`, `completedAt`, `createdBy` |
+| `compliance_evidence` | Raw collector output snapshots per assessment + source type | `assessmentId`, `companyId`, `sourceType` (21 values), `rawData` (JSONB), `summary`, `collectedAt`, `validForHours` |
+| `compliance_findings` | Per-control evaluation results with manual override capability | `assessmentId`, `controlId`, `status`, `confidence`, `reasoning`, `evidenceIds` (JSONB), `missingEvidence` (JSONB), `remediation` (descriptive text only), `overrideStatus`, `overrideReason`, `overrideBy`, `overrideAt`; UNIQUE(`assessmentId`, `controlId`) |
+| `compliance_audit_log` | Audit trail for all compliance actions | `companyId`, `assessmentId`, `action`, `actor`, `metadata` (JSONB), `timestamp` |
+| `compliance_policies` | Uploaded + generated policies with AI analysis counters | `companyId`, `policySlug`, `title`, `content`, `uploadedBy`, `analyzedControlsCovered`, `analyzedControlsPartial`, `analyzedControlsMissing` |
+| `compliance_policy_analyses` | Deep AI policy-to-controls coverage analysis | `policyId`, `controlsCovered` (JSONB), `controlsPartial` (JSONB), `controlsMissing` (JSONB), `gaps` (JSONB), `recommendations` (JSONB), `controlDetails` (JSONB) |
+| `compliance_attestations` | Manual signed customer statements | `companyId`, `attestorName`, `attestorRole`, `statement`, `signedAt` |
+| `compliance_platform_mappings` | Customer→external-entity mapping (one-to-many supported) | `companyId`, `platform`, `externalId`, `externalName`, `externalType`, `mappedBy`, `mappedAt`; UNIQUE(`companyId`, `platform`, `externalId`) |
+| `compliance_webhook_events` | Inbound webhooks (SaaS Alerts today; 90-day TTL via `expiresAt`) | `source`, `receivedAt`, `expiresAt`, `externalId`, `partnerId`, `customerId`, `sourceIp`, `headers` (JSONB), `normalized` (JSONB), `signalType` |
+| `policy_org_profiles` | Org profile Q&A (single row per company; **to be retired** — consolidated into question engine) | `companyId`, `answers` (JSONB) |
+| `policy_intake_answers` | Per-policy refinement Q&A | `companyId`, `policySlug`, `answers` (JSONB); UNIQUE(`companyId`, `policySlug`) |
+| `policy_generation_records` | Per-policy generation state machine | `companyId`, `policySlug`, `status`, `mode` (`new`/`improve`/`update-framework`/`standardize`/`fill-missing`), `generatedContent`, `version`, `createdBy`, `publishedAt` |
+| `policy_versions` | Version history of generated policies | `policySlug`, `companyId`, `versionNumber`, `content`, `createdBy` |
+| `integration_credentials` | Encrypted per-tenant API credentials (M365, Datto, etc.) — Wave 2 of credentials migration | `companyId`, `connectorType`, `encryptedValue` (BYTEA, AES-256-GCM), `metadata`, `lastRotatedAt`; UNIQUE(`companyId`, `connectorType`) |
+| `integration_credential_access_log` | Audit log of every credential read | `credentialId`, `companyId`, `connectorType`, `accessedBy`, `purpose`, `accessedAt` |
+
+#### Referenced by code but **not yet created** (bugs to fix)
+
+| Table | Referenced by | Fix |
+|-------|---------------|-----|
+| `compliance_company_tools` | `/api/compliance/workflow-status`, `/api/compliance/registry/company-tools` | Add to `ensure-tables.ts` |
+| `customer_context_answers` | `/api/compliance/customer-context` | Add to `ensure-tables.ts` (interim) or migrate to question engine |
+
+#### Designed but not yet implemented (target state)
+
+| Table | Purpose | Source doc |
+|-------|---------|------------|
+| `compliance_finding_dispositions` | Durable per-control lifecycle status (open / accepted_risk / scheduled / in_progress / completed / customer_declined / billable_project / superseded) that survives reassessment | `docs/plans/COMPLIANCE_ARCHITECTURE.md` §2.7 |
+| `compliance_pending_changes` | Staged remediation actions awaiting bundle / customer approval / deployment | `docs/plans/CHANGE_MANAGEMENT_AND_REMEDIATION.md` §5.1 |
+| `compliance_change_bundles` | Customer-facing groupings of pending changes for one approval conversation | `docs/plans/CHANGE_MANAGEMENT_AND_REMEDIATION.md` §5.2 |
+| `compliance_change_bundle_items` | Join table: bundle → change, with per-change customer decision | `docs/plans/CHANGE_MANAGEMENT_AND_REMEDIATION.md` §5.3 |
+
+**Used in**: Compliance admin UI (`/admin/compliance/*`), assessment engine (`src/lib/compliance/engine.ts`), policy generation (`src/lib/compliance/policy-generation/`), evidence collectors (`src/lib/compliance/collectors/`).
+
+**Frameworks with full evaluators**: CIS v8 (65 controls, IG1/IG2/IG3 variants), CMMC L1. Type-stubbed only (assessments create rows but produce empty findings): CMMC L2, NIST 800-171, HIPAA, PCI.
+
+**Customer Profile consolidation**: `policy_org_profiles.answers`, `customer_context_answers`, and the in-page state of `ComplianceSetupWizard.tsx` all collect overlapping customer-environment / org-profile data. The redesign uses the HR question engine (`form_schemas`, `form_responses`) as the single Customer Profile store. See `docs/plans/COMPLIANCE_WORKFLOW_REDESIGN.md` §3.
+
+---
+
 ### AuditLog
 
 **Purpose**: Audit trail for project/phase/task changes.

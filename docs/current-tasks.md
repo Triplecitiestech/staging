@@ -42,29 +42,81 @@
 
 ## Compliance System
 
-### Priority 1: Stepper Completion
-- [ ] **Embed AssessmentResults in Steps 4 & 6** — Show full assessment details inline in the workflow stepper
-- [ ] **Step 6 comparison delta** — Show improvement from Step 4 baseline to Step 6 final
-- [ ] **Better step navigation** — Allow clicking completed steps to review
+> **Major redesign approved 2026-05-13.** The 6-step Guided Workflow is being replaced with a bootstrap-plus-cockpit shape; the three intake stores are being consolidated into a single Customer Profile via the HR question engine; and an entirely new Change Bundle remediation lifecycle is being built. Design docs:
+> - `docs/plans/COMPLIANCE_ARCHITECTURE.md` — overall system shape and target data model
+> - `docs/plans/COMPLIANCE_WORKFLOW_REDESIGN.md` — workflow reshape + intake consolidation + legacy retirement
+> - `docs/plans/CHANGE_MANAGEMENT_AND_REMEDIATION.md` — Change Bundle workflow, action catalog, customer impact analysis, deployment lifecycle
+>
+> The backlog below replaces the previous Priority 1–4 list. Old items that survived the redesign are folded in; items the redesign retired (e.g., "Step 6 comparison delta" — the comparison engine already exists) are removed from the active list but noted in the design docs.
 
-### Priority 2: Unified Controls & Policies View
-- [ ] **Controls vs Policies clarity** — Merge or cross-reference the "39 Controls Covered" (Policy Analysis) and "19/21 Missing" (Policy Generation) views
+### Priority 0: Pre-flight bug fixes (small, do first)
+- [ ] **P0-1** Add `compliance_company_tools` table to `src/lib/compliance/ensure-tables.ts` — queried by `/api/compliance/workflow-status` and `/api/compliance/registry/company-tools` but never created.
+- [ ] **P0-2** Add `customer_context_answers` table to `ensure-tables.ts` (interim) — queried by `/api/compliance/customer-context`. Removed entirely once consolidation lands.
+- [ ] **P0-3** Audit `PlatformMappingPanel.tsx` to confirm the UI exposes adding multiple rows per platform (schema supports 1:M; UI may not).
 
-### Priority 3: Policy Editing & Export
+### Priority 1: Customer Profile consolidation (Workflow Redesign §3)
+- [ ] **W3** Author `customer_profile` question-engine schema in code (new file: `src/lib/compliance/customer-profile-schema.ts`) and seed via existing question-engine seeder.
+- [ ] **W4** Backfill script: `policy_org_profiles.answers` JSONB → `form_responses` rows (new: `scripts/backfill-customer-profile.ts`).
+- [ ] **W5** Update engine N/A logic to read from question engine instead of `policy_org_profiles` / `customer_context_answers` (`src/lib/compliance/engine.ts`, `frameworks/cis-v8.ts`, `frameworks/cmmc-l1.ts`).
+- [ ] **W6** Update policy generator to read profile answers from question engine (`src/lib/compliance/policy-generation/generator.ts`).
+- [ ] **W13** Refactor `PolicyGenerationDashboard.tsx` to stop authoring profile questions inline — read from question engine instead.
+- [ ] **W15** Delete `ComplianceSetupWizard.tsx` once the new Customer Profile editor is live.
+- [ ] **W16** Drop `policy_org_profiles` and `customer_context_answers` tables (operator-gated, after one-release soak).
+
+### Priority 2: Bootstrap + Cockpit UI shell (Workflow Redesign §2)
+- [ ] **W7** Build per-customer cockpit page + single-fetch endpoint (`src/app/admin/compliance/[companyId]/page.tsx`, `src/app/api/compliance/[companyId]/cockpit/route.ts`).
+- [ ] **W8** Build Connections page combining Connectors + Tool Inventory + Platform Mappings (`src/app/admin/compliance/[companyId]/connections/page.tsx`).
+- [ ] **W9** Build Policies page merging PolicyManager + PolicyGenerationDashboard navigation (`src/app/admin/compliance/[companyId]/policies/page.tsx`).
+- [ ] **W10** Build Assessments + Findings pages (`src/app/admin/compliance/[companyId]/assessments/page.tsx`, `findings/page.tsx`).
+- [ ] **W11** Build TCT-only Diagnostics page (`src/app/admin/compliance/diagnostics/page.tsx`) — connector errors, raw evidence JSON, evaluator debug.
+- [ ] **W14** Wire `engine.compareAssessments()` into the cockpit + AssessmentResults UI (latest vs. baseline, latest vs. previous, arbitrary pair).
+- [ ] **W15 (cont.)** Delete `ComplianceDashboard.tsx` and `ComplianceWorkflow.tsx` after migration. Move `StepIndicator` to a reusable `BootstrapStepper.tsx`.
+
+### Priority 3: Finding lifecycle (Architecture §2.7)
+- [ ] **F1** Add `compliance_finding_dispositions` table to `ensure-tables.ts`.
+- [ ] **F2** Build disposition API routes (GET list, PATCH update, POST link-project) under `src/app/api/compliance/[companyId]/dispositions/`.
+- [ ] **F3** Wire disposition controls into AssessmentResults / Findings UI (status dropdown, assignee, due date, accepted-risk rationale).
+- [ ] **F4** Build stale-disposition surfacing in cockpit (accepted-risk older than 90 days, scheduled past due date).
+- [ ] **F5** Add `manage_compliance` permission to `src/lib/permissions.ts`.
+
+### Priority 4: Change Management & Remediation (greenfield — CHANGE_MANAGEMENT doc)
+- [ ] **C1** Build action catalog scaffolding + types (`src/lib/compliance/actions/types.ts`, `catalog.ts`, `validators.ts`).
+- [ ] **C2** Seed initial action catalog with 10–15 high-value actions (MFA enforcement, CA policies, Defender hardening, backup, training programs, etc.).
+- [ ] **C3** Add CI lint: every action requires non-empty `impact.userFacing` (`scripts/validate-action-catalog.ts`).
+- [ ] **C4** Add 3 remaining tables to `ensure-tables.ts`: `compliance_pending_changes`, `compliance_change_bundles`, `compliance_change_bundle_items`.
+- [ ] **C5** Build Pending Change API routes (CRUD + abandon + communicate + deploy + rollback).
+- [ ] **C6** Build Bundle API routes (CRUD + items + preview + send + decision + cancel).
+- [ ] **C7** Build Disposition API routes (covered by F2; cross-reference here).
+- [ ] **C8** Build Action Catalog API routes (list, get, suggest-for-control).
+- [ ] **C9** Build Pending Changes admin UI per customer (`src/app/admin/compliance/[companyId]/changes/page.tsx`).
+- [ ] **C10** Build BundleComposer component + preview view.
+- [ ] **C11** Build customer-facing bundle report (HTML + PDF via @react-pdf/renderer + email via Resend) — `src/lib/compliance/bundle-report/`.
+- [ ] **C12** Build verification runner: after `delaySecondsBeforeVerify`, re-run named evaluator(s); transition change to complete or rolled_back.
+- [ ] **C13** Build executor framework: registry of automated handlers by id; manual executor pattern surfaces staff instructions + "mark deployed" button.
+- [ ] **C16** Stale-disposition surfacing covered by F4.
+- [ ] **C17** Wire billable dispositions to per-customer "Compliance Operations" Project + new phase per engagement (`src/lib/compliance/billable-handoff.ts`).
+
+### Priority 5: Framework expansion
+- [ ] **FR1** CMMC L2 evaluators (currently type stub only)
+- [ ] **FR2** NIST 800-171 evaluators
+- [ ] **FR3** HIPAA evaluators
+- [ ] **FR4** PCI DSS evaluators
+- [ ] **FR5** Auto-detect required frameworks from Customer Profile (PHI → HIPAA, CUI → CMMC/NIST 800-171, card processing → PCI)
+
+### Priority 6: Carried over from prior backlog
 - [ ] Policy editing (inline edit before approve)
 - [ ] Regenerate-with-mode UI buttons
 - [ ] DOCX export (`docx` npm package)
-- [ ] PDF export (native server-side)
+- [ ] PDF export (native server-side) — partially solved by the bundle report PDF infrastructure
 - [ ] SharePoint publishing via Graph API
 - [ ] ZIP bundle download
-
-### Priority 4: Advanced Features
-- [ ] Multi-framework policy analysis
-- [ ] Auto-detect frameworks from company (PHI → HIPAA, CUI → CMMC/NIST 800-171)
-- [ ] Customer attestation input
-- [ ] Customer portal compliance card
 - [ ] Policy comparison/diff
 - [ ] Policy template library
+- [ ] Customer portal compliance card (out-of-scope for current redesign; can layer on once cockpit is live)
+- [ ] Customer attestation input (already exists in `compliance_attestations`; needs UI)
+
+### Compliance Evidence Engine — Blocked
+- [ ] **SaaS Alerts integration** — Blocked by Cloudflare. Webhook receiver ready at `/api/compliance/webhooks/saas-alerts`. Pending Kaseya support to configure webhook delivery.
 
 ## Stabilization — Remaining (Low Priority)
 
@@ -72,9 +124,6 @@
 - [ ] **Schema drift CI check** — Build-time check that Prisma schema matches raw SQL tables
 - [ ] **Migrate `MIGRATION_SECRET` / `CRON_SECRET`** — Both were in git history (CLAUDE.md). Rotate in Vercel.
 - [ ] **Encrypt per-tenant integration credentials at rest** — Legacy-mode `m365_client_secret` is still plaintext. Once all customers are migrated to `multi_tenant`, drop the columns entirely.
-
-## Compliance Evidence Engine — Blocked
-- [ ] **SaaS Alerts integration** — Blocked by Cloudflare. Webhook receiver ready at `/api/compliance/webhooks/saas-alerts`.
 
 ## Other Systems — Status
 - M365 customer onboarding: **multi-tenant flow live; dual-mode supported**

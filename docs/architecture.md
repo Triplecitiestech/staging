@@ -256,7 +256,9 @@ Admin UI (/admin/reporting)
 
 ## Compliance Evidence & Assessment Flow
 
-The largest single subsystem: ~14,000 LOC across `src/lib/compliance/` and `src/app/api/compliance/`. Automates CIS v8 assessments today; designed to extend to CMMC, NIST 800-171, HIPAA, PCI.
+The largest single subsystem: ~14,000 LOC across `src/lib/compliance/` and `src/app/api/compliance/`. Automates CIS v8 (full) and CMMC L1 (full) assessments today; type-stubbed for CMMC L2, NIST 800-171, HIPAA, PCI (assessments can be created but only policy-coverage analysis is produced — no control evaluations).
+
+> **Active redesign in progress (2026-05-13).** The current 6-step Guided Workflow, three overlapping intake stores, and missing remediation system are being reworked into a bootstrap-plus-cockpit shape with a Change Bundle remediation lifecycle. See `docs/plans/COMPLIANCE_ARCHITECTURE.md`, `docs/plans/COMPLIANCE_WORKFLOW_REDESIGN.md`, and `docs/plans/CHANGE_MANAGEMENT_AND_REMEDIATION.md` for the design contract that supersedes this section. The text below describes the system **as currently implemented**.
 
 ```
 Admin UI                         /api/compliance/assessments (POST)
@@ -269,7 +271,9 @@ Admin UI                         /api/compliance/assessments (POST)
                                ┌─────────────────────────────────────┐
                                │ 1. ensureComplianceTables()         │
                                │    self-healing raw SQL, creates    │
-                               │    13 tables if missing             │
+                               │    16 tables if missing             │
+                               │    (2 more referenced but missing — │
+                               │     see "Known gaps" below)         │
                                └─────────────────────────────────────┘
                                                │
                                                ▼
@@ -315,33 +319,53 @@ Admin UI                         /api/compliance/assessments (POST)
 - **Collector adapter**: each integration exposes `(companyId, assessmentId) => { evidence[], errors[] }`. Dispatch is currently `if (availableConnectors.has('x')) collectors.push(...)` in `engine.ts`.
 - **Evidence is tool-agnostic**: `EvidenceRecord` is the single shape — `sourceType`, `rawData` (JSONB snapshot), `summary` (human readable). Evaluators read by `sourceType`.
 - **Capability registry** (`src/lib/compliance/registry/`) catalogs which tools satisfy which capabilities (e.g., `mfa_status` → `microsoft_graph`). Currently informational — evaluators don't yet consume it. Planned operationalisation.
-- **Framework currently implemented**: CIS v8 only (65 controls, 65 evaluators in `frameworks/cis-v8.ts`). `FrameworkId` type declares CMMC / NIST / HIPAA / PCI; engine throws on them.
+- **Frameworks implemented**: CIS v8 (65 controls, 65 evaluators in `frameworks/cis-v8.ts`, with IG1 / IG2 / IG3 selectivity) and CMMC L1 (`frameworks/cmmc-l1.ts`, full). `FrameworkId` type also declares CMMC L2 / NIST 800-171 / HIPAA / PCI but these have only policy-mapping coverage, no evaluators — assessments against them complete with empty findings.
 - **Policy generation** is a parallel flow: `src/lib/compliance/policy-generation/` takes an org profile + policy-specific questionnaire + framework mappings, builds a Claude prompt, returns Markdown. Versioned in `policy_versions`.
+- **6-step Guided Workflow** at `/admin/compliance/workflow` is a UI veneer — step status is **computed on every request** from row counts and timestamps in the underlying tables, not persisted. There is no `compliance_workflow_status` table. The legacy `/admin/compliance` tabbed dashboard (`ComplianceDashboard.tsx`) still exists alongside the workflow stepper (`ComplianceWorkflow.tsx`) and the separate setup wizard at `/admin/compliance/setup` (`ComplianceSetupWizard.tsx`); the workflow redesign plan consolidates them.
+- **Assessment comparison** (`engine.compareAssessments(currentId, previousId)`) is implemented and returns deltas (newly passed, newly failed, improved, regressed). The 6-step UI's "Step 6 Final Assessment" is purely a temporal label — no `isFinal` schema column.
+- **Remediation / deployment / change management is NOT YET IMPLEMENTED**. Findings have a `remediation` text column (descriptive only) and an `overrideStatus` column (manual scoring override). There is no executor framework, no Change Bundle workflow, no customer-impact analysis layer. See `docs/plans/CHANGE_MANAGEMENT_AND_REMEDIATION.md` for the proposed design.
 - **Credentials** for each integration come from either `process.env.*` (MSP-global — Datto, DNSFilter, etc.) or `companies.m365_client_secret` (M365 only, plaintext today). Migration to encrypted per-tenant storage is tracked in `docs/runbooks/CREDENTIALS_MIGRATION.md`.
 
 **Key files:**
-- `src/lib/compliance/engine.ts` — assessment lifecycle orchestrator (~1000+ LOC)
-- `src/lib/compliance/types.ts` — `FrameworkId`, `ControlDefinition`, `EvidenceRecord`, `Finding`, `EvaluationContext`
-- `src/lib/compliance/collectors/` — `graph.ts` (M365), `msp.ts` (Datto/DNSFilter/IT Glue/Domotz/SaaS Alerts/Ubiquiti/MyITProcess)
-- `src/lib/compliance/frameworks/cis-v8.ts` — 65 control definitions + 65 evaluator functions
+- `src/lib/compliance/engine.ts` — assessment lifecycle orchestrator (~57 KB; includes `runAssessment`, `compareAssessments`, `overrideFinding`, connector management)
+- `src/lib/compliance/types.ts` — `FrameworkId`, `ControlDefinition`, `EvidenceRecord`, `Finding`, `EvaluationContext`, 21 `EvidenceSourceType` variants
+- `src/lib/compliance/collectors/` — `graph.ts` (M365 — Secure Score / CA / MFA / Intune / Defender / audit), `msp.ts` (Datto RMM/EDR/BCDR, DNSFilter, IT Glue, Domotz, SaaS Alerts, Ubiquiti, EasyDMARC, MyITProcess)
+- `src/lib/compliance/frameworks/cis-v8.ts` — 65 control definitions + 65 evaluator functions + `applyPolicyCoverage` enhancement
+- `src/lib/compliance/frameworks/cmmc-l1.ts` — CMMC L1 framework + evaluators (full)
 - `src/lib/compliance/registry/` — `capabilities.ts`, `tool-definitions.ts`, `control-capability-map.ts`, `resolver.ts`
-- `src/lib/compliance/policy-generation/` — `generator.ts`, `catalog.ts`, `framework-mappings.ts`, `questionnaire.ts`
-- `src/app/api/compliance/` — 13 route directories (assessments, connectors, policies, webhooks, registry, export, ai-assist, platform-mappings, workflow-status)
+- `src/lib/compliance/policy-generation/` — `generator.ts`, `catalog.ts`, `framework-mappings.ts`, `questionnaire.ts`, `export.ts`, `types.ts`
+- `src/lib/compliance/saas-alerts-normalizer.ts` — webhook normalisation
+- `src/components/compliance/` — `ComplianceDashboard.tsx` (legacy tabs), `ComplianceWorkflow.tsx` (6-step stepper), `ComplianceSetupWizard.tsx` (env discovery — duplicates profile), `PlatformMappingPanel.tsx`, `PolicyManager.tsx`, `PolicyGenerationDashboard.tsx` (largest component in repo at 87 KB), `AssessmentResults.tsx`, `ToolCapabilityMap.tsx`
+- `src/app/api/compliance/` — ~22 route directories: `/`, `assessments/[id]`, `assessments/[id]/cowork-worksheet`, `connectors`, `customer-context`, `workflow-status`, `platform-mappings`, `policies`, `policies/catalog`, `policies/questionnaire`, `policies/generate`, `policies/generate/diagnose`, `policies/export`, `policies/sharepoint-scan`, `registry`, `registry/company-tools`, `ai-assist`, `portal`, `export`, `setup`, `webhooks/saas-alerts`, `debug-collectors`
 
 **Tables (all raw SQL, not Prisma-managed, created by `src/lib/compliance/ensure-tables.ts`):**
 - `compliance_connectors` — per-company integration status
-- `compliance_assessments` — assessment instances + summary counters
+- `compliance_assessments` — assessment instances + summary counters (rerunnable; no `isFinal` column)
 - `compliance_evidence` — collected evidence snapshots (JSONB rawData)
 - `compliance_findings` — per-control results (status, confidence, reasoning, overrides)
 - `compliance_audit_log` — every compliance-related action
 - `compliance_policies` + `compliance_policy_analyses` — policies and their gap analyses
 - `compliance_attestations` — customer testimony for manual controls
-- `compliance_platform_mappings` — explicit `company → external site/org/device` mapping
+- `compliance_platform_mappings` — explicit `company → external site/org/device` mapping (1:M — schema permits multiple rows per company per platform)
 - `compliance_webhook_events` — inbound webhook events (currently SaaS Alerts only, 90-day TTL)
 - `policy_org_profiles` + `policy_intake_answers` + `policy_generation_records` + `policy_versions` — policy generation pipeline
 - `integration_credentials` + `integration_credential_access_log` — encrypted per-tenant credentials + read audit (dormant; populated by Wave 2 of credentials migration)
 
+**Known gaps (tables referenced by code but not created by `ensure-tables.ts`):**
+- `compliance_company_tools` — queried by `/api/compliance/workflow-status` and `/api/compliance/registry/company-tools`. Step 2 of the workflow reads this; tenants without the table fall through to empty results. Fix: add to `ensure-tables.ts`.
+- `customer_context_answers` — queried by `/api/compliance/customer-context`. Used by the workflow Step 2 environment Q&A. Same fix, or migrate to the question engine per `COMPLIANCE_WORKFLOW_REDESIGN.md`.
+
+**Three intake stores collect overlapping data and need consolidation:**
+`policy_org_profiles.answers` (org profile), `customer_context_answers` (environment), and the in-page state of `ComplianceSetupWizard.tsx` (also environment). The redesign uses the HR question engine (`form_schemas`, `form_responses`) as the single Customer Profile store. See `docs/plans/COMPLIANCE_WORKFLOW_REDESIGN.md` §3.
+
 **Webhook receiver**: `/api/compliance/webhooks/saas-alerts` ingests Kaseya SaaS Alerts events. Validates the partner-echoed token (env var `SAAS_ALERTS_WEBHOOK_TOKEN`) when configured, always ACKs 200 to prevent Kaseya from disabling the subscription on transient errors.
+
+**See also:**
+- `docs/plans/COMPLIANCE_ARCHITECTURE.md` — proposed consolidated architecture (six concerns, target data model, target UI surface)
+- `docs/plans/COMPLIANCE_WORKFLOW_REDESIGN.md` — bootstrap-plus-cockpit reshape, intake consolidation, legacy retirement plan
+- `docs/plans/CHANGE_MANAGEMENT_AND_REMEDIATION.md` — Change Bundle workflow, action catalog, customer impact analysis, deployment lifecycle (greenfield)
+- `docs/COMPLIANCE_PLAYBOOK.md` — per-control scoring logic, evidence sources, env-aware N/A rules
+- `docs/compliance-future-integrations.md` — future tool integrations backlog
 
 ## Unified Ticket System
 
