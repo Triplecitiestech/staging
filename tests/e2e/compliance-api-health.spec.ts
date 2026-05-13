@@ -44,6 +44,7 @@ const COMPLIANCE_ROUTES: Array<{ method: 'GET' | 'POST' | 'PATCH' | 'DELETE'; pa
   { method: 'POST', path: `/api/compliance/${SAMPLE_COMPANY_ID}/bundles/${SAMPLE_BUNDLE_ID}/send`, body: {} },
   { method: 'POST', path: `/api/compliance/${SAMPLE_COMPANY_ID}/bundles/${SAMPLE_BUNDLE_ID}/cancel`, body: {} },
   { method: 'POST', path: `/api/compliance/${SAMPLE_COMPANY_ID}/bundles/${SAMPLE_BUNDLE_ID}/items/${SAMPLE_ITEM_ID}/decision`, body: {} },
+  { method: 'GET', path: `/api/compliance/${SAMPLE_COMPANY_ID}/bundles/${SAMPLE_BUNDLE_ID}/preview` },
 
   // Action catalog (P4 C8)
   { method: 'GET', path: `/api/compliance/actions` },
