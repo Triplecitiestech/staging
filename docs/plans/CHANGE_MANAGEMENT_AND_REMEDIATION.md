@@ -550,7 +550,7 @@ Permission additions go into `src/lib/permissions.ts`.
 | C4 | Add 4 new tables to `ensure-tables.ts` (pending_changes, change_bundles, change_bundle_items, finding_dispositions) | `src/lib/compliance/ensure-tables.ts` |
 | C5 | Build Pending Change API routes (§6.1) | new under `src/app/api/compliance/[companyId]/changes/` |
 | C6 | Build Bundle API routes (§6.2) | new under `src/app/api/compliance/[companyId]/bundles/` |
-| C7 | Build Disposition API routes (§6.3) | new under `src/app/api/compliance/[companyId]/dispositions/` |
+| C7 | ✅ Build Disposition API routes (§6.3) — done 2026-05-13 as F2 | `src/app/api/compliance/[companyId]/dispositions/route.ts`, `dispositions/link-project/route.ts` |
 | C8 | Build Action Catalog API routes (§6.4) | new under `src/app/api/compliance/actions/` |
 | C9 | Build Pending Changes admin UI (per-customer changes page) | new: `src/app/admin/compliance/[companyId]/changes/page.tsx` |
 | C10 | Build Bundle composer + preview | new component: `BundleComposer.tsx` |

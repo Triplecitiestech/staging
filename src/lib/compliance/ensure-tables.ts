@@ -20,6 +20,7 @@
  *   compliance_webhook_events — inbound webhooks (SaaS Alerts)
  *   compliance_company_tools — per-company tool deployment status (toggle UI)
  *   compliance_customer_context — per-customer environment Q&A (drives engine N/A logic, legacy)
+ *   compliance_finding_dispositions — per-(company, framework, control) durable lifecycle decisions
  *   form_responses           — persistent question-engine answer store, keyed by
  *                              (company_id, schema_type). Customer Profile lives here.
  *   policy_org_profiles      — org-wide questionnaire answers for policy generation (legacy)
@@ -58,6 +59,7 @@ export async function ensureComplianceTables(): Promise<void> {
            'compliance_webhook_events',
            'compliance_company_tools',
            'compliance_customer_context',
+           'compliance_finding_dispositions',
            'form_responses',
            'policy_org_profiles',
            'policy_intake_answers',
@@ -478,6 +480,65 @@ export async function ensureComplianceTables(): Promise<void> {
           IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'compliance_customer_context_companyId_fkey') THEN
             ALTER TABLE compliance_customer_context
             ADD CONSTRAINT "compliance_customer_context_companyId_fkey"
+            FOREIGN KEY ("companyId") REFERENCES companies(id) ON DELETE CASCADE;
+          END IF;
+        END $$
+      `)
+    }
+
+    // --- compliance_finding_dispositions ---
+    // Durable per-control lifecycle decision that survives reassessment.
+    // When the engine re-runs, individual compliance_findings rows get
+    // overwritten — but the human decision about what to do about a failed
+    // control (accept the risk, schedule a fix, hand it to a billable
+    // project, customer declined, etc.) persists here.
+    //
+    // Keyed on (companyId, frameworkId, controlId). One row per control
+    // per framework per customer; updates are upserts.
+    //
+    // See docs/plans/COMPLIANCE_ARCHITECTURE.md §2.7 and
+    // docs/plans/CHANGE_MANAGEMENT_AND_REMEDIATION.md §5.4 for the design.
+    if (!existingSet.has('compliance_finding_dispositions')) {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS compliance_finding_dispositions (
+          id                              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+          "companyId"                     TEXT NOT NULL,
+          "frameworkId"                   TEXT NOT NULL,
+          "controlId"                     TEXT NOT NULL,
+          "lifecycleStatus"               TEXT NOT NULL DEFAULT 'open',
+          "assignedTo"                    TEXT,
+          "dueDate"                       TIMESTAMPTZ,
+          "projectId"                     TEXT,
+          "phaseTaskId"                   TEXT,
+          "customerImpactSummary"         TEXT,
+          "internalNotes"                 TEXT,
+          "acceptedRiskRationale"         TEXT,
+          "decisionBy"                    TEXT,
+          "decidedAt"                     TIMESTAMPTZ,
+          "lastReviewedAt"                TIMESTAMPTZ,
+          "supersededByPendingChangeId"   TEXT,
+          "createdAt"                     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          "updatedAt"                     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          UNIQUE ("companyId", "frameworkId", "controlId")
+        )
+      `)
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_compliance_finding_dispositions_company
+        ON compliance_finding_dispositions ("companyId")
+      `)
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_compliance_finding_dispositions_status
+        ON compliance_finding_dispositions ("companyId", "lifecycleStatus")
+      `)
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_compliance_finding_dispositions_review
+        ON compliance_finding_dispositions ("lastReviewedAt")
+      `)
+      await client.query(`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'compliance_finding_dispositions_companyId_fkey') THEN
+            ALTER TABLE compliance_finding_dispositions
+            ADD CONSTRAINT "compliance_finding_dispositions_companyId_fkey"
             FOREIGN KEY ("companyId") REFERENCES companies(id) ON DELETE CASCADE;
           END IF;
         END $$
