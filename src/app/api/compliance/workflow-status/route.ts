@@ -15,6 +15,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { getPool } from '@/lib/db-pool'
 import type { PoolClient } from 'pg'
+import {
+  getCustomerProfileAnswers,
+  computeProfileCompletion,
+  isProfileEmpty,
+} from '@/lib/compliance/customer-profile-schema'
 
 export const dynamic = 'force-dynamic'
 
@@ -85,29 +90,13 @@ export async function GET(request: NextRequest) {
     )
     const step4Complete = assessmentCount >= 1
 
-    // Step 5: Policies — need uploaded/generated policies AND org profile started
-    // Check org profile exists and has at least some required answers filled
-    let orgProfileCompletion = 0
-    let hasOrgProfile = false
-    try {
-      const orgRes = await client.query<{ answers: Record<string, unknown> }>(
-        `SELECT answers FROM policy_org_profiles WHERE "companyId" = $1`,
-        [companyId]
-      )
-      if (orgRes.rows[0]) {
-        hasOrgProfile = true
-        const answers = orgRes.rows[0].answers
-        // Count how many of the key required fields are filled
-        const requiredFields = ['org_legal_name', 'org_industry', 'org_employee_count', 'org_handles_phi', 'org_handles_pii']
-        const filled = requiredFields.filter((f) => {
-          const v = answers[f]
-          return v !== undefined && v !== null && v !== ''
-        }).length
-        orgProfileCompletion = Math.round((filled / requiredFields.length) * 100)
-      }
-    } catch {
-      // Table may not exist yet
-    }
+    // Step 5: Policies — need uploaded/generated policies AND profile started.
+    // Completion is computed against the consolidated Customer Profile schema
+    // (see src/lib/compliance/customer-profile-schema.ts), which merges both
+    // legacy stores until W4 backfill flips the underlying store.
+    const profileAnswers = await getCustomerProfileAnswers(companyId)
+    const hasOrgProfile = !isProfileEmpty(profileAnswers)
+    const orgProfileCompletion = computeProfileCompletion(profileAnswers)
 
     // Count uploaded policies (from Policy Analysis tab)
     const uploadedPolicyCount = await safeCount(
@@ -123,9 +112,13 @@ export async function GET(request: NextRequest) {
       [companyId]
     )
 
-    // Step 5 requires: org profile with at least 50% of key fields + at least one policy
+    // Step 5 requires: meaningful profile coverage + at least one policy.
+    // Threshold is calibrated against the consolidated Customer Profile schema
+    // (~13 required questions). 30% ≈ 4 required answers, which preserves the
+    // intent of the prior 60%-of-5-key-fields heuristic for legacy data while
+    // staying sensitive to the broader question set.
     const totalPolicyCount = uploadedPolicyCount + generatedPolicyCount
-    const step5Complete = orgProfileCompletion >= 60 && totalPolicyCount > 0
+    const step5Complete = hasOrgProfile && orgProfileCompletion >= 30 && totalPolicyCount > 0
 
     // Step 6: Final assessment — 2+ assessments (the second one is the "final" post-policy assessment)
     // Also check if the latest assessment is newer than the latest policy activity

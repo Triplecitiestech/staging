@@ -20,6 +20,10 @@ import { getPool } from '@/lib/db-pool'
 import { ensureComplianceTables } from '@/lib/compliance/ensure-tables'
 import { generatePolicy } from '@/lib/compliance/policy-generation/generator'
 import { getCatalogItem } from '@/lib/compliance/policy-generation/catalog'
+import {
+  getCustomerProfileAnswers,
+  type CustomerProfileAnswers,
+} from '@/lib/compliance/customer-profile-schema'
 import type { GenerationMode } from '@/lib/compliance/policy-generation/types'
 
 export const dynamic = 'force-dynamic'
@@ -79,15 +83,17 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Company not found' }, { status: 404 })
       }
 
-      // Load org profile answers (graceful if table doesn't exist)
-      let orgProfile: Record<string, string | string[] | boolean> = {}
-      try {
-        const orgRes = await client.query<{ answers: Record<string, string | string[] | boolean> }>(
-          `SELECT answers FROM policy_org_profiles WHERE "companyId" = $1`,
-          [body.companyId]
-        )
-        orgProfile = orgRes.rows[0]?.answers ?? {}
-      } catch { /* table may not exist — use empty profile */ }
+      // Load org profile answers via the consolidated Customer Profile schema.
+      // The reader merges both legacy stores (policy_org_profiles +
+      // compliance_customer_context) so the generator sees one unified set.
+      // After W4 backfill the reader flips to form_responses with no caller
+      // changes here. See src/lib/compliance/customer-profile-schema.ts.
+      const profileAnswers: CustomerProfileAnswers = await getCustomerProfileAnswers(body.companyId)
+      const orgProfile: Record<string, string | string[] | boolean> = {}
+      for (const [k, v] of Object.entries(profileAnswers)) {
+        if (v === null || v === undefined) continue
+        orgProfile[k] = v
+      }
 
       // Pre-fill org_legal_name
       if (!orgProfile.org_legal_name) {

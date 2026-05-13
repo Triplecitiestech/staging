@@ -16,6 +16,12 @@
 import { getPool } from '@/lib/db-pool'
 import type { PoolClient } from 'pg'
 import { ensureComplianceTables } from './ensure-tables'
+import {
+  getCustomerProfileAnswers,
+  getStringAnswer,
+  isProfileEmpty,
+  type CustomerProfileAnswers,
+} from './customer-profile-schema'
 import { collectGraphEvidence } from './collectors/graph'
 import { collectDattoRmmEvidence, collectDattoBcdrEvidence, collectDattoEdrEvidence, collectDattoSaasEvidence, collectDnsFilterEvidence, collectDomotzEvidence, collectItGlueEvidence, collectSaasAlertsEvidence, collectUbiquitiEvidence, collectMyItProcessEvidence, collectEasyDmarcEvidence } from './collectors/msp'
 import { CIS_V8_FRAMEWORK, CIS_V8_EVALUATORS, applyPolicyCoverage } from './frameworks/cis-v8'
@@ -412,135 +418,171 @@ export async function deleteAssessment(assessmentId: string, actor: string): Pro
 // ---------------------------------------------------------------------------
 
 /**
- * Load MSP setup wizard answers and derive environment context.
- * Maps setup question labels to structured flags for evaluators.
+ * Load customer environment context for env-aware N/A logic.
+ *
+ * Reads from the Customer Profile (`src/lib/compliance/customer-profile-schema.ts`),
+ * which transparently merges the two legacy stores (policy_org_profiles +
+ * compliance_customer_context). After the W4 backfill lands, it flips to
+ * reading form_responses; this function does not change.
+ *
+ * Falls back to the MSP-wide compliance_msp_setup table (legacy) for any
+ * remaining fields not yet in the customer profile (notably scope_network
+ * and scope_saas). Once the customer profile schema picks those up, the
+ * fallback can be dropped.
  */
 async function loadEnvironmentContext(existingClient?: PoolClient, companyId?: string): Promise<EnvironmentContext | undefined> {
+  // Customer-profile path — canonical values, no label parsing.
+  if (companyId) {
+    const answers = await getCustomerProfileAnswers(companyId)
+    if (!isProfileEmpty(answers)) {
+      return buildEnvironmentContextFromProfile(answers)
+    }
+  }
+
+  // Legacy MSP-wide setup wizard fallback (compliance_msp_setup). Mostly
+  // dead in production but kept until verified empty in every tenant.
   const pool = getPool()
   const client = existingClient ?? await pool.connect()
   try {
-    // Try per-customer context first (compliance_customer_context table).
-    // Falls back to MSP-wide context (compliance_msp_setup) if no customer
-    // record exists, for backward compatibility.
-    let answers: Array<{ questionId: string; toolId?: string | null; notes?: string; value?: string }> = []
-
-    if (companyId) {
-      try {
-        const customerRes = await client.query<{ answers: Array<{ questionId: string; value: string }> }>(
-          `SELECT answers FROM compliance_customer_context WHERE "companyId" = $1`,
-          [companyId]
-        )
-        if (customerRes.rows[0]?.answers?.length) {
-          // Customer context uses { questionId, value } format
-          answers = customerRes.rows[0].answers.map((a) => ({
-            questionId: a.questionId,
-            toolId: null,
-            notes: a.value, // loadEnvironmentContext parses from `notes`
-          }))
-        }
-      } catch { /* table may not exist yet */ }
-    }
-
-    // Fall back to MSP-wide if no customer-specific context
-    if (answers.length === 0) {
-      try {
-        const mspRes = await client.query<{ answers: Array<{ questionId: string; toolId: string | null; notes: string }> }>(
-          `SELECT answers FROM compliance_msp_setup WHERE id = 'msp_setup'`
-        )
-        if (mspRes.rows[0]?.answers?.length) {
-          answers = mspRes.rows[0].answers
-        }
-      } catch { /* table may not exist */ }
-    }
+    let answers: Array<{ questionId: string; toolId: string | null; notes: string }> = []
+    try {
+      const mspRes = await client.query<{ answers: Array<{ questionId: string; toolId: string | null; notes: string }> }>(
+        `SELECT answers FROM compliance_msp_setup WHERE id = 'msp_setup'`
+      )
+      if (mspRes.rows[0]?.answers?.length) {
+        answers = mspRes.rows[0].answers
+      }
+    } catch { /* table may not exist */ }
 
     if (answers.length === 0) return undefined
-
-    const rawAnswers: Record<string, string> = {}
-    let remoteAccess: string | null = null
-    let onPremServers: string | null = null
-    let customApps: string | null = null
-    let byodPolicy: string | null = null
-    const scope = {
-      endpoints: null as string | null,
-      users: null as string | null,
-      backup: null as string | null,
-      network: null as string | null,
-      saas: null as string | null,
-      incidentResponse: null as string | null,
-    }
-
-    for (const a of answers) {
-      // Store label from notes field (setup wizard stores label in notes when toolId is null)
-      rawAnswers[a.questionId] = a.notes || a.toolId || ''
-      const label = (a.notes || '').toLowerCase()
-
-      // Map specific answers to structured flags
-      if (a.questionId === 'remote_access') {
-        if (label.includes('cloud-only') || label.includes('no vpn')) remoteAccess = 'cloud_only'
-        else if (label.includes('vpn required')) remoteAccess = 'vpn_required'
-        else if (label.includes('hybrid')) remoteAccess = 'hybrid'
-      }
-      if (a.questionId === 'on_prem_servers') {
-        if (label.includes('no on-prem') || label.includes('fully cloud') || label === 'no_servers') onPremServers = 'no_servers'
-        else if (label.includes('bcdr') || label === 'yes_bcdr') onPremServers = 'yes_bcdr'
-        else if (label === 'yes_mixed') onPremServers = 'yes_mixed'
-        else onPremServers = 'yes_mixed'
-      }
-      if (a.questionId === 'custom_apps') {
-        customApps = (label.includes('no') || label.includes('standard') || label === 'no') ? 'no' : 'yes'
-      }
-      if (a.questionId === 'byod_policy') {
-        if (label.includes('company-owned') || label === 'company_owned') byodPolicy = 'company_owned'
-        else if (label.includes('no management') || label.includes('no mdm') || label === 'byod_unmanaged') byodPolicy = 'byod_unmanaged'
-        else byodPolicy = 'byod_managed'
-      }
-      if (a.questionId === 'remote_access') {
-        if (label.includes('cloud-only') || label.includes('no vpn') || label === 'cloud_only') remoteAccess = 'cloud_only'
-        else if (label.includes('vpn required') || label === 'vpn_required') remoteAccess = 'vpn_required'
-        else if (label.includes('hybrid') || label === 'hybrid') remoteAccess = 'hybrid'
-      }
-      // Scope definitions
-      if (a.questionId === 'scope_endpoints') {
-        if (label.includes('all managed')) scope.endpoints = 'all_managed'
-        else if (label.includes('workstations only')) scope.endpoints = 'workstations_only'
-        else if (label.includes('workstations + servers') || label.includes('workstations and servers')) scope.endpoints = 'workstations_servers'
-        else if (label.includes('custom')) scope.endpoints = 'custom'
-      }
-      if (a.questionId === 'scope_users') {
-        if (label.includes('all licensed')) scope.users = 'all_licensed'
-        else if (label.includes('full-time') || label.includes('employees only')) scope.users = 'employees_only'
-        else if (label.includes('all users') || label.includes('shared')) scope.users = 'all_including_shared'
-      }
-      if (a.questionId === 'scope_backup') {
-        if (label.includes('servers + m365') || label.includes('servers and m365')) scope.backup = 'servers_m365'
-        else if (label.includes('m365 data only') || label.includes('cloud-only')) scope.backup = 'm365_only'
-        else if (label.includes('servers only')) scope.backup = 'servers_only'
-        else if (label.includes('all data') || label.includes('endpoint backup')) scope.backup = 'all_data'
-      }
-      if (a.questionId === 'scope_network') {
-        if (label.includes('all customer') || label.includes('managed by us')) scope.network = 'all_managed'
-        else if (label.includes('primary office')) scope.network = 'primary_only'
-        else if (label.includes('guest') || label.includes('iot')) scope.network = 'all_including_guest'
-      }
-      if (a.questionId === 'scope_saas') {
-        if (label.includes('microsoft 365 only') || label.includes('m365 only')) scope.saas = 'm365_only'
-        else if (label.includes('line-of-business') || label.includes('lob')) scope.saas = 'm365_plus_lob'
-        else if (label.includes('all saas')) scope.saas = 'all_saas'
-      }
-      if (a.questionId === 'scope_incident_response') {
-        if (label.includes('tct handles')) scope.incidentResponse = 'tct_handles'
-        else if (label.includes('shared')) scope.incidentResponse = 'shared'
-        else if (label.includes('internal') || label.includes('customer has')) scope.incidentResponse = 'customer_internal'
-      }
-    }
-
-    return { remoteAccess, onPremServers, customApps, byodPolicy, scope, rawAnswers }
+    return buildEnvironmentContextFromMspSetup(answers)
   } catch (err) {
     console.error('[compliance] Failed to load environment context:', err)
     return undefined
   } finally {
     if (!existingClient) client.release()
   }
+}
+
+/** Build EnvironmentContext from the canonical Customer Profile answers. */
+function buildEnvironmentContextFromProfile(answers: CustomerProfileAnswers): EnvironmentContext {
+  // Map org_byod_allowed (yes/no/yes_managed/yes_unmanaged) → byodPolicy (company_owned/byod_managed/byod_unmanaged)
+  const byodRaw = getStringAnswer(answers, 'org_byod_allowed')
+  let byodPolicy: string | null = null
+  if (byodRaw === 'no') byodPolicy = 'company_owned'
+  else if (byodRaw === 'yes_managed') byodPolicy = 'byod_managed'
+  else if (byodRaw === 'yes_unmanaged') byodPolicy = 'byod_unmanaged'
+
+  // Build rawAnswers as a label-free mirror of the profile so any legacy
+  // evaluator that reads rawAnswers[questionId] still works. Multi-select
+  // answers are comma-joined.
+  const rawAnswers: Record<string, string> = {}
+  for (const [k, v] of Object.entries(answers)) {
+    if (typeof v === 'string') rawAnswers[k] = v
+    else if (Array.isArray(v)) rawAnswers[k] = v.join(',')
+  }
+
+  return {
+    remoteAccess: getStringAnswer(answers, 'remote_access'),
+    onPremServers: getStringAnswer(answers, 'on_prem_servers'),
+    customApps: getStringAnswer(answers, 'custom_apps'),
+    byodPolicy,
+    scope: {
+      endpoints: getStringAnswer(answers, 'scope_endpoints'),
+      users: getStringAnswer(answers, 'scope_users'),
+      backup: getStringAnswer(answers, 'scope_backup'),
+      // Not in the Customer Profile yet — keep null so MSP-setup fallback (which
+      // does support these) can fill them on a per-call basis if needed later.
+      network: null,
+      saas: null,
+      incidentResponse: getStringAnswer(answers, 'scope_incident_response'),
+    },
+    rawAnswers,
+  }
+}
+
+/**
+ * Build EnvironmentContext from the legacy compliance_msp_setup table.
+ *
+ * Uses label substring matching because the MSP setup wizard stored answer
+ * text in the `notes` field rather than canonical values. This path stays
+ * here for backward compat; new code should populate the Customer Profile.
+ */
+function buildEnvironmentContextFromMspSetup(
+  answers: Array<{ questionId: string; toolId: string | null; notes: string }>
+): EnvironmentContext {
+  const rawAnswers: Record<string, string> = {}
+  let remoteAccess: string | null = null
+  let onPremServers: string | null = null
+  let customApps: string | null = null
+  let byodPolicy: string | null = null
+  const scope = {
+    endpoints: null as string | null,
+    users: null as string | null,
+    backup: null as string | null,
+    network: null as string | null,
+    saas: null as string | null,
+    incidentResponse: null as string | null,
+  }
+
+  for (const a of answers) {
+    rawAnswers[a.questionId] = a.notes || a.toolId || ''
+    const label = (a.notes || '').toLowerCase()
+
+    if (a.questionId === 'remote_access') {
+      if (label.includes('cloud-only') || label.includes('no vpn') || label === 'cloud_only') remoteAccess = 'cloud_only'
+      else if (label.includes('vpn required') || label === 'vpn_required') remoteAccess = 'vpn_required'
+      else if (label.includes('hybrid') || label === 'hybrid') remoteAccess = 'hybrid'
+    }
+    if (a.questionId === 'on_prem_servers') {
+      if (label.includes('no on-prem') || label.includes('fully cloud') || label === 'no_servers') onPremServers = 'no_servers'
+      else if (label.includes('bcdr') || label === 'yes_bcdr') onPremServers = 'yes_bcdr'
+      else if (label === 'yes_mixed') onPremServers = 'yes_mixed'
+      else onPremServers = 'yes_mixed'
+    }
+    if (a.questionId === 'custom_apps') {
+      customApps = (label.includes('no') || label.includes('standard') || label === 'no') ? 'no' : 'yes'
+    }
+    if (a.questionId === 'byod_policy') {
+      if (label.includes('company-owned') || label === 'company_owned') byodPolicy = 'company_owned'
+      else if (label.includes('no management') || label.includes('no mdm') || label === 'byod_unmanaged') byodPolicy = 'byod_unmanaged'
+      else byodPolicy = 'byod_managed'
+    }
+    if (a.questionId === 'scope_endpoints') {
+      if (label.includes('all managed')) scope.endpoints = 'all_managed'
+      else if (label.includes('workstations only')) scope.endpoints = 'workstations_only'
+      else if (label.includes('workstations + servers') || label.includes('workstations and servers')) scope.endpoints = 'workstations_servers'
+      else if (label.includes('custom')) scope.endpoints = 'custom'
+    }
+    if (a.questionId === 'scope_users') {
+      if (label.includes('all licensed')) scope.users = 'all_licensed'
+      else if (label.includes('full-time') || label.includes('employees only')) scope.users = 'employees_only'
+      else if (label.includes('all users') || label.includes('shared')) scope.users = 'all_including_shared'
+    }
+    if (a.questionId === 'scope_backup') {
+      if (label.includes('servers + m365') || label.includes('servers and m365')) scope.backup = 'servers_m365'
+      else if (label.includes('m365 data only') || label.includes('cloud-only')) scope.backup = 'm365_only'
+      else if (label.includes('servers only')) scope.backup = 'servers_only'
+      else if (label.includes('all data') || label.includes('endpoint backup')) scope.backup = 'all_data'
+    }
+    if (a.questionId === 'scope_network') {
+      if (label.includes('all customer') || label.includes('managed by us')) scope.network = 'all_managed'
+      else if (label.includes('primary office')) scope.network = 'primary_only'
+      else if (label.includes('guest') || label.includes('iot')) scope.network = 'all_including_guest'
+    }
+    if (a.questionId === 'scope_saas') {
+      if (label.includes('microsoft 365 only') || label.includes('m365 only')) scope.saas = 'm365_only'
+      else if (label.includes('line-of-business') || label.includes('lob')) scope.saas = 'm365_plus_lob'
+      else if (label.includes('all saas')) scope.saas = 'all_saas'
+    }
+    if (a.questionId === 'scope_incident_response') {
+      if (label.includes('tct handles')) scope.incidentResponse = 'tct_handles'
+      else if (label.includes('shared')) scope.incidentResponse = 'shared'
+      else if (label.includes('internal') || label.includes('customer has')) scope.incidentResponse = 'customer_internal'
+    }
+  }
+
+  return { remoteAccess, onPremServers, customApps, byodPolicy, scope, rawAnswers }
 }
 
 /**
