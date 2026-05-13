@@ -34,6 +34,7 @@ const COMPLIANCE_ROUTES: Array<{ method: 'GET' | 'POST' | 'PATCH' | 'DELETE'; pa
   { method: 'POST', path: `/api/compliance/${SAMPLE_COMPANY_ID}/changes/${SAMPLE_CHANGE_ID}/communicate`, body: {} },
   { method: 'POST', path: `/api/compliance/${SAMPLE_COMPANY_ID}/changes/${SAMPLE_CHANGE_ID}/deploy`, body: {} },
   { method: 'POST', path: `/api/compliance/${SAMPLE_COMPANY_ID}/changes/${SAMPLE_CHANGE_ID}/rollback`, body: {} },
+  { method: 'GET', path: `/api/compliance/${SAMPLE_COMPANY_ID}/changes/${SAMPLE_CHANGE_ID}/preview-impact` },
 
   // Bundles (P4 C6)
   { method: 'GET', path: `/api/compliance/${SAMPLE_COMPANY_ID}/bundles` },

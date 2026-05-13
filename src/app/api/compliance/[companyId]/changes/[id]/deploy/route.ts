@@ -24,6 +24,7 @@ import { auth } from '@/auth'
 import { ensureComplianceTables } from '@/lib/compliance/ensure-tables'
 import { getRemediationAction } from '@/lib/compliance/actions/catalog'
 import { executeAction } from '@/lib/compliance/actions/executors'
+import { previewImpact } from '@/lib/compliance/actions/previewers'
 import {
   assertStatusTransition,
   loadPendingChange,
@@ -84,7 +85,29 @@ export async function POST(
         }
       }
 
-      // Move to 'deploying' first so the row reflects in-flight state.
+      // Run the impact previewer FIRST (read-only) so the affected-entity
+      // list is captured in audit before any mutation happens. If the
+      // previewer is a stub (no live query), the result still records that
+      // fact so the audit trail is honest. We intentionally don't *gate*
+      // deploy on a successful live preview — that would block manual
+      // executors and actions whose previewers aren't wired yet. The
+      // cockpit UI is the right place to enforce "tech must view this
+      // list before deploying".
+      const preview = await previewImpact({ companyId, action })
+      await writeAudit(client, {
+        companyId,
+        action: 'pending_change.impact_previewed',
+        actor: session.user.email!,
+        details: {
+          id,
+          actionId: action.id,
+          totalAffected: preview.totalAffected,
+          isLiveQuery: preview.isLiveQuery,
+          warnings: preview.warnings ?? [],
+        },
+      })
+
+      // Move to 'deploying' so the row reflects in-flight state.
       await client.query(
         `UPDATE compliance_pending_changes
          SET status = 'deploying', "deployedAt" = NOW(), "deployedBy" = $1, "updatedAt" = NOW()
@@ -105,15 +128,25 @@ export async function POST(
       })
 
       // Move to 'verifying'. The actual evaluator re-run is performed by
-      // the verification worker (C12 follow-up); this route captures the
-      // executor's structured result for later inspection.
+      // the verification worker; this route captures the executor's
+      // structured result + the impact preview snapshot for later
+      // inspection (the preview shows what we expected to change; the
+      // verification shows what actually changed).
       await client.query(
         `UPDATE compliance_pending_changes
          SET status = 'verifying',
              "verificationResult" = $1::jsonb,
              "updatedAt" = NOW()
          WHERE id = $2`,
-        [JSON.stringify({ executorSummary: exec.summary, executorDetails: exec.details ?? null, executorSuccess: exec.success }), id]
+        [
+          JSON.stringify({
+            executorSummary: exec.summary,
+            executorDetails: exec.details ?? null,
+            executorSuccess: exec.success,
+            preview,
+          }),
+          id,
+        ]
       )
       await writeAudit(client, {
         companyId,

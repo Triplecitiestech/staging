@@ -185,7 +185,7 @@ export async function POST(
   // Test the connection
   try {
     const graph = createGraphClient(creds)
-    const { tenantName } = await graph.verifyConnection()
+    const { tenantName, warnings } = await graph.verifyConnection()
 
     // Mark as verified
     const verifyClient = await pool.connect()
@@ -205,6 +205,7 @@ export async function POST(
       tenantName,
       setupStatus: 'verified',
       verifiedAt: new Date().toISOString(),
+      warnings: warnings ?? [],
     })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
