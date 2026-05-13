@@ -19,8 +19,10 @@
  *   compliance_platform_mappings — customer→platform-entity mappings (1:M)
  *   compliance_webhook_events — inbound webhooks (SaaS Alerts)
  *   compliance_company_tools — per-company tool deployment status (toggle UI)
- *   compliance_customer_context — per-customer environment Q&A (drives engine N/A logic)
- *   policy_org_profiles      — org-wide questionnaire answers for policy generation
+ *   compliance_customer_context — per-customer environment Q&A (drives engine N/A logic, legacy)
+ *   form_responses           — persistent question-engine answer store, keyed by
+ *                              (company_id, schema_type). Customer Profile lives here.
+ *   policy_org_profiles      — org-wide questionnaire answers for policy generation (legacy)
  *   policy_intake_answers    — per-policy questionnaire answers
  *   policy_generation_records — tracks policy generation workflow state per company+policy
  *   policy_versions          — version history of generated policies
@@ -56,6 +58,7 @@ export async function ensureComplianceTables(): Promise<void> {
            'compliance_webhook_events',
            'compliance_company_tools',
            'compliance_customer_context',
+           'form_responses',
            'policy_org_profiles',
            'policy_intake_answers',
            'policy_generation_records',
@@ -476,6 +479,42 @@ export async function ensureComplianceTables(): Promise<void> {
             ALTER TABLE compliance_customer_context
             ADD CONSTRAINT "compliance_customer_context_companyId_fkey"
             FOREIGN KEY ("companyId") REFERENCES companies(id) ON DELETE CASCADE;
+          END IF;
+        END $$
+      `)
+    }
+
+    // --- form_responses ---
+    // Persistent question-engine answer store. Generic over any schema type
+    // (currently used by 'customer_profile'; future schemas — HR if it ever
+    // moves off hr_requests, audits, attestations, etc. — share this table).
+    //
+    // Snake-case columns match the rest of the question-engine family
+    // (form_schemas / form_sections / form_questions). UNIQUE per
+    // (company_id, schema_type) — one row per customer per schema.
+    if (!existingSet.has('form_responses')) {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS form_responses (
+          id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          company_id      TEXT NOT NULL,
+          schema_type     TEXT NOT NULL,
+          answers         JSONB NOT NULL DEFAULT '{}',
+          updated_by      TEXT,
+          created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          UNIQUE (company_id, schema_type)
+        )
+      `)
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_form_responses_company_type
+        ON form_responses (company_id, schema_type)
+      `)
+      await client.query(`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'form_responses_company_id_fkey') THEN
+            ALTER TABLE form_responses
+            ADD CONSTRAINT "form_responses_company_id_fkey"
+            FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
           END IF;
         END $$
       `)

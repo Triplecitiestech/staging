@@ -37,6 +37,7 @@
  */
 
 import { getPool } from '@/lib/db-pool'
+import type { QueryResultRow } from 'pg'
 
 // ============================================================================
 // Constants
@@ -662,22 +663,38 @@ export const CUSTOMER_PROFILE_KEY_SET: ReadonlySet<string> = new Set(
 // ============================================================================
 
 /**
- * Submitted-answer shape. Values are either strings (single-value answers)
- * or string arrays (multi_select answers).
+ * Submitted-answer shape (READ).
  *
- * Stored as JSONB today in the legacy stores; will move to form_responses
- * keyed by (companyId, schemaType='customer_profile') after W4 backfill.
+ * Values returned by getCustomerProfileAnswers() are always strings,
+ * string arrays, or null/undefined. Booleans / numbers / other JSON
+ * scalars are coerced to strings on the way out via normalizeAnswer.
  */
 export type CustomerProfileAnswers = Record<string, string | string[] | null | undefined>
 
 /**
- * Read the customer's full profile answers, merging from BOTH legacy stores
- * (policy_org_profiles.answers and compliance_customer_context.answers).
+ * Submitted-answer shape (WRITE input).
  *
- * This is the only reader that should be used by the engine N/A logic, the
- * policy generator, the cockpit, and any future consumer. When the backfill
- * (W4) lands and form_responses becomes the canonical store, the internals
- * of this function flip to read from there — no caller changes required.
+ * Permissive superset that accepts what callers actually have:
+ * boolean radios from legacy questionnaire data, numeric coercions,
+ * etc. Coerced to the strict read shape by normalizeAnswer.
+ */
+export type CustomerProfileWriteInput = Record<
+  string,
+  string | string[] | boolean | number | null | undefined
+>
+
+/**
+ * Read the customer's full profile answers.
+ *
+ * Resolution order:
+ *   1. form_responses where schema_type='customer_profile' (canonical store)
+ *   2. Merge of the two legacy stores (policy_org_profiles + compliance_customer_context)
+ *      for customers not yet backfilled. Keys from the legacy stores that
+ *      aren't in the customer-profile schema are dropped silently.
+ *
+ * Callers do not need to know about this layering; getCustomerProfileAnswers
+ * is the single read API. When the backfill is verified for every customer,
+ * step 2 can be removed.
  *
  * Returns an empty object (not null) when the customer has no profile yet,
  * so callers can chain `.org_legal_name` without null checks. Use
@@ -691,50 +708,81 @@ export async function getCustomerProfileAnswers(
   const pool = getPool()
   const client = await pool.connect()
   try {
-    const merged: CustomerProfileAnswers = {}
-
-    // policy_org_profiles.answers — JSONB keyed by question id
+    // Canonical store: form_responses. If a row exists with non-empty
+    // answers, use it as-is — no merge with legacy.
     try {
       const r = await client.query<{ answers: Record<string, unknown> | null }>(
-        `SELECT answers FROM policy_org_profiles WHERE "companyId" = $1`,
-        [companyId]
+        `SELECT answers FROM form_responses WHERE company_id = $1 AND schema_type = $2`,
+        [companyId, CUSTOMER_PROFILE_TYPE]
       )
-      const orgAnswers = r.rows[0]?.answers
-      if (orgAnswers && typeof orgAnswers === 'object') {
-        for (const [k, v] of Object.entries(orgAnswers)) {
+      const stored = r.rows[0]?.answers
+      if (stored && typeof stored === 'object' && Object.keys(stored).length > 0) {
+        const out: CustomerProfileAnswers = {}
+        for (const [k, v] of Object.entries(stored)) {
           if (CUSTOMER_PROFILE_KEY_SET.has(k)) {
-            merged[k] = normalizeAnswer(v)
+            out[k] = normalizeAnswer(v)
           }
         }
+        return out
       }
     } catch {
-      // Legacy table may not exist on a fresh dev DB — fall through.
+      // form_responses may not exist on a very old install — fall through to
+      // the legacy merge so we never hide existing data.
     }
 
-    // compliance_customer_context.answers — JSONB array of {questionId, value}
-    try {
-      const r = await client.query<{ answers: Array<{ questionId: string; value: string }> | null }>(
-        `SELECT answers FROM compliance_customer_context WHERE "companyId" = $1`,
-        [companyId]
-      )
-      const ctxAnswers = r.rows[0]?.answers
-      if (Array.isArray(ctxAnswers)) {
-        for (const entry of ctxAnswers) {
-          if (entry && typeof entry === 'object' && typeof entry.questionId === 'string') {
-            if (CUSTOMER_PROFILE_KEY_SET.has(entry.questionId)) {
-              merged[entry.questionId] = entry.value
-            }
-          }
-        }
-      }
-    } catch {
-      // Same — table is centrally created by ensure-tables, but be defensive.
-    }
-
-    return merged
+    // Fallback: merge of legacy stores. Same shape as before.
+    return await readLegacyProfileMerge(client, companyId)
   } finally {
     client.release()
   }
+}
+
+/** Merge of the two legacy stores. Public for use by the one-time backfill. */
+export async function readLegacyProfileMerge(
+  client: { query: <T extends QueryResultRow = QueryResultRow>(text: string, params?: unknown[]) => Promise<{ rows: T[] }> },
+  companyId: string
+): Promise<CustomerProfileAnswers> {
+  const merged: CustomerProfileAnswers = {}
+
+  // policy_org_profiles.answers — JSONB keyed by question id
+  try {
+    const r = await client.query<{ answers: Record<string, unknown> | null }>(
+      `SELECT answers FROM policy_org_profiles WHERE "companyId" = $1`,
+      [companyId]
+    )
+    const orgAnswers = r.rows[0]?.answers
+    if (orgAnswers && typeof orgAnswers === 'object') {
+      for (const [k, v] of Object.entries(orgAnswers)) {
+        if (CUSTOMER_PROFILE_KEY_SET.has(k)) {
+          merged[k] = normalizeAnswer(v)
+        }
+      }
+    }
+  } catch {
+    // Legacy table may not exist on a fresh dev DB — fall through.
+  }
+
+  // compliance_customer_context.answers — JSONB array of {questionId, value}
+  try {
+    const r = await client.query<{ answers: Array<{ questionId: string; value: string }> | null }>(
+      `SELECT answers FROM compliance_customer_context WHERE "companyId" = $1`,
+      [companyId]
+    )
+    const ctxAnswers = r.rows[0]?.answers
+    if (Array.isArray(ctxAnswers)) {
+      for (const entry of ctxAnswers) {
+        if (entry && typeof entry === 'object' && typeof entry.questionId === 'string') {
+          if (CUSTOMER_PROFILE_KEY_SET.has(entry.questionId)) {
+            merged[entry.questionId] = entry.value
+          }
+        }
+      }
+    }
+  } catch {
+    // Same — be defensive.
+  }
+
+  return merged
 }
 
 function normalizeAnswer(v: unknown): string | string[] | null {
@@ -879,4 +927,174 @@ function sqlText(v: string | null | undefined): string {
 
 function sqlJson(v: unknown): string {
   return `'${JSON.stringify(v).replace(/'/g, "''")}'::jsonb`
+}
+
+// ============================================================================
+// Writer
+// ============================================================================
+
+/**
+ * Upsert Customer Profile answers to form_responses. The legacy stores are
+ * NOT updated here — write paths that historically wrote to policy_org_profiles
+ * or compliance_customer_context continue to do so (dual-write) until the
+ * legacy stores are retired (W16, operator-gated).
+ *
+ * The merge semantics: existing answers are preserved; only the provided keys
+ * are overwritten. To delete an answer, pass null/undefined for that key.
+ */
+export async function saveCustomerProfileAnswers(
+  companyId: string,
+  answers: CustomerProfileWriteInput,
+  updatedBy: string
+): Promise<void> {
+  if (!companyId) return
+
+  // Drop keys not in the schema and normalize values.
+  const sanitized: CustomerProfileAnswers = {}
+  for (const [k, v] of Object.entries(answers)) {
+    if (CUSTOMER_PROFILE_KEY_SET.has(k)) {
+      const norm = normalizeAnswer(v)
+      // Preserve nulls so callers can explicitly clear an answer via the merge.
+      sanitized[k] = norm
+    }
+  }
+
+  const pool = getPool()
+  const client = await pool.connect()
+  try {
+    // Read-modify-write so partial updates don't overwrite untouched fields.
+    const r = await client.query<{ answers: Record<string, unknown> | null }>(
+      `SELECT answers FROM form_responses WHERE company_id = $1 AND schema_type = $2`,
+      [companyId, CUSTOMER_PROFILE_TYPE]
+    )
+    const existing = (r.rows[0]?.answers && typeof r.rows[0].answers === 'object'
+      ? (r.rows[0].answers as CustomerProfileAnswers)
+      : {})
+    const merged: CustomerProfileAnswers = { ...existing }
+    for (const [k, v] of Object.entries(sanitized)) {
+      if (v === null) delete merged[k]
+      else merged[k] = v
+    }
+
+    await client.query(
+      `INSERT INTO form_responses (company_id, schema_type, answers, updated_by, created_at, updated_at)
+       VALUES ($1, $2, $3::jsonb, $4, NOW(), NOW())
+       ON CONFLICT (company_id, schema_type)
+       DO UPDATE SET answers = $3::jsonb, updated_by = $4, updated_at = NOW()`,
+      [companyId, CUSTOMER_PROFILE_TYPE, JSON.stringify(merged), updatedBy]
+    )
+  } finally {
+    client.release()
+  }
+}
+
+// ============================================================================
+// One-time backfill
+// ============================================================================
+
+export interface BackfillResult {
+  companyId: string
+  /** How many keys were copied from the legacy stores. */
+  copiedKeyCount: number
+  /** True when form_responses already had data and was skipped. */
+  skippedAlreadyPopulated: boolean
+}
+
+/**
+ * Copy legacy profile answers into form_responses for a single company.
+ * Idempotent — skips when form_responses already has non-empty data.
+ *
+ * Used by the migration endpoint (`/api/migrations/customer-profile-backfill`)
+ * to mass-migrate every customer in one pass. Safe to re-run.
+ */
+export async function backfillCustomerProfileFromLegacy(
+  companyId: string,
+  updatedBy = 'backfill'
+): Promise<BackfillResult> {
+  const pool = getPool()
+  const client = await pool.connect()
+  try {
+    // Skip if form_responses already has data for this customer.
+    try {
+      const existing = await client.query<{ answers: Record<string, unknown> | null }>(
+        `SELECT answers FROM form_responses WHERE company_id = $1 AND schema_type = $2`,
+        [companyId, CUSTOMER_PROFILE_TYPE]
+      )
+      const stored = existing.rows[0]?.answers
+      if (stored && typeof stored === 'object' && Object.keys(stored).length > 0) {
+        return { companyId, copiedKeyCount: 0, skippedAlreadyPopulated: true }
+      }
+    } catch {
+      // form_responses may not exist yet — proceed; ensure-tables will create it.
+    }
+
+    const merged = await readLegacyProfileMerge(client, companyId)
+    const keyCount = Object.keys(merged).filter((k) => merged[k] !== null && merged[k] !== undefined).length
+    if (keyCount === 0) {
+      return { companyId, copiedKeyCount: 0, skippedAlreadyPopulated: false }
+    }
+
+    await client.query(
+      `INSERT INTO form_responses (company_id, schema_type, answers, updated_by, created_at, updated_at)
+       VALUES ($1, $2, $3::jsonb, $4, NOW(), NOW())
+       ON CONFLICT (company_id, schema_type)
+       DO UPDATE SET answers = $3::jsonb, updated_by = $4, updated_at = NOW()`,
+      [companyId, CUSTOMER_PROFILE_TYPE, JSON.stringify(merged), updatedBy]
+    )
+
+    return { companyId, copiedKeyCount: keyCount, skippedAlreadyPopulated: false }
+  } finally {
+    client.release()
+  }
+}
+
+/**
+ * Run the backfill for every company that has data in either legacy store.
+ * Returns a summary suitable for embedding in a migration response.
+ */
+export async function backfillAllCustomerProfiles(
+  updatedBy = 'backfill'
+): Promise<{
+  attempted: number
+  copied: number
+  skipped: number
+  empty: number
+  results: BackfillResult[]
+}> {
+  const pool = getPool()
+  const client = await pool.connect()
+  let companyIds: string[] = []
+  try {
+    const r = await client.query<{ id: string }>(
+      `SELECT DISTINCT id FROM (
+         SELECT "companyId" AS id FROM policy_org_profiles
+         UNION
+         SELECT "companyId" AS id FROM compliance_customer_context
+       ) src`
+    )
+    companyIds = r.rows.map((row) => row.id)
+  } catch {
+    // Legacy tables missing — nothing to backfill.
+    return { attempted: 0, copied: 0, skipped: 0, empty: 0, results: [] }
+  } finally {
+    client.release()
+  }
+
+  const results: BackfillResult[] = []
+  let copied = 0
+  let skipped = 0
+  let empty = 0
+  for (const id of companyIds) {
+    try {
+      const res = await backfillCustomerProfileFromLegacy(id, updatedBy)
+      results.push(res)
+      if (res.skippedAlreadyPopulated) skipped++
+      else if (res.copiedKeyCount === 0) empty++
+      else copied++
+    } catch (err) {
+      console.error('[customer-profile-backfill] failed for', id, err)
+    }
+  }
+
+  return { attempted: companyIds.length, copied, skipped, empty, results }
 }
