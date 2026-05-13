@@ -73,11 +73,15 @@
 - [ ] **W15 (cont.)** Delete `ComplianceDashboard.tsx` and `ComplianceWorkflow.tsx` after migration. Move `StepIndicator` to a reusable `BootstrapStepper.tsx`.
 
 ### Priority 3: Finding lifecycle (Architecture §2.7)
-- [ ] **F1** Add `compliance_finding_dispositions` table to `ensure-tables.ts`.
-- [ ] **F2** Build disposition API routes (GET list, PATCH update, POST link-project) under `src/app/api/compliance/[companyId]/dispositions/`.
-- [ ] **F3** Wire disposition controls into AssessmentResults / Findings UI (status dropdown, assignee, due date, accepted-risk rationale).
-- [ ] **F4** Build stale-disposition surfacing in cockpit (accepted-risk older than 90 days, scheduled past due date).
-- [ ] **F5** Add `manage_compliance` permission to `src/lib/permissions.ts`.
+- [x] **F1** `compliance_finding_dispositions` table added to `ensure-tables.ts` — keyed on `(companyId, frameworkId, controlId)`. Indexed by company, by `(company, lifecycleStatus)`, and by `lastReviewedAt` for stale-disposition surfacing. FK to `companies` ON DELETE CASCADE. ✅ 2026-05-13
+- [x] **F2** Disposition API routes:
+  - `GET /api/compliance/[companyId]/dispositions` — list (filterable by `frameworkId`, `status`)
+  - `POST /api/compliance/[companyId]/dispositions` — upsert keyed on `(frameworkId, controlId)` in body. Sparse merge (omitted fields preserved; explicit `null` clears). Stamps `decisionBy`/`decidedAt` only when `lifecycleStatus` changes. Enforces `acceptedRiskRationale` when status is `accepted_risk`. Writes audit log.
+  - `POST /api/compliance/[companyId]/dispositions/link-project` — link an existing PhaseTask under a customer-owned Project; flips status to `billable_project`. Verifies the project belongs to the customer (no cross-customer leakage). PhaseTask auto-creation deferred to C17 (when the per-customer "Compliance Operations" project pattern is formalized).
+   ✅ 2026-05-13
+- [ ] **F3** Wire disposition controls into AssessmentResults / Findings UI (status dropdown, assignee, due date, accepted-risk rationale). **Blocked on P2** — the Findings page is part of the cockpit (`/admin/compliance/[companyId]/findings`). The disposition API is ready; the UI just needs to consume it. Could partially land via an inline panel inside the existing `AssessmentResults.tsx`, but the natural home is the new Findings page.
+- [ ] **F4** Build stale-disposition surfacing in cockpit (accepted-risk older than 90 days, scheduled past due date). **Blocked on P2** — needs the cockpit page to surface it. Data side (`lastReviewedAt` indexed) is ready.
+- [x] **F5** `manage_compliance` permission — already exists in `src/lib/permissions.ts` (SUPER_ADMIN, ADMIN, BILLING_ADMIN). Verified no new add needed. ✅ 2026-05-13
 
 ### Priority 4: Change Management & Remediation (greenfield — CHANGE_MANAGEMENT doc)
 - [ ] **C1** Build action catalog scaffolding + types (`src/lib/compliance/actions/types.ts`, `catalog.ts`, `validators.ts`).
