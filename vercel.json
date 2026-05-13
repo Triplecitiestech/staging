@@ -87,12 +87,19 @@
     },
     "src/app/api/cron/health-monitor/route.ts": {
       "maxDuration": 60
+    },
+    "src/app/api/cron/verify-pending-changes/route.ts": {
+      "maxDuration": 60
     }
   },
   "crons": [
     {
       "path": "/api/cron/health-monitor",
       "schedule": "0,30 * * * *"
+    },
+    {
+      "path": "/api/cron/verify-pending-changes",
+      "schedule": "*/15 * * * *"
     },
     {
       "path": "/api/cron/generate-blog",
