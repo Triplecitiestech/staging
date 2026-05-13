@@ -26,6 +26,7 @@ import { collectGraphEvidence } from './collectors/graph'
 import { collectDattoRmmEvidence, collectDattoBcdrEvidence, collectDattoEdrEvidence, collectDattoSaasEvidence, collectDnsFilterEvidence, collectDomotzEvidence, collectItGlueEvidence, collectSaasAlertsEvidence, collectUbiquitiEvidence, collectMyItProcessEvidence, collectEasyDmarcEvidence } from './collectors/msp'
 import { CIS_V8_FRAMEWORK, CIS_V8_EVALUATORS, applyPolicyCoverage } from './frameworks/cis-v8'
 import { CMMC_L1_FRAMEWORK, CMMC_L1_EVALUATORS } from './frameworks/cmmc-l1'
+import { HIPAA_FRAMEWORK, HIPAA_EVALUATORS } from './frameworks/hipaa'
 import {
   compareControlIds,
   EVIDENCE_TO_CONNECTOR,
@@ -1381,6 +1382,7 @@ function getFrameworkDefinition(frameworkId: FrameworkId) {
   switch (frameworkId) {
     case 'cis-v8': return CIS_V8_FRAMEWORK
     case 'cmmc-l1': return CMMC_L1_FRAMEWORK
+    case 'hipaa': return HIPAA_FRAMEWORK
     default: throw new Error(`Framework ${frameworkId} not yet implemented`)
   }
 }
@@ -1388,6 +1390,7 @@ function getFrameworkDefinition(frameworkId: FrameworkId) {
 function getEvaluators(frameworkId: FrameworkId): Record<string, (ctx: EvaluationContext) => import('./types').EvaluationResult> {
   if (frameworkId.startsWith('cis-v8')) return CIS_V8_EVALUATORS
   if (frameworkId === 'cmmc-l1') return CMMC_L1_EVALUATORS
+  if (frameworkId === 'hipaa') return HIPAA_EVALUATORS
   return {}
 }
 

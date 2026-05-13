@@ -17,6 +17,26 @@ import type { FrameworkId } from '../types'
 /** Stable id for a capability — see registry/capabilities.ts. */
 export type CapabilityId = string
 
+/**
+ * Logical license tier. Each maps to one or more Microsoft `skuPartNumber`
+ * values in src/lib/compliance/licenses.ts. Use the logical name in
+ * Precondition declarations so the catalog stays readable; the mapping
+ * layer handles Microsoft's renames (e.g. AAD_PREMIUM → Entra ID P1).
+ */
+export type LicenseSku =
+  | 'entra_id_p1'
+  | 'entra_id_p2'
+  | 'm365_business_basic'
+  | 'm365_business_standard'
+  | 'm365_business_premium'
+  | 'm365_e3'
+  | 'm365_e5'
+  | 'office_365_e3'
+  | 'office_365_e5'
+  | 'intune'
+  | 'defender_endpoint_p1'
+  | 'defender_endpoint_p2'
+
 /** Coverage of a single control by this action. */
 export interface ActionControlCoverage {
   frameworkId: FrameworkId
@@ -59,6 +79,15 @@ export type Precondition =
   | { kind: 'tool_deployed'; toolId: string }
   | { kind: 'break_glass_accounts_excluded' }
   | { kind: 'customer_profile_complete'; minimumCompletionPct: number }
+  /**
+   * Customer's M365 tenant must have at least one of the listed logical
+   * licenses for this action to be technically possible. Example: applying
+   * Conditional Access policies requires Entra ID P1 (included in M365
+   * Business Premium, M365 E3+, etc.) — without it, Graph refuses the
+   * request. Declaring this here lets the previewer short-circuit and the
+   * deploy route refuse cleanly rather than surface an opaque Graph error.
+   */
+  | { kind: 'license_required'; anyOf: LicenseSku[] }
 
 /** How to actually carry out the action. */
 export type ActionExecutor =
