@@ -51,6 +51,9 @@ export const REMEDIATION_ACTIONS: readonly RemediationAction[] = [
     preconditions: [
       { kind: 'connector_verified', connectorType: 'microsoft_graph' },
       { kind: 'break_glass_accounts_excluded' },
+      // CA policies require Entra ID P1 (included in M365 Business Premium,
+      // M365 E3/E5, Office 365 E5 add-on, or the standalone Entra ID P1 SKU).
+      { kind: 'license_required', anyOf: ['entra_id_p1', 'm365_business_premium', 'm365_e3', 'm365_e5'] },
     ],
     executor: { kind: 'automated', handler: 'graph.applyConditionalAccessPolicy.mfaAll' },
     verification: { evaluatorIds: ['cis-v8.6.3', 'cis-v8.6.5'], delaySecondsBeforeVerify: 60 },
@@ -71,7 +74,10 @@ export const REMEDIATION_ACTIONS: readonly RemediationAction[] = [
       sessionDisruptive: false,
       requiresEndUserAction: false,
     },
-    preconditions: [{ kind: 'connector_verified', connectorType: 'microsoft_graph' }],
+    preconditions: [
+      { kind: 'connector_verified', connectorType: 'microsoft_graph' },
+      { kind: 'license_required', anyOf: ['entra_id_p1', 'm365_business_premium', 'm365_e3', 'm365_e5'] },
+    ],
     executor: { kind: 'automated', handler: 'graph.removeConditionalAccessPolicy.mfaAll' },
     verification: { evaluatorIds: ['cis-v8.6.3'], delaySecondsBeforeVerify: 30 },
   },
@@ -96,7 +102,10 @@ export const REMEDIATION_ACTIONS: readonly RemediationAction[] = [
       sessionDisruptive: true,
       requiresEndUserAction: true,
     },
-    preconditions: [{ kind: 'connector_verified', connectorType: 'microsoft_graph' }],
+    preconditions: [
+      { kind: 'connector_verified', connectorType: 'microsoft_graph' },
+      { kind: 'license_required', anyOf: ['entra_id_p1', 'm365_business_premium', 'm365_e3', 'm365_e5'] },
+    ],
     executor: { kind: 'automated', handler: 'graph.applyConditionalAccessPolicy.blockLegacyAuth' },
     verification: { evaluatorIds: ['cis-v8.6.5'], delaySecondsBeforeVerify: 60 },
   },
@@ -115,7 +124,10 @@ export const REMEDIATION_ACTIONS: readonly RemediationAction[] = [
       sessionDisruptive: false,
       requiresEndUserAction: false,
     },
-    preconditions: [{ kind: 'connector_verified', connectorType: 'microsoft_graph' }],
+    preconditions: [
+      { kind: 'connector_verified', connectorType: 'microsoft_graph' },
+      { kind: 'license_required', anyOf: ['entra_id_p1', 'm365_business_premium', 'm365_e3', 'm365_e5'] },
+    ],
     executor: { kind: 'automated', handler: 'graph.removeConditionalAccessPolicy.blockLegacyAuth' },
     verification: { evaluatorIds: ['cis-v8.6.5'], delaySecondsBeforeVerify: 30 },
   },
@@ -184,7 +196,12 @@ export const REMEDIATION_ACTIONS: readonly RemediationAction[] = [
       sessionDisruptive: false,
       requiresEndUserAction: false,
     },
-    preconditions: [{ kind: 'connector_verified', connectorType: 'microsoft_graph' }],
+    preconditions: [
+      { kind: 'connector_verified', connectorType: 'microsoft_graph' },
+      // Pushing Defender config via an Intune device profile requires the
+      // Intune service (standalone, M365 Business Premium, M365 E3, or M365 E5).
+      { kind: 'license_required', anyOf: ['intune', 'm365_business_premium', 'm365_e3', 'm365_e5'] },
+    ],
     executor: { kind: 'automated', handler: 'graph.applyIntuneConfigProfile.defenderRealtime' },
     verification: { evaluatorIds: ['cis-v8.10.1', 'cis-v8.10.2'], delaySecondsBeforeVerify: 300 },
   },
@@ -203,7 +220,10 @@ export const REMEDIATION_ACTIONS: readonly RemediationAction[] = [
       sessionDisruptive: false,
       requiresEndUserAction: false,
     },
-    preconditions: [{ kind: 'connector_verified', connectorType: 'microsoft_graph' }],
+    preconditions: [
+      { kind: 'connector_verified', connectorType: 'microsoft_graph' },
+      { kind: 'license_required', anyOf: ['intune', 'm365_business_premium', 'm365_e3', 'm365_e5'] },
+    ],
     executor: { kind: 'automated', handler: 'graph.removeIntuneConfigProfile.defenderRealtime' },
     verification: { evaluatorIds: ['cis-v8.10.1'], delaySecondsBeforeVerify: 300 },
   },

@@ -26,6 +26,7 @@
  */
 
 import type { RemediationAction } from './types'
+import { checkPreconditions, type PreconditionRunResult } from './preconditions'
 
 /** Single entity the action would affect. */
 export interface AffectedEntity {
@@ -45,7 +46,7 @@ export interface AffectedEntity {
 export interface ImpactPreview {
   /** Total entities affected. */
   totalAffected: number
-  /** Sample of up to N entities (truncated for very large blast radii). */
+  /** Sample of up to N entities (truncated for very large blast radies). */
   entities: AffectedEntity[]
   /** Whether the entities list is truncated; total still reflects full count. */
   truncated: boolean
@@ -55,6 +56,12 @@ export interface ImpactPreview {
   isLiveQuery: boolean
   /** Optional warnings to display alongside the preview. */
   warnings?: string[]
+  /**
+   * Outcome of running every Precondition on the action against the
+   * customer. Populated by previewImpact() before invoking the handler.
+   * If `anyHardFail` is true, the deploy route refuses the action.
+   */
+  preconditions?: PreconditionRunResult
 }
 
 export interface PreviewerContext {
@@ -112,9 +119,15 @@ async function stubPreviewer(ctx: PreviewerContext): Promise<ImpactPreview> {
  * a synthesized "no live query" preview based on the catalog metadata.
  */
 export async function previewImpact(ctx: PreviewerContext): Promise<ImpactPreview> {
+  // Always run preconditions first — they're cheap and the result is
+  // useful even when the previewer itself is a stub. The deploy route
+  // refuses on anyHardFail; the cockpit surfaces unknowns as warnings.
+  const preconditions = await checkPreconditions(ctx.companyId, ctx.action)
+
   const exec = ctx.action.executor
+  let base: ImpactPreview
   if (exec.kind === 'manual') {
-    return {
+    base = {
       totalAffected: 0,
       entities: [],
       truncated: false,
@@ -124,30 +137,33 @@ export async function previewImpact(ctx: PreviewerContext): Promise<ImpactPrevie
         `est. ${ctx.action.impact.estimatedDisruptionMinutes} min per affected person.`,
       isLiveQuery: false,
     }
-  }
-  const handler = PREVIEWERS[exec.handler]
-  if (!handler) {
-    return {
-      totalAffected: 0,
-      entities: [],
-      truncated: false,
-      summary: `No previewer registered for "${exec.handler}". Manual review required before deploying.`,
-      isLiveQuery: false,
-      warnings: [`Previewer handler "${exec.handler}" is not registered.`],
+  } else {
+    const handler = PREVIEWERS[exec.handler]
+    if (!handler) {
+      base = {
+        totalAffected: 0,
+        entities: [],
+        truncated: false,
+        summary: `No previewer registered for "${exec.handler}". Manual review required before deploying.`,
+        isLiveQuery: false,
+        warnings: [`Previewer handler "${exec.handler}" is not registered.`],
+      }
+    } else {
+      try {
+        base = await handler(ctx)
+      } catch (err) {
+        base = {
+          totalAffected: 0,
+          entities: [],
+          truncated: false,
+          summary: `Previewer "${exec.handler}" threw — manual review required.`,
+          isLiveQuery: false,
+          warnings: [err instanceof Error ? err.message : String(err)],
+        }
+      }
     }
   }
-  try {
-    return await handler(ctx)
-  } catch (err) {
-    return {
-      totalAffected: 0,
-      entities: [],
-      truncated: false,
-      summary: `Previewer "${exec.handler}" threw — manual review required.`,
-      isLiveQuery: false,
-      warnings: [err instanceof Error ? err.message : String(err)],
-    }
-  }
+  return { ...base, preconditions }
 }
 
 /** Whether the action has a real (non-stub) previewer registered. */

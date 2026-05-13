@@ -27,3 +27,6 @@ export { executeAction, hasRealHandler } from './executors'
 
 export type { AffectedEntity, ImpactPreview, PreviewerContext, PreviewerHandler } from './previewers'
 export { previewImpact, hasRealPreviewer } from './previewers'
+
+export type { PreconditionResult, PreconditionRunResult } from './preconditions'
+export { checkPreconditions } from './preconditions'

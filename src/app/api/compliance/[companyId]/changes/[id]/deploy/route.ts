@@ -86,13 +86,13 @@ export async function POST(
       }
 
       // Run the impact previewer FIRST (read-only) so the affected-entity
-      // list is captured in audit before any mutation happens. If the
-      // previewer is a stub (no live query), the result still records that
-      // fact so the audit trail is honest. We intentionally don't *gate*
-      // deploy on a successful live preview — that would block manual
-      // executors and actions whose previewers aren't wired yet. The
-      // cockpit UI is the right place to enforce "tech must view this
-      // list before deploying".
+      // list AND every Precondition result is captured in audit before any
+      // mutation happens. Deploy hard-refuses when any precondition is
+      // `fail` (e.g., license missing, tool not deployed); `unknown`
+      // results pass through with a warning rather than block. The cockpit
+      // UI is still expected to enforce "tech must view the preview" —
+      // this route guarantees nothing dangerous slips through even if
+      // the UI is bypassed.
       const preview = await previewImpact({ companyId, action })
       await writeAudit(client, {
         companyId,
@@ -104,8 +104,23 @@ export async function POST(
           totalAffected: preview.totalAffected,
           isLiveQuery: preview.isLiveQuery,
           warnings: preview.warnings ?? [],
+          preconditionResults: preview.preconditions?.results ?? [],
+          preconditionAllPass: preview.preconditions?.allPass ?? null,
         },
       })
+
+      if (preview.preconditions?.anyHardFail) {
+        const failures = preview.preconditions.results
+          .filter((r) => r.status === 'fail')
+          .map((r) => r.message)
+        return {
+          illegalState: true as const,
+          error:
+            'Precondition check failed; deploy refused. ' +
+            'Fix each item and re-attempt: ' +
+            failures.map((f, i) => `(${i + 1}) ${f}`).join(' '),
+        }
+      }
 
       // Move to 'deploying' so the row reflects in-flight state.
       await client.query(
