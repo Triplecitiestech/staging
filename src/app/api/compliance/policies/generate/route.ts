@@ -31,17 +31,29 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  // Capture body once and keep a reference so the catch block can clean up
+  // the generation record without re-reading the (already-consumed) request.
+  let body: {
+    companyId?: string
+    policySlug?: string
+    mode?: GenerationMode
+    frameworks?: string[]
+    userInstructions?: string
+  } = {}
+
   try {
-    const body = (await request.json()) as {
-      companyId?: string
-      policySlug?: string
-      mode?: GenerationMode
-      frameworks?: string[]
-      userInstructions?: string
-    }
+    body = (await request.json()) as typeof body
 
     if (!body.companyId || !body.policySlug) {
       return NextResponse.json({ error: 'companyId and policySlug are required' }, { status: 400 })
+    }
+
+    // Defensive — guard against absurdly large user instructions that would
+    // blow past Anthropic's context window and waste a generation slot.
+    if (body.userInstructions && body.userInstructions.length > 8000) {
+      return NextResponse.json({
+        error: 'userInstructions is too long. Keep it under 8000 characters — anything bigger is unlikely to improve the policy and risks pushing the prompt over context limits.',
+      }, { status: 400 })
     }
 
     const catalog = getCatalogItem(body.policySlug)
@@ -255,18 +267,21 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     console.error('[compliance/policies/generate] POST error:', err)
 
-    // Try to revert status if we can
-    try {
-      const body = await request.clone().json()
-      if (body.companyId && body.policySlug) {
+    // Revert status using the captured body — never re-read the request,
+    // since the body stream was already consumed above and a second read
+    // would either fail or hang depending on the runtime.
+    if (body.companyId && body.policySlug) {
+      try {
         const pool = getPool()
         await pool.query(
           `UPDATE policy_generation_records SET status = 'ready_to_generate', "updatedAt" = NOW()
            WHERE "companyId" = $1 AND "policySlug" = $2 AND status = 'generating'`,
           [body.companyId, body.policySlug]
         )
+      } catch (cleanupErr) {
+        console.warn('[compliance/policies/generate] stuck-status cleanup failed:', cleanupErr instanceof Error ? cleanupErr.message : cleanupErr)
       }
-    } catch { /* ignore cleanup errors */ }
+    }
 
     return NextResponse.json({
       error: `Policy generation failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -363,17 +378,29 @@ export async function PATCH(request: NextRequest) {
         mark_review: 'under_review',
       } as const
       const newStatus = statusMap[body.action as keyof typeof statusMap]
+      if (!newStatus) {
+        return NextResponse.json({ error: `Unknown action: ${body.action}` }, { status: 400 })
+      }
 
-      const updateFields = body.action === 'approve'
-        ? `, "approvedAt" = NOW(), "approvedBy" = '${session.user.email}'`
-        : ''
-
-      await client.query(
-        `UPDATE policy_generation_records
-         SET status = $1, "updatedAt" = NOW() ${updateFields}
-         WHERE "companyId" = $2 AND "policySlug" = $3`,
-        [newStatus, body.companyId, body.policySlug]
-      )
+      // Parameterized update — never inline session.user.email into the SQL
+      // string. Even though it came from an authenticated session, the value
+      // could in theory contain quotes that break the query (or worse, be
+      // crafted by a compromised IDP). Keep it as a bound parameter.
+      if (body.action === 'approve') {
+        await client.query(
+          `UPDATE policy_generation_records
+           SET status = $1, "updatedAt" = NOW(), "approvedAt" = NOW(), "approvedBy" = $2
+           WHERE "companyId" = $3 AND "policySlug" = $4`,
+          [newStatus, session.user.email, body.companyId, body.policySlug]
+        )
+      } else {
+        await client.query(
+          `UPDATE policy_generation_records
+           SET status = $1, "updatedAt" = NOW()
+           WHERE "companyId" = $2 AND "policySlug" = $3`,
+          [newStatus, body.companyId, body.policySlug]
+        )
+      }
 
       // Also update the version record if approving
       if (body.action === 'approve') {

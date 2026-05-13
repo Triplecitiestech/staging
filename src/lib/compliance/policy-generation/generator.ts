@@ -375,7 +375,7 @@ export async function generatePolicy(input: GenerationInput): Promise<GenerateRe
     console.warn('[compliance/generator] Haiku primary failed, trying Sonnet fallback', primaryFailure)
     // Attempt 2: Sonnet 4 (quality fallback, smaller token budget to fit remaining time)
     try {
-      content = await callAnthropic('claude-sonnet-4-20250514', 22_000, 2500)
+      content = await callAnthropic('claude-sonnet-4-6', 22_000, 2500)
       usedFallback = true
     } catch (err2) {
       const fallbackFailure = (err2 as { failure?: AttemptFailure }).failure

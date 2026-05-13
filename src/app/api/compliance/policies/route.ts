@@ -386,7 +386,7 @@ Respond with ONLY valid JSON, no markdown.`
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         max_tokens: 4000,
         system: 'You are a compliance policy analyst. Always respond with valid JSON only. No markdown, no preamble, no explanation outside the JSON object.',
         messages: [{ role: 'user', content: prompt }],

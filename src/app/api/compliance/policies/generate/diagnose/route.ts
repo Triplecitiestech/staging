@@ -3,11 +3,16 @@
  *
  * Quick health check for the policy generation pipeline. Returns:
  *   - Whether ANTHROPIC_API_KEY is configured
- *   - Whether both primary (Sonnet) and fallback (Haiku) models can be reached
+ *   - Whether both primary (Haiku) and fallback (Sonnet) models can be reached
  *   - Actual API latency for a trivial prompt
  *
  * Use this when policy generation starts failing to diagnose whether the
  * problem is Anthropic (API key, model availability, latency) vs our code.
+ *
+ * NOTE: Model order matches `lib/compliance/policy-generation/generator.ts` —
+ * Haiku is the fast primary, Sonnet is the higher-quality fallback. The
+ * naming of the variables below ("sonnet"/"haiku") is preserved for shape
+ * compatibility with the dashboard's diagnose UI.
  */
 
 import { NextResponse } from 'next/server'
@@ -78,21 +83,24 @@ export async function GET() {
     })
   }
 
-  const [sonnet, haiku] = await Promise.all([
-    pingModel('claude-sonnet-4-20250514', apiKey),
+  // Keep the same model IDs as the live generator. If you change one,
+  // update both files together — otherwise the diagnostic can pass while
+  // the real generation fails.
+  const [haiku, sonnet] = await Promise.all([
     pingModel('claude-haiku-4-5-20251001', apiKey),
+    pingModel('claude-sonnet-4-6', apiKey),
   ])
 
   const allOk = sonnet.ok && haiku.ok
   let summary: string
   if (allOk) {
-    summary = `Anthropic API is healthy. Sonnet ${sonnet.elapsedMs}ms, Haiku ${haiku.elapsedMs}ms.`
+    summary = `Anthropic API is healthy. Haiku ${haiku.elapsedMs}ms, Sonnet ${sonnet.elapsedMs}ms.`
   } else if (!sonnet.ok && !haiku.ok) {
-    summary = 'Both primary and fallback models are unreachable. Check API key validity and Anthropic status.'
-  } else if (!sonnet.ok) {
-    summary = `Primary model (Sonnet) is unreachable: ${sonnet.error}. Fallback (Haiku) works.`
+    summary = 'Both primary (Haiku) and fallback (Sonnet) models are unreachable. Check API key validity and Anthropic status.'
+  } else if (!haiku.ok) {
+    summary = `Primary model (Haiku) is unreachable: ${haiku.error}. Fallback (Sonnet) works — generation will be slower but functional.`
   } else {
-    summary = `Fallback model (Haiku) is unreachable: ${haiku.error}. Primary (Sonnet) works.`
+    summary = `Fallback model (Sonnet) is unreachable: ${sonnet.error}. Primary (Haiku) works — generation should still succeed.`
   }
 
   return NextResponse.json({
