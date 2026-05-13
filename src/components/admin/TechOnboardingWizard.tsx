@@ -137,7 +137,7 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
 
   // Step 3 — test connection
   const [testing, setTesting]           = useState(false)
-  const [testResult, setTestResult]     = useState<{ success: boolean; tenantName?: string; error?: string } | null>(
+  const [testResult, setTestResult]     = useState<{ success: boolean; tenantName?: string; error?: string; warnings?: string[] } | null>(
     company.m365_setup_status === 'verified'
       ? { success: true, tenantName: 'Previously verified' }
       : null
@@ -421,7 +421,7 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
 
       const data = await res.json()
       if (data.success) {
-        setTestResult({ success: true, tenantName: data.tenantName })
+        setTestResult({ success: true, tenantName: data.tenantName, warnings: data.warnings ?? [] })
         markStep(3, 'complete')
       } else {
         setTestResult({ success: false, error: data.error ?? 'Connection test failed' })
@@ -913,7 +913,16 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
                   }`}
                 >
                   {testResult.success ? (
-                    <>✓ Connection successful — tenant: <strong>{testResult.tenantName}</strong></>
+                    <>
+                      ✓ Connection successful — tenant: <strong>{testResult.tenantName}</strong>
+                      {testResult.warnings && testResult.warnings.length > 0 && (
+                        <ul className="mt-2 list-disc list-inside text-xs text-slate-300 space-y-1">
+                          {testResult.warnings.map((w, i) => (
+                            <li key={i}>{w}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </>
                   ) : (
                     <>✗ {testResult.error}</>
                   )}

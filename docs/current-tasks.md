@@ -138,6 +138,14 @@
 - [ ] Customer portal compliance card (out-of-scope for current redesign; can layer on once cockpit is live)
 - [ ] Customer attestation input (already exists in `compliance_attestations`; needs UI)
 
+### Priority 4.5 — Impact Preview / Safe Rollout
+- [x] **PV1** Impact preview / dry-run layer. Each catalog action has a `previewer` handler (read-only, MUST NOT mutate) that enumerates the exact users / devices / groups the executor would affect. `src/lib/compliance/actions/previewers.ts` defines the type, registers 8 stub handlers (real Graph queries land alongside the real executor handlers in C13 follow-up), and provides `previewImpact(ctx)` + `hasRealPreviewer(handlerId)`.
+- [x] **PV2** `GET /api/compliance/[companyId]/changes/[id]/preview-impact` — read-only endpoint. Returns affected-entity list + catalog impact metadata + `hasRealPreviewer` flag so the cockpit knows whether the preview is a live query or a stub.
+- [x] **PV3** Deploy route runs the previewer before mutating state. Writes `pending_change.impact_previewed` audit row with `totalAffected` count and `isLiveQuery` flag. Preview snapshot is captured in `verificationResult` JSONB alongside the executor result so the audit trail shows what we expected to change vs. what actually changed.
+
+### M365 Multi-Tenant Onboarding — Fixes
+- [x] **M365-1** Test Connection (`/api/admin/companies/[id]/m365` POST `?action=test`) no longer hard-fails when the customer admin didn't grant `Organization.Read.All`. Falls back to a `/users?$top=1` probe (uses `User.Read.All` which is required for everything else TCT does anyway) and returns a warning so the tech knows the tenant name is unavailable. Wizard UI surfaces warnings inline. ✅ 2026-05-13
+
 ### Compliance Evidence Engine — Blocked
 - [ ] **SaaS Alerts integration** — Blocked by Cloudflare. Webhook receiver ready at `/api/compliance/webhooks/saas-alerts`. Pending Kaseya support to configure webhook delivery.
 

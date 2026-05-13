@@ -318,15 +318,43 @@ export function createGraphClient(creds: TenantCredentials) {
   }
 
   return {
-    /** Verify credentials work — returns tenant display name */
-    async verifyConnection(): Promise<{ tenantName: string; tenantId: string }> {
+    /**
+     * Verify credentials work. Tries the richer /organization probe first
+     * (returns the tenant display name) and falls back to a /users probe
+     * if Organization.Read.All wasn't granted at consent time. The fallback
+     * still proves the access token + tenant_id work; only the tenant name
+     * is unavailable.
+     */
+    async verifyConnection(): Promise<{ tenantName: string; tenantId: string; warnings?: string[] }> {
       const t = await token()
-      const org = await graphRequest<{ value: Array<{ displayName: string; id: string }> }>(
-        t, '/organization?$select=displayName,id'
-      )
-      return {
-        tenantName: org.value[0]?.displayName ?? 'Unknown',
-        tenantId: org.value[0]?.id ?? creds.tenantId,
+      try {
+        const org = await graphRequest<{ value: Array<{ displayName: string; id: string }> }>(
+          t, '/organization?$select=displayName,id'
+        )
+        return {
+          tenantName: org.value[0]?.displayName ?? 'Unknown',
+          tenantId: org.value[0]?.id ?? creds.tenantId,
+        }
+      } catch (orgErr) {
+        const msg = orgErr instanceof Error ? orgErr.message : String(orgErr)
+        // Fall back when the consented permission set lacks Organization.Read.All
+        // (Authorization_RequestDenied). Any other failure is rethrown.
+        if (!msg.includes('Authorization_RequestDenied') && !msg.includes('(403)')) {
+          throw orgErr
+        }
+        // Lighter probe — uses User.Read.All which is required for everything
+        // else TCT does in this tenant anyway. If this also fails, the
+        // credentials/consent are genuinely broken and the error surfaces.
+        await graphRequest<{ value: unknown[] }>(t, '/users?$top=1&$select=id')
+        return {
+          tenantName: '(connected)',
+          tenantId: creds.tenantId,
+          warnings: [
+            'Organization.Read.All not granted — tenant display name unavailable. ' +
+              'This is optional; TCT can operate without it. To enable, add the permission to the ' +
+              'TCT Customer Portal app registration and ask the customer admin to re-consent.',
+          ],
+        }
       }
     },
 
