@@ -12,6 +12,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { getPool } from '@/lib/db-pool'
 import { ensureComplianceTables } from '@/lib/compliance/ensure-tables'
+import {
+  saveCustomerProfileAnswers,
+  type CustomerProfileAnswers,
+} from '@/lib/compliance/customer-profile-schema'
 
 export const dynamic = 'force-dynamic'
 
@@ -260,6 +264,21 @@ export async function POST(request: NextRequest) {
          DO UPDATE SET answers = $2::jsonb, "updatedAt" = NOW(), "updatedBy" = $3`,
         [body.companyId, JSON.stringify(body.answers), session.user.email]
       )
+
+      // Dual-write to the canonical form_responses store. The customer-context
+      // POST stores answers as an array of {questionId, value} entries; the
+      // consolidated profile expects a flat key→value map, so we flatten here.
+      try {
+        const flat: CustomerProfileAnswers = {}
+        for (const entry of body.answers) {
+          if (entry && typeof entry.questionId === 'string') {
+            flat[entry.questionId] = entry.value
+          }
+        }
+        await saveCustomerProfileAnswers(body.companyId, flat, session.user.email)
+      } catch (err) {
+        console.error('[customer-context] form_responses dual-write failed:', err)
+      }
 
       return NextResponse.json({ success: true })
     } finally {

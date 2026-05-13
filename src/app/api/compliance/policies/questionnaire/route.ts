@@ -20,6 +20,7 @@ import {
   computeCompletionPct,
   prefillFromOrgProfile,
 } from '@/lib/compliance/policy-generation/questionnaire'
+import { saveCustomerProfileAnswers } from '@/lib/compliance/customer-profile-schema'
 
 /**
  * Derive policy-specific answers from available integrations/evidence.
@@ -297,7 +298,7 @@ export async function POST(request: NextRequest) {
 
     try {
       if (body.type === 'org-profile') {
-        // Upsert org profile
+        // Upsert legacy store (kept until W16 retires the table)…
         await client.query(
           `INSERT INTO policy_org_profiles ("companyId", answers, "updatedAt", "updatedBy")
            VALUES ($1, $2::jsonb, NOW(), $3)
@@ -305,6 +306,16 @@ export async function POST(request: NextRequest) {
            DO UPDATE SET answers = $2::jsonb, "updatedAt" = NOW(), "updatedBy" = $3`,
           [body.companyId, JSON.stringify(body.answers), session.user.email]
         )
+        // …and dual-write to the canonical form_responses store so readers
+        // (engine N/A logic, policy generator, workflow-status) see the
+        // update immediately via getCustomerProfileAnswers().
+        try {
+          await saveCustomerProfileAnswers(body.companyId, body.answers, session.user.email)
+        } catch (err) {
+          console.error('[questionnaire] form_responses dual-write failed:', err)
+          // Don't fail the request — legacy write succeeded and the next read
+          // will fall back to the legacy merge.
+        }
       } else {
         // Upsert policy-specific answers
         await client.query(
