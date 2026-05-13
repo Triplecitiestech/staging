@@ -105,37 +105,69 @@ This document maps every major subsystem to its primary source files. Use it to 
 | PasswordGate | `onboarding/PasswordGate.tsx` | Legacy — no longer rendered (portal is open) |
 
 ### Compliance Engine
+
+> **Active redesign in progress.** See `docs/plans/COMPLIANCE_ARCHITECTURE.md`, `COMPLIANCE_WORKFLOW_REDESIGN.md`, `CHANGE_MANAGEMENT_AND_REMEDIATION.md`. The table below reflects the **current** code surface.
+
 | Component | File | Purpose |
 |-----------|------|---------|
-| ComplianceDashboard | `compliance/ComplianceDashboard.tsx` | Main dashboard with tabs: Assessments, Policy Analysis, Policy Generation, Platform Mapping |
+| ComplianceDashboard | `compliance/ComplianceDashboard.tsx` | Legacy tabbed dashboard: Connectors, Assessments, Evidence, Platform Mapping, Policy Analysis, Policy Generation, CSV Export. To be retired. |
+| ComplianceWorkflow | `compliance/ComplianceWorkflow.tsx` | 6-step Guided Workflow stepper at `/admin/compliance/workflow`. Step status computed (not persisted) from underlying data tables. Largest file in repo aside from policy gen dashboard. |
+| ComplianceSetupWizard | `compliance/ComplianceSetupWizard.tsx` | Environment discovery wizard at `/admin/compliance/setup`. Duplicates org-profile questions; to be consolidated into the Customer Profile via question engine. |
 | PolicyManager | `compliance/PolicyManager.tsx` | Upload/paste/SharePoint policy import + AI analysis |
-| PolicyGenerationDashboard | `compliance/PolicyGenerationDashboard.tsx` | Policy generation workflow: catalog, intake, AI generation, review, export |
-| ToolCapabilityMap | `compliance/ToolCapabilityMap.tsx` | Tool registry + capability gap analysis |
-| PlatformMappingPanel | `compliance/PlatformMappingPanel.tsx` | Per-company platform site/org mappings |
+| PolicyGenerationDashboard | `compliance/PolicyGenerationDashboard.tsx` | Policy generation workflow: catalog, intake, AI generation, review, export (87 KB — largest single component) |
+| ToolCapabilityMap | `compliance/ToolCapabilityMap.tsx` | Tool registry + capability gap analysis (informational; engine evaluators don't consume the registry today) |
+| PlatformMappingPanel | `compliance/PlatformMappingPanel.tsx` | Per-company platform site/org mappings. Schema supports 1:M (UI fix needed to confirm multi-row support per platform). |
+| AssessmentResults | `compliance/AssessmentResults.tsx` | Findings table + evidence drilldown; reused standalone and inline in the stepper |
 
 ### Compliance Lib (`src/lib/compliance/`)
 | Module | Purpose |
 |--------|---------|
-| `engine.ts` | Assessment lifecycle, evidence collection, evaluation |
-| `ensure-tables.ts` | Bootstrap all compliance + policy generation tables |
-| `types.ts` | Core type definitions |
-| `frameworks/cis-v8.ts` | CIS v8 control definitions + 68 evaluators |
-| `collectors/graph.ts` | Microsoft 365 evidence collection |
-| `collectors/msp.ts` | Datto, DNSFilter, Domotz, IT Glue, SaaS Alerts collectors |
-| `registry/` | Tool definitions, capabilities, control-capability map, resolver |
-| `policy-generation/catalog.ts` | Master policy catalog (30+ types) |
-| `policy-generation/framework-mappings.ts` | CIS v8, HIPAA, NIST 800-171, CMMC mappings |
-| `policy-generation/questionnaire.ts` | Org profile + policy-specific intake questions |
-| `policy-generation/generator.ts` | AI policy generation via Claude API |
-| `policy-generation/export.ts` | HTML/Markdown document rendering + storage provider stubs |
+| `engine.ts` | Assessment lifecycle, evidence collection, evaluation, `compareAssessments()` delta logic, override carry-forward (~57 KB) |
+| `ensure-tables.ts` | Bootstrap all compliance + policy generation tables (idempotent CREATE TABLE IF NOT EXISTS). **Known gap: `compliance_company_tools` and `customer_context_answers` are referenced by other routes but not created here.** |
+| `types.ts` | Core type definitions: `FrameworkId`, `ControlDefinition`, `EvidenceRecord`, `Finding`, `EvaluationContext`, 21 `EvidenceSourceType` variants |
+| `frameworks/cis-v8.ts` | CIS v8 control definitions + 65 evaluators (with IG1/IG2/IG3 selectivity) + `applyPolicyCoverage` enhancement (186 KB, 3,258 lines) |
+| `frameworks/cmmc-l1.ts` | CMMC L1 framework + evaluators (full) |
+| `collectors/graph.ts` | Microsoft 365 evidence: Secure Score, Conditional Access, MFA, Intune, Defender, BitLocker, audit log, mail transport (22 KB) |
+| `collectors/msp.ts` | Datto RMM/EDR/BCDR, DNSFilter, Domotz, IT Glue, SaaS Alerts, Ubiquiti, EasyDMARC, MyITProcess (57 KB) |
+| `registry/capabilities.ts` | ~35 capability definitions (mfa_configured, conditional_access_policies, edr_deployed, etc.) |
+| `registry/tool-definitions.ts` | ~20 tool definitions (Defender, Intune, Datto EDR/RMM/BCDR, DNSFilter, etc.) with capability mappings |
+| `registry/control-capability-map.ts` | Per-control required + supplementary capability index |
+| `registry/resolver.ts` | Ranks tools by confidence for a given control (informational only — evaluators don't consume) |
+| `policy-generation/catalog.ts` | ~15 standard policies with framework mappings |
+| `policy-generation/framework-mappings.ts` | Policies → CIS v8 controls coverage type (full/partial/reference) |
+| `policy-generation/questionnaire.ts` | `ORG_PROFILE_QUESTIONS` (70+ questions across 8 groups) — **to be consolidated into question engine** |
+| `policy-generation/generator.ts` | AI policy generation via Claude API; modes: new/improve/update-framework/standardize/fill-missing |
+| `policy-generation/export.ts` | HTML/Markdown document rendering + bundle export |
+| `saas-alerts-normalizer.ts` | Webhook normalization for SaaS Alerts inbound events |
 
 ### Compliance API Routes (`src/app/api/compliance/`)
-| Route | Purpose |
-|-------|---------|
-| `policies/catalog/route.ts` | Policy catalog + needs analysis |
-| `policies/questionnaire/route.ts` | Questionnaire answers (org profile + policy-specific) |
-| `policies/generate/route.ts` | AI policy generation + status management |
-| `policies/export/route.ts` | Policy download (individual + bundle) |
+
+22 route directories total:
+
+| Route | Verb(s) | Purpose |
+|-------|---------|---------|
+| `/api/compliance/` | GET | List assessments + latest score per company |
+| `assessments/[id]/` | GET, POST, DELETE, PATCH | Get/run/delete assessment; override finding |
+| `assessments/[id]/cowork-worksheet/` | GET | Export cowork worksheet |
+| `connectors/` | GET, POST | List/update connector status |
+| `customer-context/` | GET, POST | Environment Q&A — to be consolidated into Customer Profile |
+| `workflow-status/` | GET | Compute step-completion status (read-only; references missing `compliance_company_tools` table) |
+| `platform-mappings/` | GET, POST, DELETE | Manage customer→platform-entity mappings (1:M) |
+| `policies/` | GET, POST, PATCH | List/upload policies; trigger AI analysis |
+| `policies/catalog/` | GET | Master policy catalog with optional company status |
+| `policies/questionnaire/` | GET, POST | Org-profile + per-policy Q&A |
+| `policies/generate/` | POST | AI policy generation |
+| `policies/generate/diagnose/` | GET | Claude API reachability + stamina test |
+| `policies/export/` | GET | Single policy or bundle download (Markdown/HTML) |
+| `policies/sharepoint-scan/` | POST | List SharePoint folder documents for import |
+| `registry/` | GET | Tool registry + capabilities for a framework |
+| `registry/company-tools/` | GET, POST | Get/toggle company tool deployment status (references missing `compliance_company_tools` table) |
+| `ai-assist/` | POST | AI-powered findings explanation |
+| `portal/` | GET | Tenant portal data (currently read-only) |
+| `export/` | GET | Export assessments to CSV |
+| `setup/` | GET, POST | Setup wizard data (minimal today) |
+| `webhooks/saas-alerts/` | POST | Inbound webhook from Kaseya SaaS Alerts |
+| `debug-collectors/` | GET | Debug endpoint listing available collectors + status |
 
 ### Tickets (shared across admin, SOC, customer portal, reporting)
 | Component | File | Purpose |

@@ -78,6 +78,29 @@ Set via MSP Setup → Customer Environment:
 | On-prem servers = "No on-prem servers" | CIS 4.4 (Server Firewall) | **not_applicable** |
 | Custom apps = "No — standard software" | CIS 16.x (App Security) | **not_applicable** |
 
+### Where these answers come from (today)
+
+> This area is mid-consolidation as of 2026-05-13. Don't add new readers without checking the redesign plan.
+
+The MSP-Setup-Customer-Environment answers are scattered across **three stores** today:
+
+1. `policy_org_profiles.answers` (JSONB) — operational context section of the 70+ org profile. Authored via `PolicyGenerationDashboard.tsx`.
+2. `customer_context_answers` (raw SQL; **referenced by `/api/compliance/customer-context` but not created by `ensure-tables.ts`** — bug). Authored via the workflow Step 2 environment sub-panel.
+3. `ComplianceSetupWizard.tsx` in-page state at `/admin/compliance/setup`. No documented persistence target.
+
+The engine's N/A logic (`src/lib/compliance/engine.ts` and the per-control evaluators in `frameworks/cis-v8.ts`) reads from #1 today; #2 is partly wired into Step 2 of the workflow but inconsistently consumed; #3 has no persistence path.
+
+### Target state (consolidation)
+
+Per `docs/plans/COMPLIANCE_WORKFLOW_REDESIGN.md` §3, the three stores collapse into one **Customer Profile** authored via the HR question engine (`form_schemas` type=`customer_profile`, answers in `form_responses`). After the migration:
+
+- All env-aware N/A logic reads from the question-engine response.
+- `policy_org_profiles` table is dropped.
+- `customer_context_answers` is either dropped or never created.
+- `ComplianceSetupWizard.tsx` is deleted.
+
+Until the migration completes, **prefer reading from `policy_org_profiles.answers`** for engine N/A decisions — it has the broadest coverage. Do not introduce new readers of `customer_context_answers` or new in-memory env state in components.
+
 ---
 
 ## Per-Control Scoring Logic

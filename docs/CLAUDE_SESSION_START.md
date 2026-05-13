@@ -6,8 +6,26 @@
 
 ## Required Reading (in order)
 
-### 1. Engineering Standards
-**File**: `ENGINEERING_STANDARDS.md`
+### 1. Architecture
+**File**: `docs/architecture.md`
+- System overview and data flows
+- Authentication flow
+- Key entity relationships
+- Structured logging patterns
+- Compliance, SOC, reporting, ticket subsystems
+
+### 2. Codebase map
+**File**: `docs/system-map.md`
+- Which files own which subsystem
+- Component / library / API route inventory
+
+### 3. Data model
+**File**: `docs/data-model.md`
+- Prisma schema + raw SQL tables
+- Entity relationships and data flows
+
+### 4. Engineering Standards
+**File**: `docs/coding-standards.md`
 - Definition of done (build/lint are NOT completion criteria)
 - Mandatory QA process and functional verification
 - Testing safety rules (email, blog, customer data)
@@ -15,26 +33,24 @@
 - Sensitive data filtering for customer portals
 - Validation report template
 
-### 2. UI Design System
+### 5. UI Design System
 **File**: `docs/UI_STANDARDS.md`
-- Forbidden colors (yellow, amber, gold, brown, mustard)
+- Forbidden colors (yellow, amber, gold, brown, mustard, orange)
 - Approved color palette and component conventions
 - Form patterns, loading states, error states
 - Status display format (`Status: <label>`)
 
-### 3. QA Standards
-**File**: `QA_STANDARDS.md`
+### 6. QA Standards
+**File**: `docs/qa-standards.md`
 - Pre-commit checklist
 - Feature, API, database, and regression testing checklists
 - Severity levels (P0-P3)
 - Test data cleanup requirements
 
-### 4. Architecture
-**File**: `docs/ARCHITECTURE.md`
-- System overview and data flows
-- Authentication flow
-- Key entity relationships
-- Structured logging patterns
+### 7. Session state
+**Files**: `docs/session-summary.md`, `docs/current-tasks.md`
+- Current state, recent changes, key decisions
+- Active development work and outstanding items
 
 ---
 
@@ -75,11 +91,18 @@ npm run test:e2e -- --grep @browserbase
 
 | Working on... | Also read |
 |---|---|
-| Autotask sync | `AUTOTASK_SYNC.md` |
-| Customer portal | `ONBOARDING_PORTAL.md` |
-| Blog system | `BLOG_SYSTEM_README.md` |
-| Azure AD / auth | `AZURE_AD_SETUP.md` |
-| Olujo project | `OLUJO_PROJECT.md` |
-| Incidents / debugging | `docs/RUNBOOK.md` |
-| Test failure debugging | `docs/DEBUGGING_WORKFLOW.md` |
-| API reliability | `docs/SELF_HEALING_AND_RELIABILITY.md` |
+| Autotask sync | `docs/reference/AUTOTASK_SYNC.md` |
+| Customer portal | `docs/reference/CUSTOMER_INVITE_AND_ONBOARDING.md` |
+| Blog system | `docs/reference/BLOG_SYSTEM_README.md` |
+| Azure AD / auth | `docs/reference/AZURE_AD_SETUP.md` |
+| Olujo project | `docs/plans/OLUJO_PROJECT.md` |
+| Compliance (overall) | `docs/plans/COMPLIANCE_ARCHITECTURE.md` |
+| Compliance workflow / intake | `docs/plans/COMPLIANCE_WORKFLOW_REDESIGN.md` |
+| Compliance remediation / change bundles | `docs/plans/CHANGE_MANAGEMENT_AND_REMEDIATION.md` |
+| Compliance per-control scoring | `docs/COMPLIANCE_PLAYBOOK.md` |
+| HR question engine | `docs/plans/QUESTION_ENGINE_ARCHITECTURE.md` |
+| Encrypted credentials migration | `docs/runbooks/CREDENTIALS_MIGRATION.md` |
+| Incidents / debugging | `docs/runbooks/RUNBOOK.md` |
+| Test failure debugging | `docs/runbooks/DEBUGGING_WORKFLOW.md` (if present) |
+| Reporting pipeline | `docs/reference/REPORTING_ARCHITECTURE.md` |
+| SOC redesign | `docs/plans/SOC_REDESIGN_PLAN.md`, `docs/plans/SOC_REASONING_LAYER_DESIGN.md` |
