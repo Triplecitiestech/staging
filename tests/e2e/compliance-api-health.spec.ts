@@ -23,6 +23,7 @@ const COMPLIANCE_ROUTES: Array<{ method: 'GET' | 'POST' | 'PATCH' | 'DELETE'; pa
   { method: 'GET', path: `/api/compliance/${SAMPLE_COMPANY_ID}/dispositions` },
   { method: 'POST', path: `/api/compliance/${SAMPLE_COMPANY_ID}/dispositions`, body: {} },
   { method: 'POST', path: `/api/compliance/${SAMPLE_COMPANY_ID}/dispositions/link-project`, body: {} },
+  { method: 'GET', path: `/api/compliance/${SAMPLE_COMPANY_ID}/dispositions/stale` },
 
   // Pending changes (P4 C5)
   { method: 'GET', path: `/api/compliance/${SAMPLE_COMPANY_ID}/changes` },
