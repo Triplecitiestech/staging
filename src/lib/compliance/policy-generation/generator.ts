@@ -268,20 +268,17 @@ export async function generatePolicy(input: GenerationInput): Promise<GenerateRe
   const inputHash = computeInputHash(input)
 
   // Generation strategy (model + token budgeting):
-  //   Attempt 1 \u2014 Haiku 4.5 (fast, ~150 tok/s). 4000 max_tokens @ 32s timeout
-  //     = completes fully in ~27s, safely under the timeout.
-  //   Attempt 2 (on timeout/transient failure) \u2014 Sonnet 4 (higher quality,
-  //     ~70 tok/s). 2500 max_tokens @ 22s timeout = completes in ~36s worst
-  //     case, but at 2500 tokens typical policies finish in ~20-25s.
+  //   Attempt 1 \u2014 Haiku 4.5 (fast primary). 4000 max_tokens with STREAMING.
+  //     Streaming means our deadline is "no tokens for 20s" rather than
+  //     "must finish within 32s" \u2014 so a long but actively-streaming
+  //     generation no longer aborts at exactly 32s the way the previous
+  //     non-streaming implementation did.
+  //   Attempt 2 (on timeout/transient failure) \u2014 Sonnet 4.6 (quality
+  //     fallback), also streaming, smaller token budget.
   //
-  // Total budget: ~54s, leaving ~6s for DB writes within Vercel's 60s cap.
-  //
-  // This is inverted from the naive "Sonnet first for quality" approach
-  // because the /diagnose endpoint confirmed Anthropic is healthy \u2014 the
-  // issue was always our token budget. Sonnet generating 5000 tokens can
-  // exceed 60s even under normal load. Haiku 4.5 produces professional
-  // policy prose and fits comfortably in a single attempt; Sonnet only
-  // steps in if Haiku times out or returns an unusable-length draft.
+  // Total wall-clock budget: ~55s, leaving ~5s for DB writes within
+  // Vercel's 60s function timeout. Idle timeouts (20s/15s) catch genuinely
+  // stuck connections without killing slow-but-progressing generations.
   //
   // Errors are captured with enough detail (model, status, elapsed ms,
   // error class) so when both fail the tech sees *why*.
@@ -293,8 +290,43 @@ export async function generatePolicy(input: GenerationInput): Promise<GenerateRe
     status?: number
   }
 
-  const callAnthropic = async (model: string, timeoutMs: number, maxTokens: number): Promise<string> => {
+  // Streaming Anthropic call.
+  //
+  // Two timeouts cooperate:
+  //   - wallClockMs: absolute max from start of fetch (Vercel function cap)
+  //   - idleTimeoutMs: max gap between SSE chunks (catches stuck connections)
+  //
+  // Streaming matters here because long policy prompts can take 25-40s of
+  // wall-clock time at Anthropic \u2014 well within their normal SLA, but past
+  // any reasonable single-shot AbortSignal.timeout(). With streaming we
+  // see tokens arrive every ~50-200ms; as long as they keep flowing, we
+  // wait. The hard wall-clock cap exists only to respect Vercel's 60s
+  // function limit.
+  const callAnthropic = async (
+    model: string,
+    wallClockMs: number,
+    idleTimeoutMs: number,
+    maxTokens: number,
+  ): Promise<string> => {
     const started = Date.now()
+    const controller = new AbortController()
+
+    let idleTimer: ReturnType<typeof setTimeout> | null = null
+    let wallTimer: ReturnType<typeof setTimeout> | null = null
+    let abortReason: 'idle' | 'wall' | null = null
+
+    const cleanupTimers = () => {
+      if (idleTimer) { clearTimeout(idleTimer); idleTimer = null }
+      if (wallTimer) { clearTimeout(wallTimer); wallTimer = null }
+    }
+    const resetIdleTimer = () => {
+      if (idleTimer) clearTimeout(idleTimer)
+      idleTimer = setTimeout(() => { abortReason = 'idle'; controller.abort() }, idleTimeoutMs)
+    }
+
+    wallTimer = setTimeout(() => { abortReason = 'wall'; controller.abort() }, wallClockMs)
+    resetIdleTimer()
+
     try {
       const r = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -306,13 +338,16 @@ export async function generatePolicy(input: GenerationInput): Promise<GenerateRe
         body: JSON.stringify({
           model,
           max_tokens: maxTokens,
+          stream: true,
           system: systemPrompt,
           messages: [{ role: 'user', content: userPrompt }],
         }),
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: controller.signal,
       })
+
       if (!r.ok) {
         const errBody = await r.text().catch(() => '')
+        cleanupTimers()
         const failure: AttemptFailure = {
           model,
           kind: 'http_error',
@@ -323,16 +358,70 @@ export async function generatePolicy(input: GenerationInput): Promise<GenerateRe
         console.error('[compliance/generator] Anthropic HTTP error', failure)
         throw Object.assign(new Error(failure.message), { failure })
       }
-      const d = (await r.json()) as { content: Array<{ type: string; text: string }> }
-      return d.content?.[0]?.text ?? ''
+      if (!r.body) {
+        cleanupTimers()
+        const failure: AttemptFailure = {
+          model, kind: 'other', message: 'No response body from Anthropic', elapsedMs: Date.now() - started,
+        }
+        throw Object.assign(new Error(failure.message), { failure })
+      }
+
+      const reader = r.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let content = ''
+
+      // Parse Anthropic SSE stream. Events look like:
+      //   event: content_block_delta
+      //   data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"..."}}
+      //
+      // We only care about text deltas \u2014 everything else (start/stop
+      // markers, usage stats) is metadata we don't need to thread through
+      // the rest of the generator.
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        resetIdleTimer()
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+        for (const line of lines) {
+          const trimmed = line.trim()
+          if (!trimmed.startsWith('data:')) continue
+          const data = trimmed.slice(5).trim()
+          if (!data || data === '[DONE]') continue
+          try {
+            const event = JSON.parse(data) as {
+              type?: string
+              delta?: { type?: string; text?: string }
+            }
+            if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta' && event.delta.text) {
+              content += event.delta.text
+            }
+          } catch {
+            // Anthropic occasionally emits partial JSON lines on chunk
+            // boundaries \u2014 ignore parse errors, the next chunk will
+            // contain the rest.
+          }
+        }
+      }
+      cleanupTimers()
+      return content
     } catch (err) {
+      cleanupTimers()
       if ((err as { failure?: AttemptFailure }).failure) throw err
       const elapsedMs = Date.now() - started
-      const isTimeout = err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError')
+      const isTimeout = abortReason !== null
+        || (err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError'))
       const failure: AttemptFailure = {
         model,
         kind: isTimeout ? 'timeout' : (err instanceof TypeError ? 'network' : 'other'),
-        message: err instanceof Error ? err.message : String(err),
+        message: abortReason === 'wall'
+          ? `Hit wall-clock timeout (${wallClockMs}ms) \u2014 generation took longer than the Vercel function budget allows.`
+          : abortReason === 'idle'
+            ? `Hit idle timeout (${idleTimeoutMs}ms) \u2014 Anthropic stopped streaming chunks.`
+            : (err instanceof Error ? err.message : String(err)),
         elapsedMs,
       }
       console.error('[compliance/generator] Anthropic call failed', failure)
@@ -344,9 +433,12 @@ export async function generatePolicy(input: GenerationInput): Promise<GenerateRe
   let usedFallback = false
   const failures: AttemptFailure[] = []
 
-  // Attempt 1: Haiku 4.5 (fast primary)
+  // Attempt 1: Haiku 4.5 (fast primary).
+  // 55s wall-clock leaves 5s headroom under Vercel's 60s function cap.
+  // 20s idle timeout catches actually-stuck connections without killing
+  // slow-but-streaming generations.
   try {
-    content = await callAnthropic('claude-haiku-4-5-20251001', 32_000, 4000)
+    content = await callAnthropic('claude-haiku-4-5-20251001', 55_000, 20_000, 4000)
     // Guard against an empty/truncated response \u2014 treat as failure so the
     // Sonnet fallback runs.
     if (!content || content.length < 500) {
@@ -372,10 +464,24 @@ export async function generatePolicy(input: GenerationInput): Promise<GenerateRe
       )
     }
 
+    // If Haiku timed out on the WALL clock, retrying Sonnet won't help —
+    // we're already at ~55s and the function will die before Sonnet gets
+    // a chance to finish. Skip straight to error reporting in that case.
+    const haikuHitWallClock = primaryFailure?.kind === 'timeout' && (primaryFailure.elapsedMs ?? 0) > 50_000
+    if (haikuHitWallClock) {
+      throw new Error(
+        `AI generation timed out: Haiku hit the wall-clock limit (${primaryFailure?.elapsedMs}ms). ` +
+        `The prompt may be too large for a single 60s function invocation. Reduce framework count or split the policy generation.`
+      )
+    }
+
     console.warn('[compliance/generator] Haiku primary failed, trying Sonnet fallback', primaryFailure)
-    // Attempt 2: Sonnet 4 (quality fallback, smaller token budget to fit remaining time)
+    // Attempt 2: Sonnet 4.6 (quality fallback). Budget is whatever's left
+    // of our 55s wall-clock cap — be conservative with max_tokens so we
+    // don't run out of time mid-generation.
+    const remainingWallClock = Math.max(15_000, 55_000 - (primaryFailure?.elapsedMs ?? 0))
     try {
-      content = await callAnthropic('claude-sonnet-4-6', 22_000, 2500)
+      content = await callAnthropic('claude-sonnet-4-6', remainingWallClock, 15_000, 2500)
       usedFallback = true
     } catch (err2) {
       const fallbackFailure = (err2 as { failure?: AttemptFailure }).failure

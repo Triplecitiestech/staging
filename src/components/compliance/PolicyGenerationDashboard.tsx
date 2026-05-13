@@ -195,6 +195,14 @@ export default function PolicyGenerationDashboard({
     summary: string
     sonnet?: { model: string; ok: boolean; status?: number; elapsedMs: number; error?: string }
     haiku?: { model: string; ok: boolean; status?: number; elapsedMs: number; error?: string }
+    stamina?: {
+      ok: boolean
+      model: string
+      elapsedMs: number
+      timeToFirstChunkMs: number | null
+      approxTokens: number
+      error?: string
+    } | null
   }
   const [diagnoseLoading, setDiagnoseLoading] = useState(false)
   const [diagnoseResult, setDiagnoseResult] = useState<DiagnoseResult | null>(null)
@@ -1387,6 +1395,14 @@ export default function PolicyGenerationDashboard({
                   {diagnoseResult.sonnet && (
                     <p>
                       Sonnet ({diagnoseResult.sonnet.model}): {diagnoseResult.sonnet.ok ? `OK in ${diagnoseResult.sonnet.elapsedMs}ms` : `FAIL — ${diagnoseResult.sonnet.error}`}
+                    </p>
+                  )}
+                  {diagnoseResult.stamina && (
+                    <p>
+                      Stamina (1500-tok stream on {diagnoseResult.stamina.model}):{' '}
+                      {diagnoseResult.stamina.ok
+                        ? `${diagnoseResult.stamina.elapsedMs}ms total, ${diagnoseResult.stamina.timeToFirstChunkMs}ms to first chunk, ~${diagnoseResult.stamina.approxTokens} tokens`
+                        : `FAIL — ${diagnoseResult.stamina.error}`}
                     </p>
                   )}
                 </div>
