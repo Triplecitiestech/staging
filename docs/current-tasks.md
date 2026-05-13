@@ -84,21 +84,35 @@
 - [x] **F5** `manage_compliance` permission — already exists in `src/lib/permissions.ts` (SUPER_ADMIN, ADMIN, BILLING_ADMIN). Verified no new add needed. ✅ 2026-05-13
 
 ### Priority 4: Change Management & Remediation (greenfield — CHANGE_MANAGEMENT doc)
-- [ ] **C1** Build action catalog scaffolding + types (`src/lib/compliance/actions/types.ts`, `catalog.ts`, `validators.ts`).
-- [ ] **C2** Seed initial action catalog with 10–15 high-value actions (MFA enforcement, CA policies, Defender hardening, backup, training programs, etc.).
-- [ ] **C3** Add CI lint: every action requires non-empty `impact.userFacing` (`scripts/validate-action-catalog.ts`).
-- [ ] **C4** Add 3 remaining tables to `ensure-tables.ts`: `compliance_pending_changes`, `compliance_change_bundles`, `compliance_change_bundle_items`.
-- [ ] **C5** Build Pending Change API routes (CRUD + abandon + communicate + deploy + rollback).
-- [ ] **C6** Build Bundle API routes (CRUD + items + preview + send + decision + cancel).
-- [ ] **C7** Build Disposition API routes (covered by F2; cross-reference here).
-- [ ] **C8** Build Action Catalog API routes (list, get, suggest-for-control).
-- [ ] **C9** Build Pending Changes admin UI per customer (`src/app/admin/compliance/[companyId]/changes/page.tsx`).
-- [ ] **C10** Build BundleComposer component + preview view.
-- [ ] **C11** Build customer-facing bundle report (HTML + PDF via @react-pdf/renderer + email via Resend) — `src/lib/compliance/bundle-report/`.
-- [ ] **C12** Build verification runner: after `delaySecondsBeforeVerify`, re-run named evaluator(s); transition change to complete or rolled_back.
-- [ ] **C13** Build executor framework: registry of automated handlers by id; manual executor pattern surfaces staff instructions + "mark deployed" button.
-- [ ] **C16** Stale-disposition surfacing covered by F4.
-- [ ] **C17** Wire billable dispositions to per-customer "Compliance Operations" Project + new phase per engagement (`src/lib/compliance/billable-handoff.ts`).
+- [x] **C1** Action catalog scaffolding (`src/lib/compliance/actions/types.ts`, `catalog.ts`, `validators.ts`, `executors.ts`, `index.ts`). Public types: `RemediationAction`, `ActionImpact`, `ActionExecutor`, `ExecutorContext`/`ExecutorResult`. ✅ 2026-05-13
+- [x] **C2** 10 high-value actions seeded covering MFA enforcement, legacy auth blocking, password protection, Defender real-time protection, and manual actions for BullPhish training + DNSFilter threat protection. Each with mandatory plain-English `impact.userFacing`. ✅ 2026-05-13
+- [x] **C3** Build-time validator (`scripts/validate-action-catalog.ts`) — exits 1 on any catalog issue. Run via `npx tsx scripts/validate-action-catalog.ts`. Catches empty `impact.userFacing`, jargon leaks ("Conditional Access", "Graph API", etc.), duplicate ids, missing executor handler / instructions, reversible=true without `rollbackActionId`. ✅ 2026-05-13
+- [x] **C4** `compliance_pending_changes` + `compliance_change_bundles` + `compliance_change_bundle_items` added to `ensure-tables.ts` with FKs, indexes, and lifecycle status defaults. ✅ 2026-05-13
+- [x] **C5** Pending Change API routes:
+  - `GET/POST /api/compliance/[companyId]/changes`
+  - `GET/PATCH /api/compliance/[companyId]/changes/[id]`
+  - `POST /api/compliance/[companyId]/changes/[id]/abandon`
+  - `POST /api/compliance/[companyId]/changes/[id]/communicate` (staff attestation gate)
+  - `POST /api/compliance/[companyId]/changes/[id]/deploy` (invokes executor; transitions to verifying)
+  - `POST /api/compliance/[companyId]/changes/[id]/rollback`
+  - State machine guarded by `assertStatusTransition()` in `change-management.ts`; every transition writes to `compliance_audit_log`. ✅ 2026-05-13
+- [x] **C6** Bundle API routes:
+  - `GET/POST /api/compliance/[companyId]/bundles`
+  - `GET/PATCH /api/compliance/[companyId]/bundles/[id]`
+  - `POST/DELETE /api/compliance/[companyId]/bundles/[id]/items`
+  - `POST /api/compliance/[companyId]/bundles/[id]/send` (state transition; PDF/email rendering deferred to C11)
+  - `POST /api/compliance/[companyId]/bundles/[id]/items/[itemId]/decision` (per-item customer decision; auto-recomputes bundle aggregate status)
+  - `POST /api/compliance/[companyId]/bundles/[id]/cancel`
+   ✅ 2026-05-13
+- [x] **C7** Disposition API routes — done as P3/F2 (cross-referenced in CHANGE_MANAGEMENT doc).
+- [x] **C8** Action Catalog API routes (`/api/compliance/actions`, `/api/compliance/actions/[actionId]`). Supports filters `?controlId=&frameworkId=` (uses `suggestActionsForControl`) and `?capabilityId=`. ✅ 2026-05-13
+- [ ] **C9** Build Pending Changes admin UI per customer. **Blocked on P2** — needs the cockpit.
+- [ ] **C10** Build BundleComposer component + preview view. **Blocked on P2**.
+- [ ] **C11** Build customer-facing bundle report (HTML + PDF + email). **Blocked on P2**. The bundle `send` route is a state transition only today; it accepts a `reportPdfUrl` field for when the renderer ships.
+- [ ] **C12** Verification runner: after `delaySecondsBeforeVerify`, re-run named evaluator(s); transition change to `complete` or `rolled_back`. **Foundation in place** — the `deploy` route already captures executor output in `verificationResult` and parks the change in `verifying`. A scheduled worker (Vercel cron or hook into the engine) completes the cycle.
+- [x] **C13** Executor framework: registry of automated handlers by id; manual executor pattern. Implemented in `src/lib/compliance/actions/executors.ts`. **All 8 automated handlers are stubs today** — they succeed without doing anything (clear `[stub]` summary). Real Graph / Intune / vendor SDK implementations land alongside C12 verification work. The pending-change `deploy` flow exercises the full lifecycle end-to-end against the stubs. ✅ 2026-05-13
+- [ ] **C16** Stale-disposition surfacing — same as F4 (blocked on P2 cockpit).
+- [x] **C17** Billable handoff helper (`src/lib/compliance/billable-handoff.ts`): `getOrCreateComplianceOperationsProject()`, `getOrCreateActiveEngagementPhase()`, `createComplianceTaskForDisposition()`. One persistent `Compliance Operations` Project per customer; a new Phase per engagement window; PhaseTask per finding. Pattern wired up but not yet invoked by the disposition `link-project` route (which still requires staff-supplied project/phase ids) — that wiring lands when the cockpit UI ships. ✅ 2026-05-13
 
 ### Priority 5: Framework expansion
 - [ ] **FR1** CMMC L2 evaluators (currently type stub only)

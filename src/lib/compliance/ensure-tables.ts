@@ -21,6 +21,9 @@
  *   compliance_company_tools — per-company tool deployment status (toggle UI)
  *   compliance_customer_context — per-customer environment Q&A (drives engine N/A logic, legacy)
  *   compliance_finding_dispositions — per-(company, framework, control) durable lifecycle decisions
+ *   compliance_pending_changes — staged remediation actions awaiting bundle / approval / deployment
+ *   compliance_change_bundles — customer-facing groupings of pending changes for one approval conversation
+ *   compliance_change_bundle_items — join table: bundle → change, with per-change customer decision
  *   form_responses           — persistent question-engine answer store, keyed by
  *                              (company_id, schema_type). Customer Profile lives here.
  *   policy_org_profiles      — org-wide questionnaire answers for policy generation (legacy)
@@ -60,6 +63,9 @@ export async function ensureComplianceTables(): Promise<void> {
            'compliance_company_tools',
            'compliance_customer_context',
            'compliance_finding_dispositions',
+           'compliance_pending_changes',
+           'compliance_change_bundles',
+           'compliance_change_bundle_items',
            'form_responses',
            'policy_org_profiles',
            'policy_intake_answers',
@@ -540,6 +546,138 @@ export async function ensureComplianceTables(): Promise<void> {
             ALTER TABLE compliance_finding_dispositions
             ADD CONSTRAINT "compliance_finding_dispositions_companyId_fkey"
             FOREIGN KEY ("companyId") REFERENCES companies(id) ON DELETE CASCADE;
+          END IF;
+        END $$
+      `)
+    }
+
+    // --- compliance_pending_changes ---
+    // Staged remediation actions. See CHANGE_MANAGEMENT_AND_REMEDIATION.md §5.1.
+    if (!existingSet.has('compliance_pending_changes')) {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS compliance_pending_changes (
+          id                          TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+          "companyId"                 TEXT NOT NULL,
+          "actionId"                  TEXT NOT NULL,
+          "actionVersion"             TEXT NOT NULL,
+          "linkedFindingIds"          JSONB NOT NULL DEFAULT '[]',
+          "customerImpactSummary"     TEXT NOT NULL,
+          "internalNotes"             TEXT,
+          status                      TEXT NOT NULL DEFAULT 'drafted',
+          "bundleId"                  TEXT,
+          "deferredUntil"             TIMESTAMPTZ,
+          "communicatedAt"            TIMESTAMPTZ,
+          "communicatedBy"            TEXT,
+          "communicationMethod"       TEXT,
+          "customerReplyReference"    TEXT,
+          "scheduledFor"              TIMESTAMPTZ,
+          "deployedAt"                TIMESTAMPTZ,
+          "deployedBy"                TEXT,
+          "verifiedAt"                TIMESTAMPTZ,
+          "verificationResult"        JSONB,
+          "rolledBackAt"              TIMESTAMPTZ,
+          "rolledBackReason"          TEXT,
+          "createdAt"                 TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          "createdBy"                 TEXT NOT NULL,
+          "updatedAt"                 TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `)
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_pending_changes_company_status
+        ON compliance_pending_changes ("companyId", status)
+      `)
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_pending_changes_bundle
+        ON compliance_pending_changes ("bundleId")
+      `)
+      await client.query(`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'compliance_pending_changes_companyId_fkey') THEN
+            ALTER TABLE compliance_pending_changes
+            ADD CONSTRAINT "compliance_pending_changes_companyId_fkey"
+            FOREIGN KEY ("companyId") REFERENCES companies(id) ON DELETE CASCADE;
+          END IF;
+        END $$
+      `)
+    }
+
+    // --- compliance_change_bundles ---
+    // Customer-facing groupings of pending changes for one approval conversation.
+    // See CHANGE_MANAGEMENT_AND_REMEDIATION.md §5.2.
+    if (!existingSet.has('compliance_change_bundles')) {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS compliance_change_bundles (
+          id                      TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+          "companyId"             TEXT NOT NULL,
+          title                   TEXT NOT NULL,
+          status                  TEXT NOT NULL DEFAULT 'drafted',
+          "customerFacingNotes"   TEXT,
+          "internalNotes"         TEXT,
+          "reportPdfUrl"          TEXT,
+          "sentAt"                TIMESTAMPTZ,
+          "sentBy"                TEXT,
+          "sentVia"               TEXT,
+          "customerRespondedAt"   TIMESTAMPTZ,
+          "completedAt"           TIMESTAMPTZ,
+          "createdAt"             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          "createdBy"             TEXT NOT NULL,
+          "updatedAt"             TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `)
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_change_bundles_company_status
+        ON compliance_change_bundles ("companyId", status)
+      `)
+      await client.query(`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'compliance_change_bundles_companyId_fkey') THEN
+            ALTER TABLE compliance_change_bundles
+            ADD CONSTRAINT "compliance_change_bundles_companyId_fkey"
+            FOREIGN KEY ("companyId") REFERENCES companies(id) ON DELETE CASCADE;
+          END IF;
+        END $$
+      `)
+    }
+
+    // --- compliance_change_bundle_items ---
+    // Join table: bundle → pending change, with the customer's per-item decision.
+    // See CHANGE_MANAGEMENT_AND_REMEDIATION.md §5.3.
+    if (!existingSet.has('compliance_change_bundle_items')) {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS compliance_change_bundle_items (
+          id                      TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+          "bundleId"              TEXT NOT NULL,
+          "pendingChangeId"       TEXT NOT NULL,
+          "displayOrder"          INT NOT NULL DEFAULT 0,
+          "customerDecision"      TEXT,
+          "customerNote"          TEXT,
+          "decisionRecordedAt"    TIMESTAMPTZ,
+          "decisionRecordedBy"    TEXT,
+          "agreedDeploymentDate"  TIMESTAMPTZ,
+          "deferredUntil"         TIMESTAMPTZ,
+          "createdAt"             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          UNIQUE ("bundleId", "pendingChangeId")
+        )
+      `)
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_change_bundle_items_bundle
+        ON compliance_change_bundle_items ("bundleId", "displayOrder")
+      `)
+      await client.query(`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'compliance_change_bundle_items_bundleId_fkey') THEN
+            ALTER TABLE compliance_change_bundle_items
+            ADD CONSTRAINT "compliance_change_bundle_items_bundleId_fkey"
+            FOREIGN KEY ("bundleId") REFERENCES compliance_change_bundles(id) ON DELETE CASCADE;
+          END IF;
+        END $$
+      `)
+      await client.query(`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'compliance_change_bundle_items_changeId_fkey') THEN
+            ALTER TABLE compliance_change_bundle_items
+            ADD CONSTRAINT "compliance_change_bundle_items_changeId_fkey"
+            FOREIGN KEY ("pendingChangeId") REFERENCES compliance_pending_changes(id) ON DELETE CASCADE;
           END IF;
         END $$
       `)
