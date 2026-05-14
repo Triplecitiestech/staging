@@ -40,6 +40,7 @@ const IMPLEMENTED_FRAMEWORKS: ReadonlySet<FrameworkId> = new Set<FrameworkId>([
   'cmmc-l2',
   'hipaa',
   'nist-800-171',
+  'pci',
 ])
 
 /**
@@ -127,6 +128,14 @@ export function recommendFrameworks(answers: CustomerProfileAnswers): Recommende
       source: 'inferred',
       reason: 'Customer industry is defense/government — CMMC L2 likely applies for DoD contracts handling CUI.',
       hasEvaluators: IMPLEMENTED_FRAMEWORKS.has('cmmc-l2'),
+    })
+  }
+  if (industry === 'retail' && !seen.has('pci')) {
+    add({
+      frameworkId: 'pci',
+      source: 'inferred',
+      reason: 'Customer industry is retail — PCI DSS likely applies if they store, process, or transmit cardholder data. Confirm by ticking PCI in org_target_frameworks if card processing is in scope.',
+      hasEvaluators: IMPLEMENTED_FRAMEWORKS.has('pci'),
     })
   }
 
