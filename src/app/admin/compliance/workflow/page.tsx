@@ -7,6 +7,7 @@
 
 import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
+import Link from 'next/link'
 import AdminHeader from '@/components/admin/AdminHeader'
 import ComplianceWorkflow from '@/components/compliance/ComplianceWorkflow'
 
@@ -64,10 +65,10 @@ export default async function ComplianceWorkflowPage() {
               Linear 6-step flow — work in progress. Use the main dashboard for full features.
             </p>
           </div>
-          <a href="/admin/compliance"
+          <Link href="/admin/compliance"
             className="inline-flex items-center px-3 py-2 bg-slate-700/50 hover:bg-slate-600/50 text-slate-300 hover:text-white rounded-lg text-sm transition-colors whitespace-nowrap">
             ← Back to Dashboard
-          </a>
+          </Link>
         </div>
         <ComplianceWorkflow companies={companies} />
       </main>

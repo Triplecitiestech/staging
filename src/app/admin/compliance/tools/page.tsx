@@ -8,6 +8,7 @@
 
 import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
+import Link from 'next/link'
 import AdminHeader from '@/components/admin/AdminHeader'
 import ToolCapabilityMap from '@/components/compliance/ToolCapabilityMap'
 
@@ -36,7 +37,7 @@ export default async function ToolCapabilityMapPage() {
             <h1 className="text-2xl font-bold text-white">Tool Capability Map</h1>
             <p className="text-slate-400 mt-1">See which tools answer which compliance controls and identify gaps</p>
           </div>
-          <a href="/admin/compliance" className="text-sm text-cyan-400 hover:text-cyan-300">Back to Compliance</a>
+          <Link href="/admin/compliance" className="text-sm text-cyan-400 hover:text-cyan-300">Back to Compliance</Link>
         </div>
         <ToolCapabilityMap companies={companies} />
       </main>

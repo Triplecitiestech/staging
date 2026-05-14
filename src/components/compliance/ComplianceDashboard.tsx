@@ -15,6 +15,7 @@
  */
 
 import { useState, useCallback, useRef, lazy, Suspense } from 'react'
+import Link from 'next/link'
 import type {
   Assessment,
   Finding,
@@ -247,9 +248,9 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
           <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg p-4 sm:p-6">
             <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-white">Integration Connectors</h2>
-            <a href="/admin/compliance/tools" className="text-xs text-cyan-400 hover:text-cyan-300">
+            <Link href="/admin/compliance/tools" className="text-xs text-cyan-400 hover:text-cyan-300">
               View Tool Capability Map &rarr;
-            </a>
+            </Link>
           </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               <ConnectorCard name="Microsoft 365 / Graph" type="microsoft_graph" connectors={dashboard.connectors} />
