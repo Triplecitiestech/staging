@@ -58,7 +58,6 @@ export default async function ComplianceCockpitPage({ params }: PageProps) {
     recommendations,
     staleItems,
     assessmentRows,
-    findingCounts,
     pendingChangeCounts,
     activeBundleCount,
     toolCount,
@@ -68,12 +67,22 @@ export default async function ComplianceCockpitPage({ params }: PageProps) {
     recommendFrameworksForCompany(companyId),
     findStaleDispositions(companyId, 25),
     fetchLatestAssessments(companyId),
-    fetchFindingCounts(companyId),
     fetchPendingChangeCounts(companyId),
     fetchActiveBundleCount(companyId),
     fetchToolCount(companyId),
     fetchMappingCount(companyId),
   ])
+
+  // Findings panel counts derive from the SAME latest-assessment rows that
+  // the Posture section renders, so the two panels can never disagree.
+  const findingCounts = assessmentRows.reduce(
+    (acc, a) => ({
+      pass: acc.pass + a.passedControls,
+      fail: acc.fail + a.failedControls,
+      review: acc.review + a.manualReviewControls,
+    }),
+    { pass: 0, fail: 0, review: 0 }
+  )
 
   const profileCompletion = computeProfileCompletion(profileAnswers)
   const profileStarted = !isProfileEmpty(profileAnswers)
@@ -452,38 +461,6 @@ async function fetchLatestAssessments(companyId: string): Promise<LatestAssessme
   }
 }
 
-async function fetchFindingCounts(companyId: string): Promise<{ pass: number; fail: number; review: number }> {
-  const pool = getPool()
-  const client = await pool.connect()
-  try {
-    // Sum across the latest complete assessment per framework only.
-    const res = await client.query<{ pass: string; fail: string; review: string }>(
-      `WITH latest AS (
-         SELECT DISTINCT ON ("frameworkId") id
-         FROM compliance_assessments
-         WHERE "companyId" = $1 AND status = 'complete'
-         ORDER BY "frameworkId", "completedAt" DESC NULLS LAST
-       )
-       SELECT
-         COUNT(*) FILTER (WHERE status = 'pass')::text AS pass,
-         COUNT(*) FILTER (WHERE status = 'fail')::text AS fail,
-         COUNT(*) FILTER (WHERE status IN ('needs_review','partial'))::text AS review
-       FROM compliance_findings f
-       WHERE f."assessmentId" IN (SELECT id FROM latest)`,
-      [companyId]
-    )
-    return {
-      pass: parseInt(res.rows[0]?.pass ?? '0', 10),
-      fail: parseInt(res.rows[0]?.fail ?? '0', 10),
-      review: parseInt(res.rows[0]?.review ?? '0', 10),
-    }
-  } catch {
-    return { pass: 0, fail: 0, review: 0 }
-  } finally {
-    client.release()
-  }
-}
-
 async function fetchPendingChangeCounts(companyId: string) {
   const pool = getPool()
   const client = await pool.connect()
@@ -568,7 +545,7 @@ function frameworkLabel(id: string): string {
     case 'cis-v8-ig1':
     case 'cis-v8-ig2':
     case 'cis-v8-ig3':
-      return id === 'cis-v8' ? 'CIS Controls v8' : `CIS Controls v8 — ${id.replace('cis-v8-', 'IG').toUpperCase()}`
+      return id === 'cis-v8' ? 'CIS Controls v8' : `CIS Controls v8 — ${id.replace('cis-v8-ig', 'IG').toUpperCase()}`
     case 'cmmc-l1':
       return 'CMMC Level 1'
     case 'cmmc-l2':

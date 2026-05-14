@@ -327,7 +327,7 @@ function frameworkLabel(id: string): string {
     case 'cis-v8-ig1':
     case 'cis-v8-ig2':
     case 'cis-v8-ig3':
-      return id === 'cis-v8' ? 'CIS Controls v8' : `CIS v8 — ${id.replace('cis-v8-', 'IG').toUpperCase()}`
+      return id === 'cis-v8' ? 'CIS Controls v8' : `CIS v8 — ${id.replace('cis-v8-ig', 'IG').toUpperCase()}`
     case 'cmmc-l1': return 'CMMC Level 1'
     case 'cmmc-l2': return 'CMMC Level 2'
     case 'nist-800-171': return 'NIST SP 800-171'
