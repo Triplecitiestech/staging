@@ -686,15 +686,24 @@ export type CustomerProfileWriteInput = Record<
 /**
  * Read the customer's full profile answers.
  *
- * Resolution order:
- *   1. form_responses where schema_type='customer_profile' (canonical store)
- *   2. Merge of the two legacy stores (policy_org_profiles + compliance_customer_context)
- *      for customers not yet backfilled. Keys from the legacy stores that
- *      aren't in the customer-profile schema are dropped silently.
+ * Layering (form_responses wins per-key; legacy fills every gap):
+ *   1. BASE  — merge of the two legacy stores (policy_org_profiles +
+ *              compliance_customer_context). Always computed.
+ *   2. OVERLAY — form_responses where schema_type='customer_profile'.
+ *              Each non-null key overrides the legacy base.
  *
- * Callers do not need to know about this layering; getCustomerProfileAnswers
- * is the single read API. When the backfill is verified for every customer,
- * step 2 can be removed.
+ * Why layer instead of "use form_responses if present": a partial
+ * form_responses row (e.g. only the customer-context subset, written by
+ * the customer-context POST dual-write for a customer who was never
+ * backfilled) must NOT shadow the policy_org_profiles data. Layering
+ * guarantees we never lose a legacy answer.
+ *
+ * Transition wart: if a key is *cleared* via the new editor it is omitted
+ * from form_responses (saveCustomerProfileAnswers deletes rather than
+ * stores null), so a stale legacy value can reappear. Acceptable during
+ * the transition — strictly safer than losing data. Once the backfill is
+ * verified for every customer and the legacy stores are dropped (W16),
+ * step 1 can be removed and this wart disappears.
  *
  * Returns an empty object (not null) when the customer has no profile yet,
  * so callers can chain `.org_legal_name` without null checks. Use
@@ -708,30 +717,31 @@ export async function getCustomerProfileAnswers(
   const pool = getPool()
   const client = await pool.connect()
   try {
-    // Canonical store: form_responses. If a row exists with non-empty
-    // answers, use it as-is — no merge with legacy.
+    // 1. BASE — legacy merge. Always computed so a partial form_responses
+    //    row can never hide legacy data.
+    const merged = await readLegacyProfileMerge(client, companyId)
+
+    // 2. OVERLAY — form_responses wins per-key. Non-null values only, so a
+    //    null in form_responses can't erase a real legacy answer.
     try {
       const r = await client.query<{ answers: Record<string, unknown> | null }>(
         `SELECT answers FROM form_responses WHERE company_id = $1 AND schema_type = $2`,
         [companyId, CUSTOMER_PROFILE_TYPE]
       )
       const stored = r.rows[0]?.answers
-      if (stored && typeof stored === 'object' && Object.keys(stored).length > 0) {
-        const out: CustomerProfileAnswers = {}
+      if (stored && typeof stored === 'object') {
         for (const [k, v] of Object.entries(stored)) {
           if (CUSTOMER_PROFILE_KEY_SET.has(k)) {
-            out[k] = normalizeAnswer(v)
+            const norm = normalizeAnswer(v)
+            if (norm !== null) merged[k] = norm
           }
         }
-        return out
       }
     } catch {
-      // form_responses may not exist on a very old install — fall through to
-      // the legacy merge so we never hide existing data.
+      // form_responses may not exist on a very old install — legacy merge stands.
     }
 
-    // Fallback: merge of legacy stores. Same shape as before.
-    return await readLegacyProfileMerge(client, companyId)
+    return merged
   } finally {
     client.release()
   }
