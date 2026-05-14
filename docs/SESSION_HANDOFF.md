@@ -62,39 +62,85 @@ that blocks `/api/migrations/*` and `/api/cron/*`. Preview deploys are
 also protected. So an external Playwright runner can't authenticate.
 The answer is a fully local app.
 
-### Setup state when this session ended
+### THE LOCAL LOOP WORKS — full reproduce steps
 
-Done:
-- Docker daemon started in the sandbox: `sudo dockerd > /tmp/dockerd.log 2>&1 &`
-- Postgres 16 running: container `tct-pg`, port **5433**, db `tct`,
-  user `postgres`, password `devpass`
-- `npx prisma db push` ran successfully — Prisma schema synced to local DB
-- `.env.local` created (gitignored, will NOT persist to a new sandbox —
-  recreate it; contents below)
-- `scripts/local-seed.ts` created and committed — raw-`pg` seed that
-  inserts Tri-Bros Transportation + Contoso companies and a realistic
-  spread of compliance data (assessment + findings, dispositions,
-  connectors, tools, mappings, customer profile, pending changes, a
-  bundle, policies, audit log). Reuses `ensureComplianceTables()`.
+The loop is built and proven end-to-end (edit → re-screenshot → verify).
+From a fresh sandbox, reproduce it like this:
 
-Not yet done (pick up here):
-1. Run the seed: `DATABASE_URL=postgresql://postgres:devpass@localhost:5433/tct npx tsx scripts/local-seed.ts`
-   (verify `tsx` resolves the `@/` alias in `ensure-tables.ts`; if not,
-   run with `npx tsx --tsconfig tsconfig.json` or inline the DDL).
-2. Start the dev server with `.env.local`: `npm run dev` (Next reads
-   `.env.local` automatically). It will be at `http://localhost:3000`.
-3. Build a Playwright screenshot harness:
-   - POST `http://localhost:3000/api/test/auth` with
-     `Authorization: Bearer local-dev-e2e-secret` and
-     `{ "email": "e2e@triplecitiestech.com", "role": "SUPER_ADMIN" }`,
-     save `storageState`.
-   - With that auth, `page.goto` + `page.screenshot` each of the 8 pages
-     at desktop AND mobile widths. Save PNGs to `/tmp/shots/`.
-   - The chromium binary IS available (public-page mobile e2e tests passed
-     earlier this session).
-4. **Read every screenshot** with the Read tool. Write an honest per-page
-   verdict.
-5. Then decide per page: fix-forward / rebuild / revert. Do NOT guess.
+```bash
+# 1. Docker daemon (the bg process dies between sessions — restart it)
+sudo rm -f /var/run/docker.sock
+(sudo dockerd > /tmp/dockerd.log 2>&1 &)
+until docker info >/dev/null 2>&1; do sleep 2; done
+
+# 2. Postgres 16 — if container 'tct-pg' already exists, `docker start tct-pg`
+#    keeps the schema; otherwise create fresh:
+docker run -d --name tct-pg -e POSTGRES_PASSWORD=devpass \
+  -e POSTGRES_DB=tct -p 5433:5432 postgres:16
+until docker exec tct-pg pg_isready -U postgres >/dev/null 2>&1; do sleep 2; done
+
+# 3. Recreate .env.local (gitignored — contents below), then sync schema:
+DATABASE_URL='postgresql://postgres:devpass@localhost:5433/tct' \
+  npx prisma db push --accept-data-loss
+DATABASE_URL='postgresql://postgres:devpass@localhost:5433/tct' \
+  npx prisma generate
+
+# 4. Seed (tsx resolves the @/ alias fine — no extra flags needed):
+DATABASE_URL='postgresql://postgres:devpass@localhost:5433/tct' \
+  npx tsx scripts/local-seed.ts
+
+# 5. Dev server (reads .env.local automatically):
+(npm run dev > /tmp/devserver.log 2>&1 &)
+until curl -sS -o /dev/null http://localhost:3000/; do sleep 3; done
+
+# 6. Screenshot harness — committed at scripts/screenshot-cockpit.ts.
+#    Captures all 10 compliance pages at desktop + mobile into /tmp/shots/.
+npx tsx scripts/screenshot-cockpit.ts
+```
+
+Then **Read** the PNGs in `/tmp/shots/` — Claude is multimodal, it can
+see them. That IS the review loop.
+
+Notes / gotchas confirmed this session:
+- The Playwright-pinned chromium can't be downloaded in the sandbox, but
+  `/opt/pw-browsers/chromium-1194/chrome-linux/chrome` is pre-installed
+  and the harness already points `executablePath` at it.
+- `scripts/local-seed.ts` reuses `ensureComplianceTables()` — it creates
+  the raw-SQL compliance tables AND inserts a realistic data spread for
+  company `4944a84d-535c-4772-a7a8-affaa8376697` (Tri-Bros Transportation).
+- `npm run seed` (the committed prisma seed) does NOT work locally — it's
+  hardcoded for Prisma Accelerate. Use `scripts/local-seed.ts` instead.
+- `CI=true npx next build` against the local non-SSL Postgres logs
+  blog/sitemap TLS errors during static generation — harmless, unrelated,
+  does not happen on Vercel. "✓ Compiled successfully" is the line to check.
+
+### What's been done with the loop so far
+
+- Reviewed all 10 pages (8 cockpit + diagnostics + legacy) at desktop +
+  mobile. **Finding: the pages render with data and consistent styling —
+  NOT "massively broken."** Real bugs exist; "white screen / missing
+  everything" does not (in the local seed env).
+- **Fixed + screenshot-verified** (commit `36f09cf`):
+  - `IGIG1` label bug → `IG1` (cockpit + findings pages)
+  - Cockpit POSTURE vs FINDINGS count mismatch — FINDINGS panel now
+    derives from the same `assessmentRows` POSTURE uses
+- **Still open** (seen but not yet fixed):
+  - Posture % counts `needs_review` as not-passing → understates score.
+    Decide: should the denominator exclude needs_review / not_applicable?
+  - The gap between the operator's "massively regressed" and what the
+    loop shows = rough-but-functional. Next session MUST ask the operator
+    for 1-2 specific worst pages/states, OR walk every page state the
+    seed doesn't cover (a SENT bundle, awaiting_customer items, a
+    framework with 100+ findings, error states).
+
+### Next actions, in order
+
+1. Reproduce the loop (steps above).
+2. Ask the operator: which specific page/state looked worst? Close the
+   gap between "rough-but-functional" (what the loop shows) and
+   "massively regressed" (their experience).
+3. Fix pages **one at a time, screenshot-verified before each commit.**
+4. Decide per page: fix-forward / rebuild / revert. Do NOT guess.
 
 ### Recreate `.env.local` (gitignored — not in the repo)
 
