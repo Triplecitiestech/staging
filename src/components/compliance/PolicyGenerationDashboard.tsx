@@ -12,6 +12,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react'
+import Link from 'next/link'
 
 // ---------------------------------------------------------------------------
 // Types (local to component — matches API responses)
@@ -1682,13 +1683,13 @@ function AssessmentRerunBanner({
             </p>
           </div>
         </div>
-        <a
+        <Link
           href="/admin/compliance/workflow"
           className="px-4 py-2 bg-violet-500 hover:bg-violet-400 text-white rounded-lg text-sm font-semibold flex-shrink-0 whitespace-nowrap"
           title="Opens the guided workflow at the Final Assessment step"
         >
           Run New Assessment &rarr;
-        </a>
+        </Link>
       </div>
     </div>
   )

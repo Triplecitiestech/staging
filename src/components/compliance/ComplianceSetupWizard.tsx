@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Link from 'next/link'
 
 interface SetupQuestion {
   id: string
@@ -389,7 +390,7 @@ export default function ComplianceSetupWizard() {
           <h1 className="text-2xl font-bold text-white">Compliance Engine Setup</h1>
           <p className="text-slate-400 mt-1">Tell us how your MSP operates so assessments use the right tools</p>
         </div>
-        <a href="/admin/compliance" className="text-sm text-cyan-400 hover:text-cyan-300">Back to Compliance</a>
+        <Link href="/admin/compliance" className="text-sm text-cyan-400 hover:text-cyan-300">Back to Compliance</Link>
       </div>
 
       {/* Progress */}
