@@ -29,6 +29,7 @@ import { CMMC_L1_FRAMEWORK, CMMC_L1_EVALUATORS } from './frameworks/cmmc-l1'
 import { CMMC_L2_FRAMEWORK, CMMC_L2_EVALUATORS } from './frameworks/cmmc-l2'
 import { HIPAA_FRAMEWORK, HIPAA_EVALUATORS } from './frameworks/hipaa'
 import { NIST_800_171_FRAMEWORK, NIST_800_171_EVALUATORS } from './frameworks/nist-800-171'
+import { PCI_FRAMEWORK, PCI_EVALUATORS } from './frameworks/pci'
 import {
   compareControlIds,
   EVIDENCE_TO_CONNECTOR,
@@ -1387,6 +1388,7 @@ function getFrameworkDefinition(frameworkId: FrameworkId) {
     case 'cmmc-l2': return CMMC_L2_FRAMEWORK
     case 'hipaa': return HIPAA_FRAMEWORK
     case 'nist-800-171': return NIST_800_171_FRAMEWORK
+    case 'pci': return PCI_FRAMEWORK
     default: throw new Error(`Framework ${frameworkId} not yet implemented`)
   }
 }
@@ -1397,6 +1399,7 @@ function getEvaluators(frameworkId: FrameworkId): Record<string, (ctx: Evaluatio
   if (frameworkId === 'cmmc-l2') return CMMC_L2_EVALUATORS
   if (frameworkId === 'hipaa') return HIPAA_EVALUATORS
   if (frameworkId === 'nist-800-171') return NIST_800_171_EVALUATORS
+  if (frameworkId === 'pci') return PCI_EVALUATORS
   return {}
 }
 
