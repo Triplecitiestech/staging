@@ -93,14 +93,14 @@ export default async function ComplianceCockpitPage({ params }: PageProps) {
       label: 'Connections & Inventory',
       complete: toolCount > 0,
       detail: toolCount > 0 ? `${toolCount} tool(s) tracked` : 'No tools tracked yet',
-      href: '/admin/compliance',
+      href: `/admin/compliance/${companyId}/connections`,
     },
     {
       key: 'mappings',
       label: 'Platform Mappings',
       complete: mappingCount > 0,
       detail: mappingCount > 0 ? `${mappingCount} mapping(s)` : 'Not mapped',
-      href: '/admin/compliance',
+      href: `/admin/compliance/${companyId}/connections`,
     },
     {
       key: 'baseline',
@@ -128,18 +128,42 @@ export default async function ComplianceCockpitPage({ params }: PageProps) {
             <h1 className="text-2xl sm:text-3xl font-bold text-white mt-1">{company.displayName}</h1>
             <p className="text-sm text-slate-400 mt-1">Compliance posture and operational queue</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <Link
-              href="/admin/compliance/workflow"
+              href={`/admin/compliance/${companyId}/findings`}
               className="px-3 py-2 text-xs font-medium rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 hover:bg-cyan-500/20"
             >
-              Open Guided Workflow
+              Findings
+            </Link>
+            <Link
+              href={`/admin/compliance/${companyId}/changes`}
+              className="px-3 py-2 text-xs font-medium rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 hover:bg-cyan-500/20"
+            >
+              Changes
+            </Link>
+            <Link
+              href={`/admin/compliance/${companyId}/assessments`}
+              className="px-3 py-2 text-xs font-medium rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 hover:bg-cyan-500/20"
+            >
+              Assessments
+            </Link>
+            <Link
+              href={`/admin/compliance/${companyId}/connections`}
+              className="px-3 py-2 text-xs font-medium rounded-lg bg-slate-700/50 border border-white/10 text-slate-200 hover:bg-slate-700/70"
+            >
+              Connections
+            </Link>
+            <Link
+              href={`/admin/compliance/${companyId}/policies`}
+              className="px-3 py-2 text-xs font-medium rounded-lg bg-slate-700/50 border border-white/10 text-slate-200 hover:bg-slate-700/70"
+            >
+              Policies
             </Link>
             <Link
               href="/admin/compliance"
               className="px-3 py-2 text-xs font-medium rounded-lg bg-slate-700/50 border border-white/10 text-slate-200 hover:bg-slate-700/70"
             >
-              All Tabs
+              Legacy ↗
             </Link>
           </div>
         </div>
@@ -187,7 +211,7 @@ export default async function ComplianceCockpitPage({ params }: PageProps) {
                 Posture
               </h2>
               <Link
-                href="/admin/compliance"
+                href={`/admin/compliance/${companyId}/assessments`}
                 className="text-xs text-cyan-400 hover:text-cyan-300"
               >
                 View all assessments →

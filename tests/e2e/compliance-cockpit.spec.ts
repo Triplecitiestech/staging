@@ -19,30 +19,61 @@ import { test, expect } from '@playwright/test'
 
 const SAMPLE_COMPANY_ID = '00000000-0000-0000-0000-000000000000'
 
-test.describe('Compliance Cockpit — Unauthenticated', () => {
-  test('GET /admin/compliance/<companyId> never returns the cockpit body to unauth visitors', async ({ request }) => {
-    const response = await request.get(`/admin/compliance/${SAMPLE_COMPANY_ID}`, {
-      maxRedirects: 0,
-    })
-    // Acceptable end-states:
-    //   - 200 with the sign-in page rendered (NextAuth fallthrough)
-    //   - 3xx redirect to the admin sign-in
-    //   - 403 from the edge host-allowlist (when probed from outside)
-    //   - 404 if the company isn't found
-    // Any 5xx is a bug; the page must never crash on unauth visitors.
-    expect(response.status()).toBeLessThan(500)
-  })
+// Pages that should never reveal data to unauth visitors.
+const COCKPIT_PAGES: Array<{ path: string; sentinels: string[] }> = [
+  {
+    path: `/admin/compliance/${SAMPLE_COMPANY_ID}`,
+    sentinels: ['bootstrap progress', 'change queue', 'needs attention', 'recommended frameworks'],
+  },
+  {
+    path: `/admin/compliance/${SAMPLE_COMPANY_ID}/findings`,
+    sentinels: ['accepted-risk rationale', 'lifecycle status', 'internal notes (staff only)'],
+  },
+  {
+    path: `/admin/compliance/${SAMPLE_COMPANY_ID}/assessments`,
+    sentinels: ['run another framework', 're-run', 'compliance evidence engine'],
+  },
+  {
+    path: `/admin/compliance/${SAMPLE_COMPANY_ID}/changes`,
+    sentinels: ['change queue', 'pending changes', 'new bundle'],
+  },
+  {
+    path: `/admin/compliance/${SAMPLE_COMPANY_ID}/changes/new`,
+    sentinels: ['bundle title (internal)', 'customer-facing intro', 'create bundle'],
+  },
+  {
+    path: `/admin/compliance/${SAMPLE_COMPANY_ID}/connections`,
+    sentinels: ['integration connections', 'tool inventory', 'platform mappings'],
+  },
+  {
+    path: `/admin/compliance/${SAMPLE_COMPANY_ID}/policies`,
+    sentinels: ['policy library', 'ai-generated', 'pending generation'],
+  },
+  {
+    path: `/admin/compliance/diagnostics`,
+    sentinels: ['compliance diagnostics', 'schema presence', 'connector errors', 'stuck in'],
+  },
+]
 
-  test('GET /admin/compliance/<companyId> body has no cockpit data sentinels for unauth visitors', async ({ request }) => {
-    const response = await request.get(`/admin/compliance/${SAMPLE_COMPANY_ID}`, {
-      maxRedirects: 5,
+test.describe('Compliance Cockpit — Unauthenticated', () => {
+  for (const { path, sentinels } of COCKPIT_PAGES) {
+    test(`GET ${path} returns < 500`, async ({ request }) => {
+      const response = await request.get(path, { maxRedirects: 0 })
+      // Acceptable end-states:
+      //   - 200 with the sign-in page (NextAuth fallthrough)
+      //   - 3xx redirect to the admin sign-in
+      //   - 403 from the edge host-allowlist (when probed from outside)
+      //   - 404 if the company isn't found
+      // Any 5xx is a bug; the page must never crash on unauth visitors.
+      expect(response.status()).toBeLessThan(500)
     })
-    const body = (await response.text()).toLowerCase()
-    // Sentinels for accidental data leak. None of these strings should appear
-    // in the response body for an unauth visitor.
-    expect(body).not.toContain('bootstrap progress')
-    expect(body).not.toContain('change queue')
-    expect(body).not.toContain('needs attention')
-    expect(body).not.toContain('recommended frameworks')
-  })
+
+    test(`GET ${path} body has no data sentinels for unauth visitors`, async ({ request }) => {
+      const response = await request.get(path, { maxRedirects: 5 })
+      const body = (await response.text()).toLowerCase()
+      for (const sentinel of sentinels) {
+        expect(body, `sentinel "${sentinel}" should not appear in unauth response body`).not.toContain(sentinel)
+      }
+    })
+  }
 })
