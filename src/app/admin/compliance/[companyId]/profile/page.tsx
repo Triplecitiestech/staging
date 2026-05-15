@@ -60,6 +60,13 @@ export default async function ProfileStepPage({ params }: Props) {
         </p>
       </header>
 
+      <section className="bg-cyan-500/5 border border-cyan-500/20 rounded-lg p-3 text-xs text-cyan-100/80">
+        Some answers in <span className="font-semibold">Documented Policies</span> are
+        auto-set by the workflow when a policy is uploaded or AI-generated for
+        this customer (and, in a later slice, when a config change is verified).
+        You can still override any auto-set answer manually.
+      </section>
+
       <CustomerProfileForm
         companyId={companyId}
         sections={CUSTOMER_PROFILE_SECTIONS}

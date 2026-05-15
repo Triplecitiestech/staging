@@ -20,6 +20,7 @@ import { getPool } from '@/lib/db-pool'
 import { ensureComplianceTables } from '@/lib/compliance/ensure-tables'
 import { generatePolicy } from '@/lib/compliance/policy-generation/generator'
 import { getCatalogItem } from '@/lib/compliance/policy-generation/catalog'
+import { applyPolicyPresenceHook } from '@/lib/compliance/policy-presence-hook'
 import {
   getCustomerProfileAnswers,
   type CustomerProfileAnswers,
@@ -258,6 +259,16 @@ export async function POST(request: NextRequest) {
         console.warn('[compliance/policies/generate] policy_generation_records write failed:', rErr instanceof Error ? rErr.message : rErr)
       }
 
+      // Auto-update the customer profile's "Documented Policies" presence-keys
+      // so the profile reflects what's just been generated. Failures are
+      // logged but never block the generate response — see
+      // policy-presence-hook.ts.
+      const presence = await applyPolicyPresenceHook(
+        body.companyId,
+        { title: result.metadata.policyTitle, category: policyCategory, source: 'generated' },
+        session.user.email
+      )
+
       return NextResponse.json({
         success: true,
         data: {
@@ -265,6 +276,7 @@ export async function POST(request: NextRequest) {
           version: newVersion,
           content: result.content,
           metadata: result.metadata,
+          profileKeysSet: presence.keysSet,
         },
       })
     } finally {

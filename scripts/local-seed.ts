@@ -16,6 +16,7 @@
 
 import { Pool } from 'pg'
 import { ensureComplianceTables } from '../src/lib/compliance/ensure-tables'
+import { applyPolicyPresenceHook } from '../src/lib/compliance/policy-presence-hook'
 
 const DB = process.env.DATABASE_URL || 'postgresql://postgres:devpass@localhost:5433/tct'
 
@@ -310,6 +311,12 @@ async function main() {
        ON CONFLICT (id) DO NOTHING`,
       [aupId, irpId, cid]
     )
+
+    // --- exercise the policy presence hook against the seeded policies
+    //     so the profile reflects what's been delivered ---
+    console.log('→ policy presence hook (Tri-Bros)')
+    await applyPolicyPresenceHook(cid, { title: 'Acceptable Use Policy', category: 'governance' }, 'local-seed')
+    await applyPolicyPresenceHook(cid, { title: 'Incident Response Plan', category: 'governance' }, 'local-seed')
 
     // --- audit log ---
     console.log('→ compliance_audit_log')
