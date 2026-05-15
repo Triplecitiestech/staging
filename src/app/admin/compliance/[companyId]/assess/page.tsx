@@ -107,7 +107,7 @@ export default async function AssessStepPage({ params }: Props) {
       />
 
       {latest ? (
-        <LatestSummary latest={latest} previous={previous} />
+        <LatestSummary latest={latest} previous={previous} companyId={companyId} />
       ) : (
         <section className="bg-slate-900/50 border border-white/10 rounded-xl p-8 text-center">
           <p className="text-sm text-slate-400">
@@ -118,7 +118,7 @@ export default async function AssessStepPage({ params }: Props) {
         </section>
       )}
 
-      <HistoryTable assessments={assessments} latestId={latest?.id ?? null} />
+      <HistoryTable assessments={assessments} latestId={latest?.id ?? null} companyId={companyId} />
 
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2">
         {prev ? (
@@ -142,9 +142,11 @@ export default async function AssessStepPage({ params }: Props) {
 function LatestSummary({
   latest,
   previous,
+  companyId,
 }: {
   latest: AssessmentRow
   previous: AssessmentRow | null
+  companyId: string
 }) {
   const score = latest.totalControls > 0
     ? Math.round((latest.passedControls / latest.totalControls) * 100)
@@ -169,7 +171,7 @@ function LatestSummary({
           </p>
         </div>
         <Link
-          href={`/admin/compliance?assessment=${latest.id}`}
+          href={`/admin/compliance/${companyId}/findings?assessmentId=${latest.id}`}
           className="shrink-0 px-3 py-2 text-xs font-medium rounded-lg bg-slate-800/60 border border-white/10 text-slate-200 hover:bg-slate-800/80"
         >
           View findings →
@@ -184,13 +186,15 @@ function LatestSummary({
       </div>
 
       <p className="text-[11px] text-slate-500 max-w-2xl">
-        Use the next workflow step to disposition findings (accept risk,
-        schedule remediation, mark out-of-scope). The{' '}
-        <Link href={`/admin/compliance?assessment=${latest.id}`} className="text-cyan-400 hover:text-cyan-300 underline">
-          legacy dashboard view
+        Drill into{' '}
+        <Link
+          href={`/admin/compliance/${companyId}/findings?assessmentId=${latest.id}`}
+          className="text-cyan-400 hover:text-cyan-300 underline"
+        >
+          Findings
         </Link>{' '}
-        shows the full per-control drilldown until the dedicated Findings
-        step lands in a later slice.
+        to disposition each control (accept risk, schedule remediation,
+        mark out-of-scope). Dispositions persist across re-runs.
       </p>
     </section>
   )
@@ -234,7 +238,7 @@ function StatCard({ label, value, total, tone }: { label: string; value: number;
   )
 }
 
-function HistoryTable({ assessments, latestId }: { assessments: AssessmentRow[]; latestId: string | null }) {
+function HistoryTable({ assessments, latestId, companyId }: { assessments: AssessmentRow[]; latestId: string | null; companyId: string }) {
   if (assessments.length === 0) return null
   return (
     <section className="bg-slate-900/50 border border-white/10 rounded-xl p-5">
@@ -280,7 +284,7 @@ function HistoryTable({ assessments, latestId }: { assessments: AssessmentRow[];
                   </td>
                   <td className="py-2.5 pr-3 text-right">
                     <Link
-                      href={`/admin/compliance?assessment=${a.id}`}
+                      href={`/admin/compliance/${companyId}/findings?assessmentId=${a.id}`}
                       className="text-xs text-cyan-300 hover:text-cyan-200"
                     >
                       View →
