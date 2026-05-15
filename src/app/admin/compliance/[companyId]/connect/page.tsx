@@ -19,6 +19,8 @@ import { getPool } from '@/lib/db-pool'
 import { ensureComplianceTables } from '@/lib/compliance/ensure-tables'
 import { toolLabel, toolVendor } from '@/lib/compliance/labels'
 import { getWorkflowState, adjacentSteps } from '@/lib/compliance/workflow-state'
+import CompanyToolToggle from '@/components/compliance/CompanyToolToggle'
+import { DEFAULT_TOOLS } from '@/lib/compliance/registry/tool-definitions'
 
 export const dynamic = 'force-dynamic'
 
@@ -64,8 +66,17 @@ export default async function ConnectStepPage({ params }: Props) {
   ])
   const { prev, next } = adjacentSteps(steps, 'connect')
 
+  // Merge the saved tool rows with the full catalog so every tool the
+  // operator could toggle is visible — not just ones already in the DB.
+  // Saved rows win for `deployed` + `notes`; catalog supplies anything
+  // the operator hasn't touched yet (defaults to `deployed=false`).
+  const toolById = new Map(tools.map((t) => [t.toolId, t]))
+  const toolInventoryRows: ToolRow[] = DEFAULT_TOOLS
+    .map((d): ToolRow => toolById.get(d.toolId) ?? { toolId: d.toolId, deployed: false, notes: null })
+    .sort((a, b) => toolLabel(a.toolId).localeCompare(toolLabel(b.toolId)))
+
   const verifiedCount = connectors.filter((c) => c.status === 'verified').length
-  const deployedToolCount = tools.filter((t) => t.deployed).length
+  const deployedToolCount = toolInventoryRows.filter((t) => t.deployed).length
 
   return (
     <div className="space-y-5">
@@ -129,39 +140,34 @@ export default async function ConnectStepPage({ params }: Props) {
         <h3 className="text-sm font-semibold text-white uppercase tracking-wider mb-3">
           Tool inventory
         </h3>
-        {tools.length === 0 ? (
-          <p className="text-sm text-slate-400 py-3">
-            No tools tracked. The tool inventory records which MSP-managed
-            tools are deployed for this customer; it controls action
-            preconditions during change proposals.
-          </p>
-        ) : (
-          <ul className="space-y-2">
-            {tools.map((t) => (
-              <li
-                key={t.toolId}
-                className="flex items-center justify-between gap-2 bg-slate-800/40 border border-white/5 rounded-lg p-3"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-white">{toolLabel(t.toolId)}</p>
-                  <p className="text-[11px] text-slate-500">
-                    {toolVendor(t.toolId) || 'Unknown vendor'}
-                    {t.notes && <> · {t.notes}</>}
-                  </p>
-                </div>
-                <span
-                  className={`shrink-0 text-[10px] uppercase tracking-wider px-2 py-1 rounded border ${
-                    t.deployed
-                      ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-200'
-                      : 'bg-slate-700/40 border-white/10 text-slate-300'
-                  }`}
-                >
-                  {t.deployed ? 'Deployed' : 'Not deployed'}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
+        <p className="text-xs text-slate-400 mb-3 max-w-2xl">
+          Toggle a tool to <span className="text-emerald-300">Deployed</span> if
+          this customer actually uses it. Controls that rely on a tool
+          marked <span className="text-slate-300">Not deployed</span> resolve
+          to <span className="text-slate-300">not applicable</span> in the
+          assessment instead of failing with a collection error.
+        </p>
+        <ul className="space-y-2">
+          {toolInventoryRows.map((t) => (
+            <li
+              key={t.toolId}
+              className="flex items-center justify-between gap-2 bg-slate-800/40 border border-white/5 rounded-lg p-3"
+            >
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-white">{toolLabel(t.toolId)}</p>
+                <p className="text-[11px] text-slate-500">
+                  {toolVendor(t.toolId) || 'Unknown vendor'}
+                  {t.notes && <> · {t.notes}</>}
+                </p>
+              </div>
+              <CompanyToolToggle
+                companyId={companyId}
+                toolId={t.toolId}
+                deployed={t.deployed}
+              />
+            </li>
+          ))}
+        </ul>
       </section>
 
       {mappings.length > 0 && (
