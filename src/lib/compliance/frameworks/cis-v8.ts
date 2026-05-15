@@ -258,6 +258,38 @@ function noEvidence(controlId: string, sources: string[], ctx?: EvaluationContex
     }
   }
 
+  // Short-circuit: if EVERY required evidence source maps to a tool the
+  // operator has explicitly marked as `deployed=false`, the control
+  // doesn't apply at this customer — it's not a collection error, the
+  // tool is just intentionally not in use. Reporting `not_applicable`
+  // (rather than `collection_failed`) keeps the assessment clean.
+  // `deployed=undefined` means the operator hasn't touched the toggle,
+  // so we DON'T short-circuit there — falls through to the normal logic.
+  const sourceToolDeployStates = sources.map((src) => {
+    const connector = EVIDENCE_TO_CONNECTOR[src as EvidenceSourceType]
+    if (!connector) return null
+    return ctx.deployedTools?.get(connector)?.deployed
+  })
+  const allIntentionallyOff =
+    sourceToolDeployStates.length > 0 &&
+    sourceToolDeployStates.every((d) => d === false)
+  if (allIntentionallyOff) {
+    const offTools = Array.from(new Set(
+      sources
+        .map((src) => EVIDENCE_TO_CONNECTOR[src as EvidenceSourceType])
+        .filter((c): c is NonNullable<typeof c> => Boolean(c))
+    ))
+    return {
+      controlId,
+      status: 'not_applicable',
+      confidence: 'high',
+      reasoning: `Not deployed at this customer (${offTools.join(', ')}). The control does not apply because the operator has marked the underlying tool(s) as not in use for this customer.`,
+      evidenceIds: [],
+      missingEvidence: [],
+      remediation: null,
+    }
+  }
+
   // Check if any required connector failed during collection
   const failedSources: string[] = []
   const unavailableSources: string[] = []
@@ -266,6 +298,11 @@ function noEvidence(controlId: string, sources: string[], ctx?: EvaluationContex
   for (const src of sources) {
     const connector = EVIDENCE_TO_CONNECTOR[src as EvidenceSourceType]
     if (!connector) { unavailableSources.push(src); continue }
+    // A tool marked deployed=false isn't a "failure" — drop it from the
+    // failed/empty/unavailable buckets entirely so the reasoning text
+    // talks about the connectors that the operator EXPECTS to provide
+    // evidence, not the ones they've turned off.
+    if (ctx.deployedTools?.get(connector)?.deployed === false) continue
     if (ctx.failedConnectors.has(connector)) { failedSources.push(src); continue }
     if (ctx.availableConnectors.has(connector)) { availableButEmpty.push(src); continue }
     unavailableSources.push(src)
