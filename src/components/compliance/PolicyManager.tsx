@@ -557,11 +557,16 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
                   </button>
                 </div>
               </div>
-              <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+              <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg space-y-2">
                 <p className="text-sm text-blue-300">
                   Point to a SharePoint folder containing policy documents. The system will scan for all
                   .txt, .md, .pdf, and .docx files. You can select which ones to import and analyze.
                   Requires <code className="text-cyan-400">Sites.Read.All</code> permission on the customer&apos;s app registration.
+                </p>
+                <p className="text-xs text-blue-200/70">
+                  <span className="font-semibold">Tip:</span> any SharePoint URL works — paste the browser address bar from inside
+                  the folder (the <code className="text-cyan-300">/Forms/AllItems.aspx?id=...</code> link),
+                  a direct folder URL, or a share link. Custom-named libraries (not just &quot;Shared Documents&quot;) are supported.
                 </p>
               </div>
 
