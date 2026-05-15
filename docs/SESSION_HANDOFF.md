@@ -1,8 +1,9 @@
 # Session Handoff — Compliance Cockpit UI Recovery
 
-> Written 2026-05-14 mid-session, context running low. This is the single
-> doc the next session should read first (after the normal bootstrap docs).
-> Branch: **`claude/review-workflow-architecture-4UiVX`**
+> Last updated 2026-05-15 (third session). This is the single doc the next
+> session should read first (after the normal bootstrap docs).
+> Latest branch: **`claude/review-workflow-architecture-DdCgz`** (prior:
+> `4UiVX`). Prior branches have been auto-merged to `main`.
 
 ## TL;DR of where things stand
 
@@ -124,6 +125,14 @@ Notes / gotchas confirmed this session:
   - `IGIG1` label bug → `IG1` (cockpit + findings pages)
   - Cockpit POSTURE vs FINDINGS count mismatch — FINDINGS panel now
     derives from the same `assessmentRows` POSTURE uses
+- **Fixed + screenshot-verified** (commit `5c98adf`, session 3):
+  - Policy Library cards rendered `0` even with rows in the DB.
+    `loadPolicies` selected `analyzedControlsCovered/Partial/Missing`
+    from `compliance_policies` — those columns don't exist there (they
+    live on `compliance_policy_analyses` as JSONB arrays). The silent
+    `catch { return [] }` swallowed the error so the UI lied with "no
+    policies." Fixed with a LEFT JOIN LATERAL + `jsonb_array_length()`;
+    catch now logs before returning `[]`.
 - **Still open** (seen but not yet fixed):
   - Posture % counts `needs_review` as not-passing → understates score.
     Decide: should the denominator exclude needs_review / not_applicable?
