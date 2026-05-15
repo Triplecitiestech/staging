@@ -261,16 +261,54 @@ async function main() {
       [bundleId, cid]
     )
 
-    // --- policies ---
+    // --- policies (Tri-Bros: 2 with realistic content + analysis rows) ---
     console.log('→ compliance_policies')
+    // Wipe any previous-run rows first so titles don't accumulate as
+    // duplicates across iterations of the seed during development.
+    await c.query(`DELETE FROM compliance_policies WHERE "companyId" = $1`, [cid])
+    const aupId = 'local-seed-policy-aup'
+    const irpId = 'local-seed-policy-irp'
     await c.query(
       `INSERT INTO compliance_policies
-         (id, "companyId", title, source, content, category, "createdBy", "createdAt", "updatedAt")
+         (id, "companyId", title, source, content, category, tags, "frameworkIds", "controlIds", "createdBy", "createdAt", "updatedAt")
        VALUES
-         (gen_random_uuid()::text, $1, 'Acceptable Use Policy', 'uploaded', 'Lorem ipsum policy body...', 'governance', 'local-seed', NOW(), NOW()),
-         (gen_random_uuid()::text, $1, 'Incident Response Plan', 'generated', 'Generated policy body...', 'governance', 'local-seed', NOW(), NOW())
-       ON CONFLICT DO NOTHING`,
-      [cid]
+         ($2, $1, 'Acceptable Use Policy', 'uploaded',
+          $4, 'governance', '["aup","governance"]'::jsonb,
+          '["cis-v8-ig1"]'::jsonb, '["5.1","5.2","6.1"]'::jsonb,
+          'local-seed', NOW() - INTERVAL '4 days', NOW() - INTERVAL '4 days'),
+         ($3, $1, 'Incident Response Plan', 'generated',
+          $5, 'governance', '["incident_response","governance"]'::jsonb,
+          '["cis-v8-ig1","hipaa"]'::jsonb, '["17.1","17.2","17.3"]'::jsonb,
+          'local-seed', NOW() - INTERVAL '2 days', NOW() - INTERVAL '2 days')
+       ON CONFLICT (id) DO NOTHING`,
+      [
+        cid,
+        aupId,
+        irpId,
+        `ACCEPTABLE USE POLICY\n\n1. PURPOSE\nThis policy defines acceptable use of Tri-Bros Transportation information systems and data.\n\n2. SCOPE\nApplies to all employees, contractors, and authorized third parties.\n\n3. ACCEPTABLE USE\n- Company devices may be used for business purposes and limited personal use.\n- Strong passwords (14+ characters) are required.\n- MFA must be enabled on all accounts.\n\n4. PROHIBITED\n- Sharing credentials.\n- Installing unapproved software on company devices.\n- Connecting personal storage devices to company workstations.\n\n5. ENFORCEMENT\nViolations may result in disciplinary action up to and including termination.`,
+        `INCIDENT RESPONSE PLAN\n\n1. PURPOSE\nEstablishes the process for detecting, responding to, and recovering from security incidents at Tri-Bros Transportation.\n\n2. ROLES\n- Incident Commander: IT Manager\n- Communications Lead: Operations Director\n- Technical Lead: TCT (managed service provider)\n\n3. PHASES\nDetection → Containment → Eradication → Recovery → Post-Incident Review.\n\n4. ESCALATION\nAll suspected incidents must be reported to the IT Manager within 1 hour of detection. After-hours: call the on-call MSP line.\n\n5. EXTERNAL NOTIFICATION\nIf PHI/PII is suspected to be exposed, the Privacy Officer must be notified within 4 hours to start the breach-notification clock.`,
+      ]
+    )
+
+    // Analysis rows so the policy detail view shows control coverage.
+    await c.query(
+      `INSERT INTO compliance_policy_analyses
+         (id, "policyId", "companyId", status, "satisfiedControls", "partialControls", "missingControls", "analysisText", "analyzedAt", "createdAt")
+       VALUES
+         (gen_random_uuid()::text, $1, $3, 'complete',
+          '["5.1","5.2","6.1","6.2"]'::jsonb,
+          '["6.3","6.5"]'::jsonb,
+          '["5.3","5.4"]'::jsonb,
+          'AUP covers password policy and account management basics. Partial coverage on session management; missing details on shared/service accounts.',
+          NOW() - INTERVAL '4 days', NOW() - INTERVAL '4 days'),
+         (gen_random_uuid()::text, $2, $3, 'complete',
+          '["17.1","17.2","17.3","17.4"]'::jsonb,
+          '["17.6"]'::jsonb,
+          '["17.7","17.8","17.9"]'::jsonb,
+          'IR plan defines roles, escalation, and external notification timing. Partial on lessons-learned process; missing tabletop exercise cadence and supply-chain incident handling.',
+          NOW() - INTERVAL '2 days', NOW() - INTERVAL '2 days')
+       ON CONFLICT (id) DO NOTHING`,
+      [aupId, irpId, cid]
     )
 
     // --- audit log ---

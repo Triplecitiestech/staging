@@ -44,3 +44,26 @@ export function toolVendor(slug: string | null | undefined): string {
   const tool = DEFAULT_TOOLS.find((t) => t.toolId === slug)
   return tool?.vendor ?? ''
 }
+
+// ============================================================================
+// Framework labels
+// ============================================================================
+
+const FRAMEWORK_LABELS: Record<string, string> = {
+  'cis-v8': 'CIS v8',
+  'cis-v8-ig1': 'CIS v8 — IG1',
+  'cis-v8-ig2': 'CIS v8 — IG2',
+  'cis-v8-ig3': 'CIS v8 — IG3',
+  'cmmc-l1': 'CMMC Level 1',
+  'cmmc-l2': 'CMMC Level 2',
+  'nist-800-171': 'NIST 800-171',
+  'hipaa': 'HIPAA',
+  'pci': 'PCI DSS',
+  'pci-dss': 'PCI DSS',
+}
+
+/** Resolve a framework ID to a human-readable label. Falls back to the raw ID. */
+export function frameworkLabel(id: string | null | undefined): string {
+  if (!id) return ''
+  return FRAMEWORK_LABELS[id] ?? id
+}
