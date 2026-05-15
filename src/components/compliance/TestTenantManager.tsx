@@ -13,7 +13,6 @@
 
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 
 interface CompanyRow {
   id: string
@@ -139,12 +138,9 @@ export default function TestTenantManager({ testTenants, recentCompanies }: Prop
               >
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <Link
-                      href={`/admin/compliance/${c.id}`}
-                      className="text-sm font-medium text-white hover:text-cyan-300 truncate"
-                    >
+                    <span className="text-sm font-medium text-white truncate">
                       {c.displayName}
-                    </Link>
+                    </span>
                     <span className="text-[10px] uppercase tracking-wider text-slate-500">
                       {c.slug}
                     </span>
