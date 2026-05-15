@@ -205,14 +205,24 @@ async function loadPolicies(companyId: string): Promise<PolicyRow[]> {
       analyzedControlsPartial: string | number
       analyzedControlsMissing: string | number
     }>(
-      `SELECT id, title, source, category,
-              "updatedAt"::text AS "updatedAt",
-              COALESCE("analyzedControlsCovered", 0) AS "analyzedControlsCovered",
-              COALESCE("analyzedControlsPartial", 0) AS "analyzedControlsPartial",
-              COALESCE("analyzedControlsMissing", 0) AS "analyzedControlsMissing"
-       FROM compliance_policies
-       WHERE "companyId" = $1
-       ORDER BY "updatedAt" DESC`,
+      `SELECT p.id,
+              p.title,
+              p.source,
+              p.category,
+              p."updatedAt"::text AS "updatedAt",
+              COALESCE(jsonb_array_length(a."satisfiedControls"), 0) AS "analyzedControlsCovered",
+              COALESCE(jsonb_array_length(a."partialControls"),   0) AS "analyzedControlsPartial",
+              COALESCE(jsonb_array_length(a."missingControls"),   0) AS "analyzedControlsMissing"
+         FROM compliance_policies p
+         LEFT JOIN LATERAL (
+           SELECT "satisfiedControls", "partialControls", "missingControls"
+             FROM compliance_policy_analyses
+            WHERE "policyId" = p.id
+            ORDER BY "analyzedAt" DESC NULLS LAST, "createdAt" DESC
+            LIMIT 1
+         ) a ON TRUE
+        WHERE p."companyId" = $1
+        ORDER BY p."updatedAt" DESC`,
       [companyId]
     )
     return res.rows.map((r) => ({
@@ -221,7 +231,8 @@ async function loadPolicies(companyId: string): Promise<PolicyRow[]> {
       analyzedControlsPartial: Number(r.analyzedControlsPartial),
       analyzedControlsMissing: Number(r.analyzedControlsMissing),
     }))
-  } catch {
+  } catch (err) {
+    console.error('[compliance/policies] loadPolicies query failed', err)
     return []
   } finally {
     client.release()
@@ -241,7 +252,8 @@ async function loadGenerationRecords(companyId: string): Promise<GenerationRow[]
       [companyId]
     )
     return res.rows
-  } catch {
+  } catch (err) {
+    console.error('[compliance/policies] loadGenerationRecords query failed', err)
     return []
   } finally {
     client.release()
