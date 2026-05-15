@@ -14,19 +14,18 @@ import { mkdirSync } from 'fs'
 const BASE = 'http://localhost:3000'
 const SECRET = 'local-dev-e2e-secret'
 const COMPANY = '4944a84d-535c-4772-a7a8-affaa8376697'
-const BUNDLE = 'local-seed-bundle-1'
 const OUT = '/tmp/shots'
 
 const PAGES: Array<{ name: string; path: string }> = [
-  { name: '01-cockpit', path: `/admin/compliance/${COMPANY}` },
-  { name: '02-findings', path: `/admin/compliance/${COMPANY}/findings` },
-  { name: '03-assessments', path: `/admin/compliance/${COMPANY}/assessments` },
-  { name: '04-changes', path: `/admin/compliance/${COMPANY}/changes` },
-  { name: '05-changes-new', path: `/admin/compliance/${COMPANY}/changes/new` },
-  { name: '06-bundle-detail', path: `/admin/compliance/${COMPANY}/changes/${BUNDLE}` },
-  { name: '07-connections', path: `/admin/compliance/${COMPANY}/connections` },
-  { name: '08-policies', path: `/admin/compliance/${COMPANY}/policies` },
-  { name: '09-diagnostics', path: `/admin/compliance/diagnostics` },
+  { name: '01-workflow-landing', path: `/admin/compliance/${COMPANY}` },
+  { name: '02-onboard', path: `/admin/compliance/${COMPANY}/onboard` },
+  { name: '03-profile', path: `/admin/compliance/${COMPANY}/profile` },
+  { name: '04-connect', path: `/admin/compliance/${COMPANY}/connect` },
+  { name: '05-policies', path: `/admin/compliance/${COMPANY}/policies` },
+  { name: '06-assess', path: `/admin/compliance/${COMPANY}/assess` },
+  { name: '07-findings', path: `/admin/compliance/${COMPANY}/findings` },
+  { name: '08-changes', path: `/admin/compliance/${COMPANY}/changes` },
+  { name: '09-reassess', path: `/admin/compliance/${COMPANY}/reassess` },
   { name: '10-legacy-dashboard', path: `/admin/compliance` },
 ]
 

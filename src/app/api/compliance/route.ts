@@ -60,7 +60,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const validFrameworks: FrameworkId[] = ['cis-v8', 'cis-v8-ig1', 'cis-v8-ig2', 'cis-v8-ig3', 'cmmc-l1']
+    // All 9 framework definitions are implemented in src/lib/compliance/frameworks/.
+    // The engine's getFrameworkDefinition() throws for anything else.
+    const validFrameworks: FrameworkId[] = [
+      'cis-v8', 'cis-v8-ig1', 'cis-v8-ig2', 'cis-v8-ig3',
+      'cmmc-l1', 'cmmc-l2', 'hipaa', 'nist-800-171', 'pci',
+    ]
     if (!validFrameworks.includes(body.frameworkId as FrameworkId)) {
       return NextResponse.json(
         { error: `Invalid frameworkId. Supported: ${validFrameworks.join(', ')}` },
