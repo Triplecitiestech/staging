@@ -61,6 +61,11 @@ interface RawStateRow {
   policyCount: number
   policyWithFrameworkCount: number
   latestAssessmentId: string | null
+  latestAssessmentFramework: string | null
+  latestAssessmentStatus: string | null
+  latestAssessmentCompletedAt: Date | null
+  latestAssessmentPassed: number | null
+  latestAssessmentTotal: number | null
   openFindingCount: number
   draftedChangeCount: number
 }
@@ -104,6 +109,21 @@ export async function getWorkflowState(companyId: string): Promise<WorkflowStep[
            ) AS "policyWithFrameworkCount",
          (SELECT id FROM compliance_assessments
             WHERE "companyId" = c.id ORDER BY "createdAt" DESC LIMIT 1) AS "latestAssessmentId",
+         (SELECT "frameworkId" FROM compliance_assessments
+            WHERE "companyId" = c.id AND status = 'complete'
+            ORDER BY COALESCE("completedAt", "createdAt") DESC LIMIT 1) AS "latestAssessmentFramework",
+         (SELECT status FROM compliance_assessments
+            WHERE "companyId" = c.id AND status = 'complete'
+            ORDER BY COALESCE("completedAt", "createdAt") DESC LIMIT 1) AS "latestAssessmentStatus",
+         (SELECT COALESCE("completedAt", "createdAt") FROM compliance_assessments
+            WHERE "companyId" = c.id AND status = 'complete'
+            ORDER BY COALESCE("completedAt", "createdAt") DESC LIMIT 1) AS "latestAssessmentCompletedAt",
+         (SELECT "passedControls" FROM compliance_assessments
+            WHERE "companyId" = c.id AND status = 'complete'
+            ORDER BY COALESCE("completedAt", "createdAt") DESC LIMIT 1) AS "latestAssessmentPassed",
+         (SELECT "totalControls" FROM compliance_assessments
+            WHERE "companyId" = c.id AND status = 'complete'
+            ORDER BY COALESCE("completedAt", "createdAt") DESC LIMIT 1) AS "latestAssessmentTotal",
          (SELECT COUNT(*)::int FROM compliance_findings f
             JOIN compliance_assessments a ON a.id = f."assessmentId"
             WHERE a."companyId" = c.id AND f.status IN ('fail','needs_review')) AS "openFindingCount",
@@ -184,6 +204,17 @@ export async function getWorkflowState(companyId: string): Promise<WorkflowStep[
           detail = 'No policies yet'
         } else {
           detail = `${row.policyCount} polic${row.policyCount === 1 ? 'y' : 'ies'}${row.policyWithFrameworkCount > 0 ? ` · ${row.policyWithFrameworkCount} framework-tagged` : ' · none framework-tagged'}`
+        }
+      } else if (s.key === 'assess') {
+        if (row.latestAssessmentCompletedAt && row.latestAssessmentTotal) {
+          const pct = Math.round((row.latestAssessmentPassed! / row.latestAssessmentTotal) * 100)
+          const days = Math.floor((Date.now() - row.latestAssessmentCompletedAt.getTime()) / 86_400_000)
+          const when = days <= 0 ? 'today' : days === 1 ? '1 day ago' : `${days} days ago`
+          detail = `Latest: ${pct}% · ${when}`
+        } else if (row.latestAssessmentId) {
+          detail = 'Run in progress'
+        } else {
+          detail = 'No assessment yet'
         }
       } else if (s.key === 'findings' && assessDone) {
         detail = `${row.openFindingCount} open finding${row.openFindingCount === 1 ? '' : 's'}`
