@@ -63,6 +63,7 @@ export const CUSTOMER_PROFILE_SECTION_IDS = {
   people: '00000000-0000-4000-8003-000000000007',
   cadences: '00000000-0000-4000-8003-000000000008',
   processes: '00000000-0000-4000-8003-000000000009',
+  documented_policies: '00000000-0000-4000-8003-000000000010',
 } as const
 
 // ============================================================================
@@ -629,6 +630,31 @@ export const CUSTOMER_PROFILE_SECTIONS: readonly CustomerProfileSection[] = [
         ],
         legacyStore: 'policy_org_profiles',
       },
+    ],
+  },
+
+  // --------------------------------------------------------------------------
+  // 10. Documented Policies — presence-keys auto-flipped by the policy
+  //     after-write hook (see policy-presence-hook.ts). The operator can
+  //     also edit these manually to record policies that exist outside
+  //     compliance_policies (e.g. customer's own legal-binder PDFs).
+  // --------------------------------------------------------------------------
+  {
+    id: CUSTOMER_PROFILE_SECTION_IDS.documented_policies,
+    key: 'documented_policies',
+    title: 'Documented Policies',
+    description:
+      'Tracks which policy categories have a documented artifact. ' +
+      'Auto-set by the workflow when a policy is uploaded or AI-generated for the customer; editable here to record policies that live outside this tool.',
+    sortOrder: 9,
+    questions: [
+      { key: 'policy_aup_present',           label: 'Acceptable Use Policy documented?',         type: 'radio', staticOptions: YES_NO, sortOrder: 0, legacyStore: 'policy_org_profiles' },
+      { key: 'policy_ir_present',            label: 'Incident Response Plan documented?',        type: 'radio', staticOptions: YES_NO, sortOrder: 1, legacyStore: 'policy_org_profiles' },
+      { key: 'policy_dr_bcdr_present',       label: 'Disaster Recovery / BCDR plan documented?', type: 'radio', staticOptions: YES_NO, sortOrder: 2, legacyStore: 'policy_org_profiles' },
+      { key: 'policy_data_handling_present', label: 'Data Classification / Handling policy?',    type: 'radio', staticOptions: YES_NO, sortOrder: 3, legacyStore: 'policy_org_profiles' },
+      { key: 'policy_vendor_mgmt_present',   label: 'Vendor / Third-Party Management policy?',   type: 'radio', staticOptions: YES_NO, sortOrder: 4, legacyStore: 'policy_org_profiles' },
+      { key: 'policy_access_control_present', label: 'Access Control policy documented?',        type: 'radio', staticOptions: YES_NO, sortOrder: 5, legacyStore: 'policy_org_profiles' },
+      { key: 'policy_security_awareness_present', label: 'Security Awareness Training policy?',  type: 'radio', staticOptions: YES_NO, sortOrder: 6, legacyStore: 'policy_org_profiles' },
     ],
   },
 ] as const

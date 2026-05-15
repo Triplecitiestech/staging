@@ -8,6 +8,7 @@ import { auth } from '@/auth'
 import { getPool } from '@/lib/db-pool'
 import { ensureComplianceTables } from '@/lib/compliance/ensure-tables'
 import type { CompliancePolicy, PolicyAnalysis } from '@/lib/compliance/types'
+import { applyPolicyPresenceHook } from '@/lib/compliance/policy-presence-hook'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -124,7 +125,21 @@ export async function POST(request: NextRequest) {
         analysis = await analyzePolicyWithAI(client, policyId, body.companyId, body.title, policyContent, session.user.email, analyzeFramework)
       }
 
-      return NextResponse.json({ success: true, policyId, analysis })
+      // Auto-update the customer profile's "Documented Policies" presence-keys
+      // so the profile reflects what's been delivered. Failures here are
+      // logged but never block the policy write — see policy-presence-hook.ts.
+      const presenceResult = await applyPolicyPresenceHook(
+        body.companyId,
+        { title: body.title, category: body.category ?? '', source: body.source ?? 'paste' },
+        session.user.email
+      )
+
+      return NextResponse.json({
+        success: true,
+        policyId,
+        analysis,
+        profileKeysSet: presenceResult.keysSet,
+      })
     } finally {
       client.release()
     }
