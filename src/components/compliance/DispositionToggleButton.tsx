@@ -1,0 +1,64 @@
+'use client'
+
+/**
+ * DispositionToggleButton — secondary action on a finding row that
+ * exposes the FindingDispositionRow form on demand (per operator
+ * feedback: "dispositions are confusing; less visible or optional").
+ *
+ * Renders a tiny "Set disposition" link by default. Click to expand
+ * the existing FindingDispositionRow inline (which owns the form
+ * fields + the POST to /api/compliance/[companyId]/dispositions).
+ *
+ * Doesn't mount FindingDispositionRow until first click — keeps the
+ * findings page DOM light when most controls don't have dispositions.
+ */
+
+import { useState, lazy, Suspense } from 'react'
+
+const FindingDispositionInline = lazy(() => import('./FindingDispositionInline'))
+
+interface DispositionFields {
+  lifecycleStatus: string | null
+  assignedTo: string | null
+  dueDate: string | null
+  acceptedRiskRationale: string | null
+  customerImpactSummary: string | null
+  internalNotes: string | null
+}
+
+interface Props {
+  companyId: string
+  frameworkId: string
+  controlId: string
+  disposition: DispositionFields
+}
+
+export default function DispositionToggleButton(props: Props) {
+  const [open, setOpen] = useState(false)
+  const hasDisposition = Boolean(props.disposition.lifecycleStatus)
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`text-[11px] underline transition-colors ${
+          hasDisposition
+            ? 'text-violet-300 hover:text-violet-200'
+            : 'text-slate-500 hover:text-slate-300'
+        }`}
+      >
+        {open ? 'Hide disposition' : hasDisposition
+          ? `Disposition: ${props.disposition.lifecycleStatus!.replace(/_/g, ' ')}`
+          : 'Set disposition'}
+      </button>
+      {open && (
+        <Suspense fallback={<p className="text-[11px] text-slate-500 mt-2">Loading…</p>}>
+          <div className="mt-3">
+            <FindingDispositionInline {...props} />
+          </div>
+        </Suspense>
+      )}
+    </>
+  )
+}

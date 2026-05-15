@@ -1,19 +1,21 @@
 /**
  * Step 6 — Findings.
  *
- * Per-control findings from one assessment, with inline disposition
- * editing. Each row uses FindingDispositionRow (already-built client
- * component) which POSTs to /api/compliance/[companyId]/dispositions.
+ * Per-control results from one assessment, rendered in the
+ * AssessmentResults-style layout (control families → control rows
+ * → expand for reasoning / remediation / evidence). Operator feedback
+ * on slice 4: the disposition-form-per-row default was confusing.
  *
- * Which assessment? The latest completed one by default; an optional
- * `?assessmentId=` query param lets the assessment-history table on
- * step 5 deep-link to a specific run. The picker at the top of the
- * page also lets the operator switch between runs.
+ * New defaults:
+ *   - Primary action on fail/partial/review = Remediate button
+ *     (preview → confirm → apply, no bundle/customer-approval needed
+ *     for routine MSP-managed config changes).
+ *   - Disposition data (accept risk, customer declined, scheduled-
+ *     for-later) collapsed behind a small "Set disposition" link per
+ *     row, only mounted on click.
  *
- * Disposition rows survive reassessments — the disposition table is
- * keyed on (companyId, frameworkId, controlId), not assessmentId, so
- * "Accept risk" or "Schedule" on a CIS v8 control stays attached to
- * that control across every run.
+ * Which assessment? Latest completed by default; `?assessmentId=`
+ * lets step 5's history table deep-link to a specific run.
  */
 
 import { auth } from '@/auth'
@@ -26,16 +28,17 @@ import {
   getAssessmentSummary,
   getFrameworkDefinition,
 } from '@/lib/compliance/engine'
+import { suggestActionsForControl } from '@/lib/compliance/actions/catalog'
 import { frameworkLabel } from '@/lib/compliance/labels'
 import { getWorkflowState, adjacentSteps } from '@/lib/compliance/workflow-state'
-import FindingDispositionRow from '@/components/compliance/FindingDispositionRow'
-import type { FrameworkId, Finding } from '@/lib/compliance/types'
+import FindingsResultsList, { type FindingRowData } from '@/components/compliance/FindingsResultsList'
+import type { FrameworkId } from '@/lib/compliance/types'
 
 export const dynamic = 'force-dynamic'
 
 interface Props {
   params: Promise<{ companyId: string }>
-  searchParams: Promise<{ assessmentId?: string; status?: string }>
+  searchParams: Promise<{ assessmentId?: string }>
 }
 
 interface AssessmentPickRow {
@@ -59,21 +62,11 @@ interface DispositionRow {
   internalNotes: string | null
 }
 
-type StatusFilter = 'all' | 'open' | 'passed' | 'not_applicable' | 'with_disposition'
-
-const STATUS_FILTERS: Array<{ key: StatusFilter; label: string }> = [
-  { key: 'all', label: 'All' },
-  { key: 'open', label: 'Open (fail / review)' },
-  { key: 'passed', label: 'Passed' },
-  { key: 'not_applicable', label: 'Not applicable' },
-  { key: 'with_disposition', label: 'With disposition' },
-]
-
 export default async function FindingsStepPage({ params, searchParams }: Props) {
   const session = await auth()
   if (!session?.user?.email) redirect('/admin')
   const { companyId } = await params
-  const { assessmentId: paramAssessmentId, status: filterParam } = await searchParams
+  const { assessmentId: paramAssessmentId } = await searchParams
 
   const company = await prisma.company.findUnique({
     where: { id: companyId },
@@ -86,7 +79,6 @@ export default async function FindingsStepPage({ params, searchParams }: Props) 
   const assessments = await loadAssessmentPicks(companyId)
   const activeId = pickActiveAssessmentId(assessments, paramAssessmentId)
 
-  // No assessments at all → empty state.
   if (!activeId) {
     const steps = await getWorkflowState(companyId)
     const { prev, next } = adjacentSteps(steps, 'findings')
@@ -107,26 +99,81 @@ export default async function FindingsStepPage({ params, searchParams }: Props) 
     dispositionByKey.set(`${d.frameworkId}::${d.controlId}`, d)
   }
 
-  // Pull titles from the framework definition so the list isn't all
-  // control IDs.
+  // Build per-control metadata (title, description, category) from the
+  // framework definition — same lookup AssessmentResults uses.
   const framework = getFrameworkDefinition(summary.assessment.frameworkId as FrameworkId)
-  const titleByControl = new Map(framework.controls.map((c) => [c.controlId, c.title]))
+  const controlMeta = new Map(framework.controls.map((c) => [c.controlId, c]))
 
-  // Effective status (override wins) + filter.
-  const filter: StatusFilter = isValidFilter(filterParam) ? filterParam : 'all'
-  const filteredFindings = summary.findings.filter((f) => matchesFilter(
-    f,
-    filter,
-    dispositionByKey.has(`${summary.assessment.frameworkId}::${f.controlId}`)
-  ))
-  const sortedFindings = sortByControl(filteredFindings)
+  // Frameworks with IG variants (cis-v8-ig1/ig2/ig3) reuse the base
+  // framework's controls — control ids are 'cis-v8-1.1', not
+  // 'cis-v8-ig1-1.1'. Strip the IG suffix to derive the prefix used
+  // for control-id lookup and action-catalog matching.
+  const basePrefix = summary.assessment.frameworkId.replace(/-ig\d$/, '')
 
-  // Counters across ALL findings in this assessment (not filtered) so
-  // the operator can see the full posture at a glance.
-  const counts = countByEffectiveStatus(summary.findings)
-  const withDisposition = summary.findings.reduce((n, f) => {
-    return n + (dispositionByKey.has(`${summary.assessment.frameworkId}::${f.controlId}`) ? 1 : 0)
-  }, 0)
+  const findingRows: FindingRowData[] = summary.findings.map((f) => {
+    // Findings may store controlId in either the full prefixed form
+    // ('cis-v8-1.1') or the short form ('1.1') depending on when they
+    // were written. Try both keys against the framework definition so
+    // the title/description/category resolve correctly.
+    const prefixed = f.controlId.includes('-')
+      ? f.controlId
+      : `${basePrefix}-${f.controlId}`
+    const meta = controlMeta.get(f.controlId) ?? controlMeta.get(prefixed)
+    const disposition = dispositionByKey.get(`${summary.assessment.frameworkId}::${f.controlId}`)
+      ?? dispositionByKey.get(`${summary.assessment.frameworkId}::${prefixed}`)
+    // The action catalog stores (frameworkId='cis-v8', controlId='5.2')
+    // — short form, base framework. Findings may store either short
+    // ('5.2') or prefixed ('cis-v8-5.2') control ids depending on
+    // origin. The framework on the assessment row may be an IG
+    // variant (cis-v8-ig1). Try every reasonable combo so the
+    // Remediate button finds matching actions whatever the shape.
+    const shortControl = f.controlId.replace(/^[a-z]+-[a-z0-9]+-/, '')
+    const actions = [
+      ...suggestActionsForControl(summary.assessment.frameworkId, f.controlId),
+      ...suggestActionsForControl(summary.assessment.frameworkId, shortControl),
+      ...suggestActionsForControl(basePrefix, f.controlId),
+      ...suggestActionsForControl(basePrefix, shortControl),
+    ]
+      .filter((a, i, arr) => arr.findIndex((x) => x.id === a.id) === i)
+      .map((a) => {
+        const cov = a.satisfiesControls.find(
+          (c) =>
+            (c.frameworkId === summary.assessment.frameworkId || c.frameworkId === basePrefix) &&
+            (c.controlId === f.controlId || c.controlId === shortControl)
+        )?.coverage ?? 'partial'
+        return { id: a.id, name: a.name, coverage: cov }
+      })
+    return {
+      id: f.id,
+      controlId: f.controlId,
+      controlTitle: meta?.title ?? '(control title unavailable)',
+      controlDescription: meta?.description ?? '',
+      controlCategory: meta?.category ?? 'Controls',
+      status: f.status,
+      effectiveStatus: (f.overrideStatus ?? f.status) as string,
+      confidence: f.confidence,
+      reasoning: f.reasoning,
+      remediation: f.remediation,
+      missingEvidence: Array.isArray(f.missingEvidence) ? f.missingEvidence as string[] : [],
+      overrideStatus: f.overrideStatus,
+      overrideReason: f.overrideReason,
+      overrideBy: f.overrideBy,
+      overrideAt: f.overrideAt,
+      remediationActions: actions,
+      disposition: {
+        lifecycleStatus: disposition?.lifecycleStatus ?? null,
+        assignedTo: disposition?.assignedTo ?? null,
+        dueDate: disposition?.dueDate ?? null,
+        acceptedRiskRationale: disposition?.acceptedRiskRationale ?? null,
+        customerImpactSummary: disposition?.customerImpactSummary ?? null,
+        internalNotes: disposition?.internalNotes ?? null,
+      },
+    }
+  })
+
+  // Counters across ALL findings (not filtered) using effective status.
+  const counts = countByEffectiveStatus(findingRows)
+  const withDispositionCount = findingRows.filter((f) => Boolean(f.disposition.lifecycleStatus)).length
 
   return (
     <div className="space-y-5">
@@ -136,10 +183,10 @@ export default async function FindingsStepPage({ params, searchParams }: Props) 
         <p className="text-sm text-slate-400 mt-1 max-w-2xl">
           Per-control results from the most recent assessment. Click any
           row to read the engine&apos;s reasoning, suggested remediation,
-          and to set a disposition (Accept risk, Schedule, Customer
-          declined, Billable project). Dispositions persist across
-          re-runs — they&apos;re keyed on framework + control, not on
-          this specific assessment.
+          and supporting evidence. Failing or partial controls get a
+          <span className="text-cyan-300"> Remediate</span> button that
+          previews + applies the catalog action against the customer&apos;s
+          tenant in one round-trip.
         </p>
       </header>
 
@@ -147,59 +194,22 @@ export default async function FindingsStepPage({ params, searchParams }: Props) 
         companyId={companyId}
         assessments={assessments}
         activeId={activeId}
-        currentFilter={filter}
       />
 
       <section className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <Counter label="Total"           value={summary.findings.length}      tone="slate" />
-        <Counter label="Passed"          value={counts.pass}                  tone="emerald" />
-        <Counter label="Needs review"    value={counts.needs_review}          tone="cyan" />
-        <Counter label="Failed"          value={counts.fail}                  tone="rose" />
-        <Counter label="Not applicable"  value={counts.not_applicable}        tone="slate" />
-        <Counter label="With disposition" value={withDisposition}             tone="violet" />
+        <Counter label="Total"           value={findingRows.length}      tone="slate" />
+        <Counter label="Passed"          value={counts.pass}             tone="emerald" />
+        <Counter label="Needs review"    value={counts.needs_review}     tone="cyan" />
+        <Counter label="Failed"          value={counts.fail}             tone="rose" />
+        <Counter label="Not applicable"  value={counts.not_applicable}   tone="slate" />
+        <Counter label="With disposition" value={withDispositionCount}   tone="violet" />
       </section>
 
-      <FilterChips companyId={companyId} activeId={activeId} current={filter} />
-
-      <section className="space-y-2">
-        {sortedFindings.length === 0 ? (
-          <div className="bg-slate-900/50 border border-white/10 rounded-xl p-8 text-center">
-            <p className="text-sm text-slate-400">
-              No findings match this filter.
-            </p>
-          </div>
-        ) : (
-          <ul className="space-y-2">
-            {sortedFindings.map((f) => {
-              const k = `${summary.assessment.frameworkId}::${f.controlId}`
-              const disposition = dispositionByKey.get(k)
-              const effective = (f.overrideStatus ?? f.status) as string
-              return (
-                <FindingDispositionRow
-                  key={f.id}
-                  companyId={companyId}
-                  frameworkId={summary.assessment.frameworkId}
-                  controlId={f.controlId}
-                  title={titleByControl.get(f.controlId) ?? '(unknown control)'}
-                  findingStatus={f.status}
-                  effectiveStatus={effective}
-                  confidence={f.confidence}
-                  reasoning={f.reasoning}
-                  remediation={f.remediation}
-                  disposition={{
-                    lifecycleStatus: disposition?.lifecycleStatus ?? null,
-                    assignedTo: disposition?.assignedTo ?? null,
-                    dueDate: disposition?.dueDate ?? null,
-                    acceptedRiskRationale: disposition?.acceptedRiskRationale ?? null,
-                    customerImpactSummary: disposition?.customerImpactSummary ?? null,
-                    internalNotes: disposition?.internalNotes ?? null,
-                  }}
-                />
-              )
-            })}
-          </ul>
-        )}
-      </section>
+      <FindingsResultsList
+        companyId={companyId}
+        frameworkId={summary.assessment.frameworkId}
+        findings={findingRows}
+      />
 
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2">
         {prev ? (
@@ -269,12 +279,10 @@ function AssessmentPicker({
   companyId,
   assessments,
   activeId,
-  currentFilter,
 }: {
   companyId: string
   assessments: AssessmentPickRow[]
   activeId: string
-  currentFilter: StatusFilter
 }) {
   if (assessments.length === 0) return null
   const active = assessments.find((a) => a.id === activeId)
@@ -304,9 +312,6 @@ function AssessmentPicker({
       </div>
       {assessments.length > 1 && (
         <form action={`/admin/compliance/${companyId}/findings`} className="shrink-0">
-          {currentFilter !== 'all' && (
-            <input type="hidden" name="status" value={currentFilter} />
-          )}
           <select
             name="assessmentId"
             defaultValue={activeId}
@@ -331,34 +336,6 @@ function AssessmentPicker({
   )
 }
 
-function FilterChips({ companyId, activeId, current }: {
-  companyId: string
-  activeId: string
-  current: StatusFilter
-}) {
-  return (
-    <nav className="flex flex-wrap gap-2">
-      {STATUS_FILTERS.map((f) => {
-        const isActive = f.key === current
-        const href = `/admin/compliance/${companyId}/findings?assessmentId=${activeId}${f.key === 'all' ? '' : `&status=${f.key}`}`
-        return (
-          <Link
-            key={f.key}
-            href={href}
-            className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
-              isActive
-                ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-100'
-                : 'bg-slate-800/40 border-white/10 text-slate-300 hover:bg-slate-800/60'
-            }`}
-          >
-            {f.label}
-          </Link>
-        )
-      })}
-    </nav>
-  )
-}
-
 function Counter({ label, value, tone }: {
   label: string
   value: number
@@ -378,44 +355,16 @@ function Counter({ label, value, tone }: {
   )
 }
 
-function isValidFilter(s: string | undefined): s is StatusFilter {
-  return s === 'all' || s === 'open' || s === 'passed' || s === 'not_applicable' || s === 'with_disposition'
-}
-
-function matchesFilter(f: Finding, filter: StatusFilter, hasDisposition: boolean): boolean {
-  const effective = (f.overrideStatus ?? f.status) as string
-  switch (filter) {
-    case 'all': return true
-    case 'open': return effective === 'fail' || effective === 'needs_review' || effective === 'partial'
-    case 'passed': return effective === 'pass'
-    case 'not_applicable': return effective === 'not_applicable'
-    case 'with_disposition': return hasDisposition
-  }
-}
-
-function countByEffectiveStatus(findings: Finding[]) {
+function countByEffectiveStatus(findings: FindingRowData[]) {
   const counts = {
     pass: 0, fail: 0, needs_review: 0, partial: 0,
     not_applicable: 0, not_assessed: 0, collection_failed: 0,
   }
   for (const f of findings) {
-    const e = (f.overrideStatus ?? f.status) as keyof typeof counts
+    const e = f.effectiveStatus as keyof typeof counts
     if (e in counts) counts[e]++
   }
   return counts
-}
-
-/** Sort findings by numeric control IDs — "1.2" before "1.10" before "2.1". */
-function sortByControl<T extends { controlId: string }>(findings: T[]): T[] {
-  return [...findings].sort((a, b) => {
-    const numA = a.controlId.replace(/^[a-z]+-[a-z0-9]+-/, '').split('.').map(Number)
-    const numB = b.controlId.replace(/^[a-z]+-[a-z0-9]+-/, '').split('.').map(Number)
-    for (let i = 0; i < Math.max(numA.length, numB.length); i++) {
-      const diff = (numA[i] ?? 0) - (numB[i] ?? 0)
-      if (diff !== 0) return diff
-    }
-    return 0
-  })
 }
 
 function pickActiveAssessmentId(
@@ -423,7 +372,6 @@ function pickActiveAssessmentId(
   paramId: string | undefined,
 ): string | null {
   if (paramId && assessments.some((a) => a.id === paramId)) return paramId
-  // Latest complete; fall back to the absolute latest row if none complete.
   const complete = assessments.find((a) => a.status === 'complete')
   if (complete) return complete.id
   return assessments[0]?.id ?? null

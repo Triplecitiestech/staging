@@ -122,7 +122,11 @@ export function assertStatusTransition(
 ): void {
   if (from === to) return
   const allowed: Record<PendingChangeStatus, PendingChangeStatus[]> = {
-    drafted: ['bundled', 'abandoned'],
+    // 'deploying' is the direct fast-path for MSP-applied changes that
+    // don't need customer approval (Remediate button on Findings page).
+    // The bundle/customer-approval path goes drafted → bundled →
+    // awaiting_customer → scheduled → deploying as before.
+    drafted: ['bundled', 'deploying', 'abandoned'],
     bundled: ['awaiting_customer', 'drafted', 'abandoned'],
     awaiting_customer: ['scheduled', 'customer_declined', 'deferred', 'bundled'],
     customer_declined: [], // terminal for this iteration
