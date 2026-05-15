@@ -58,6 +58,8 @@ interface RawStateRow {
   profileAnswerCount: number
   verifiedConnectorCount: number
   toolRowCount: number
+  policyCount: number
+  policyWithFrameworkCount: number
   latestAssessmentId: string | null
   openFindingCount: number
   draftedChangeCount: number
@@ -94,6 +96,12 @@ export async function getWorkflowState(companyId: string): Promise<WorkflowStep[
             WHERE "companyId" = c.id AND status = 'verified') AS "verifiedConnectorCount",
          (SELECT COUNT(*)::int FROM compliance_company_tools
             WHERE "companyId" = c.id) AS "toolRowCount",
+         (SELECT COUNT(*)::int FROM compliance_policies
+            WHERE "companyId" = c.id) AS "policyCount",
+         (SELECT COUNT(*)::int FROM compliance_policies
+            WHERE "companyId" = c.id
+              AND jsonb_array_length(COALESCE("frameworkIds", '[]'::jsonb)) > 0
+           ) AS "policyWithFrameworkCount",
          (SELECT id FROM compliance_assessments
             WHERE "companyId" = c.id ORDER BY "createdAt" DESC LIMIT 1) AS "latestAssessmentId",
          (SELECT COUNT(*)::int FROM compliance_findings f
@@ -124,7 +132,11 @@ export async function getWorkflowState(companyId: string): Promise<WorkflowStep[
     )
     const profileDone = row.profileAnswerCount >= requiredProfileKeys
     const connectDone = row.verifiedConnectorCount >= 1 && row.toolRowCount >= 1
-    const policiesDone = false // computed in a later slice
+    // Policies "done" gate: at least one policy exists AND at least one
+    // policy is tied to a framework (so the assessment step has something
+    // to compare against). A pile of policies with no framework tags
+    // doesn't drive coverage, so it doesn't unlock the next step.
+    const policiesDone = row.policyCount > 0 && row.policyWithFrameworkCount > 0
     const assessDone = Boolean(row.latestAssessmentId)
     const findingsDone = assessDone && row.openFindingCount === 0
     const changesDone = false // later slice
@@ -167,6 +179,12 @@ export async function getWorkflowState(companyId: string): Promise<WorkflowStep[
         detail = `${row.profileAnswerCount} of ${requiredProfileKeys} required answers complete`
       } else if (s.key === 'connect') {
         detail = `${row.verifiedConnectorCount} verified connector${row.verifiedConnectorCount === 1 ? '' : 's'} · ${row.toolRowCount} tool row${row.toolRowCount === 1 ? '' : 's'}`
+      } else if (s.key === 'policies') {
+        if (row.policyCount === 0) {
+          detail = 'No policies yet'
+        } else {
+          detail = `${row.policyCount} polic${row.policyCount === 1 ? 'y' : 'ies'}${row.policyWithFrameworkCount > 0 ? ` · ${row.policyWithFrameworkCount} framework-tagged` : ' · none framework-tagged'}`
+        }
       } else if (s.key === 'findings' && assessDone) {
         detail = `${row.openFindingCount} open finding${row.openFindingCount === 1 ? '' : 's'}`
       } else if (s.key === 'changes' && row.draftedChangeCount > 0) {
