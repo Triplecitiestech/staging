@@ -38,6 +38,7 @@ export default async function NewProjectPage() {
         m365ConsentGrantedAt: true,
         onboardingCompletedAt: true,
         compliancePortalEnabled: true,
+        isTestTenant: true,
       },
     })
   } catch {
@@ -65,6 +66,7 @@ export default async function NewProjectPage() {
         m365ConsentGrantedAt: true,
         onboardingCompletedAt: true,
         compliancePortalEnabled: true,
+        isTestTenant: true,
       },
       orderBy: { displayName: 'asc' }
     })

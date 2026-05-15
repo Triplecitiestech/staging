@@ -135,6 +135,11 @@ model Company {
   // Compliance portal visibility toggle
   compliancePortalEnabled Boolean @default(false) @map("compliancePortalEnabled")
 
+  // Test tenant flag — when true, this company can be wiped + re-onboarded
+  // from /admin/compliance/test-tenant. Hard safety gate: only flagged
+  // companies can be reset. Real customers must never have this set true.
+  isTestTenant Boolean @default(false) @map("isTestTenant")
+
   // Relations
   projects        Project[]
   contacts        CompanyContact[]

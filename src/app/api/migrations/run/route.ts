@@ -461,6 +461,18 @@ export async function POST(request: Request) {
       results.push(`⚠️ companies.m365_consent_*: ${err.message}`)
     }
 
+    // Test tenant flag — gates /admin/compliance/test-tenant reset action.
+    try {
+      await client.query(`
+        ALTER TABLE companies
+          ADD COLUMN IF NOT EXISTS "isTestTenant" BOOLEAN NOT NULL DEFAULT FALSE
+      `)
+      results.push('✅ Added isTestTenant column to companies')
+    } catch (error) {
+      const err = error as Error
+      results.push(`⚠️ companies.isTestTenant: ${err.message}`)
+    }
+
     await client.end()
 
     return NextResponse.json({

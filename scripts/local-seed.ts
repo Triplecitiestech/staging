@@ -29,13 +29,22 @@ const COMPANY_2 = {
   slug: 'contoso-industries',
   displayName: 'Contoso Industries',
 }
+// kflorance is the operator's designated production test tenant. It's not in
+// the local Postgres by default — we seed a stand-in here so the
+// /admin/compliance/test-tenant page renders with realistic local content
+// (it appears in "Active test tenants" and is eligible for reset).
+const COMPANY_KFLORANCE = {
+  id: 'b3a17821-c0fd-4f3b-9c9c-f44a6cb5d0e1',
+  slug: 'kflorance',
+  displayName: 'KFlorance',
+}
 
 async function main() {
   const pool = new Pool({ connectionString: DB })
   const c = await pool.connect()
   try {
     console.log('→ companies')
-    for (const co of [COMPANY, COMPANY_2]) {
+    for (const co of [COMPANY, COMPANY_2, COMPANY_KFLORANCE]) {
       await c.query(
         `INSERT INTO companies (id, slug, "displayName", "passwordHash", "createdAt", "updatedAt", "m365_setup_status")
          VALUES ($1, $2, $3, 'local-dev-no-password', NOW(), NOW(), 'verified')
@@ -43,9 +52,37 @@ async function main() {
         [co.id, co.slug, co.displayName]
       )
     }
+    // Mark the kflorance stand-in as a test tenant so /admin/compliance/test-tenant
+    // shows it in the "Active test tenants" list locally.
+    await c.query(
+      `UPDATE companies SET "isTestTenant" = TRUE WHERE id = $1`,
+      [COMPANY_KFLORANCE.id]
+    )
 
     console.log('→ ensureComplianceTables')
     await ensureComplianceTables()
+
+    // Seed a small amount of data ON kflorance after the compliance tables
+    // exist, so the test-tenant reset endpoint has rows to wipe and we can
+    // verify the wipe end-to-end against a non-zero baseline.
+    console.log('→ kflorance test-tenant data')
+    await c.query(
+      `INSERT INTO form_responses (company_id, schema_type, answers, updated_by, created_at, updated_at)
+       VALUES ($1, 'customer_profile', $2::jsonb, 'local-seed', NOW(), NOW())
+       ON CONFLICT (company_id, schema_type) DO UPDATE SET answers = EXCLUDED.answers`,
+      [COMPANY_KFLORANCE.id, JSON.stringify({ org_legal_name: 'KFlorance LLC', org_industry: 'professional_services' })]
+    )
+    await c.query(
+      `INSERT INTO compliance_connectors (id, "companyId", "connectorType", status, "lastCollectedAt", "createdAt", "updatedAt")
+       VALUES (gen_random_uuid()::text, $1, 'microsoft_graph', 'verified', NOW(), NOW(), NOW())
+       ON CONFLICT ("companyId", "connectorType") DO NOTHING`,
+      [COMPANY_KFLORANCE.id]
+    )
+    await c.query(
+      `INSERT INTO compliance_audit_log (id, "companyId", action, actor, details, "createdAt")
+       VALUES (gen_random_uuid()::text, $1, 'connector.verified', 'local-seed', '{"connectorType":"microsoft_graph"}'::jsonb, NOW())`,
+      [COMPANY_KFLORANCE.id]
+    )
 
     const cid = COMPANY.id
 
