@@ -59,23 +59,32 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
 
   // Add policy form state
   const [showAddForm, setShowAddForm] = useState(false)
-  const [addMode, setAddMode] = useState<'paste' | 'upload' | 'sharepoint'>('paste')
+  // Scan = primary path (bulk-import from SharePoint, the common case).
+  // Manual = fallback for the rare single-policy upload from disk or paste.
+  const [addMode, setAddMode] = useState<'scan' | 'manual'>('scan')
+  // Manual-mode source picker (only visible when addMode === 'manual').
+  const [manualSource, setManualSource] = useState<'upload' | 'paste'>('upload')
   const [title, setTitle] = useState('')
   const [category, setCategory] = useState('')
   const [content, setContent] = useState('')
-  const [sharepointUrl, setSharepointUrl] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [reanalyzing, setReanalyzing] = useState<string | null>(null) // policyId or 'all'
   const [reanalyzeProgress, setReanalyzeProgress] = useState({ current: 0, total: 0, currentTitle: '' })
   const [generatingGapPolicy, setGeneratingGapPolicy] = useState(false)
   const [gapPolicyResult, setGapPolicyResult] = useState<{ success: boolean; message: string } | null>(null)
 
-  // SharePoint folder scan state
+  // SharePoint folder scan state — supports MULTIPLE sites (operators
+  // often store policies across several SharePoint sites at the same
+  // customer). Each entry is one folder URL.
+  const [sharepointUrls, setSharepointUrls] = useState<string[]>([''])
   const [spScanning, setSpScanning] = useState(false)
-  const [spFiles, setSpFiles] = useState<SharePointFile[]>([])
+  const [spFiles, setSpFiles] = useState<Array<SharePointFile & { sourceUrl: string }>>([])
   const [spSelected, setSpSelected] = useState<Set<string>>(new Set())
   const [spImporting, setSpImporting] = useState(false)
   const [spImportProgress, setSpImportProgress] = useState(0)
+  // Sticky hint shown only after an actual 403/permission failure on
+  // a scan call — not as always-on chrome.
+  const [spPermissionHint, setSpPermissionHint] = useState<string | null>(null)
 
   // Expanded policy detail
   const [expandedPolicy, setExpandedPolicy] = useState<string | null>(null)
@@ -134,8 +143,10 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
   }
 
   const handleSubmit = async () => {
-    if (!title.trim() || (!content.trim() && !sharepointUrl.trim())) {
-      setError('Title and content (or SharePoint URL) are required')
+    // handleSubmit is the manual-add path (paste / upload). SharePoint
+    // imports use importSelectedFiles, which never touches this.
+    if (!title.trim() || !content.trim()) {
+      setError('Title and content are required')
       return
     }
 
@@ -146,8 +157,8 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
       const body: Record<string, unknown> = {
         companyId,
         title: title.trim(),
-        content: addMode === 'sharepoint' ? `[SHAREPOINT:${sharepointUrl.trim()}]` : content.trim(),
-        source: addMode,
+        content: content.trim(),
+        source: manualSource, // 'paste' | 'upload'
         category,
         analyze: true,
       }
@@ -163,7 +174,6 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
       // Reset form and reload
       setTitle('')
       setContent('')
-      setSharepointUrl('')
       setCategory('')
       setShowAddForm(false)
       await loadPolicies()
@@ -175,26 +185,52 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
   }
 
   const scanSharePointFolder = async () => {
-    if (!sharepointUrl.trim()) return
+    const urls = sharepointUrls.map((u) => u.trim()).filter(Boolean)
+    if (urls.length === 0) return
     setSpScanning(true)
     setError(null)
+    setSpPermissionHint(null)
     setSpFiles([])
-    try {
-      const res = await fetch('/api/compliance/policies/sharepoint-scan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ companyId, folderUrl: sharepointUrl.trim() }),
-      })
-      const json = await res.json()
-      if (!json.success) throw new Error(json.error)
-      setSpFiles(json.files ?? [])
-      // Select all by default
-      setSpSelected(new Set((json.files ?? []).map((f: SharePointFile) => f.id)))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to scan SharePoint folder')
-    } finally {
-      setSpScanning(false)
+    const aggregated: Array<SharePointFile & { sourceUrl: string }> = []
+    const failures: Array<{ url: string; message: string }> = []
+    for (const url of urls) {
+      try {
+        const res = await fetch('/api/compliance/policies/sharepoint-scan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ companyId, folderUrl: url }),
+        })
+        const json = await res.json()
+        if (!res.ok || !json.success) {
+          const msg = typeof json?.error === 'string' ? json.error : `scan failed (${res.status})`
+          failures.push({ url, message: msg })
+          // Only surface the permission hint when the underlying error
+          // names a permission/scope issue — not on every scan attempt.
+          if (/403|forbidden|sites\.read\.all|permission/i.test(msg)) {
+            setSpPermissionHint(
+              'SharePoint refused with a permissions error. Confirm the TCT Customer Portal app registration has Sites.Read.All consented at the tenant level for this customer.'
+            )
+          }
+          continue
+        }
+        for (const f of (json.files ?? []) as SharePointFile[]) {
+          aggregated.push({ ...f, sourceUrl: url })
+        }
+      } catch (err) {
+        failures.push({ url, message: err instanceof Error ? err.message : 'Network error' })
+      }
     }
+    setSpFiles(aggregated)
+    // Select all scanned files by default — the operator usually wants
+    // to import everything they found.
+    setSpSelected(new Set(aggregated.map((f) => f.id)))
+    if (failures.length > 0) {
+      setError(
+        `Scanned ${urls.length - failures.length}/${urls.length} site${urls.length === 1 ? '' : 's'}. ` +
+        failures.map((f) => `(${f.url.slice(-40)}…: ${f.message})`).join(' ')
+      )
+    }
+    setSpScanning(false)
   }
 
   const importSelectedFiles = async () => {
@@ -229,7 +265,7 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
     setSpImporting(false)
     setSpFiles([])
     setSpSelected(new Set())
-    setSharepointUrl('')
+    setSharepointUrls([''])
     setShowAddForm(false)
     await loadPolicies()
   }
@@ -445,136 +481,115 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
         </div>
       )}
 
-      {/* Add Policy Form */}
+      {/* Add Policy Form
+          Two modes:
+            scan   — bulk-import from one or more SharePoint sites
+                     (primary; what operators actually use).
+            manual — single-policy upload or paste (rare; fallback). */}
       {showAddForm && (
         <div className="bg-slate-800/50 border border-white/10 rounded-xl p-6 space-y-4">
-          <h3 className="text-lg font-semibold text-white">Add Policy for {companyName}</h3>
+          <h3 className="text-lg font-semibold text-white">Add policies for {companyName}</h3>
 
-          {/* Source Tabs */}
+          {/* Mode tabs — scan first because it's the common path */}
           <div className="flex gap-2">
             {[
-              { mode: 'paste' as const, label: 'Paste Text', icon: '📋' },
-              { mode: 'upload' as const, label: 'Upload File', icon: '📄' },
-              { mode: 'sharepoint' as const, label: 'SharePoint', icon: '🔗' },
-            ].map(({ mode, label, icon }) => (
+              { mode: 'scan' as const, label: 'Scan SharePoint', sub: 'bulk import from sites' },
+              { mode: 'manual' as const, label: 'Add single policy', sub: 'upload or paste one' },
+            ].map(({ mode, label, sub }) => (
               <button
                 key={mode}
                 onClick={() => setAddMode(mode)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                className={`flex-1 px-4 py-3 rounded-lg text-left transition-all ${
                   addMode === mode
-                    ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
-                    : 'bg-slate-700/50 text-slate-400 border border-white/5 hover:bg-slate-700'
+                    ? 'bg-cyan-500/15 border border-cyan-500/40'
+                    : 'bg-slate-700/40 border border-white/5 hover:bg-slate-700/60'
                 }`}
               >
-                {icon} {label}
+                <p className={`text-sm font-medium ${addMode === mode ? 'text-cyan-200' : 'text-slate-300'}`}>{label}</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">{sub}</p>
               </button>
             ))}
           </div>
 
-          {/* Title + Category */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm text-slate-300 mb-1 block">Policy Title</label>
-              <input
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="e.g., Acceptable Use Policy"
-                className="w-full bg-slate-900/50 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
-              />
-            </div>
-            <div>
-              <label className="text-sm text-slate-300 mb-1 block">Category</label>
-              <select
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                className="w-full bg-slate-900/50 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
-              >
-                <option value="">Select category...</option>
-                {POLICY_CATEGORIES.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Content Input */}
-          {addMode === 'paste' && (
-            <div>
-              <label className="text-sm text-slate-300 mb-1 block">Policy Content</label>
-              <textarea
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                placeholder="Paste the full policy text here..."
-                rows={12}
-                className="w-full bg-slate-900/50 border border-white/10 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500/50 resize-y"
-              />
-              <p className="text-xs text-slate-500 mt-1">
-                {content.length.toLocaleString()} characters
-              </p>
-            </div>
-          )}
-
-          {addMode === 'upload' && (
-            <div>
-              <label className="text-sm text-slate-300 mb-1 block">Upload Policy Document</label>
-              <input
-                type="file"
-                accept=".txt,.md,.pdf,.docx"
-                onChange={handleFileUpload}
-                className="w-full bg-slate-900/50 border border-white/10 rounded-lg px-3 py-2 text-sm text-white file:bg-cyan-500/20 file:text-cyan-400 file:border-0 file:rounded-md file:px-3 file:py-1 file:mr-3 file:text-sm"
-              />
-              <p className="text-xs text-slate-500 mt-1">
-                Supports .txt, .md, .pdf. Content will be extracted and analyzed.
-              </p>
-              {content && (
-                <div className="mt-2 p-2 bg-slate-900/50 border border-white/5 rounded-lg">
-                  <p className="text-xs text-slate-400">Preview ({content.length.toLocaleString()} chars):</p>
-                  <p className="text-xs text-slate-500 mt-1 line-clamp-3">{content.substring(0, 300)}...</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {addMode === 'sharepoint' && (
+          {/* ============================ */}
+          {/* SCAN MODE — multi-site bulk  */}
+          {/* ============================ */}
+          {addMode === 'scan' && (
             <div className="space-y-3">
               <div>
-                <label className="text-sm text-slate-300 mb-1 block">SharePoint Folder URL</label>
-                <div className="flex gap-2">
-                  <input
-                    type="url"
-                    value={sharepointUrl}
-                    onChange={(e) => setSharepointUrl(e.target.value)}
-                    placeholder="https://yourcompany.sharepoint.com/sites/Policies/Shared Documents/Compliance"
-                    className="flex-1 bg-slate-900/50 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
-                  />
+                <label className="text-sm text-slate-300 mb-2 block">
+                  SharePoint folder URLs
+                </label>
+                <div className="space-y-2">
+                  {sharepointUrls.map((url, i) => (
+                    <div key={i} className="flex gap-2">
+                      <input
+                        type="url"
+                        value={url}
+                        onChange={(e) => {
+                          const next = [...sharepointUrls]
+                          next[i] = e.target.value
+                          setSharepointUrls(next)
+                        }}
+                        placeholder="https://customer.sharepoint.com/sites/Policies/Shared Documents/Compliance"
+                        className="flex-1 bg-slate-900/50 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+                      />
+                      {sharepointUrls.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => setSharepointUrls(sharepointUrls.filter((_, idx) => idx !== i))}
+                          className="px-2 py-2 text-xs text-rose-300 hover:text-rose-200"
+                          title="Remove this site"
+                        >
+                          &times;
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-center gap-3 mt-2">
                   <button
-                    onClick={scanSharePointFolder}
-                    disabled={spScanning || !sharepointUrl.trim()}
-                    className="px-4 py-2 bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 rounded-lg text-sm font-medium hover:bg-cyan-500/30 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                    type="button"
+                    onClick={() => setSharepointUrls([...sharepointUrls, ''])}
+                    className="text-xs text-cyan-400 hover:text-cyan-300"
                   >
-                    {spScanning ? 'Scanning...' : 'Scan Folder'}
+                    + Add another site
                   </button>
+                  <span className="text-[11px] text-slate-500">
+                    Policies often live across multiple SharePoint sites — add as many as needed.
+                  </span>
                 </div>
               </div>
-              <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg space-y-2">
-                <p className="text-sm text-blue-300">
-                  Point to a SharePoint folder containing policy documents. The system will scan for all
-                  .txt, .md, .pdf, and .docx files. You can select which ones to import and analyze.
-                  Requires <code className="text-cyan-400">Sites.Read.All</code> permission on the customer&apos;s app registration.
-                </p>
-                <p className="text-xs text-blue-200/70">
-                  <span className="font-semibold">Tip:</span> any SharePoint URL works — paste the browser address bar from inside
-                  the folder (the <code className="text-cyan-300">/Forms/AllItems.aspx?id=...</code> link),
-                  a direct folder URL, or a share link. Custom-named libraries (not just &quot;Shared Documents&quot;) are supported.
-                </p>
+
+              <div className="flex justify-end">
+                <button
+                  onClick={scanSharePointFolder}
+                  disabled={spScanning || !sharepointUrls.some((u) => u.trim().length > 0)}
+                  className="px-4 py-2 bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 rounded-lg text-sm font-medium hover:bg-cyan-500/30 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                >
+                  {spScanning
+                    ? 'Scanning…'
+                    : `Scan ${sharepointUrls.filter((u) => u.trim().length > 0).length} site${sharepointUrls.filter((u) => u.trim().length > 0).length === 1 ? '' : 's'}`}
+                </button>
               </div>
+
+              {/* Permission hint — only after a real 403 */}
+              {spPermissionHint && (
+                <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-lg">
+                  <p className="text-xs text-rose-200">{spPermissionHint}</p>
+                </div>
+              )}
 
               {/* Scanned files list */}
               {spFiles.length > 0 && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm text-white font-medium">{spFiles.length} documents found</p>
+                    <p className="text-sm text-white font-medium">
+                      {spFiles.length} document{spFiles.length === 1 ? '' : 's'} found
+                      {sharepointUrls.filter((u) => u.trim().length > 0).length > 1 && (
+                        <span className="text-slate-500 font-normal"> across {sharepointUrls.filter((u) => u.trim().length > 0).length} sites</span>
+                      )}
+                    </p>
                     <div className="flex gap-2">
                       <button
                         onClick={() => setSpSelected(new Set(spFiles.map((f) => f.id)))}
@@ -591,25 +606,37 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
                     </div>
                   </div>
                   <div className="max-h-64 overflow-y-auto space-y-1">
-                    {spFiles.map((file) => (
-                      <label
-                        key={file.id}
-                        className="flex items-center gap-3 p-2 rounded-lg bg-slate-900/30 hover:bg-slate-900/50 cursor-pointer"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={spSelected.has(file.id)}
-                          onChange={() => toggleSpFile(file.id)}
-                          className="rounded border-white/20 bg-slate-800 text-cyan-500 focus:ring-cyan-500/50"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm text-white truncate">{file.name}</p>
-                          <p className="text-xs text-slate-500">
-                            {(file.size / 1024).toFixed(0)}KB &middot; Modified {new Date(file.lastModified).toLocaleDateString()}
-                          </p>
-                        </div>
-                      </label>
-                    ))}
+                    {spFiles.map((file) => {
+                      // Compact label for the site of origin: hostname + last path segment.
+                      let siteLabel = ''
+                      try {
+                        const u = new URL(file.sourceUrl)
+                        const host = u.hostname.replace('.sharepoint.com', '')
+                        const tail = u.pathname.split('/').filter(Boolean).pop() ?? ''
+                        siteLabel = `${host} · ${decodeURIComponent(tail).slice(0, 40)}`
+                      } catch {
+                        siteLabel = file.sourceUrl.slice(-40)
+                      }
+                      return (
+                        <label
+                          key={file.id}
+                          className="flex items-center gap-3 p-2 rounded-lg bg-slate-900/30 hover:bg-slate-900/50 cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={spSelected.has(file.id)}
+                            onChange={() => toggleSpFile(file.id)}
+                            className="rounded border-white/20 bg-slate-800 text-cyan-500 focus:ring-cyan-500/50"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm text-white truncate">{file.name}</p>
+                            <p className="text-[11px] text-slate-500 truncate">
+                              {(file.size / 1024).toFixed(0)}KB &middot; Modified {new Date(file.lastModified).toLocaleDateString()} &middot; {siteLabel}
+                            </p>
+                          </div>
+                        </label>
+                      )
+                    })}
                   </div>
                   <button
                     onClick={importSelectedFiles}
@@ -617,24 +644,111 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
                     className="w-full px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-white rounded-lg font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                   >
                     {spImporting
-                      ? `Importing & Analyzing... ${spImportProgress}%`
-                      : `Import & Analyze ${spSelected.size} Document${spSelected.size === 1 ? '' : 's'}`}
+                      ? `Importing & Analyzing… ${spImportProgress}%`
+                      : `Import & Analyze ${spSelected.size} document${spSelected.size === 1 ? '' : 's'}`}
                   </button>
                 </div>
               )}
             </div>
           )}
 
-          {/* Submit — only show for paste/upload modes, or sharepoint with no scanned files */}
-          {(addMode !== 'sharepoint' || spFiles.length === 0) && (
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setShowAddForm(false)}
-                className="px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors"
-              >
-                Cancel
-              </button>
-              {addMode !== 'sharepoint' && (
+          {/* ============================ */}
+          {/* MANUAL MODE — single policy   */}
+          {/* ============================ */}
+          {addMode === 'manual' && (
+            <div className="space-y-4">
+              {/* Source sub-tabs */}
+              <div className="flex gap-2">
+                {[
+                  { mode: 'upload' as const, label: 'Upload file' },
+                  { mode: 'paste' as const, label: 'Paste text' },
+                ].map(({ mode, label }) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setManualSource(mode)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                      manualSource === mode
+                        ? 'bg-cyan-500/15 text-cyan-200 border border-cyan-500/30'
+                        : 'bg-slate-700/40 text-slate-400 border border-white/5 hover:bg-slate-700/60'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Title + Category — only relevant in manual mode */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm text-slate-300 mb-1 block">Policy title</label>
+                  <input
+                    type="text"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    placeholder="e.g., Acceptable Use Policy"
+                    className="w-full bg-slate-900/50 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm text-slate-300 mb-1 block">Category</label>
+                  <select
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                    className="w-full bg-slate-900/50 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+                  >
+                    <option value="">Select category…</option>
+                    {POLICY_CATEGORIES.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {manualSource === 'paste' && (
+                <div>
+                  <label className="text-sm text-slate-300 mb-1 block">Policy content</label>
+                  <textarea
+                    value={content}
+                    onChange={(e) => setContent(e.target.value)}
+                    placeholder="Paste the full policy text here…"
+                    rows={12}
+                    className="w-full bg-slate-900/50 border border-white/10 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500/50 resize-y"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    {content.length.toLocaleString()} characters
+                  </p>
+                </div>
+              )}
+
+              {manualSource === 'upload' && (
+                <div>
+                  <label className="text-sm text-slate-300 mb-1 block">Upload policy document</label>
+                  <input
+                    type="file"
+                    accept=".txt,.md,.pdf,.docx"
+                    onChange={handleFileUpload}
+                    className="w-full bg-slate-900/50 border border-white/10 rounded-lg px-3 py-2 text-sm text-white file:bg-cyan-500/20 file:text-cyan-400 file:border-0 file:rounded-md file:px-3 file:py-1 file:mr-3 file:text-sm"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    Supports .txt, .md, .pdf, .docx. Content will be extracted and analyzed.
+                  </p>
+                  {content && (
+                    <div className="mt-2 p-2 bg-slate-900/50 border border-white/5 rounded-lg">
+                      <p className="text-xs text-slate-400">Preview ({content.length.toLocaleString()} chars):</p>
+                      <p className="text-xs text-slate-500 mt-1 line-clamp-3">{content.substring(0, 300)}…</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => setShowAddForm(false)}
+                  className="px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors"
+                >
+                  Cancel
+                </button>
                 <button
                   onClick={handleSubmit}
                   disabled={submitting || !title.trim() || !content.trim()}
@@ -643,13 +757,13 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
                   {submitting ? (
                     <>
                       <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2" />
-                      Analyzing...
+                      Analyzing…
                     </>
                   ) : (
-                    'Submit & Analyze'
+                    'Submit & analyze'
                   )}
                 </button>
-              )}
+              </div>
             </div>
           )}
         </div>
