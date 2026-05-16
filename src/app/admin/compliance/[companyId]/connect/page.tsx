@@ -20,6 +20,7 @@ import { ensureComplianceTables } from '@/lib/compliance/ensure-tables'
 import { toolLabel, toolVendor } from '@/lib/compliance/labels'
 import { getWorkflowState, adjacentSteps } from '@/lib/compliance/workflow-state'
 import CompanyToolToggle from '@/components/compliance/CompanyToolToggle'
+import PlatformMappingPanel from '@/components/compliance/PlatformMappingPanel'
 import { DEFAULT_TOOLS } from '@/lib/compliance/registry/tool-definitions'
 
 export const dynamic = 'force-dynamic'
@@ -187,32 +188,17 @@ export default async function ConnectStepPage({ params }: Props) {
         )}
       </section>
 
-      {mappings.length > 0 && (
-        <section className="bg-slate-900/50 border border-white/10 rounded-xl p-5">
-          <h3 className="text-sm font-semibold text-white uppercase tracking-wider mb-3">
-            Platform mappings
-          </h3>
-          <p className="text-xs text-slate-400 mb-3">
-            How this customer maps to each external platform&apos;s identifiers
-            (Datto RMM sites, BCDR clients, DnsFilter organizations, etc.).
-          </p>
-          <ul className="space-y-1.5">
-            {mappings.map((m, i) => (
-              <li
-                key={`${m.platform}-${m.externalId}-${i}`}
-                className="flex flex-wrap items-center justify-between gap-2 bg-slate-800/30 border border-white/5 rounded-lg px-3 py-2"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm text-white">
-                    {toolLabel(m.platform)} · {m.externalName}
-                  </p>
-                  <p className="text-[11px] text-slate-500">{m.externalType} · {m.externalId}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+      <section className="bg-slate-900/50 border border-white/10 rounded-xl p-5">
+        <h3 className="text-sm font-semibold text-white uppercase tracking-wider mb-1">
+          Platform mappings
+        </h3>
+        <p className="text-xs text-slate-400 mb-4">
+          How this customer maps to each external platform&apos;s identifiers
+          (Datto RMM sites, BCDR clients, DnsFilter organizations, etc.).
+          Add or remove mappings inline below.
+        </p>
+        <PlatformMappingPanel companyId={companyId} companyName={company.displayName} />
+      </section>
 
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2">
         {prev ? (
