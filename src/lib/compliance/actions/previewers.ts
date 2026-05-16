@@ -27,6 +27,12 @@
 
 import type { RemediationAction } from './types'
 import { checkPreconditions, type PreconditionRunResult } from './preconditions'
+import {
+  previewApplyMfaAllPolicy,
+  previewRemoveMfaAllPolicy,
+  previewApplyBlockLegacyAuthPolicy,
+  previewRemoveBlockLegacyAuthPolicy,
+} from './executors/graph-ca-policies'
 
 /** Single entity the action would affect. */
 export interface AffectedEntity {
@@ -88,15 +94,18 @@ export type PreviewerHandler = (ctx: PreviewerContext) => Promise<ImpactPreview>
  * cockpit shows a clear signal that the safety check is incomplete.
  */
 const PREVIEWERS: Record<string, PreviewerHandler> = {
-  'graph.applyConditionalAccessPolicy.mfaAll': stubPreviewer,
-  'graph.removeConditionalAccessPolicy.mfaAll': stubPreviewer,
-  'graph.applyConditionalAccessPolicy.blockLegacyAuth': stubPreviewer,
-  'graph.removeConditionalAccessPolicy.blockLegacyAuth': stubPreviewer,
+  // M365 / Entra — Conditional Access (C13 real previewers)
+  'graph.applyConditionalAccessPolicy.mfaAll': previewApplyMfaAllPolicy,
+  'graph.removeConditionalAccessPolicy.mfaAll': previewRemoveMfaAllPolicy,
+  'graph.applyConditionalAccessPolicy.blockLegacyAuth': previewApplyBlockLegacyAuthPolicy,
+  'graph.removeConditionalAccessPolicy.blockLegacyAuth': previewRemoveBlockLegacyAuthPolicy,
+  // Still stubs — paired with stub executors in actions/executors.ts.
   'graph.enablePasswordProtection': stubPreviewer,
   'graph.disablePasswordProtection': stubPreviewer,
   'graph.applyIntuneConfigProfile.defenderRealtime': stubPreviewer,
   'graph.removeIntuneConfigProfile.defenderRealtime': stubPreviewer,
 }
+
 
 async function stubPreviewer(ctx: PreviewerContext): Promise<ImpactPreview> {
   return {
