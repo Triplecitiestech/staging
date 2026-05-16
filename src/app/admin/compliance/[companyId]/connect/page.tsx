@@ -78,74 +78,42 @@ export default async function ConnectStepPage({ params }: Props) {
   const verifiedCount = connectors.filter((c) => c.status === 'verified').length
   const deployedToolCount = toolInventoryRows.filter((t) => t.deployed).length
 
+  // Only show data feeds for tools the operator has marked deployed at
+  // this customer. Showing every TCT-side connector (including ones for
+  // tools the customer doesn't use) was confusing — "Verified" meant
+  // TCT's API token works, not that the customer uses the product.
+  const deployedToolIds = new Set(toolInventoryRows.filter((t) => t.deployed).map((t) => t.toolId))
+  const relevantConnectors = connectors.filter((c) => deployedToolIds.has(c.connectorType))
+  const hiddenConnectorCount = connectors.length - relevantConnectors.length
+
   return (
     <div className="space-y-5">
       <header>
         <p className="text-xs uppercase tracking-wider text-cyan-400">Step 3</p>
         <h2 className="text-2xl font-bold text-white">Connect Tools</h2>
         <p className="text-sm text-slate-400 mt-1 max-w-2xl">
-          Verify the integrations that feed the compliance engine. Connectors
-          (Microsoft Graph, Datto RMM, BCDR, DnsFilter, etc.) provide the raw
-          data; the tool inventory records what we&apos;ve actually deployed for
-          this customer. Both feed the framework auto-detect and the action
-          preconditions.
+          Tell the assessment engine what this customer actually uses.
+          Toggle each tool below to <span className="text-emerald-300">Deployed</span>{' '}
+          when the customer has it, or leave it off. Tools marked off resolve
+          to <span className="text-slate-300">not applicable</span> on
+          related controls instead of failing with a collection error.
         </p>
       </header>
 
       <section className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <Counter label="Verified connectors" value={verifiedCount} tone="emerald" />
         <Counter label="Tools deployed" value={deployedToolCount} tone="cyan" />
+        <Counter label="Live data feeds" value={relevantConnectors.filter((c) => c.status === 'verified').length} tone="emerald" />
         <Counter label="Platform mappings" value={mappings.length} tone="violet" />
       </section>
 
-      <section className="bg-slate-900/50 border border-white/10 rounded-xl p-5">
-        <h3 className="text-sm font-semibold text-white uppercase tracking-wider mb-3">
-          Integration connectors
-        </h3>
-        {connectors.length === 0 ? (
-          <p className="text-sm text-slate-400 py-3">
-            No connectors configured yet.{' '}
-            <Link href="/admin/compliance" className="text-cyan-400 hover:text-cyan-300 underline">
-              Configure from the legacy dashboard
-            </Link>{' '}
-            (the in-flow connector editor lands in a later slice).
-          </p>
-        ) : (
-          <ul className="space-y-2">
-            {connectors.map((c) => (
-              <li
-                key={c.connectorType}
-                className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-slate-800/40 border border-white/5 rounded-lg p-3"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-white">{toolLabel(c.connectorType)}</p>
-                  <p className="text-[11px] text-slate-500">
-                    {toolVendor(c.connectorType) || 'Unknown vendor'}
-                    {c.lastCollectedAt && (
-                      <> · Last sync: {new Date(c.lastCollectedAt).toLocaleString()}</>
-                    )}
-                  </p>
-                  {c.errorMessage && (
-                    <p className="text-[11px] text-rose-300 mt-1">{c.errorMessage}</p>
-                  )}
-                </div>
-                <ConnectorStatusBadge status={c.status} />
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
+      {/* Tool inventory FIRST — primary operator action. */}
       <section className="bg-slate-900/50 border border-white/10 rounded-xl p-5">
         <h3 className="text-sm font-semibold text-white uppercase tracking-wider mb-3">
           Tool inventory
         </h3>
         <p className="text-xs text-slate-400 mb-3 max-w-2xl">
-          Toggle a tool to <span className="text-emerald-300">Deployed</span> if
-          this customer actually uses it. Controls that rely on a tool
-          marked <span className="text-slate-300">Not deployed</span> resolve
-          to <span className="text-slate-300">not applicable</span> in the
-          assessment instead of failing with a collection error.
+          What MSP-managed tools does this customer have? Toggling drives
+          control applicability in the assessment.
         </p>
         <ul className="space-y-2">
           {toolInventoryRows.map((t) => (
@@ -168,6 +136,55 @@ export default async function ConnectStepPage({ params }: Props) {
             </li>
           ))}
         </ul>
+      </section>
+
+      {/* Data feeds SECOND — read-only, filtered to relevant tools only. */}
+      <section className="bg-slate-900/50 border border-white/10 rounded-xl p-5">
+        <h3 className="text-sm font-semibold text-white uppercase tracking-wider">
+          Live data feeds
+        </h3>
+        <p className="text-xs text-slate-400 mt-1 mb-3 max-w-2xl">
+          Read-only status of the APIs the assessment engine pulls evidence
+          from for the tools you marked deployed above. Errors here mean
+          collection failed — fix the connection or toggle the tool off
+          to mark related controls{' '}
+          <span className="text-slate-300">not applicable</span>.
+        </p>
+        {relevantConnectors.length === 0 ? (
+          <p className="text-sm text-slate-400 py-3">
+            No live data feeds for any deployed tool yet. Mark a tool as
+            Deployed above and the engine will start pulling its data on
+            the next assessment.
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {relevantConnectors.map((c) => (
+              <li
+                key={c.connectorType}
+                className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-slate-800/40 border border-white/5 rounded-lg p-3"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-white">{toolLabel(c.connectorType)}</p>
+                  <p className="text-[11px] text-slate-500">
+                    {toolVendor(c.connectorType) || 'Unknown vendor'}
+                    {c.lastCollectedAt && (
+                      <> · Last sync: {new Date(c.lastCollectedAt).toLocaleString()}</>
+                    )}
+                  </p>
+                  {c.errorMessage && (
+                    <p className="text-[11px] text-rose-300 mt-1">{c.errorMessage}</p>
+                  )}
+                </div>
+                <ConnectorStatusBadge status={c.status} />
+              </li>
+            ))}
+          </ul>
+        )}
+        {hiddenConnectorCount > 0 && (
+          <p className="text-[11px] text-slate-500 mt-3">
+            {hiddenConnectorCount} other data feed{hiddenConnectorCount === 1 ? '' : 's'} hidden — TCT has API access but no matching deployed tool at this customer.
+          </p>
+        )}
       </section>
 
       {mappings.length > 0 && (

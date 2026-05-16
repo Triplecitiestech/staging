@@ -18,9 +18,8 @@ import Link from 'next/link'
 import { prisma } from '@/lib/prisma'
 import { getPool } from '@/lib/db-pool'
 import { ensureComplianceTables } from '@/lib/compliance/ensure-tables'
-import { frameworkLabel } from '@/lib/compliance/labels'
 import { getWorkflowState, adjacentSteps } from '@/lib/compliance/workflow-state'
-import PolicyList from '@/components/compliance/PolicyList'
+import PolicyManager from '@/components/compliance/PolicyManager'
 
 export const dynamic = 'force-dynamic'
 
@@ -103,44 +102,11 @@ export default async function PoliciesStepPage({ params }: Props) {
         </section>
       )}
 
-      {/* Generate / upload deep-links to the legacy dashboard for now. */}
-      <section className="bg-slate-900/50 border border-white/10 rounded-xl p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-semibold text-white uppercase tracking-wider">
-            Add a policy
-          </h3>
-          <p className="text-xs text-slate-400 mt-1">
-            Upload a Word/PDF document, paste text, or AI-generate a draft
-            tied to a control gap. The full editor lives on the legacy
-            dashboard until a later slice moves it inline.
-          </p>
-        </div>
-        <Link
-          href={`/admin/compliance#${companyId}-policies`}
-          className="shrink-0 px-3 py-2 text-xs font-medium rounded-lg bg-cyan-500/15 border border-cyan-500/30 text-cyan-200 hover:bg-cyan-500/25"
-        >
-          Open policy editor →
-        </Link>
-      </section>
-
-      {/* Policy list — clickable to expand content */}
-      <PolicyList policies={policies.map((p) => ({
-        id: p.id,
-        title: p.title,
-        source: p.source,
-        category: p.category,
-        content: p.content,
-        frameworkChips: p.frameworkIds.map((id) => ({ id, label: frameworkLabel(id) })),
-        analyzedAt: p.analyzedAt,
-        covered: p.satisfiedControls.length,
-        partial: p.partialControls.length,
-        missing: p.missingControls.length,
-        coveredControls: p.satisfiedControls,
-        partialControls: p.partialControls,
-        missingControls: p.missingControls,
-        analysisText: p.analysisText,
-        updatedAt: p.updatedAt,
-      }))} />
+      {/* Inline policy editor — uses the same PolicyManager component the
+          legacy /compliance dashboard used to host. Upload / paste /
+          SharePoint scan + AI analysis all happen right here, no
+          context switch. */}
+      <PolicyManager companyId={companyId} companyName={company.displayName} />
 
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2">
         {prev ? (
