@@ -175,6 +175,29 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
         <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-300">{error}</div>
       )}
 
+      {/* Guided-workflow shortcut — points to the new per-customer
+          workflow shell. Surfaces inline so operators on this legacy
+          dashboard discover the workflow without hunting for it. */}
+      {selectedCompany && dashboard && !loading && (
+        <Link
+          href={`/admin/compliance/${selectedCompany}`}
+          className="block bg-cyan-500/5 border border-cyan-500/30 rounded-xl p-4 hover:bg-cyan-500/10 transition-colors"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-wider text-cyan-400">Guided workflow</p>
+              <p className="text-sm text-white font-medium mt-1">
+                Open the 8-step workflow for {dashboard.companyName} &rarr;
+              </p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Onboard &middot; Profile &middot; Connect &middot; Policies &middot; Assess &middot; Findings &middot; Changes &middot; Reassess
+              </p>
+            </div>
+            <span className="text-cyan-300 text-xl">&rarr;</span>
+          </div>
+        </Link>
+      )}
+
       {/* Tab Navigation — only show when a company is selected */}
       {selectedCompany && dashboard && !loading && (
         <div className="flex gap-1 bg-slate-800/30 border border-white/5 rounded-lg p-1">
@@ -248,8 +271,8 @@ export default function ComplianceDashboard({ companies }: { companies: Company[
           <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg p-4 sm:p-6">
             <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-white">Integration Connectors</h2>
-            <Link href="/admin/compliance/tools" className="text-xs text-cyan-400 hover:text-cyan-300">
-              View Tool Capability Map &rarr;
+            <Link href={`/admin/compliance/${selectedCompany}/connect`} className="text-xs text-cyan-400 hover:text-cyan-300">
+              Manage in guided workflow &rarr;
             </Link>
           </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

@@ -1193,6 +1193,7 @@ export default function PolicyGenerationDashboard({
             <AssessmentRerunBanner
               latestPolicyActivityAt={analysis.latestPolicyActivityAt}
               latestAssessmentAt={analysis.latestAssessmentAt}
+              companyId={companyId}
             />
           )}
 
@@ -1648,9 +1649,11 @@ function NextStepBanner({
 function AssessmentRerunBanner({
   latestPolicyActivityAt,
   latestAssessmentAt,
+  companyId,
 }: {
   latestPolicyActivityAt: string | null
   latestAssessmentAt: string | null
+  companyId: string
 }) {
   const never = !latestAssessmentAt
   const policyTs = latestPolicyActivityAt ? new Date(latestPolicyActivityAt) : null
@@ -1684,9 +1687,9 @@ function AssessmentRerunBanner({
           </div>
         </div>
         <Link
-          href="/admin/compliance/workflow"
+          href={`/admin/compliance/${companyId}/assess`}
           className="px-4 py-2 bg-violet-500 hover:bg-violet-400 text-white rounded-lg text-sm font-semibold flex-shrink-0 whitespace-nowrap"
-          title="Opens the guided workflow at the Final Assessment step"
+          title="Opens the guided workflow's Run Assessment step for this customer"
         >
           Run New Assessment &rarr;
         </Link>

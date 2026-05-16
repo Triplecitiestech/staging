@@ -1,12 +1,13 @@
 /**
  * Customer Profile Schema (W3 — COMPLIANCE_WORKFLOW_REDESIGN.md)
  *
- * The single Customer-Profile authoring surface that consolidates three
- * historical intake stores into one question-engine schema:
+ * The single Customer-Profile authoring surface that consolidates two
+ * historical intake stores into one question-engine schema. (A third
+ * historical surface, ComplianceSetupWizard.tsx, was deleted in W15
+ * once the workflow's step-2 Customer Profile editor was live.)
  *
  *   1. policy_org_profiles.answers (JSONB)           ← org profile (70+ Qs)
  *   2. compliance_customer_context.answers (JSONB)   ← env / scope / access / physical
- *   3. ComplianceSetupWizard.tsx in-page state       ← duplicates of the above
  *
  * Today (pre-consolidation):
  *   - This module is the SCHEMA-of-record. Answer storage is still split across
@@ -21,8 +22,8 @@
  *     keyed by (companyId, schemaType='customer_profile').
  *   - Engine N/A logic (W5) and policy generator (W6) read exclusively via
  *     this module — they don't know about the legacy stores.
- *   - Wave 4: ComplianceSetupWizard.tsx is deleted; legacy intake UIs removed.
- *   - Wave 5: legacy tables dropped.
+ *   - Wave 4: ✓ ComplianceSetupWizard.tsx deleted (W15, this commit).
+ *   - Wave 5: legacy tables dropped (W16 — operator-gated).
  *
  * Key preservation rule:
  *   Every question here uses the SAME key it had in the legacy store so that
