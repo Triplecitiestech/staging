@@ -18,6 +18,12 @@
  */
 
 import type { RemediationAction } from './types'
+import {
+  applyMfaAllPolicy,
+  removeMfaAllPolicy,
+  applyBlockLegacyAuthPolicy,
+  removeBlockLegacyAuthPolicy,
+} from './executors/graph-ca-policies'
 
 export interface ExecutorContext {
   /** TCT customer the action runs for. */
@@ -51,18 +57,26 @@ export type ExecutorHandler = (ctx: ExecutorContext) => Promise<ExecutorResult>
  * Graph / Intune / vendor SDK call without changing this contract.
  */
 const HANDLERS: Record<string, ExecutorHandler> = {
-  // M365 / Entra
-  'graph.applyConditionalAccessPolicy.mfaAll': stubHandler,
-  'graph.removeConditionalAccessPolicy.mfaAll': stubHandler,
-  'graph.applyConditionalAccessPolicy.blockLegacyAuth': stubHandler,
-  'graph.removeConditionalAccessPolicy.blockLegacyAuth': stubHandler,
+  // M365 / Entra — Conditional Access (C13 real handlers)
+  'graph.applyConditionalAccessPolicy.mfaAll': applyMfaAllPolicy,
+  'graph.removeConditionalAccessPolicy.mfaAll': removeMfaAllPolicy,
+  'graph.applyConditionalAccessPolicy.blockLegacyAuth': applyBlockLegacyAuthPolicy,
+  'graph.removeConditionalAccessPolicy.blockLegacyAuth': removeBlockLegacyAuthPolicy,
+
+  // Still stubs — next C13 batch lands real Graph implementations.
   'graph.enablePasswordProtection': stubHandler,
   'graph.disablePasswordProtection': stubHandler,
-
-  // Defender / Intune
   'graph.applyIntuneConfigProfile.defenderRealtime': stubHandler,
   'graph.removeIntuneConfigProfile.defenderRealtime': stubHandler,
 }
+
+/** Handlers that are real implementations, not stubs. */
+const REAL_HANDLERS = new Set<string>([
+  'graph.applyConditionalAccessPolicy.mfaAll',
+  'graph.removeConditionalAccessPolicy.mfaAll',
+  'graph.applyConditionalAccessPolicy.blockLegacyAuth',
+  'graph.removeConditionalAccessPolicy.blockLegacyAuth',
+])
 
 async function stubHandler(ctx: ExecutorContext): Promise<ExecutorResult> {
   return {
@@ -107,8 +121,5 @@ export async function executeAction(ctx: ExecutorContext): Promise<ExecutorResul
 
 /** Whether a given action has a real (non-stub) automated handler registered. */
 export function hasRealHandler(handlerId: string): boolean {
-  // All handlers are stubs today; this returns false for everything until
-  // real implementations land in C13. Used by the pending-change API to
-  // require manual confirmation even for actions tagged as automated.
-  return HANDLERS[handlerId] != null && HANDLERS[handlerId] !== stubHandler
+  return REAL_HANDLERS.has(handlerId)
 }

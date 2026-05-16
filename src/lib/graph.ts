@@ -247,7 +247,7 @@ const SKU_FRIENDLY_NAMES: Record<string, string> = {
 // Core Graph request helper
 // ---------------------------------------------------------------------------
 
-async function graphRequest<T>(
+export async function graphRequest<T>(
   token: string,
   path: string,
   options?: RequestInit
@@ -279,6 +279,18 @@ async function graphRequest<T>(
   }
 
   return JSON.parse(text) as T
+}
+
+/**
+ * Convenience: fetch a Graph access token for a given company in one
+ * call. Branches on m365_consent_mode the same way the rest of the
+ * tenant-credential layer does. Returns null when the company has no
+ * usable M365 credentials so callers can decide how to fail.
+ */
+export async function getGraphTokenForCompany(companyId: string): Promise<string | null> {
+  const creds = await getTenantCredentials(companyId)
+  if (!creds) return null
+  return getAccessToken(creds.tenantId, creds.clientId, creds.clientSecret)
 }
 
 // Paginate through @odata.nextLink automatically (max 50 pages to prevent runaway)
