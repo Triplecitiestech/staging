@@ -7,7 +7,6 @@
 
 import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
-import Link from 'next/link'
 import AdminHeader from '@/components/admin/AdminHeader'
 import ComplianceDashboard from '@/components/compliance/ComplianceDashboard'
 
@@ -46,23 +45,12 @@ export default async function CompliancePage() {
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-gray-900 to-slate-950">
       <AdminHeader />
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="mb-8 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-white">Compliance Evidence Engine</h1>
-            <p className="text-slate-400 mt-1">
-              Assess customer compliance posture using real data from managed tools
-            </p>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <Link href="/admin/compliance/workflow"
-              className="inline-flex items-center px-3 py-2 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 rounded-lg text-sm transition-colors whitespace-nowrap">
-              Guided Workflow (Beta)
-            </Link>
-            <Link href="/admin/compliance/setup"
-              className="inline-flex items-center px-3 py-2 bg-slate-700/50 hover:bg-slate-600/50 text-slate-300 hover:text-white rounded-lg text-sm transition-colors whitespace-nowrap">
-              MSP Setup
-            </Link>
-          </div>
+        <div className="mb-8">
+          <h1 className="text-2xl font-bold text-white">Compliance Evidence Engine</h1>
+          <p className="text-slate-400 mt-1">
+            Pick a customer to open the guided workflow, or use this dashboard
+            for ad-hoc tabs (policies, mappings, raw assessments).
+          </p>
         </div>
         <ComplianceDashboard companies={companies} />
       </main>
