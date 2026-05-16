@@ -21,6 +21,7 @@
  */
 
 import type { RemediationAction } from './types'
+import { FRAMEWORK_POLICY_MAPPINGS } from '../policy-generation/framework-mappings'
 
 export const REMEDIATION_ACTIONS: readonly RemediationAction[] = [
   // --------------------------------------------------------------------------
@@ -289,9 +290,72 @@ export const REMEDIATION_ACTIONS: readonly RemediationAction[] = [
   },
 ] as const
 
+/**
+ * Generic "generate a documented policy for this control" action. Single
+ * catalog entry; the `satisfiesControls` list is computed at module load
+ * from FRAMEWORK_POLICY_MAPPINGS so every (framework, control) pair that
+ * has a mapped policy is automatically covered. The executor receives the
+ * originating control via ExecutorContext.metadata and resolves which
+ * specific policy slug to generate.
+ *
+ * This is what makes the Findings page's Remediate button work for
+ * documentation-shaped controls (3.5 Securely Dispose of Data, 14.1
+ * Security Awareness, etc.) where the right "fix" is a written policy
+ * rather than an M365 setting change.
+ */
+const POLICY_GENERATE_ACTION: RemediationAction = (() => {
+  // Build the satisfiesControls list. Use the short control id (matches
+  // the rest of the catalog's convention, e.g. '3.5' not 'cis-v8-3.5').
+  // Dedupe and prefer 'full' coverage over 'partial' when both exist.
+  const byKey = new Map<string, { frameworkId: string; controlId: string; coverage: 'full' | 'partial' }>()
+  for (const m of FRAMEWORK_POLICY_MAPPINGS) {
+    if (m.coverageType === 'supporting') continue
+    const shortControl = m.controlId.replace(/^[a-z]+-[a-z0-9]+-/, '')
+    const key = `${m.frameworkId}::${shortControl}`
+    const cov = m.coverageType === 'full' ? 'full' : 'partial'
+    const existing = byKey.get(key)
+    if (!existing || (existing.coverage === 'partial' && cov === 'full')) {
+      byKey.set(key, { frameworkId: m.frameworkId, controlId: shortControl, coverage: cov })
+    }
+  }
+  const satisfiesControls = Array.from(byKey.values()) as RemediationAction['satisfiesControls']
+
+  return {
+    id: 'policy.generate_for_control',
+    name: 'Generate / revise the documented policy for this control',
+    version: '1.0.0',
+    satisfiesControls,
+    capabilityId: 'policy_generation',
+    reversible: false,
+    impact: {
+      userFacing:
+        'TCT will generate a draft of the policy document that covers this control, using the customer\'s profile (industry, frameworks, operational context) as input. The draft lands in the compliance library for review — nothing is sent to the customer or pushed to their SharePoint / IT Glue / other storage until you approve it in a follow-up step.',
+      operational:
+        'Calls policy-generation/generator.ts (Claude API). If a policy with the same catalog name already exists, generates in mode=improve using the existing content as base; otherwise mode=new. Writes a row to compliance_policies (source=generated) and fires applyPolicyPresenceHook to update the customer profile.',
+      blastRadius: 'none',
+      estimatedDisruptionMinutes: 0,
+      sessionDisruptive: false,
+      requiresEndUserAction: false,
+    },
+    preconditions: [],
+    executor: { kind: 'automated', handler: 'policy.generate_for_control' },
+    verification: { evaluatorIds: [], delaySecondsBeforeVerify: 0 },
+  } satisfies RemediationAction
+})()
+
+/**
+ * Re-export the catalog with the computed policy-generation action
+ * folded in. Public consumers see one combined list; the underlying
+ * `as const` array stays type-safe for the hand-authored entries.
+ */
+const ALL_REMEDIATION_ACTIONS: readonly RemediationAction[] = [
+  ...REMEDIATION_ACTIONS,
+  POLICY_GENERATE_ACTION,
+]
+
 /** Lookup: id → action. Sealed at module load. */
 export const REMEDIATION_ACTIONS_BY_ID: ReadonlyMap<string, RemediationAction> = new Map(
-  REMEDIATION_ACTIONS.map((a) => [a.id, a])
+  ALL_REMEDIATION_ACTIONS.map((a) => [a.id, a])
 )
 
 /** Convenience: get an action by id, or undefined. */
@@ -304,7 +368,7 @@ export function suggestActionsForControl(
   frameworkId: string,
   controlId: string
 ): RemediationAction[] {
-  return REMEDIATION_ACTIONS.filter((a) =>
+  return ALL_REMEDIATION_ACTIONS.filter((a) =>
     a.satisfiesControls.some((c) => c.frameworkId === frameworkId && c.controlId === controlId)
   ).sort((a, b) => {
     const aCov = a.satisfiesControls.find((c) => c.frameworkId === frameworkId && c.controlId === controlId)?.coverage
