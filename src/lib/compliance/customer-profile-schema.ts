@@ -329,6 +329,24 @@ export const CUSTOMER_PROFILE_SECTIONS: readonly CustomerProfileSection[] = [
         legacyStore: 'compliance_customer_context',
       },
       { key: 'org_contractors', label: 'Does this customer use contractors or temporary workers?', type: 'radio', required: true, staticOptions: YES_NO, sortOrder: 7, legacyStore: 'policy_org_profiles' },
+      {
+        key: 'sop_storage_locations',
+        label: 'Where does this customer store SOPs, runbooks, and policies?',
+        helpText:
+          'Drives where the assessment engine looks for documented procedures (data disposal SOP, incident response plan, AUP, etc.). For platforms TCT cannot scan, the workflow will ask you to upload the documents manually for review.',
+        type: 'multi_select',
+        required: true,
+        sortOrder: 8,
+        staticOptions: [
+          { value: 'it_glue', label: 'IT Glue (TCT MSP documentation)' },
+          { value: 'my_glue', label: 'My Glue (customer-facing IT Glue companion)' },
+          { value: 'sharepoint', label: 'SharePoint Online (customer\'s own M365)' },
+          { value: 'compliance_library', label: 'Uploaded to TCT compliance library (workflow step 4)' },
+          { value: 'third_party_unreachable', label: 'Third-party platform TCT cannot scan' },
+          { value: 'none', label: 'No central storage / undocumented' },
+        ],
+        legacyStore: 'policy_org_profiles',
+      },
     ],
   },
 

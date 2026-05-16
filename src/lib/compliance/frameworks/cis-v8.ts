@@ -1421,9 +1421,111 @@ evaluators['cis-v8-2.3'] = (ctx: EvaluationContext): EvaluationResult => {
     sources, [], 'Configure Intune compliance policies and document the software authorization process.')
 }
 
-// 3.1 Data Management Process — IT Glue documentation
+// ---------------------------------------------------------------------------
+// SOP-storage-aware messaging helpers
+// ---------------------------------------------------------------------------
+//
+// SOPs / runbooks / policies live in different places at different customers
+// (IT Glue, My Glue, SharePoint, third-party platforms TCT can't reach).
+// The customer profile's `sop_storage_locations` answer (multi_select) is
+// the source of truth for where to look. These helpers tailor the
+// reasoning + remediation text to whatever the operator told us.
+//
+// Note: even when this evaluator returns needs_review, applyPolicyCoverage()
+// can still upgrade it to pass if the customer uploaded a matching policy
+// to the TCT compliance library (step 4 in the workflow). So the messaging
+// here is about WHAT TO DO NEXT, not the final verdict.
+
+interface SopLocationContext {
+  /** Pretty list for use in reasoning ("IT Glue, SharePoint"). */
+  locationLabel: string
+  /** True when the operator picked only third_party_unreachable or none. */
+  unreachableOnly: boolean
+  /** True when the operator hasn't filled this question in yet. */
+  unanswered: boolean
+  /** True when "compliance_library" is one of the chosen locations. */
+  includesLibrary: boolean
+  /** True when the operator chose 'none'. */
+  includesNone: boolean
+}
+
+function getSopLocations(ctx: EvaluationContext): SopLocationContext {
+  const raw = ctx.environment?.rawAnswers?.sop_storage_locations
+  if (!raw || raw.trim().length === 0) {
+    return { locationLabel: '', unreachableOnly: false, unanswered: true, includesLibrary: false, includesNone: false }
+  }
+  const picks = raw.split(',').map((s) => s.trim()).filter(Boolean)
+  const labelByValue: Record<string, string> = {
+    it_glue: 'IT Glue',
+    my_glue: 'My Glue',
+    sharepoint: 'SharePoint',
+    compliance_library: 'TCT compliance library',
+    third_party_unreachable: 'a third-party platform TCT cannot scan',
+    none: 'no central storage',
+  }
+  const labels = picks.map((p) => labelByValue[p] ?? p)
+  const includesLibrary = picks.includes('compliance_library')
+  const includesNone = picks.includes('none')
+  const reachable = picks.filter((p) => p !== 'third_party_unreachable' && p !== 'none')
+  return {
+    locationLabel: labels.join(', '),
+    unreachableOnly: reachable.length === 0,
+    unanswered: false,
+    includesLibrary,
+    includesNone,
+  }
+}
+
+/**
+ * Build remediation text for a missing SOP. Respects the customer's
+ * configured storage locations so we don't tell them "create it in IT Glue"
+ * when they actually use SharePoint or a third-party platform.
+ */
+function buildSopRemediation(sopKind: string, loc: SopLocationContext): string {
+  const create = `Create the ${sopKind} SOP`
+  if (loc.unanswered) {
+    return `${create}. Also, fill in "Where does this customer store SOPs?" on step 2 (Customer Profile) so the assessment knows where to look.`
+  }
+  if (loc.includesNone) {
+    return `${create} and start storing it somewhere central — pick a storage location on step 2 (Customer Profile) so future assessments can find it.`
+  }
+  if (loc.unreachableOnly) {
+    return `Customer stores SOPs in ${loc.locationLabel}, which TCT can't scan. Request a copy of the existing ${sopKind} SOP from the customer (or draft one) and upload it on step 4 (Policies) so the assessment can verify coverage.`
+  }
+  if (loc.includesLibrary) {
+    return `${create} and upload it to the TCT compliance library on step 4 (Policies). The assessment will pick it up automatically.`
+  }
+  return `${create} in ${loc.locationLabel}. If you also upload it to the TCT compliance library on step 4, the assessment will credit the control on the next run.`
+}
+
+/**
+ * Build a "no documented X found" reasoning line that names the actual
+ * locations the assessment checked. The IT Glue collector remains the
+ * only TCT-scannable source today, so when the operator says SOPs also
+ * live in SharePoint or third-party, we surface that we DIDN'T look
+ * there yet rather than claim a clean miss.
+ */
+function buildSopReasoning(sopKind: string, loc: SopLocationContext): string {
+  if (loc.unanswered) {
+    return `No ${sopKind} procedure found in IT Glue. TCT also didn't know where else to look — tell us on step 2 (Customer Profile) so we can check the right place.`
+  }
+  if (loc.unreachableOnly) {
+    return `Customer stores SOPs in ${loc.locationLabel}; TCT cannot scan there directly. No ${sopKind} procedure has been uploaded to the compliance library for cross-check.`
+  }
+  const reachableLabelMap: Record<string, string> = { it_glue: 'IT Glue', compliance_library: 'TCT compliance library' }
+  const reachableNote = Object.keys(reachableLabelMap)
+    .filter((k) => loc.locationLabel.includes(reachableLabelMap[k]))
+    .map((k) => reachableLabelMap[k])
+    .join(' + ')
+  const tail = reachableNote ? ` Scanned: ${reachableNote}.` : ''
+  return `No ${sopKind} procedure found in the locations the customer uses (${loc.locationLabel}).${tail}`
+}
+
+// 3.1 Data Management Process — checks IT Glue + compliance library; messaging
+// honors the customer's actual SOP storage locations.
 evaluators['cis-v8-3.1'] = (ctx: EvaluationContext): EvaluationResult => {
   const itg = ctx.evidence.get('it_glue_documentation' as EvidenceSourceType)
+  const loc = getSopLocations(ctx)
   if (!itg) return noEvidence('cis-v8-3.1', ['it_glue_documentation'], ctx)
 
   const data = itg.rawData as { hasDocumentedPolicies?: boolean; flexibleAssetTypeCount?: number }
@@ -1433,14 +1535,15 @@ evaluators['cis-v8-3.1'] = (ctx: EvaluationContext): EvaluationResult => {
       ['it_glue_documentation'], [])
   }
   return result('cis-v8-3.1', ctx, 'needs_review', 'low',
-    `IT Glue is configured with ${data.flexibleAssetTypeCount ?? 0} flexible asset types but no policy-type documentation was detected. Verify data management process is documented.`,
+    buildSopReasoning('data management process', loc),
     ['it_glue_documentation'], [],
-    'Create a data management process document in IT Glue covering data sensitivity, owners, retention, and disposal.')
+    buildSopRemediation('data management process', loc))
 }
 
-// 3.2 Data Inventory — IT Glue configurations
+// 3.2 Data Inventory — IT Glue configurations.
 evaluators['cis-v8-3.2'] = (ctx: EvaluationContext): EvaluationResult => {
   const itg = ctx.evidence.get('it_glue_documentation' as EvidenceSourceType)
+  const loc = getSopLocations(ctx)
   if (!itg) return noEvidence('cis-v8-3.2', ['it_glue_documentation'], ctx)
 
   const data = itg.rawData as { configurationCount?: number; organizationCount?: number }
@@ -1450,15 +1553,16 @@ evaluators['cis-v8-3.2'] = (ctx: EvaluationContext): EvaluationResult => {
       ['it_glue_documentation'], [])
   }
   return result('cis-v8-3.2', ctx, 'needs_review', 'low',
-    'IT Glue is configured but no configuration items found for this customer. Create a data inventory.',
+    buildSopReasoning('data inventory', loc),
     ['it_glue_documentation'], [],
-    'Document sensitive data locations and classifications as IT Glue configurations or flexible assets.')
+    buildSopRemediation('data inventory', loc))
 }
 
-// 3.4 Enforce Data Retention — check SaaS backup + IT Glue policy
+// 3.4 Enforce Data Retention — check SaaS backup + the customer's SOP storage.
 evaluators['cis-v8-3.4'] = (ctx: EvaluationContext): EvaluationResult => {
   const itg = ctx.evidence.get('it_glue_documentation' as EvidenceSourceType)
   const saas = ctx.evidence.get('datto_saas_backup')
+  const loc = getSopLocations(ctx)
   const sources = ['it_glue_documentation', 'datto_saas_backup'].filter((s) => ctx.evidence.has(s as EvidenceSourceType))
 
   if (itg && (itg.rawData as { hasDocumentedPolicies?: boolean }).hasDocumentedPolicies) {
@@ -1468,16 +1572,18 @@ evaluators['cis-v8-3.4'] = (ctx: EvaluationContext): EvaluationResult => {
   }
   if (saas) {
     return result('cis-v8-3.4', ctx, 'partial', 'low',
-      'Datto SaaS Protect provides backup retention for M365 data, but a formal data retention policy should be documented.',
+      'Datto SaaS Protect provides backup retention for M365 data, but a formal data retention policy should be documented. ' + buildSopReasoning('data retention', loc),
       sources, ['it_glue_documentation'],
-      'Document a data retention policy in IT Glue specifying min/max retention timelines.')
+      buildSopRemediation('data retention', loc))
   }
   return noEvidence('cis-v8-3.4', ['it_glue_documentation', 'datto_saas_backup'], ctx)
 }
 
-// 3.5 Securely Dispose of Data — IT Glue documentation
+// 3.5 Securely Dispose of Data — checks documented procedures across the
+// customer's configured SOP storage locations.
 evaluators['cis-v8-3.5'] = (ctx: EvaluationContext): EvaluationResult => {
   const itg = ctx.evidence.get('it_glue_documentation' as EvidenceSourceType)
+  const loc = getSopLocations(ctx)
   if (!itg) return noEvidence('cis-v8-3.5', ['it_glue_documentation'], ctx)
 
   const data = itg.rawData as { hasDocumentedProcedures?: boolean }
@@ -1487,9 +1593,9 @@ evaluators['cis-v8-3.5'] = (ctx: EvaluationContext): EvaluationResult => {
       ['it_glue_documentation'], [])
   }
   return result('cis-v8-3.5', ctx, 'needs_review', 'none',
-    'No documented data disposal procedures found in IT Glue.',
+    buildSopReasoning('data disposal', loc),
     ['it_glue_documentation'], [],
-    'Create a data disposal SOP in IT Glue covering secure deletion, drive wiping, and certificate of destruction processes.')
+    buildSopRemediation('data disposal', loc))
 }
 
 // 3.6 Encrypt Data on End-User Devices (alias of 4.6 logic)
