@@ -24,6 +24,14 @@ import {
   applyBlockLegacyAuthPolicy,
   removeBlockLegacyAuthPolicy,
 } from './executors/graph-ca-policies'
+import {
+  enablePasswordProtection,
+  disablePasswordProtection,
+} from './executors/graph-password-protection'
+import {
+  applyIntuneDefenderRealtime,
+  removeIntuneDefenderRealtime,
+} from './executors/intune-defender'
 
 export interface ExecutorContext {
   /** TCT customer the action runs for. */
@@ -57,17 +65,19 @@ export type ExecutorHandler = (ctx: ExecutorContext) => Promise<ExecutorResult>
  * Graph / Intune / vendor SDK call without changing this contract.
  */
 const HANDLERS: Record<string, ExecutorHandler> = {
-  // M365 / Entra — Conditional Access (C13 real handlers)
+  // M365 / Entra — Conditional Access
   'graph.applyConditionalAccessPolicy.mfaAll': applyMfaAllPolicy,
   'graph.removeConditionalAccessPolicy.mfaAll': removeMfaAllPolicy,
   'graph.applyConditionalAccessPolicy.blockLegacyAuth': applyBlockLegacyAuthPolicy,
   'graph.removeConditionalAccessPolicy.blockLegacyAuth': removeBlockLegacyAuthPolicy,
 
-  // Still stubs — next C13 batch lands real Graph implementations.
-  'graph.enablePasswordProtection': stubHandler,
-  'graph.disablePasswordProtection': stubHandler,
-  'graph.applyIntuneConfigProfile.defenderRealtime': stubHandler,
-  'graph.removeIntuneConfigProfile.defenderRealtime': stubHandler,
+  // Entra ID password protection (banned-password list + smart lockout)
+  'graph.enablePasswordProtection': enablePasswordProtection,
+  'graph.disablePasswordProtection': disablePasswordProtection,
+
+  // Intune device configuration — Defender real-time monitoring
+  'graph.applyIntuneConfigProfile.defenderRealtime': applyIntuneDefenderRealtime,
+  'graph.removeIntuneConfigProfile.defenderRealtime': removeIntuneDefenderRealtime,
 }
 
 /** Handlers that are real implementations, not stubs. */
@@ -76,6 +86,10 @@ const REAL_HANDLERS = new Set<string>([
   'graph.removeConditionalAccessPolicy.mfaAll',
   'graph.applyConditionalAccessPolicy.blockLegacyAuth',
   'graph.removeConditionalAccessPolicy.blockLegacyAuth',
+  'graph.enablePasswordProtection',
+  'graph.disablePasswordProtection',
+  'graph.applyIntuneConfigProfile.defenderRealtime',
+  'graph.removeIntuneConfigProfile.defenderRealtime',
 ])
 
 async function stubHandler(ctx: ExecutorContext): Promise<ExecutorResult> {

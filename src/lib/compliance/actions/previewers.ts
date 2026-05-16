@@ -33,6 +33,14 @@ import {
   previewApplyBlockLegacyAuthPolicy,
   previewRemoveBlockLegacyAuthPolicy,
 } from './executors/graph-ca-policies'
+import {
+  previewEnablePasswordProtection,
+  previewDisablePasswordProtection,
+} from './executors/graph-password-protection'
+import {
+  previewApplyIntuneDefenderRealtime,
+  previewRemoveIntuneDefenderRealtime,
+} from './executors/intune-defender'
 
 /** Single entity the action would affect. */
 export interface AffectedEntity {
@@ -94,16 +102,19 @@ export type PreviewerHandler = (ctx: PreviewerContext) => Promise<ImpactPreview>
  * cockpit shows a clear signal that the safety check is incomplete.
  */
 const PREVIEWERS: Record<string, PreviewerHandler> = {
-  // M365 / Entra — Conditional Access (C13 real previewers)
+  // M365 / Entra — Conditional Access
   'graph.applyConditionalAccessPolicy.mfaAll': previewApplyMfaAllPolicy,
   'graph.removeConditionalAccessPolicy.mfaAll': previewRemoveMfaAllPolicy,
   'graph.applyConditionalAccessPolicy.blockLegacyAuth': previewApplyBlockLegacyAuthPolicy,
   'graph.removeConditionalAccessPolicy.blockLegacyAuth': previewRemoveBlockLegacyAuthPolicy,
-  // Still stubs — paired with stub executors in actions/executors.ts.
-  'graph.enablePasswordProtection': stubPreviewer,
-  'graph.disablePasswordProtection': stubPreviewer,
-  'graph.applyIntuneConfigProfile.defenderRealtime': stubPreviewer,
-  'graph.removeIntuneConfigProfile.defenderRealtime': stubPreviewer,
+
+  // Entra ID password protection
+  'graph.enablePasswordProtection': previewEnablePasswordProtection,
+  'graph.disablePasswordProtection': previewDisablePasswordProtection,
+
+  // Intune device configuration — Defender real-time monitoring
+  'graph.applyIntuneConfigProfile.defenderRealtime': previewApplyIntuneDefenderRealtime,
+  'graph.removeIntuneConfigProfile.defenderRealtime': previewRemoveIntuneDefenderRealtime,
 }
 
 
