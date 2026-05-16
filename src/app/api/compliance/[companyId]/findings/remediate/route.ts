@@ -205,6 +205,14 @@ export async function POST(
         companyId,
         staffEmail: session.user!.email!,
         action,
+        // Pass control context so executors that need to know WHICH
+        // failing control triggered them (e.g. policy.generate_for_control)
+        // can resolve the right policy slug via FRAMEWORK_POLICY_MAPPINGS.
+        metadata: {
+          findingId: body.findingId ?? null,
+          frameworkId: body.frameworkId ?? null,
+          controlId: body.controlId ?? null,
+        },
       })
 
       // Drafted → deploying → verifying. The verification worker

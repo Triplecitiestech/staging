@@ -41,6 +41,9 @@ import {
   previewApplyIntuneDefenderRealtime,
   previewRemoveIntuneDefenderRealtime,
 } from './executors/intune-defender'
+import {
+  previewGeneratePolicyForControl,
+} from './executors/policy-generate'
 
 /** Single entity the action would affect. */
 export interface AffectedEntity {
@@ -115,6 +118,9 @@ const PREVIEWERS: Record<string, PreviewerHandler> = {
   // Intune device configuration — Defender real-time monitoring
   'graph.applyIntuneConfigProfile.defenderRealtime': previewApplyIntuneDefenderRealtime,
   'graph.removeIntuneConfigProfile.defenderRealtime': previewRemoveIntuneDefenderRealtime,
+
+  // Policy generation
+  'policy.generate_for_control': previewGeneratePolicyForControl,
 }
 
 

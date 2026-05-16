@@ -32,6 +32,9 @@ import {
   applyIntuneDefenderRealtime,
   removeIntuneDefenderRealtime,
 } from './executors/intune-defender'
+import {
+  generatePolicyForControl,
+} from './executors/policy-generate'
 
 export interface ExecutorContext {
   /** TCT customer the action runs for. */
@@ -78,6 +81,10 @@ const HANDLERS: Record<string, ExecutorHandler> = {
   // Intune device configuration — Defender real-time monitoring
   'graph.applyIntuneConfigProfile.defenderRealtime': applyIntuneDefenderRealtime,
   'graph.removeIntuneConfigProfile.defenderRealtime': removeIntuneDefenderRealtime,
+
+  // Policy generation — picks the right policy slug for the originating
+  // control via FRAMEWORK_POLICY_MAPPINGS and generates/revises a draft.
+  'policy.generate_for_control': generatePolicyForControl,
 }
 
 /** Handlers that are real implementations, not stubs. */
@@ -90,6 +97,7 @@ const REAL_HANDLERS = new Set<string>([
   'graph.disablePasswordProtection',
   'graph.applyIntuneConfigProfile.defenderRealtime',
   'graph.removeIntuneConfigProfile.defenderRealtime',
+  'policy.generate_for_control',
 ])
 
 async function stubHandler(ctx: ExecutorContext): Promise<ExecutorResult> {
