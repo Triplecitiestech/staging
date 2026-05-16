@@ -66,59 +66,6 @@ export default async function ComplianceWorkflowLanding({ params }: Props) {
           </Link>
         </section>
       )}
-
-      {/* Inline step summary (echoes the left nav for the landing context) */}
-      <section className="bg-slate-900/50 border border-white/10 rounded-xl p-5">
-        <h2 className="text-sm font-semibold text-white uppercase tracking-wider mb-3">
-          The journey
-        </h2>
-        <ol className="space-y-2">
-          {steps.map((s) => (
-            <li
-              key={s.key}
-              className={`flex items-start gap-3 rounded-lg border p-3 ${
-                s.status === 'done'
-                  ? 'bg-emerald-500/5 border-emerald-500/20'
-                  : s.status === 'current'
-                  ? 'bg-cyan-500/10 border-cyan-500/40'
-                  : 'bg-slate-800/30 border-white/5'
-              }`}
-            >
-              <div
-                className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold border ${
-                  s.status === 'done'
-                    ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-200'
-                    : s.status === 'current'
-                    ? 'bg-cyan-500/30 border-cyan-400/60 text-cyan-100'
-                    : 'bg-slate-800/60 border-white/10 text-slate-400'
-                }`}
-              >
-                {s.number}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-sm font-medium text-white">{s.title}</p>
-                  <span
-                    className={`text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded ${
-                      s.status === 'done'
-                        ? 'bg-emerald-500/20 text-emerald-200'
-                        : s.status === 'current'
-                        ? 'bg-cyan-500/20 text-cyan-200'
-                        : 'bg-slate-700/40 text-slate-400'
-                    }`}
-                  >
-                    {s.status}
-                  </span>
-                </div>
-                <p className="text-xs text-slate-400">{s.description}</p>
-                {s.detail && (
-                  <p className="text-[11px] text-cyan-300/80 mt-0.5">{s.detail}</p>
-                )}
-              </div>
-            </li>
-          ))}
-        </ol>
-      </section>
     </div>
   )
 }
