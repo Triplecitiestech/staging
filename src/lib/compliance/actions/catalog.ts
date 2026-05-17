@@ -244,16 +244,15 @@ export const REMEDIATION_ACTIONS: readonly RemediationAction[] = [
     id: 'intune.create_windows_baseline_compliance_policy',
     name: 'Create Windows 10 baseline compliance policy',
     version: '1.0.0',
+    // Mapped only to controls where a DEVICE-STATE BASELINE is the right
+    // primitive. Network-asset discovery (1.x) is intentionally NOT here
+    // — that needs a network scanner (Domotz / UniFi DHCP visibility),
+    // and pretending Intune compliance addresses it is the same
+    // conflation bug we fixed for documentation policies.
     satisfiesControls: [
-      // 1.2 Address Unauthorized Assets — a Windows device that doesn't
-      //     meet the baseline is flagged so it can be blocked.
-      { frameworkId: 'cis-v8', controlId: '1.2', coverage: 'partial' },
       // 2.3 Address Unauthorized Software — Defender + signature checks
       //     are part of the baseline; a device without them is flagged.
       { frameworkId: 'cis-v8', controlId: '2.3', coverage: 'partial' },
-      // 2.5 Allowlisted Software — paired with code-integrity checks
-      //     enforced by the policy.
-      { frameworkId: 'cis-v8', controlId: '2.5', coverage: 'partial' },
       // 4.1 Secure Configuration Process — the policy IS the documented
       //     enforced configuration.
       { frameworkId: 'cis-v8', controlId: '4.1', coverage: 'partial' },

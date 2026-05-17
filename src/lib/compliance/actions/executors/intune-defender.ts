@@ -26,6 +26,7 @@
 import { getGraphTokenForCompany, graphRequest } from '@/lib/graph'
 import type { ExecutorContext, ExecutorResult } from '../executors'
 import type { PreviewerContext, ImpactPreview } from '../previewers'
+import { formatGraphPreviewError } from './graph-error-format'
 
 /** Display-name prefix that identifies TCT-managed Intune profiles. */
 const TCT_PROFILE_MARKER = '[TCT-MANAGED]'
@@ -252,7 +253,7 @@ export async function previewApplyIntuneDefenderRealtime(ctx: PreviewerContext):
       totalAffected: 0,
       entities: [],
       truncated: false,
-      summary: `Preview query failed: ${err instanceof Error ? err.message : String(err)}`,
+      summary: formatGraphPreviewError(err, 'preview the Defender real-time protection apply'),
       isLiveQuery: false,
     }
   }
@@ -300,7 +301,7 @@ export async function previewRemoveIntuneDefenderRealtime(ctx: PreviewerContext)
       totalAffected: 0,
       entities: [],
       truncated: false,
-      summary: `Preview query failed: ${err instanceof Error ? err.message : String(err)}`,
+      summary: formatGraphPreviewError(err, 'preview the Defender real-time protection removal'),
       isLiveQuery: false,
     }
   }

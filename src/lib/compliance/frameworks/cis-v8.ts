@@ -1318,20 +1318,45 @@ evaluators['cis-v8-1.3'] = (ctx: EvaluationContext): EvaluationResult => {
     ['domotz_network_discovery'], [])
 }
 
-// 1.4 DHCP Logging — Domotz can show DHCP-assigned devices
+// 1.4 DHCP Logging — UniFi gateways (UDM/USG/UDR) are the actual DHCP
+// server in most TCT customers; their controller logs every lease. Domotz
+// only sees DHCP-assigned devices indirectly (as discovered hosts) and
+// doesn't capture the lease event itself, so UniFi is the right primary
+// evidence source. Fall back to Domotz when there's no UniFi.
 evaluators['cis-v8-1.4'] = (ctx: EvaluationContext): EvaluationResult => {
+  const unifi = ctx.evidence.get('ubiquiti_network' as EvidenceSourceType)
+  if (unifi) {
+    const uData = unifi.rawData as { totalDevices?: number; devices?: Array<{ model?: string }> }
+    // A UniFi gateway (UDM/USG/UDR/Dream-Router) is what serves DHCP.
+    // If the inventory includes one, DHCP logging is available natively.
+    const hasGateway = (uData.devices ?? []).some((d) => {
+      const m = (d.model ?? '').toUpperCase()
+      return m.includes('UDM') || m.includes('USG') || m.includes('UDR') || m.includes('DREAM')
+    })
+    if (hasGateway) {
+      return result('cis-v8-1.4', ctx, 'pass', 'high',
+        `UniFi gateway is present and managed via the UniFi controller, which records DHCP lease history with IP/MAC correlation. ${uData.totalDevices ?? 0} network devices tracked.`,
+        ['ubiquiti_network'], [])
+    }
+    // UniFi present but no gateway in scope — APs/switches alone don't
+    // give DHCP visibility; treat as partial coverage.
+    return result('cis-v8-1.4', ctx, 'needs_review', 'medium',
+      'UniFi is deployed but no UDM/USG/UDR gateway is in scope, so the DHCP server is upstream (ISP router or other vendor). Confirm DHCP logging is enabled on the actual DHCP server.',
+      ['ubiquiti_network'], [])
+  }
+
   const domotz = ctx.evidence.get('domotz_network_discovery' as EvidenceSourceType)
   if (domotz) {
     const data = domotz.rawData as { totalDevices?: number; discoveryActive?: boolean }
     if (data.discoveryActive) {
-      return result('cis-v8-1.4', ctx, 'pass', 'medium',
-        `Domotz monitors network device connections including DHCP-assigned devices. ${data.totalDevices ?? 0} devices tracked with IP/MAC correlation.`,
+      return result('cis-v8-1.4', ctx, 'needs_review', 'low',
+        `Domotz tracks ${data.totalDevices ?? 0} devices with IP/MAC correlation, which is adjacent evidence but not DHCP-server logging. Confirm DHCP logging is enabled on the gateway/DHCP server.`,
         ['domotz_network_discovery'], [])
     }
   }
   return { controlId: 'cis-v8-1.4', status: 'needs_review', confidence: 'none',
-    reasoning: 'DHCP logging requires verification of router/DHCP server configuration. Domotz provides device tracking but DHCP server logging should be confirmed separately.',
-    evidenceIds: [], missingEvidence: ['domotz_network_discovery'], remediation: 'Enable DHCP logging on the network gateway/DHCP server. Verify Domotz is tracking all DHCP leases.' }
+    reasoning: 'Neither UniFi (gateway DHCP logs) nor Domotz (adjacent device tracking) evidence is available for this customer. DHCP server logging cannot be confirmed.',
+    evidenceIds: [], missingEvidence: ['ubiquiti_network', 'domotz_network_discovery'], remediation: 'Confirm a UniFi gateway (UDM/USG/UDR) is deployed and DHCP logging is enabled in the UniFi controller; otherwise enable logging on whichever device serves DHCP and verify those logs feed into the inventory tooling.' }
 }
 
 // 1.5 Passive Discovery — Domotz does this, NOT RMM

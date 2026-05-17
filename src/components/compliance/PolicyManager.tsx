@@ -277,6 +277,7 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
     setSpImportResult(null)
     const selected = spFiles.filter((f) => spSelected.has(f.id))
     const importFailures: Array<{ fileName: string; message: string }> = []
+    const succeededIds = new Set<string>()
     let imported = 0
 
     for (const file of selected) {
@@ -309,6 +310,7 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
           })
         } else {
           imported++
+          succeededIds.add(file.id)
         }
         setSpImportProgress(Math.round(((imported + importFailures.length) / selected.length) * 100))
       } catch (err) {
@@ -320,6 +322,16 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
     }
 
     setSpImporting(false)
+    // Drop successfully-imported rows from the scanned-file list so the
+    // operator can't accidentally re-import them. Re-clicking the import
+    // button after a clean run was creating duplicate policies. Failed
+    // rows stay so the operator can retry just those.
+    setSpFiles((prev) => prev.filter((f) => !succeededIds.has(f.id)))
+    setSpSelected((prev) => {
+      const next = new Set(prev)
+      succeededIds.forEach((id) => next.delete(id))
+      return next
+    })
     // Don't close the form. Leave the import-result card visible so
     // the operator can see what landed (and what didn't) before
     // dismissing. Refresh the policy list under the form so newly
@@ -644,8 +656,9 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
 
               {/* Empty-state — scan finished with 0 results. Without this
                   the UI silently went back to idle and the operator
-                  couldn't tell whether the scan even ran. */}
-              {spScanCompletedAt && spFiles.length === 0 && !spScanning && (
+                  couldn't tell whether the scan even ran. Suppress when
+                  an import just succeeded (spFiles drains on success). */}
+              {spScanCompletedAt && spFiles.length === 0 && !spScanning && !spImportResult && (
                 <div className="bg-slate-800/40 border border-white/10 rounded-lg p-4 space-y-2">
                   <p className="text-sm text-white font-medium">
                     Scan finished — no matching documents found.
