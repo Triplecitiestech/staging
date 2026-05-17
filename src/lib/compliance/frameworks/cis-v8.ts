@@ -60,6 +60,38 @@ function envNotApplicable(controlId: string, ctx: EvaluationContext): Evaluation
       evidenceIds: [], missingEvidence: [], remediation: null }
   }
 
+  // CIS 1.3 / 1.4 / 1.5 + 12.x: Network discovery, DHCP logging, and
+  // physical network infrastructure controls. These presuppose a
+  // corporate network with on-premises infrastructure that can be
+  // scanned, sniffed, or DHCP-monitored. Fully-cloud customers (no
+  // servers, no corporate LAN, every endpoint is a laptop on consumer
+  // wifi or a coworking space) have nothing to discover at the network
+  // layer — assets are managed via the cloud identity provider + RMM.
+  // Both signals (no on-prem servers AND cloud-only remote-access)
+  // are required so we don't mark a hybrid customer N/A by mistake.
+  const isFullyCloud =
+    env.onPremServers === 'no_servers' && env.remoteAccess === 'cloud_only'
+  if (
+    isFullyCloud &&
+    (controlId === 'cis-v8-1.3' || controlId === 'cis-v8-1.4' || controlId === 'cis-v8-1.5' ||
+     controlId === 'cis-v8-12.1' || controlId === 'cis-v8-12.2' || controlId === 'cis-v8-12.6')
+  ) {
+    return {
+      controlId,
+      status: 'not_applicable',
+      confidence: 'high',
+      reasoning:
+        'This control targets network-layer asset discovery / DHCP logging / on-prem infrastructure. ' +
+        'Per the customer profile this is a fully-cloud environment (no on-premises servers, no VPN, ' +
+        'no corporate LAN), so there is no network segment to scan and no DHCP server to log. Assets ' +
+        'are inventoried through the cloud identity provider + RMM instead. Mark the customer profile ' +
+        'differently if this changes (e.g., they later add an on-prem file server).',
+      evidenceIds: [],
+      missingEvidence: [],
+      remediation: null,
+    }
+  }
+
   return null
 }
 
@@ -259,10 +291,12 @@ function noEvidence(controlId: string, sources: string[], ctx?: EvaluationContex
   }
 
   // Short-circuit: if EVERY required evidence source maps to a tool the
-  // operator has explicitly marked as `deployed=false`, the control
-  // doesn't apply at this customer — it's not a collection error, the
-  // tool is just intentionally not in use. Reporting `not_applicable`
-  // (rather than `collection_failed`) keeps the assessment clean.
+  // operator has explicitly marked as `deployed=false`, we can't
+  // automatically evaluate the control. Important: a tool being off
+  // does NOT mean the control doesn't apply — the customer still needs
+  // to satisfy it some other way (compensating control, manual process,
+  // or environment-based N/A from the customer profile). Status here
+  // is `needs_review` so the operator triages it explicitly.
   // `deployed=undefined` means the operator hasn't touched the toggle,
   // so we DON'T short-circuit there — falls through to the normal logic.
   const sourceToolDeployStates = sources.map((src) => {
@@ -281,12 +315,18 @@ function noEvidence(controlId: string, sources: string[], ctx?: EvaluationContex
     ))
     return {
       controlId,
-      status: 'not_applicable',
-      confidence: 'high',
-      reasoning: `Not deployed at this customer (${offTools.join(', ')}). The control does not apply because the operator has marked the underlying tool(s) as not in use for this customer.`,
+      status: 'needs_review',
+      confidence: 'low',
+      reasoning:
+        `Cannot auto-evaluate — the required tool${offTools.length === 1 ? '' : 's'} ` +
+        `(${offTools.join(', ')}) ${offTools.length === 1 ? 'is' : 'are'} marked as not deployed ` +
+        `at this customer. The control still applies in principle. To resolve: deploy the tool, ` +
+        `document a compensating control (e.g., an equivalent service from a different vendor), or ` +
+        `mark the control N/A in the customer profile if the environment makes it inapplicable ` +
+        `(e.g., fully cloud, no corporate network).`,
       evidenceIds: [],
-      missingEvidence: [],
-      remediation: null,
+      missingEvidence: sources,
+      remediation: `Deploy ${offTools.join(' or ')}, document a compensating control, or update the customer profile to reflect why this control doesn't apply.`,
     }
   }
 

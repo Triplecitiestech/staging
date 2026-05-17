@@ -209,14 +209,24 @@ export default function RemediateButton({ companyId, frameworkId, controlId, fin
         >
           <div className="bg-slate-900 border border-white/10 rounded-xl max-w-2xl w-full max-h-[85vh] overflow-y-auto p-5 space-y-4">
             <header className="flex items-start justify-between gap-3">
-              <div>
+              <div className="min-w-0 flex-1">
                 <p className="text-[10px] uppercase tracking-wider text-cyan-400">Remediate · preview</p>
                 <h3 className="text-lg font-bold text-white mt-1">{preview.action.name}</h3>
+                {/* Surface the originating control so the operator sees
+                    WHY this action is being suggested. Without this the
+                    customer-impact text reads as generic — the operator
+                    has to mentally map the action back to the finding. */}
+                <p className="text-xs text-slate-400 mt-1">
+                  Suggested for{' '}
+                  <span className="text-cyan-300 font-mono">{frameworkId}</span>{' '}
+                  control{' '}
+                  <span className="text-cyan-300 font-mono">{controlId}</span>
+                </p>
               </div>
               <button
                 type="button"
                 onClick={reset}
-                className="text-slate-400 hover:text-white text-xl leading-none"
+                className="text-slate-400 hover:text-white text-xl leading-none flex-shrink-0"
                 aria-label="Close"
               >
                 ×
