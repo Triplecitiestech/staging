@@ -66,6 +66,7 @@ export async function ensureComplianceTables(): Promise<void> {
            'compliance_pending_changes',
            'compliance_change_bundles',
            'compliance_change_bundle_items',
+           'compliance_policy_approvals',
            'form_responses',
            'policy_org_profiles',
            'policy_intake_answers',
@@ -678,6 +679,60 @@ export async function ensureComplianceTables(): Promise<void> {
             ALTER TABLE compliance_change_bundle_items
             ADD CONSTRAINT "compliance_change_bundle_items_changeId_fkey"
             FOREIGN KEY ("pendingChangeId") REFERENCES compliance_pending_changes(id) ON DELETE CASCADE;
+          END IF;
+        END $$
+      `)
+    }
+
+    // --- compliance_policy_approvals ---
+    // Customer-side review + sign-off on a generated/revised policy
+    // BEFORE TCT publishes it to the customer's SharePoint / IT Glue.
+    //
+    // Lifecycle:
+    //   pending   — request sent, magic-link emailed, awaiting customer
+    //   approved  — customer clicked Approve on the public review page
+    //   rejected  — customer clicked Reject (decisionNotes captures why)
+    //   expired   — magic link past its TTL with no decision
+    //
+    // One policy can have multiple approval rows over time (e.g. v1
+    // approved, v2 revised → new approval row). The publish executor
+    // checks for the most recent approved row.
+    if (!existingSet.has('compliance_policy_approvals')) {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS compliance_policy_approvals (
+          id                  TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+          "companyId"         TEXT NOT NULL,
+          "policyId"          TEXT NOT NULL,
+          "policyContentHash" TEXT NOT NULL,  -- SHA-256 of policy.content at request time; approval is for THIS version
+          "recipientEmail"    TEXT NOT NULL,
+          "requesterEmail"    TEXT NOT NULL,
+          "requesterNote"     TEXT,
+          decision            TEXT NOT NULL DEFAULT 'pending', -- pending | approved | rejected | expired
+          "decisionNotes"     TEXT,
+          "decidedAt"         TIMESTAMPTZ,
+          "expiresAt"         TIMESTAMPTZ NOT NULL,
+          "createdAt"         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `)
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_policy_approvals_policy
+        ON compliance_policy_approvals ("policyId", "createdAt" DESC)
+      `)
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_policy_approvals_company_pending
+        ON compliance_policy_approvals ("companyId", decision)
+      `)
+      await client.query(`
+        DO $$ BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'compliance_policy_approvals_companyId_fkey') THEN
+            ALTER TABLE compliance_policy_approvals
+            ADD CONSTRAINT "compliance_policy_approvals_companyId_fkey"
+            FOREIGN KEY ("companyId") REFERENCES companies(id) ON DELETE CASCADE;
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'compliance_policy_approvals_policyId_fkey') THEN
+            ALTER TABLE compliance_policy_approvals
+            ADD CONSTRAINT "compliance_policy_approvals_policyId_fkey"
+            FOREIGN KEY ("policyId") REFERENCES compliance_policies(id) ON DELETE CASCADE;
           END IF;
         END $$
       `)
