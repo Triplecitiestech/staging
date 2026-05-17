@@ -230,6 +230,80 @@ export const REMEDIATION_ACTIONS: readonly RemediationAction[] = [
   },
 
   // --------------------------------------------------------------------------
+  // Intune compliance policy — Windows 10 baseline
+  //
+  // Compliance policies are the enforcement mechanism for "address
+  // unauthorized" controls (CIS v8 1.2, 2.3, 2.5, 4.1). A device that
+  // doesn't meet the baseline (no Defender, no BitLocker, etc.) gets
+  // marked non-compliant in Intune; downstream Conditional Access can
+  // then block its access. Documentation alone (the policy.generate_for_control
+  // path) does NOT enforce any of this — that's the bug the operator
+  // hit on CIS 2.3.
+  // --------------------------------------------------------------------------
+  {
+    id: 'intune.create_windows_baseline_compliance_policy',
+    name: 'Create Windows 10 baseline compliance policy',
+    version: '1.0.0',
+    satisfiesControls: [
+      // 1.2 Address Unauthorized Assets — a Windows device that doesn't
+      //     meet the baseline is flagged so it can be blocked.
+      { frameworkId: 'cis-v8', controlId: '1.2', coverage: 'partial' },
+      // 2.3 Address Unauthorized Software — Defender + signature checks
+      //     are part of the baseline; a device without them is flagged.
+      { frameworkId: 'cis-v8', controlId: '2.3', coverage: 'partial' },
+      // 2.5 Allowlisted Software — paired with code-integrity checks
+      //     enforced by the policy.
+      { frameworkId: 'cis-v8', controlId: '2.5', coverage: 'partial' },
+      // 4.1 Secure Configuration Process — the policy IS the documented
+      //     enforced configuration.
+      { frameworkId: 'cis-v8', controlId: '4.1', coverage: 'partial' },
+      // 10.1 Anti-Malware — Defender required + active.
+      { frameworkId: 'cis-v8', controlId: '10.1', coverage: 'partial' },
+    ],
+    capabilityId: 'device_compliance_enforcement',
+    reversible: true,
+    rollbackActionId: 'intune.remove_windows_baseline_compliance_policy',
+    impact: {
+      userFacing:
+        'Company Windows laptops will be evaluated against a security baseline (antivirus on, disk encrypted, secure boot enabled). Devices that don\'t meet the baseline will be flagged in the IT console. If a downstream access policy is also in place, non-compliant devices will be blocked from corporate cloud apps until they are remediated. Most end users will not notice anything if their laptop is set up correctly.',
+      operational:
+        'Creates a Windows 10 compliance policy via Intune that requires Defender + real-time protection + BitLocker + secure boot + active firewall. Assigns to All Devices. Existing devices are evaluated within ~30 min of next Intune check-in.',
+      blastRadius: 'tenant_wide',
+      estimatedDisruptionMinutes: 0,
+      sessionDisruptive: false,
+      requiresEndUserAction: false,
+    },
+    preconditions: [
+      { kind: 'connector_verified', connectorType: 'microsoft_graph' },
+      { kind: 'license_required', anyOf: ['intune', 'm365_business_premium', 'm365_e3', 'm365_e5'] },
+    ],
+    executor: { kind: 'automated', handler: 'graph.applyIntuneCompliancePolicy.windowsBaseline' },
+    verification: { evaluatorIds: ['cis-v8.2.3', 'cis-v8.4.1'], delaySecondsBeforeVerify: 600 },
+  },
+  {
+    id: 'intune.remove_windows_baseline_compliance_policy',
+    name: 'Rollback: remove Windows 10 baseline compliance policy',
+    version: '1.0.0',
+    satisfiesControls: [{ frameworkId: 'cis-v8', controlId: '4.1', coverage: 'partial' }],
+    capabilityId: 'device_compliance_enforcement',
+    reversible: false,
+    impact: {
+      userFacing: 'Company Windows laptops will no longer be checked against the security baseline. Any device-block based on compliance status will be lifted at the next check-in.',
+      operational: 'Deletes the TCT-managed Windows 10 compliance policy from Intune. Assignments cascade.',
+      blastRadius: 'tenant_wide',
+      estimatedDisruptionMinutes: 0,
+      sessionDisruptive: false,
+      requiresEndUserAction: false,
+    },
+    preconditions: [
+      { kind: 'connector_verified', connectorType: 'microsoft_graph' },
+      { kind: 'license_required', anyOf: ['intune', 'm365_business_premium', 'm365_e3', 'm365_e5'] },
+    ],
+    executor: { kind: 'automated', handler: 'graph.removeIntuneCompliancePolicy.windowsBaseline' },
+    verification: { evaluatorIds: ['cis-v8.4.1'], delaySecondsBeforeVerify: 300 },
+  },
+
+  // --------------------------------------------------------------------------
   // Manual / vendor-console actions
   // --------------------------------------------------------------------------
   {

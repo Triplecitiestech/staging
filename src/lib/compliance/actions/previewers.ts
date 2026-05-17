@@ -42,6 +42,10 @@ import {
   previewRemoveIntuneDefenderRealtime,
 } from './executors/intune-defender'
 import {
+  previewApplyIntuneWindowsBaselineCompliance,
+  previewRemoveIntuneWindowsBaselineCompliance,
+} from './executors/intune-compliance'
+import {
   previewGeneratePolicyForControl,
 } from './executors/policy-generate'
 import {
@@ -127,6 +131,10 @@ const PREVIEWERS: Record<string, PreviewerHandler> = {
   // Intune device configuration — Defender real-time monitoring
   'graph.applyIntuneConfigProfile.defenderRealtime': previewApplyIntuneDefenderRealtime,
   'graph.removeIntuneConfigProfile.defenderRealtime': previewRemoveIntuneDefenderRealtime,
+
+  // Intune compliance policy — Windows 10 baseline
+  'graph.applyIntuneCompliancePolicy.windowsBaseline': previewApplyIntuneWindowsBaselineCompliance,
+  'graph.removeIntuneCompliancePolicy.windowsBaseline': previewRemoveIntuneWindowsBaselineCompliance,
 
   // Policy generation
   'policy.generate_for_control': previewGeneratePolicyForControl,
