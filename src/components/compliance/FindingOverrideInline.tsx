@@ -66,7 +66,7 @@ export default function FindingOverrideInline(props: Props) {
     setError(null)
     try {
       const res = await fetch(`/api/compliance/assessments/${props.findingId}`, {
-        method: 'POST',
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           overrideStatus: status,
@@ -92,7 +92,7 @@ export default function FindingOverrideInline(props: Props) {
     setError(null)
     try {
       const res = await fetch(`/api/compliance/assessments/${props.findingId}`, {
-        method: 'POST',
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ clear: true }),
       })
