@@ -1,3 +1,5 @@
+'use client'
+
 /**
  * Persistent workflow step nav. Rendered by the
  * /admin/compliance/[companyId] layout, visible on every step page.
@@ -7,30 +9,65 @@
  * complete"). Locked steps are non-clickable; the current and done
  * steps link to their page.
  *
+ * Highlight semantics — TWO distinct concepts intentionally rendered
+ * differently:
+ *   - "current" (which step you're VIEWING) → cyan border + filled
+ *     number badge. Derived from the URL via usePathname so it
+ *     follows wherever the operator clicks.
+ *   - "done"    (step has been completed) → emerald check.
+ *   - "available" but not viewed → slate, clickable.
+ *   - "locked"  → dimmed, non-clickable.
+ *
+ * Earlier version highlighted whichever step had status='current'
+ * (the next-to-do) regardless of what the operator was looking at —
+ * confusing when on Onboard but Policies still glowed cyan.
+ *
  * Desktop: left column. Mobile: collapses to a horizontal scrollable
  * strip at the top of the page (handled by the parent layout's
  * flex direction).
  */
 
 import Link from 'next/link'
-import type { WorkflowStep } from '@/lib/compliance/workflow-state'
+import { usePathname } from 'next/navigation'
+import type { WorkflowStep, WorkflowStepKey } from '@/lib/compliance/workflow-state'
 
 interface Props {
   steps: WorkflowStep[]
-  currentKey?: WorkflowStep['key']
 }
 
-export default function WorkflowNav({ steps, currentKey }: Props) {
+const STEP_KEYS_BY_SEGMENT: Record<string, WorkflowStepKey> = {
+  onboard: 'onboard',
+  profile: 'profile',
+  connect: 'connect',
+  policies: 'policies',
+  assess: 'assess',
+  findings: 'findings',
+  changes: 'changes',
+  reassess: 'reassess',
+}
+
+/** Derive which step the URL is currently on, or null for the workflow landing. */
+function deriveActiveStepKey(pathname: string | null): WorkflowStepKey | null {
+  if (!pathname) return null
+  // /admin/compliance/<companyId>/<segment>[/...]
+  const match = pathname.match(/^\/admin\/compliance\/[^/]+\/([^/]+)/)
+  if (!match) return null
+  return STEP_KEYS_BY_SEGMENT[match[1]] ?? null
+}
+
+export default function WorkflowNav({ steps }: Props) {
+  const pathname = usePathname()
+  const activeKey = deriveActiveStepKey(pathname)
   return (
     <nav aria-label="Compliance workflow steps" className="space-y-1.5">
       {steps.map((s) => {
-        const isCurrent = s.key === currentKey || (!currentKey && s.status === 'current')
+        const isViewing = s.key === activeKey
         const linkable = s.status !== 'locked'
 
         const inner = (
           <div
             className={`flex items-start gap-3 rounded-lg border p-2.5 transition-colors ${
-              isCurrent
+              isViewing
                 ? 'bg-cyan-500/10 border-cyan-500/40'
                 : s.status === 'done'
                 ? 'bg-emerald-500/5 border-emerald-500/20 hover:bg-emerald-500/10'
@@ -38,12 +75,13 @@ export default function WorkflowNav({ steps, currentKey }: Props) {
                 ? 'bg-slate-800/30 border-white/5 hover:bg-slate-800/60'
                 : 'bg-slate-900/30 border-white/5 opacity-60'
             }`}
+            aria-current={isViewing ? 'page' : undefined}
           >
-            <StepBadge step={s} isCurrent={isCurrent} />
+            <StepBadge step={s} isViewing={isViewing} />
             <div className="min-w-0 flex-1">
               <p
                 className={`text-sm font-medium truncate ${
-                  isCurrent ? 'text-cyan-100' : s.status === 'done' ? 'text-emerald-100' : 'text-white'
+                  isViewing ? 'text-cyan-100' : s.status === 'done' ? 'text-emerald-100' : 'text-white'
                 }`}
               >
                 {s.title}
@@ -70,8 +108,14 @@ export default function WorkflowNav({ steps, currentKey }: Props) {
   )
 }
 
-function StepBadge({ step, isCurrent }: { step: WorkflowStep; isCurrent: boolean }) {
+function StepBadge({ step, isViewing }: { step: WorkflowStep; isViewing: boolean }) {
   const base = 'shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border'
+  // Visual priority: viewing > done > locked > default.
+  // Showing the cyan "viewing" pill on a done step is intentional —
+  // the operator should know which step page they're currently on.
+  if (isViewing) {
+    return <div className={`${base} bg-cyan-500/30 border-cyan-400/60 text-cyan-100`}>{step.number}</div>
+  }
   if (step.status === 'done') {
     return (
       <div className={`${base} bg-emerald-500/20 border-emerald-500/40 text-emerald-200`} aria-label="Step complete">
@@ -80,9 +124,6 @@ function StepBadge({ step, isCurrent }: { step: WorkflowStep; isCurrent: boolean
         </svg>
       </div>
     )
-  }
-  if (isCurrent) {
-    return <div className={`${base} bg-cyan-500/30 border-cyan-400/60 text-cyan-100`}>{step.number}</div>
   }
   if (step.status === 'locked') {
     return <div className={`${base} bg-slate-800/60 border-white/10 text-slate-500`}>{step.number}</div>
