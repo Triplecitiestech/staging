@@ -25,6 +25,7 @@
 import { getGraphTokenForCompany, graphRequest } from '@/lib/graph'
 import type { ExecutorContext, ExecutorResult } from '../executors'
 import type { PreviewerContext, ImpactPreview } from '../previewers'
+import { formatGraphPreviewError } from './graph-error-format'
 
 /** Microsoft-published template id for the "Password Rule Settings" template. */
 const PASSWORD_RULE_TEMPLATE_ID = '5cf42378-d67d-4f36-ba46-e8b86229381d'
@@ -240,7 +241,7 @@ export async function previewEnablePasswordProtection(ctx: PreviewerContext): Pr
       totalAffected: 0,
       entities: [],
       truncated: false,
-      summary: `Preview query failed: ${err instanceof Error ? err.message : String(err)}`,
+      summary: formatGraphPreviewError(err, 'preview the Entra password-protection change'),
       isLiveQuery: false,
     }
   }
@@ -287,7 +288,7 @@ export async function previewDisablePasswordProtection(ctx: PreviewerContext): P
       totalAffected: 0,
       entities: [],
       truncated: false,
-      summary: `Preview query failed: ${err instanceof Error ? err.message : String(err)}`,
+      summary: formatGraphPreviewError(err, 'preview the Entra password-protection change'),
       isLiveQuery: false,
     }
   }
