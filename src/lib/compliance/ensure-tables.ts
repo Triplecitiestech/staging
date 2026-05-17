@@ -283,6 +283,19 @@ export async function ensureComplianceTables(): Promise<void> {
         END $$
       `)
     }
+    // Always run additive ALTERs — they're idempotent and let the
+    // schema evolve without a fresh table create.
+    //
+    // sourceBytes + sourceMimeType + sourceFileName preserve the
+    // ORIGINAL uploaded document bytes (e.g. a SharePoint .docx with
+    // its real heading styles, lists, branding). Download serves the
+    // raw bytes when present so operators get a byte-perfect copy of
+    // the customer's source instead of a re-rendered approximation.
+    // Falls back to renderPolicyDocx for AI-generated or pasted-text
+    // policies that have no source bytes.
+    await client.query(`ALTER TABLE compliance_policies ADD COLUMN IF NOT EXISTS "sourceBytes" BYTEA`)
+    await client.query(`ALTER TABLE compliance_policies ADD COLUMN IF NOT EXISTS "sourceMimeType" TEXT`)
+    await client.query(`ALTER TABLE compliance_policies ADD COLUMN IF NOT EXISTS "sourceFileName" TEXT`)
 
     // --- compliance_policy_analyses ---
     if (!existingSet.has('compliance_policy_analyses')) {
