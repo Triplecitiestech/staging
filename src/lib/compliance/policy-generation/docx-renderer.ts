@@ -89,6 +89,10 @@ export async function renderPolicyDocx(
   // line of the body — same title we already rendered from
   // metadata. Swallow the first H1 we see so it doesn't appear twice.
   let leadingTitleSkipped = false
+  // Track whether the line before the one we're about to process was
+  // blank. Section-break heuristics use this to avoid promoting inline
+  // numbered list items (e.g. "1. Log in to BullPhish") into H2s.
+  let prevWasBlank = true
 
   function flushParagraph() {
     if (paragraphBuffer.length === 0) return
@@ -98,15 +102,63 @@ export async function renderPolicyDocx(
     sections.push(new Paragraph({ children: parseInlineRuns(text) }))
   }
 
-  for (const raw of lines) {
+  for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+    const raw = lines[lineIdx]
     const line = raw.trimEnd()
+    const isBlank = line.length === 0
+    // Capture prevWasBlank for THIS iteration, then update for next.
+    const afterBlank = prevWasBlank
+    prevWasBlank = isBlank
 
     if (!leadingTitleSkipped && /^#\s+/.test(line)) {
       leadingTitleSkipped = true
       continue
     }
 
-    if (line.length === 0) {
+    // Heuristic heading detection for extracted policy text (mammoth /
+    // pdf-parse strip the original heading styles, so without this every
+    // section runs together as wrapped paragraphs in the rendered docx).
+    // Two signals required:
+    //   1. previous line was blank (section break, not inline list)
+    //   2. line matches "<n>. <Short Title-Case Text>" with no trailing
+    //      punctuation, ≤ 60 chars, ≤ 8 words
+    // The blank-above requirement is what stops bullet items like
+    // "1. Log in to the BullPhish portal" from being promoted.
+    if (afterBlank) {
+      const numberedHeading = line.match(/^(\d+)\.\s+([A-Z][A-Za-z0-9 &/().,'–—\-]{2,60})$/)
+      const headingTail = numberedHeading?.[2]
+      if (
+        numberedHeading &&
+        headingTail &&
+        !/[.!?]$/.test(headingTail) &&
+        headingTail.split(/\s+/).length <= 8
+      ) {
+        flushParagraph()
+        sections.push(
+          new Paragraph({
+            heading: HeadingLevel.HEADING_2,
+            children: [
+              new TextRun({ text: `${numberedHeading[1]}. `, bold: true }),
+              ...parseInlineRuns(headingTail),
+            ],
+          })
+        )
+        continue
+      }
+      const appendixHeading = line.match(/^(Appendix\s+[A-Z](?:\s*[–—\-]\s*.+)?)$/)
+      if (appendixHeading) {
+        flushParagraph()
+        sections.push(
+          new Paragraph({
+            heading: HeadingLevel.HEADING_2,
+            children: parseInlineRuns(appendixHeading[1]),
+          })
+        )
+        continue
+      }
+    }
+
+    if (isBlank) {
       flushParagraph()
       continue
     }

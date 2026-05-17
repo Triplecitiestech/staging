@@ -1155,10 +1155,10 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
                   </div>
                   <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-4 flex-shrink-0 pl-13 sm:pl-0">
                     {analysis?.status === 'complete' && (
-                      <div className="flex gap-3 text-xs">
+                      <div className="flex gap-3 text-xs" title="Counts include only controls the analyzer judged relevant to this policy's scope.">
                         <span className="text-emerald-400">{satisfied} covered</span>
                         <span className="text-violet-400">{partial} partial</span>
-                        <span className="text-slate-400">{missing} not in this</span>
+                        <span className="text-rose-400">{missing} gap{missing === 1 ? '' : 's'}</span>
                       </div>
                     )}
                     {analysis && (
@@ -1267,10 +1267,24 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
                       )
 
                       return (
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          {renderControlList(analysis.satisfiedControls ?? [], 'satisfied', 'Covered by This Policy', 'text-emerald-400', 'bg-emerald-500/10 text-emerald-300')}
-                          {renderControlList(analysis.partialControls ?? [], 'partial', 'Partially Addressed', 'text-violet-400', 'bg-violet-500/10 text-violet-300')}
-                          {renderControlList(analysis.missingControls ?? [], 'missing', 'Not in This Policy', 'text-slate-400', 'bg-slate-500/10 text-slate-300')}
+                        <div className="space-y-2">
+                          {/* Plain-English explanation of what the three buckets
+                              mean. The operator's hit: it was reading as
+                              "this policy failed to cover all 50 CIS controls",
+                              when in fact the AI only lists controls that
+                              are RELEVANT to the policy's stated scope. A
+                              password policy isn't expected to cover backup
+                              controls and won't appear in any bucket here. */}
+                          <p className="text-[11px] text-slate-400 leading-snug">
+                            Only controls the analyzer judged <span className="text-slate-300">relevant to this policy&apos;s scope</span> appear below.
+                            A password policy isn&apos;t expected to address backup controls — those won&apos;t show up at all.
+                            &ldquo;Relevant gap&rdquo; means this policy type <em>should</em> address the control but the text doesn&apos;t.
+                          </p>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            {renderControlList(analysis.satisfiedControls ?? [], 'satisfied', 'Fully covered',          'text-emerald-400', 'bg-emerald-500/10 text-emerald-300')}
+                            {renderControlList(analysis.partialControls   ?? [], 'partial',   'Partially covered',     'text-violet-400',  'bg-violet-500/10 text-violet-300')}
+                            {renderControlList(analysis.missingControls   ?? [], 'missing',   'Relevant gap',          'text-rose-400',    'bg-rose-500/10 text-rose-300')}
+                          </div>
                         </div>
                       )
                     })()}
