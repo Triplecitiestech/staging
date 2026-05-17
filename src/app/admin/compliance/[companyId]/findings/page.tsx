@@ -217,17 +217,31 @@ export default async function FindingsStepPage({ params, searchParams }: Props) 
 
   return (
     <div className="space-y-5">
-      <header>
-        <p className="text-xs uppercase tracking-wider text-cyan-400">Step 6</p>
-        <h2 className="text-2xl font-bold text-white">Findings</h2>
-        <p className="text-sm text-slate-400 mt-1 max-w-2xl">
-          Per-control results from the most recent assessment. Click any
-          row to read the engine&apos;s reasoning, suggested remediation,
-          and supporting evidence. Failing or partial controls get a
-          <span className="text-cyan-300"> Remediate</span> button that
-          previews + applies the catalog action against the customer&apos;s
-          tenant in one round-trip.
-        </p>
+      <header className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs uppercase tracking-wider text-cyan-400">Step 6</p>
+          <h2 className="text-2xl font-bold text-white">Findings</h2>
+          <p className="text-sm text-slate-400 mt-1 max-w-2xl">
+            Per-control results from the most recent assessment. Click any
+            row to read the engine&apos;s reasoning, suggested remediation,
+            and supporting evidence. Failing or partial controls get a
+            <span className="text-cyan-300"> Remediate</span> button that
+            previews + applies the catalog action against the customer&apos;s
+            tenant in one round-trip.
+          </p>
+        </div>
+        {/* Single-click PDF export of the active assessment — cover page,
+            executive summary, per-control findings (with reviewer
+            overrides + dispositions), appendix. Same data the operator
+            sees on this page. */}
+        <a
+          href={`/api/compliance/assessments/${activeId}/report.pdf`}
+          download
+          className="shrink-0 px-3 py-2 text-xs font-medium rounded-lg bg-cyan-500/15 border border-cyan-500/30 text-cyan-200 hover:bg-cyan-500/25"
+          title="Download a printable PDF of this assessment — cover, summary, per-control findings, dispositions, appendix"
+        >
+          Download PDF report
+        </a>
       </header>
 
       <AssessmentPicker
