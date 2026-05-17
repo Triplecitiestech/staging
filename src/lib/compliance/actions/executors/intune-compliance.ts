@@ -80,22 +80,60 @@ async function getTokenOrFail(ctx: ExecutorContext | PreviewerContext): Promise<
 }
 
 /**
- * Count Intune-enrolled Windows devices for the preview. Same helper as
- * intune-defender — duplicated here rather than shared so the two
- * executors stay independent (intentional, per the source-of-truth rule
- * that each executor file owns its own Graph calls).
+ * Count Intune-enrolled Windows devices for the preview.
+ *
+ * NOTE: Intune does NOT support the standard `/deviceManagement/managedDevices/$count`
+ * sub-resource — that URL returns 404 in most tenants. The reliable
+ * pattern (used by collectors/graph.ts too) is to fetch the device list
+ * with $select=id and count the resulting array. $top=999 is enough for
+ * the overwhelming majority of TCT customers; tenants with more than
+ * 999 Windows devices fall back to paginated counting.
  */
 async function countEnrolledWindowsDevices(token: string): Promise<number | null> {
   try {
-    const res = await graphRequest<{ '@odata.count'?: number; value: unknown[] }>(
-      token,
-      "/deviceManagement/managedDevices/$count?$filter=operatingSystem eq 'Windows'",
-      { headers: { ConsistencyLevel: 'eventual' } }
-    )
-    if (typeof res === 'number') return res
-    return res?.['@odata.count'] ?? null
+    let total = 0
+    let nextUrl: string | null =
+      "/deviceManagement/managedDevices?$filter=operatingSystem eq 'Windows'&$select=id&$top=999"
+    // Safety cap — don't paginate forever if a tenant has misconfigured filters.
+    let pagesScanned = 0
+    while (nextUrl && pagesScanned < 10) {
+      const res: { value: Array<{ id: string }>; '@odata.nextLink'?: string } = await graphRequest(
+        token,
+        nextUrl
+      )
+      total += res?.value?.length ?? 0
+      nextUrl = res?.['@odata.nextLink'] ?? null
+      pagesScanned++
+    }
+    return total
   } catch {
     return null
+  }
+}
+
+/**
+ * List ALL Windows compliance policies on the tenant (TCT-managed AND
+ * customer-managed). Surfaced in the preview so the operator can see
+ * what's already there before adding another — Intune evaluates every
+ * assigned compliance policy together, so creating a parallel one is
+ * additive rather than a conflict, but the operator might prefer to
+ * edit an existing customer policy than stack ours alongside it.
+ */
+async function listExistingWindowsCompliancePolicies(token: string): Promise<Array<{ id: string; displayName: string; isManagedByTct: boolean }>> {
+  try {
+    const res = await graphRequest<ListResp<CompliancePolicy>>(
+      token,
+      '/deviceManagement/deviceCompliancePolicies?$select=id,displayName,@odata.type'
+    )
+    return (res?.value ?? [])
+      .filter((p) => (p['@odata.type'] ?? '').toLowerCase().includes('windows'))
+      .map((p) => ({
+        id: p.id,
+        displayName: p.displayName,
+        isManagedByTct: p.displayName.startsWith(TCT_POLICY_MARKER),
+      }))
+  } catch {
+    return []
   }
 }
 
@@ -288,24 +326,38 @@ export async function previewApplyIntuneWindowsBaselineCompliance(ctx: Previewer
   }
 
   try {
-    const [existing, deviceCount, gaps] = await Promise.all([
+    const [existing, deviceCount, gaps, existingPolicies] = await Promise.all([
       findManagedWindowsBaselinePolicy(t.token),
       countEnrolledWindowsDevices(t.token),
       sampleDeviceComplianceGaps(t.token),
+      listExistingWindowsCompliancePolicies(t.token),
     ])
     const total = deviceCount ?? 0
+    const customerOwnedPolicies = existingPolicies.filter((p) => !p.isManagedByTct)
 
     if (existing) {
       return {
         totalAffected: total,
-        entities: [{
-          id: existing.id,
-          displayName: existing.displayName,
-          type: 'policy',
-          currentState: 'configured + assigned',
-        }],
+        entities: [
+          {
+            id: existing.id,
+            displayName: existing.displayName,
+            type: 'policy',
+            currentState: 'configured + assigned',
+          },
+          ...customerOwnedPolicies.map((p) => ({
+            id: p.id,
+            displayName: p.displayName,
+            type: 'policy' as const,
+            currentState: 'customer-owned (will continue to evaluate alongside)',
+          })),
+        ],
         truncated: false,
-        summary: `Policy already in place (id ${existing.id}). Applying again is a no-op. ${total} Windows devices currently in scope.`,
+        summary: `Policy already in place (id ${existing.id}). Applying again is a no-op. ${total} Windows devices currently in scope.${
+          customerOwnedPolicies.length > 0
+            ? ` Customer also has ${customerOwnedPolicies.length} other Windows compliance polic${customerOwnedPolicies.length === 1 ? 'y' : 'ies'} in Intune; they evaluate together.`
+            : ''
+        }`,
         isLiveQuery: true,
       }
     }
@@ -320,15 +372,42 @@ export async function previewApplyIntuneWindowsBaselineCompliance(ctx: Previewer
       }
     }
 
+    // Operator pointed out: creating a parallel policy when one already
+    // exists is often the wrong move — better to extend the customer's
+    // existing policy. Surface what's already there + a clear note that
+    // Intune evaluates compliance policies additively (device is
+    // compliant only if EVERY assigned policy says so).
+    const overlapNote = customerOwnedPolicies.length > 0
+      ? `Customer already has ${customerOwnedPolicies.length} Windows compliance polic${customerOwnedPolicies.length === 1 ? 'y' : 'ies'} in Intune: ${customerOwnedPolicies.map((p) => `"${p.displayName}"`).join(', ')}. ` +
+        `Intune evaluates compliance policies ADDITIVELY — adding ours alongside means a device must satisfy ALL of them. ` +
+        `If our baseline overlaps with theirs, consider editing the existing policy in Intune instead.`
+      : null
+
+    const warnings: string[] = []
+    if (total === 0) {
+      warnings.push("No Windows devices appear to be enrolled in Intune — the policy will be created but evaluates nothing until devices enroll. (If you know devices ARE enrolled, the device-list query may have failed silently; check the customer's M365 connection.)")
+    }
+    if (overlapNote) {
+      warnings.push(overlapNote)
+    }
+
     return {
       totalAffected: total,
-      entities: [{
-        id: 'pending-create',
-        displayName: WINDOWS_BASELINE_NAME,
-        type: 'policy',
-        currentState: 'not present',
-        projectedState: 'enabled + assigned to all Windows devices',
-      }],
+      entities: [
+        {
+          id: 'pending-create',
+          displayName: WINDOWS_BASELINE_NAME,
+          type: 'policy',
+          currentState: 'not present',
+          projectedState: 'enabled + assigned to all Windows devices',
+        },
+        ...customerOwnedPolicies.map((p) => ({
+          id: p.id,
+          displayName: p.displayName,
+          type: 'policy' as const,
+          currentState: 'customer-owned (will continue to evaluate alongside)',
+        })),
+      ],
       truncated: false,
       summary: [
         `Will create Windows 10 compliance policy "${WINDOWS_BASELINE_NAME}" and assign to All Devices.`,
@@ -337,9 +416,7 @@ export async function previewApplyIntuneWindowsBaselineCompliance(ctx: Previewer
         `Non-compliant devices appear in Intune > Devices > Compliance; downstream CA policies can block their access.`,
       ].filter(Boolean).join(' '),
       isLiveQuery: true,
-      warnings: total === 0
-        ? ['No Windows devices appear to be enrolled in Intune — the policy will be created but evaluates nothing until devices enroll.']
-        : undefined,
+      warnings: warnings.length > 0 ? warnings : undefined,
     }
   } catch (err) {
     return {

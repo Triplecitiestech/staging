@@ -68,20 +68,30 @@ async function getTokenOrFail(ctx: ExecutorContext | PreviewerContext): Promise<
 }
 
 /**
- * Count Intune-enrolled Windows devices. Cheap top-line stat so the
- * preview can say "approximately N devices will receive this config".
- * Returns null if the query fails (permissions or scope issue) —
- * caller handles the fallback message.
+ * Count Intune-enrolled Windows devices for the preview.
+ *
+ * Intune does NOT support the standard `/deviceManagement/managedDevices/$count`
+ * sub-resource — that URL returns 404 in most tenants. Fetch the device
+ * list with $select=id and count locally (same pattern as collectors/graph.ts).
+ * $top=999 covers the overwhelming majority of TCT customers; pagination
+ * handles the larger cases up to a safety cap.
  */
 async function countEnrolledWindowsDevices(token: string): Promise<number | null> {
   try {
-    const res = await graphRequest<{ '@odata.count'?: number; value: unknown[] }>(
-      token,
-      "/deviceManagement/managedDevices/$count?$filter=operatingSystem eq 'Windows'",
-      { headers: { ConsistencyLevel: 'eventual' } }
-    )
-    if (typeof res === 'number') return res
-    return res?.['@odata.count'] ?? null
+    let total = 0
+    let nextUrl: string | null =
+      "/deviceManagement/managedDevices?$filter=operatingSystem eq 'Windows'&$select=id&$top=999"
+    let pagesScanned = 0
+    while (nextUrl && pagesScanned < 10) {
+      const res: { value: Array<{ id: string }>; '@odata.nextLink'?: string } = await graphRequest(
+        token,
+        nextUrl
+      )
+      total += res?.value?.length ?? 0
+      nextUrl = res?.['@odata.nextLink'] ?? null
+      pagesScanned++
+    }
+    return total
   } catch {
     return null
   }
