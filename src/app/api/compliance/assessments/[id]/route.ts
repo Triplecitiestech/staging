@@ -114,14 +114,24 @@ export async function PATCH(
   try {
     const body = (await request.json()) as {
       findingId?: string
-      overrideStatus?: string
-      overrideReason?: string
+      overrideStatus?: string | null
+      overrideReason?: string | null
+      clear?: boolean
     }
 
     const findingId = body.findingId ?? id
+
+    // Clear-override path: caller explicitly opted in via { clear: true }
+    // OR sent overrideStatus: null. Reverts the finding to engine output
+    // and records who cleared it for audit.
+    if (body.clear || body.overrideStatus === null) {
+      await overrideFinding(findingId, null, null, session.user.email)
+      return NextResponse.json({ success: true, cleared: true })
+    }
+
     if (!body.overrideStatus || !body.overrideReason) {
       return NextResponse.json(
-        { error: 'overrideStatus and overrideReason are required' },
+        { error: 'overrideStatus and overrideReason are required (or pass { clear: true } to revert to engine output)' },
         { status: 400 }
       )
     }

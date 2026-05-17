@@ -42,6 +42,7 @@ export default function DispositionToggleButton(props: Props) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
+        title="Disposition tracks WHAT YOU'RE DOING about a finding — open, accepted risk, scheduled, billable project, customer declined, etc. Distinct from a reviewer override, which changes WHAT THE STATUS IS."
         className={`text-[11px] underline transition-colors ${
           hasDisposition
             ? 'text-violet-300 hover:text-violet-200'
@@ -50,11 +51,18 @@ export default function DispositionToggleButton(props: Props) {
       >
         {open ? 'Hide disposition' : hasDisposition
           ? `Disposition: ${props.disposition.lifecycleStatus!.replace(/_/g, ' ')}`
-          : 'Set disposition'}
+          : 'Set disposition (workflow tracker — what are we doing about this?)'}
       </button>
       {open && (
         <Suspense fallback={<p className="text-[11px] text-slate-500 mt-2">Loading…</p>}>
           <div className="mt-3">
+            <p className="text-[11px] text-slate-500 mb-2">
+              <span className="text-slate-400 font-medium">Disposition vs. override:</span>{' '}
+              disposition tracks the workflow state (accepted risk, scheduled, billable project,
+              customer declined…). To change the actual pass/fail status, use the
+              <span className="text-violet-300"> Reviewer override </span>
+              section above instead.
+            </p>
             <FindingDispositionInline {...props} />
           </div>
         </Suspense>
