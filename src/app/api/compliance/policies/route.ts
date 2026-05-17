@@ -9,6 +9,23 @@ import { getPool } from '@/lib/db-pool'
 import { ensureComplianceTables } from '@/lib/compliance/ensure-tables'
 import type { CompliancePolicy, PolicyAnalysis } from '@/lib/compliance/types'
 import { applyPolicyPresenceHook } from '@/lib/compliance/policy-presence-hook'
+import { loadLatestApprovalsForPolicies, type ApprovalSnapshot } from '@/lib/compliance/policy-approval-store'
+
+// JSON-safe shape for an approval snapshot. Strips internal fields,
+// keeps what the UI badge + publish modal need.
+function toSerializable(s: ApprovalSnapshot) {
+  return {
+    id: s.id,
+    decision: s.decision,
+    decisionNotes: s.decisionNotes,
+    decidedAt: s.decidedAt,
+    recipientEmail: s.recipientEmail,
+    requesterEmail: s.requesterEmail,
+    expiresAt: s.expiresAt,
+    createdAt: s.createdAt,
+    freshForCurrentContent: s.freshForCurrentContent,
+  }
+}
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -50,9 +67,18 @@ export async function GET(request: NextRequest) {
       analyses = analysisRes.rows
     }
 
+    // Latest customer-portal approval per policy — drives the badge
+    // in the operator UI and lets the publish modal auto-cite the
+    // approval instead of asking the operator to vouch.
+    const approvalMap = await loadLatestApprovalsForPolicies(client, companyId, policyIds)
+    const approvals: Record<string, ReturnType<typeof toSerializable>> = {}
+    approvalMap.forEach((snap, pid) => {
+      approvals[pid] = toSerializable(snap)
+    })
+
     return NextResponse.json({
       success: true,
-      data: { policies: policies.rows, analyses },
+      data: { policies: policies.rows, analyses, approvals },
     })
   } catch (err) {
     console.error('[compliance/policies] GET error:', err)

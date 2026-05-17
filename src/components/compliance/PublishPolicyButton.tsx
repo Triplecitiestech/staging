@@ -20,6 +20,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import type { PolicyApprovalSnapshot } from './PolicyApprovalBadge'
 
 interface Props {
   companyId: string
@@ -31,15 +32,28 @@ interface Props {
    * surface the right URL elsewhere; for now the operator pastes it.
    */
   defaultFolderUrl?: string
+  /**
+   * Latest customer-portal approval for this policy. When this is
+   * `approved` and `freshForCurrentContent`, the server will accept
+   * it as the approval gate — the operator-vouching checkbox in the
+   * modal is hidden and the cite is shown instead.
+   */
+  approval?: PolicyApprovalSnapshot | null
 }
 
 type Phase = 'idle' | 'previewing' | 'reviewing' | 'publishing' | 'done' | 'error'
 
-export default function PublishPolicyButton({ companyId, policyId, policyTitle, defaultFolderUrl }: Props) {
+export default function PublishPolicyButton({ companyId, policyId, policyTitle, defaultFolderUrl, approval }: Props) {
   const router = useRouter()
   const [phase, setPhase] = useState<Phase>('idle')
   const [folderUrl, setFolderUrl] = useState(defaultFolderUrl ?? '')
-  const [approved, setApproved] = useState(false)
+  // When a real customer-portal approval exists + is fresh, the server
+  // accepts it as the gate. The operator-vouching checkbox is hidden
+  // and `approved` is auto-true so the publish call sails through.
+  const hasPortalApproval = Boolean(
+    approval && approval.decision === 'approved' && approval.freshForCurrentContent
+  )
+  const [approved, setApproved] = useState(hasPortalApproval)
   const [error, setError] = useState<string | null>(null)
   const [resultMessage, setResultMessage] = useState<string | null>(null)
   const [resultWebUrl, setResultWebUrl] = useState<string | null>(null)
@@ -60,7 +74,7 @@ export default function PublishPolicyButton({ companyId, policyId, policyTitle, 
       setError('Paste the customer SharePoint folder URL first.')
       return
     }
-    if (!approved) {
+    if (!hasPortalApproval && !approved) {
       setError('Tick the approval checkbox first — TCT does not push without explicit customer sign-off.')
       return
     }
@@ -174,24 +188,48 @@ export default function PublishPolicyButton({ companyId, policyId, policyTitle, 
               </p>
             </section>
 
-            <section className="bg-slate-800/40 border border-white/5 rounded-lg p-3 space-y-2">
-              <label className="flex items-start gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={approved}
-                  onChange={(e) => setApproved(e.target.checked)}
-                  disabled={phase === 'publishing'}
-                  className="mt-1 rounded border-white/20 bg-slate-800 text-violet-500 focus:ring-violet-500/50"
-                />
-                <span className="text-sm text-slate-200">
-                  Customer HR or the designated PoC has reviewed and approved this version of the policy.
-                </span>
-              </label>
-              <p className="text-[11px] text-slate-500 ml-7">
-                TCT will refuse to publish without this confirmation. Treat it as a sign-off — anything you push
-                here is what the customer sees in their SharePoint.
-              </p>
-            </section>
+            {hasPortalApproval && approval ? (
+              <section className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3 space-y-1">
+                <p className="text-xs uppercase tracking-wider text-emerald-300">Customer approval on record</p>
+                <p className="text-sm text-emerald-100">
+                  ✓ Approved by <span className="font-semibold">{approval.recipientEmail}</span> on{' '}
+                  {approval.decidedAt ? new Date(approval.decidedAt).toLocaleString() : '(date unknown)'}.
+                </p>
+                {approval.decisionNotes && (
+                  <p className="text-[11px] text-emerald-100/80 italic">
+                    Their note: &ldquo;{approval.decisionNotes}&rdquo;
+                  </p>
+                )}
+                <p className="text-[11px] text-slate-400">
+                  No checkbox needed — the publish will reference this approval in the audit log.
+                </p>
+              </section>
+            ) : (
+              <section className="bg-slate-800/40 border border-white/5 rounded-lg p-3 space-y-2">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={approved}
+                    onChange={(e) => setApproved(e.target.checked)}
+                    disabled={phase === 'publishing'}
+                    className="mt-1 rounded border-white/20 bg-slate-800 text-violet-500 focus:ring-violet-500/50"
+                  />
+                  <span className="text-sm text-slate-200">
+                    Customer HR or the designated PoC has reviewed and approved this version of the policy.
+                  </span>
+                </label>
+                <p className="text-[11px] text-slate-500 ml-7">
+                  TCT will refuse to publish without this confirmation. Treat it as a sign-off — anything you push
+                  here is what the customer sees in their SharePoint.
+                </p>
+                {approval && approval.decision !== 'approved' && (
+                  <p className="text-[11px] text-cyan-200/80 ml-7">
+                    Tip: there&apos;s a {approval.decision} approval request on file. Consider sending a new
+                    request or waiting for the customer&apos;s response before publishing.
+                  </p>
+                )}
+              </section>
+            )}
 
             {error && (
               <p className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-lg p-2">
@@ -211,7 +249,7 @@ export default function PublishPolicyButton({ companyId, policyId, policyTitle, 
               <button
                 type="button"
                 onClick={publish}
-                disabled={phase === 'publishing' || !folderUrl.trim() || !approved}
+                disabled={phase === 'publishing' || !folderUrl.trim() || (!hasPortalApproval && !approved)}
                 className="px-4 py-2 text-xs font-medium rounded-lg bg-violet-500/20 border border-violet-500/40 text-violet-100 hover:bg-violet-500/30 disabled:opacity-50"
               >
                 {phase === 'publishing' ? 'Publishing…' : 'Publish to SharePoint'}
