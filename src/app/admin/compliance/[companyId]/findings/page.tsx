@@ -205,6 +205,28 @@ export default async function FindingsStepPage({ params, searchParams }: Props) 
         <Counter label="With disposition" value={withDispositionCount}   tone="violet" />
       </section>
 
+      {/* Cross-link to the per-recommendation Secure Score breakdown.
+          Useful for the operator who hits a "Microsoft Secure Score
+          is X%" finding (CIS 4.1) and wants to see / remediate the
+          underlying recommendations directly. */}
+      <Link
+        href={`/admin/compliance/${companyId}/secure-score`}
+        className="block bg-cyan-500/5 border border-cyan-500/30 rounded-xl p-4 hover:bg-cyan-500/10 transition-colors"
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs uppercase tracking-wider text-cyan-400">Microsoft Secure Score</p>
+            <p className="text-sm text-white font-medium mt-1">
+              Per-recommendation breakdown with one-click Remediate &rarr;
+            </p>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Drill into Secure Score and apply TCT-automated remediations directly to each open recommendation.
+            </p>
+          </div>
+          <span className="text-cyan-300 text-xl">&rarr;</span>
+        </div>
+      </Link>
+
       <FindingsResultsList
         companyId={companyId}
         frameworkId={summary.assessment.frameworkId}
