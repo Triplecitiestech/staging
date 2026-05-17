@@ -25,6 +25,9 @@ interface SharePointFile {
   lastModified: string
   webUrl: string
   mimeType: string | null
+  // Stamped by the scan endpoint so the import can pass driveId+itemId
+  // straight to the server-side fetch+extract helper.
+  driveId: string
 }
 
 interface PolicyManagerProps {
@@ -284,7 +287,15 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
           body: JSON.stringify({
             companyId,
             title: file.name.replace(/\.[^.]+$/, ''),
-            content: `[SHAREPOINT:${file.webUrl}]`,
+            // sharePointRef lets the server fetch the document directly
+            // by driveId+itemId (one Graph call), then run mammoth/pdf-parse
+            // on the bytes to get real extracted text for AI analysis.
+            // Without this the analyzer used to see a 50-byte placeholder.
+            sharePointRef: {
+              driveId: file.driveId,
+              itemId: file.id,
+              fileName: file.name,
+            },
             source: 'sharepoint',
             category: '',
             analyze: true,
