@@ -1046,11 +1046,20 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
                       <div className="min-w-0 flex-1">
                         <p className="text-xs uppercase tracking-wider text-violet-300">Push back to customer</p>
                         <p className="text-xs text-slate-400 mt-0.5">
-                          Send to the customer for browser-based approval, or publish directly to their
-                          SharePoint when you already have sign-off.
+                          Download the .docx to upload anywhere (IT Glue, My Glue, third-party platforms),
+                          send the customer a magic link to review + approve in their browser, or publish
+                          directly to their SharePoint when you have sign-off.
                         </p>
                       </div>
                       <div className="flex items-center gap-2 flex-wrap justify-end">
+                        <a
+                          href={`/api/compliance/${companyId}/policies/${policy.id}/download`}
+                          download
+                          className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-800/60 border border-white/10 text-slate-200 hover:bg-slate-800/80"
+                          title="Download as .docx — upload to IT Glue, My Glue, or any third-party platform manually"
+                        >
+                          Download .docx
+                        </a>
                         <RequestApprovalButton
                           companyId={companyId}
                           policyId={policy.id}
