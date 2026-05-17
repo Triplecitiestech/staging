@@ -16,6 +16,7 @@ import { useState, useEffect, useCallback } from 'react'
 import type { CompliancePolicy, PolicyAnalysis, PolicyControlDetail } from '@/lib/compliance/types'
 import PublishPolicyButton from './PublishPolicyButton'
 import RequestApprovalButton from './RequestApprovalButton'
+import PolicyApprovalBadge, { type PolicyApprovalSnapshot } from './PolicyApprovalBadge'
 
 interface SharePointFile {
   id: string
@@ -56,6 +57,9 @@ const POLICY_CATEGORIES = [
 export default function PolicyManager({ companyId, companyName }: PolicyManagerProps) {
   const [policies, setPolicies] = useState<CompliancePolicy[]>([])
   const [analyses, setAnalyses] = useState<PolicyAnalysis[]>([])
+  // Latest customer-portal approval per policy id. Drives the status
+  // badge on each row + lets the publish modal auto-cite an approval.
+  const [approvals, setApprovals] = useState<Record<string, PolicyApprovalSnapshot>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -98,6 +102,7 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
       if (json.success) {
         setPolicies(json.data.policies ?? [])
         setAnalyses(json.data.analyses ?? [])
+        setApprovals(json.data.approvals ?? {})
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return
@@ -993,6 +998,7 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
                             Customer Upload
                           </span>
                         )}
+                        <PolicyApprovalBadge approval={approvals[policy.id]} />
                       </div>
                       <p className="text-xs text-slate-400 truncate">
                         {getSourceLabel(policy.source)}{policy.category ? ` · ${policy.category}` : ''} ·{' '}
@@ -1054,6 +1060,7 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
                           companyId={companyId}
                           policyId={policy.id}
                           policyTitle={policy.title}
+                          approval={approvals[policy.id]}
                         />
                       </div>
                     </div>

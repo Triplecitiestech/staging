@@ -37,6 +37,7 @@ import {
   type SharePointDrive,
 } from '@/lib/compliance/sharepoint-url'
 import { renderPolicyDocx } from '@/lib/compliance/policy-generation/docx-renderer'
+import { loadLatestApproval } from '@/lib/compliance/policy-approval-store'
 import { getPool } from '@/lib/db-pool'
 import type { ExecutorContext, ExecutorResult } from '../executors'
 import type { PreviewerContext, ImpactPreview } from '../previewers'
@@ -164,10 +165,30 @@ export async function publishPolicyToSharePoint(ctx: ExecutorContext): Promise<E
   if (!m.sharepointFolderUrl) {
     return { success: false, summary: 'Missing sharepointFolderUrl — operator must pick a destination folder.' }
   }
-  if (!m.customerApproved) {
+
+  // Approval gate: the customer-portal approval table (C.4) is the
+  // authoritative source. If the most recent approval for THIS version
+  // of the policy was decided='approved', publish proceeds. Otherwise
+  // fall back to the operator's customerApproved checkbox (the
+  // pre-portal flow). One of the two must say yes.
+  let approvalEvidence: string | null = null
+  const pool = getPool()
+  const evidenceClient = await pool.connect()
+  try {
+    const latest = await loadLatestApproval(evidenceClient, ctx.companyId, m.policyId)
+    if (latest && latest.decision === 'approved' && latest.freshForCurrentContent) {
+      approvalEvidence =
+        `Recorded customer approval (id ${latest.id}) — decided ${latest.decidedAt ?? '(unknown)'} by ${latest.recipientEmail}`
+    }
+  } finally {
+    evidenceClient.release()
+  }
+  if (!approvalEvidence && !m.customerApproved) {
     return {
       success: false,
-      summary: 'Publish refused: customer-approval checkbox was not ticked. Confirm the client has signed off on this version before pushing it to their SharePoint.',
+      summary:
+        'Publish refused: no customer approval on record for this version. ' +
+        'Either send a customer approval request (recommended) or tick the operator-vouching checkbox in the publish modal.',
     }
   }
 
@@ -232,10 +253,12 @@ export async function publishPolicyToSharePoint(ctx: ExecutorContext): Promise<E
     )
     return {
       success: true,
-      summary: `Published "${policy.title}" to SharePoint as "${uploaded.name}" (${(uploaded.size / 1024).toFixed(1)} KB). View: ${uploaded.webUrl}`,
+      summary: `Published "${policy.title}" to SharePoint as "${uploaded.name}" (${(uploaded.size / 1024).toFixed(1)} KB). ${approvalEvidence ? `Authorized by: ${approvalEvidence}.` : 'Authorized by: operator vouch (checkbox).'} View: ${uploaded.webUrl}`,
       details: {
         policyId: policy.id,
         policyTitle: policy.title,
+        approvalEvidence,
+        approvedViaPortal: approvalEvidence !== null,
         sharepointFileId: uploaded.id,
         sharepointFileName: uploaded.name,
         sharepointWebUrl: uploaded.webUrl,
