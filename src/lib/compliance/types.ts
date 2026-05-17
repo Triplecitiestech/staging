@@ -285,6 +285,10 @@ export interface CompliancePolicy {
   createdBy: string
   createdAt: string
   updatedAt: string
+  /** True when sourcePointer is set — enables the Re-sync from SharePoint button. */
+  hasSourcePointer?: boolean
+  /** True when sourceBytes is set — Download .docx will serve original bytes vs. renderer. */
+  hasSourceBytes?: boolean
 }
 
 export interface PolicyControlDetail {

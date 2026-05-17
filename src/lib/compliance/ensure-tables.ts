@@ -296,6 +296,13 @@ export async function ensureComplianceTables(): Promise<void> {
     await client.query(`ALTER TABLE compliance_policies ADD COLUMN IF NOT EXISTS "sourceBytes" BYTEA`)
     await client.query(`ALTER TABLE compliance_policies ADD COLUMN IF NOT EXISTS "sourceMimeType" TEXT`)
     await client.query(`ALTER TABLE compliance_policies ADD COLUMN IF NOT EXISTS "sourceFileName" TEXT`)
+    // sourcePointer stores how to find the file again in SharePoint
+    // ({driveId, itemId, webUrl, fileName, mimeType}). Lets the
+    // "Re-sync from SharePoint" affordance re-pull the source bytes
+    // (and re-extract + re-analyze) without asking the operator to
+    // delete + re-import. Pre-existing policies have NULL here and
+    // will need a manual re-import to start tracking.
+    await client.query(`ALTER TABLE compliance_policies ADD COLUMN IF NOT EXISTS "sourcePointer" JSONB`)
 
     // --- compliance_policy_analyses ---
     if (!existingSet.has('compliance_policy_analyses')) {
