@@ -47,6 +47,9 @@ interface SharePointFile {
   lastModified: string
   webUrl: string
   mimeType: string | null
+  // Stamped per-file so the import endpoint can pass driveId+itemId
+  // straight to fetchSharePointFileText without re-resolving the URL.
+  driveId: string
 }
 
 async function getGraphToken(companyId: string): Promise<string> {
@@ -233,6 +236,7 @@ export async function POST(request: NextRequest) {
                 lastModified: item.lastModifiedDateTime,
                 webUrl: item.webUrl,
                 mimeType: item.file.mimeType,
+                driveId: matched.drive.id,
               })
             }
           }
