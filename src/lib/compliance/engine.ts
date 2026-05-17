@@ -360,7 +360,10 @@ export async function getEvidence(assessmentId: string): Promise<EvidenceRecord[
 // ---------------------------------------------------------------------------
 
 export async function overrideFinding(
-  findingId: string, overrideStatus: string, overrideReason: string, overrideBy: string
+  findingId: string,
+  overrideStatus: string | null,
+  overrideReason: string | null,
+  overrideBy: string
 ): Promise<void> {
 
   const pool = getPool()
@@ -371,18 +374,47 @@ export async function overrideFinding(
     )
     if (finding.rows.length === 0) throw new Error('Finding not found')
 
-    await client.query(
-      `UPDATE compliance_findings SET "overrideStatus" = $1, "overrideReason" = $2, "overrideBy" = $3, "overrideAt" = NOW() WHERE id = $4`,
-      [overrideStatus, overrideReason, overrideBy, findingId]
-    )
+    // Passing null overrideStatus clears the override (revert to engine result).
+    // overrideBy + overrideAt are kept as audit trail of who cleared it.
+    if (overrideStatus === null) {
+      await client.query(
+        `UPDATE compliance_findings
+            SET "overrideStatus" = NULL,
+                "overrideReason" = NULL,
+                "overrideBy" = $1,
+                "overrideAt" = NOW()
+          WHERE id = $2`,
+        [overrideBy, findingId]
+      )
+    } else {
+      await client.query(
+        `UPDATE compliance_findings
+            SET "overrideStatus" = $1,
+                "overrideReason" = $2,
+                "overrideBy" = $3,
+                "overrideAt" = NOW()
+          WHERE id = $4`,
+        [overrideStatus, overrideReason, overrideBy, findingId]
+      )
+    }
 
     const assessment = await client.query<{ companyId: string }>(
       `SELECT "companyId" FROM compliance_assessments WHERE id = $1`, [finding.rows[0].assessmentId]
     )
     if (assessment.rows[0]) {
-      await logAudit(client, assessment.rows[0].companyId, finding.rows[0].assessmentId, 'finding_overridden', overrideBy, {
-        findingId, controlId: finding.rows[0].controlId, overrideStatus, overrideReason,
-      })
+      await logAudit(
+        client,
+        assessment.rows[0].companyId,
+        finding.rows[0].assessmentId,
+        overrideStatus === null ? 'finding_override_cleared' : 'finding_overridden',
+        overrideBy,
+        {
+          findingId,
+          controlId: finding.rows[0].controlId,
+          overrideStatus,
+          overrideReason,
+        }
+      )
     }
   } finally {
     client.release()

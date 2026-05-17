@@ -23,6 +23,7 @@
 import { useMemo, useState } from 'react'
 import RemediateButton, { type RemediateAction } from './RemediateButton'
 import DispositionToggleButton from './DispositionToggleButton'
+import FindingOverrideInline from './FindingOverrideInline'
 
 export interface FindingRowData {
   id: string
@@ -248,17 +249,6 @@ function FindingItem({ finding, expanded, onToggle, companyId, frameworkId }: {
             </div>
           )}
 
-          {finding.overrideStatus && (
-            <div className="bg-violet-500/10 border border-violet-500/20 rounded p-3">
-              <p className="text-xs font-medium text-violet-400 mb-1">
-                Override by {finding.overrideBy ?? '(unknown)'} on {finding.overrideAt ? new Date(finding.overrideAt).toLocaleString() : ''}
-              </p>
-              {finding.overrideReason && (
-                <p className="text-sm text-violet-300">{finding.overrideReason}</p>
-              )}
-            </div>
-          )}
-
           {/* Primary action: Remediate (only on fail/partial/review) */}
           {isFailOrPartial && (
             <div className="pt-2 border-t border-white/10">
@@ -275,7 +265,25 @@ function FindingItem({ finding, expanded, onToggle, companyId, frameworkId }: {
             </div>
           )}
 
-          {/* Secondary: disposition (collapsed; lazy-mounted) */}
+          {/* Reviewer override — replaces / sets the engine's status with
+              a human-vouched answer + justification. Always rendered so
+              the operator can override pass results too (e.g. evidence
+              was misleading) and can clear an existing override. */}
+          <div className="pt-2 border-t border-white/10">
+            <FindingOverrideInline
+              findingId={finding.id}
+              engineStatus={finding.status}
+              currentOverrideStatus={finding.overrideStatus}
+              currentOverrideReason={finding.overrideReason}
+              currentOverrideBy={finding.overrideBy}
+              currentOverrideAt={finding.overrideAt}
+            />
+          </div>
+
+          {/* Disposition — workflow state ("what are we doing about this?")
+              kept distinct from override ("what IS the status?"). Lazy
+              mount keeps the row light when the operator only wanted to
+              read the assessment. */}
           <div className="pt-2 border-t border-white/10">
             <DispositionToggleButton
               companyId={companyId}
