@@ -65,7 +65,14 @@ export default async function SecureScorePage({ params }: Props) {
   }
 
   const automated = snapshot.recommendations.filter((r) => !r.implemented && r.catalogActionId)
-  const manual = snapshot.recommendations.filter((r) => !r.implemented && !r.catalogActionId)
+  // Manual = actionable: has a non-zero score weight OR a Microsoft
+  // admin-center deep link the operator can follow. Everything else
+  // is informational (Microsoft tracks it but doesn't score it and
+  // gives no remediation surface) and goes into a collapsed section
+  // so it doesn't clutter the actionable list.
+  const manualRaw = snapshot.recommendations.filter((r) => !r.implemented && !r.catalogActionId)
+  const manual        = manualRaw.filter((r) => r.maxScore > 0 || r.actionUrl)
+  const informational = manualRaw.filter((r) => r.maxScore === 0 && !r.actionUrl)
   const implemented = snapshot.recommendations.filter((r) => r.implemented)
 
   return (
@@ -115,6 +122,28 @@ export default async function SecureScorePage({ params }: Props) {
           </ul>
         )}
       </section>
+
+      {informational.length > 0 && (
+        <section>
+          <details className="bg-slate-900/30 border border-white/5 rounded-xl">
+            <summary className="cursor-pointer text-xs px-4 py-3 text-slate-400 hover:text-slate-200">
+              Tracked but not scored / no remediation surface{' '}
+              <span className="text-slate-500">({informational.length})</span>
+              <span className="text-[10px] block mt-0.5 text-slate-500">
+                Microsoft surfaces these for visibility but they don&apos;t affect the score and there&apos;s no admin-center link to act on them.
+              </span>
+            </summary>
+            <ul className="space-y-1 px-4 pb-3">
+              {informational.map((r) => (
+                <li key={r.id} className="text-[11px] text-slate-500 flex justify-between gap-3 py-0.5">
+                  <span className="truncate">{r.title}</span>
+                  <span className="shrink-0 font-mono opacity-60">{r.id}</span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        </section>
+      )}
 
       <section>
         <header className="mb-3 flex items-center gap-2">
@@ -237,7 +266,15 @@ function RecommendationRow({
           <summary className="cursor-pointer text-slate-400 hover:text-slate-200">
             Microsoft&apos;s recommendation
           </summary>
-          <p className="text-xs text-slate-300 mt-2 whitespace-pre-line">{rec.remediation}</p>
+          {/* Microsoft's remediation field is HTML (<ol>, <li>, <a href>,
+              <strong>, <em>). Rendering as plain text dumps the literal
+              markup into the UI, which is what the operator hit. Pass
+              through a small sanitizer that strips scripts + event
+              handlers, then render. */}
+          <div
+            className="text-xs text-slate-300 mt-2 prose prose-invert prose-sm max-w-none [&_a]:text-cyan-300 [&_a]:underline [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5 [&_li]:my-1"
+            dangerouslySetInnerHTML={{ __html: sanitizeRemediationHtml(rec.remediation) }}
+          />
         </details>
       )}
     </li>
@@ -250,4 +287,26 @@ function EmptySection({ message }: { message: string }) {
       {message}
     </p>
   )
+}
+
+/**
+ * Strip script tags + inline event handlers + javascript: URLs from
+ * Microsoft's remediation HTML before we hand it to dangerouslySetInnerHTML.
+ * Source is Microsoft Graph (trusted), but defense in depth — we never
+ * want a Graph response to execute arbitrary JS in the admin UI.
+ * Adds target="_blank" + rel="noopener" to all anchors so the operator
+ * doesn't lose the page.
+ */
+function sanitizeRemediationHtml(html: string): string {
+  return html
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
+    // Inline event handlers (onclick=, onerror=, etc.)
+    .replace(/\s+on[a-z]+\s*=\s*"[^"]*"/gi, '')
+    .replace(/\s+on[a-z]+\s*=\s*'[^']*'/gi, '')
+    // javascript: URLs
+    .replace(/href\s*=\s*"\s*javascript:[^"]*"/gi, 'href="#"')
+    .replace(/href\s*=\s*'\s*javascript:[^']*'/gi, "href='#'")
+    // Force external anchors to open in a new tab.
+    .replace(/<a\s+href="(https?:[^"]+)"/gi, '<a href="$1" target="_blank" rel="noopener noreferrer"')
 }
