@@ -85,6 +85,13 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
   const [sharepointUrls, setSharepointUrls] = useState<string[]>([''])
   const [spScanning, setSpScanning] = useState(false)
   const [spFiles, setSpFiles] = useState<Array<SharePointFile & { sourceUrl: string }>>([])
+  // Track that a scan has completed at least once so the UI can show
+  // a "no matching files found" message instead of silently going
+  // back to the idle state when the scan succeeds with 0 results.
+  const [spScanCompletedAt, setSpScanCompletedAt] = useState<number | null>(null)
+  // Per-site totals from the scan response — folder count + truncation
+  // flag — so the operator can see what the scan actually examined.
+  const [spScanSummary, setSpScanSummary] = useState<{ sitesScanned: number; foldersScanned: number; truncated: boolean } | null>(null)
   const [spSelected, setSpSelected] = useState<Set<string>>(new Set())
   const [spImporting, setSpImporting] = useState(false)
   const [spImportProgress, setSpImportProgress] = useState(0)
@@ -198,8 +205,12 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
     setError(null)
     setSpPermissionHint(null)
     setSpFiles([])
+    setSpScanSummary(null)
+    setSpScanCompletedAt(null)
     const aggregated: Array<SharePointFile & { sourceUrl: string }> = []
     const failures: Array<{ url: string; message: string }> = []
+    let totalFoldersScanned = 0
+    let anyTruncated = false
     for (const url of urls) {
       try {
         const res = await fetch('/api/compliance/policies/sharepoint-scan', {
@@ -223,6 +234,8 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
         for (const f of (json.files ?? []) as SharePointFile[]) {
           aggregated.push({ ...f, sourceUrl: url })
         }
+        if (typeof json.scannedFolderCount === 'number') totalFoldersScanned += json.scannedFolderCount
+        if (json.truncated === true) anyTruncated = true
       } catch (err) {
         failures.push({ url, message: err instanceof Error ? err.message : 'Network error' })
       }
@@ -231,6 +244,12 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
     // Select all scanned files by default — the operator usually wants
     // to import everything they found.
     setSpSelected(new Set(aggregated.map((f) => f.id)))
+    setSpScanSummary({
+      sitesScanned: urls.length - failures.length,
+      foldersScanned: totalFoldersScanned,
+      truncated: anyTruncated,
+    })
+    setSpScanCompletedAt(Date.now())
     if (failures.length > 0) {
       setError(
         `Scanned ${urls.length - failures.length}/${urls.length} site${urls.length === 1 ? '' : 's'}. ` +
@@ -584,6 +603,28 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
               {spPermissionHint && (
                 <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-lg">
                   <p className="text-xs text-rose-200">{spPermissionHint}</p>
+                </div>
+              )}
+
+              {/* Empty-state — scan finished with 0 results. Without this
+                  the UI silently went back to idle and the operator
+                  couldn't tell whether the scan even ran. */}
+              {spScanCompletedAt && spFiles.length === 0 && !spScanning && (
+                <div className="bg-slate-800/40 border border-white/10 rounded-lg p-4 space-y-2">
+                  <p className="text-sm text-white font-medium">
+                    Scan finished — no matching documents found.
+                  </p>
+                  {spScanSummary && (
+                    <p className="text-[11px] text-slate-400">
+                      Walked {spScanSummary.foldersScanned} folder{spScanSummary.foldersScanned === 1 ? '' : 's'} across {spScanSummary.sitesScanned} site{spScanSummary.sitesScanned === 1 ? '' : 's'}.
+                      {spScanSummary.truncated && ' Stopped early at the 500-file cap.'}
+                    </p>
+                  )}
+                  <p className="text-[11px] text-slate-500">
+                    The scan looks for <code className="text-cyan-300">.txt .md .pdf .docx .doc .rtf</code> files (recursing up to 5 levels of subfolders).
+                    If you expected results: confirm the folder URL actually contains policy documents,
+                    or that the customer&apos;s app registration has Sites.Read.All so we can see them.
+                  </p>
                 </div>
               )}
 

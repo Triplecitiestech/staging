@@ -131,70 +131,115 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 3. List items in the matched folder (Graph URL-encodes spaces and
-    //    other special chars per-segment automatically when we use the
-    //    relativeToDrive path with `:/...:/children`).
-    let listingUrl: string
-    if (matched.relativeToDrive.length === 0) {
-      listingUrl = `https://graph.microsoft.com/v1.0/drives/${matched.drive.id}/root/children`
-    } else {
-      // Per-segment encode so `&`, `#`, etc. survive transport.
-      const encodedRelative = matched.relativeToDrive
-        .split('/')
-        .map((seg) => encodeURIComponent(seg))
-        .join('/')
-      listingUrl = `https://graph.microsoft.com/v1.0/drives/${matched.drive.id}/root:/${encodedRelative}:/children`
-    }
+    // 3. Walk the matched folder + subfolders breadth-first. Operators
+    //    often paste a parent folder like "Policy Center/Shared
+    //    Documents" that contains subfolders ("Business Plans & Procedures",
+    //    "IT & Security Policies", …) rather than files directly. A
+    //    non-recursing scan returned silently empty, which felt like
+    //    the scan did nothing — surface every nested .pdf/.docx/etc.
+    //    instead.
+    //
+    //    Safeguards: depth-limited (MAX_DEPTH) + total-file cap
+    //    (MAX_FILES) so a tenant with thousands of nested folders
+    //    can't run us out of time or memory.
+    const MAX_DEPTH = 5
+    const MAX_FILES = 500
+    const ALLOWED_EXTS = new Set(['txt', 'md', 'pdf', 'docx', 'doc', 'rtf'])
 
     const allFiles: SharePointFile[] = []
-    let nextUrl: string | null = listingUrl
+    let scannedFolderCount = 0
+    let truncated = false
 
-    while (nextUrl) {
-      const filesRes = await fetch(nextUrl, {
-        headers: { Authorization: `Bearer ${token}` },
-        signal: AbortSignal.timeout(15_000),
-      })
-      if (!filesRes.ok) {
-        const errBody = await filesRes.text().catch(() => '')
-        if (filesRes.status === 404) {
-          throw new Error(
-            `Folder not found inside "${matched.drive.name}": "${matched.relativeToDrive || '(root)'}". ` +
-            `Verify the folder still exists and the app has access. ` +
-            `Raw Graph response: ${errBody.substring(0, 160)}`
-          )
+    interface FolderTask {
+      relative: string  // relative to drive root, '' for library root
+      depth: number
+    }
+    const queue: FolderTask[] = [{ relative: matched.relativeToDrive, depth: 0 }]
+
+    while (queue.length > 0) {
+      const folder = queue.shift()!
+      scannedFolderCount++
+
+      // First page URL for this folder
+      let nextUrl: string | null
+      if (folder.relative.length === 0) {
+        nextUrl = `https://graph.microsoft.com/v1.0/drives/${matched.drive.id}/root/children`
+      } else {
+        const encoded = folder.relative.split('/').map((seg) => encodeURIComponent(seg)).join('/')
+        nextUrl = `https://graph.microsoft.com/v1.0/drives/${matched.drive.id}/root:/${encoded}:/children`
+      }
+
+      while (nextUrl) {
+        if (allFiles.length >= MAX_FILES) {
+          truncated = true
+          nextUrl = null
+          break
         }
-        throw new Error(`Failed to list folder contents: ${filesRes.status} ${errBody.substring(0, 200)}`)
-      }
-      const filesData = (await filesRes.json()) as {
-        value: Array<{
-          id: string
-          name: string
-          size: number
-          lastModifiedDateTime: string
-          webUrl: string
-          file?: { mimeType: string }
-          folder?: { childCount: number }
-        }>
-        '@odata.nextLink'?: string
-      }
+        const filesRes: Response = await fetch(nextUrl, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: AbortSignal.timeout(15_000),
+        })
+        if (!filesRes.ok) {
+          const errBody = await filesRes.text().catch(() => '')
+          if (filesRes.status === 404 && folder.depth === 0) {
+            throw new Error(
+              `Folder not found inside "${matched.drive.name}": "${matched.relativeToDrive || '(root)'}". ` +
+              `Verify the folder still exists and the app has access. ` +
+              `Raw Graph response: ${errBody.substring(0, 160)}`
+            )
+          }
+          if (folder.depth === 0) {
+            throw new Error(`Failed to list folder contents: ${filesRes.status} ${errBody.substring(0, 200)}`)
+          }
+          // Deeper folder failed to list — skip it but don't fail the
+          // whole scan; the operator gets what we could find.
+          console.warn(`[sharepoint-scan] subfolder "${folder.relative}" returned ${filesRes.status}`)
+          nextUrl = null
+          break
+        }
+        const filesData = (await filesRes.json()) as {
+          value: Array<{
+            id: string
+            name: string
+            size: number
+            lastModifiedDateTime: string
+            webUrl: string
+            file?: { mimeType: string }
+            folder?: { childCount: number }
+          }>
+          '@odata.nextLink'?: string
+        }
 
-      for (const item of filesData.value) {
-        if (item.file) {
-          const ext = item.name.split('.').pop()?.toLowerCase()
-          if (['txt', 'md', 'pdf', 'docx', 'doc', 'rtf'].includes(ext ?? '')) {
-            allFiles.push({
-              id: item.id,
-              name: item.name,
-              size: item.size,
-              lastModified: item.lastModifiedDateTime,
-              webUrl: item.webUrl,
-              mimeType: item.file.mimeType,
-            })
+        for (const item of filesData.value) {
+          if (allFiles.length >= MAX_FILES) {
+            truncated = true
+            break
+          }
+          if (item.folder) {
+            // Queue subfolder for breadth-first traversal, depth-limited.
+            if (folder.depth < MAX_DEPTH) {
+              const childRelative = folder.relative.length === 0 ? item.name : `${folder.relative}/${item.name}`
+              queue.push({ relative: childRelative, depth: folder.depth + 1 })
+            }
+            continue
+          }
+          if (item.file) {
+            const ext = item.name.split('.').pop()?.toLowerCase()
+            if (ALLOWED_EXTS.has(ext ?? '')) {
+              allFiles.push({
+                id: item.id,
+                name: item.name,
+                size: item.size,
+                lastModified: item.lastModifiedDateTime,
+                webUrl: item.webUrl,
+                mimeType: item.file.mimeType,
+              })
+            }
           }
         }
-      }
 
-      nextUrl = filesData['@odata.nextLink'] ?? null
+        nextUrl = filesData['@odata.nextLink'] ?? null
+      }
     }
 
     return NextResponse.json({
@@ -203,6 +248,8 @@ export async function POST(request: NextRequest) {
       driveId: matched.drive.id,
       driveName: matched.drive.name,
       folderPath: matched.relativeToDrive || '(library root)',
+      scannedFolderCount,
+      truncated,
       files: allFiles,
       totalFiles: allFiles.length,
     })
