@@ -67,17 +67,47 @@ export default function FindingsResultsList({ companyId, frameworkId, findings }
   const filtered = useMemo(() => filterFindings(findings, filter), [findings, filter])
   const grouped = useMemo(() => groupByControlFamily(filtered), [filtered])
 
+  // Counter rows: clickable shortcuts into the filter. Click a card →
+  // filter list to that status. Click the active card → clear filter.
+  // The narrow set of FilterChips below stays as an alternate input.
+  const passCount = findings.filter((f) => f.effectiveStatus === 'pass').length
+  const failCount = findings.filter((f) => f.effectiveStatus === 'fail').length
+  const reviewCount = findings.filter((f) => f.effectiveStatus === 'needs_review' || f.effectiveStatus === 'partial').length
+  const naCount = findings.filter((f) => f.effectiveStatus === 'not_applicable').length
+  const dispoCount = findings.filter((f) => Boolean(f.disposition.lifecycleStatus)).length
+
+  function setOrToggle(target: StatusFilter) {
+    setFilter((curr) => (curr === target ? 'all' : target))
+  }
+
   return (
     <div className="space-y-4">
+      <section className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <CounterCard label="Total" value={findings.length} tone="slate"
+          active={filter === 'all'} onClick={() => setFilter('all')} />
+        <CounterCard label="Passed" value={passCount} tone="emerald"
+          active={filter === 'pass'} onClick={() => setOrToggle('pass')} />
+        <CounterCard label="Needs review" value={reviewCount} tone="cyan"
+          active={filter === 'open'} onClick={() => setOrToggle('open')}
+          hint="Click to show open (fail / review / partial) findings" />
+        <CounterCard label="Failed" value={failCount} tone="rose"
+          active={filter === 'open'} onClick={() => setOrToggle('open')}
+          hint="Click to show open (fail / review / partial) findings" />
+        <CounterCard label="Not applicable" value={naCount} tone="slate"
+          active={filter === 'not_applicable'} onClick={() => setOrToggle('not_applicable')} />
+        <CounterCard label="With disposition" value={dispoCount} tone="violet"
+          active={filter === 'with_disposition'} onClick={() => setOrToggle('with_disposition')} />
+      </section>
+
       <FilterChips
         current={filter}
         onChange={setFilter}
         counts={{
           all: findings.length,
           open: findings.filter((f) => isOpen(f.effectiveStatus)).length,
-          pass: findings.filter((f) => f.effectiveStatus === 'pass').length,
-          not_applicable: findings.filter((f) => f.effectiveStatus === 'not_applicable').length,
-          with_disposition: findings.filter((f) => Boolean(f.disposition.lifecycleStatus)).length,
+          pass: passCount,
+          not_applicable: naCount,
+          with_disposition: dispoCount,
         }}
       />
 
@@ -257,6 +287,35 @@ function FindingItem({ finding, expanded, onToggle, companyId, frameworkId }: {
         </div>
       )}
     </li>
+  )
+}
+
+function CounterCard({ label, value, tone, active, onClick, hint }: {
+  label: string
+  value: number
+  tone: 'emerald' | 'cyan' | 'rose' | 'slate' | 'violet'
+  active: boolean
+  onClick: () => void
+  hint?: string
+}) {
+  const baseCls =
+    tone === 'emerald' ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20' :
+    tone === 'cyan'    ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/20' :
+    tone === 'rose'    ? 'bg-rose-500/10 text-rose-300 border-rose-500/20' :
+    tone === 'violet'  ? 'bg-violet-500/10 text-violet-300 border-violet-500/20' :
+                         'bg-slate-800/40 text-slate-300 border-white/10'
+  const activeRing = active ? 'ring-2 ring-cyan-400/60 ring-offset-2 ring-offset-slate-950' : 'hover:brightness-125'
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      title={hint}
+      className={`rounded-lg border p-3 text-center transition-all ${baseCls} ${activeRing}`}
+    >
+      <p className="text-2xl font-bold">{value}</p>
+      <p className="text-[10px] uppercase tracking-wider">{label}</p>
+    </button>
   )
 }
 
