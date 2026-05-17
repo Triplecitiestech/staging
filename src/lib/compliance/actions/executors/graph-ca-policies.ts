@@ -30,6 +30,7 @@
 import { getGraphTokenForCompany, graphRequest } from '@/lib/graph'
 import type { ExecutorContext, ExecutorResult } from '../executors'
 import type { PreviewerContext, ImpactPreview, AffectedEntity } from '../previewers'
+import { formatGraphPreviewError } from './graph-error-format'
 
 /** Display-name prefix that identifies TCT-managed Conditional Access policies. */
 export const TCT_POLICY_MARKER = '[TCT-MANAGED]'
@@ -313,7 +314,7 @@ export async function previewApplyMfaAllPolicy(ctx: PreviewerContext): Promise<I
       totalAffected: 0,
       entities: [],
       truncated: false,
-      summary: `Preview query failed: ${err instanceof Error ? err.message : String(err)}`,
+      summary: formatGraphPreviewError(err, 'preview the Conditional Access policy change'),
       isLiveQuery: false,
       warnings: ['Live preview failed; the apply step may still work depending on the underlying error.'],
     }
@@ -351,7 +352,7 @@ export async function previewRemoveMfaAllPolicy(ctx: PreviewerContext): Promise<
       totalAffected: 0,
       entities: [],
       truncated: false,
-      summary: `Preview query failed: ${err instanceof Error ? err.message : String(err)}`,
+      summary: formatGraphPreviewError(err, 'preview the Conditional Access policy change'),
       isLiveQuery: false,
     }
   }
@@ -394,7 +395,7 @@ export async function previewApplyBlockLegacyAuthPolicy(ctx: PreviewerContext): 
       totalAffected: 0,
       entities: [],
       truncated: false,
-      summary: `Preview query failed: ${err instanceof Error ? err.message : String(err)}`,
+      summary: formatGraphPreviewError(err, 'preview the Conditional Access policy change'),
       isLiveQuery: false,
     }
   }
@@ -430,7 +431,7 @@ export async function previewRemoveBlockLegacyAuthPolicy(ctx: PreviewerContext):
       totalAffected: 0,
       entities: [],
       truncated: false,
-      summary: `Preview query failed: ${err instanceof Error ? err.message : String(err)}`,
+      summary: formatGraphPreviewError(err, 'preview the Conditional Access policy change'),
       isLiveQuery: false,
     }
   }
