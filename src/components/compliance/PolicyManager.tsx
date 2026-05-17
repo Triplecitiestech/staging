@@ -15,6 +15,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { CompliancePolicy, PolicyAnalysis, PolicyControlDetail } from '@/lib/compliance/types'
 import PublishPolicyButton from './PublishPolicyButton'
+import RequestApprovalButton from './RequestApprovalButton'
 
 interface SharePointFile {
   id: string
@@ -1022,8 +1023,15 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
                 {/* Expanded Detail */}
                 {isExpanded && analysis?.status === 'complete' && (
                   <div className="border-t border-white/5 p-4 space-y-4">
-                    {/* Publish-back action — pushes the approved policy
-                        to the customer's SharePoint document library.
+                    {/* Push-back-to-customer action panel.
+                        Two paths, both gated on customer approval:
+                          1. Request customer approval — emails the
+                             customer's HR/PoC a magic link to review
+                             and approve in their browser. Decision
+                             gets recorded against this policy version.
+                          2. Publish to customer SharePoint — operator
+                             vouches for the customer (checkbox in
+                             modal) and uploads immediately.
                         Available for every analyzed policy regardless
                         of source (uploaded or generated), since the
                         operator may need to push a refined version of
@@ -1032,15 +1040,22 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
                       <div className="min-w-0 flex-1">
                         <p className="text-xs uppercase tracking-wider text-violet-300">Push back to customer</p>
                         <p className="text-xs text-slate-400 mt-0.5">
-                          When the customer has reviewed + approved this version, publish it to their
-                          SharePoint so it lives where their staff already look.
+                          Send to the customer for browser-based approval, or publish directly to their
+                          SharePoint when you already have sign-off.
                         </p>
                       </div>
-                      <PublishPolicyButton
-                        companyId={companyId}
-                        policyId={policy.id}
-                        policyTitle={policy.title}
-                      />
+                      <div className="flex items-center gap-2 flex-wrap justify-end">
+                        <RequestApprovalButton
+                          companyId={companyId}
+                          policyId={policy.id}
+                          policyTitle={policy.title}
+                        />
+                        <PublishPolicyButton
+                          companyId={companyId}
+                          policyId={policy.id}
+                          policyTitle={policy.title}
+                        />
+                      </div>
                     </div>
 
                     {/* Summary */}
