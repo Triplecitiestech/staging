@@ -26,6 +26,7 @@ import Link from 'next/link'
 import AdminHeader from '@/components/admin/AdminHeader'
 import { getPool } from '@/lib/db-pool'
 import { ensureComplianceTables } from '@/lib/compliance/ensure-tables'
+import { countPendingApprovalsByCompany } from '@/lib/compliance/policy-approval-store'
 
 export const dynamic = 'force-dynamic'
 
@@ -39,6 +40,8 @@ interface CustomerRow {
   completedSteps: number
   /** Most recent assessment completion (any framework). null if never run. */
   latestAssessmentAt: string | null
+  /** Open customer-portal policy approvals (decision='pending', not expired). */
+  pendingApprovalCount: number
 }
 
 export default async function ComplianceCustomerPickerPage() {
@@ -97,6 +100,14 @@ export default async function ComplianceCustomerPickerPage() {
                           </p>
                         </div>
                         <div className="flex items-center gap-3 shrink-0">
+                          {c.pendingApprovalCount > 0 && (
+                            <span
+                              className="hidden md:inline-flex text-[10px] uppercase tracking-wider px-2 py-1 rounded border bg-cyan-500/15 text-cyan-200 border-cyan-500/40"
+                              title={`${c.pendingApprovalCount} policy approval${c.pendingApprovalCount === 1 ? '' : 's'} waiting on the customer`}
+                            >
+                              {c.pendingApprovalCount} approval{c.pendingApprovalCount === 1 ? '' : 's'} pending
+                            </span>
+                          )}
                           <M365Badge
                             status={c.m365SetupStatus}
                             consentGrantedAt={c.m365ConsentGrantedAt}
@@ -227,6 +238,10 @@ async function loadCustomers(): Promise<CustomerRow[]> {
        ORDER BY c."displayName" ASC`
     )
 
+    // Cross-customer pending-approvals counts in one query so each
+    // row can show a badge without N+1.
+    const pendingMap = await countPendingApprovalsByCompany(client)
+
     // Approximate step-completion count without invoking the full
     // workflow-state engine per row.
     return res.rows.map((r) => {
@@ -246,6 +261,7 @@ async function loadCustomers(): Promise<CustomerRow[]> {
         m365ConsentGrantedAt: r.m365ConsentGrantedAt,
         completedSteps,
         latestAssessmentAt: r.latestAssessmentAt,
+        pendingApprovalCount: pendingMap.get(r.id) ?? 0,
       }
     })
   } catch (err) {
