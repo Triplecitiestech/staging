@@ -33,6 +33,10 @@ import {
   removeIntuneDefenderRealtime,
 } from './executors/intune-defender'
 import {
+  applyIntuneWindowsBaselineCompliance,
+  removeIntuneWindowsBaselineCompliance,
+} from './executors/intune-compliance'
+import {
   generatePolicyForControl,
 } from './executors/policy-generate'
 import {
@@ -85,6 +89,13 @@ const HANDLERS: Record<string, ExecutorHandler> = {
   'graph.applyIntuneConfigProfile.defenderRealtime': applyIntuneDefenderRealtime,
   'graph.removeIntuneConfigProfile.defenderRealtime': removeIntuneDefenderRealtime,
 
+  // Intune compliance policy — Windows 10 baseline. Compliance != config:
+  // this MARKS devices non-compliant when the baseline isn't met (Defender,
+  // BitLocker, Secure Boot, etc.). Pairs with downstream CA policies that
+  // can block resource access for non-compliant devices.
+  'graph.applyIntuneCompliancePolicy.windowsBaseline': applyIntuneWindowsBaselineCompliance,
+  'graph.removeIntuneCompliancePolicy.windowsBaseline': removeIntuneWindowsBaselineCompliance,
+
   // Policy generation — picks the right policy slug for the originating
   // control via FRAMEWORK_POLICY_MAPPINGS and generates/revises a draft.
   'policy.generate_for_control': generatePolicyForControl,
@@ -104,6 +115,8 @@ const REAL_HANDLERS = new Set<string>([
   'graph.disablePasswordProtection',
   'graph.applyIntuneConfigProfile.defenderRealtime',
   'graph.removeIntuneConfigProfile.defenderRealtime',
+  'graph.applyIntuneCompliancePolicy.windowsBaseline',
+  'graph.removeIntuneCompliancePolicy.windowsBaseline',
   'policy.generate_for_control',
   'policy.publish_to_sharepoint',
 ])
