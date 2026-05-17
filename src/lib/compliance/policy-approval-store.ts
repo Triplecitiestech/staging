@@ -68,6 +68,68 @@ export async function loadLatestApproval(
   return res.rows[0] ?? null
 }
 
+export interface PendingApprovalRow {
+  approvalId: string
+  policyId: string
+  policyTitle: string
+  recipientEmail: string
+  requesterEmail: string
+  requesterNote: string | null
+  createdAt: string
+  expiresAt: string
+  daysOutstanding: number
+}
+
+/**
+ * List approvals still waiting on a customer decision for one
+ * company, oldest-first. Used by the workflow landing's "Pending
+ * approvals" inbox so requests that have been sitting for a week+
+ * don't get lost.
+ */
+export async function loadPendingApprovalsForCompany(
+  client: PoolClient,
+  companyId: string
+): Promise<PendingApprovalRow[]> {
+  const res = await client.query<PendingApprovalRow>(
+    `SELECT
+       a.id AS "approvalId",
+       a."policyId",
+       p.title AS "policyTitle",
+       a."recipientEmail",
+       a."requesterEmail",
+       a."requesterNote",
+       a."createdAt"::text AS "createdAt",
+       a."expiresAt"::text AS "expiresAt",
+       GREATEST(0, EXTRACT(DAY FROM NOW() - a."createdAt")::int) AS "daysOutstanding"
+     FROM compliance_policy_approvals a
+     JOIN compliance_policies p ON p.id = a."policyId"
+     WHERE a."companyId" = $1
+       AND a.decision = 'pending'
+       AND a."expiresAt" > NOW()
+     ORDER BY a."createdAt" ASC`,
+    [companyId]
+  )
+  return res.rows
+}
+
+/**
+ * Cross-company pending-approval count. Used by the customer picker
+ * to surface "N approvals waiting" badges per company.
+ */
+export async function countPendingApprovalsByCompany(
+  client: PoolClient
+): Promise<Map<string, number>> {
+  const res = await client.query<{ companyId: string; n: number }>(
+    `SELECT "companyId", COUNT(*)::int AS n
+       FROM compliance_policy_approvals
+      WHERE decision = 'pending' AND "expiresAt" > NOW()
+      GROUP BY "companyId"`
+  )
+  const map = new Map<string, number>()
+  for (const row of res.rows) map.set(row.companyId, row.n)
+  return map
+}
+
 /**
  * Bulk variant — one query for many policies. Used by the policies
  * list endpoint so we don't N+1.
