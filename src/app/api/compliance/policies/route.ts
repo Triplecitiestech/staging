@@ -53,9 +53,11 @@ export async function GET(request: NextRequest) {
   const client = await pool.connect()
 
   try {
-    const policies = await client.query<CompliancePolicy>(
+    const policies = await client.query<CompliancePolicy & { hasSourcePointer: boolean; hasSourceBytes: boolean }>(
       `SELECT id, "companyId", title, source, content, category, tags, "frameworkIds", "controlIds",
-              "createdBy", "createdAt", "updatedAt"
+              "createdBy", "createdAt", "updatedAt",
+              ("sourcePointer" IS NOT NULL) AS "hasSourcePointer",
+              ("sourceBytes"   IS NOT NULL) AS "hasSourceBytes"
        FROM compliance_policies WHERE "companyId" = $1 ORDER BY "createdAt" DESC`,
       [companyId]
     )
@@ -135,6 +137,10 @@ export async function POST(request: NextRequest) {
     let sourceBytes: Buffer | null = null
     let sourceMimeType: string | null = null
     let sourceFileName: string | null = null
+    // sourcePointer records HOW to find the file again in SharePoint
+    // so a "Re-sync from SharePoint" action can re-pull the latest
+    // bytes without asking the operator to delete + re-import.
+    let sourcePointer: { driveId?: string; itemId?: string; webUrl?: string; fileName?: string; mimeType?: string } | null = null
 
     // Resolve a SharePoint import to actual document text before storing.
     // Three call shapes converge here:
@@ -148,6 +154,12 @@ export async function POST(request: NextRequest) {
         sourceBytes = fetched.bytes
         sourceMimeType = fetched.mimeType
         sourceFileName = fetched.fileName
+        sourcePointer = {
+          driveId: body.sharePointRef.driveId,
+          itemId: body.sharePointRef.itemId,
+          fileName: fetched.fileName,
+          mimeType: fetched.mimeType,
+        }
       } catch (err) {
         return NextResponse.json({
           error: `Failed to fetch SharePoint document: ${err instanceof Error ? err.message : String(err)}`,
@@ -162,6 +174,13 @@ export async function POST(request: NextRequest) {
           sourceBytes = fetched.bytes
           sourceMimeType = fetched.mimeType
           sourceFileName = fetched.fileName
+          // No driveId / itemId for URL-based imports; the re-sync
+          // path will resolve the URL again at refetch time.
+          sourcePointer = {
+            webUrl: spMatch[1],
+            fileName: fetched.fileName,
+            mimeType: fetched.mimeType,
+          }
         } catch (err) {
           return NextResponse.json({
             error: `Failed to fetch SharePoint document: ${err instanceof Error ? err.message : String(err)}`,
@@ -175,17 +194,17 @@ export async function POST(request: NextRequest) {
     const client = await pool.connect()
 
     try {
-      // Create policy. sourceBytes / sourceMimeType / sourceFileName are
-      // populated only for SharePoint-sourced imports — pasted /
-      // generated policies leave them NULL and fall back to the docx
-      // renderer at download time.
+      // Create policy. sourceBytes / sourceMimeType / sourceFileName +
+      // sourcePointer are populated only for SharePoint-sourced imports.
+      // Pasted / generated policies leave them NULL and fall back to
+      // the docx renderer at download time.
       const policyRes = await client.query<{ id: string }>(
         `INSERT INTO compliance_policies (
             "companyId", title, source, content, category, tags,
             "frameworkIds", "controlIds", "createdBy",
-            "sourceBytes", "sourceMimeType", "sourceFileName"
+            "sourceBytes", "sourceMimeType", "sourceFileName", "sourcePointer"
          )
-         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10, $11, $12)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10, $11, $12, $13::jsonb)
          RETURNING id`,
         [
           body.companyId, body.title, body.source ?? 'paste', policyContent,
@@ -194,6 +213,7 @@ export async function POST(request: NextRequest) {
           JSON.stringify(body.controlIds ?? []),
           session.user.email,
           sourceBytes, sourceMimeType, sourceFileName,
+          sourcePointer ? JSON.stringify(sourcePointer) : null,
         ]
       )
       const policyId = policyRes.rows[0].id

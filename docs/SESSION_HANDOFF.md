@@ -1,6 +1,6 @@
 # Session Handoff — Compliance Workflow Build
 
-> **Last updated**: 2026-05-17 (massive multi-slice push).
+> **Last updated**: 2026-05-17 (post resume-slices push).
 > **Branch**: `claude/review-workflow-architecture-DdCgz` (auto-merged to `main` after every commit).
 > **Read this first** — everything you need to resume is here.
 
@@ -9,6 +9,8 @@
 ## Where the project stands
 
 All 8 workflow steps are live + functional in production. The big-picture rebuild from "legacy dashboard with 4 tabs" to "guided 8-step workflow per customer" is done. Specific operator-feedback fixes have been shipped iteratively (see commit log on `main`).
+
+The three "resume" slices from the previous handoff are now SHIPPED. See "Recently shipped" below.
 
 **Production URL**: `https://www.triplecitiestech.com/admin/compliance`
 
@@ -23,54 +25,54 @@ All 8 workflow steps are live + functional in production. The big-picture rebuil
 
 ---
 
-## Three open items the operator asked for in the last session — NOT YET DONE
+## Recently shipped (this session)
 
-The last operator instruction was **"do them all"** for these three. They were partially started but the session ran out of context. The user paused mid-Slice-A and asked for a handoff. Resume here.
+The three resume slices are DONE and have been iterated on per operator feedback. Headline changes since the previous handoff:
 
-### Slice A — SharePoint import: fetch + extract actual content (#3 in queue)
-**Why**: Today the bulk-imported policies have content `[SHAREPOINT:<url>]` (a 50-byte placeholder). The AI analyzer runs against that string and produces shallow garbage. Operator never sees real coverage.
+### Slice A — SharePoint import → real content extraction (DONE)
+- `mammoth` + `pdf-parse` added. New `src/lib/compliance/policy-generation/sharepoint-fetch.ts` does the fetch+extract by-id (preferred via `sharePointRef:{driveId,itemId}`) with a webUrl fallback for legacy callers. Extracts `.txt` / `.md` / `.docx` / `.pdf`; rejects `.doc` / `.rtf` with a "re-save as .docx" message.
+- `/api/compliance/policies` POST bumped to `maxDuration=120`. Anthropic call dropped `quote`+`section` from per-control output, runs at 100s timeout with `max_tokens=6000`.
+- Re-analyze flow no longer wipes the old analysis before the new one succeeds.
+- **Per-policy original-bytes preservation**: SharePoint imports now save `sourceBytes` + `sourceMimeType` + `sourceFileName` so Download .docx serves a byte-perfect copy of the customer's source instead of a re-rendered approximation. Pasted / generated policies still use the renderer.
+- Import button now hides after successful import (used to be re-clickable, creating duplicates).
 
-**Scope**:
-- Add deps: `mammoth` for .docx text extraction (~600KB, MIT) + `pdf-parse` for PDFs (~3MB, MIT). Check `package.json` before reinstalling.
-- New helper, probably `src/lib/compliance/policy-generation/sharepoint-fetch.ts`:
-  - Given (companyId, sharepoint webUrl), use Graph `/drives/{driveId}/items/{itemId}/content` to download the file bytes
-  - Extract text by extension: `.txt`/`.md` → utf-8 decode; `.docx` → `mammoth.extractRawText()`; `.pdf` → `pdf-parse`; `.doc`/`.rtf` → fallback message "unsupported format, please re-save as .docx"
-- Update `importSelectedFiles` in `PolicyManager.tsx` AND/OR the `/api/compliance/policies` POST route to fetch + extract before storing
-- The actual AI analysis already runs server-side after content is stored — that part doesn't change
-- Stretch: parallelize the per-file extraction with a small pool (3-5 concurrent)
+### Slice B — Intune Windows 10 compliance policy executor (DONE)
+- `src/lib/compliance/actions/executors/intune-compliance.ts` — Defender + signature + BitLocker + secure boot + firewall + code integrity baseline. Same idempotency-marker + allDevicesAssignment pattern as intune-defender.
+- Catalog entries for apply + remove. Mapped to CIS v8 2.3, 4.1, 10.1. **NOT** 1.2 / 2.5 (operator caught the over-mapping; device-state baseline is wrong primitive for network-asset discovery + allowlisting).
+- Live previewer counts enrolled Windows devices, samples `isEncrypted` to flag likely non-compliance.
 
-**Risk**: Extraction can be slow (5-30s per PDF). Server timeout (`maxDuration`) on `/api/compliance/policies` may need to bump. Consider doing the extraction client-side in PolicyManager OR fire-and-forget background.
+### Slice C — HIPAA / NIST 800-171 / CMMC L1/L2 / PCI DSS doc-primary curation (DONE)
+- Curated entries land in `src/lib/compliance/policy-generation/doc-primary-controls.ts`. Lookup now uses a per-framework prefix-strip table (HIPAA `hipaa-164.308-a1`, NIST `nist-3.1.1`, CMMC `cmmc-AC.L2-3.1.1`) instead of the broken-for-everything-except-CIS regex.
 
-### Slice B — Intune compliance policy executor (#1 in queue)
-**Why**: Operator hit control 2.3 "Address Unauthorized Software" — needs an Intune compliance policy (technical), not a documentation policy. The `doc-primary-controls.ts` allowlist fix (shipped) suppresses the wrong option, but there's still no RIGHT option to offer. Need a real executor.
+### Operator-feedback fixes after the slices
 
-**Scope**:
-- New file `src/lib/compliance/actions/executors/intune-compliance.ts`
-- Catalog action `intune.create_compliance_policy.windows_baseline` (or similar) — Windows 10 compliance policy that requires:
-  - Microsoft Defender Antivirus running + up to date
-  - Real-time protection enabled
-  - No active threats
-  - Maybe: BitLocker enabled, secure boot, OS version min
-- Graph API: `POST /v1.0/deviceManagement/deviceCompliancePolicies` with `windows10CompliancePolicy` body
-- After create: POST assignment to `allDevicesAssignmentTarget` (same pattern as existing `intune-defender.ts`)
-- `TCT_POLICY_MARKER` on displayName for idempotency
-- Real previewer that counts enrolled Windows devices (already done in `intune-defender.ts` — copy the pattern)
-- Register in `executors.ts` + `previewers.ts`
-- Add `satisfiesControls` for cis-v8 controls 1.2, 2.3, 2.5, 4.1 (and similar)
-- Permissions needed: `DeviceManagementConfiguration.ReadWrite.All` (same as existing Intune executor)
+- **Graph 403 leaks**: new `formatGraphPreviewError()` in `src/lib/compliance/actions/executors/graph-error-format.ts`. Wired into Intune + CA + password-protection previewers. 403/401/429/404 now produce one-line actionable summaries (named scope to grant, where to grant it) instead of raw Graph JSON.
+- **CIS 1.4 (DHCP Logging) re-routed** to UniFi gateways first (which actually serve DHCP), Domotz as fallback.
+- **CIS 1.3 / 1.4 / 1.5 / 12.1 / 12.2 / 12.6 N/A logic** added for fully-cloud customers (profile has `onPremServers === 'no_servers'` AND `remoteAccess === 'cloud_only'`).
+- **Old "tool deployed=false → control doesn't apply" logic fixed** — now returns `needs_review` with remediation hint, not bogus `not_applicable`.
+- **Policy card UI**: bucket labels renamed ("Fully covered" / "Partially covered" / "Relevant gap" with rose tint), preamble explaining off-scope controls don't appear.
+- **Docx renderer**: heading detection for numbered sections + Appendix lines that follow a blank-line (the wall-of-paragraphs fix when serving rendered docs).
+- **Analysis summary**: when AI returns no `summary` field, synthesizes "Mapped N controls: X fully covered, Y partially addressed, Z relevant but not in this policy." Never dumps raw JSON.
+- **Counts-show-0 bug**: derivation guard now treats empty arrays as missing, not falsy-truthy.
+- **Download .docx returns JSON**: route never returns JSON in the download path. Falls back to plain-text on render failure (with the actual error in the header).
+- **Remediate modal** now shows the originating control id under the action title ("Suggested for cis-v8 control 2.3").
+- **Reviewer override**: per-finding manual status override is back on `/admin/compliance/[companyId]/findings`. New `FindingOverrideInline.tsx` — status dropdown + required justification + Save / Edit / Clear, mounted above the disposition toggle in each expanded row. Disposition button now self-explains its purpose ("workflow tracker — what are we doing about this?").
+- **Comprehensive permissions list** at `docs/M365_PORTAL_PERMISSIONS.md` — single grant list of all 18 Graph scopes the codebase uses, built from a full `graphRequest` audit. Hand to a Global Admin once and the back-and-forth is over.
 
-**Risk**: Compliance policies enforce DIFFERENT things from configuration profiles. Don't conflate the existing `intune-defender.ts` (configuration profile that turns the setting on) with this new one (compliance policy that marks the device non-compliant if it isn't). Different Graph endpoints, different shapes.
+---
 
-### Slice C — HIPAA / NIST 800-171 / CMMC / PCI doc-primary curation (#2 in queue)
-**Why**: `doc-primary-controls.ts` currently only curates CIS v8. The "fail-open" branch makes `policy.generate_for_control` Remediate ALWAYS visible for those four frameworks — same conflation bug the operator caught for CIS, just hasn't been caught yet for those.
+## Known loose ends going into the next session
 
-**Scope**:
-- Mechanical curation work. Read each framework's mappings in `src/lib/compliance/policy-generation/framework-mappings.ts`
-- For each (framework, controlId), decide if a written policy is the primary fix (add to allowlist) or if the technical control is (don't add)
-- Add the cleared frameworks to `CURATED_FRAMEWORKS` in `doc-primary-controls.ts`
-- HIPAA has the largest doc-primary surface (most are policy + procedure mandates). NIST/CMMC/PCI are more technical-heavy.
+1. **Per-control customer-impact text is still action-level**, not control-level. The Remediate modal now displays the originating control id at the top so the linkage is explicit, but the customer-impact paragraph itself comes from the action catalog's `impact.userFacing` string and reads the same regardless of which control surfaced it. A future fix would either:
+   - Add a per-(action, control) override map in the catalog
+   - Generate a control-specific paragraph at preview time via Anthropic
+   Skipped this round because it's design-y; flag if the generic text becomes a real blocker.
 
-**Risk**: Curation judgment calls. When unsure, lean technical — operator can always create a backing doc manually from step 4.
+2. **17 pre-existing imported policies have no `sourceBytes`** because they were imported before that column existed. They fall through to the docx-renderer (degraded formatting). **As of this session a `sourcePointer JSONB` column was added** so future SharePoint imports will store `{driveId, itemId, webUrl, fileName, mimeType}`, AND a "Re-sync from SharePoint" affordance was added to PolicyManager that re-pulls the source bytes for any policy that has a pointer. Pre-existing policies without a pointer still need a manual delete + re-import to enable byte-perfect download.
+
+3. **`policy_org_profiles` + `compliance_customer_context` legacy tables** are operator-gated for deprecation (W16). Untouched this round.
+
+4. **Per-tenant credential encryption** still plaintext (W5). Migration plan in `docs/runbooks/CREDENTIALS_MIGRATION.md`. Untouched this round.
 
 ---
 

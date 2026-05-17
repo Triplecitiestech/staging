@@ -16,6 +16,7 @@ import { useState, useEffect, useCallback } from 'react'
 import type { CompliancePolicy, PolicyAnalysis, PolicyControlDetail } from '@/lib/compliance/types'
 import PublishPolicyButton from './PublishPolicyButton'
 import RequestApprovalButton from './RequestApprovalButton'
+import PolicyResyncButton from './PolicyResyncButton'
 import PolicyApprovalBadge, { type PolicyApprovalSnapshot } from './PolicyApprovalBadge'
 
 interface SharePointFile {
@@ -1200,10 +1201,19 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
                           href={`/api/compliance/${companyId}/policies/${policy.id}/download`}
                           download
                           className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-800/60 border border-white/10 text-slate-200 hover:bg-slate-800/80"
-                          title="Download as .docx — upload to IT Glue, My Glue, or any third-party platform manually"
+                          title={
+                            policy.hasSourceBytes
+                              ? 'Download the original SharePoint bytes — preserves heading styles, lists, branding'
+                              : 'Download a re-rendered .docx from the extracted text — formatting will be flat'
+                          }
                         >
                           Download .docx
                         </a>
+                        <PolicyResyncButton
+                          companyId={companyId}
+                          policyId={policy.id}
+                          enabled={policy.hasSourcePointer === true}
+                        />
                         <RequestApprovalButton
                           companyId={companyId}
                           policyId={policy.id}
