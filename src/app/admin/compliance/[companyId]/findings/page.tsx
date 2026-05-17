@@ -31,6 +31,7 @@ import {
 import { suggestActionsForControl } from '@/lib/compliance/actions/catalog'
 import { FRAMEWORK_POLICY_MAPPINGS } from '@/lib/compliance/policy-generation/framework-mappings'
 import { getCatalogItem as getPolicyCatalogItem } from '@/lib/compliance/policy-generation/catalog'
+import { isDocumentationPrimaryControl } from '@/lib/compliance/policy-generation/doc-primary-controls'
 import { frameworkLabel } from '@/lib/compliance/labels'
 import { getWorkflowState, adjacentSteps } from '@/lib/compliance/workflow-state'
 import FindingsResultsList, { type FindingRowData } from '@/components/compliance/FindingsResultsList'
@@ -137,6 +138,17 @@ export default async function FindingsStepPage({ params, searchParams }: Props) 
       ...suggestActionsForControl(basePrefix, shortControl),
     ]
       .filter((a, i, arr) => arr.findIndex((x) => x.id === a.id) === i)
+      // Suppress the policy-generate option when this control is NOT
+      // documentation-primary. Operator caught it: control 2.3 needs
+      // an Intune compliance policy (technical), not a written
+      // "Software Management Policy" doc. Allowlist is in
+      // doc-primary-controls.ts; controls not on it just don't see
+      // the policy-generate Remediate option. (They can still create
+      // a backing doc manually from step 4 if they want.)
+      .filter((a) => {
+        if (a.id !== 'policy.generate_for_control') return true
+        return isDocumentationPrimaryControl(basePrefix, shortControl)
+      })
       .map((a) => {
         const cov = a.satisfiesControls.find(
           (c) =>
@@ -200,9 +212,8 @@ export default async function FindingsStepPage({ params, searchParams }: Props) 
     }
   })
 
-  // Counters across ALL findings (not filtered) using effective status.
-  const counts = countByEffectiveStatus(findingRows)
-  const withDispositionCount = findingRows.filter((f) => Boolean(f.disposition.lifecycleStatus)).length
+  // Counter rows used to live here; they're now in FindingsResultsList
+  // alongside the filter state (each card is a clickable filter shortcut).
 
   return (
     <div className="space-y-5">
@@ -225,14 +236,10 @@ export default async function FindingsStepPage({ params, searchParams }: Props) 
         activeId={activeId}
       />
 
-      <section className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <Counter label="Total"           value={findingRows.length}      tone="slate" />
-        <Counter label="Passed"          value={counts.pass}             tone="emerald" />
-        <Counter label="Needs review"    value={counts.needs_review}     tone="cyan" />
-        <Counter label="Failed"          value={counts.fail}             tone="rose" />
-        <Counter label="Not applicable"  value={counts.not_applicable}   tone="slate" />
-        <Counter label="With disposition" value={withDispositionCount}   tone="violet" />
-      </section>
+      {/* Counter cards have moved into FindingsResultsList where the
+          filter state lives — each card is now a clickable shortcut
+          that flips the filter, so clicking "Failed" drills into
+          just the failed findings. */}
 
       {/* Cross-link to the per-recommendation Secure Score breakdown.
           Useful for the operator who hits a "Microsoft Secure Score
@@ -387,36 +394,7 @@ function AssessmentPicker({
   )
 }
 
-function Counter({ label, value, tone }: {
-  label: string
-  value: number
-  tone: 'emerald' | 'cyan' | 'rose' | 'slate' | 'violet'
-}) {
-  const cls =
-    tone === 'emerald' ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20' :
-    tone === 'cyan'    ? 'bg-cyan-500/10 text-cyan-300 border-cyan-500/20' :
-    tone === 'rose'    ? 'bg-rose-500/10 text-rose-300 border-rose-500/20' :
-    tone === 'violet'  ? 'bg-violet-500/10 text-violet-300 border-violet-500/20' :
-                         'bg-slate-800/40 text-slate-300 border-white/10'
-  return (
-    <div className={`rounded-lg border p-3 text-center ${cls}`}>
-      <p className="text-2xl font-bold">{value}</p>
-      <p className="text-[10px] uppercase tracking-wider">{label}</p>
-    </div>
-  )
-}
 
-function countByEffectiveStatus(findings: FindingRowData[]) {
-  const counts = {
-    pass: 0, fail: 0, needs_review: 0, partial: 0,
-    not_applicable: 0, not_assessed: 0, collection_failed: 0,
-  }
-  for (const f of findings) {
-    const e = f.effectiveStatus as keyof typeof counts
-    if (e in counts) counts[e]++
-  }
-  return counts
-}
 
 function pickActiveAssessmentId(
   assessments: AssessmentPickRow[],

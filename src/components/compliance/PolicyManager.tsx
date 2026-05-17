@@ -95,6 +95,13 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
   const [spSelected, setSpSelected] = useState<Set<string>>(new Set())
   const [spImporting, setSpImporting] = useState(false)
   const [spImportProgress, setSpImportProgress] = useState(0)
+  // Persisted summary of the most recent import — operator sees X
+  // imported / Y failed inline instead of the form silently closing.
+  const [spImportResult, setSpImportResult] = useState<{
+    imported: number
+    failures: Array<{ fileName: string; message: string }>
+    total: number
+  } | null>(null)
   // Sticky hint shown only after an actual 403/permission failure on
   // a scan call — not as always-on chrome.
   const [spPermissionHint, setSpPermissionHint] = useState<string | null>(null)
@@ -264,12 +271,14 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
     setSpImporting(true)
     setSpImportProgress(0)
     setError(null)
+    setSpImportResult(null)
     const selected = spFiles.filter((f) => spSelected.has(f.id))
+    const importFailures: Array<{ fileName: string; message: string }> = []
     let imported = 0
 
     for (const file of selected) {
       try {
-        await fetch('/api/compliance/policies', {
+        const res = await fetch('/api/compliance/policies', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -281,18 +290,34 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
             analyze: true,
           }),
         })
-        imported++
-        setSpImportProgress(Math.round((imported / selected.length) * 100))
-      } catch {
-        // Continue with remaining files
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          importFailures.push({
+            fileName: file.name,
+            message: typeof body?.error === 'string' ? body.error : `HTTP ${res.status}`,
+          })
+        } else {
+          imported++
+        }
+        setSpImportProgress(Math.round(((imported + importFailures.length) / selected.length) * 100))
+      } catch (err) {
+        importFailures.push({
+          fileName: file.name,
+          message: err instanceof Error ? err.message : 'Network error',
+        })
       }
     }
 
     setSpImporting(false)
-    setSpFiles([])
-    setSpSelected(new Set())
-    setSharepointUrls([''])
-    setShowAddForm(false)
+    // Don't close the form. Leave the import-result card visible so
+    // the operator can see what landed (and what didn't) before
+    // dismissing. Refresh the policy list under the form so newly
+    // imported docs appear immediately.
+    setSpImportResult({
+      imported,
+      failures: importFailures,
+      total: selected.length,
+    })
     await loadPolicies()
   }
 
@@ -695,6 +720,60 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
                       ? `Importing & Analyzing… ${spImportProgress}%`
                       : `Import & Analyze ${spSelected.size} document${spSelected.size === 1 ? '' : 's'}`}
                   </button>
+                </div>
+              )}
+
+              {/* Import-result card — visible after a bulk import
+                  completes so the operator knows what landed and
+                  what didn't. Was silently closing the form before. */}
+              {spImportResult && (
+                <div
+                  className={`rounded-lg border p-4 space-y-2 ${
+                    spImportResult.failures.length === 0
+                      ? 'bg-emerald-500/10 border-emerald-500/30'
+                      : spImportResult.imported === 0
+                      ? 'bg-rose-500/10 border-rose-500/30'
+                      : 'bg-cyan-500/10 border-cyan-500/30'
+                  }`}
+                >
+                  <p className="text-sm font-semibold text-white">
+                    {spImportResult.failures.length === 0
+                      ? `✓ Imported ${spImportResult.imported} of ${spImportResult.total} documents`
+                      : spImportResult.imported === 0
+                      ? `✗ All ${spImportResult.total} imports failed`
+                      : `${spImportResult.imported} imported, ${spImportResult.failures.length} failed`}
+                  </p>
+                  {spImportResult.failures.length > 0 && (
+                    <details className="text-xs text-rose-200">
+                      <summary className="cursor-pointer">Show failures</summary>
+                      <ul className="mt-2 space-y-1">
+                        {spImportResult.failures.map((f, i) => (
+                          <li key={i} className="font-mono">
+                            <span className="text-rose-100">{f.fileName}</span>: {f.message}
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                  <p className="text-[11px] text-slate-300/80">
+                    Imported policies appear in the library below — analyze runs in the background and
+                    framework coverage updates within a minute or two.
+                  </p>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSpImportResult(null)
+                        setSpFiles([])
+                        setSpSelected(new Set())
+                        setSharepointUrls([''])
+                        setShowAddForm(false)
+                      }}
+                      className="text-xs text-slate-300 hover:text-white underline"
+                    >
+                      Close
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
