@@ -29,6 +29,8 @@ import {
   getFrameworkDefinition,
 } from '@/lib/compliance/engine'
 import { suggestActionsForControl } from '@/lib/compliance/actions/catalog'
+import { FRAMEWORK_POLICY_MAPPINGS } from '@/lib/compliance/policy-generation/framework-mappings'
+import { getCatalogItem as getPolicyCatalogItem } from '@/lib/compliance/policy-generation/catalog'
 import { frameworkLabel } from '@/lib/compliance/labels'
 import { getWorkflowState, adjacentSteps } from '@/lib/compliance/workflow-state'
 import FindingsResultsList, { type FindingRowData } from '@/components/compliance/FindingsResultsList'
@@ -141,7 +143,34 @@ export default async function FindingsStepPage({ params, searchParams }: Props) 
             (c.frameworkId === summary.assessment.frameworkId || c.frameworkId === basePrefix) &&
             (c.controlId === f.controlId || c.controlId === shortControl)
         )?.coverage ?? 'partial'
-        return { id: a.id, name: a.name, coverage: cov }
+        // Decorate per-control so the picker tells the operator
+        // EXACTLY what each option does. Crucially distinguishes
+        // documentation-policy generation from technical-tenant
+        // changes — the operator complaint that surfaced this was
+        // assuming "Generate / revise the documented policy" was
+        // going to create an Intune compliance policy when it
+        // actually creates a written doc.
+        let name = a.name
+        if (a.id === 'policy.generate_for_control') {
+          const mapping = FRAMEWORK_POLICY_MAPPINGS.find((m) =>
+            (m.frameworkId === basePrefix || m.frameworkId === summary.assessment.frameworkId) &&
+            (m.controlId === f.controlId ||
+             m.controlId === shortControl ||
+             m.controlId === `${basePrefix}-${shortControl}`) &&
+            m.coverageType !== 'supporting'
+          )
+          const catalog = mapping ? getPolicyCatalogItem(mapping.policySlug) : null
+          if (catalog) {
+            name = `Generate written policy: "${catalog.name}" (documentation only — does NOT push to the customer tenant)`
+          } else {
+            name = `${a.name} (written documentation — does NOT push to the customer tenant)`
+          }
+        } else if (a.id.startsWith('graph.') || a.id.startsWith('defender.') || a.id.startsWith('m365.')) {
+          // Tag tenant-mutating actions explicitly so the operator
+          // sees them as DIFFERENT from documentation generation.
+          name = `${a.name} (technical: pushes change to the customer's M365 tenant)`
+        }
+        return { id: a.id, name, coverage: cov }
       })
     return {
       id: f.id,

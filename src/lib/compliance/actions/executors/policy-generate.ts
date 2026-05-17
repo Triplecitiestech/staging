@@ -251,25 +251,79 @@ export async function generatePolicyForControl(ctx: ExecutorContext): Promise<Ex
 // ---------------------------------------------------------------------------
 
 export async function previewGeneratePolicyForControl(ctx: PreviewerContext): Promise<ImpactPreview> {
-  // PreviewerContext doesn't carry metadata today. Without the control
-  // we can only tell the operator "this will pick a policy based on the
-  // failing control". That's fine — the executor refuses cleanly if
-  // the metadata is missing at apply-time.
+  // Read the originating control from metadata (slice C.4+ wired
+  // PreviewerContext to carry the same metadata the executor uses).
+  // Then resolve the SPECIFIC policy slug + name + whether it'll be
+  // a fresh draft or a revision, so the operator sees exactly what's
+  // about to land in the compliance library — not just "1 entity".
+  const rc = resolveControlFromMetadata(ctx.metadata)
+  if (!rc) {
+    return {
+      totalAffected: 0,
+      entities: [],
+      truncated: false,
+      summary:
+        'Open this preview from the Remediate button on a failing control — without the source control, TCT cannot tell which policy to generate.',
+      isLiveQuery: false,
+    }
+  }
+  const mapping = pickMappingForControl(rc)
+  if (!mapping) {
+    return {
+      totalAffected: 0,
+      entities: [],
+      truncated: false,
+      summary: `No policy in the TCT catalog covers ${rc.frameworkId} control ${rc.shortControlId}. Upload a custom policy on step 4 instead.`,
+      isLiveQuery: true,
+    }
+  }
+  const catalog = getCatalogItem(mapping.policySlug)
+  if (!catalog) {
+    return {
+      totalAffected: 0,
+      entities: [],
+      truncated: false,
+      summary: `Catalog data out of sync — slug "${mapping.policySlug}" referenced but not registered.`,
+      isLiveQuery: false,
+    }
+  }
+
+  const [companyName, existing] = await Promise.all([
+    getCompanyDisplayName(ctx.companyId),
+    findExistingPolicy(ctx.companyId, mapping.policySlug),
+  ])
+  const mode: 'new' | 'improve' = existing ? 'improve' : 'new'
+
+  const sections = catalog.expectedSections.length
+
+  // Build the summary so the operator sees: which policy, fresh vs
+  // revise, which sections it'll have, what controls it covers,
+  // and an explicit "nothing touches the tenant" callout.
+  const summaryLines = [
+    mode === 'new'
+      ? `Will GENERATE "${catalog.name}" (slug: ${catalog.slug}) for ${companyName}.`
+      : `Will REVISE the existing "${catalog.name}" — re-runs the AI generator with the current draft as a base.`,
+    `Document will include ${sections} standard sections (Purpose & Scope, Roles, Enforcement, etc.). Tailored to ${companyName}'s industry + framework selections from step 2 (Customer Profile).`,
+    `Covers ${rc.frameworkId} control ${rc.shortControlId}.`,
+    `IMPORTANT: nothing is pushed to the customer's tenant at this stage. The draft lands in the TCT compliance library only — operator reviews it, customer approves it via portal, THEN it gets pushed to SharePoint by a separate action.`,
+  ]
+
   return {
     totalAffected: 1,
     entities: [{
-      id: 'pending-policy',
-      displayName: 'AI-generated policy draft',
-      type: 'other',
-      currentState: 'not yet generated',
-      projectedState: 'drafted in compliance library',
+      id: `policy-${mapping.policySlug}`,
+      displayName: `${catalog.name} (${catalog.slug})`,
+      type: 'policy',
+      currentState: existing ? `existing draft (last updated ${new Date(existing.updatedAt).toLocaleDateString()})` : 'not yet generated',
+      projectedState: mode === 'new' ? 'new AI-generated draft in compliance library' : 'revised AI-generated draft in compliance library',
     }],
     truncated: false,
-    summary: 'Will generate (or revise) the policy that covers this control, using the customer profile as input. The draft lands in step 4 (Policies) for review — nothing is published outside TCT until you approve it in a future slice.',
+    summary: summaryLines.join(' '),
     isLiveQuery: true,
     warnings: [
       'AI-generated drafts always need human review before being used as a real policy.',
       'Generation runs against Anthropic Claude — typical 20-40 seconds.',
-    ],
+      mode === 'improve' ? 'This OVERWRITES the existing draft in place — the prior content is fed as base, but the output replaces it.' : '',
+    ].filter(Boolean),
   }
 }
