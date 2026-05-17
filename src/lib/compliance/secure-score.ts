@@ -146,9 +146,20 @@ export async function loadSecureScoreSnapshot(companyId: string): Promise<Secure
 
   let profilesData
   try {
-    profilesData = await graphRequest<{ value: GraphSecureScoreControlProfile[] }>(
-      token, '/security/secureScoreControlProfiles?$top=200'
-    )
+    // Paginate. The endpoint returns ~100 profiles per page and the
+    // operator's tenant has ~194 recommendations — without following
+    // @odata.nextLink we miss everything past page 1 and the UI shows
+    // bare scid_* / mip_* ids instead of friendly titles.
+    profilesData = { value: [] as GraphSecureScoreControlProfile[] }
+    let nextUrl: string | null = '/security/secureScoreControlProfiles?$top=200'
+    let pagesScanned = 0
+    while (nextUrl && pagesScanned < 20) {
+      const page: { value: GraphSecureScoreControlProfile[]; '@odata.nextLink'?: string } =
+        await graphRequest(token, nextUrl)
+      profilesData.value.push(...(page?.value ?? []))
+      nextUrl = page?.['@odata.nextLink'] ?? null
+      pagesScanned++
+    }
   } catch (err) {
     console.error('[secure-score] controlProfiles fetch failed:', err)
     // Fall back to score-only — recs without profile metadata are
@@ -167,7 +178,11 @@ export async function loadSecureScoreSnapshot(companyId: string): Promise<Secure
     const latestState = profile?.controlStateUpdates?.[profile.controlStateUpdates.length - 1]?.state ?? null
     return {
       id: cs.controlName,
-      title: profile?.title ?? cs.controlName,
+      // Fall back to a humanized version of the internal id when
+      // Microsoft hasn't published a friendly title for this control
+      // (e.g. scid_2021, mip_sensitivitylabelspolicies). Better than
+      // showing the raw key in the UI.
+      title: profile?.title ?? humanizeControlName(cs.controlName),
       category: profile?.controlCategory ?? 'Uncategorized',
       service: profile?.service ?? 'Microsoft 365',
       maxScore,
@@ -197,4 +212,47 @@ export async function loadSecureScoreSnapshot(companyId: string): Promise<Secure
     collectedAt: score.createdDateTime,
     recommendations,
   }
+}
+
+/**
+ * Convert a Microsoft control-name id into something readable when
+ * the secureScoreControlProfiles endpoint doesn't have a published
+ * title for it. Examples:
+ *   "mip_sensitivitylabelspolicies"          → "MIP Sensitivity Labels Policies"
+ *   "mdo_thresholdreachedaction"             → "MDO Threshold Reached Action"
+ *   "meeting_designatedpresenter_v1"         → "Meeting Designated Presenter (v1)"
+ *   "scid_2021"                              → "Secure Score Control 2021"
+ * Microsoft's internal ids aren't 100% consistent, so this is
+ * best-effort — anything we can't parse falls back to title-case-on-
+ * underscores.
+ */
+function humanizeControlName(controlName: string): string {
+  if (controlName.startsWith('scid_')) {
+    return `Secure Score Control ${controlName.slice(5)}`
+  }
+  // Strip a trailing _v\d version tag for cleaner display.
+  const versionMatch = controlName.match(/^(.*)_v(\d+)$/)
+  const versionSuffix = versionMatch ? ` (v${versionMatch[2]})` : ''
+  const base = versionMatch ? versionMatch[1] : controlName
+
+  // Known acronym prefixes that should stay uppercase.
+  const KNOWN_PREFIXES: Record<string, string> = {
+    mip: 'MIP',
+    mdo: 'MDO',
+    mca: 'MCA',
+    mdc: 'MDC',
+    mde: 'MDE',
+    mcas: 'MCAS',
+    edp: 'EDP',
+    dlp: 'DLP',
+  }
+  return base
+    .split('_')
+    .map((token, idx) => {
+      if (idx === 0 && KNOWN_PREFIXES[token.toLowerCase()]) return KNOWN_PREFIXES[token.toLowerCase()]
+      return token.length === 0
+        ? ''
+        : token.charAt(0).toUpperCase() + token.slice(1)
+    })
+    .join(' ') + versionSuffix
 }
