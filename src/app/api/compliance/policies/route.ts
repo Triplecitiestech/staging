@@ -246,9 +246,19 @@ export async function PATCH(request: NextRequest) {
           return NextResponse.json({ error: 'Policy not found' }, { status: 404 })
         }
         const p = policy.rows[0]
-        // Delete old analyses
-        await client.query(`DELETE FROM compliance_policy_analyses WHERE "policyId" = $1`, [p.id])
+        // Run the new analysis BEFORE deleting the old one. If the new
+        // analysis fails (timeout, parse error), the operator gets to
+        // keep their previous controlDetails / counts instead of being
+        // left with an empty error card. Only swap on success.
         const analysis = await analyzePolicyWithAI(client, p.id, p.companyId, p.title, p.content, session.user.email, body.frameworkId ?? 'cis-v8')
+        if (analysis && analysis.status === 'complete') {
+          // New analysis succeeded — purge the older rows. Keep the
+          // analysis we just inserted (its id is the latest).
+          await client.query(
+            `DELETE FROM compliance_policy_analyses WHERE "policyId" = $1 AND id <> $2`,
+            [p.id, analysis.id]
+          )
+        }
         return NextResponse.json({ success: true, analysis })
       }
 
@@ -440,15 +450,13 @@ Analyze this policy and provide a JSON response with:
 1. "controlDetails" - array of objects for EACH relevant control with:
    - "controlId": control ID (e.g. "${fw.idFormat}")
    - "status": "satisfied" | "partial" | "missing"
-   - "reasoning": 1-2 sentence explanation of WHY this control is satisfied/partial/missing
-   - "quote": exact quote from the policy text that addresses this control (null if missing)
-   - "section": the section heading or title where the relevant text appears (null if missing)
-2. "satisfiedControls" - array of control IDs fully satisfied (for backward compatibility)
+   - "reasoning": ONE concise sentence (<= 30 words) explaining WHY the control is satisfied/partial/missing. Don't quote the policy verbatim — just summarize.
+2. "satisfiedControls" - array of control IDs fully satisfied
 3. "partialControls" - array of control IDs partially addressed
 4. "missingControls" - array of control IDs this policy SHOULD address but doesn't
-5. "gaps" - array of strings describing specific gaps
-6. "recommendations" - array of specific actionable recommendations
-7. "summary" - a 2-3 sentence overall assessment
+5. "gaps" - array of strings describing specific gaps (3-6 short bullets max)
+6. "recommendations" - array of specific actionable recommendations (3-6 short bullets max)
+7. "summary" - a 2-3 sentence overall assessment in plain English
 8. "orgProfileExtraction" - extract organizational data from the policy text. Only include fields where the policy explicitly mentions the information. Return an object with any of these keys:
    - "org_industry": one of "healthcare"|"manufacturing"|"finance"|"government"|"defense"|"education"|"legal"|"technology"|"retail"|"nonprofit"|"other"
    - "org_employee_count": one of "1-25"|"26-100"|"101-500"|"501-1000"|"1000+"
@@ -469,8 +477,6 @@ Analyze this policy and provide a JSON response with:
    - "org_ai_tools_used": one of "yes_approved"|"yes_uncontrolled"|"no"|"evaluating" — if AI tool usage is mentioned
    Only include keys where the policy text provides clear evidence. Do NOT guess.
 
-IMPORTANT: For each control in controlDetails, include an exact "quote" from the policy text that demonstrates compliance. Keep quotes under 200 characters. If the control is "missing", set quote to null.
-
 ${fw.name} Controls to evaluate against:
 ${fw.controls}
 
@@ -488,16 +494,19 @@ Respond with ONLY valid JSON, no markdown.`
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        // 8000 tokens fits ~17 CIS controls with per-control reasoning +
-        // quote + section. 4000 was getting truncated mid-JSON on long
-        // policies, which then failed JSON.parse and dumped the raw
-        // truncated response into analysisText (UI showed unreadable
-        // JSON instead of a summary).
-        max_tokens: 8000,
+        // 6000 tokens after dropping per-control quote+section comfortably
+        // fits a full CIS v8 analysis (~50 sub-controls × controlId + status
+        // + 30-word reasoning ≈ 4500 tokens) plus summary + gaps +
+        // recommendations + orgProfileExtraction.
+        max_tokens: 6000,
         system: 'You are a compliance policy analyst. Always respond with valid JSON only. No markdown, no preamble, no explanation outside the JSON object.',
         messages: [{ role: 'user', content: prompt }],
       }),
-      signal: AbortSignal.timeout(60_000),
+      // 100s gives ~60s of headroom over our previous 45s ceiling
+      // (Sonnet 4.6 generating 5-6k JSON tokens averages 25-50s) while
+      // staying well under the 120s Vercel function maxDuration so the
+      // catch block still has time to write a clean failure row.
+      signal: AbortSignal.timeout(100_000),
     })
 
     if (!res.ok) {
@@ -513,7 +522,9 @@ Respond with ONLY valid JSON, no markdown.`
 
     // Parse JSON from response
     let parsed: {
-      controlDetails?: Array<{ controlId: string; status: string; reasoning: string; quote: string | null; section: string | null }>
+      // quote + section dropped from the prompt to halve output size;
+      // accept them as optional in case an older cached response is replayed.
+      controlDetails?: Array<{ controlId: string; status: string; reasoning: string; quote?: string | null; section?: string | null }>
       satisfiedControls?: string[]
       partialControls?: string[]
       missingControls?: string[]
