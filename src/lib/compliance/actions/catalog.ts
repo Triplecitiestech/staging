@@ -359,7 +359,7 @@ const PUBLISH_TO_SHAREPOINT_ACTION: RemediationAction = {
     userFacing:
       'TCT will upload the approved policy document to the customer\'s SharePoint document library. The customer\'s users will see the new file at the folder you choose; existing copies are preserved (the upload auto-suffixes "v2", "v3", etc.). This action only runs after the customer-approval checkbox is ticked in the publish modal.',
     operational:
-      'Calls Graph PUT /drives/{driveId}/root:/<path>:/content with the policy rendered to HTML (renderPolicyHtml). Idempotency: uses a v2/v3 suffix on the filename so we never silently overwrite an approved earlier version. Refuses cleanly when metadata.customerApproved !== true.',
+      'Calls Graph PUT /drives/{driveId}/root:/<path>:/content with the policy rendered to .docx (renderPolicyDocx). Idempotency: uses a v2/v3 suffix on the filename so we never silently overwrite an approved earlier version. Refuses cleanly when metadata.customerApproved !== true.',
     blastRadius: 'tenant_wide',
     estimatedDisruptionMinutes: 0,
     sessionDisruptive: false,
