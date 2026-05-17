@@ -15,13 +15,16 @@
  * (keyed by tenantId) is identical.
  *
  * REQUIRED Azure AD app permissions (Application, not Delegated):
- *   - User.ReadWrite.All
- *   - Group.ReadWrite.All
- *   - GroupMember.ReadWrite.All
- *   - Sites.ReadWrite.All                          (SharePoint)
- *   - Organization.Read.All                        (license SKUs)
- *   - DeviceManagementManagedDevices.Read.All       (Intune managed devices)
- *   - Device.Read.All                               (Azure AD devices fallback)
+ *   See docs/M365_PORTAL_PERMISSIONS.md for the authoritative single
+ *   grant list. Short version (full per-feature breakdown in the doc):
+ *     - User.ReadWrite.All, Group.ReadWrite.All, GroupMember.ReadWrite.All
+ *     - Directory.Read.All, Directory.ReadWrite.All, Organization.Read.All
+ *     - AuditLog.Read.All, Reports.Read.All, UserAuthenticationMethod.Read.All
+ *     - Policy.Read.All, Policy.ReadWrite.ConditionalAccess
+ *     - DeviceManagementConfiguration.ReadWrite.All
+ *     - DeviceManagementManagedDevices.Read.All, Device.Read.All
+ *     - SecurityEvents.Read.All
+ *     - Sites.Read.All, Sites.ReadWrite.All, Files.ReadWrite.All
  */
 
 import { getPool } from '@/lib/db-pool'
