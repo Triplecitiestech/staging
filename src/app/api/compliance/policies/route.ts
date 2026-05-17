@@ -371,6 +371,35 @@ SI.L2-3.14.6 Monitor Communications, SI.L2-3.14.7 Identify Unauthorized Use`,
   },
 }
 
+/**
+ * Build a short, human-readable summary from analysis counts when the
+ * AI didn't return a `summary` field of its own. Surfaced verbatim in
+ * the policy-card UI, so it must read as natural English — never a
+ * stringified JSON blob, even when the analysis turned up nothing.
+ */
+function synthesizeAnalysisSummary(counts: {
+  satisfied: number
+  partial: number
+  missing: number
+  truncated: boolean
+}): string {
+  const { satisfied, partial, missing, truncated } = counts
+  const total = satisfied + partial + missing
+  if (total === 0) {
+    return truncated
+      ? 'Analysis response was cut off before any control mapping completed. Re-analyze to retry with the full document.'
+      : 'No control mappings were produced for this policy. The AI did not find content that mapped to the selected framework — try re-analyzing or confirm the policy text was extracted correctly.'
+  }
+  const parts: string[] = []
+  if (satisfied > 0) parts.push(`${satisfied} fully covered`)
+  if (partial > 0)   parts.push(`${partial} partially addressed`)
+  if (missing > 0)   parts.push(`${missing} relevant but not in this policy`)
+  const tail = truncated
+    ? ' Analysis response was truncated — re-analyze for full coverage.'
+    : ''
+  return `Mapped ${total} controls: ${parts.join(', ')}.${tail}`
+}
+
 async function analyzePolicyWithAI(
   client: import('pg').PoolClient,
   policyId: string,
@@ -459,19 +488,28 @@ Respond with ONLY valid JSON, no markdown.`
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: 4000,
+        // 8000 tokens fits ~17 CIS controls with per-control reasoning +
+        // quote + section. 4000 was getting truncated mid-JSON on long
+        // policies, which then failed JSON.parse and dumped the raw
+        // truncated response into analysisText (UI showed unreadable
+        // JSON instead of a summary).
+        max_tokens: 8000,
         system: 'You are a compliance policy analyst. Always respond with valid JSON only. No markdown, no preamble, no explanation outside the JSON object.',
         messages: [{ role: 'user', content: prompt }],
       }),
-      signal: AbortSignal.timeout(45_000),
+      signal: AbortSignal.timeout(60_000),
     })
 
     if (!res.ok) {
       throw new Error(`Anthropic API error: ${res.status}`)
     }
 
-    const data = (await res.json()) as { content: Array<{ type: string; text: string }> }
+    const data = (await res.json()) as {
+      content: Array<{ type: string; text: string }>
+      stop_reason?: string
+    }
     const text = data.content?.[0]?.text ?? ''
+    const truncated = data.stop_reason === 'max_tokens'
 
     // Parse JSON from response
     let parsed: {
@@ -490,25 +528,53 @@ Respond with ONLY valid JSON, no markdown.`
     } catch {
       // Try to extract JSON from text — Claude sometimes adds preamble or markdown
       try {
-        // Remove markdown code fences if present
         const cleaned = text.replace(/```json\s*/g, '').replace(/```\s*/g, '')
         const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
         if (jsonMatch) {
           parsed = JSON.parse(jsonMatch[0])
         }
       } catch {
-        // If still can't parse, store the raw text as the summary
         console.error('[compliance/policies] Failed to parse AI response as JSON:', text.substring(0, 500))
-        parsed = { summary: text.substring(0, 2000) }
+        // Never store raw text as the summary — the UI renders summary
+        // verbatim and a JSON blob is unreadable. Synthesize a
+        // human-readable failure note instead so the operator can
+        // see something went wrong and re-analyze.
+        parsed = {
+          summary: truncated
+            ? 'Analysis response was cut off before completion (hit the max-token budget). Re-analyze to retry with the full document.'
+            : 'Analysis response could not be parsed as JSON. Re-analyze to retry.',
+        }
       }
     }
 
-    // If controlDetails provided, derive satisfied/partial/missing from it
-    if (parsed.controlDetails && parsed.controlDetails.length > 0 && !parsed.satisfiedControls) {
-      parsed.satisfiedControls = parsed.controlDetails.filter((c) => c.status === 'satisfied').map((c) => c.controlId)
-      parsed.partialControls = parsed.controlDetails.filter((c) => c.status === 'partial').map((c) => c.controlId)
-      parsed.missingControls = parsed.controlDetails.filter((c) => c.status === 'missing').map((c) => c.controlId)
+    // Derive satisfied/partial/missing buckets from controlDetails when
+    // the AI omitted them OR returned empty arrays. The old guard
+    // (`!parsed.satisfiedControls`) failed when the AI returned
+    // `satisfiedControls: []` because empty arrays are truthy, so the
+    // UI counts stayed at 0 even though controlDetails was populated.
+    if (parsed.controlDetails && parsed.controlDetails.length > 0) {
+      const derived = {
+        satisfied: parsed.controlDetails.filter((c) => c.status === 'satisfied').map((c) => c.controlId),
+        partial: parsed.controlDetails.filter((c) => c.status === 'partial').map((c) => c.controlId),
+        missing: parsed.controlDetails.filter((c) => c.status === 'missing').map((c) => c.controlId),
+      }
+      if (!parsed.satisfiedControls || parsed.satisfiedControls.length === 0) parsed.satisfiedControls = derived.satisfied
+      if (!parsed.partialControls   || parsed.partialControls.length === 0)   parsed.partialControls = derived.partial
+      if (!parsed.missingControls   || parsed.missingControls.length === 0)   parsed.missingControls = derived.missing
     }
+
+    // Synthesize a readable summary when the AI didn't provide one.
+    // Previously fell back to `text` (the raw JSON response), which
+    // the policy-card UI then rendered verbatim. Result: operator sees
+    // an unreadable JSON blob where a sentence should be.
+    const finalSummary = parsed.summary && parsed.summary.trim().length > 0
+      ? parsed.summary
+      : synthesizeAnalysisSummary({
+          satisfied: parsed.satisfiedControls?.length ?? 0,
+          partial: parsed.partialControls?.length ?? 0,
+          missing: parsed.missingControls?.length ?? 0,
+          truncated,
+        })
 
     // Ensure controlDetails column exists (added after initial table creation)
     try {
@@ -539,7 +605,7 @@ Respond with ONLY valid JSON, no markdown.`
         JSON.stringify(parsed.missingControls ?? []),
         JSON.stringify(parsed.gaps ?? []),
         JSON.stringify(parsed.recommendations ?? []),
-        parsed.summary ?? text,
+        finalSummary,
         JSON.stringify(parsed.controlDetails ?? []),
         frameworkId,
         analysisId,

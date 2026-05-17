@@ -43,7 +43,21 @@ export async function GET(
     const row = res.rows[0]
     if (!row) return NextResponse.json({ error: 'Policy not found' }, { status: 404 })
 
-    const buf = await renderPolicyDocx(row.content, {
+    // Strip the gnarly control characters pdf-parse / mammoth sometimes
+    // leave in extracted text (form feeds, NULs, vertical tabs). The
+    // docx XML packer throws on those — when it does, the catch block
+    // below returns JSON, and the browser saves the JSON response as
+    // the "downloaded .docx". Sanitize at the source instead.
+    const safeContent = (row.content ?? '')
+      .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\uFFFD]/g, ' ')
+    if (safeContent.trim().length === 0) {
+      return NextResponse.json(
+        { error: 'Policy has no content to render. Re-import or re-extract the source document.' },
+        { status: 422 }
+      )
+    }
+
+    const buf = await renderPolicyDocx(safeContent, {
       policyTitle: row.title,
       companyName: row.companyName,
       effectiveDate: new Date().toISOString().slice(0, 10),
@@ -66,8 +80,15 @@ export async function GET(
       },
     })
   } catch (err) {
-    console.error('[compliance/policies/download] error:', err)
-    return NextResponse.json({ error: 'Failed to render policy download' }, { status: 500 })
+    // Log the full stack so the next operator who sees "downloaded a
+    // JSON instead of a .docx" can search Vercel logs for the cause.
+    // The browser still shows the saved-as-JSON file but at least we
+    // can diagnose from the server side now.
+    console.error('[compliance/policies/download] render failed:', err)
+    return NextResponse.json(
+      { error: `Failed to render policy download: ${err instanceof Error ? err.message : String(err)}` },
+      { status: 500 }
+    )
   } finally {
     client.release()
   }
