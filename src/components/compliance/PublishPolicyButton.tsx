@@ -168,9 +168,9 @@ export default function PublishPolicyButton({ companyId, policyId, policyTitle, 
               />
               <p className="text-[11px] text-slate-500">
                 Any SharePoint URL works — direct folder URL or the browser address-bar viewer URL.
-                The policy uploads as <code className="text-cyan-300">{policyTitle.slice(0, 60)}.html</code>;
-                an auto-suffix (v2, v3, …) is added if a file by that name already exists, so existing approved
-                versions are never silently overwritten.
+                The policy uploads as <code className="text-cyan-300">{policyTitle.slice(0, 60)}.docx</code>{' '}
+                (Microsoft Word format). An auto-suffix (v2, v3, …) is added if a file by that name already
+                exists, so existing approved versions are never silently overwritten.
               </p>
             </section>
 

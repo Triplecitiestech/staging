@@ -36,7 +36,7 @@ import {
   safeDecode,
   type SharePointDrive,
 } from '@/lib/compliance/sharepoint-url'
-import { renderPolicyHtml } from '@/lib/compliance/policy-generation/export'
+import { renderPolicyDocx } from '@/lib/compliance/policy-generation/docx-renderer'
 import { getPool } from '@/lib/db-pool'
 import type { ExecutorContext, ExecutorResult } from '../executors'
 import type { PreviewerContext, ImpactPreview } from '../previewers'
@@ -103,10 +103,10 @@ function buildFileName(policyTitle: string, existingNames: string[]): string {
   // If a file with this exact name already exists, suffix v2 / v3 / ...
   // Existing names checked case-insensitively (SharePoint is case-insensitive).
   const lowerSet = new Set(existingNames.map((n) => n.toLowerCase()))
-  if (!lowerSet.has(`${base}.html`.toLowerCase())) return `${base}.html`
+  if (!lowerSet.has(`${base}.docx`.toLowerCase())) return `${base}.docx`
   let n = 2
-  while (lowerSet.has(`${base} v${n}.html`.toLowerCase())) n++
-  return `${base} v${n}.html`
+  while (lowerSet.has(`${base} v${n}.docx`.toLowerCase())) n++
+  return `${base} v${n}.docx`
 }
 
 async function listFolderFiles(token: string, driveId: string, relative: string): Promise<string[]> {
@@ -187,15 +187,23 @@ export async function publishPolicyToSharePoint(ctx: ExecutorContext): Promise<E
   }
 
   const companyName = await getCompanyName(ctx.companyId)
-  const html = renderPolicyHtml(policy.content, {
-    policyTitle: policy.title,
-    companyName,
-    effectiveDate: new Date().toISOString().slice(0, 10),
-    reviewDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-    version: '1.0',
-    owner: 'Triple Cities Tech (managed)',
-    approvedBy: ctx.staffEmail,
-  })
+  let docxBuffer: Buffer
+  try {
+    docxBuffer = await renderPolicyDocx(policy.content, {
+      policyTitle: policy.title,
+      companyName,
+      effectiveDate: new Date().toISOString().slice(0, 10),
+      reviewDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+      version: '1.0',
+      owner: 'Triple Cities Tech (managed)',
+      approvedBy: ctx.staffEmail,
+    })
+  } catch (err) {
+    return {
+      success: false,
+      summary: `Failed to render .docx: ${err instanceof Error ? err.message : String(err)}`,
+    }
+  }
 
   const existingNames = await listFolderFiles(token, dest.drive.id, dest.relativeToDrive)
   const fileName = buildFileName(policy.title, existingNames)
@@ -210,8 +218,16 @@ export async function publishPolicyToSharePoint(ctx: ExecutorContext): Promise<E
       `/drives/${dest.drive.id}/root:/${encodedPath}:/content`,
       {
         method: 'PUT',
-        headers: { 'Content-Type': 'text/html' },
-        body: html,
+        headers: {
+          // Word's official MIME type. SharePoint uses it to render
+          // the file as a .docx (in-browser Word preview, "Open in
+          // Word" button, etc.) instead of a generic binary download.
+          'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        },
+        // Project's TS lib doesn't include Uint8Array in BodyInit
+        // (older dom.lib.d.ts shape). Node fetch (undici) accepts a
+        // Buffer / Uint8Array directly at runtime — cast is safe.
+        body: new Uint8Array(docxBuffer.buffer, docxBuffer.byteOffset, docxBuffer.byteLength) as unknown as BodyInit,
       }
     )
     return {
@@ -274,10 +290,10 @@ export async function previewPublishPolicyToSharePoint(ctx: PreviewerContext): P
     }
   }
 
-  const policyTitle = typeof ctx.action ? 'the selected policy' : 'a policy'
+  const policyTitle = 'the selected policy'
   const existingNames = await listFolderFiles(token, dest.drive.id, dest.relativeToDrive)
   const policyId = m.policyId
-  let projectedName = 'Policy.html'
+  let projectedName = 'Policy.docx'
   if (policyId) {
     const policy = await loadPolicy(ctx.companyId, policyId)
     if (policy) {
@@ -297,7 +313,7 @@ export async function previewPublishPolicyToSharePoint(ctx: PreviewerContext): P
       currentState: existingNames.some((n) => n.toLowerCase() === projectedName.toLowerCase())
         ? 'file exists — would create a new version'
         : 'destination folder is empty for this filename',
-      projectedState: `uploaded as ${projectedName} (HTML)`,
+      projectedState: `uploaded as ${projectedName} (Word .docx)`,
     }],
     truncated: false,
     summary: `Will publish ${policyTitle} to the "${dest.drive.name}" library at "${dest.relativeToDrive || '(library root)'}". Filename auto-versioned if needed.`,
