@@ -35,6 +35,9 @@ import {
 import {
   generatePolicyForControl,
 } from './executors/policy-generate'
+import {
+  publishPolicyToSharePoint,
+} from './executors/sharepoint-publish'
 
 export interface ExecutorContext {
   /** TCT customer the action runs for. */
@@ -85,6 +88,10 @@ const HANDLERS: Record<string, ExecutorHandler> = {
   // Policy generation — picks the right policy slug for the originating
   // control via FRAMEWORK_POLICY_MAPPINGS and generates/revises a draft.
   'policy.generate_for_control': generatePolicyForControl,
+
+  // Policy publish — push an approved policy back to the customer's
+  // SharePoint document library via Graph upload.
+  'policy.publish_to_sharepoint': publishPolicyToSharePoint,
 }
 
 /** Handlers that are real implementations, not stubs. */
@@ -98,6 +105,7 @@ const REAL_HANDLERS = new Set<string>([
   'graph.applyIntuneConfigProfile.defenderRealtime',
   'graph.removeIntuneConfigProfile.defenderRealtime',
   'policy.generate_for_control',
+  'policy.publish_to_sharepoint',
 ])
 
 async function stubHandler(ctx: ExecutorContext): Promise<ExecutorResult> {

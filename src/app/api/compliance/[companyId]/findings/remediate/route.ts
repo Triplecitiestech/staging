@@ -45,6 +45,14 @@ interface Body {
   controlId?: string
   findingId?: string
   confirm?: boolean
+  /**
+   * Free-form metadata forwarded to the executor + previewer. Used by
+   * actions that aren't tied to a single failing finding — e.g.
+   * `policy.publish_to_sharepoint` needs { policyId,
+   * sharepointFolderUrl, customerApproved } and those don't fit the
+   * findingId/frameworkId/controlId shape.
+   */
+  metadata?: Record<string, unknown>
 }
 
 export async function POST(
@@ -79,7 +87,7 @@ export async function POST(
   // operator see what's about to happen before committing.
   if (!body.confirm) {
     try {
-      const preview = await previewImpact({ companyId, action })
+      const preview = await previewImpact({ companyId, action, metadata: { findingId: body.findingId ?? null, frameworkId: body.frameworkId ?? null, controlId: body.controlId ?? null, ...(body.metadata ?? {}) } })
       return NextResponse.json({
         success: true,
         mode: 'preview',
@@ -151,7 +159,7 @@ export async function POST(
 
       // Authoritative preview — captures preconditions for audit before
       // we touch the customer's tenant.
-      const preview = await previewImpact({ companyId, action })
+      const preview = await previewImpact({ companyId, action, metadata: { findingId: body.findingId ?? null, frameworkId: body.frameworkId ?? null, controlId: body.controlId ?? null, ...(body.metadata ?? {}) } })
       await writeAudit(client, {
         companyId,
         action: 'pending_change.impact_previewed',
@@ -208,10 +216,13 @@ export async function POST(
         // Pass control context so executors that need to know WHICH
         // failing control triggered them (e.g. policy.generate_for_control)
         // can resolve the right policy slug via FRAMEWORK_POLICY_MAPPINGS.
+        // Body-level `metadata` is merged in for executors that need
+        // additional inputs (e.g. policy.publish_to_sharepoint).
         metadata: {
           findingId: body.findingId ?? null,
           frameworkId: body.frameworkId ?? null,
           controlId: body.controlId ?? null,
+          ...(body.metadata ?? {}),
         },
       })
 

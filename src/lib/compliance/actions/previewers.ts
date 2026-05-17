@@ -44,6 +44,9 @@ import {
 import {
   previewGeneratePolicyForControl,
 } from './executors/policy-generate'
+import {
+  previewPublishPolicyToSharePoint,
+} from './executors/sharepoint-publish'
 
 /** Single entity the action would affect. */
 export interface AffectedEntity {
@@ -87,6 +90,12 @@ export interface PreviewerContext {
   action: RemediationAction
   /** Optional per-action filters (e.g., specific OU). Reserved for future use. */
   filters?: Record<string, unknown>
+  /**
+   * Free-form metadata forwarded from the caller. Used by previewers
+   * that need additional inputs beyond (companyId, action) — e.g.
+   * publish previews need the chosen SharePoint folder + policyId.
+   */
+  metadata?: Record<string, unknown>
 }
 
 /**
@@ -121,6 +130,9 @@ const PREVIEWERS: Record<string, PreviewerHandler> = {
 
   // Policy generation
   'policy.generate_for_control': previewGeneratePolicyForControl,
+
+  // Policy publish to customer SharePoint
+  'policy.publish_to_sharepoint': previewPublishPolicyToSharePoint,
 }
 
 
