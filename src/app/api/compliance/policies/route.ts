@@ -127,6 +127,14 @@ export async function POST(request: NextRequest) {
     }
 
     let policyContent = body.content ?? ''
+    // Preserve the ORIGINAL uploaded bytes when the import came from
+    // SharePoint, so Download .docx can serve a byte-perfect copy of
+    // the customer's source document (heading styles, lists, branding
+    // — everything mammoth/pdf-parse discards). Only populated for
+    // SharePoint imports; pasted/generated policies remain renderer-only.
+    let sourceBytes: Buffer | null = null
+    let sourceMimeType: string | null = null
+    let sourceFileName: string | null = null
 
     // Resolve a SharePoint import to actual document text before storing.
     // Three call shapes converge here:
@@ -137,6 +145,9 @@ export async function POST(request: NextRequest) {
       try {
         const fetched = await fetchSharePointFileText(body.companyId, body.sharePointRef)
         policyContent = fetched.text
+        sourceBytes = fetched.bytes
+        sourceMimeType = fetched.mimeType
+        sourceFileName = fetched.fileName
       } catch (err) {
         return NextResponse.json({
           error: `Failed to fetch SharePoint document: ${err instanceof Error ? err.message : String(err)}`,
@@ -148,6 +159,9 @@ export async function POST(request: NextRequest) {
         try {
           const fetched = await fetchSharePointFileTextByUrl(body.companyId, spMatch[1])
           policyContent = fetched.text
+          sourceBytes = fetched.bytes
+          sourceMimeType = fetched.mimeType
+          sourceFileName = fetched.fileName
         } catch (err) {
           return NextResponse.json({
             error: `Failed to fetch SharePoint document: ${err instanceof Error ? err.message : String(err)}`,
@@ -161,16 +175,25 @@ export async function POST(request: NextRequest) {
     const client = await pool.connect()
 
     try {
-      // Create policy
+      // Create policy. sourceBytes / sourceMimeType / sourceFileName are
+      // populated only for SharePoint-sourced imports — pasted /
+      // generated policies leave them NULL and fall back to the docx
+      // renderer at download time.
       const policyRes = await client.query<{ id: string }>(
-        `INSERT INTO compliance_policies ("companyId", title, source, content, category, tags, "frameworkIds", "controlIds", "createdBy")
-         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9) RETURNING id`,
+        `INSERT INTO compliance_policies (
+            "companyId", title, source, content, category, tags,
+            "frameworkIds", "controlIds", "createdBy",
+            "sourceBytes", "sourceMimeType", "sourceFileName"
+         )
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10, $11, $12)
+         RETURNING id`,
         [
           body.companyId, body.title, body.source ?? 'paste', policyContent,
           body.category ?? '', JSON.stringify(body.tags ?? []),
           JSON.stringify(body.frameworkIds ?? ['cis-v8']),
           JSON.stringify(body.controlIds ?? []),
           session.user.email,
+          sourceBytes, sourceMimeType, sourceFileName,
         ]
       )
       const policyId = policyRes.rows[0].id

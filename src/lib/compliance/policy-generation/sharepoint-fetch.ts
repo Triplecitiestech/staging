@@ -56,6 +56,15 @@ export interface FetchedSharePointFile {
   text: string
   /** True when extraction trimmed text to fit within MAX_TEXT_BYTES. */
   truncated: boolean
+  /**
+   * Original file bytes from SharePoint, preserved so Download .docx
+   * can serve a byte-perfect copy of the customer's source document
+   * (preserves heading styles, lists, branding, etc. that the text
+   * extraction discards).
+   */
+  bytes: Buffer
+  /** MIME type Graph reported for the file, used as the download Content-Type. */
+  mimeType: string
 }
 
 /**
@@ -162,6 +171,8 @@ export async function fetchSharePointFileText(
   return {
     fileName,
     byteSize: meta.size,
+    bytes: buffer,
+    mimeType: meta.file?.mimeType ?? guessMimeType(ext),
     text: truncated ? normalized.slice(0, MAX_TEXT_BYTES) : normalized,
     truncated,
   }
@@ -278,6 +289,21 @@ async function extractPdfText(buffer: Buffer, fileName: string): Promise<string>
     return result.text
   } catch (err) {
     throw new Error(`Failed to extract text from "${fileName}": ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
+// Fallback MIME map used when Graph's file metadata doesn't include
+// the mimeType (rare — usually only on legacy file types). Keeping
+// .docx/.pdf/.txt right is what matters for the download path; .doc
+// and .rtf are rejected during extraction anyway so they shouldn't
+// reach this function.
+function guessMimeType(ext: string): string {
+  switch (ext) {
+    case 'docx': return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    case 'pdf':  return 'application/pdf'
+    case 'txt':  return 'text/plain; charset=utf-8'
+    case 'md':   return 'text/markdown; charset=utf-8'
+    default:     return 'application/octet-stream'
   }
 }
 

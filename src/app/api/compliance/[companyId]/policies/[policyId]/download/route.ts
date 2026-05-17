@@ -22,7 +22,7 @@ import { renderPolicyDocx } from '@/lib/compliance/policy-generation/docx-render
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
 
-function downloadName(title: string, ext: 'docx' | 'txt'): string {
+function downloadName(title: string, ext: string): string {
   const safeTitle = title
     .replace(/[\/\\:*?"<>|]/g, ' ')
     .replace(/\s+/g, ' ')
@@ -44,8 +44,16 @@ export async function GET(
   const pool = getPool()
   const client = await pool.connect()
   try {
-    const res = await client.query<{ title: string; content: string; companyName: string }>(
-      `SELECT p.title, p.content, c."displayName" AS "companyName"
+    const res = await client.query<{
+      title: string
+      content: string
+      companyName: string
+      sourceBytes: Buffer | null
+      sourceMimeType: string | null
+      sourceFileName: string | null
+    }>(
+      `SELECT p.title, p.content, c."displayName" AS "companyName",
+              p."sourceBytes", p."sourceMimeType", p."sourceFileName"
          FROM compliance_policies p
          JOIN companies c ON c.id = p."companyId"
         WHERE p.id = $1 AND p."companyId" = $2`,
@@ -53,6 +61,34 @@ export async function GET(
     )
     const row = res.rows[0]
     if (!row) return NextResponse.json({ error: 'Policy not found' }, { status: 404 })
+
+    // Preferred path: the policy was imported from SharePoint and we
+    // saved the original bytes. Serve those directly — byte-perfect
+    // copy of the customer's source document, preserving heading
+    // styles, lists, tables, branding, everything mammoth/pdf-parse
+    // discarded. No re-render step, no formatting loss.
+    if (row.sourceBytes && row.sourceBytes.length > 0) {
+      const mime = row.sourceMimeType ?? 'application/octet-stream'
+      // Derive an extension from the original file name when available
+      // so the download keeps the right shape (.docx / .pdf / .txt).
+      // Falls back to MIME sniffing, then to 'docx' as a final default
+      // since the operator's Download button suggests Word format.
+      const origExt = (row.sourceFileName ?? '').match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase()
+      const ext = origExt
+        ?? (mime.includes('wordprocessingml') ? 'docx'
+          : mime.includes('pdf') ? 'pdf'
+          : mime.startsWith('text/') ? 'txt'
+          : 'docx')
+      return new Response(new Uint8Array(row.sourceBytes.buffer, row.sourceBytes.byteOffset, row.sourceBytes.byteLength) as unknown as BodyInit, {
+        status: 200,
+        headers: {
+          'Content-Type': mime,
+          'Content-Disposition': `attachment; filename="${downloadName(row.title, ext)}"`,
+          'Content-Length': String(row.sourceBytes.byteLength),
+          'Cache-Control': 'no-store',
+        },
+      })
+    }
 
     // Strip the gnarly control characters pdf-parse / mammoth sometimes
     // leave in extracted text (form feeds, NULs, vertical tabs). The
