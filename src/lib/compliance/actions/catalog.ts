@@ -348,9 +348,34 @@ const POLICY_GENERATE_ACTION: RemediationAction = (() => {
  * folded in. Public consumers see one combined list; the underlying
  * `as const` array stays type-safe for the hand-authored entries.
  */
+const PUBLISH_TO_SHAREPOINT_ACTION: RemediationAction = {
+  id: 'policy.publish_to_sharepoint',
+  name: 'Publish policy to customer SharePoint',
+  version: '1.0.0',
+  satisfiesControls: [],
+  capabilityId: 'policy_publish',
+  reversible: false,
+  impact: {
+    userFacing:
+      'TCT will upload the approved policy document to the customer\'s SharePoint document library. The customer\'s users will see the new file at the folder you choose; existing copies are preserved (the upload auto-suffixes "v2", "v3", etc.). This action only runs after the customer-approval checkbox is ticked in the publish modal.',
+    operational:
+      'Calls Graph PUT /drives/{driveId}/root:/<path>:/content with the policy rendered to HTML (renderPolicyHtml). Idempotency: uses a v2/v3 suffix on the filename so we never silently overwrite an approved earlier version. Refuses cleanly when metadata.customerApproved !== true.',
+    blastRadius: 'tenant_wide',
+    estimatedDisruptionMinutes: 0,
+    sessionDisruptive: false,
+    requiresEndUserAction: false,
+  },
+  preconditions: [
+    { kind: 'connector_verified', connectorType: 'microsoft_graph' },
+  ],
+  executor: { kind: 'automated', handler: 'policy.publish_to_sharepoint' },
+  verification: { evaluatorIds: [], delaySecondsBeforeVerify: 0 },
+}
+
 const ALL_REMEDIATION_ACTIONS: readonly RemediationAction[] = [
   ...REMEDIATION_ACTIONS,
   POLICY_GENERATE_ACTION,
+  PUBLISH_TO_SHAREPOINT_ACTION,
 ]
 
 /** Lookup: id → action. Sealed at module load. */

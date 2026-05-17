@@ -14,6 +14,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import type { CompliancePolicy, PolicyAnalysis, PolicyControlDetail } from '@/lib/compliance/types'
+import PublishPolicyButton from './PublishPolicyButton'
 
 interface SharePointFile {
   id: string
@@ -1021,6 +1022,27 @@ export default function PolicyManager({ companyId, companyName }: PolicyManagerP
                 {/* Expanded Detail */}
                 {isExpanded && analysis?.status === 'complete' && (
                   <div className="border-t border-white/5 p-4 space-y-4">
+                    {/* Publish-back action — pushes the approved policy
+                        to the customer's SharePoint document library.
+                        Available for every analyzed policy regardless
+                        of source (uploaded or generated), since the
+                        operator may need to push a refined version of
+                        a customer's own upload too. */}
+                    <div className="flex items-center justify-between gap-3 flex-wrap p-3 bg-violet-500/5 border border-violet-500/20 rounded-lg">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs uppercase tracking-wider text-violet-300">Push back to customer</p>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          When the customer has reviewed + approved this version, publish it to their
+                          SharePoint so it lives where their staff already look.
+                        </p>
+                      </div>
+                      <PublishPolicyButton
+                        companyId={companyId}
+                        policyId={policy.id}
+                        policyTitle={policy.title}
+                      />
+                    </div>
+
                     {/* Summary */}
                     {analysis.analysisText && (
                       <div className="p-3 bg-slate-900/50 rounded-lg">
