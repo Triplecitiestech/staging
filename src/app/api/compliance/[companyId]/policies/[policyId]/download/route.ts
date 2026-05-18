@@ -31,6 +31,24 @@ function downloadName(title: string, ext: string): string {
   return `${safeTitle}.${ext}`
 }
 
+/**
+ * HTTP headers are ByteString (0-255). Policy titles can contain em
+ * dashes / smart quotes / accented characters from customer source
+ * documents — those crash Response creation. Returns a Content-Disposition
+ * value with an ASCII fallback (`filename=`) and a UTF-8 RFC 5987
+ * encoding (`filename*=`) so well-behaved browsers still see the pretty
+ * name while older clients fall back to ASCII.
+ */
+function contentDisposition(title: string, ext: string): string {
+  const pretty = downloadName(title, ext)
+  const ascii = pretty
+    .replace(/[‐-―]/g, '-')
+    .replace(/[‘’‚‛]/g, "'")
+    .replace(/[“”„‟]/g, '"')
+    .replace(/[^\x20-\x7e]/g, '_')
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(pretty)}`
+}
+
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ companyId: string; policyId: string }> }
@@ -83,7 +101,7 @@ export async function GET(
         status: 200,
         headers: {
           'Content-Type': mime,
-          'Content-Disposition': `attachment; filename="${downloadName(row.title, ext)}"`,
+          'Content-Disposition': contentDisposition(row.title, ext),
           'Content-Length': String(row.sourceBytes.byteLength),
           'Cache-Control': 'no-store',
         },
@@ -108,7 +126,7 @@ export async function GET(
           status: 200,
           headers: {
             'Content-Type': 'text/plain; charset=utf-8',
-            'Content-Disposition': `attachment; filename="${downloadName(row.title, 'txt')}"`,
+            'Content-Disposition': contentDisposition(row.title, 'txt'),
             'Cache-Control': 'no-store',
           },
         }
@@ -130,7 +148,7 @@ export async function GET(
         status: 200,
         headers: {
           'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-          'Content-Disposition': `attachment; filename="${downloadName(row.title, 'docx')}"`,
+          'Content-Disposition': contentDisposition(row.title, 'docx'),
           'Content-Length': String(buf.byteLength),
           // Don't let intermediaries cache a customer-specific document.
           'Cache-Control': 'no-store',
@@ -151,7 +169,7 @@ export async function GET(
         status: 200,
         headers: {
           'Content-Type': 'text/plain; charset=utf-8',
-          'Content-Disposition': `attachment; filename="${downloadName(row.title, 'txt')}"`,
+          'Content-Disposition': contentDisposition(row.title, 'txt'),
           'Cache-Control': 'no-store',
         },
       })
