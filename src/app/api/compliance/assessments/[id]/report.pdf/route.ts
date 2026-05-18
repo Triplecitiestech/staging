@@ -102,7 +102,12 @@ export async function GET(
     })
 
     const safeCompany = company.displayName.replace(/[\/\\:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Customer'
-    const date = (summary.assessment.completedAt ?? summary.assessment.createdAt).slice(0, 10)
+    // pg returns TIMESTAMPTZ columns as Date instances even though the
+    // TS types say string — normalize via new Date() then ISO-slice
+    // for a YYYY-MM-DD prefix on the filename. (Calling .slice()
+    // directly on a Date throws.)
+    const dateInput = summary.assessment.completedAt ?? summary.assessment.createdAt
+    const date = new Date(dateInput as string | Date).toISOString().slice(0, 10)
     const filename = `${safeCompany} — ${summary.assessment.frameworkId} — ${date}.pdf`
 
     return new Response(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength) as unknown as BodyInit, {
