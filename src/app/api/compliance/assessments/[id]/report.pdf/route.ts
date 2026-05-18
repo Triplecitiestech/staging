@@ -108,13 +108,25 @@ export async function GET(
     // directly on a Date throws.)
     const dateInput = summary.assessment.completedAt ?? summary.assessment.createdAt
     const date = new Date(dateInput as string | Date).toISOString().slice(0, 10)
-    const filename = `${safeCompany} — ${summary.assessment.frameworkId} — ${date}.pdf`
+    // HTTP headers are ByteString (0-255). Any em-dashes, smart quotes,
+    // or accented characters in the company name would crash Response
+    // creation with "character > 255". Build an ASCII-safe version for
+    // the legacy `filename=` slot and a percent-encoded UTF-8 version
+    // for `filename*=` per RFC 5987 so well-behaved browsers still get
+    // the pretty filename.
+    const prettyName = `${safeCompany} — ${summary.assessment.frameworkId} — ${date}.pdf`
+    const asciiName = prettyName
+      .replace(/[‐-―]/g, '-')   // hyphens + en/em dashes
+      .replace(/[‘’‚‛]/g, "'")
+      .replace(/[“”„‟]/g, '"')
+      .replace(/[^\x20-\x7e]/g, '_')      // anything still non-ASCII → underscore
 
     return new Response(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength) as unknown as BodyInit, {
       status: 200,
       headers: {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Content-Disposition':
+          `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(prettyName)}`,
         'Content-Length': String(buf.byteLength),
         'Cache-Control': 'no-store',
       },
