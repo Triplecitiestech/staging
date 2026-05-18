@@ -210,7 +210,9 @@ Read `connectionTest.tokenRefresh` first — it isolates the refresh exchange fr
 
 | Cause | Fix |
 |-------|-----|
-| `SAAS_ALERTS_REFRESH_TOKEN` rejected | The partner-user account was logged out, password-changed, or admin-disabled. Get a fresh refresh token (see **Refreshing the refresh token** below). |
+| `SAAS_ALERTS_REFRESH_TOKEN` rejected with `Requests from referer <empty> are blocked` | Google API key referrer restriction. Set `SAAS_ALERTS_REFRESH_REFERER` in Vercel to an allowed origin (default `https://manage.saasalerts.com/`). The client also sends a matching `Origin` header automatically. |
+| `SAAS_ALERTS_REFRESH_TOKEN` rejected (other 4xx) | The partner-user account was logged out, password-changed, or admin-disabled. Get a fresh refresh token (see **Refreshing the refresh token** below). |
+| `computedBaseUrl` shows `manage.saasalerts.com` | Stale `SAAS_ALERTS_API_URL` env var. The client now auto-overrides this to the cloudfunctions URL, but you should still clear or correct the env var so the diagnostic output is honest. |
 | Refresh succeeds, upstream still 403s | Check JWT claims of the returned idtoken — `role` should be `msp_admin`, `license_scopes` should include `"SA"`. If not, contact Kaseya support to verify the partner user's permissions. |
 | Refresh works but `/reports/customers` returns empty | `msp_id` claim is correct but no customers are assigned to this MSP. Verify in manage.saasalerts.com → Organizations. |
 | `host_not_allowed` 403 (note: no `x-deny-reason` header from our app) | This is an upstream block from a managed MCP runner, not from our middleware. Run the probe from a different machine (your own PowerShell, or `vercel env pull` then a local script). |
