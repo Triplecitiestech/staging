@@ -58,6 +58,14 @@ const DEFAULT_FIREBASE_WEB_API_KEY = 'AIzaSyC14CD_df06vaN4bj3H9t3Um8yUdY3vZQI'
 
 const SECURE_TOKEN_ENDPOINT = 'https://securetoken.googleapis.com/v1/token'
 
+// The Firebase Web API key for the SaaS Alerts project has HTTP-referrer
+// restrictions configured on Google Cloud. Server-to-server requests are
+// rejected with "Requests from referer <empty> are blocked" unless we send
+// a Referer header matching the allowed origin (the portal SPA gets through
+// because browsers auto-attach Referer). Spoofing is the documented escape
+// hatch — Google API key referrer checks are abuse control, not security.
+const DEFAULT_REFRESH_REFERER = 'https://manage.saasalerts.com/'
+
 // Refresh idtoken when fewer than this many ms remain on the current token.
 const REFRESH_BUFFER_MS = 5 * 60 * 1000
 
@@ -184,6 +192,7 @@ export class SaasAlertsClient {
   private staticIdToken: string
   private refreshToken: string
   private firebaseApiKey: string
+  private refreshReferer: string
   private partnerId: string
   private baseUrl: string
 
@@ -192,6 +201,7 @@ export class SaasAlertsClient {
     idToken?: string
     refreshToken?: string
     firebaseApiKey?: string
+    refreshReferer?: string
     partnerId?: string
     baseUrl?: string
   }) {
@@ -200,8 +210,18 @@ export class SaasAlertsClient {
     this.refreshToken = opts?.refreshToken ?? process.env.SAAS_ALERTS_REFRESH_TOKEN ?? ''
     this.firebaseApiKey =
       opts?.firebaseApiKey ?? process.env.SAAS_ALERTS_FIREBASE_API_KEY ?? DEFAULT_FIREBASE_WEB_API_KEY
+    this.refreshReferer =
+      opts?.refreshReferer ?? process.env.SAAS_ALERTS_REFRESH_REFERER ?? DEFAULT_REFRESH_REFERER
     this.partnerId = opts?.partnerId ?? process.env.SAAS_ALERTS_PARTNER_ID ?? ''
     this.baseUrl = (opts?.baseUrl ?? process.env.SAAS_ALERTS_API_URL ?? DEFAULT_BASE_URL).replace(/\/$/, '')
+
+    // Guard against the well-known broken value: manage.saasalerts.com IS
+    // the Cloudflare-blocked portal API host and will 403 every call. If
+    // someone leaves an old env var pointing at it, fall back to the
+    // working cloudfunctions URL instead of silently failing.
+    if (/^https?:\/\/manage\.saasalerts\.com/i.test(this.baseUrl)) {
+      this.baseUrl = DEFAULT_BASE_URL
+    }
   }
 
   /**
@@ -271,6 +291,11 @@ export class SaasAlertsClient {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
         Accept: 'application/json',
+        // Required to satisfy the Google API key's HTTP referrer allowlist —
+        // see DEFAULT_REFRESH_REFERER comment above. Without these, the
+        // exchange 403s with "Requests from referer <empty> are blocked".
+        Referer: this.refreshReferer,
+        Origin: new URL(this.refreshReferer).origin,
       },
       body: body.toString(),
       signal: AbortSignal.timeout(15_000),
@@ -278,10 +303,12 @@ export class SaasAlertsClient {
 
     if (!res.ok) {
       const text = await res.text().catch(() => '')
+      const refererBlocked = text.includes('Requests from referer')
+      const hint = refererBlocked
+        ? `Google API key referrer restriction blocked the request. The Referer "${this.refreshReferer}" is not on Kaseya's allowlist for ${this.firebaseApiKey.slice(0, 8)}…. Set SAAS_ALERTS_REFRESH_REFERER to a known-allowed origin (typically https://manage.saasalerts.com/).`
+        : `Verify SAAS_ALERTS_REFRESH_TOKEN is still valid (the partner user may have been logged out or the token revoked).`
       throw new Error(
-        `SaaS Alerts refresh-token exchange failed (${res.status}). ` +
-        `Verify SAAS_ALERTS_REFRESH_TOKEN is still valid (the partner user may have been logged out or the token revoked). ` +
-        `Body: ${text.slice(0, 200)}`
+        `SaaS Alerts refresh-token exchange failed (${res.status}). ${hint} Body: ${text.slice(0, 300)}`
       )
     }
 
