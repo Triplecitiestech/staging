@@ -1,20 +1,47 @@
 /**
- * SaaS Alerts API Client
+ * SaaS Alerts External Partner API Client
  *
- * SaaS security monitoring platform (Kaseya) with three modules:
- *   - Respond: Automated threat response (account lockdown, session termination)
- *   - Unify: Device-to-identity binding (ensures SaaS access from managed devices)
- *   - Fortify: Microsoft 365 security policy enforcement and Secure Score management
+ * SaaS Alerts (Kaseya) ships TWO distinct HTTP surfaces:
  *
- * Auth: API Key + Partner ID headers
- * Portal: manage.saasalerts.com
- * Swagger: https://app.swaggerhub.com/apis/SaaS_Alerts/functions/0.18.0
+ *   1. The portal API at `https://manage.saasalerts.com/api`
+ *      - Cloudflare-protected, returns 403 to all server-to-server traffic
+ *        regardless of headers. Do NOT call this from server code.
+ *
+ *   2. The "External Partner API" at
+ *      `https://us-central1-the-byway-248217.cloudfunctions.net/reportApi/api/v1`
+ *      - Hosted on Google Cloud Functions, NO Cloudflare in front of it.
+ *      - This is the one you can actually call programmatically.
+ *      - Swagger: https://app.swaggerhub.com/apis/SaaS_Alerts/functions/0.20.0
+ *
+ * This client targets #2. Authentication requires BOTH:
+ *   - `api_key` header — your partner API key (from manage.saasalerts.com >
+ *     Settings > API, also retrievable via GET /tools/apiKey)
+ *   - `idtoken`  header — the partner-user ID token (Firebase Auth JWT).
+ *     Obtain by logging in to manage.saasalerts.com and inspecting the
+ *     `idtoken` cookie/header the SPA uses, or ask Kaseya support to
+ *     provision a long-lived partner service token.
  *
  * Required env vars:
- *   SAAS_ALERTS_API_KEY     — API key from manage.saasalerts.com > Settings > API
- *   SAAS_ALERTS_PARTNER_ID  — Partner ID from same page
- *   SAAS_ALERTS_API_URL     — Base URL (defaults to https://manage.saasalerts.com/api)
+ *   SAAS_ALERTS_API_KEY      — `api_key` header value
+ *   SAAS_ALERTS_ID_TOKEN     — `idtoken` header value
+ *
+ * Optional env vars:
+ *   SAAS_ALERTS_API_URL      — base URL override (defaults to production
+ *                              cloudfunctions; alternate envs are qa/dev,
+ *                              see SaasAlertsApiEnvironment below)
+ *   SAAS_ALERTS_PARTNER_ID   — used to scope filtered event queries;
+ *                              NOT required for auth.
  */
+
+const DEFAULT_BASE_URL = 'https://us-central1-the-byway-248217.cloudfunctions.net/reportApi/api/v1'
+
+export const SAAS_ALERTS_API_ENVIRONMENTS = {
+  production: 'https://us-central1-the-byway-248217.cloudfunctions.net/reportApi/api/v1',
+  qa: 'https://us-central1-saas-alerts-qa.cloudfunctions.net/reportApi/api/v1',
+  development: 'https://us-central1-saas-alerts-dev.cloudfunctions.net/reportApi/api/v1',
+} as const
+
+export type SaasAlertsApiEnvironment = keyof typeof SAAS_ALERTS_API_ENVIRONMENTS
 
 export interface SaasAlertEvent {
   eventId?: string
@@ -30,9 +57,9 @@ export interface SaasAlertEvent {
     lat?: number
     lon?: number
   } | null
-  alertStatus?: string  // low, medium, high, critical
+  alertStatus?: string
   severity?: string
-  jointType?: string    // e.g. login.failure, suspicious_login
+  jointType?: string
   eventType?: string
   type?: string
   jointDesc?: string
@@ -49,6 +76,51 @@ export interface SaasAlertCustomer {
   tenantId?: string
 }
 
+export interface SaasAlertsBillingDetail {
+  customerId?: string
+  customerName?: string
+  product?: string
+  seats?: number
+  billableSeats?: number
+  [key: string]: unknown
+}
+
+export interface SaasAlertsRecommendedAction {
+  ruleId?: string
+  ruleName?: string
+  severity?: string
+  category?: string
+  customerId?: string
+  customerName?: string
+  count?: number
+  recommendation?: string
+  [key: string]: unknown
+}
+
+export interface SaasAlertsDeviceOrganization {
+  organizationId?: string
+  organizationName?: string
+  deviceCount?: number
+  mappedDeviceCount?: number
+  unmappedDeviceCount?: number
+  [key: string]: unknown
+}
+
+export interface SaasAlertsPartnerProfile {
+  partnerId?: string
+  partnerName?: string
+  brandingUrl?: string
+  [key: string]: unknown
+}
+
+export interface SaasAlertsMspUser {
+  email?: string
+  name?: string
+  role?: string
+  partnerId?: string
+  [key: string]: unknown
+}
+
 export interface SaasAlertsSummary {
   available: boolean
   totalEvents: number
@@ -57,174 +129,131 @@ export interface SaasAlertsSummary {
   customers: SaasAlertCustomer[]
   recentEvents: SaasAlertEvent[]
   note: string | null
-  authMethod?: string
   diagnostics?: Record<string, unknown>
 }
 
 export class SaasAlertsClient {
   private apiKey: string
+  private idToken: string
   private partnerId: string
   private baseUrl: string
 
-  constructor() {
-    this.apiKey = process.env.SAAS_ALERTS_API_KEY ?? ''
-    this.partnerId = process.env.SAAS_ALERTS_PARTNER_ID ?? ''
-    // Ensure base URL always ends with /api
-    let url = (process.env.SAAS_ALERTS_API_URL ?? 'https://manage.saasalerts.com/api').replace(/\/$/, '')
-    if (!url.endsWith('/api')) url += '/api'
-    this.baseUrl = url
+  constructor(opts?: { apiKey?: string; idToken?: string; partnerId?: string; baseUrl?: string }) {
+    this.apiKey = opts?.apiKey ?? process.env.SAAS_ALERTS_API_KEY ?? ''
+    this.idToken = opts?.idToken ?? process.env.SAAS_ALERTS_ID_TOKEN ?? ''
+    this.partnerId = opts?.partnerId ?? process.env.SAAS_ALERTS_PARTNER_ID ?? ''
+    this.baseUrl = (opts?.baseUrl ?? process.env.SAAS_ALERTS_API_URL ?? DEFAULT_BASE_URL).replace(/\/$/, '')
   }
 
+  /** True only when BOTH the api key and the id token are set. */
   isConfigured(): boolean {
+    return !!this.apiKey && !!this.idToken
+  }
+
+  hasApiKey(): boolean {
     return !!this.apiKey
+  }
+
+  hasIdToken(): boolean {
+    return !!this.idToken
   }
 
   hasPartnerId(): boolean {
     return !!this.partnerId
   }
 
-  /**
-   * Make an authenticated API request.
-   * Tries auth patterns in priority order:
-   * 1. apikey + partnerid headers (most likely for Kaseya products)
-   * 2. Authorization: Bearer + partnerid
-   * 3. x-api-key header
-   * 4. apikey header only (legacy fallback)
-   */
+  getBaseUrl(): string {
+    return this.baseUrl
+  }
+
+  /** Returns the missing credential names, for diagnostics. */
+  missingCredentials(): string[] {
+    const missing: string[] = []
+    if (!this.apiKey) missing.push('SAAS_ALERTS_API_KEY')
+    if (!this.idToken) missing.push('SAAS_ALERTS_ID_TOKEN')
+    return missing
+  }
+
   private async request<T>(
     path: string,
     method: 'GET' | 'POST' | 'DELETE' = 'GET',
-    body?: Record<string, unknown>
-  ): Promise<{ data: T; authMethod: string }> {
-    const url = `${this.baseUrl}${path}`
-
-    const headerPatterns: Array<{ headers: Record<string, string>; label: string }> = []
-
-    // If Partner ID is available, try it first (most likely to work)
-    if (this.partnerId) {
-      headerPatterns.push({
-        label: 'apikey+partnerid',
-        headers: {
-          'apikey': this.apiKey,
-          'partnerid': this.partnerId,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-      })
-      headerPatterns.push({
-        label: 'bearer+partnerid',
-        headers: {
-          'Authorization': `Bearer ${this.apiKey}`,
-          'partnerid': this.partnerId,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-      })
-      headerPatterns.push({
-        label: 'x-api-key+x-partner-id',
-        headers: {
-          'x-api-key': this.apiKey,
-          'x-partner-id': this.partnerId,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-      })
+    body?: Record<string, unknown> | null,
+    query?: Record<string, string | number | undefined>
+  ): Promise<T> {
+    const missing = this.missingCredentials()
+    if (missing.length > 0) {
+      throw new Error(`SaaS Alerts client not configured: missing ${missing.join(', ')}`)
     }
 
-    // Fallbacks without Partner ID
-    headerPatterns.push({
-      label: 'apikey-only',
-      headers: {
-        'apikey': this.apiKey,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-    })
-    headerPatterns.push({
-      label: 'bearer-only',
-      headers: {
-        'Authorization': `Bearer ${this.apiKey}`,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-    })
-
-    let lastError: Error | null = null
-    const triedMethods: string[] = []
-
-    for (const { headers, label } of headerPatterns) {
-      triedMethods.push(label)
-      try {
-        const res = await fetch(url, {
-          method,
-          headers,
-          body: body ? JSON.stringify(body) : undefined,
-          signal: AbortSignal.timeout(30_000),
-        })
-
-        // Auth failure — try next pattern
-        if (res.status === 401 || res.status === 403) {
-          const text = await res.text().catch(() => '')
-          console.log(`[saas-alerts] ${method} ${path} auth "${label}" → ${res.status}: ${text.substring(0, 100)}`)
-          lastError = new Error(`Auth failed (${label}): ${res.status}`)
-          continue
-        }
-
-        // Cloudflare block
-        if (res.status === 503 || (res.headers.get('server')?.includes('cloudflare') && !res.ok)) {
-          console.log(`[saas-alerts] ${method} ${path} blocked by Cloudflare (${res.status})`)
-          throw new Error(`Cloudflare blocked the request (${res.status}). SaaS Alerts API may not support server-to-server calls.`)
-        }
-
-        if (!res.ok) {
-          const text = await res.text().catch(() => '')
-          throw new Error(`SaaS Alerts API ${path} failed (${res.status}): ${text.substring(0, 200)}`)
-        }
-
-        const text = await res.text()
-        console.log(`[saas-alerts] ${method} ${path} (auth: ${label}) → ${res.status}, body length: ${text.length}`)
-        if (!text || text.trim().length === 0) return { data: {} as T, authMethod: label }
-        return { data: JSON.parse(text) as T, authMethod: label }
-      } catch (err) {
-        if (err instanceof Error && (err.message.includes('401') || err.message.includes('403'))) {
-          lastError = err
-          continue
-        }
-        // Non-auth error — don't try other patterns
-        throw err
+    const qs = new URLSearchParams()
+    if (query) {
+      for (const [k, v] of Object.entries(query)) {
+        if (v !== undefined && v !== null && v !== '') qs.set(k, String(v))
       }
     }
+    const url = `${this.baseUrl}${path}${qs.toString() ? `?${qs.toString()}` : ''}`
 
-    throw new Error(
-      `SaaS Alerts: All auth methods failed (tried: ${triedMethods.join(', ')}). ` +
-      `Last error: ${lastError?.message ?? 'unknown'}`
-    )
+    const res = await fetch(url, {
+      method,
+      headers: {
+        api_key: this.apiKey,
+        idtoken: this.idToken,
+        Accept: 'application/json',
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(30_000),
+    })
+
+    if (res.status === 401 || res.status === 403) {
+      const text = await res.text().catch(() => '')
+      throw new Error(
+        `SaaS Alerts auth rejected (${res.status}) on ${path}. ` +
+        `Verify SAAS_ALERTS_API_KEY and SAAS_ALERTS_ID_TOKEN. Body: ${text.slice(0, 200)}`
+      )
+    }
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      throw new Error(`SaaS Alerts API ${path} failed (${res.status}): ${text.slice(0, 200)}`)
+    }
+
+    const text = await res.text()
+    if (!text.trim()) return {} as T
+    return JSON.parse(text) as T
   }
 
-  /** List customers/tenants */
+  /** GET /reports/customers — list all customers/tenants visible to the partner. */
   async getCustomers(): Promise<{ customers: SaasAlertCustomer[]; authMethod: string }> {
-    const paths = ['/reports/customers', '/customers', '/organizations', '/reports/tenants']
-    for (const path of paths) {
-      try {
-        const { data, authMethod } = await this.request<
-          | SaasAlertCustomer[]
-          | { data?: SaasAlertCustomer[]; customers?: SaasAlertCustomer[]; organizations?: SaasAlertCustomer[] }
-        >(path)
+    const data = await this.request<
+      SaasAlertCustomer[] | { data?: SaasAlertCustomer[]; customers?: SaasAlertCustomer[] }
+    >('/reports/customers')
 
-        if (Array.isArray(data) && data.length > 0) return { customers: data, authMethod }
-        const nested = data as Record<string, unknown>
-        const result = (nested?.data ?? nested?.customers ?? nested?.organizations ?? []) as SaasAlertCustomer[]
-        if (result.length > 0) return { customers: result, authMethod }
-      } catch (err) {
-        // If Cloudflare blocked, stop trying other paths
-        if (err instanceof Error && err.message.includes('Cloudflare')) throw err
-        continue
-      }
+    let customers: SaasAlertCustomer[] = []
+    if (Array.isArray(data)) {
+      customers = data
+    } else if (data && typeof data === 'object') {
+      customers = (data.data ?? data.customers ?? []) as SaasAlertCustomer[]
     }
-    return { customers: [], authMethod: 'none-worked' }
+    return { customers, authMethod: 'api_key+idtoken' }
   }
 
-  /** Query events */
+  /** GET /reports/customers/{id} — full detail for one customer. */
+  async getCustomer(id: string): Promise<SaasAlertCustomer | null> {
+    const data = await this.request<SaasAlertCustomer | { data?: SaasAlertCustomer }>(
+      `/reports/customers/${encodeURIComponent(id)}`
+    )
+    if (!data) return null
+    if ('id' in (data as object)) return data as SaasAlertCustomer
+    return ((data as { data?: SaasAlertCustomer }).data ?? null)
+  }
+
+  /**
+   * Query events.
+   *
+   * Uses POST /reports/events/query (Elasticsearch-style) when filters are
+   * supplied. Falls back to GET /reports/events otherwise.
+   */
   async getEvents(params?: {
     customerId?: string
     since?: string
@@ -232,8 +261,9 @@ export class SaasAlertsClient {
     severity?: string
     limit?: number
   }): Promise<{ events: SaasAlertEvent[]; authMethod: string }> {
-    // Try POST query first (Elasticsearch-style)
-    try {
+    const hasFilters = !!(params?.since || params?.until || params?.severity || params?.customerId)
+
+    if (hasFilters) {
       const must: Array<Record<string, unknown>> = []
       if (params?.since || params?.until) {
         const range: Record<string, string> = {}
@@ -241,67 +271,155 @@ export class SaasAlertsClient {
         if (params?.until) range.lte = params.until
         must.push({ range: { time: range } })
       }
-      if (params?.severity) {
-        must.push({ term: { 'alertStatus.keyword': params.severity } })
-      }
-      if (params?.customerId) {
-        must.push({ term: { 'customerId.keyword': params.customerId } })
-      }
+      if (params?.severity) must.push({ term: { 'alertStatus.keyword': params.severity } })
+      if (params?.customerId) must.push({ term: { 'customerId.keyword': params.customerId } })
 
       const body: Record<string, unknown> = {
         size: params?.limit ?? 500,
-        ...(must.length > 0 ? { query: { bool: { must } } } : {}),
+        query: { bool: { must } },
       }
 
-      const { data, authMethod } = await this.request<Record<string, unknown>>('/reports/event/query', 'POST', body)
-
-      const events = extractEvents(data)
-      if (events.length > 0) return { events, authMethod }
-    } catch (err) {
-      if (err instanceof Error && err.message.includes('Cloudflare')) throw err
+      const data = await this.request<Record<string, unknown>>('/reports/events/query', 'POST', body)
+      return { events: extractEvents(data), authMethod: 'api_key+idtoken' }
     }
 
-    // Fallback: GET /reports/events
-    try {
-      const qs = new URLSearchParams()
-      if (params?.since) qs.set('from', params.since)
-      if (params?.until) qs.set('to', params.until)
-      if (params?.limit) qs.set('size', String(params.limit))
-
-      const { data, authMethod } = await this.request<Record<string, unknown>>(
-        `/reports/events${qs.toString() ? '?' + qs.toString() : ''}`
-      )
-
-      return { events: extractEvents(data), authMethod }
-    } catch (err) {
-      if (err instanceof Error && err.message.includes('Cloudflare')) throw err
-      return { events: [], authMethod: 'none-worked' }
-    }
+    const data = await this.request<Record<string, unknown>>('/reports/events', 'GET', null, {
+      size: params?.limit ?? 500,
+    })
+    return { events: extractEvents(data), authMethod: 'api_key+idtoken' }
   }
 
-  /** Test connectivity — returns diagnostic info without failing */
+  /** GET /reports/events/count — total event count, optionally filtered. */
+  async getEventCount(params?: { customerId?: string; since?: string; until?: string }): Promise<number> {
+    const data = await this.request<{ count?: number; total?: number } | number>(
+      '/reports/events/count',
+      'GET',
+      null,
+      {
+        customerId: params?.customerId,
+        from: params?.since,
+        to: params?.until,
+      }
+    )
+    if (typeof data === 'number') return data
+    if (data && typeof data === 'object') return data.count ?? data.total ?? 0
+    return 0
+  }
+
+  /** GET /reports/billing-details — per-product, per-customer billable seat counts. */
+  async getBillingDetails(): Promise<SaasAlertsBillingDetail[]> {
+    const data = await this.request<
+      SaasAlertsBillingDetail[] | { data?: SaasAlertsBillingDetail[] }
+    >('/reports/billing-details')
+    if (Array.isArray(data)) return data
+    return data?.data ?? []
+  }
+
+  /** GET /reports/alert-recommended-actions — Kaseya-curated remediation list. */
+  async getRecommendedActions(): Promise<SaasAlertsRecommendedAction[]> {
+    const data = await this.request<
+      SaasAlertsRecommendedAction[] | { data?: SaasAlertsRecommendedAction[] }
+    >('/reports/alert-recommended-actions')
+    if (Array.isArray(data)) return data
+    return data?.data ?? []
+  }
+
+  /** GET /reports/devices-organizations — device/organization rollup. */
+  async getDevicesOrganizations(): Promise<SaasAlertsDeviceOrganization[]> {
+    const data = await this.request<
+      SaasAlertsDeviceOrganization[] | { data?: SaasAlertsDeviceOrganization[] }
+    >('/reports/devices-organizations')
+    if (Array.isArray(data)) return data
+    return data?.data ?? []
+  }
+
+  /** GET /reports/partners/profile — partner branding/profile info. */
+  async getPartnerProfile(): Promise<SaasAlertsPartnerProfile | null> {
+    const data = await this.request<SaasAlertsPartnerProfile | { data?: SaasAlertsPartnerProfile }>(
+      '/reports/partners/profile'
+    )
+    if (!data) return null
+    if ('partnerId' in (data as object) || 'partnerName' in (data as object)) {
+      return data as SaasAlertsPartnerProfile
+    }
+    return ((data as { data?: SaasAlertsPartnerProfile }).data ?? null)
+  }
+
+  /** GET /reports/msp-user — current MSP user (whoever the idtoken belongs to). */
+  async getMspUser(): Promise<SaasAlertsMspUser | null> {
+    const data = await this.request<SaasAlertsMspUser | { data?: SaasAlertsMspUser }>(
+      '/reports/msp-user'
+    )
+    if (!data) return null
+    if ('email' in (data as object) || 'name' in (data as object)) {
+      return data as SaasAlertsMspUser
+    }
+    return ((data as { data?: SaasAlertsMspUser }).data ?? null)
+  }
+
+  /**
+   * Probe connectivity across a handful of endpoints — returns per-endpoint
+   * pass/fail so the admin UI can show exactly which call works.
+   */
   async testConnection(): Promise<{
     configured: boolean
+    hasApiKey: boolean
+    hasIdToken: boolean
     hasPartnerId: boolean
     baseUrl: string
-    results: Array<{ endpoint: string; status: string; authMethod?: string; error?: string; dataPreview?: string }>
+    missingCredentials: string[]
+    results: Array<{
+      endpoint: string
+      status: 'success' | 'failed' | 'skipped'
+      authMethod?: string
+      error?: string
+      dataPreview?: string
+    }>
   }> {
-    const results: Array<{ endpoint: string; status: string; authMethod?: string; error?: string; dataPreview?: string }> = []
+    const results: Array<{
+      endpoint: string
+      status: 'success' | 'failed' | 'skipped'
+      authMethod?: string
+      error?: string
+      dataPreview?: string
+    }> = []
 
-    const testEndpoints = [
-      { path: '/reports/customers', label: 'List Customers' },
-      { path: '/customers', label: 'Customers (alt)' },
-      { path: '/organizations', label: 'Organizations' },
+    if (!this.isConfigured()) {
+      return {
+        configured: false,
+        hasApiKey: this.hasApiKey(),
+        hasIdToken: this.hasIdToken(),
+        hasPartnerId: this.hasPartnerId(),
+        baseUrl: this.baseUrl,
+        missingCredentials: this.missingCredentials(),
+        results: [
+          {
+            endpoint: 'all',
+            status: 'skipped',
+            error: `Missing ${this.missingCredentials().join(', ')}`,
+          },
+        ],
+      }
+    }
+
+    const probes: Array<{ label: string; run: () => Promise<unknown> }> = [
+      { label: 'GET /reports/msp-user', run: () => this.getMspUser() },
+      { label: 'GET /reports/partners/profile', run: () => this.getPartnerProfile() },
+      { label: 'GET /reports/customers', run: () => this.getCustomers() },
     ]
 
-    for (const { path, label } of testEndpoints) {
+    for (const probe of probes) {
       try {
-        const { data, authMethod } = await this.request<unknown>(path)
-        const preview = JSON.stringify(data).substring(0, 200)
-        results.push({ endpoint: `${label} (${path})`, status: 'success', authMethod, dataPreview: preview })
+        const data = await probe.run()
+        results.push({
+          endpoint: probe.label,
+          status: 'success',
+          authMethod: 'api_key+idtoken',
+          dataPreview: JSON.stringify(data).slice(0, 200),
+        })
       } catch (err) {
         results.push({
-          endpoint: `${label} (${path})`,
+          endpoint: probe.label,
           status: 'failed',
           error: err instanceof Error ? err.message : String(err),
         })
@@ -309,32 +427,41 @@ export class SaasAlertsClient {
     }
 
     return {
-      configured: this.isConfigured(),
+      configured: true,
+      hasApiKey: this.hasApiKey(),
+      hasIdToken: this.hasIdToken(),
       hasPartnerId: this.hasPartnerId(),
       baseUrl: this.baseUrl,
+      missingCredentials: [],
       results,
     }
   }
 
-  /** Build summary of SaaS security events */
+  /** Roll-up summary of SaaS Alerts activity, used by compliance/dashboard. */
   async buildSummary(): Promise<SaasAlertsSummary> {
     if (!this.isConfigured()) {
       return {
-        available: false, totalEvents: 0, eventsBySeverity: {}, eventsByType: {},
-        customers: [], recentEvents: [],
-        note: 'SaaS Alerts API not configured (SAAS_ALERTS_API_KEY not set)',
+        available: false,
+        totalEvents: 0,
+        eventsBySeverity: {},
+        eventsByType: {},
+        customers: [],
+        recentEvents: [],
+        note: `SaaS Alerts API not configured (missing ${this.missingCredentials().join(', ')})`,
       }
     }
 
     try {
-      const { customers, authMethod: custAuth } = await this.getCustomers()
-
-      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
-      const { events, authMethod: evtAuth } = await this.getEvents({ since: thirtyDaysAgo, limit: 500 })
+      const [{ customers }, { events }] = await Promise.all([
+        this.getCustomers(),
+        this.getEvents({
+          since: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+          limit: 500,
+        }),
+      ])
 
       const eventsBySeverity: Record<string, number> = {}
       const eventsByType: Record<string, number> = {}
-
       for (const event of events) {
         const sev = event.alertStatus ?? event.severity ?? 'unknown'
         eventsBySeverity[sev] = (eventsBySeverity[sev] ?? 0) + 1
@@ -349,10 +476,10 @@ export class SaasAlertsClient {
         eventsByType,
         customers,
         recentEvents: events.slice(0, 20),
-        authMethod: custAuth || evtAuth,
-        note: events.length === 0 && customers.length === 0
-          ? 'SaaS Alerts API responded but returned no data. Verify API key permissions and Partner ID.'
-          : null,
+        note:
+          events.length === 0 && customers.length === 0
+            ? 'SaaS Alerts API responded but returned no data. Verify the idtoken matches an MSP user with assigned customers.'
+            : null,
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -364,21 +491,18 @@ export class SaasAlertsClient {
         customers: [],
         recentEvents: [],
         note: `SaaS Alerts API error: ${message}`,
-        diagnostics: { error: message, hasPartnerId: this.hasPartnerId(), baseUrl: this.baseUrl },
+        diagnostics: { error: message, baseUrl: this.baseUrl },
       }
     }
   }
 }
 
-/** Extract events from various API response shapes */
 function extractEvents(data: unknown): SaasAlertEvent[] {
-  if (!data || typeof data !== 'object') return []
+  if (!data) return []
+  if (Array.isArray(data)) return data as SaasAlertEvent[]
+  if (typeof data !== 'object') return []
   const d = data as Record<string, unknown>
 
-  // Direct array
-  if (Array.isArray(d)) return d
-
-  // Elasticsearch hits
   if (d.hits && typeof d.hits === 'object') {
     const hits = d.hits as Record<string, unknown>
     if (Array.isArray(hits.hits)) {
@@ -386,7 +510,6 @@ function extractEvents(data: unknown): SaasAlertEvent[] {
     }
   }
 
-  // Nested data.hits
   if (d.data && typeof d.data === 'object') {
     const nested = d.data as Record<string, unknown>
     if (nested.hits && typeof nested.hits === 'object') {
@@ -395,12 +518,12 @@ function extractEvents(data: unknown): SaasAlertEvent[] {
         return hits.hits.map((h: Record<string, unknown>) => (h._source ?? h) as SaasAlertEvent)
       }
     }
-    if (Array.isArray(nested.events)) return nested.events
+    if (Array.isArray(nested.events)) return nested.events as SaasAlertEvent[]
+    if (Array.isArray(nested.data)) return nested.data as SaasAlertEvent[]
   }
 
-  // Direct events array
-  if (Array.isArray(d.events)) return d.events
-  if (Array.isArray(d.data)) return d.data
+  if (Array.isArray(d.events)) return d.events as SaasAlertEvent[]
+  if (Array.isArray(d.data)) return d.data as SaasAlertEvent[]
 
   return []
 }
