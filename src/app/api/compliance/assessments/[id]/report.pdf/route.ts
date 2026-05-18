@@ -115,10 +115,24 @@ export async function GET(
       },
     })
   } catch (err) {
+    // Don't return JSON — the browser is mid-download and would save
+    // the JSON error envelope under the .pdf filename. Fall back to a
+    // .txt with the actual error so the operator can diagnose instead
+    // of double-clicking a "PDF" that's secretly JSON.
     console.error('[compliance/assessments/report] error:', err)
-    return NextResponse.json(
-      { error: `Failed to render report: ${err instanceof Error ? err.message : String(err)}` },
-      { status: 500 }
-    )
+    const message = err instanceof Error ? err.message : String(err)
+    const stack = err instanceof Error ? `\n\n${err.stack ?? ''}` : ''
+    const body =
+      `PDF report generation failed.\n\n` +
+      `Error: ${message}${stack}\n\n` +
+      `Send this file to the engineer so they can fix the renderer. The assessment data itself is fine — you can view it on the findings page.\n`
+    return new Response(body, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Content-Disposition': `attachment; filename="report-error.txt"`,
+        'Cache-Control': 'no-store',
+      },
+    })
   }
 }

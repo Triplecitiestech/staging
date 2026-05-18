@@ -1,5 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Don't try to bundle these — read directly from node_modules at
+  // runtime. pdfkit + fontkit ship binary .afm font files that Next.js's
+  // bundler doesn't know how to handle; externalizing keeps the file
+  // system path intact so pdfkit can find its standard PostScript fonts.
+  serverExternalPackages: ['pdfkit', 'fontkit', 'pdf-parse', 'mammoth'],
   // Webpack configuration
   webpack: (config, { isServer }) => {
     if (isServer) {
