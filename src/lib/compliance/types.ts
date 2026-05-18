@@ -64,6 +64,8 @@ export type EvidenceSourceType =
   | 'domotz_network_discovery'
   | 'it_glue_documentation'
   | 'saas_alerts_monitoring'
+  | 'saas_alerts_device_identity'
+  | 'saas_alerts_recommended_actions'
   | 'ubiquiti_network'
   | 'easydmarc_email_auth'
   | 'myitprocess_alignment'
@@ -419,6 +421,8 @@ export const EVIDENCE_TO_CONNECTOR: Record<EvidenceSourceType, ConnectorType | n
   domotz_network_discovery: 'domotz',
   it_glue_documentation: 'it_glue',
   saas_alerts_monitoring: 'saas_alerts',
+  saas_alerts_device_identity: 'saas_alerts',
+  saas_alerts_recommended_actions: 'saas_alerts',
   ubiquiti_network: 'ubiquiti',
   easydmarc_email_auth: 'easydmarc',
   myitprocess_alignment: 'myitprocess',

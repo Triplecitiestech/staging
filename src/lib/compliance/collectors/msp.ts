@@ -849,6 +849,58 @@ export async function collectItGlueEvidence(
 // SaaS Alerts Collector — SaaS Security Monitoring
 // ---------------------------------------------------------------------------
 
+/**
+ * Aggregate a list of normalized SaaS Alerts events into evidence rawData.
+ * Shared between the webhook path (reads from compliance_webhook_events) and
+ * the REST fallback (reads live from the Partner API).
+ */
+function aggregateSaasAlertsEvents(
+  events: Array<{
+    eventType: string
+    severity: string
+    signalType: string | null
+    rawData: Record<string, unknown>
+    normalized: Record<string, unknown> | null
+  }>,
+  signalWeights: Record<string, number>,
+  signalLabels: Record<string, string>
+): {
+  eventsBySeverity: Record<string, number>
+  eventsByType: Record<string, number>
+  eventsBySignal: Record<string, number>
+  signalWeightSum: number
+  recentHighSeverity: Array<{ time?: string; user?: string; type: string; signal: string; description?: string; severity: string }>
+} {
+  const eventsBySeverity: Record<string, number> = {}
+  const eventsByType: Record<string, number> = {}
+  const eventsBySignal: Record<string, number> = {}
+  let signalWeightSum = 0
+  const recentHighSeverity: Array<{ time?: string; user?: string; type: string; signal: string; description?: string; severity: string }> = []
+
+  for (const row of events) {
+    eventsBySeverity[row.severity] = (eventsBySeverity[row.severity] ?? 0) + 1
+    eventsByType[row.eventType] = (eventsByType[row.eventType] ?? 0) + 1
+    const signal = row.signalType ?? 'unknown'
+    eventsBySignal[signal] = (eventsBySignal[signal] ?? 0) + 1
+    signalWeightSum += signalWeights[signal] ?? 1
+    if ((row.severity === 'critical' || row.severity === 'high') && recentHighSeverity.length < 10) {
+      const raw = row.rawData
+      const norm = row.normalized
+      const user = (norm?.user as { name?: string } | undefined)?.name ?? (raw.user as { name?: string } | undefined)?.name
+      recentHighSeverity.push({
+        time: (norm?.occurredAt as string | undefined) ?? (raw.time as string | undefined),
+        user,
+        type: row.eventType,
+        signal: signalLabels[signal] ?? signal,
+        description: (norm?.description as string | undefined) ?? (raw.jointDesc as string | undefined),
+        severity: row.severity,
+      })
+    }
+  }
+
+  return { eventsBySeverity, eventsByType, eventsBySignal, signalWeightSum, recentHighSeverity }
+}
+
 export async function collectSaasAlertsEvidence(
   companyId: string,
   assessmentId: string
@@ -856,87 +908,197 @@ export async function collectSaasAlertsEvidence(
   const evidence: Array<Omit<EvidenceRecord, 'id' | 'collectedAt'>> = []
   const errors: string[] = []
 
-  // SaaS Alerts API is behind Cloudflare bot protection — can't call directly from serverless.
-  // Instead, read from webhook events stored locally via /api/compliance/webhooks/saas-alerts.
   try {
     const { getPool } = await import('@/lib/db-pool')
-    const { SIGNAL_WEIGHTS, SIGNAL_LABELS } = await import('@/lib/compliance/saas-alerts-normalizer')
+    const { SIGNAL_WEIGHTS, SIGNAL_LABELS, normalizeEvent } = await import('@/lib/compliance/saas-alerts-normalizer')
+    const { SaasAlertsClient } = await import('@/lib/saas-alerts')
     const pool = getPool()
-    const client = await pool.connect()
+
+    const mappings = await getPlatformMappings(companyId, 'saas_alerts')
+    const mappedCustomerIds = (mappings ?? []).map((m) => m.externalId).filter((id) => id && id !== '__none__')
+
+    const dbClient = await pool.connect()
+    let webhookEventCount = 0
+
     try {
-      // Read events from last 30 days
+      // --- Path 1: webhook events from the local DB ---
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
-      const res = await client.query<{
+      const res = await dbClient.query<{
         eventType: string
         severity: string
         signalType: string | null
         rawData: Record<string, unknown>
         normalized: Record<string, unknown> | null
+        customerId: string | null
       }>(
-        `SELECT "eventType", severity, "signalType", "rawData", normalized
+        `SELECT "eventType", severity, "signalType", "rawData", normalized, "customerId"
          FROM compliance_webhook_events
          WHERE source = 'saas_alerts' AND "receivedAt" > $1 AND "expiresAt" > NOW()
          ORDER BY "receivedAt" DESC LIMIT 1000`,
         [thirtyDaysAgo]
       )
 
-      if (res.rows.length === 0) {
-        // Check if webhook is even configured by looking for ANY events ever
-        const anyRes = await client.query<{ count: string }>(
-          `SELECT COUNT(*) as count FROM compliance_webhook_events WHERE source = 'saas_alerts'`
-        )
-        const totalEver = parseInt(anyRes.rows[0]?.count ?? '0')
-        if (totalEver === 0) {
-          errors.push('SaaS Alerts: No webhook events received yet. Configure the webhook in manage.saasalerts.com > Settings > API > Webhook API. Set URL to: https://www.triplecitiestech.com/api/compliance/webhooks/saas-alerts')
-        } else {
-          errors.push('SaaS Alerts: No events in the last 30 days (webhook is configured).')
-        }
-        return { evidence, errors }
+      // Filter to mapped customers if any mapping exists. If no mapping,
+      // fall back to "all events" (legacy behavior — better than dropping data).
+      const filteredRows =
+        mappedCustomerIds.length > 0
+          ? res.rows.filter((r) => r.customerId && mappedCustomerIds.includes(r.customerId))
+          : res.rows
+
+      webhookEventCount = filteredRows.length
+
+      if (filteredRows.length > 0) {
+        const agg = aggregateSaasAlertsEvents(filteredRows, SIGNAL_WEIGHTS as Record<string, number>, SIGNAL_LABELS as Record<string, string>)
+        evidence.push(buildEvidence(assessmentId, companyId, 'saas_alerts_monitoring' as EvidenceSourceType, {
+          totalEvents: filteredRows.length,
+          ...agg,
+          source: 'webhook',
+          mappedCustomerIds,
+          note: 'Data collected via SaaS Alerts webhook (real-time event push).',
+        }, `SaaS Alerts: ${filteredRows.length} events (30 days, via webhook). Severity: ${Object.entries(agg.eventsBySeverity).map(([k, v]) => `${k}=${v}`).join(', ') || 'none'}. Top signals: ${Object.entries(agg.eventsBySignal).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => `${k}=${v}`).join(', ') || 'none'}.`))
       }
-
-      // Aggregate events
-      const eventsBySeverity: Record<string, number> = {}
-      const eventsByType: Record<string, number> = {}
-      const eventsBySignal: Record<string, number> = {}
-      let signalWeightSum = 0
-      const recentHigh: Array<{ time?: string; user?: string; type: string; signal: string; description?: string; severity: string }> = []
-
-      for (const row of res.rows) {
-        eventsBySeverity[row.severity] = (eventsBySeverity[row.severity] ?? 0) + 1
-        eventsByType[row.eventType] = (eventsByType[row.eventType] ?? 0) + 1
-        const signal = (row.signalType ?? 'unknown') as keyof typeof SIGNAL_WEIGHTS
-        eventsBySignal[signal] = (eventsBySignal[signal] ?? 0) + 1
-        signalWeightSum += SIGNAL_WEIGHTS[signal] ?? 1
-        if ((row.severity === 'critical' || row.severity === 'high') && recentHigh.length < 10) {
-          const raw = row.rawData as Record<string, unknown>
-          const norm = row.normalized as Record<string, unknown> | null
-          const user = (norm?.user as { name?: string } | undefined)?.name ?? (raw.user as { name?: string } | undefined)?.name
-          recentHigh.push({
-            time: (norm?.occurredAt as string | undefined) ?? (raw.time as string | undefined),
-            user,
-            type: row.eventType,
-            signal: SIGNAL_LABELS[signal] ?? signal,
-            description: (norm?.description as string | undefined) ?? (raw.jointDesc as string | undefined),
-            severity: row.severity,
-          })
-        }
-      }
-
-      evidence.push(buildEvidence(assessmentId, companyId, 'saas_alerts_monitoring' as EvidenceSourceType, {
-        totalEvents: res.rows.length,
-        eventsBySeverity,
-        eventsByType,
-        eventsBySignal,
-        signalWeightSum,
-        recentHighSeverity: recentHigh,
-        source: 'webhook',
-        note: 'Data collected via SaaS Alerts webhook (real-time event push).',
-      }, `SaaS Alerts: ${res.rows.length} events (30 days, via webhook). Severity: ${Object.entries(eventsBySeverity).map(([k, v]) => `${k}=${v}`).join(', ') || 'none'}. Top signals: ${Object.entries(eventsBySignal).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => `${k}=${v}`).join(', ') || 'none'}.`))
-
-      return { evidence, errors }
     } finally {
-      client.release()
+      dbClient.release()
     }
+
+    // --- Path 2: REST fallback when webhook has no data for this customer ---
+    // The Partner API can backfill events we missed (subscription paused, new
+    // customer not yet wired up, historical assessment). Only attempted when:
+    //   - the local DB returned nothing for this customer
+    //   - the REST client is configured (refresh token or static idtoken set)
+    //   - we have at least one mapped SaaS Alerts customerId (otherwise we
+    //     can't scope the query and would pull every customer's events)
+    if (webhookEventCount === 0 && mappedCustomerIds.length > 0) {
+      const apiClient = new SaasAlertsClient()
+      if (apiClient.isConfigured()) {
+        try {
+          const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+          const allRestRows: Array<{
+            eventType: string
+            severity: string
+            signalType: string | null
+            rawData: Record<string, unknown>
+            normalized: Record<string, unknown> | null
+          }> = []
+
+          for (const customerId of mappedCustomerIds) {
+            const { events } = await apiClient.getEvents({ customerId, since, limit: 500 })
+            for (const raw of events) {
+              const normalized = normalizeEvent(raw as Parameters<typeof normalizeEvent>[0], {
+                partnerId: null,
+                customerId,
+                productId: null,
+              })
+              allRestRows.push({
+                eventType: normalized.eventType,
+                severity: normalized.severity,
+                signalType: normalized.signalType,
+                rawData: normalized.raw,
+                normalized: {
+                  externalId: normalized.externalId,
+                  signalType: normalized.signalType,
+                  occurredAt: normalized.occurredAt,
+                  user: normalized.user,
+                  description: normalized.description,
+                },
+              })
+            }
+          }
+
+          if (allRestRows.length > 0) {
+            const agg = aggregateSaasAlertsEvents(allRestRows, SIGNAL_WEIGHTS as Record<string, number>, SIGNAL_LABELS as Record<string, string>)
+            evidence.push(buildEvidence(assessmentId, companyId, 'saas_alerts_monitoring' as EvidenceSourceType, {
+              totalEvents: allRestRows.length,
+              ...agg,
+              source: 'rest_fallback',
+              mappedCustomerIds,
+              note: 'Data backfilled via the External Partner API. Webhook had no events in this window — verify subscription health if this persists.',
+            }, `SaaS Alerts: ${allRestRows.length} events (30 days, via REST fallback). Severity: ${Object.entries(agg.eventsBySeverity).map(([k, v]) => `${k}=${v}`).join(', ') || 'none'}.`))
+          } else {
+            errors.push('SaaS Alerts: No events in webhook DB or REST API for the last 30 days for the mapped customer(s). May indicate a low-noise tenant or a paused subscription.')
+          }
+        } catch (apiErr) {
+          errors.push(`SaaS Alerts: REST fallback failed — ${apiErr instanceof Error ? apiErr.message : String(apiErr)}. Webhook data was also empty for this window.`)
+        }
+      } else {
+        const missing = apiClient.missingCredentials().join(', ')
+        errors.push(`SaaS Alerts: No webhook events for this customer in the last 30 days, and the REST fallback is not configured (missing ${missing}).`)
+      }
+    } else if (webhookEventCount === 0 && mappedCustomerIds.length === 0) {
+      errors.push('SaaS Alerts: No events received and no platform mapping configured. Map this company to its SaaS Alerts customer at the Connect Tools step so we can pull data for it.')
+    }
+
+    // --- Path 3: Unify device-to-identity binding ---
+    // This is *new* evidence the webhook can't provide — only the REST API
+    // exposes the Unify device organizations endpoint.
+    if (mappedCustomerIds.length > 0) {
+      const apiClient = new SaasAlertsClient()
+      if (apiClient.isConfigured()) {
+        try {
+          const orgs = await apiClient.getDevicesOrganizations()
+          const matchedOrgs = orgs.filter((o) => o.organizationId && mappedCustomerIds.includes(o.organizationId))
+
+          if (matchedOrgs.length > 0) {
+            const totals = matchedOrgs.reduce<{ devices: number; mapped: number; unmapped: number }>(
+              (acc, o) => ({
+                devices: acc.devices + (o.deviceCount ?? 0),
+                mapped: acc.mapped + (o.mappedDeviceCount ?? 0),
+                unmapped: acc.unmapped + (o.unmappedDeviceCount ?? 0),
+              }),
+              { devices: 0, mapped: 0, unmapped: 0 }
+            )
+
+            const coveragePct = totals.devices > 0 ? Math.round((totals.mapped / totals.devices) * 100) : null
+
+            evidence.push(buildEvidence(assessmentId, companyId, 'saas_alerts_device_identity' as EvidenceSourceType, {
+              totalDevices: totals.devices,
+              mappedDevices: totals.mapped,
+              unmappedDevices: totals.unmapped,
+              coveragePct,
+              organizations: matchedOrgs,
+              mappedCustomerIds,
+              source: 'rest',
+              note: 'SaaS Alerts Unify module: device-to-identity binding for SaaS access control.',
+            }, `SaaS Alerts Unify: ${totals.devices} devices tracked (${totals.mapped} mapped to identities, ${totals.unmapped} unmapped${coveragePct !== null ? `, ${coveragePct}% coverage` : ''}).`))
+          }
+        } catch (apiErr) {
+          errors.push(`SaaS Alerts Unify (device-identity): ${apiErr instanceof Error ? apiErr.message : String(apiErr)}`)
+        }
+
+        // --- Path 4: Kaseya-curated recommended actions ---
+        try {
+          const actions = await apiClient.getRecommendedActions()
+          const matched = mappedCustomerIds.length > 0
+            ? actions.filter((a) => a.customerId && mappedCustomerIds.includes(a.customerId))
+            : actions
+
+          if (matched.length > 0) {
+            const bySeverity: Record<string, number> = {}
+            const byCategory: Record<string, number> = {}
+            for (const action of matched) {
+              const sev = action.severity ?? 'unknown'
+              bySeverity[sev] = (bySeverity[sev] ?? 0) + 1
+              const cat = action.category ?? 'unknown'
+              byCategory[cat] = (byCategory[cat] ?? 0) + 1
+            }
+
+            evidence.push(buildEvidence(assessmentId, companyId, 'saas_alerts_recommended_actions' as EvidenceSourceType, {
+              totalActions: matched.length,
+              bySeverity,
+              byCategory,
+              actions: matched.slice(0, 50),
+              mappedCustomerIds,
+              source: 'rest',
+              note: 'Kaseya-curated remediation recommendations for SaaS security gaps. Feeds into action-item / policy-gap analysis.',
+            }, `SaaS Alerts recommended actions: ${matched.length} open recommendation(s). Severity: ${Object.entries(bySeverity).map(([k, v]) => `${k}=${v}`).join(', ') || 'none'}.`))
+          }
+        } catch (apiErr) {
+          errors.push(`SaaS Alerts recommended actions: ${apiErr instanceof Error ? apiErr.message : String(apiErr)}`)
+        }
+      }
+    }
+
+    return { evidence, errors }
   } catch (err) {
     return { evidence, errors: [`SaaS Alerts collection failed: ${err instanceof Error ? err.message : String(err)}`] }
   }
