@@ -55,7 +55,7 @@ export default function FindingOverrideInline(props: Props) {
 
   async function save() {
     if (!status) {
-      setError('Pick a status to override to (or use Clear override to revert).')
+      setError('Pick a status to attest (or use Clear attestation to revert).')
       return
     }
     if (!reason.trim()) {
@@ -114,11 +114,12 @@ export default function FindingOverrideInline(props: Props) {
     <div className="rounded border border-violet-500/20 bg-violet-500/[0.03] p-3 space-y-2">
       <div className="flex items-baseline justify-between gap-3 flex-wrap">
         <p className="text-xs font-medium uppercase tracking-wider text-violet-300">
-          Reviewer override
+          Analyst Attestation
         </p>
         <p className="text-[10px] text-slate-500">
-          Overrides what the AUTOMATED engine reports. Separate from disposition
-          (which tracks <em>what we&apos;re doing about it</em>).
+          Analyst&apos;s asserted answer for this control — overrides what the AUTOMATED
+          engine reports. Separate from disposition (which tracks
+          <em> what we&apos;re doing about it</em>).
         </p>
       </div>
 
@@ -126,7 +127,7 @@ export default function FindingOverrideInline(props: Props) {
         <div className="space-y-2">
           <p className="text-sm text-slate-200">
             Engine said <span className="font-mono text-slate-400">{props.engineStatus}</span>
-            {' '}→ reviewer set to{' '}
+            {' '}→ analyst attested{' '}
             <span className="font-mono text-violet-300">{props.currentOverrideStatus}</span>
           </p>
           {props.currentOverrideReason && (
@@ -144,7 +145,7 @@ export default function FindingOverrideInline(props: Props) {
               onClick={() => setEditing(true)}
               className="text-xs px-2.5 py-1 rounded bg-violet-500/20 hover:bg-violet-500/30 text-violet-200"
             >
-              Edit override
+              Edit attestation
             </button>
             <button
               type="button"
@@ -152,7 +153,7 @@ export default function FindingOverrideInline(props: Props) {
               disabled={saving}
               className="text-xs px-2.5 py-1 rounded bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 disabled:opacity-50"
             >
-              {saving ? 'Clearing…' : 'Clear override (revert to engine)'}
+              {saving ? 'Clearing…' : 'Clear attestation (revert to engine)'}
             </button>
           </div>
         </div>
@@ -164,7 +165,7 @@ export default function FindingOverrideInline(props: Props) {
             <p className="text-xs text-slate-400">
               Engine reported{' '}
               <span className="font-mono text-slate-300">{props.engineStatus}</span>.
-              {' '}Override only if you have evidence the engine couldn&apos;t see
+              {' '}Attest a different status only if you have evidence the engine couldn&apos;t see
               (compensating control, customer attestation, scoped exception).
             </p>
           )}
@@ -173,7 +174,7 @@ export default function FindingOverrideInline(props: Props) {
             onChange={(e) => setStatus(e.target.value)}
             className="w-full bg-slate-800/60 border border-white/10 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-violet-500/50"
           >
-            <option value="">— pick a status —</option>
+            <option value="">— attest a status —</option>
             {OVERRIDE_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
@@ -181,7 +182,7 @@ export default function FindingOverrideInline(props: Props) {
           <textarea
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            placeholder="Required: explain why the engine result is wrong, the compensating control, or the attestation source. The next reviewer / auditor sees this."
+            placeholder="Required: justify the attestation — compensating control, customer attestation, scoped exception, or out-of-band evidence the engine couldn't see. The next analyst / auditor sees this."
             rows={3}
             className="w-full bg-slate-800/60 border border-white/10 rounded px-2 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-500/50 resize-y"
           />
@@ -195,7 +196,7 @@ export default function FindingOverrideInline(props: Props) {
               disabled={saving}
               className="text-xs px-3 py-1 rounded bg-cyan-500/25 hover:bg-cyan-500/35 text-cyan-200 disabled:opacity-50"
             >
-              {saving ? 'Saving…' : hasOverride ? 'Update override' : 'Save override'}
+              {saving ? 'Saving…' : hasOverride ? 'Update attestation' : 'Save attestation'}
             </button>
             {editing && (
               <button

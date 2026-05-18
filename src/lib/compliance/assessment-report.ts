@@ -222,7 +222,7 @@ function renderFindingBlock(
   // If overridden, note who/when below the title.
   if (f.overrideStatus !== null) {
     doc.fontSize(8).fillColor('#7e22ce').text(
-      `Reviewer override (engine said ${f.status}). By ${f.overrideBy ?? 'unknown'} on ${
+      `Analyst Attestation (engine said ${f.status}). By ${f.overrideBy ?? 'unknown'} on ${
         f.overrideAt ? new Date(f.overrideAt).toLocaleString() : ''
       }.`,
       { align: 'left' }

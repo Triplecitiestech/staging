@@ -24,6 +24,7 @@ import { useMemo, useState } from 'react'
 import RemediateButton, { type RemediateAction } from './RemediateButton'
 import DispositionToggleButton from './DispositionToggleButton'
 import FindingOverrideInline from './FindingOverrideInline'
+import AssessmentReasoning from './AssessmentReasoning'
 
 export interface FindingRowData {
   id: string
@@ -222,7 +223,7 @@ function FindingItem({ finding, expanded, onToggle, companyId, frameworkId }: {
             <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">
               Assessment result
             </p>
-            <p className="text-sm text-slate-200 whitespace-pre-line">{finding.reasoning}</p>
+            <AssessmentReasoning reasoning={finding.reasoning} />
           </div>
 
           {finding.remediation && (
@@ -265,10 +266,11 @@ function FindingItem({ finding, expanded, onToggle, companyId, frameworkId }: {
             </div>
           )}
 
-          {/* Reviewer override — replaces / sets the engine's status with
-              a human-vouched answer + justification. Always rendered so
-              the operator can override pass results too (e.g. evidence
-              was misleading) and can clear an existing override. */}
+          {/* Analyst Attestation — replaces / sets the engine's status
+              with a human-vouched answer + justification. Always
+              rendered so the operator can attest a different status on
+              passing controls too (e.g. evidence was misleading) and
+              can clear an existing attestation. */}
           <div className="pt-2 border-t border-white/10">
             <FindingOverrideInline
               findingId={finding.id}
