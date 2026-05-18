@@ -24,6 +24,7 @@ import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import AdminHeader from '@/components/admin/AdminHeader'
+import SaasAlertsHealthCard from '@/components/compliance/SaasAlertsHealthCard'
 import { getPool } from '@/lib/db-pool'
 import { ensureComplianceTables } from '@/lib/compliance/ensure-tables'
 import { countPendingApprovalsByCompany } from '@/lib/compliance/policy-approval-store'
@@ -62,6 +63,8 @@ export default async function ComplianceCustomerPickerPage() {
             wherever they left off.
           </p>
         </div>
+
+        <SaasAlertsHealthCard />
 
         {customers.length === 0 ? (
           <section className="bg-slate-900/50 border border-white/10 rounded-xl p-8 text-center">
