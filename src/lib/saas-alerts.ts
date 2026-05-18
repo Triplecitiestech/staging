@@ -17,23 +17,49 @@
  *   - `api_key` header — your partner API key (from manage.saasalerts.com >
  *     Settings > API, also retrievable via GET /tools/apiKey)
  *   - `idtoken`  header — the partner-user ID token (Firebase Auth JWT).
- *     Obtain by logging in to manage.saasalerts.com and inspecting the
- *     `idtoken` cookie/header the SPA uses, or ask Kaseya support to
- *     provision a long-lived partner service token.
  *
- * Required env vars:
- *   SAAS_ALERTS_API_KEY      — `api_key` header value
- *   SAAS_ALERTS_ID_TOKEN     — `idtoken` header value
+ * The `idtoken` is a short-lived (1h) Firebase Auth JWT. To keep the
+ * integration alive without manual re-pasting every hour, this client
+ * exchanges a long-lived Firebase refresh token for a fresh idtoken via
+ *   POST https://securetoken.googleapis.com/v1/token?key=<webApiKey>
+ *   body: grant_type=refresh_token&refresh_token=<refreshToken>
+ * Tokens are cached per-isolate in memory; concurrent requests during a
+ * refresh share the same in-flight promise.
+ *
+ * The Firebase Web API key is NOT secret (it is shipped in the SaaS Alerts
+ * SPA) — it identifies the Firebase project, not the caller. Auth is enforced
+ * entirely by the refresh-token check.
+ *
+ * Env vars — primary (refresh flow):
+ *   SAAS_ALERTS_API_KEY            — `api_key` header value
+ *   SAAS_ALERTS_REFRESH_TOKEN      — Firebase refresh token (long-lived)
+ *
+ * Env vars — fallback (manual / one-off testing):
+ *   SAAS_ALERTS_ID_TOKEN           — pre-fetched JWT. Used only when no
+ *                                    refresh token is configured. Will
+ *                                    expire ~1h after issuance.
  *
  * Optional env vars:
- *   SAAS_ALERTS_API_URL      — base URL override (defaults to production
- *                              cloudfunctions; alternate envs are qa/dev,
- *                              see SaasAlertsApiEnvironment below)
- *   SAAS_ALERTS_PARTNER_ID   — used to scope filtered event queries;
- *                              NOT required for auth.
+ *   SAAS_ALERTS_FIREBASE_API_KEY   — Firebase Web API key for the SaaS Alerts
+ *                                    project (defaults to the public value
+ *                                    embedded in the manage.saasalerts.com SPA)
+ *   SAAS_ALERTS_API_URL            — base URL override (defaults to production
+ *                                    cloudfunctions; alternate envs are qa/dev,
+ *                                    see SaasAlertsApiEnvironment below)
+ *   SAAS_ALERTS_PARTNER_ID         — used to scope filtered event queries;
+ *                                    NOT required for auth.
  */
 
 const DEFAULT_BASE_URL = 'https://us-central1-the-byway-248217.cloudfunctions.net/reportApi/api/v1'
+
+// Public Firebase Web API key embedded in the manage.saasalerts.com SPA.
+// Identifies the SaaS Alerts Firebase project; not a secret.
+const DEFAULT_FIREBASE_WEB_API_KEY = 'AIzaSyC14CD_df06vaN4bj3H9t3Um8yUdY3vZQI'
+
+const SECURE_TOKEN_ENDPOINT = 'https://securetoken.googleapis.com/v1/token'
+
+// Refresh idtoken when fewer than this many ms remain on the current token.
+const REFRESH_BUFFER_MS = 5 * 60 * 1000
 
 export const SAAS_ALERTS_API_ENVIRONMENTS = {
   production: 'https://us-central1-the-byway-248217.cloudfunctions.net/reportApi/api/v1',
@@ -132,30 +158,70 @@ export interface SaasAlertsSummary {
   diagnostics?: Record<string, unknown>
 }
 
+interface CachedToken {
+  idToken: string
+  expiresAtMs: number
+  refreshToken: string
+  /** Set when the cached token came from SAAS_ALERTS_ID_TOKEN, not a refresh exchange. */
+  source: 'refresh' | 'static'
+}
+
+/**
+ * Per-isolate cache. Shared across all SaasAlertsClient instances in the same
+ * Node process so concurrent requests don't each trigger their own refresh.
+ */
+let cachedToken: CachedToken | null = null
+let inFlightRefresh: Promise<CachedToken> | null = null
+
+/** Reset the cache. Exported for tests; not used in app code. */
+export function _resetSaasAlertsTokenCache(): void {
+  cachedToken = null
+  inFlightRefresh = null
+}
+
 export class SaasAlertsClient {
   private apiKey: string
-  private idToken: string
+  private staticIdToken: string
+  private refreshToken: string
+  private firebaseApiKey: string
   private partnerId: string
   private baseUrl: string
 
-  constructor(opts?: { apiKey?: string; idToken?: string; partnerId?: string; baseUrl?: string }) {
+  constructor(opts?: {
+    apiKey?: string
+    idToken?: string
+    refreshToken?: string
+    firebaseApiKey?: string
+    partnerId?: string
+    baseUrl?: string
+  }) {
     this.apiKey = opts?.apiKey ?? process.env.SAAS_ALERTS_API_KEY ?? ''
-    this.idToken = opts?.idToken ?? process.env.SAAS_ALERTS_ID_TOKEN ?? ''
+    this.staticIdToken = opts?.idToken ?? process.env.SAAS_ALERTS_ID_TOKEN ?? ''
+    this.refreshToken = opts?.refreshToken ?? process.env.SAAS_ALERTS_REFRESH_TOKEN ?? ''
+    this.firebaseApiKey =
+      opts?.firebaseApiKey ?? process.env.SAAS_ALERTS_FIREBASE_API_KEY ?? DEFAULT_FIREBASE_WEB_API_KEY
     this.partnerId = opts?.partnerId ?? process.env.SAAS_ALERTS_PARTNER_ID ?? ''
     this.baseUrl = (opts?.baseUrl ?? process.env.SAAS_ALERTS_API_URL ?? DEFAULT_BASE_URL).replace(/\/$/, '')
   }
 
-  /** True only when BOTH the api key and the id token are set. */
+  /**
+   * True when we have everything needed to make an authenticated call.
+   * Either a refresh token (preferred) or a static idtoken is acceptable.
+   */
   isConfigured(): boolean {
-    return !!this.apiKey && !!this.idToken
+    return !!this.apiKey && (!!this.refreshToken || !!this.staticIdToken)
   }
 
   hasApiKey(): boolean {
     return !!this.apiKey
   }
 
-  hasIdToken(): boolean {
-    return !!this.idToken
+  hasRefreshToken(): boolean {
+    return !!this.refreshToken
+  }
+
+  hasStaticIdToken(): boolean {
+    return !!this.staticIdToken
   }
 
   hasPartnerId(): boolean {
@@ -166,12 +232,125 @@ export class SaasAlertsClient {
     return this.baseUrl
   }
 
+  /** Which auth mode the next request will use. */
+  authMode(): 'refresh' | 'static' | 'unconfigured' {
+    if (!this.apiKey) return 'unconfigured'
+    if (this.refreshToken) return 'refresh'
+    if (this.staticIdToken) return 'static'
+    return 'unconfigured'
+  }
+
   /** Returns the missing credential names, for diagnostics. */
   missingCredentials(): string[] {
     const missing: string[] = []
     if (!this.apiKey) missing.push('SAAS_ALERTS_API_KEY')
-    if (!this.idToken) missing.push('SAAS_ALERTS_ID_TOKEN')
+    if (!this.refreshToken && !this.staticIdToken) {
+      missing.push('SAAS_ALERTS_REFRESH_TOKEN (or SAAS_ALERTS_ID_TOKEN for one-off testing)')
+    }
     return missing
+  }
+
+  /**
+   * Exchange the refresh token for a fresh idtoken via Firebase securetoken.
+   * Public so debug tooling can force a refresh; normal callers go through
+   * `getValidIdToken()`.
+   */
+  async refreshIdToken(): Promise<CachedToken> {
+    if (!this.refreshToken) {
+      throw new Error('Cannot refresh: SAAS_ALERTS_REFRESH_TOKEN is not set')
+    }
+
+    const url = `${SECURE_TOKEN_ENDPOINT}?key=${encodeURIComponent(this.firebaseApiKey)}`
+    const body = new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: this.refreshToken,
+    })
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Accept: 'application/json',
+      },
+      body: body.toString(),
+      signal: AbortSignal.timeout(15_000),
+    })
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      throw new Error(
+        `SaaS Alerts refresh-token exchange failed (${res.status}). ` +
+        `Verify SAAS_ALERTS_REFRESH_TOKEN is still valid (the partner user may have been logged out or the token revoked). ` +
+        `Body: ${text.slice(0, 200)}`
+      )
+    }
+
+    const json = (await res.json()) as {
+      id_token?: string
+      access_token?: string
+      refresh_token?: string
+      expires_in?: string
+    }
+
+    const newIdToken = json.id_token ?? json.access_token
+    if (!newIdToken) {
+      throw new Error('SaaS Alerts refresh-token response missing id_token')
+    }
+
+    const ttlSec = parseInt(json.expires_in ?? '3600', 10) || 3600
+    const next: CachedToken = {
+      idToken: newIdToken,
+      expiresAtMs: Date.now() + ttlSec * 1000,
+      // Firebase usually echoes the same refresh token back; on rare rotation
+      // it returns a new one, which we adopt for the rest of this isolate's
+      // lifetime.
+      refreshToken: json.refresh_token ?? this.refreshToken,
+      source: 'refresh',
+    }
+    cachedToken = next
+    return next
+  }
+
+  /**
+   * Returns an idtoken that's good for at least REFRESH_BUFFER_MS more,
+   * refreshing if necessary. Concurrent callers share the same in-flight
+   * refresh promise.
+   */
+  async getValidIdToken(): Promise<string> {
+    const now = Date.now()
+
+    if (cachedToken && cachedToken.expiresAtMs > now + REFRESH_BUFFER_MS) {
+      return cachedToken.idToken
+    }
+
+    // No usable cache. If we have a refresh token, exchange it. Otherwise
+    // fall back to the static env-var idtoken (used for one-off testing).
+    if (this.refreshToken) {
+      if (!inFlightRefresh) {
+        inFlightRefresh = this.refreshIdToken().finally(() => {
+          inFlightRefresh = null
+        })
+      }
+      const fresh = await inFlightRefresh
+      return fresh.idToken
+    }
+
+    if (this.staticIdToken) {
+      // Don't trust the static token's actual expiry — let the upstream call
+      // surface a 401 if it's stale. We only stash it so subsequent calls
+      // within the same isolate don't re-read the env var.
+      cachedToken = {
+        idToken: this.staticIdToken,
+        expiresAtMs: now + 60 * 60 * 1000,
+        refreshToken: '',
+        source: 'static',
+      }
+      return this.staticIdToken
+    }
+
+    throw new Error(
+      'SaaS Alerts: no idtoken available — set SAAS_ALERTS_REFRESH_TOKEN (preferred) or SAAS_ALERTS_ID_TOKEN.'
+    )
   }
 
   private async request<T>(
@@ -193,23 +372,38 @@ export class SaasAlertsClient {
     }
     const url = `${this.baseUrl}${path}${qs.toString() ? `?${qs.toString()}` : ''}`
 
-    const res = await fetch(url, {
-      method,
-      headers: {
-        api_key: this.apiKey,
-        idtoken: this.idToken,
-        Accept: 'application/json',
-        ...(body ? { 'Content-Type': 'application/json' } : {}),
-      },
-      body: body ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(30_000),
-    })
+    const doFetch = async (idToken: string) =>
+      fetch(url, {
+        method,
+        headers: {
+          api_key: this.apiKey,
+          idtoken: idToken,
+          Accept: 'application/json',
+          ...(body ? { 'Content-Type': 'application/json' } : {}),
+        },
+        body: body ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(30_000),
+      })
+
+    let idToken = await this.getValidIdToken()
+    let res = await doFetch(idToken)
+
+    // If the upstream rejects the token (e.g. static token went stale, or a
+    // cached refresh token was revoked between the buffer check and now),
+    // force one re-refresh and retry once.
+    if ((res.status === 401 || res.status === 403) && this.refreshToken) {
+      cachedToken = null
+      idToken = await this.getValidIdToken()
+      res = await doFetch(idToken)
+    }
 
     if (res.status === 401 || res.status === 403) {
       const text = await res.text().catch(() => '')
+      const hint = this.refreshToken
+        ? 'Refresh token exchange succeeded but the upstream still rejected the new idtoken — likely a permissions issue (msp_admin role / SA license scope).'
+        : 'Verify SAAS_ALERTS_API_KEY and SAAS_ALERTS_ID_TOKEN; the static idtoken may have expired (1h TTL). Configure SAAS_ALERTS_REFRESH_TOKEN to auto-refresh.'
       throw new Error(
-        `SaaS Alerts auth rejected (${res.status}) on ${path}. ` +
-        `Verify SAAS_ALERTS_API_KEY and SAAS_ALERTS_ID_TOKEN. Body: ${text.slice(0, 200)}`
+        `SaaS Alerts auth rejected (${res.status}) on ${path}. ${hint} Body: ${text.slice(0, 200)}`
       )
     }
 
@@ -364,10 +558,18 @@ export class SaasAlertsClient {
   async testConnection(): Promise<{
     configured: boolean
     hasApiKey: boolean
-    hasIdToken: boolean
+    hasRefreshToken: boolean
+    hasStaticIdToken: boolean
     hasPartnerId: boolean
+    authMode: 'refresh' | 'static' | 'unconfigured'
     baseUrl: string
     missingCredentials: string[]
+    tokenRefresh?: {
+      attempted: boolean
+      success: boolean
+      expiresInSec?: number
+      error?: string
+    }
     results: Array<{
       endpoint: string
       status: 'success' | 'failed' | 'skipped'
@@ -388,8 +590,10 @@ export class SaasAlertsClient {
       return {
         configured: false,
         hasApiKey: this.hasApiKey(),
-        hasIdToken: this.hasIdToken(),
+        hasRefreshToken: this.hasRefreshToken(),
+        hasStaticIdToken: this.hasStaticIdToken(),
         hasPartnerId: this.hasPartnerId(),
+        authMode: this.authMode(),
         baseUrl: this.baseUrl,
         missingCredentials: this.missingCredentials(),
         results: [
@@ -399,6 +603,29 @@ export class SaasAlertsClient {
             error: `Missing ${this.missingCredentials().join(', ')}`,
           },
         ],
+      }
+    }
+
+    // Force a refresh up-front so the diagnostics surface refresh-token
+    // failures distinctly from upstream API failures.
+    let tokenRefresh:
+      | { attempted: boolean; success: boolean; expiresInSec?: number; error?: string }
+      | undefined
+    if (this.hasRefreshToken()) {
+      _resetSaasAlertsTokenCache()
+      try {
+        const fresh = await this.refreshIdToken()
+        tokenRefresh = {
+          attempted: true,
+          success: true,
+          expiresInSec: Math.round((fresh.expiresAtMs - Date.now()) / 1000),
+        }
+      } catch (err) {
+        tokenRefresh = {
+          attempted: true,
+          success: false,
+          error: err instanceof Error ? err.message : String(err),
+        }
       }
     }
 
@@ -429,10 +656,13 @@ export class SaasAlertsClient {
     return {
       configured: true,
       hasApiKey: this.hasApiKey(),
-      hasIdToken: this.hasIdToken(),
+      hasRefreshToken: this.hasRefreshToken(),
+      hasStaticIdToken: this.hasStaticIdToken(),
       hasPartnerId: this.hasPartnerId(),
+      authMode: this.authMode(),
       baseUrl: this.baseUrl,
       missingCredentials: [],
+      tokenRefresh,
       results,
     }
   }

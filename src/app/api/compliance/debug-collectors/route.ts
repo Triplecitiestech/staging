@@ -194,8 +194,10 @@ export async function GET(request: NextRequest) {
       const { SaasAlertsClient } = await import('@/lib/saas-alerts')
       const client = new SaasAlertsClient()
       results.hasApiKey = client.hasApiKey()
-      results.hasIdToken = client.hasIdToken()
+      results.hasRefreshToken = client.hasRefreshToken()
+      results.hasStaticIdToken = client.hasStaticIdToken()
       results.hasPartnerId = client.hasPartnerId()
+      results.authMode = client.authMode()
       results.computedBaseUrl = client.getBaseUrl()
       results.rawEnvUrl = process.env.SAAS_ALERTS_API_URL ?? '(default — using cloudfunctions production)'
       results.missingCredentials = client.missingCredentials()
@@ -204,7 +206,7 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({
           ...results,
           error: `SaaS Alerts client not configured. Missing: ${client.missingCredentials().join(', ')}`,
-          hint: 'Both SAAS_ALERTS_API_KEY (api_key header) and SAAS_ALERTS_ID_TOKEN (idtoken header) are required. The id token is the partner-user JWT from manage.saasalerts.com.',
+          hint: 'Set SAAS_ALERTS_API_KEY (api_key header) plus either SAAS_ALERTS_REFRESH_TOKEN (preferred — auto-refreshes hourly) or SAAS_ALERTS_ID_TOKEN (one-off testing, expires in 1h).',
         })
       }
 
