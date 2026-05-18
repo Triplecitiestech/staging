@@ -191,51 +191,24 @@ export async function GET(request: NextRequest) {
       const devicesText = await devicesRes.text()
       results.devicesResponse = { status: devicesRes.status, bodyLength: devicesText.length, body: devicesText.substring(0, 2000) }
     } else if (collector === 'saas_alerts') {
-      const apiKey = process.env.SAAS_ALERTS_API_KEY
-      const partnerId = process.env.SAAS_ALERTS_PARTNER_ID
-      if (!apiKey) {
-        return NextResponse.json({ ...results, error: 'SAAS_ALERTS_API_KEY not set' })
-      }
-      let baseUrl = (process.env.SAAS_ALERTS_API_URL ?? 'https://manage.saasalerts.com/api').replace(/\/$/, '')
-      if (!baseUrl.endsWith('/api')) baseUrl += '/api'
-      results.computedBaseUrl = baseUrl
-      results.rawEnvUrl = process.env.SAAS_ALERTS_API_URL ?? '(not set)'
-      results.hasPartnerId = !!partnerId
-
-      // Use the updated client's testConnection method
       const { SaasAlertsClient } = await import('@/lib/saas-alerts')
       const client = new SaasAlertsClient()
-      const connectionTest = await client.testConnection()
-      results.connectionTest = connectionTest
+      results.hasApiKey = client.hasApiKey()
+      results.hasIdToken = client.hasIdToken()
+      results.hasPartnerId = client.hasPartnerId()
+      results.computedBaseUrl = client.getBaseUrl()
+      results.rawEnvUrl = process.env.SAAS_ALERTS_API_URL ?? '(default — using cloudfunctions production)'
+      results.missingCredentials = client.missingCredentials()
 
-      // Also do raw tests with Partner ID combinations
-      const testPaths = ['/reports/customers', '/customers', '/organizations']
-      const authHeaders: Array<{ name: string; headers: Record<string, string> }> = [
-        { name: 'apikey+partnerid', headers: { apikey: apiKey, ...(partnerId ? { partnerid: partnerId } : {}), Accept: 'application/json' } },
-        { name: 'bearer+partnerid', headers: { Authorization: `Bearer ${apiKey}`, ...(partnerId ? { partnerid: partnerId } : {}), Accept: 'application/json' } },
-        { name: 'x-api-key+x-partner-id', headers: { 'x-api-key': apiKey, ...(partnerId ? { 'x-partner-id': partnerId } : {}), Accept: 'application/json' } },
-        { name: 'apikey-only', headers: { apikey: apiKey, Accept: 'application/json' } },
-      ]
-
-      const rawTests: Array<{ path: string; auth: string; status: number; body: string; headers?: Record<string, string> }> = []
-      for (const testPath of testPaths) {
-        for (const auth of authHeaders) {
-          try {
-            const res = await fetch(`${baseUrl}${testPath}`, {
-              headers: auth.headers,
-              signal: AbortSignal.timeout(10_000),
-            })
-            const body = await res.text()
-            const respHeaders: Record<string, string> = {}
-            res.headers.forEach((v, k) => { if (['server', 'cf-ray', 'content-type'].includes(k)) respHeaders[k] = v })
-            rawTests.push({ path: testPath, auth: auth.name, status: res.status, body: body.substring(0, 500), headers: respHeaders })
-            if (res.status !== 401 && res.status !== 403) break
-          } catch (err) {
-            rawTests.push({ path: testPath, auth: auth.name, status: 0, body: err instanceof Error ? err.message : String(err) })
-          }
-        }
+      if (!client.isConfigured()) {
+        return NextResponse.json({
+          ...results,
+          error: `SaaS Alerts client not configured. Missing: ${client.missingCredentials().join(', ')}`,
+          hint: 'Both SAAS_ALERTS_API_KEY (api_key header) and SAAS_ALERTS_ID_TOKEN (idtoken header) are required. The id token is the partner-user JWT from manage.saasalerts.com.',
+        })
       }
-      results.rawTests = rawTests
+
+      results.connectionTest = await client.testConnection()
     } else if (collector === 'rmm_patches') {
       // Debug: probe per-device patch endpoint to see raw data structure
       if (!process.env.DATTO_RMM_API_KEY || !process.env.DATTO_RMM_API_SECRET) {

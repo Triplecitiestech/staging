@@ -10,11 +10,16 @@
  *   2. Observability: we want a scheduled heartbeat that asserts the
  *      webhook feed is live (and loudly surfaces gaps when it isn't).
  *
- * IMPORTANT: The SaaS Alerts REST API (manage.saasalerts.com/api) is behind
- * Cloudflare bot protection and has returned 403 for every server-to-server
- * auth pattern we've tried. We therefore:
- *   - Still attempt the API call, but mark it as "degraded" when it fails.
- *   - Report webhook freshness (last event received, events in last 24h).
+ * IMPORTANT: The "portal" REST API (manage.saasalerts.com/api) is behind
+ * Cloudflare bot protection and 403s every server-to-server call. The
+ * "External Partner API" on Google Cloud Functions
+ * (https://us-central1-the-byway-248217.cloudfunctions.net/reportApi/api/v1)
+ * is reachable and requires BOTH `api_key` and `idtoken` headers — that's the
+ * surface `SaasAlertsClient` targets. This cron:
+ *   - Still attempts the API call if both env vars are set.
+ *   - If the call fails (bad/expired idtoken, partner not yet provisioned),
+ *     marks polling as degraded and relies on the webhook feed.
+ *   - Reports webhook freshness (last event received, events in last 24h).
  *   - Never 500. Transient failures return 200 so Vercel's cron monitor
  *     doesn't flag false alerts.
  *
@@ -140,7 +145,8 @@ export async function GET(request: NextRequest) {
       // --- Best-effort polling fallback ---
       const clientApi = new SaasAlertsClient()
       if (!clientApi.isConfigured()) {
-        outcome.polling.note = 'SAAS_ALERTS_API_KEY not set — polling skipped (webhook is primary path).'
+        const missing = clientApi.missingCredentials()
+        outcome.polling.note = `Missing ${missing.join(', ')} — polling skipped (webhook is primary path).`
       } else {
         outcome.polling.attempted = true
         try {
@@ -148,7 +154,7 @@ export async function GET(request: NextRequest) {
           const { events } = await clientApi.getEvents({ since, limit: 200 })
           if (events.length === 0) {
             outcome.polling.success = true
-            outcome.polling.note = 'Polling reached the API but returned no events (common — API usually 403s behind Cloudflare).'
+            outcome.polling.note = 'Polling reached the API but returned no events in the last 2h window.'
           } else {
             for (const raw of events) {
               const normalized = normalizeEvent(raw as Parameters<typeof normalizeEvent>[0], {
@@ -198,8 +204,8 @@ export async function GET(request: NextRequest) {
         } catch (apiErr) {
           outcome.polling.success = false
           outcome.polling.error = apiErr instanceof Error ? apiErr.message : String(apiErr)
-          outcome.polling.note = outcome.polling.error.includes('Cloudflare')
-            ? 'SaaS Alerts API is Cloudflare-blocked (expected). Webhook remains primary.'
+          outcome.polling.note = outcome.polling.error.includes('auth rejected')
+            ? 'SaaS Alerts auth rejected — verify SAAS_ALERTS_API_KEY and SAAS_ALERTS_ID_TOKEN (idtoken may have expired). Webhook remains primary.'
             : 'SaaS Alerts API call failed. Webhook remains primary.'
           const classification = classifyError(apiErr)
           if (classification.isTransient) outcome.transient = true
