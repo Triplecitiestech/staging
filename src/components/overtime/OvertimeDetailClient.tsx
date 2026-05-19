@@ -12,9 +12,19 @@ interface RequestDetail {
   employeeEmail: string
   workDate: string
   startTime: string | null
+  endTime?: string | null
   estimatedHours: number
   reason: string
   status: string
+  flowType?: 'APPROVAL' | 'NOTIFICATION'
+  otCategory?: string | null
+  reactiveReason?: string | null
+  incidentContext?: string | null
+  lateSubmission?: boolean
+  lateReason?: string | null
+  flagForCeoReview?: boolean
+  flagReason?: string | null
+  ceoAcknowledgedAt?: string | null
   intakeByName: string | null
   intakeAt: string | null
   intakeNotes: string | null
@@ -162,8 +172,19 @@ export default function OvertimeDetailClient({
   if (!req) return null
 
   const isOwner = currentStaffId === req.employeeStaffId
-  const canCompleteIntake = (canIntake || canApprove) && req.status === 'PENDING_INTAKE'
-  const canFinalApprove = canApprove && (req.status === 'PENDING_APPROVAL' || req.status === 'PENDING_INTAKE')
+  const isNotificationFlow = req.flowType === 'NOTIFICATION'
+  const canCompleteIntake =
+    !isNotificationFlow && (canIntake || canApprove) && req.status === 'PENDING_INTAKE'
+  const canFinalApprove =
+    !isNotificationFlow &&
+    canApprove &&
+    (req.status === 'PENDING_APPROVAL' || req.status === 'PENDING_INTAKE')
+  const canRecordReactive =
+    isNotificationFlow &&
+    (canIntake || canApprove) &&
+    (req.status === 'PENDING_INTAKE' ||
+      req.status === 'RECORDED' ||
+      req.status === 'FLAGGED_FOR_REVIEW')
 
   return (
     <div className="grid gap-6 lg:grid-cols-3">
@@ -177,8 +198,44 @@ export default function OvertimeDetailClient({
               </h2>
               <p className="text-sm text-slate-400 mt-1">~{req.estimatedHours.toFixed(2)} hrs estimated</p>
             </div>
-            <StatusBadge status={req.status} />
+            <StatusBadge status={req.status} flowType={req.flowType} />
           </div>
+
+          {isNotificationFlow && (
+            <div className="mt-4 rounded-md border border-cyan-500/30 bg-cyan-500/10 p-3 text-sm text-cyan-100">
+              <strong>Reactive overtime.</strong> Work has already happened. HR records to payroll —
+              no approval gate. Cannot be denied.
+              {req.lateSubmission && (
+                <div className="mt-1 text-rose-200">
+                  ⚠ Logged more than 24 hours after end time. Late reason:{' '}
+                  {req.lateReason || '(none provided)'}
+                </div>
+              )}
+            </div>
+          )}
+
+          {req.flowType === 'APPROVAL' && req.otCategory && (
+            <div className="mt-4 text-xs text-slate-400">
+              Category: <span className="text-white">{req.otCategory}</span>
+            </div>
+          )}
+
+          {isNotificationFlow && req.incidentContext && (
+            <div className="mt-4 rounded-md border-l-2 border-cyan-500 bg-cyan-500/5 p-3">
+              <p className="text-xs font-semibold text-cyan-300 uppercase">Incident context</p>
+              <p className="text-sm text-slate-100 mt-1 whitespace-pre-wrap">{req.incidentContext}</p>
+              {req.reactiveReason && (
+                <p className="text-xs text-slate-400 mt-2">
+                  Reason: <span className="text-white">{req.reactiveReason}</span>
+                </p>
+              )}
+              {req.endTime && (
+                <p className="text-xs text-slate-400 mt-1">
+                  Worked {req.startTime} → {req.endTime}
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="mt-5 grid gap-4 md:grid-cols-2 text-sm">
             <div>
@@ -198,7 +255,37 @@ export default function OvertimeDetailClient({
           </div>
         </div>
 
-        {/* Step 1: HR Intake */}
+        {/* Notification-flow (reactive OT) record panel */}
+        {canRecordReactive && (
+          <ReactiveRecordPanel
+            id={req.id}
+            currentStatus={req.status}
+            currentActualHours={req.actualHoursWorked ?? req.estimatedHours}
+            currentHrNotes={req.managerNotes ?? null}
+            currentFlagged={!!req.flagForCeoReview}
+            currentFlagReason={req.flagReason ?? null}
+            currentPayrollRecordedAt={req.payrollRecordedAt}
+            onRecorded={() => {
+              load()
+              router.refresh()
+            }}
+          />
+        )}
+
+        {/* Flag acknowledgement for CEO */}
+        {isNotificationFlow && req.flagForCeoReview && canApprove && !req.ceoAcknowledgedAt && (
+          <FlagAckPanel
+            id={req.id}
+            flagReason={req.flagReason ?? '(no reason given)'}
+            onAcknowledged={() => {
+              load()
+              router.refresh()
+            }}
+          />
+        )}
+
+        {/* Step 1: HR Intake — approval flow only */}
+        {!isNotificationFlow && (
         <div className="rounded-lg border border-white/10 bg-white/5 p-6">
           <h3 className="text-sm font-semibold text-white uppercase tracking-wide mb-3">Step 1 · HR Intake</h3>
           {req.intakeAt || req.intakeSkipped ? (
@@ -257,9 +344,10 @@ export default function OvertimeDetailClient({
             <p className="text-sm text-slate-400">Waiting on HR intake.</p>
           )}
         </div>
+        )}
 
         {/* Step 2: Final Approval */}
-        {(req.status === 'PENDING_APPROVAL' || req.status === 'APPROVED' || req.status === 'DENIED') && (
+        {!isNotificationFlow && (req.status === 'PENDING_APPROVAL' || req.status === 'APPROVED' || req.status === 'DENIED') && (
           <div className="rounded-lg border border-white/10 bg-white/5 p-6">
             <h3 className="text-sm font-semibold text-white uppercase tracking-wide mb-3">Step 2 · Final Approval</h3>
             {req.reviewedAt ? (
@@ -383,6 +471,234 @@ export default function OvertimeDetailClient({
       <aside>
         <Link href="/admin/overtime" className="text-sm text-cyan-400 hover:text-cyan-300">← Back to overtime</Link>
       </aside>
+    </div>
+  )
+}
+
+function ReactiveRecordPanel({
+  id,
+  currentStatus,
+  currentActualHours,
+  currentHrNotes,
+  currentFlagged,
+  currentFlagReason,
+  currentPayrollRecordedAt,
+  onRecorded,
+}: {
+  id: string
+  currentStatus: string
+  currentActualHours: number
+  currentHrNotes: string | null
+  currentFlagged: boolean
+  currentFlagReason: string | null
+  currentPayrollRecordedAt: string | null
+  onRecorded: () => void
+}) {
+  const [hours, setHours] = useState(String(currentActualHours))
+  const [hrNotes, setHrNotes] = useState(currentHrNotes ?? '')
+  const [payrollLogged, setPayrollLogged] = useState(!!currentPayrollRecordedAt)
+  const [flagForCeoReview, setFlagForCeoReview] = useState(currentFlagged)
+  const [flagReason, setFlagReason] = useState(currentFlagReason ?? '')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const alreadyRecorded = currentStatus === 'RECORDED' || currentStatus === 'FLAGGED_FOR_REVIEW'
+
+  const submit = async () => {
+    setError(null)
+    const h = Number.parseFloat(hours)
+    if (!Number.isFinite(h) || h <= 0 || h > 24) {
+      setError('Hours must be between 0 and 24')
+      return
+    }
+    if (flagForCeoReview && !flagReason.trim()) {
+      setError('Please add a flag reason or uncheck "Flag for CEO review".')
+      return
+    }
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/overtime/requests/${id}/record`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          actualHoursWorked: h,
+          hrNotes: hrNotes.trim() || null,
+          payrollLogged,
+          flagForCeoReview,
+          flagReason: flagForCeoReview ? flagReason.trim() : undefined,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(data.error ?? 'Failed to record')
+        return
+      }
+      onRecorded()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to record')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-cyan-500/30 bg-cyan-500/5 p-6">
+      <h3 className="text-sm font-semibold text-cyan-300 uppercase tracking-wide mb-3">
+        {alreadyRecorded ? 'Update record' : 'HR record for payroll'}
+      </h3>
+      <p className="text-sm text-slate-300 mb-4">
+        The work has happened and must be paid. Confirm the actual hours, mark payroll logged when
+        you&apos;ve entered it separately, and flag for CEO if anything stands out.
+      </p>
+
+      <div className="space-y-4">
+        <div>
+          <label className="block text-xs font-semibold text-slate-300 mb-1">
+            Actual hours worked <span className="text-rose-400">*</span>
+          </label>
+          <input
+            type="number"
+            min="0.25"
+            max="24"
+            step="0.25"
+            value={hours}
+            onChange={(e) => setHours(e.target.value)}
+            className="w-32 rounded-md bg-slate-900 border border-white/10 text-white px-3 py-2 text-sm"
+          />
+        </div>
+
+        <label className="flex items-start gap-2 text-sm text-slate-200">
+          <input
+            type="checkbox"
+            checked={payrollLogged}
+            onChange={(e) => setPayrollLogged(e.target.checked)}
+            className="mt-1"
+          />
+          <span>
+            I&apos;ve recorded this in payroll
+            {currentPayrollRecordedAt && (
+              <span className="text-xs text-slate-500 ml-2">
+                ({new Date(currentPayrollRecordedAt).toLocaleString()})
+              </span>
+            )}
+          </span>
+        </label>
+
+        <div>
+          <label className="block text-xs font-semibold text-slate-300 mb-1">
+            HR notes <span className="text-slate-500 font-normal">— optional, visible to requester</span>
+          </label>
+          <textarea
+            value={hrNotes}
+            onChange={(e) => setHrNotes(e.target.value)}
+            rows={2}
+            maxLength={2000}
+            className="w-full rounded-md bg-slate-900 border border-white/10 text-white px-3 py-2 text-sm"
+          />
+        </div>
+
+        <div className="border-t border-white/10 pt-4">
+          <label className="flex items-start gap-2 text-sm text-slate-200">
+            <input
+              type="checkbox"
+              checked={flagForCeoReview}
+              onChange={(e) => setFlagForCeoReview(e.target.checked)}
+              className="mt-1"
+            />
+            <span>
+              Flag for CEO review
+              <span className="text-xs text-slate-500 block">
+                Unusually high hours, unclear context, or repeated reactive OT. Does not block payroll.
+              </span>
+            </span>
+          </label>
+          {flagForCeoReview && (
+            <textarea
+              value={flagReason}
+              onChange={(e) => setFlagReason(e.target.value)}
+              rows={2}
+              maxLength={1000}
+              placeholder="e.g. 3rd reactive OT this week from same employee."
+              required
+              className="w-full mt-2 rounded-md bg-slate-900 border border-rose-500/30 text-white px-3 py-2 text-sm"
+            />
+          )}
+        </div>
+
+        {error && (
+          <div className="rounded-md border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-200">
+            {error}
+          </div>
+        )}
+
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={submit}
+            disabled={submitting}
+            className="px-4 py-2 rounded-lg bg-cyan-500 text-white text-sm font-semibold hover:bg-cyan-400 disabled:opacity-50"
+          >
+            {submitting ? 'Saving…' : alreadyRecorded ? 'Update' : 'Record for payroll'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function FlagAckPanel({
+  id,
+  flagReason,
+  onAcknowledged,
+}: {
+  id: string
+  flagReason: string
+  onAcknowledged: () => void
+}) {
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const submit = async () => {
+    setError(null)
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/overtime/requests/${id}/acknowledge`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(data.error ?? 'Failed to acknowledge')
+        return
+      }
+      onAcknowledged()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to acknowledge')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-rose-500/30 bg-rose-500/5 p-6">
+      <h3 className="text-sm font-semibold text-rose-300 uppercase tracking-wide mb-2">
+        Flagged for CEO review
+      </h3>
+      <p className="text-sm text-slate-200 mb-3">
+        HR flagged this for your visibility. The OT has been recorded and will be paid —
+        acknowledging just closes the flag in the dashboard.
+      </p>
+      <p className="text-sm text-slate-100 mb-4 italic">&ldquo;{flagReason}&rdquo;</p>
+      {error && (
+        <div className="rounded-md border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-200 mb-3">
+          {error}
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={submit}
+        disabled={submitting}
+        className="px-4 py-2 rounded-lg bg-emerald-500 text-white text-sm font-semibold hover:bg-emerald-400 disabled:opacity-50"
+      >
+        {submitting ? 'Acknowledging…' : 'Acknowledge'}
+      </button>
     </div>
   )
 }

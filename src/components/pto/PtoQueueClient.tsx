@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { PTO_KIND_LABELS, type PtoKind, type PtoStatus } from '@/lib/pto/types'
+import { PTO_KIND_LABELS, type PtoFlowType, type PtoKind, type PtoStatus } from '@/lib/pto/types'
 import StatusBadge from './StatusBadge'
 
 interface RequestRow {
@@ -11,6 +11,7 @@ interface RequestRow {
   employeeName: string
   employeeEmail: string
   kind: PtoKind
+  flowType: PtoFlowType
   startDate: string
   endDate: string
   totalHours: number
@@ -21,18 +22,30 @@ interface RequestRow {
   reviewedByName: string | null
   reviewedAt: string | null
   gustoRecordedAt: string | null
+  gustoLoggedAt: string | null
+  paidOrUnpaid: string | null
+  flagForCeoReview: boolean
   createdAt: string
   // Coverage approval (optional on queue list response)
   coverageStaffName?: string | null
   coverageResponse?: string | null
 }
 
-type TabId = 'my_queue' | 'intake' | 'approval' | 'approved' | 'denied' | 'cancelled' | 'all'
+type TabId =
+  | 'my_queue'
+  | 'intake'
+  | 'approval'
+  | 'sick'
+  | 'approved'
+  | 'denied'
+  | 'cancelled'
+  | 'all'
 
 const TABS: Array<{ id: TabId; label: string }> = [
   { id: 'my_queue', label: 'My queue' },
   { id: 'intake', label: 'Pending HR intake' },
   { id: 'approval', label: 'Pending final approval' },
+  { id: 'sick', label: 'Sick / emergency' },
   { id: 'approved', label: 'Approved' },
   { id: 'denied', label: 'Denied' },
   { id: 'cancelled', label: 'Cancelled' },
@@ -55,11 +68,20 @@ export default function PtoQueueClient({
       setLoading(true)
       try {
         const qs = new URLSearchParams({ scope: 'all' })
-        if (id === 'intake') qs.set('status', 'PENDING_INTAKE')
-        else if (id === 'approval') qs.set('status', 'PENDING_APPROVAL')
-        else if (id === 'approved') qs.set('status', 'APPROVED')
-        else if (id === 'denied') qs.set('status', 'DENIED')
-        else if (id === 'cancelled') qs.set('status', 'CANCELLED')
+        if (id === 'intake') {
+          qs.set('status', 'PENDING_INTAKE')
+          qs.set('flowType', 'APPROVAL')
+        } else if (id === 'approval') {
+          qs.set('status', 'PENDING_APPROVAL')
+        } else if (id === 'approved') {
+          qs.set('status', 'APPROVED')
+        } else if (id === 'denied') {
+          qs.set('status', 'DENIED')
+        } else if (id === 'cancelled') {
+          qs.set('status', 'CANCELLED')
+        } else if (id === 'sick') {
+          qs.set('flowType', 'NOTIFICATION')
+        }
         // 'my_queue' and 'all' don't pre-filter server-side
 
         const res = await fetch(`/api/pto/requests?${qs}`, { signal })
@@ -68,10 +90,24 @@ export default function PtoQueueClient({
 
         if (id === 'my_queue') {
           list = list.filter((r) => {
-            if (canIntake && (r.status === 'PENDING_INTAKE' || r.status === 'PENDING')) return true
+            // Notification flow — HR's pending recording inbox
+            if (
+              (canIntake || canApprove) &&
+              r.flowType === 'NOTIFICATION' &&
+              (r.status === 'PENDING_INTAKE' || r.status === 'PENDING')
+            )
+              return true
+            // Approval flow — intake / approval / awaiting Gusto entry
+            if (
+              canIntake &&
+              r.flowType === 'APPROVAL' &&
+              (r.status === 'PENDING_INTAKE' || r.status === 'PENDING')
+            )
+              return true
             if (canApprove && r.status === 'PENDING_APPROVAL') return true
-            // Approved but not yet recorded in Gusto — still on HR's to-do list
             if ((canIntake || canApprove) && r.status === 'APPROVED' && !r.gustoRecordedAt) return true
+            // Flagged-for-review items — surface for CEO
+            if (canApprove && r.flagForCeoReview) return true
             return false
           })
         }
@@ -127,6 +163,7 @@ export default function PtoQueueClient({
               <tr>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Employee</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Type</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Flow</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Dates</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Hours</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Status</th>
@@ -144,12 +181,22 @@ export default function PtoQueueClient({
                     <p className="text-xs text-slate-400">{r.employeeEmail}</p>
                   </td>
                   <td className="px-4 py-3 text-slate-200">{PTO_KIND_LABELS[r.kind] ?? r.kind}</td>
+                  <td className="px-4 py-3 text-xs uppercase tracking-wide text-slate-400">
+                    {r.flowType === 'NOTIFICATION' ? (
+                      <span className="text-blue-300">Notify</span>
+                    ) : (
+                      <span className="text-cyan-300">Approval</span>
+                    )}
+                    {r.flagForCeoReview && (
+                      <span className="ml-1 text-rose-400" title="Flagged for CEO review">⚑</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-slate-200 whitespace-nowrap">
                     {r.startDate === r.endDate ? r.startDate : `${r.startDate} → ${r.endDate}`}
                   </td>
                   <td className="px-4 py-3 text-slate-200">{r.totalHours.toFixed(2)}</td>
                   <td className="px-4 py-3">
-                    <StatusBadge status={r.status} />
+                    <StatusBadge status={r.status} flowType={r.flowType} />
                   </td>
                   <td className="px-4 py-3 text-xs">
                     {r.coverageStaffName ? (
@@ -174,8 +221,8 @@ export default function PtoQueueClient({
                     )}
                   </td>
                   <td className="px-4 py-3 text-xs">
-                    {r.status === 'APPROVED' ? (
-                      r.gustoRecordedAt ? (
+                    {r.status === 'APPROVED' || r.status === 'RECORDED_PAID' || r.status === 'RECORDED_UNPAID' ? (
+                      r.gustoRecordedAt || r.gustoLoggedAt ? (
                         <span className="text-emerald-300">Recorded</span>
                       ) : (
                         <span className="text-amber-300">Needs entry</span>
@@ -192,11 +239,13 @@ export default function PtoQueueClient({
                       href={`/admin/pto/${r.id}`}
                       className="text-cyan-400 hover:text-cyan-300 text-xs font-medium"
                     >
-                      {r.status === 'PENDING_INTAKE' || r.status === 'PENDING'
-                        ? 'Intake →'
-                        : r.status === 'PENDING_APPROVAL'
-                        ? 'Review →'
-                        : 'Open →'}
+                      {(r.status === 'PENDING_INTAKE' || r.status === 'PENDING') && r.flowType === 'NOTIFICATION'
+                        ? 'Record →'
+                        : r.status === 'PENDING_INTAKE' || r.status === 'PENDING'
+                          ? 'Intake →'
+                          : r.status === 'PENDING_APPROVAL'
+                            ? 'Review →'
+                            : 'Open →'}
                     </Link>
                   </td>
                 </tr>

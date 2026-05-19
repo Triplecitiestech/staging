@@ -2,7 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { PTO_KIND_LABELS, type PtoKind, type PtoStatus } from '@/lib/pto/types'
+import {
+  APPROVAL_FLOW_KINDS,
+  NOTIFICATION_FLOW_KINDS,
+  PTO_KIND_LABELS,
+  type PtoFlowType,
+  type PtoKind,
+  type PtoStatus,
+} from '@/lib/pto/types'
 import StatusBadge from './StatusBadge'
 
 interface RequestSummary {
@@ -11,12 +18,18 @@ interface RequestSummary {
   employeeName: string
   employeeEmail: string
   kind: PtoKind
+  flowType: PtoFlowType
   startDate: string
   endDate: string
   totalHours: number
   notes: string | null
   coverage: string | null
   status: PtoStatus
+  overrideShortNotice: boolean
+  overrideReason: string | null
+  paidOrUnpaid: string | null
+  flagForCeoReview: boolean
+  flagReason: string | null
   intakeByName: string | null
   intakeAt: string | null
   intakeSkipped: boolean
@@ -25,8 +38,11 @@ interface RequestSummary {
   managerNotes: string | null
   createdAt: string
   gustoRecordedAt: string | null
+  gustoLoggedAt: string | null
   graphSyncStatus: string | null
 }
+
+type FormMode = 'closed' | 'planned' | 'sick'
 
 export default function PtoClient({
   canApprove,
@@ -37,7 +53,7 @@ export default function PtoClient({
 }) {
   const [requests, setRequests] = useState<RequestSummary[]>([])
   const [reqLoading, setReqLoading] = useState(true)
-  const [formOpen, setFormOpen] = useState(false)
+  const [formMode, setFormMode] = useState<FormMode>('closed')
 
   const loadRequests = useCallback(async (signal?: AbortSignal) => {
     setReqLoading(true)
@@ -68,7 +84,6 @@ export default function PtoClient({
 
   return (
     <div className="space-y-8">
-      {/* HR shortcut — big button at the top, only for HR staff */}
       {(canApprove || canIntake) && (
         <section className="rounded-lg border border-violet-500/30 bg-gradient-to-br from-violet-500/10 to-cyan-500/10 p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
@@ -76,7 +91,7 @@ export default function PtoClient({
               HR access
             </h2>
             <p className="text-slate-200 text-sm mt-1">
-              Review pending requests, complete intake, and approve or deny.
+              Review pending requests, complete intake, record sick days, and approve or deny.
             </p>
           </div>
           <Link
@@ -91,58 +106,93 @@ export default function PtoClient({
         </section>
       )}
 
-      {/* How it works explainer */}
-      <section className="rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-5">
-        <h2 className="text-sm font-semibold text-cyan-300 uppercase tracking-wide mb-3">
-          How PTO requests work
-        </h2>
-        <ol className="text-sm text-slate-200 space-y-2">
-          <li>
-            <span className="text-cyan-400 font-semibold">Step 1 — Submit.</span>{' '}
-            Fill out the form below with dates, hours, and who you&apos;d like to cover your work.
-          </li>
-          <li>
-            <span className="text-cyan-400 font-semibold">Step 2 — HR intake.</span>{' '}
-            Rio looks up your current PTO balance in Gusto, confirms coverage, and forwards the request to Kurtis with context.
-          </li>
-          <li>
-            <span className="text-cyan-400 font-semibold">Step 3 — Coverage confirmation.</span>{' '}
-            The teammate you picked gets an email to accept or decline covering your work. HR and you both see their response.
-          </li>
-          <li>
-            <span className="text-cyan-400 font-semibold">Step 4 — Final approval.</span>{' '}
-            Kurtis reviews everything and approves or denies. You get an email with the decision.
-          </li>
-          <li>
-            <span className="text-cyan-400 font-semibold">Step 5 — Calendar + Gusto.</span>{' '}
-            If approved, the shared time-off calendar is updated automatically and you receive a calendar invite. HR manually enters the PTO in Gusto to close the loop.
-          </li>
-        </ol>
+      {/* Two-route explainer */}
+      <section className="grid gap-4 md:grid-cols-2">
+        <div className="rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-5">
+          <h2 className="text-sm font-semibold text-cyan-300 uppercase tracking-wide mb-3">
+            Planned time off
+          </h2>
+          <p className="text-sm text-slate-200 mb-3">
+            Vacation, personal days, jury duty, planned unpaid leave — submit at least 2 weeks in advance.
+          </p>
+          <ol className="text-xs text-slate-300 space-y-1 list-decimal pl-4">
+            <li>Submit form with dates, hours, and a reliever.</li>
+            <li>Reliever accepts or declines via email.</li>
+            <li>HR reviews and forwards to Kurtis.</li>
+            <li>Kurtis approves or denies. You get an email.</li>
+            <li>Calendar invite sent; HR logs in Gusto.</li>
+          </ol>
+        </div>
+        <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-5">
+          <h2 className="text-sm font-semibold text-blue-300 uppercase tracking-wide mb-3">
+            Unplanned (sick / emergency)
+          </h2>
+          <p className="text-sm text-slate-200 mb-3">
+            Sick days, bereavement, family emergencies, same-day medical — already happened, no approval needed.
+          </p>
+          <ol className="text-xs text-slate-300 space-y-1 list-decimal pl-4">
+            <li>Notify HR with type, dates, and hours.</li>
+            <li>HR records to Gusto (paid or unpaid).</li>
+            <li>You and Kurtis are CC&apos;d on the record.</li>
+          </ol>
+        </div>
       </section>
 
-      {/* New request */}
-      <section>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold text-white">Request time off</h2>
-          <button
-            type="button"
-            onClick={() => setFormOpen((v) => !v)}
-            className="px-4 py-2 rounded-lg bg-cyan-500 text-white text-sm font-semibold hover:bg-cyan-400 transition-colors"
-          >
-            {formOpen ? 'Close form' : 'New request'}
-          </button>
+      {/* Two CTAs */}
+      <section className="rounded-lg border border-white/10 bg-white/5 p-5">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold text-white">Submit a request</h2>
+            <p className="text-sm text-slate-400">Pick the route that matches your situation.</p>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <button
+              type="button"
+              onClick={() => setFormMode(formMode === 'planned' ? 'closed' : 'planned')}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                formMode === 'planned'
+                  ? 'bg-cyan-400 text-slate-950'
+                  : 'bg-cyan-500 text-white hover:bg-cyan-400'
+              }`}
+            >
+              Request planned time off
+            </button>
+            <button
+              type="button"
+              onClick={() => setFormMode(formMode === 'sick' ? 'closed' : 'sick')}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                formMode === 'sick'
+                  ? 'bg-blue-400 text-slate-950'
+                  : 'bg-blue-500 text-white hover:bg-blue-400'
+              }`}
+            >
+              Report sick day or emergency
+            </button>
+          </div>
         </div>
-        {formOpen && (
-          <NewRequestForm
-            onSubmitted={() => {
-              setFormOpen(false)
-              loadRequests()
-            }}
-          />
+
+        {formMode === 'planned' && (
+          <div className="mt-5">
+            <PlannedRequestForm
+              onSubmitted={() => {
+                setFormMode('closed')
+                loadRequests()
+              }}
+            />
+          </div>
+        )}
+        {formMode === 'sick' && (
+          <div className="mt-5">
+            <NotificationRequestForm
+              onSubmitted={() => {
+                setFormMode('closed')
+                loadRequests()
+              }}
+            />
+          </div>
         )}
       </section>
 
-      {/* Requests history */}
       <section>
         <h2 className="text-lg font-semibold text-white mb-3">My requests</h2>
         <RequestsTable
@@ -163,20 +213,21 @@ interface StaffListItem {
   email: string
 }
 
-function NewRequestForm({ onSubmitted }: { onSubmitted: () => void }) {
+function PlannedRequestForm({ onSubmitted }: { onSubmitted: () => void }) {
   const [kind, setKind] = useState<PtoKind>('VACATION')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [hoursPerWorkDay, setHoursPerWorkDay] = useState('8')
   const [notes, setNotes] = useState('')
   const [coverageStaffId, setCoverageStaffId] = useState('')
+  const [overrideShortNotice, setOverrideShortNotice] = useState(false)
+  const [overrideReason, setOverrideReason] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const [staff, setStaff] = useState<StaffListItem[]>([])
   const [staffLoading, setStaffLoading] = useState(true)
 
-  // Load staff for coverage dropdown
   useEffect(() => {
     const controller = new AbortController()
     ;(async () => {
@@ -194,7 +245,17 @@ function NewRequestForm({ onSubmitted }: { onSubmitted: () => void }) {
     return () => controller.abort()
   }, [])
 
-  // Compute preview total hours
+  // Detect short notice (<14 days out)
+  const isShortNotice = useMemo(() => {
+    if (!startDate) return false
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const [sy, sm, sd] = startDate.split('-').map(Number)
+    const start = new Date(sy, sm - 1, sd)
+    const days = Math.floor((start.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+    return days < 14
+  }, [startDate])
+
   const previewTotal = useMemo(() => {
     if (!startDate || !endDate) return null
     const hrs = Number.parseFloat(hoursPerWorkDay)
@@ -217,20 +278,17 @@ function NewRequestForm({ onSubmitted }: { onSubmitted: () => void }) {
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
-    if (!startDate || !endDate) {
-      setError('Start and end dates are required')
-      return
-    }
+    if (!startDate || !endDate) return setError('Start and end dates are required')
     const hrs = Number.parseFloat(hoursPerWorkDay)
     if (!Number.isFinite(hrs) || hrs <= 0 || hrs > 24) {
-      setError('Hours per work day must be between 0 and 24')
-      return
+      return setError('Hours per work day must be between 0 and 24')
+    }
+    if (isShortNotice && (!overrideShortNotice || !overrideReason.trim())) {
+      return setError('This request is under the 2-week minimum. Confirm short-notice override and provide a reason.')
     }
 
     setSubmitting(true)
     try {
-      // Build per-day hours for every weekday in the range using the
-      // user's chosen hours-per-work-day.
       const hoursPerDay: Record<string, number> = {}
       const [sy, sm, sd] = startDate.split('-').map(Number)
       const [ey, em, ed] = endDate.split('-').map(Number)
@@ -256,11 +314,14 @@ function NewRequestForm({ onSubmitted }: { onSubmitted: () => void }) {
           hoursPerDay,
           notes: notes || undefined,
           coverageStaffId: coverageStaffId || undefined,
+          overrideShortNotice: isShortNotice ? overrideShortNotice : false,
+          overrideReason:
+            isShortNotice && overrideShortNotice ? overrideReason.trim() : undefined,
         }),
       })
       const data = await res.json()
       if (!res.ok) {
-        setError(data.error ?? 'Submission failed')
+        setError(data.message ?? data.error ?? 'Submission failed')
         setSubmitting(false)
         return
       }
@@ -275,8 +336,7 @@ function NewRequestForm({ onSubmitted }: { onSubmitted: () => void }) {
   return (
     <form
       onSubmit={onSubmit}
-      className="rounded-lg border border-white/10 bg-white/5 p-5 space-y-4"
-      // force-dark so native date-picker popup is legible on dark theme
+      className="rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-5 space-y-4"
       style={{ colorScheme: 'dark' }}
     >
       <div className="grid gap-4 md:grid-cols-2">
@@ -287,9 +347,9 @@ function NewRequestForm({ onSubmitted }: { onSubmitted: () => void }) {
             onChange={(e) => setKind(e.target.value as PtoKind)}
             className="w-full rounded-md bg-slate-900 border border-white/10 text-white px-3 py-2 text-sm focus:outline-none focus:border-cyan-500"
           >
-            {Object.entries(PTO_KIND_LABELS).map(([k, label]) => (
+            {APPROVAL_FLOW_KINDS.map((k) => (
               <option key={k} value={k}>
-                {label}
+                {PTO_KIND_LABELS[k]}
               </option>
             ))}
           </select>
@@ -314,9 +374,6 @@ function NewRequestForm({ onSubmitted }: { onSubmitted: () => void }) {
               {!['4', '8'].includes(hoursPerWorkDay) && 'Custom'}
             </span>
           </div>
-          <p className="text-[11px] text-slate-500 mt-1">
-            Weekends count as 0. 4 = half day, 8 = full day.
-          </p>
         </div>
       </div>
 
@@ -344,9 +401,41 @@ function NewRequestForm({ onSubmitted }: { onSubmitted: () => void }) {
       </div>
 
       {previewTotal !== null && (
-        <div className="rounded-md border border-cyan-500/20 bg-cyan-500/5 p-3 text-sm text-cyan-100">
+        <div className="rounded-md border border-cyan-500/20 bg-cyan-500/10 p-3 text-sm text-cyan-100">
           <strong>{previewTotal.toFixed(2)} hours</strong> total across{' '}
           {startDate === endDate ? '1 day' : `${startDate} → ${endDate}`} (weekdays only).
+        </div>
+      )}
+
+      {isShortNotice && (
+        <div className="rounded-md border border-rose-500/40 bg-rose-500/10 p-4">
+          <p className="text-sm text-rose-200 font-semibold mb-2">
+            ⚠ This request is under the 2-week minimum notice period.
+          </p>
+          <p className="text-xs text-rose-200/80 mb-3">
+            Planned PTO normally needs 14+ days notice. To submit anyway, confirm the override below
+            and explain why. The reason is shown prominently to HR and Kurtis.
+          </p>
+          <label className="flex items-start gap-2 text-sm text-slate-200 mb-2">
+            <input
+              type="checkbox"
+              checked={overrideShortNotice}
+              onChange={(e) => setOverrideShortNotice(e.target.checked)}
+              className="mt-1"
+            />
+            <span>Submit as short-notice override</span>
+          </label>
+          {overrideShortNotice && (
+            <textarea
+              value={overrideReason}
+              onChange={(e) => setOverrideReason(e.target.value)}
+              rows={2}
+              maxLength={1000}
+              required
+              placeholder="e.g. Found a flight deal for next week; family member visiting unexpectedly."
+              className="w-full rounded-md bg-slate-900 border border-rose-500/30 text-white px-3 py-2 text-sm"
+            />
+          )}
         </div>
       )}
 
@@ -371,19 +460,14 @@ function NewRequestForm({ onSubmitted }: { onSubmitted: () => void }) {
       </div>
 
       <div>
-        <label className="block text-xs font-semibold text-slate-300 mb-1">
-          Notes{' '}
-          <span className="text-slate-500 font-normal">
-            — sent to HR, the coverer, and the final approver
-          </span>
-        </label>
+        <label className="block text-xs font-semibold text-slate-300 mb-1">Notes</label>
         <textarea
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           rows={3}
           maxLength={2000}
-          placeholder="e.g. Heading out of town for a wedding. John, please cover my tickets. I'll be back Monday."
-          className="w-full rounded-md bg-slate-900 border border-white/10 text-white px-3 py-2 text-sm focus:outline-none focus:border-cyan-500"
+          placeholder="e.g. Heading out of town for a wedding. John, please cover my tickets."
+          className="w-full rounded-md bg-slate-900 border border-white/10 text-white px-3 py-2 text-sm"
         />
       </div>
 
@@ -393,13 +477,199 @@ function NewRequestForm({ onSubmitted }: { onSubmitted: () => void }) {
         </div>
       )}
 
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex justify-end">
         <button
           type="submit"
           disabled={submitting}
-          className="px-4 py-2 rounded-lg bg-cyan-500 text-white text-sm font-semibold hover:bg-cyan-400 disabled:opacity-50 transition-colors"
+          className="px-4 py-2 rounded-lg bg-cyan-500 text-white text-sm font-semibold hover:bg-cyan-400 disabled:opacity-50"
         >
           {submitting ? 'Submitting…' : 'Submit request'}
+        </button>
+      </div>
+    </form>
+  )
+}
+
+function NotificationRequestForm({ onSubmitted }: { onSubmitted: () => void }) {
+  const today = useMemo(() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  }, [])
+
+  const [kind, setKind] = useState<PtoKind>('SICK')
+  const [startDate, setStartDate] = useState(today)
+  const [endDate, setEndDate] = useState(today)
+  const [hours, setHours] = useState('8')
+  const [notes, setNotes] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const previewTotal = useMemo(() => {
+    if (!startDate || !endDate) return null
+    const hrs = Number.parseFloat(hours)
+    if (!Number.isFinite(hrs) || hrs <= 0 || hrs > 24) return null
+    const [sy, sm, sd] = startDate.split('-').map(Number)
+    const [ey, em, ed] = endDate.split('-').map(Number)
+    const start = new Date(Date.UTC(sy, sm - 1, sd))
+    const end = new Date(Date.UTC(ey, em - 1, ed))
+    if (end.getTime() < start.getTime()) return null
+    let total = 0
+    const cur = new Date(start)
+    while (cur.getTime() <= end.getTime()) {
+      const dow = cur.getUTCDay()
+      if (dow >= 1 && dow <= 5) total += hrs
+      cur.setUTCDate(cur.getUTCDate() + 1)
+    }
+    return Math.round(total * 100) / 100
+  }, [startDate, endDate, hours])
+
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError(null)
+    if (!startDate || !endDate) return setError('Dates are required')
+    const hrs = Number.parseFloat(hours)
+    if (!Number.isFinite(hrs) || hrs <= 0 || hrs > 24) return setError('Hours must be 0–24')
+
+    setSubmitting(true)
+    try {
+      const hoursPerDay: Record<string, number> = {}
+      const [sy, sm, sd] = startDate.split('-').map(Number)
+      const [ey, em, ed] = endDate.split('-').map(Number)
+      const start = new Date(Date.UTC(sy, sm - 1, sd))
+      const end = new Date(Date.UTC(ey, em - 1, ed))
+      const cur = new Date(start)
+      while (cur.getTime() <= end.getTime()) {
+        const dow = cur.getUTCDay()
+        const y = cur.getUTCFullYear()
+        const m = String(cur.getUTCMonth() + 1).padStart(2, '0')
+        const d = String(cur.getUTCDate()).padStart(2, '0')
+        if (dow >= 1 && dow <= 5) hoursPerDay[`${y}-${m}-${d}`] = hrs
+        cur.setUTCDate(cur.getUTCDate() + 1)
+      }
+
+      const res = await fetch('/api/pto/requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kind,
+          startDate,
+          endDate,
+          hoursPerDay,
+          notes: notes || undefined,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.message ?? data.error ?? 'Submission failed')
+        setSubmitting(false)
+        return
+      }
+      onSubmitted()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Submission failed')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <form
+      onSubmit={onSubmit}
+      className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-5 space-y-4"
+      style={{ colorScheme: 'dark' }}
+    >
+      <div className="rounded-md border border-blue-500/30 bg-blue-500/10 p-3 text-sm text-blue-100">
+        <strong>No approval needed.</strong> HR will record this time in Gusto. You don&apos;t need a reliever.
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <div>
+          <label className="block text-xs font-semibold text-slate-300 mb-1">Type</label>
+          <select
+            value={kind}
+            onChange={(e) => setKind(e.target.value as PtoKind)}
+            className="w-full rounded-md bg-slate-900 border border-white/10 text-white px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+          >
+            {NOTIFICATION_FLOW_KINDS.map((k) => (
+              <option key={k} value={k}>
+                {PTO_KIND_LABELS[k]}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-slate-300 mb-1">Hours per day</label>
+          <input
+            type="number"
+            min="0.5"
+            max="24"
+            step="0.5"
+            value={hours}
+            onChange={(e) => setHours(e.target.value)}
+            className="w-full rounded-md bg-slate-900 border border-white/10 text-white px-3 py-2 text-sm"
+          />
+          <p className="text-[11px] text-slate-500 mt-1">8 = full day, 4 = half day.</p>
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <div>
+          <label className="block text-xs font-semibold text-slate-300 mb-1">Start date</label>
+          <input
+            type="date"
+            required
+            max={today}
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            className="w-full rounded-md bg-slate-900 border border-blue-500/30 text-white px-3 py-2 text-sm focus:outline-none focus:border-blue-500 [color-scheme:dark]"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-slate-300 mb-1">End date</label>
+          <input
+            type="date"
+            required
+            max={today}
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            className="w-full rounded-md bg-slate-900 border border-blue-500/30 text-white px-3 py-2 text-sm focus:outline-none focus:border-blue-500 [color-scheme:dark]"
+          />
+        </div>
+      </div>
+
+      {previewTotal !== null && (
+        <div className="rounded-md border border-blue-500/20 bg-blue-500/10 p-3 text-sm text-blue-100">
+          <strong>{previewTotal.toFixed(2)} hours</strong> total (weekdays only).
+        </div>
+      )}
+
+      <div>
+        <label className="block text-xs font-semibold text-slate-300 mb-1">
+          Notes for HR <span className="text-slate-500 font-normal">— optional</span>
+        </label>
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          rows={3}
+          maxLength={2000}
+          placeholder="e.g. Came down with a flu Monday — feeling better today, back tomorrow."
+          className="w-full rounded-md bg-slate-900 border border-white/10 text-white px-3 py-2 text-sm"
+        />
+      </div>
+
+      {error && (
+        <div className="rounded-md border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-200">
+          {error}
+        </div>
+      )}
+
+      <div className="flex justify-end">
+        <button
+          type="submit"
+          disabled={submitting}
+          className="px-4 py-2 rounded-lg bg-blue-500 text-white text-sm font-semibold hover:bg-blue-400 disabled:opacity-50"
+        >
+          {submitting ? 'Sending…' : 'Notify HR'}
         </button>
       </div>
     </form>
@@ -447,6 +717,7 @@ function RequestsTable({
         <thead className="bg-white/5 text-left">
           <tr>
             <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Type</th>
+            <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Flow</th>
             <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Dates</th>
             <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Hours</th>
             <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Status</th>
@@ -459,12 +730,15 @@ function RequestsTable({
           {requests.map((r) => (
             <tr key={r.id}>
               <td className="px-4 py-3 text-white">{PTO_KIND_LABELS[r.kind] ?? r.kind}</td>
+              <td className="px-4 py-3 text-slate-400 text-xs uppercase tracking-wide">
+                {r.flowType === 'NOTIFICATION' ? 'Notify' : 'Approval'}
+              </td>
               <td className="px-4 py-3 text-slate-200 whitespace-nowrap">
                 {r.startDate === r.endDate ? r.startDate : `${r.startDate} → ${r.endDate}`}
               </td>
               <td className="px-4 py-3 text-slate-200">{r.totalHours.toFixed(2)}</td>
               <td className="px-4 py-3">
-                <StatusBadge status={r.status} />
+                <StatusBadge status={r.status} flowType={r.flowType} />
               </td>
               <td className="px-4 py-3 text-right">
                 <Link

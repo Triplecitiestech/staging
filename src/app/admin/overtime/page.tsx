@@ -18,7 +18,7 @@ export default async function OvertimePage() {
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-white">Overtime</h1>
           <p className="text-slate-400 mt-1">
-            Submit overtime requests in advance and track their approval status.
+            Submit planned overtime in advance, or log reactive overtime that already happened.
           </p>
         </div>
         <OvertimeClient canApprove={canApprove} canIntake={canIntake} />

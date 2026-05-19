@@ -14,6 +14,7 @@ interface RequestDetail {
   employeeName: string
   employeeEmail: string
   kind: string
+  flowType?: 'APPROVAL' | 'NOTIFICATION'
   startDate: string
   endDate: string
   totalHours: number
@@ -28,6 +29,13 @@ interface RequestDetail {
   coverageResponseNotes: string | null
   coverageRequestSentAt: string | null
   status: string
+  overrideShortNotice?: boolean
+  overrideReason?: string | null
+  paidOrUnpaid?: string | null
+  flagForCeoReview?: boolean
+  flagReason?: string | null
+  ceoAcknowledgedAt?: string | null
+  gustoLoggedAt?: string | null
   intakeByStaffId: string | null
   intakeByName: string | null
   intakeAt: string | null
@@ -208,11 +216,23 @@ export default function PtoDetailClient({
   if (!req) return null
 
   const isOwner = currentStaffId === req.employeeStaffId
+  const isNotificationFlow = req.flowType === 'NOTIFICATION'
   const canCompleteIntake =
-    (canIntake || canApprove) && (req.status === 'PENDING_INTAKE' || req.status === 'PENDING')
+    !isNotificationFlow &&
+    (canIntake || canApprove) &&
+    (req.status === 'PENDING_INTAKE' || req.status === 'PENDING')
   const canFinalApprove =
+    !isNotificationFlow &&
     canApprove &&
     (req.status === 'PENDING_APPROVAL' || req.status === 'PENDING_INTAKE' || req.status === 'PENDING')
+  const canRecordNotification =
+    isNotificationFlow &&
+    (canIntake || canApprove) &&
+    (req.status === 'PENDING_INTAKE' ||
+      req.status === 'PENDING' ||
+      req.status === 'RECORDED_PAID' ||
+      req.status === 'RECORDED_UNPAID' ||
+      req.status === 'FLAGGED_FOR_REVIEW')
 
   return (
     <div className="grid gap-6 lg:grid-cols-3">
@@ -241,8 +261,21 @@ export default function PtoDetailClient({
               </h2>
               <p className="text-sm text-slate-400 mt-1">{req.totalHours.toFixed(2)} hrs</p>
             </div>
-            <StatusBadge status={req.status} />
+            <StatusBadge status={req.status} flowType={req.flowType} />
           </div>
+          {req.flowType === 'NOTIFICATION' && (
+            <div className="mt-4 rounded-md border border-blue-500/30 bg-blue-500/10 p-3 text-sm text-blue-200">
+              <strong>Notification flow.</strong> This is an after-the-fact record. No approval is
+              required — HR records it in Gusto.
+            </div>
+          )}
+          {req.flowType === 'APPROVAL' && req.overrideShortNotice && (
+            <div className="mt-4 rounded-md border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-200">
+              <strong>Short-notice override.</strong> Submitted under the 2-week minimum.
+              <br />
+              Reason: {req.overrideReason || '(none provided)'}
+            </div>
+          )}
 
           <div className="mt-5 grid gap-4 md:grid-cols-2 text-sm">
             <div>
@@ -323,8 +356,36 @@ export default function PtoDetailClient({
           )}
         </div>
 
-        {/* Stage 1: HR Intake */}
-        {(req.status === 'PENDING_INTAKE' ||
+        {/* Notification-flow record panel (replaces the entire approval pipeline) */}
+        {canRecordNotification && (
+          <NotificationRecordPanel
+            id={req.id}
+            currentStatus={req.status}
+            currentPaidOrUnpaid={req.paidOrUnpaid ?? null}
+            currentGustoLoggedAt={req.gustoLoggedAt ?? null}
+            currentFlagged={!!req.flagForCeoReview}
+            currentFlagReason={req.flagReason ?? null}
+            currentHrNotes={req.managerNotes ?? null}
+            onRecorded={() => {
+              load()
+              router.refresh()
+            }}
+          />
+        )}
+        {req.flowType === 'NOTIFICATION' && req.flagForCeoReview && canApprove && !req.ceoAcknowledgedAt && (
+          <AcknowledgePanel
+            id={req.id}
+            kind="PTO"
+            flagReason={req.flagReason ?? '(no reason given)'}
+            onAcknowledged={() => {
+              load()
+              router.refresh()
+            }}
+          />
+        )}
+
+        {/* Stage 1: HR Intake (approval flow only) */}
+        {!isNotificationFlow && (req.status === 'PENDING_INTAKE' ||
           req.status === 'PENDING' ||
           req.intakeAt ||
           req.intakeSkipped) && (
@@ -746,6 +807,256 @@ function IntakeField({ label, value }: { label: string; value: string | null }) 
     <div>
       <p className="text-xs text-slate-400 uppercase tracking-wide">{label}</p>
       <p className="text-slate-100 whitespace-pre-wrap text-sm mt-0.5">{value}</p>
+    </div>
+  )
+}
+
+/**
+ * HR records the notification-flow PTO. All fields are manual — no Gusto
+ * lookup. paidOrUnpaid is HR's call, gusto_logged is a manual confirmation
+ * that they've separately entered it into Gusto.
+ */
+function NotificationRecordPanel({
+  id,
+  currentStatus,
+  currentPaidOrUnpaid,
+  currentGustoLoggedAt,
+  currentFlagged,
+  currentFlagReason,
+  currentHrNotes,
+  onRecorded,
+}: {
+  id: string
+  currentStatus: string
+  currentPaidOrUnpaid: string | null
+  currentGustoLoggedAt: string | null
+  currentFlagged: boolean
+  currentFlagReason: string | null
+  currentHrNotes: string | null
+  onRecorded: () => void
+}) {
+  const [paidOrUnpaid, setPaidOrUnpaid] = useState<'paid' | 'unpaid'>(
+    currentPaidOrUnpaid === 'unpaid' ? 'unpaid' : 'paid'
+  )
+  const [gustoLogged, setGustoLogged] = useState<boolean>(!!currentGustoLoggedAt)
+  const [hrNotes, setHrNotes] = useState(currentHrNotes ?? '')
+  const [flagForCeoReview, setFlagForCeoReview] = useState(currentFlagged)
+  const [flagReason, setFlagReason] = useState(currentFlagReason ?? '')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const alreadyRecorded =
+    currentStatus === 'RECORDED_PAID' ||
+    currentStatus === 'RECORDED_UNPAID' ||
+    currentStatus === 'FLAGGED_FOR_REVIEW'
+
+  const submit = async () => {
+    setError(null)
+    if (flagForCeoReview && !flagReason.trim()) {
+      setError('Please add a flag reason or uncheck "Flag for CEO review".')
+      return
+    }
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/pto/requests/${id}/record`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          paidOrUnpaid,
+          hrNotes: hrNotes.trim() || null,
+          gustoLogged,
+          flagForCeoReview,
+          flagReason: flagForCeoReview ? flagReason.trim() : undefined,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(data.error ?? 'Failed to record')
+        return
+      }
+      onRecorded()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to record')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-6">
+      <h3 className="text-sm font-semibold text-blue-300 uppercase tracking-wide mb-3">
+        {alreadyRecorded ? 'Update record' : 'HR record'}
+      </h3>
+      <p className="text-sm text-slate-300 mb-4">
+        Manual entry — Gusto API isn&apos;t integrated. Confirm whether the time is paid or unpaid based
+        on the employee&apos;s balance you&apos;ve looked up. Mark &quot;Logged in Gusto&quot; once
+        you&apos;ve entered it there separately.
+      </p>
+
+      <div className="space-y-4">
+        <div>
+          <label className="block text-xs font-semibold text-slate-300 mb-1">
+            Paid or unpaid? <span className="text-rose-400">*</span>
+          </label>
+          <div className="flex gap-2">
+            {(['paid', 'unpaid'] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setPaidOrUnpaid(v)}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium ${
+                  paidOrUnpaid === v
+                    ? v === 'paid'
+                      ? 'bg-emerald-500 text-white'
+                      : 'bg-cyan-500 text-white'
+                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                }`}
+              >
+                {v === 'paid' ? 'Paid (balance available)' : 'Unpaid (no balance)'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <label className="flex items-start gap-2 text-sm text-slate-200">
+          <input
+            type="checkbox"
+            checked={gustoLogged}
+            onChange={(e) => setGustoLogged(e.target.checked)}
+            className="mt-1"
+          />
+          <span>
+            I&apos;ve entered this in Gusto
+            {currentGustoLoggedAt && (
+              <span className="text-xs text-slate-500 ml-2">
+                (originally logged {new Date(currentGustoLoggedAt).toLocaleString()})
+              </span>
+            )}
+          </span>
+        </label>
+
+        <div>
+          <label className="block text-xs font-semibold text-slate-300 mb-1">
+            HR notes <span className="text-slate-500 font-normal">— optional, visible to requester</span>
+          </label>
+          <textarea
+            value={hrNotes}
+            onChange={(e) => setHrNotes(e.target.value)}
+            rows={2}
+            maxLength={2000}
+            className="w-full rounded-md bg-slate-900 border border-white/10 text-white px-3 py-2 text-sm"
+          />
+        </div>
+
+        <div className="border-t border-white/10 pt-4">
+          <label className="flex items-start gap-2 text-sm text-slate-200">
+            <input
+              type="checkbox"
+              checked={flagForCeoReview}
+              onChange={(e) => setFlagForCeoReview(e.target.checked)}
+              className="mt-1"
+            />
+            <span>
+              Flag for CEO review
+              <span className="text-xs text-slate-500 block">
+                Use for pattern concerns. The PTO is still recorded — this just surfaces it on the CEO
+                dashboard.
+              </span>
+            </span>
+          </label>
+          {flagForCeoReview && (
+            <textarea
+              value={flagReason}
+              onChange={(e) => setFlagReason(e.target.value)}
+              rows={2}
+              maxLength={1000}
+              placeholder="e.g. Fourth sick day in 30 days, no doctor's note attached."
+              required
+              className="w-full mt-2 rounded-md bg-slate-900 border border-rose-500/30 text-white px-3 py-2 text-sm"
+            />
+          )}
+        </div>
+
+        {error && (
+          <div className="rounded-md border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-200">
+            {error}
+          </div>
+        )}
+
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={submit}
+            disabled={submitting}
+            className="px-4 py-2 rounded-lg bg-blue-500 text-white text-sm font-semibold hover:bg-blue-400 disabled:opacity-50"
+          >
+            {submitting ? 'Saving…' : alreadyRecorded ? 'Update record' : 'Record'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AcknowledgePanel({
+  id,
+  kind,
+  flagReason,
+  onAcknowledged,
+}: {
+  id: string
+  kind: 'PTO' | 'OT'
+  flagReason: string
+  onAcknowledged: () => void
+}) {
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const submit = async () => {
+    setError(null)
+    setSubmitting(true)
+    try {
+      const path =
+        kind === 'PTO'
+          ? `/api/pto/requests/${id}/acknowledge`
+          : `/api/overtime/requests/${id}/acknowledge`
+      const res = await fetch(path, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(data.error ?? 'Failed to acknowledge')
+        return
+      }
+      onAcknowledged()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to acknowledge')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-rose-500/30 bg-rose-500/5 p-6">
+      <h3 className="text-sm font-semibold text-rose-300 uppercase tracking-wide mb-2">
+        Flagged for review
+      </h3>
+      <p className="text-sm text-slate-200 mb-3">
+        HR flagged this for your visibility. The {kind === 'PTO' ? 'PTO has been recorded' : 'OT has been recorded for payroll'} —
+        acknowledging just closes the flag in the dashboard.
+      </p>
+      <p className="text-sm text-slate-100 mb-4 italic">&ldquo;{flagReason}&rdquo;</p>
+      {error && (
+        <div className="rounded-md border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-200 mb-3">
+          {error}
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={submit}
+        disabled={submitting}
+        className="px-4 py-2 rounded-lg bg-emerald-500 text-white text-sm font-semibold hover:bg-emerald-400 disabled:opacity-50"
+      >
+        {submitting ? 'Acknowledging…' : 'Acknowledge'}
+      </button>
     </div>
   )
 }
