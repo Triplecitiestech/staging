@@ -13,8 +13,11 @@ import {
   generateOvertimeApprovalRequestEmail,
   generateOvertimeApprovedEmail,
   generateOvertimeDeniedEmail,
+  generateOvertimeFlagEmail,
   generateOvertimeIntakeAssignedEmail,
   generateOvertimeSubmittedEmail,
+  generateReactiveOvertimeRecordedEmail,
+  generateReactiveOvertimeSubmittedEmail,
 } from '@/lib/email-templates/overtime'
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null
@@ -377,6 +380,218 @@ export async function cancelOvertimeRequest(p: {
     },
   })
   return prisma.overtimeRequest.findUnique({ where: { id: req.id } })
+}
+
+// ---------------------------------------------------------------------------
+// REACTIVE / NOTIFICATION FLOW (work already happened)
+// ---------------------------------------------------------------------------
+
+/** Sent to HR + CEO when a reactive OT is logged. */
+export async function notifyReactiveOvertimeSubmitted(requestId: string): Promise<void> {
+  const req = await prisma.overtimeRequest.findUnique({ where: { id: requestId } })
+  if (!req) return
+
+  const actualHours = Number(req.actualHoursWorked ?? req.estimatedHours)
+  const { subject, html, text } = generateReactiveOvertimeSubmittedEmail({
+    employeeName: req.employeeName,
+    employeeEmail: req.employeeEmail,
+    workDate: ymd(req.workDate),
+    startTime: req.startTime,
+    endTime: req.endTime,
+    actualHours,
+    reactiveReason: req.reactiveReason ?? 'Other',
+    incidentContext: req.incidentContext ?? '',
+    lateSubmission: req.lateSubmission,
+    lateReason: req.lateReason,
+    reviewUrl: `${baseUrl()}/admin/overtime/${req.id}`,
+  })
+
+  // Reactive OT submitted → HR + CEO (FYI)
+  const hr = await resolveIntakeEmails()
+  const ceoEmails = FALLBACK_APPROVER ? [FALLBACK_APPROVER.toLowerCase()] : []
+  const recipients = Array.from(new Set([...hr, ...ceoEmails]))
+  const send = await sendEmail({ to: recipients, subject, html, text, replyTo: req.employeeEmail })
+
+  await prisma.overtimeRequest.update({
+    where: { id: req.id },
+    data: { intakeNotifiedAt: new Date(), submitterNotifiedAt: new Date() },
+  })
+  await prisma.overtimeAuditLog.create({
+    data: {
+      requestId: req.id,
+      actorEmail: 'system',
+      action: 'notify_reactive',
+      details: { recipients, result: send } as never,
+    },
+  })
+}
+
+export interface RecordReactiveOvertimeParams {
+  requestId: string
+  actorStaffId: string
+  actorEmail: string
+  actorName: string
+  hrNotes?: string | null
+  actualHoursWorked?: number | null
+  flagForCeoReview?: boolean
+  flagReason?: string | null
+  payrollLogged?: boolean
+}
+
+/**
+ * HR records a reactive OT entry. Moves the request to RECORDED or
+ * FLAGGED_FOR_REVIEW. The work was performed and must be paid — HR cannot
+ * deny reactive OT, only flag it for CEO visibility.
+ */
+export async function recordReactiveOvertime(p: RecordReactiveOvertimeParams) {
+  const req = await prisma.overtimeRequest.findUnique({ where: { id: p.requestId } })
+  if (!req) throw new Error('Request not found')
+  if (req.flowType !== 'NOTIFICATION') {
+    throw new Error('Only reactive (notification-flow) overtime can be recorded this way')
+  }
+  if (req.status === 'CANCELLED') throw new Error('Cannot record a cancelled request')
+
+  const flagged = !!p.flagForCeoReview && !!p.flagReason && p.flagReason.trim().length > 0
+  const newStatus = flagged ? 'FLAGGED_FOR_REVIEW' : 'RECORDED'
+  const hours =
+    typeof p.actualHoursWorked === 'number' && Number.isFinite(p.actualHoursWorked)
+      ? p.actualHoursWorked
+      : Number(req.actualHoursWorked ?? req.estimatedHours)
+
+  const updated = await prisma.overtimeRequest.update({
+    where: { id: req.id },
+    data: {
+      status: newStatus,
+      reviewedByStaffId: p.actorStaffId,
+      reviewedByName: p.actorName,
+      reviewedAt: new Date(),
+      managerNotes: p.hrNotes ?? null,
+      actualHoursWorked: hours,
+      flagForCeoReview: flagged,
+      flagReason: flagged ? (p.flagReason ?? null) : null,
+      payrollRecordedAt: p.payrollLogged ? new Date() : null,
+      payrollRecordedByStaffId: p.payrollLogged ? p.actorStaffId : null,
+      payrollRecordedByName: p.payrollLogged ? p.actorName : null,
+    },
+  })
+
+  await prisma.overtimeAuditLog.create({
+    data: {
+      requestId: req.id,
+      actorStaffId: p.actorStaffId,
+      actorEmail: p.actorEmail,
+      actorName: p.actorName,
+      action: 'recorded',
+      details: {
+        flagged,
+        flagReason: flagged ? p.flagReason : null,
+        actualHoursWorked: hours,
+        payrollLogged: !!p.payrollLogged,
+      } as never,
+    },
+  })
+
+  // Notify requester
+  const { subject, html, text } = generateReactiveOvertimeRecordedEmail({
+    employeeName: req.employeeName,
+    workDate: ymd(req.workDate),
+    actualHours: hours,
+    hrName: p.actorName,
+    hrNotes: p.hrNotes ?? null,
+    requestUrl: `${baseUrl()}/admin/overtime/${req.id}`,
+  })
+  await sendEmail({ to: [req.employeeEmail], subject, html, text })
+  await prisma.overtimeRequest.update({
+    where: { id: req.id },
+    data: { employeeNotifiedAt: new Date() },
+  })
+
+  if (flagged && FALLBACK_APPROVER) {
+    const flagEmail = generateOvertimeFlagEmail({
+      employeeName: req.employeeName,
+      workDate: ymd(req.workDate),
+      actualHours: hours,
+      flagReason: p.flagReason ?? '',
+      hrName: p.actorName,
+      requestUrl: `${baseUrl()}/admin/overtime/${req.id}`,
+    })
+    await sendEmail({
+      to: [FALLBACK_APPROVER.toLowerCase()],
+      subject: flagEmail.subject,
+      html: flagEmail.html,
+      text: flagEmail.text,
+    })
+    await prisma.overtimeAuditLog.create({
+      data: {
+        requestId: req.id,
+        actorEmail: 'system',
+        action: 'flag_for_ceo_review',
+        details: { reason: p.flagReason } as never,
+      },
+    })
+  }
+
+  return prisma.overtimeRequest.findUnique({ where: { id: updated.id } })
+}
+
+/** CEO marks a flagged reactive OT as acknowledged. */
+export async function acknowledgeFlaggedOvertime(p: {
+  requestId: string
+  actorStaffId: string
+  actorEmail: string
+  actorName: string
+}) {
+  const req = await prisma.overtimeRequest.findUnique({ where: { id: p.requestId } })
+  if (!req) throw new Error('Request not found')
+  await prisma.overtimeRequest.update({
+    where: { id: req.id },
+    data: { ceoAcknowledgedAt: new Date(), flagForCeoReview: false },
+  })
+  await prisma.overtimeAuditLog.create({
+    data: {
+      requestId: req.id,
+      actorStaffId: p.actorStaffId,
+      actorEmail: p.actorEmail,
+      actorName: p.actorName,
+      action: 'ceo_acknowledged',
+    },
+  })
+  return prisma.overtimeRequest.findUnique({ where: { id: req.id } })
+}
+
+/**
+ * Post-approval: planned OT that ran 25%+ over the estimate auto-flags for
+ * HR review of the delta. Doesn't block payroll. Called when an approved
+ * request gets actual_hours_worked > estimated_hours * 1.25.
+ */
+export async function autoFlagOvertimeVariance(requestId: string): Promise<void> {
+  const req = await prisma.overtimeRequest.findUnique({ where: { id: requestId } })
+  if (!req) return
+  if (req.flowType !== 'APPROVAL') return
+  if (req.status !== 'APPROVED') return
+  if (!req.actualHoursWorked || !req.estimatedHours) return
+
+  const actual = Number(req.actualHoursWorked)
+  const estimated = Number(req.estimatedHours)
+  const threshold = estimated * 1.25
+
+  if (actual <= threshold) return
+
+  const variance = ((actual - estimated) / estimated) * 100
+  const reason = `Planned OT ran ${variance.toFixed(0)}% over estimate (${estimated.toFixed(2)} → ${actual.toFixed(2)} hrs).`
+
+  await prisma.overtimeRequest.update({
+    where: { id: req.id },
+    data: { flagForCeoReview: true, flagReason: reason },
+  })
+  await prisma.overtimeAuditLog.create({
+    data: {
+      requestId: req.id,
+      actorEmail: 'system',
+      action: 'auto_flag_variance',
+      details: { estimated, actual, threshold, variancePct: variance } as never,
+    },
+  })
 }
 
 export async function markOvertimeRecordedInPayroll(p: {

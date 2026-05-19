@@ -189,7 +189,7 @@ export function generateHrApprovalEmail(ctx: ApprovalEmailContext): {
   html: string
   text: string
 } {
-  const subject = `PTO Request: ${ctx.employeeName} — ${formatDateRange(ctx.startDate, ctx.endDate)}`
+  const subject = `Approval needed: PTO for ${ctx.employeeName} — ${formatDateRange(ctx.startDate, ctx.endDate)}`
 
   const intakeRow = (label: string, value: string | null) =>
     value && value.trim()
@@ -354,7 +354,7 @@ export function generateIntakeAssignedEmail(ctx: IntakeAssignedEmailContext): {
   html: string
   text: string
 } {
-  const subject = `PTO intake needed: ${ctx.employeeName} — ${formatDateRange(ctx.startDate, ctx.endDate)}`
+  const subject = `Approval needed: PTO intake for ${ctx.employeeName} — ${formatDateRange(ctx.startDate, ctx.endDate)}`
   const body = `
       <tr><td style="padding:32px;">
         <div style="background:#eff6ff;border:1px solid #3b82f6;padding:14px 16px;border-radius:6px;margin-bottom:20px;">
@@ -428,7 +428,7 @@ export function generateApprovalNotificationEmail(ctx: DecisionEmailContext): {
   html: string
   text: string
 } {
-  const subject = `Your PTO request is approved — ${formatDateRange(ctx.startDate, ctx.endDate)}`
+  const subject = `Approved: PTO request — ${formatDateRange(ctx.startDate, ctx.endDate)}`
   const body = `
       <tr><td style="padding:32px;">
         <div style="background:#d1fae5;border:1px solid #10b981;padding:16px;border-radius:6px;margin-bottom:20px;text-align:center;">
@@ -468,7 +468,7 @@ export function generateDenialNotificationEmail(ctx: DecisionEmailContext): {
   html: string
   text: string
 } {
-  const subject = `Your PTO request was not approved — ${formatDateRange(ctx.startDate, ctx.endDate)}`
+  const subject = `Denied: PTO request — ${formatDateRange(ctx.startDate, ctx.endDate)}`
   const body = `
       <tr><td style="padding:32px;">
         <div style="background:#fee2e2;border:1px solid #ef4444;padding:16px;border-radius:6px;margin-bottom:20px;text-align:center;">
@@ -539,3 +539,163 @@ export function generateSubmittedConfirmationEmail(
   )}\nHours: ${ctx.totalHours.toFixed(2)}\n\nView: ${ctx.requestUrl}`
   return { subject, html: shell(subject, body), text }
 }
+
+// ---------------------------------------------------------------------------
+// NOTIFICATION FLOW — sick days, bereavement, family emergency, same-day medical
+// These have already happened. HR records; no approval gate.
+// ---------------------------------------------------------------------------
+
+export interface NotificationSubmittedContext {
+  employeeName: string
+  employeeEmail: string
+  kind: string
+  startDate: string
+  endDate: string
+  totalHours: number
+  notes: string | null
+  reviewUrl: string
+}
+
+/**
+ * Sent to HR when an employee notifies of a sick day / bereavement / etc.
+ * Subject prefix: "FYI:" — informational, but HR still needs to record it.
+ */
+export function generateNotificationSubmittedEmail(ctx: NotificationSubmittedContext): {
+  subject: string
+  html: string
+  text: string
+} {
+  const subject = `FYI: ${ctx.kind.replace(/_/g, ' ').toLowerCase()} — ${ctx.employeeName} (${formatDateRange(ctx.startDate, ctx.endDate)})`
+  const body = `
+      <tr><td style="padding:32px;">
+        <div style="background:#eff6ff;border:1px solid #3b82f6;padding:14px 16px;border-radius:6px;margin-bottom:20px;">
+          <p style="margin:0;color:#1e3a8a;font-size:14px;font-weight:600;">No approval required — please record in Gusto when ready.</p>
+        </div>
+        <p style="margin:0 0 12px;font-size:15px;color:#0f172a;"><strong>${escapeHtml(ctx.employeeName)}</strong> has notified HR of unplanned time off.</p>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;font-size:14px;">
+          <tr><td style="padding:4px 0;color:#475569;width:40%;">Employee</td><td style="padding:4px 0;color:#0f172a;font-weight:600;">${escapeHtml(ctx.employeeName)} &lt;${escapeHtml(ctx.employeeEmail)}&gt;</td></tr>
+          <tr><td style="padding:4px 0;color:#475569;">Type</td><td style="padding:4px 0;color:#0f172a;font-weight:600;">${escapeHtml(ctx.kind.replace(/_/g, ' '))}</td></tr>
+          <tr><td style="padding:4px 0;color:#475569;">Dates</td><td style="padding:4px 0;color:#0f172a;font-weight:600;">${escapeHtml(formatDateRange(ctx.startDate, ctx.endDate))}</td></tr>
+          <tr><td style="padding:4px 0;color:#475569;">Hours</td><td style="padding:4px 0;color:#0f172a;font-weight:600;">${ctx.totalHours.toFixed(2)}</td></tr>
+        </table>
+        ${ctx.notes ? `<div style="background:#f8fafc;border-left:3px solid #94a3b8;padding:12px 16px;margin-bottom:16px;border-radius:4px;"><p style="margin:0 0 4px;font-size:12px;font-weight:600;color:#475569;">EMPLOYEE NOTES</p><p style="margin:0;color:#0f172a;font-size:14px;">${escapeHtml(ctx.notes)}</p></div>` : ''}
+        <p style="margin:16px 0 0;color:#475569;font-size:14px;">When you've recorded the time in Gusto, mark it complete here:</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:12px;"><tr><td>
+          <a href="${escapeHtml(ctx.reviewUrl)}" style="display:inline-block;background:#0891b2;color:#ffffff;padding:12px 28px;border-radius:6px;font-weight:600;font-size:14px;text-decoration:none;">Open request</a>
+        </td></tr></table>
+      </td></tr>`
+  const text = `FYI: ${ctx.employeeName} notified of ${ctx.kind.replace(/_/g, ' ').toLowerCase()}
+
+Dates: ${formatDateRange(ctx.startDate, ctx.endDate)}
+Hours: ${ctx.totalHours.toFixed(2)}
+${ctx.notes ? `\nNotes: ${ctx.notes}\n` : ''}
+No approval needed. Record in Gusto when ready, then mark it complete: ${ctx.reviewUrl}`
+  return { subject, html: shell(subject, body), text }
+}
+
+export interface NotificationRecordedContext {
+  employeeName: string
+  kind: string
+  startDate: string
+  endDate: string
+  totalHours: number
+  paidOrUnpaid: 'paid' | 'unpaid'
+  hrName: string
+  hrNotes: string | null
+  requestUrl: string
+}
+
+/**
+ * Sent to the requester + CEO (CC) when HR records the notification PTO.
+ * Subject prefix: "Recorded:" — informational only.
+ */
+export function generateNotificationRecordedEmail(ctx: NotificationRecordedContext): {
+  subject: string
+  html: string
+  text: string
+} {
+  const subject = `Recorded: ${ctx.kind.replace(/_/g, ' ').toLowerCase()} — ${ctx.employeeName} (${formatDateRange(ctx.startDate, ctx.endDate)})`
+  const tone =
+    ctx.paidOrUnpaid === 'paid'
+      ? { bg: '#d1fae5', border: '#10b981', textC: '#065f46', label: 'Recorded — Paid' }
+      : { bg: '#fef3c7', border: '#d97706', textC: '#92400e', label: 'Recorded — Unpaid' }
+  const body = `
+      <tr><td style="padding:32px;">
+        <div style="background:${tone.bg};border:1px solid ${tone.border};padding:16px;border-radius:6px;margin-bottom:20px;text-align:center;">
+          <p style="margin:0;color:${tone.textC};font-size:18px;font-weight:700;">${tone.label}</p>
+        </div>
+        <p style="margin:0 0 12px;font-size:16px;color:#0f172a;">Hi ${escapeHtml(ctx.employeeName)},</p>
+        <p style="margin:0 0 16px;font-size:14px;color:#334155;line-height:1.6;">
+          ${escapeHtml(ctx.hrName)} has recorded your ${escapeHtml(ctx.kind.replace(/_/g, ' ').toLowerCase())} time for <strong>${escapeHtml(formatDateRange(ctx.startDate, ctx.endDate))}</strong> (${ctx.totalHours.toFixed(2)} hrs) as <strong>${ctx.paidOrUnpaid}</strong>.
+        </p>
+        ${ctx.hrNotes ? `<div style="background:#f8fafc;border-left:3px solid #94a3b8;padding:12px 16px;margin-bottom:16px;border-radius:4px;"><p style="margin:0 0 4px;font-size:12px;font-weight:600;color:#475569;">HR NOTES</p><p style="margin:0;color:#0f172a;font-size:14px;">${escapeHtml(ctx.hrNotes)}</p></div>` : ''}
+        <p style="margin:16px 0 0;font-size:13px;color:#64748b;">This is informational — no action needed.</p>
+        <p style="margin:16px 0 0;"><a href="${escapeHtml(ctx.requestUrl)}" style="color:#0891b2;font-weight:600;text-decoration:none;">View details →</a></p>
+      </td></tr>`
+  const text = `Recorded: ${ctx.kind.replace(/_/g, ' ').toLowerCase()}
+
+Hi ${ctx.employeeName},
+
+${ctx.hrName} has recorded your time for ${formatDateRange(ctx.startDate, ctx.endDate)} (${ctx.totalHours.toFixed(2)} hrs) as ${ctx.paidOrUnpaid}.
+${ctx.hrNotes ? `\nHR notes: ${ctx.hrNotes}\n` : ''}
+Informational — no action needed.
+
+Details: ${ctx.requestUrl}`
+  return { subject, html: shell(subject, body), text }
+}
+
+export interface NotificationFlagContext {
+  employeeName: string
+  kind: string
+  startDate: string
+  endDate: string
+  totalHours: number
+  flagReason: string
+  hrName: string
+  requestUrl: string
+}
+
+/**
+ * Sent to CEO when HR flags a notification-flow request for review (e.g. a
+ * sick-day pattern). The PTO is still recorded — this just surfaces it.
+ * Subject prefix: "Review requested:".
+ */
+export function generateNotificationFlagEmail(ctx: NotificationFlagContext): {
+  subject: string
+  html: string
+  text: string
+} {
+  const subject = `Review requested: ${ctx.kind.replace(/_/g, ' ').toLowerCase()} flagged — ${ctx.employeeName}`
+  const body = `
+      <tr><td style="padding:32px;">
+        <div style="background:#fee2e2;border:1px solid #ef4444;padding:14px 16px;border-radius:6px;margin-bottom:20px;">
+          <p style="margin:0;color:#991b1b;font-size:14px;font-weight:600;">HR has flagged this request for your visibility. The PTO has still been recorded — this does not block anything.</p>
+        </div>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;font-size:14px;">
+          <tr><td style="padding:4px 0;color:#475569;width:40%;">Employee</td><td style="padding:4px 0;color:#0f172a;font-weight:600;">${escapeHtml(ctx.employeeName)}</td></tr>
+          <tr><td style="padding:4px 0;color:#475569;">Type</td><td style="padding:4px 0;color:#0f172a;font-weight:600;">${escapeHtml(ctx.kind.replace(/_/g, ' '))}</td></tr>
+          <tr><td style="padding:4px 0;color:#475569;">Dates</td><td style="padding:4px 0;color:#0f172a;font-weight:600;">${escapeHtml(formatDateRange(ctx.startDate, ctx.endDate))}</td></tr>
+          <tr><td style="padding:4px 0;color:#475569;">Hours</td><td style="padding:4px 0;color:#0f172a;font-weight:600;">${ctx.totalHours.toFixed(2)}</td></tr>
+          <tr><td style="padding:4px 0;color:#475569;">Flagged by</td><td style="padding:4px 0;color:#0f172a;font-weight:600;">${escapeHtml(ctx.hrName)}</td></tr>
+        </table>
+        <div style="background:#f8fafc;border-left:3px solid #ef4444;padding:12px 16px;margin-bottom:20px;border-radius:4px;">
+          <p style="margin:0 0 4px;font-size:12px;font-weight:600;color:#475569;">FLAG REASON</p>
+          <p style="margin:0;color:#0f172a;font-size:14px;">${escapeHtml(ctx.flagReason)}</p>
+        </div>
+        <table role="presentation" cellpadding="0" cellspacing="0"><tr><td>
+          <a href="${escapeHtml(ctx.requestUrl)}" style="display:inline-block;background:#0891b2;color:#ffffff;padding:12px 28px;border-radius:6px;font-weight:600;font-size:14px;text-decoration:none;">Review and acknowledge</a>
+        </td></tr></table>
+      </td></tr>`
+  const text = `Review requested: ${ctx.kind.replace(/_/g, ' ').toLowerCase()} flagged
+
+Employee: ${ctx.employeeName}
+Dates: ${formatDateRange(ctx.startDate, ctx.endDate)}
+Hours: ${ctx.totalHours.toFixed(2)}
+Flagged by: ${ctx.hrName}
+
+Flag reason: ${ctx.flagReason}
+
+This is for your visibility — the PTO has been recorded. Acknowledge at: ${ctx.requestUrl}`
+  return { subject, html: shell(subject, body), text }
+}
+

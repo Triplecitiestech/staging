@@ -1501,6 +1501,10 @@ enum TimeOffRequestStatus {
   APPROVED
   DENIED
   CANCELLED
+  // Notification flow (sickness / bereavement / family emergency / same-day medical)
+  RECORDED_PAID
+  RECORDED_UNPAID
+  FLAGGED_FOR_REVIEW
 }
 
 enum TimeOffRequestKind {
@@ -1511,6 +1515,13 @@ enum TimeOffRequestKind {
   JURY_DUTY
   UNPAID
   OTHER
+  FAMILY_EMERGENCY
+  SAME_DAY_MEDICAL
+}
+
+enum TimeOffFlowType {
+  APPROVAL       // submitted in advance, CEO sign-off
+  NOTIFICATION   // reported after the fact, HR records only
 }
 
 model TimeOffRequest {
@@ -1543,6 +1554,25 @@ model TimeOffRequest {
   coverageRequestSentAt DateTime?
 
   status              TimeOffRequestStatus @default(PENDING_INTAKE)
+
+  // Two-route flow: APPROVAL (planned) goes through HR → CEO; NOTIFICATION
+  // (sick / bereavement / family emergency / same-day medical) goes through
+  // HR record only. Defaults to APPROVAL so existing in-flight rows behave
+  // as they did before the migration.
+  flowType            TimeOffFlowType      @default(APPROVAL) @map("flow_type")
+
+  // Short-notice override (approval flow): legitimate last-minute vacation
+  // that doesn't meet the 2-week submission window. Surfaced prominently on
+  // the HR intake + CEO approval screens.
+  overrideShortNotice Boolean              @default(false) @map("override_short_notice")
+  overrideReason      String?              @db.Text @map("override_reason")
+
+  // Notification-flow outcomes (set by HR during "record" step).
+  paidOrUnpaid        String?              @map("paid_or_unpaid") // 'paid' | 'unpaid' | 'pending'
+  gustoLoggedAt       DateTime?            @map("gusto_logged_at")
+  flagForCeoReview    Boolean              @default(false) @map("flag_for_ceo_review")
+  flagReason          String?              @db.Text @map("flag_reason")
+  ceoAcknowledgedAt   DateTime?            @map("ceo_acknowledged_at")
 
   // HR intake (stage 1) — e.g. Rio fills this in, then forwards to final approver
   intakeByStaffId         String?
@@ -1628,6 +1658,14 @@ enum OvertimeRequestStatus {
   APPROVED
   DENIED
   CANCELLED
+  // Notification flow (reactive OT — work already happened)
+  RECORDED
+  FLAGGED_FOR_REVIEW
+}
+
+enum OvertimeFlowType {
+  APPROVAL       // planned OT submitted ≥ 30min in advance
+  NOTIFICATION   // reactive OT logged after the work happened
 }
 
 model OvertimeRequest {
@@ -1645,6 +1683,27 @@ model OvertimeRequest {
   reason          String                @db.Text
 
   status          OvertimeRequestStatus @default(PENDING_INTAKE)
+
+  // Two-route flow: APPROVAL (planned, start_time > now+30min) goes through
+  // HR → CEO. NOTIFICATION (reactive, work already done) goes HR record only.
+  // Defaults to APPROVAL so in-flight rows behave as before the migration.
+  flowType          OvertimeFlowType    @default(APPROVAL) @map("flow_type")
+
+  // Planned-OT only
+  otCategory        String?             @map("ot_category")  // 'Project work' | 'Maintenance window' | 'Training or certification' | 'Scheduled customer coverage' | 'Other'
+
+  // Reactive-OT only: timing + context
+  reactiveReason    String?             @map("reactive_reason")  // 'Customer call ran past hours' | 'After-hours emergency response' | 'On-call escalation' | 'Critical incident response' | 'Other'
+  incidentContext   String?             @db.Text @map("incident_context")
+  endTime           String?             @map("end_time")           // free-form like "9:00 PM"
+  actualStartAt     DateTime?           @map("actual_start_at")    // precise start when known
+  actualEndAt       DateTime?           @map("actual_end_at")      // precise end when known
+
+  lateSubmission    Boolean             @default(false) @map("late_submission")
+  lateReason        String?             @db.Text @map("late_reason")
+  flagForCeoReview  Boolean             @default(false) @map("flag_for_ceo_review")
+  flagReason        String?             @db.Text @map("flag_reason")
+  ceoAcknowledgedAt DateTime?           @map("ceo_acknowledged_at")
 
   // HR intake (stage 1)
   intakeByStaffId       String?

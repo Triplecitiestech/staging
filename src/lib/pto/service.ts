@@ -38,11 +38,15 @@ import {
   generateDenialNotificationEmail,
   generateIntakeAssignedEmail,
   generateHrApprovalEmail,
+  generateNotificationFlagEmail,
+  generateNotificationRecordedEmail,
+  generateNotificationSubmittedEmail,
   generateSubmittedConfirmationEmail,
 } from '@/lib/email-templates/pto'
 import crypto from 'crypto'
 import { buildIcsEvent } from './ics'
 import type { PtoKind } from './types'
+import { flowForKind } from './types'
 import type { StaffRole } from '@prisma/client'
 import { hasPermission, parseOverrides } from '@/lib/permissions'
 
@@ -800,6 +804,202 @@ ${req.coverage ? `<p><em>Shift coverage:</em> ${req.coverage}</p>` : ''}
 
 export async function retrySyncs(requestId: string): Promise<void> {
   await syncApprovalToCalendar(requestId)
+}
+
+// ---------------------------------------------------------------------------
+// NOTIFICATION FLOW (sick / bereavement / family emergency / same-day medical)
+// 2-step pipeline: employee notifies → HR records.
+// No reliever picker, no approval gate, sickness cannot be denied.
+// Gusto balance + paid/unpaid determination is manual HR entry — no live
+// integration is wired up yet.
+// ---------------------------------------------------------------------------
+
+export { flowForKind }
+
+/** Sent to HR when a notification-flow PTO is created. Subject prefix "FYI:". */
+export async function notifyNotificationIntake(requestId: string): Promise<void> {
+  const req = await prisma.timeOffRequest.findUnique({ where: { id: requestId } })
+  if (!req) return
+
+  const { subject, html, text } = generateNotificationSubmittedEmail({
+    employeeName: req.employeeName,
+    employeeEmail: req.employeeEmail,
+    kind: req.kind,
+    startDate: ymd(req.startDate),
+    endDate: ymd(req.endDate),
+    totalHours: Number(req.totalHours),
+    notes: req.notes,
+    reviewUrl: `${baseUrl()}/admin/pto/${req.id}`,
+  })
+
+  const recipients = await resolveIntakeEmails()
+  const send = await sendEmail({ to: recipients, subject, html, text, replyTo: req.employeeEmail })
+  await prisma.timeOffRequest.update({
+    where: { id: req.id },
+    data: { intakeNotifiedAt: new Date() },
+  })
+  await prisma.timeOffAuditLog.create({
+    data: {
+      requestId: req.id,
+      actorEmail: 'system',
+      action: 'notify_intake_notification_flow',
+      details: { recipients, result: send } as never,
+    },
+  })
+}
+
+export interface RecordNotificationParams {
+  requestId: string
+  actorStaffId: string
+  actorEmail: string
+  actorName: string
+  paidOrUnpaid: 'paid' | 'unpaid'
+  hrNotes?: string | null
+  flagForCeoReview?: boolean
+  flagReason?: string | null
+  gustoLogged?: boolean  // true if HR has separately entered it into Gusto
+}
+
+/**
+ * HR records a notification-flow request. The request moves to
+ * RECORDED_PAID / RECORDED_UNPAID / FLAGGED_FOR_REVIEW. No approval gate —
+ * this is the terminal step for the notification flow.
+ */
+export async function recordNotificationRequest(p: RecordNotificationParams) {
+  const req = await prisma.timeOffRequest.findUnique({ where: { id: p.requestId } })
+  if (!req) throw new Error('Request not found')
+  if (req.flowType !== 'NOTIFICATION') {
+    throw new Error('Only notification-flow requests can be recorded')
+  }
+  // Allow re-recording from any prior notification status (HR may have
+  // initially flagged then changed their mind, or vice versa).
+  if (req.status === 'CANCELLED') {
+    throw new Error('Cannot record a cancelled request')
+  }
+
+  const flagged = !!p.flagForCeoReview && !!p.flagReason && p.flagReason.trim().length > 0
+  const newStatus = flagged
+    ? 'FLAGGED_FOR_REVIEW'
+    : p.paidOrUnpaid === 'paid'
+      ? 'RECORDED_PAID'
+      : 'RECORDED_UNPAID'
+
+  const updated = await prisma.timeOffRequest.update({
+    where: { id: req.id },
+    data: {
+      status: newStatus,
+      paidOrUnpaid: p.paidOrUnpaid,
+      reviewedByStaffId: p.actorStaffId,
+      reviewedByName: p.actorName,
+      reviewedAt: new Date(),
+      managerNotes: p.hrNotes ?? null,
+      flagForCeoReview: flagged,
+      flagReason: flagged ? (p.flagReason ?? null) : null,
+      gustoLoggedAt: p.gustoLogged ? new Date() : null,
+      gustoRecordedAt: p.gustoLogged ? new Date() : null,
+      gustoRecordedByStaffId: p.gustoLogged ? p.actorStaffId : null,
+      gustoRecordedByName: p.gustoLogged ? p.actorName : null,
+    },
+  })
+
+  await prisma.timeOffAuditLog.create({
+    data: {
+      requestId: req.id,
+      actorStaffId: p.actorStaffId,
+      actorEmail: p.actorEmail,
+      actorName: p.actorName,
+      action: 'recorded',
+      details: {
+        paidOrUnpaid: p.paidOrUnpaid,
+        flagged,
+        flagReason: flagged ? p.flagReason : null,
+        gustoLogged: !!p.gustoLogged,
+      } as never,
+    },
+  })
+
+  // Notify employee + CEO (informational). FALLBACK_APPROVER is the CEO inbox.
+  const { subject, html, text } = generateNotificationRecordedEmail({
+    employeeName: req.employeeName,
+    kind: req.kind,
+    startDate: ymd(req.startDate),
+    endDate: ymd(req.endDate),
+    totalHours: Number(req.totalHours),
+    paidOrUnpaid: p.paidOrUnpaid,
+    hrName: p.actorName,
+    hrNotes: p.hrNotes ?? null,
+    requestUrl: `${baseUrl()}/admin/pto/${req.id}`,
+  })
+
+  const ceoCc = FALLBACK_APPROVER ? [FALLBACK_APPROVER.toLowerCase()] : []
+  const to = Array.from(new Set([req.employeeEmail.toLowerCase(), ...ceoCc]))
+  await sendEmail({ to, subject, html, text })
+  await prisma.timeOffRequest.update({
+    where: { id: req.id },
+    data: { employeeNotifiedAt: new Date() },
+  })
+
+  // If flagged, send a separate "Review requested:" email to CEO with the flag reason.
+  if (flagged) {
+    const flagEmail = generateNotificationFlagEmail({
+      employeeName: req.employeeName,
+      kind: req.kind,
+      startDate: ymd(req.startDate),
+      endDate: ymd(req.endDate),
+      totalHours: Number(req.totalHours),
+      flagReason: p.flagReason ?? '',
+      hrName: p.actorName,
+      requestUrl: `${baseUrl()}/admin/pto/${req.id}`,
+    })
+    if (FALLBACK_APPROVER) {
+      await sendEmail({
+        to: [FALLBACK_APPROVER.toLowerCase()],
+        subject: flagEmail.subject,
+        html: flagEmail.html,
+        text: flagEmail.text,
+      })
+    }
+    await prisma.timeOffAuditLog.create({
+      data: {
+        requestId: req.id,
+        actorEmail: 'system',
+        action: 'flag_for_ceo_review',
+        details: { reason: p.flagReason } as never,
+      },
+    })
+  }
+
+  return prisma.timeOffRequest.findUnique({ where: { id: updated.id } })
+}
+
+/**
+ * CEO marks a flagged notification-flow request as acknowledged (single
+ * "Acknowledge" button on the dashboard). Doesn't change anything else —
+ * the PTO was already recorded.
+ */
+export async function acknowledgeFlaggedRequest(p: {
+  requestId: string
+  actorStaffId: string
+  actorEmail: string
+  actorName: string
+}) {
+  const req = await prisma.timeOffRequest.findUnique({ where: { id: p.requestId } })
+  if (!req) throw new Error('Request not found')
+
+  await prisma.timeOffRequest.update({
+    where: { id: req.id },
+    data: { ceoAcknowledgedAt: new Date(), flagForCeoReview: false },
+  })
+  await prisma.timeOffAuditLog.create({
+    data: {
+      requestId: req.id,
+      actorStaffId: p.actorStaffId,
+      actorEmail: p.actorEmail,
+      actorName: p.actorName,
+      action: 'ceo_acknowledged',
+    },
+  })
+  return prisma.timeOffRequest.findUnique({ where: { id: req.id } })
 }
 
 // Re-export kind for route convenience

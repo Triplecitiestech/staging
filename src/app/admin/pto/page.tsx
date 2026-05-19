@@ -28,7 +28,7 @@ export default async function PtoPage() {
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-white">Time Off</h1>
           <p className="text-slate-400 mt-1">
-            Submit a PTO request and track its approval status.
+            Request planned time off in advance, or report a sick day / emergency that already happened.
           </p>
         </div>
         <PtoClient canApprove={canApprove} canIntake={canIntake} />

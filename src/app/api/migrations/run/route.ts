@@ -473,6 +473,127 @@ export async function POST(request: Request) {
       results.push(`⚠️ companies.isTestTenant: ${err.message}`)
     }
 
+    // ============================================
+    // PTO / OVERTIME — two-route revision (2026-05-19)
+    // Adds APPROVAL vs NOTIFICATION flow split. New PTO leave types
+    // (FAMILY_EMERGENCY, SAME_DAY_MEDICAL) and new terminal statuses
+    // for the notification path (RECORDED_PAID, RECORDED_UNPAID, RECORDED,
+    // FLAGGED_FOR_REVIEW).
+    // ============================================
+
+    // TimeOffRequestKind: add new leave types
+    for (const kind of ['FAMILY_EMERGENCY', 'SAME_DAY_MEDICAL']) {
+      try {
+        await client.query(`ALTER TYPE "TimeOffRequestKind" ADD VALUE IF NOT EXISTS '${kind}'`)
+        results.push(`✅ TimeOffRequestKind: added ${kind}`)
+      } catch (error) {
+        const err = error as Error
+        results.push(`⚠️ TimeOffRequestKind.${kind}: ${err.message}`)
+      }
+    }
+
+    // TimeOffRequestStatus: add notification-flow terminal statuses
+    for (const status of ['RECORDED_PAID', 'RECORDED_UNPAID', 'FLAGGED_FOR_REVIEW']) {
+      try {
+        await client.query(`ALTER TYPE "TimeOffRequestStatus" ADD VALUE IF NOT EXISTS '${status}'`)
+        results.push(`✅ TimeOffRequestStatus: added ${status}`)
+      } catch (error) {
+        const err = error as Error
+        results.push(`⚠️ TimeOffRequestStatus.${status}: ${err.message}`)
+      }
+    }
+
+    // TimeOffFlowType enum
+    try {
+      await client.query(`
+        DO $$ BEGIN
+          CREATE TYPE "TimeOffFlowType" AS ENUM ('APPROVAL', 'NOTIFICATION');
+        EXCEPTION
+          WHEN duplicate_object THEN null;
+        END $$;
+      `)
+      results.push('✅ Created TimeOffFlowType enum')
+    } catch (error) {
+      const err = error as Error
+      results.push(`⚠️ TimeOffFlowType enum: ${err.message}`)
+    }
+
+    // time_off_requests new columns
+    const ptoCols: Array<[string, string]> = [
+      ['flow_type', `"TimeOffFlowType" NOT NULL DEFAULT 'APPROVAL'`],
+      ['override_short_notice', 'BOOLEAN NOT NULL DEFAULT FALSE'],
+      ['override_reason', 'TEXT'],
+      ['paid_or_unpaid', 'VARCHAR(16)'],
+      ['gusto_logged_at', 'TIMESTAMP'],
+      ['flag_for_ceo_review', 'BOOLEAN NOT NULL DEFAULT FALSE'],
+      ['flag_reason', 'TEXT'],
+      ['ceo_acknowledged_at', 'TIMESTAMP'],
+    ]
+    for (const [col, type] of ptoCols) {
+      try {
+        await client.query(
+          `ALTER TABLE "time_off_requests" ADD COLUMN IF NOT EXISTS "${col}" ${type}`
+        )
+        results.push(`✅ time_off_requests.${col}`)
+      } catch (error) {
+        const err = error as Error
+        results.push(`⚠️ time_off_requests.${col}: ${err.message}`)
+      }
+    }
+
+    // OvertimeRequestStatus: add notification-flow terminal statuses
+    for (const status of ['RECORDED', 'FLAGGED_FOR_REVIEW']) {
+      try {
+        await client.query(`ALTER TYPE "OvertimeRequestStatus" ADD VALUE IF NOT EXISTS '${status}'`)
+        results.push(`✅ OvertimeRequestStatus: added ${status}`)
+      } catch (error) {
+        const err = error as Error
+        results.push(`⚠️ OvertimeRequestStatus.${status}: ${err.message}`)
+      }
+    }
+
+    // OvertimeFlowType enum
+    try {
+      await client.query(`
+        DO $$ BEGIN
+          CREATE TYPE "OvertimeFlowType" AS ENUM ('APPROVAL', 'NOTIFICATION');
+        EXCEPTION
+          WHEN duplicate_object THEN null;
+        END $$;
+      `)
+      results.push('✅ Created OvertimeFlowType enum')
+    } catch (error) {
+      const err = error as Error
+      results.push(`⚠️ OvertimeFlowType enum: ${err.message}`)
+    }
+
+    // overtime_requests new columns
+    const otCols: Array<[string, string]> = [
+      ['flow_type', `"OvertimeFlowType" NOT NULL DEFAULT 'APPROVAL'`],
+      ['ot_category', 'VARCHAR(64)'],
+      ['reactive_reason', 'VARCHAR(64)'],
+      ['incident_context', 'TEXT'],
+      ['end_time', 'VARCHAR(50)'],
+      ['actual_start_at', 'TIMESTAMP'],
+      ['actual_end_at', 'TIMESTAMP'],
+      ['late_submission', 'BOOLEAN NOT NULL DEFAULT FALSE'],
+      ['late_reason', 'TEXT'],
+      ['flag_for_ceo_review', 'BOOLEAN NOT NULL DEFAULT FALSE'],
+      ['flag_reason', 'TEXT'],
+      ['ceo_acknowledged_at', 'TIMESTAMP'],
+    ]
+    for (const [col, type] of otCols) {
+      try {
+        await client.query(
+          `ALTER TABLE "overtime_requests" ADD COLUMN IF NOT EXISTS "${col}" ${type}`
+        )
+        results.push(`✅ overtime_requests.${col}`)
+      } catch (error) {
+        const err = error as Error
+        results.push(`⚠️ overtime_requests.${col}: ${err.message}`)
+      }
+    }
+
     await client.end()
 
     return NextResponse.json({

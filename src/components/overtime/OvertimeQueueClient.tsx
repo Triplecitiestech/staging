@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import StatusBadge from './StatusBadge'
-import type { OvertimeStatus } from '@/lib/overtime/types'
+import type { OvertimeFlowType, OvertimeStatus } from '@/lib/overtime/types'
 
 interface QueueRow {
   id: string
@@ -11,18 +11,31 @@ interface QueueRow {
   employeeEmail: string
   workDate: string
   startTime: string | null
+  endTime: string | null
   estimatedHours: number
   status: OvertimeStatus
+  flowType: OvertimeFlowType
+  lateSubmission: boolean
+  flagForCeoReview: boolean
   payrollRecordedAt: string | null
   createdAt: string
 }
 
-type TabId = 'my_queue' | 'intake' | 'approval' | 'approved' | 'denied' | 'cancelled' | 'all'
+type TabId =
+  | 'my_queue'
+  | 'intake'
+  | 'approval'
+  | 'reactive'
+  | 'approved'
+  | 'denied'
+  | 'cancelled'
+  | 'all'
 
 const TABS: Array<{ id: TabId; label: string }> = [
   { id: 'my_queue', label: 'My queue' },
   { id: 'intake', label: 'Pending HR intake' },
   { id: 'approval', label: 'Pending final approval' },
+  { id: 'reactive', label: 'Reactive OT' },
   { id: 'approved', label: 'Approved' },
   { id: 'denied', label: 'Denied' },
   { id: 'cancelled', label: 'Cancelled' },
@@ -44,19 +57,30 @@ export default function OvertimeQueueClient({
     setLoading(true)
     try {
       const qs = new URLSearchParams({ scope: 'all' })
-      if (id === 'intake') qs.set('status', 'PENDING_INTAKE')
-      else if (id === 'approval') qs.set('status', 'PENDING_APPROVAL')
+      if (id === 'intake') {
+        qs.set('status', 'PENDING_INTAKE')
+        qs.set('flowType', 'APPROVAL')
+      } else if (id === 'approval') qs.set('status', 'PENDING_APPROVAL')
       else if (id === 'approved') qs.set('status', 'APPROVED')
       else if (id === 'denied') qs.set('status', 'DENIED')
       else if (id === 'cancelled') qs.set('status', 'CANCELLED')
+      else if (id === 'reactive') qs.set('flowType', 'NOTIFICATION')
       const res = await fetch(`/api/overtime/requests?${qs}`, { signal })
       const data = await res.json()
       let list: QueueRow[] = data.requests ?? []
       if (id === 'my_queue') {
         list = list.filter((r) => {
-          if (canIntake && r.status === 'PENDING_INTAKE') return true
+          // Reactive needing HR record
+          if (
+            (canIntake || canApprove) &&
+            r.flowType === 'NOTIFICATION' &&
+            r.status === 'PENDING_INTAKE'
+          )
+            return true
+          if (canIntake && r.flowType === 'APPROVAL' && r.status === 'PENDING_INTAKE') return true
           if (canApprove && r.status === 'PENDING_APPROVAL') return true
           if ((canIntake || canApprove) && r.status === 'APPROVED' && !r.payrollRecordedAt) return true
+          if (canApprove && r.flagForCeoReview) return true
           return false
         })
       }
@@ -105,6 +129,7 @@ export default function OvertimeQueueClient({
               <tr>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Employee</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Date</th>
+                <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Flow</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Time</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Hours</th>
                 <th className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Status</th>
@@ -120,17 +145,37 @@ export default function OvertimeQueueClient({
                     <p className="text-xs text-slate-400">{r.employeeEmail}</p>
                   </td>
                   <td className="px-4 py-3 text-slate-200 whitespace-nowrap">{r.workDate}</td>
-                  <td className="px-4 py-3 text-slate-200">{r.startTime ?? '—'}</td>
+                  <td className="px-4 py-3 text-xs uppercase tracking-wide">
+                    {r.flowType === 'NOTIFICATION' ? (
+                      <span className="text-cyan-300">Reactive</span>
+                    ) : (
+                      <span className="text-violet-300">Planned</span>
+                    )}
+                    {r.lateSubmission && <span className="ml-1 text-rose-400">late</span>}
+                    {r.flagForCeoReview && (
+                      <span className="ml-1 text-rose-400" title="Flagged for CEO review">⚑</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-slate-200">
+                    {r.startTime ?? '—'}
+                    {r.endTime ? ` → ${r.endTime}` : ''}
+                  </td>
                   <td className="px-4 py-3 text-slate-200">{r.estimatedHours.toFixed(2)}</td>
-                  <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
+                  <td className="px-4 py-3"><StatusBadge status={r.status} flowType={r.flowType} /></td>
                   <td className="px-4 py-3 text-xs">
-                    {r.status === 'APPROVED' ? (
+                    {r.status === 'APPROVED' || r.status === 'RECORDED' ? (
                       r.payrollRecordedAt ? <span className="text-emerald-300">Recorded</span> : <span className="text-amber-300">Needs entry</span>
                     ) : <span className="text-slate-500">—</span>}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <Link href={`/admin/overtime/${r.id}`} className="text-cyan-400 hover:text-cyan-300 text-xs font-medium">
-                      {r.status === 'PENDING_INTAKE' ? 'Intake →' : r.status === 'PENDING_APPROVAL' ? 'Review →' : 'Open →'}
+                      {r.status === 'PENDING_INTAKE' && r.flowType === 'NOTIFICATION'
+                        ? 'Record →'
+                        : r.status === 'PENDING_INTAKE'
+                          ? 'Intake →'
+                          : r.status === 'PENDING_APPROVAL'
+                            ? 'Review →'
+                            : 'Open →'}
                     </Link>
                   </td>
                 </tr>
