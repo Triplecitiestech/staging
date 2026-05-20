@@ -15,6 +15,21 @@ export default function AdminHeader() {
   const [companiesOpen, setCompaniesOpen] = useState(false)
   const moreRef = useRef<HTMLDivElement>(null)
   const companiesRef = useRef<HTMLDivElement>(null)
+  const [cfoAllowed, setCfoAllowed] = useState(false)
+
+  // The CFO dashboard is access-restricted (allowlist or Entra finance group),
+  // so only surface its nav link to users who actually pass the server check.
+  useEffect(() => {
+    const controller = new AbortController()
+    fetch('/api/admin/cfo/access', { signal: controller.signal })
+      .then((res) => (res.ok ? res.json() : { allowed: false }))
+      .then((data) => setCfoAllowed(!!data?.allowed))
+      .catch((err) => {
+        if (err instanceof DOMException && err.name === 'AbortError') return
+        // Non-fatal — just leave the link hidden.
+      })
+    return () => controller.abort()
+  }, [])
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -170,6 +185,18 @@ export default function AdminHeader() {
     },
   ]
 
+  // CFO dashboard — only included when the access check passed (see effect above)
+  const cfoNavItem = {
+    label: 'CFO Dashboard',
+    href: '/admin/cfo',
+    icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m-6 4h6m-6 4h4M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z" />
+      </svg>
+    ),
+  }
+  const secondaryNavItems = cfoAllowed ? [...secondaryNav, cfoNavItem] : secondaryNav
+
   // For the mobile menu we need a flat list of every navigable destination
   const allNav = [
     ...primaryNav,
@@ -183,7 +210,7 @@ export default function AdminHeader() {
         </svg>
       ),
     })),
-    ...secondaryNav,
+    ...secondaryNavItems,
   ]
 
   const isActive = (href: string) => {
@@ -191,7 +218,7 @@ export default function AdminHeader() {
     return pathname.startsWith(href)
   }
 
-  const hasActiveSecondary = secondaryNav.some(item => isActive(item.href))
+  const hasActiveSecondary = secondaryNavItems.some(item => isActive(item.href))
 
   return (
     <header className="bg-black/20 backdrop-blur-md border-b border-white/10 sticky top-0 z-40">
@@ -289,7 +316,7 @@ export default function AdminHeader() {
 
               {moreOpen && (
                 <div className="absolute top-full left-0 mt-1 w-48 bg-slate-900 border border-white/10 rounded-lg shadow-xl py-1 z-50">
-                  {secondaryNav.map((item) => (
+                  {secondaryNavItems.map((item) => (
                     <Link
                       key={item.href}
                       href={item.href}

@@ -39,6 +39,8 @@ export type Permission =
   | 'view_reports'
   | 'view_billing'
   | 'manage_billing'
+  // CFO / Financial dashboard (Sequence + QuickBooks)
+  | 'view_cfo_dashboard'
   // System
   | 'system_settings'
   | 'run_migrations'
@@ -84,6 +86,7 @@ const ROLE_PERMISSIONS: Record<StaffRole, Permission[]> = {
     'view_reports',
     'view_billing',
     'manage_billing',
+    'view_cfo_dashboard',
     'system_settings',
     'run_migrations',
     'view_audit_log',
@@ -246,6 +249,7 @@ export const ALL_PERMISSIONS: Permission[] = [
   'manage_marketing',
   'manage_compliance', 'view_compliance',
   'view_reports', 'view_billing', 'manage_billing',
+  'view_cfo_dashboard',
   'system_settings', 'run_migrations', 'view_audit_log', 'autotask_sync',
   'update_task_status', 'add_notes', 'view_assigned_tasks',
   'approve_pto', 'pto_intake', 'manage_pto_integrations',
@@ -278,6 +282,7 @@ export const PERMISSION_META: Record<Permission, { label: string; category: stri
   view_reports: { label: 'View Reports', category: 'Reporting', description: 'Access reports and analytics' },
   view_billing: { label: 'View Billing', category: 'Reporting', description: 'View billing information' },
   manage_billing: { label: 'Manage Billing', category: 'Reporting', description: 'Manage billing and invoices' },
+  view_cfo_dashboard: { label: 'View CFO Dashboard', category: 'Reporting', description: 'Access the financial CFO dashboard (cash flow, debts, AR, QuickBooks). Also grantable via Entra finance groups.' },
   system_settings: { label: 'System Settings', category: 'System', description: 'Manage platform settings' },
   run_migrations: { label: 'Run Migrations', category: 'System', description: 'Execute database migrations' },
   view_audit_log: { label: 'View Audit Log', category: 'System', description: 'View system audit trail' },
