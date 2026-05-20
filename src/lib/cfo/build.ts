@@ -101,6 +101,7 @@ export interface DashboardData {
   incomeSplit: ReturnType<typeof incomeDistribution>
   debts: ReturnType<typeof analyzeDebts>
   ar: ReturnType<typeof analyzeAr>
+  qb: QbSnapshot | null
   actions: ReturnType<typeof generateActions>
 }
 
@@ -189,6 +190,7 @@ export async function buildDashboard(log: (msg: string) => void = () => {}): Pro
     incomeSplit: incomeDistribution(transfersByAccount, roles.incomeSource, 180),
     debts,
     ar,
+    qb,
     actions: generateActions({ qb, debts, ar, empowerLiveBalanceCents }),
   }
 
