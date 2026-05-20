@@ -302,6 +302,24 @@ export default function CfoDashboardClient() {
         </div>
       )}
 
+      {/* QuickBooks financials (live or snapshot) */}
+      {d.qb && (
+        <div>
+          <SectionTitle>
+            QuickBooks {d.qb.periodLabel ? `· ${d.qb.periodLabel}` : ''}
+            <span className="ml-2 rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-400 ring-1 ring-white/10">
+              {d.meta.qbSource === 'live' ? 'live' : 'snapshot'}
+            </span>
+          </SectionTitle>
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            <Kpi label="Net income (period)" value={usd(d.qb.pl?.netIncomeCents)} status={(d.qb.pl?.netIncomeCents ?? 0) >= 0 ? 'green' : 'red'} sub={d.qb.pl?.avgMonthlyNetCents != null ? `${usd(d.qb.pl.avgMonthlyNetCents)}/mo avg` : undefined} />
+            <Kpi label="Gross margin" value={d.qb.pl?.grossMarginPct != null ? `${Math.round(d.qb.pl.grossMarginPct * 100)}%` : '—'} sub={`Gross ${usd(d.qb.pl?.grossProfitCents)}`} />
+            <Kpi label="Total liabilities" value={usd(d.qb.balanceSheet?.totalLiabilitiesCents)} />
+            <Kpi label="Total equity" value={usd(d.qb.balanceSheet?.totalEquityCents)} />
+          </div>
+        </div>
+      )}
+
       {/* AR (when snapshot present) */}
       {d.ar && (
         <div>
