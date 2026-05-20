@@ -27,6 +27,11 @@ const RECOMMENDED_VARS = [
   // admin-consent flow. Existing legacy-mode customers keep working without these.
   'M365_PORTAL_CLIENT_ID',
   'M365_PORTAL_CLIENT_SECRET',
+  // CFO dashboard Entra-group gating. Optional — without it the dashboard is
+  // still reachable via the per-user `view_cfo_dashboard` permission (allowlist).
+  // Set to a comma-separated list of accounting/finance Entra group object IDs
+  // to also admit members of those groups (requires GroupMember.Read.All on the app).
+  'CFO_DASHBOARD_ENTRA_GROUP_IDS',
 ] as const
 
 export function validateEnvironment(): { missing: string[]; warnings: string[] } {
