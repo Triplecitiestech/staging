@@ -22,6 +22,51 @@ import {
 import { summarizeRoles } from './roles'
 import { buildCategoryMap } from './categories'
 import { getCategoryOverrides, getDebts, getQbSnapshot, getArSnapshot, setSetting, getSetting } from './store'
+import { isConnected as qbConnected } from './qb-auth'
+import { getBalanceSheet, getProfitAndLoss, getAgedReceivableDetail } from './qb-client'
+import { parseBalanceSheet, parseProfitAndLoss, parseAgedReceivableDetail } from './qb-parse'
+import type { QbSnapshot, ArSnapshot } from './types'
+
+function enrichPl(qb: QbSnapshot | null): QbSnapshot | null {
+  if (qb?.pl && qb.monthsInPeriod) {
+    qb.pl.avgMonthlyNetCents = Math.round((qb.pl.netIncomeCents ?? 0) / qb.monthsInPeriod)
+    qb.pl.avgMonthlyGrossCents = Math.round((qb.pl.grossProfitCents ?? 0) / qb.monthsInPeriod)
+    qb.pl.grossMarginPct = qb.pl.incomeCents && qb.pl.incomeCents > 0 ? (qb.pl.grossProfitCents ?? 0) / qb.pl.incomeCents : null
+  }
+  return qb
+}
+
+// Prefer LIVE QuickBooks when connected; fall back to stored JSON snapshots so
+// the dashboard never breaks (pre-connection, or if QB is unreachable).
+async function loadQbAndAr(log: (msg: string) => void): Promise<{ qb: QbSnapshot | null; arSnapshot: ArSnapshot | null; qbSource: 'live' | 'snapshot' | 'none' }> {
+  if (await qbConnected()) {
+    try {
+      log('QuickBooks connected — pulling live reports...')
+      const now = new Date()
+      const startDate = `${now.getUTCFullYear() - 1}-01-01`
+      const endDate = now.toISOString().slice(0, 10)
+      const [bsRaw, plRaw, arRaw] = await Promise.all([
+        getBalanceSheet(endDate),
+        getProfitAndLoss(startDate, endDate),
+        getAgedReceivableDetail(endDate),
+      ])
+      const monthsInPeriod = Math.max(1, Math.round(((now.getTime() - new Date(startDate).getTime()) / (1000 * 60 * 60 * 24 * 30.44)) * 10) / 10)
+      const qb = enrichPl({
+        asOfDate: endDate,
+        periodLabel: `${startDate} – ${endDate} (live)`,
+        monthsInPeriod,
+        source: 'live',
+        pl: parseProfitAndLoss(plRaw),
+        balanceSheet: parseBalanceSheet(bsRaw),
+      })
+      return { qb, arSnapshot: parseAgedReceivableDetail(arRaw), qbSource: 'live' }
+    } catch (e) {
+      log(`Live QB fetch failed (${e instanceof Error ? e.message : String(e)}) — falling back to snapshots`)
+    }
+  }
+  const [storedQb, storedAr] = await Promise.all([getQbSnapshot(), getArSnapshot()])
+  return { qb: enrichPl(storedQb), arSnapshot: storedAr, qbSource: storedQb ? 'snapshot' : 'none' }
+}
 
 export interface DashboardData {
   refreshedAt: string
@@ -104,7 +149,7 @@ export async function buildDashboard(log: (msg: string) => void = () => {}): Pro
   const opTransfers = roles.operations ? transfersFor(roles.operations.id, transfersByAccount) : []
   const ownerPayTransfers = roles.ownerPay ? transfersFor(roles.ownerPay.id, transfersByAccount) : []
 
-  const [qb, arSnapshot] = await Promise.all([getQbSnapshot(), getArSnapshot()])
+  const { qb, arSnapshot, qbSource } = await loadQbAndAr(log)
   const debtsConfig = await getDebts()
 
   const empowerLiveBalanceCents = roles.empowerChecking?.balance?.balanceInCents ?? null
@@ -123,7 +168,7 @@ export async function buildDashboard(log: (msg: string) => void = () => {}): Pro
       totalDestinations: cats.totalDestinations,
       retriesDropped: retryFiltered.explicitRetryCount + retryFiltered.silentRetryCount,
       retriesDroppedAmountCents: retryFiltered.explicitRetryAmountCents,
-      qbSource: qb ? 'snapshot' : 'none',
+      qbSource,
     },
     totalCashCents: totalCashOnHand(accounts),
     empowerLiveBalanceCents,
