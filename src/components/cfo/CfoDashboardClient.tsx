@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import Link from 'next/link'
 import {
   ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend,
 } from 'recharts'
@@ -129,13 +130,18 @@ export default function CfoDashboardClient() {
           Refreshed {d.refreshedAt} · {d.meta.accountCount} accounts · {d.meta.transferCount24mo.toLocaleString()} transfers (24mo)
           {d.meta.qbSource === 'none' && ' · QuickBooks not connected'}
         </p>
-        <button
-          onClick={refresh}
-          disabled={refreshing}
-          className="rounded-md border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-sm text-cyan-300 hover:bg-cyan-500/20 disabled:opacity-50"
-        >
-          {refreshing ? 'Refreshing…' : 'Refresh data'}
-        </button>
+        <div className="flex items-center gap-2">
+          <Link href="/admin/cfo/settings" className="rounded-md border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-slate-300 hover:bg-white/10">
+            Settings
+          </Link>
+          <button
+            onClick={refresh}
+            disabled={refreshing}
+            className="rounded-md border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-sm text-cyan-300 hover:bg-cyan-500/20 disabled:opacity-50"
+          >
+            {refreshing ? 'Refreshing…' : 'Refresh data'}
+          </button>
+        </div>
       </div>
 
       {/* KPI grid */}

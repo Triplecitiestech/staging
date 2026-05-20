@@ -1,0 +1,194 @@
+'use client'
+
+import { useCallback, useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
+import type { DebtsConfig, CategoryMap } from '@/lib/cfo/types'
+
+const CATEGORY_OPTIONS = ['', 'credit-card', 'payroll', 'loan', 'tax', 'insurance', 'vendor', 'personal', 'transfer-out', 'other']
+
+interface QbStatus {
+  configured: boolean
+  connected: boolean
+  realmId?: string
+  env?: string
+  connectedAt?: string
+  accessTokenValid?: boolean
+}
+
+function Card({ children }: { children: React.ReactNode }) {
+  return <div className="rounded-xl border border-white/10 bg-white/5 p-5">{children}</div>
+}
+
+export default function CfoSettingsClient() {
+  const qbParam = useSearchParams().get('qb')
+
+  const [qb, setQb] = useState<QbStatus | null>(null)
+  const [debtsText, setDebtsText] = useState('')
+  const [categories, setCategories] = useState<CategoryMap>({})
+  const [loading, setLoading] = useState(true)
+  const [debtsMsg, setDebtsMsg] = useState<string | null>(null)
+  const [catMsg, setCatMsg] = useState<string | null>(null)
+
+  const loadStatus = useCallback((signal?: AbortSignal) => {
+    return fetch('/api/admin/cfo/qb/status', { signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setQb(d))
+      .catch((e) => { if (!(e instanceof DOMException && e.name === 'AbortError')) {/* leave null */} })
+  }, [])
+
+  useEffect(() => {
+    const c = new AbortController()
+    Promise.all([
+      loadStatus(c.signal),
+      fetch('/api/admin/cfo/config', { signal: c.signal })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d: { debts: DebtsConfig; categories: CategoryMap } | null) => {
+          if (!d) return
+          setDebtsText(JSON.stringify(d.debts, null, 2))
+          setCategories(d.categories || {})
+        })
+        .catch((e) => { if (!(e instanceof DOMException && e.name === 'AbortError')) {/* ignore */} }),
+    ]).finally(() => setLoading(false))
+    return () => c.abort()
+  }, [loadStatus])
+
+  const disconnectQb = useCallback(async () => {
+    await fetch('/api/admin/cfo/qb/disconnect', { method: 'POST' })
+    await loadStatus()
+  }, [loadStatus])
+
+  const saveDebts = useCallback(async () => {
+    setDebtsMsg(null)
+    let parsed: DebtsConfig
+    try {
+      parsed = JSON.parse(debtsText)
+    } catch {
+      setDebtsMsg('Invalid JSON — check syntax.')
+      return
+    }
+    const res = await fetch('/api/admin/cfo/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ debts: parsed }),
+    })
+    setDebtsMsg(res.ok ? 'Saved.' : (await res.json().catch(() => ({})))?.error || 'Save failed.')
+  }, [debtsText])
+
+  const saveCategories = useCallback(async () => {
+    setCatMsg(null)
+    const res = await fetch('/api/admin/cfo/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categories }),
+    })
+    setCatMsg(res.ok ? 'Saved.' : 'Save failed.')
+  }, [categories])
+
+  if (loading) {
+    return <div className="h-40 animate-pulse rounded-xl border border-white/10 bg-white/5" />
+  }
+
+  const banner = qbParam && {
+    connected: ['QuickBooks connected.', 'text-emerald-300'],
+    error: ['QuickBooks connection failed. Try again.', 'text-red-300'],
+    csrf: ['QuickBooks connection blocked (state mismatch). Try again.', 'text-red-300'],
+    not_configured: ['QuickBooks app keys not configured (set QB_CLIENT_ID / QB_CLIENT_SECRET).', 'text-rose-300'],
+  }[qbParam]
+
+  return (
+    <div className="space-y-8">
+      {banner && <p className={`text-sm ${banner[1]}`}>{banner[0]}</p>}
+
+      {/* QuickBooks */}
+      <section>
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-300">QuickBooks Online</h2>
+        <Card>
+          {!qb?.configured ? (
+            <p className="text-sm text-rose-300">
+              App keys not configured. Set <code className="text-slate-300">QB_CLIENT_ID</code> and{' '}
+              <code className="text-slate-300">QB_CLIENT_SECRET</code> (and <code className="text-slate-300">ENCRYPTION_MASTER_KEY_V1</code>) in Vercel.
+            </p>
+          ) : qb.connected ? (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="text-sm">
+                <p className="text-emerald-300">Connected · realm {qb.realmId} · {qb.env}</p>
+                <p className="text-slate-400">
+                  Since {qb.connectedAt ? new Date(qb.connectedAt).toLocaleDateString() : '—'} ·
+                  access token {qb.accessTokenValid ? 'valid' : 'will refresh on next use'}
+                </p>
+              </div>
+              <button onClick={disconnectQb} className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-sm text-red-300 hover:bg-red-500/20">
+                Disconnect
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-slate-400">Not connected. Live balance sheet, P&amp;L, and AR aging will use stored snapshots until you connect.</p>
+              <a href="/api/admin/cfo/qb/connect" className="rounded-md border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-sm text-cyan-300 hover:bg-cyan-500/20">
+                Connect QuickBooks
+              </a>
+            </div>
+          )}
+        </Card>
+      </section>
+
+      {/* Debts */}
+      <section>
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-300">Debts</h2>
+        <Card>
+          <p className="mb-2 text-xs text-slate-400">
+            JSON list of debts. Amounts are in cents. Fields: <code>name</code>, <code>kind</code> (business|personal),
+            <code> balanceCents</code>, <code>aprPct</code>, <code>minPaymentCents</code>, optional <code>paidFromPod</code>, <code>note</code>.
+          </p>
+          <textarea
+            value={debtsText}
+            onChange={(e) => setDebtsText(e.target.value)}
+            spellCheck={false}
+            className="h-72 w-full rounded-lg border border-white/10 bg-slate-950/60 p-3 font-mono text-xs text-slate-200 focus:border-cyan-500/40 focus:outline-none"
+          />
+          <div className="mt-3 flex items-center gap-3">
+            <button onClick={saveDebts} className="rounded-md border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-sm text-cyan-300 hover:bg-cyan-500/20">
+              Save debts
+            </button>
+            {debtsMsg && <span className="text-sm text-slate-300">{debtsMsg}</span>}
+          </div>
+        </Card>
+      </section>
+
+      {/* Categories */}
+      <section>
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-300">Destination categories</h2>
+        <Card>
+          {Object.keys(categories).length === 0 ? (
+            <p className="text-sm text-slate-400">No destinations yet — they populate after the first dashboard build.</p>
+          ) : (
+            <>
+              <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
+                {Object.keys(categories).sort().map((name) => (
+                  <div key={name} className="flex items-center gap-3">
+                    <span className="flex-1 truncate text-sm text-slate-300" title={name}>{name}</span>
+                    <select
+                      value={categories[name] || ''}
+                      onChange={(e) => setCategories((prev) => ({ ...prev, [name]: e.target.value }))}
+                      className="rounded-md border border-white/10 bg-slate-950/60 px-2 py-1 text-sm text-slate-200 focus:border-cyan-500/40 focus:outline-none"
+                    >
+                      {CATEGORY_OPTIONS.map((c) => (
+                        <option key={c} value={c}>{c || '— untagged —'}</option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 flex items-center gap-3">
+                <button onClick={saveCategories} className="rounded-md border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-sm text-cyan-300 hover:bg-cyan-500/20">
+                  Save categories
+                </button>
+                {catMsg && <span className="text-sm text-slate-300">{catMsg}</span>}
+              </div>
+            </>
+          )}
+        </Card>
+      </section>
+    </div>
+  )
+}

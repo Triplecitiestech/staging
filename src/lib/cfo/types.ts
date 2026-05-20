@@ -80,24 +80,39 @@ export interface DebtsConfig {
 // ─── QuickBooks parsed shapes ────────────────────────────────────────────────
 
 export interface QbBalanceSheet {
-  bankAccountsTotalCents?: number
-  empowerBusinessCheckingCents?: number
-  accountsReceivableCents?: number
-  totalLiabilitiesCents?: number
-  totalEquityCents?: number
-  totalAssetsCents?: number
-  [key: string]: number | undefined
+  asOfDate?: string | null
+  bankAccountsTotalCents?: number | null
+  empowerBusinessCheckingCents?: number | null
+  accountsReceivableCents?: number | null
+  undepositedFundsCents?: number | null
+  creditCards?: { name: string; balanceCents: number }[]
+  totalCreditCardOwedCents?: number | null
+  visionsTaxLoanCents?: number | null
+  nyStateTaxOwedCents?: number | null
+  fixedAssetsNetCents?: number | null
+  totalLiabilitiesCents?: number | null
+  totalEquityCents?: number | null
+  totalAssetsCents?: number | null
+  ownersDrawsLifetimeCents?: number | null
 }
 
 export interface QbProfitAndLoss {
-  incomeCents?: number
-  cogsCents?: number
-  grossProfitCents?: number
-  netIncomeCents?: number
+  startDate?: string | null
+  endDate?: string | null
+  incomeCents?: number | null
+  cogsCents?: number | null
+  grossProfitCents?: number | null
+  operatingExpensesCents?: number | null
+  netOperatingIncomeCents?: number | null
+  otherIncomeCents?: number | null
+  netIncomeCents?: number | null
+  depreciationCents?: number | null
+  payrollWagesCents?: number | null
+  contractorsCents?: number | null
+  recurringServicesIncomeCents?: number | null
   avgMonthlyNetCents?: number
   avgMonthlyGrossCents?: number
   grossMarginPct?: number | null
-  [key: string]: number | null | undefined
 }
 
 export interface QbSnapshot {
@@ -110,13 +125,13 @@ export interface QbSnapshot {
 }
 
 export interface ArSnapshot {
-  asOfDate?: string
+  asOfDate?: string | null
   totalOpenCents?: number
   bucketTotalsCents?: Record<string, number>
   byCustomer?: Record<string, {
     totalCents: number
     invoiceCount?: number
-    oldestInvoiceDate?: string
+    oldestInvoiceDate?: string | null
     byBucketCents?: Record<string, number>
   }>
   invoiceCount?: number

@@ -32,6 +32,13 @@ const RECOMMENDED_VARS = [
   // Set to a comma-separated list of accounting/finance Entra group object IDs
   // to also admit members of those groups (requires GroupMember.Read.All on the app).
   'CFO_DASHBOARD_ENTRA_GROUP_IDS',
+  // CFO dashboard data sources. SEQUENCE_API_TOKEN is required for live banking
+  // analytics. QB_* + ENCRYPTION_MASTER_KEY_V1 enable the QuickBooks connection
+  // (tokens are encrypted at rest); without them QB/AR fall back to snapshots.
+  'SEQUENCE_API_TOKEN',
+  'QB_CLIENT_ID',
+  'QB_CLIENT_SECRET',
+  'ENCRYPTION_MASTER_KEY_V1',
 ] as const
 
 export function validateEnvironment(): { missing: string[]; warnings: string[] } {
