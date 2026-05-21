@@ -252,11 +252,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     // 5. Verify user exists in company_contacts
     const contactRes = await client.query<{
+      id: string
       customerRole: string
       isPrimary: boolean
       name: string
     }>(
-      `SELECT "customerRole", "isPrimary", name
+      `SELECT id, "customerRole", "isPrimary", name
        FROM company_contacts
        WHERE "companyId" = $1
          AND LOWER(email) = $2
@@ -265,18 +266,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       [companyId, userEmail]
     )
 
-    let contact = contactRes.rows[0] ?? null
+    let contact: { id?: string; customerRole: string; isPrimary: boolean; name: string } | null = contactRes.rows[0] ?? null
 
     // Fallback: try matching by username part (before @) against all contacts for this company
     if (!contact) {
       const usernamePart = userEmail.split('@')[0]
       if (usernamePart) {
         const fallbackRes = await client.query<{
+          id: string
           customerRole: string
           isPrimary: boolean
           name: string
         }>(
-          `SELECT "customerRole", "isPrimary", name
+          `SELECT id, "customerRole", "isPrimary", name
            FROM company_contacts
            WHERE "companyId" = $1
              AND LOWER(email) LIKE $2
@@ -285,6 +287,22 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           [companyId, usernamePart + '@%']
         )
         contact = fallbackRes.rows[0] ?? null
+      }
+    }
+
+    // A real (DB-backed) contact just signed in — mark a pending invite as accepted
+    // so the admin contact card stops showing "pending" once they've used the portal.
+    if (contact?.id) {
+      try {
+        await client.query(
+          `UPDATE company_contacts
+             SET "inviteStatus" = 'ACCEPTED'
+           WHERE id = $1 AND "inviteStatus" = 'INVITED'`,
+          [contact.id]
+        )
+      } catch (updateErr) {
+        // Non-fatal: the column may not exist in some environments. Don't block login.
+        console.error('[portal/auth/callback] Failed to update inviteStatus:', updateErr instanceof Error ? updateErr.message : updateErr)
       }
     }
 
