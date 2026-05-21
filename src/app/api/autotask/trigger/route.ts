@@ -183,7 +183,11 @@ export async function GET(request: NextRequest) {
     return handleDiagnose(client);
   }
 
-  return NextResponse.json({ error: `Unknown step: ${step}. Use cleanup, companies, projects, contacts, merge, resync, or diagnose.` }, { status: 400 });
+  if (step === 'diagnose-orphans') {
+    return handleDiagnoseOrphans(client);
+  }
+
+  return NextResponse.json({ error: `Unknown step: ${step}. Use cleanup, companies, projects, contacts, merge, resync, diagnose, or diagnose-orphans.` }, { status: 400 });
 }
 
 // ============================================
@@ -716,6 +720,79 @@ async function handleDiagnose(client: AutotaskClient) {
   } catch (err) {
     return NextResponse.json(
       { step: 'diagnose', error: err instanceof Error ? err.message : String(err) },
+      { status: 500 }
+    );
+  }
+}
+
+// ============================================
+// STEP: DIAGNOSE-ORPHANS — find DB projects that no longer exist in Autotask
+// ============================================
+//
+// Read-only. Explains the "website shows projects Autotask doesn't" discrepancy:
+//   - orphaned: has an autotaskProjectId, but that project is gone from Autotask
+//               (deleted there) — these keep surfacing on the customer portal.
+//   - localOnly: no autotaskProjectId at all (manually created, never AT-synced).
+// Nothing is deleted or hidden — review the output, then act via /admin/projects.
+async function handleDiagnoseOrphans(client: AutotaskClient) {
+  try {
+    const atProjects = await client.getAllProjects();
+    const atIds = new Set(atProjects.map((p) => String(p.id)));
+
+    const dbProjects = await prisma.project.findMany({
+      select: {
+        id: true,
+        title: true,
+        slug: true,
+        autotaskProjectId: true,
+        isVisibleToCustomer: true,
+        status: true,
+        company: { select: { displayName: true, slug: true, autotaskCompanyId: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const orphaned = dbProjects
+      .filter((p) => p.autotaskProjectId && !atIds.has(p.autotaskProjectId))
+      .map((p) => ({
+        id: p.id,
+        title: p.title,
+        slug: p.slug,
+        autotaskProjectId: p.autotaskProjectId,
+        status: p.status,
+        visibleToCustomer: p.isVisibleToCustomer,
+        company: p.company?.displayName ?? null,
+        companySlug: p.company?.slug ?? null,
+      }));
+
+    const localOnly = dbProjects
+      .filter((p) => !p.autotaskProjectId)
+      .map((p) => ({
+        id: p.id,
+        title: p.title,
+        slug: p.slug,
+        status: p.status,
+        visibleToCustomer: p.isVisibleToCustomer,
+        company: p.company?.displayName ?? null,
+        companySlug: p.company?.slug ?? null,
+      }));
+
+    return NextResponse.json({
+      step: 'diagnose-orphans',
+      summary: {
+        autotaskProjects: atProjects.length,
+        dbProjects: dbProjects.length,
+        dbWithAutotaskId: dbProjects.filter((p) => p.autotaskProjectId).length,
+        orphanedCount: orphaned.length,
+        localOnlyCount: localOnly.length,
+      },
+      orphaned,
+      localOnly,
+      note: 'Read-only. orphaned = linked to an Autotask project that no longer exists. localOnly = never synced from Autotask. Review, then delete/hide via /admin/projects/[id].',
+    });
+  } catch (err) {
+    return NextResponse.json(
+      { step: 'diagnose-orphans', error: err instanceof Error ? err.message : String(err) },
       { status: 500 }
     );
   }
