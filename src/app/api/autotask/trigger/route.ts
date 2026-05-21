@@ -1123,7 +1123,7 @@ async function syncProject(
 
   const existing = await prisma.project.findFirst({
     where: { autotaskProjectId: atId },
-    select: { id: true, startedAt: true, completedAt: true, estimatedDuration: true },
+    select: { id: true, companyId: true, startedAt: true, completedAt: true, estimatedDuration: true },
   });
 
   const status = mapAtProjectStatus(atProject.status) as ProjectStatus;
@@ -1131,9 +1131,18 @@ async function syncProject(
   let projectId: string;
 
   if (existing) {
+    // Re-point the project to whatever company Autotask currently assigns it to.
+    // Without this, a project linked to the wrong company in our DB stays mis-linked
+    // forever — it would keep surfacing on the wrong customer's portal.
+    if (existing.companyId !== companyId) {
+      console.log(
+        `[Autotask Sync] Reassigning project "${atProject.projectName}" (AT ${atId}) from company ${existing.companyId} to ${companyId}`
+      );
+    }
     await prisma.project.update({
       where: { id: existing.id },
       data: {
+        companyId,
         title: atProject.projectName,
         status,
         startedAt: atProject.startDateTime ? new Date(atProject.startDateTime) : existing.startedAt,
