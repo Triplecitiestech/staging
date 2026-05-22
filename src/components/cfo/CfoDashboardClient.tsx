@@ -633,6 +633,11 @@ export default function CfoDashboardClient() {
           </Card>
         </div>
       )}
+
+      <p className="pt-4 text-center text-xs text-slate-500">
+        Questions about this dashboard or a data issue?{' '}
+        <a href="mailto:info@triplecitiestech.com" className="text-cyan-400 hover:text-cyan-300">Contact support</a>.
+      </p>
     </div>
   )
 }

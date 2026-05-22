@@ -23,7 +23,9 @@ async function qbGet(path: string): Promise<QbReport> {
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   })
   if (!res.ok) {
-    throw new Error(`QB GET ${path} → ${res.status}: ${(await res.text()).slice(0, 300)}`)
+    // Capture intuit_tid for traceability — Intuit support uses it to trace requests.
+    const tid = res.headers.get('intuit_tid') || 'n/a'
+    throw new Error(`QB GET ${path} → ${res.status} (intuit_tid=${tid}): ${(await res.text()).slice(0, 300)}`)
   }
   return res.json() as Promise<QbReport>
 }
