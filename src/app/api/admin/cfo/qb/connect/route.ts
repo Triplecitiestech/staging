@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
   }
 
   const state = randomBytes(16).toString('hex')
-  const res = NextResponse.redirect(getAuthUrl(state))
+  const res = NextResponse.redirect(await getAuthUrl(state))
   res.cookies.set('qb_oauth_state', state, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
