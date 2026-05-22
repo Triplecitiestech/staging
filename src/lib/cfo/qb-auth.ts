@@ -10,11 +10,45 @@
 import { encryptSecret, decryptSecret } from '@/lib/crypto'
 import { getSetting, setSetting } from './store'
 
-const AUTH_URL = 'https://appcenter.intuit.com/connect/oauth2'
-const TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer'
+// Fallback endpoints, used only if the Intuit discovery document is unreachable.
+const FALLBACK_AUTH_URL = 'https://appcenter.intuit.com/connect/oauth2'
+const FALLBACK_TOKEN_URL = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer'
+// Intuit OpenID discovery documents — the authoritative source for the current
+// OAuth2.0 endpoints.
+const DISCOVERY_URL = {
+  production: 'https://developer.api.intuit.com/.well-known/openid_configuration',
+  sandbox: 'https://developer.api.intuit.com/.well-known/openid_sandbox_configuration',
+}
 const SCOPE = 'com.intuit.quickbooks.accounting'
 const TOKEN_KEY = 'qb_tokens'
 const TOKEN_TIMEOUT_MS = 15_000
+const DISCOVERY_TTL_MS = 24 * 60 * 60 * 1000
+
+interface OidcConfig { authorization_endpoint?: string; token_endpoint?: string }
+let endpointCache: { authUrl: string; tokenUrl: string; fetchedAt: number } | null = null
+
+/**
+ * Resolve the OAuth endpoints from Intuit's discovery document (cached 24h),
+ * falling back to the published constants if discovery is unreachable.
+ */
+async function getEndpoints(): Promise<{ authUrl: string; tokenUrl: string }> {
+  if (endpointCache && Date.now() - endpointCache.fetchedAt < DISCOVERY_TTL_MS) {
+    return { authUrl: endpointCache.authUrl, tokenUrl: endpointCache.tokenUrl }
+  }
+  const url = cfg().env === 'sandbox' ? DISCOVERY_URL.sandbox : DISCOVERY_URL.production
+  try {
+    const res = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(TOKEN_TIMEOUT_MS) })
+    if (!res.ok) throw new Error(`discovery ${res.status}`)
+    const doc = (await res.json()) as OidcConfig
+    const authUrl = doc.authorization_endpoint || FALLBACK_AUTH_URL
+    const tokenUrl = doc.token_endpoint || FALLBACK_TOKEN_URL
+    endpointCache = { authUrl, tokenUrl, fetchedAt: Date.now() }
+    return { authUrl, tokenUrl }
+  } catch (err) {
+    console.warn('[cfo/qb] discovery document fetch failed, using fallback endpoints:', err instanceof Error ? err.message : String(err))
+    return { authUrl: FALLBACK_AUTH_URL, tokenUrl: FALLBACK_TOKEN_URL }
+  }
+}
 
 interface StoredTokens {
   accessTokenEnc: string
@@ -95,9 +129,10 @@ export async function connectionInfo() {
   }
 }
 
-export function getAuthUrl(state: string): string {
+export async function getAuthUrl(state: string): Promise<string> {
   const c = cfg()
   if (!c.clientId) throw new Error('QB_CLIENT_ID not set')
+  const { authUrl } = await getEndpoints()
   const params = new URLSearchParams({
     client_id: c.clientId,
     response_type: 'code',
@@ -105,13 +140,14 @@ export function getAuthUrl(state: string): string {
     redirect_uri: c.redirectUri,
     state,
   })
-  return `${AUTH_URL}?${params.toString()}`
+  return `${authUrl}?${params.toString()}`
 }
 
 async function tokenRequest(body: Record<string, string>): Promise<{ access_token: string; refresh_token?: string; expires_in: number }> {
   const c = cfg()
+  const { tokenUrl } = await getEndpoints()
   const basic = Buffer.from(`${c.clientId}:${c.clientSecret}`).toString('base64')
-  const res = await fetch(TOKEN_URL, {
+  const res = await fetch(tokenUrl, {
     method: 'POST',
     headers: {
       Authorization: `Basic ${basic}`,
