@@ -51,6 +51,27 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   return <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-300">{children}</h2>
 }
 
+function BarList({ rows, empty }: { rows: { label: string; amountCents: number; pct: number }[]; empty: string }) {
+  if (rows.length === 0) return <p className="text-sm text-slate-400">{empty}</p>
+  return (
+    <ul className="space-y-2">
+      {rows.map((r, i) => (
+        <li key={i}>
+          <div className="flex justify-between text-sm">
+            <span className="truncate pr-2 capitalize text-slate-200" title={r.label}>{r.label}</span>
+            <span className="whitespace-nowrap text-slate-300">{usd(r.amountCents)} · {Math.round(r.pct * 100)}%</span>
+          </div>
+          <div className="mt-1 h-1.5 w-full rounded-full bg-white/5">
+            <div className="h-1.5 rounded-full bg-cyan-400/70" style={{ width: `${Math.min(100, r.pct * 100)}%` }} />
+          </div>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+const shortDate = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+
 // ─── main ─────────────────────────────────────────────────────────────────
 
 export default function CfoDashboardClient() {
@@ -184,6 +205,44 @@ export default function CfoDashboardClient() {
         )}
       </div>
 
+      {/* Operations 30-day forecast */}
+      {d.opsForecast && (
+        <div>
+          <SectionTitle>Operations 30-day forecast</SectionTitle>
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
+            <Kpi label="Projected balance" value={usd(d.opsForecast.projectedBalanceCents)} status={d.opsForecast.status as Status} sub={`From ${usd(d.opsForecast.currentBalanceCents)} today`} />
+            <Kpi label="Expected inflows" value={usd(d.opsForecast.expectedInCents)} />
+            <Kpi label="Expected outflows" value={usd(d.opsForecast.expectedOutCents)} />
+          </div>
+          {d.opsForecast.expectedOut.length > 0 && (
+            <Card className="mt-4">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs uppercase text-slate-500">
+                      <th className="pb-2 pr-3">Upcoming outflow</th>
+                      <th className="pb-2 pr-3">Cadence</th>
+                      <th className="pb-2 pr-3">Next</th>
+                      <th className="pb-2 text-right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-slate-200">
+                    {d.opsForecast.expectedOut.map((o, i) => (
+                      <tr key={i} className="border-t border-white/5">
+                        <td className="max-w-[200px] truncate py-2 pr-3">{o.name}</td>
+                        <td className="py-2 pr-3 capitalize text-slate-400">{o.cadence}</td>
+                        <td className="py-2 pr-3 text-slate-400">{shortDate(o.nextExpectedDate)}</td>
+                        <td className="py-2 text-right">{usd(o.avgAmountCents)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
+        </div>
+      )}
+
       {/* Action items */}
       {d.actions.length > 0 && (
         <div>
@@ -224,63 +283,185 @@ export default function CfoDashboardClient() {
         </Card>
       </div>
 
-      {/* Operations breakdown + obligations */}
+      {/* Operations breakdown — category + destination */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div>
           <SectionTitle>Operations spend by category (90d)</SectionTitle>
           <Card>
-            {d.opsBreakdown.byCategory.length === 0 ? (
-              <p className="text-sm text-slate-400">No operations spend in window.</p>
-            ) : (
-              <ul className="space-y-2">
-                {d.opsBreakdown.byCategory.map((c) => (
-                  <li key={c.category}>
-                    <div className="flex justify-between text-sm">
-                      <span className="capitalize text-slate-200">{c.category}</span>
-                      <span className="text-slate-300">{usd(c.amountCents)} · {Math.round(c.pct * 100)}%</span>
-                    </div>
-                    <div className="mt-1 h-1.5 w-full rounded-full bg-white/5">
-                      <div className="h-1.5 rounded-full bg-cyan-400/70" style={{ width: `${Math.min(100, c.pct * 100)}%` }} />
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <BarList empty="No operations spend in window." rows={d.opsBreakdown.byCategory.map((c) => ({ label: c.category, amountCents: c.amountCents, pct: c.pct }))} />
           </Card>
         </div>
-
         <div>
-          <SectionTitle>Upcoming recurring obligations</SectionTitle>
+          <SectionTitle>Operations spend by destination (90d)</SectionTitle>
           <Card>
-            {d.obligations.length === 0 ? (
-              <p className="text-sm text-slate-400">No recurring obligations detected.</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-xs uppercase text-slate-500">
-                      <th className="pb-2 pr-3">Destination</th>
-                      <th className="pb-2 pr-3">Pod</th>
-                      <th className="pb-2 pr-3">Cadence</th>
-                      <th className="pb-2 text-right">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody className="text-slate-200">
-                    {d.obligations.slice(0, 10).map((o, i) => (
-                      <tr key={i} className="border-t border-white/5">
-                        <td className="py-2 pr-3 truncate max-w-[180px]">{o.destName}</td>
-                        <td className="py-2 pr-3 text-slate-400">{o.podName}</td>
-                        <td className="py-2 pr-3 capitalize text-slate-400">{o.cadence}</td>
-                        <td className="py-2 text-right">{usd(o.avgAmountCents)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            <BarList empty="No operations spend in window." rows={d.opsBreakdown.byDestination.map((c) => ({ label: c.name, amountCents: c.amountCents, pct: c.pct }))} />
           </Card>
         </div>
       </div>
+
+      {/* Recurring obligations */}
+      <div>
+        <SectionTitle>Upcoming recurring obligations</SectionTitle>
+        <Card>
+          {d.obligations.length === 0 ? (
+            <p className="text-sm text-slate-400">No recurring obligations detected.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs uppercase text-slate-500">
+                    <th className="pb-2 pr-3">Destination</th>
+                    <th className="pb-2 pr-3">Pod</th>
+                    <th className="pb-2 pr-3">Cadence</th>
+                    <th className="pb-2 pr-3">Next</th>
+                    <th className="pb-2 text-right">Amount</th>
+                    <th className="pb-2 text-right">Annualized</th>
+                  </tr>
+                </thead>
+                <tbody className="text-slate-200">
+                  {d.obligations.slice(0, 15).map((o, i) => (
+                    <tr key={i} className="border-t border-white/5">
+                      <td className="max-w-[180px] truncate py-2 pr-3">{o.destName}</td>
+                      <td className="py-2 pr-3 text-slate-400">{o.podName}</td>
+                      <td className="py-2 pr-3 capitalize text-slate-400">{o.cadence}</td>
+                      <td className="py-2 pr-3 text-slate-400">{shortDate(o.nextExpectedDate)}</td>
+                      <td className="py-2 text-right">{usd(o.avgAmountCents)}</td>
+                      <td className="py-2 text-right text-slate-400">{usd(o.annualizedCents)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {/* Credit-card earmark */}
+      {d.cards.cardCount > 0 && (
+        <div>
+          <SectionTitle>Credit-card set-aside</SectionTitle>
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            <Kpi label="Total set aside" value={usd(d.cards.totalSetAsideCents)} sub={`${d.cards.cardCount} card pod${d.cards.cardCount === 1 ? '' : 's'}`} />
+            <Kpi label="Funded last month" value={usd(d.cards.lastMonthFundedCents)} />
+            <Card>
+              <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Per card</span>
+              <ul className="mt-2 space-y-1 text-sm">
+                {d.cards.cards.map((c, i) => (
+                  <li key={i} className="flex justify-between"><span className="truncate pr-2 text-slate-300">{c.name}</span><span className="text-slate-200">{usd(c.balanceCents)}</span></li>
+                ))}
+              </ul>
+            </Card>
+          </div>
+        </div>
+      )}
+
+      {/* Owner's Pay */}
+      {d.ownerPay && (
+        <div>
+          <SectionTitle>Owner&apos;s Pay</SectionTitle>
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
+            <Kpi label="Current balance" value={usd(d.ownerPay.currentBalanceCents)} />
+            <Kpi label="Net flow (30d)" value={usd(d.ownerPay.netFlow30dCents)} status={d.ownerPay.netFlow30dCents >= 0 ? 'green' : 'yellow'} sub={`In ${usd(d.ownerPay.in30Cents)} · Out ${usd(d.ownerPay.out30Cents)}`} />
+            <Kpi label="Spend (90d)" value={usd(d.ownerPay.total90Cents)} />
+          </div>
+          {d.ownerPay.topDestinations.length > 0 && (
+            <div className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-2">
+              <Card>
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Top destinations (90d)</span>
+                <div className="mt-2"><BarList empty="—" rows={d.ownerPay.topDestinations.map((t) => ({ label: t.name, amountCents: t.amountCents, pct: t.pct }))} /></div>
+              </Card>
+              <Card>
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Recurring</span>
+                <ul className="mt-2 space-y-1 text-sm">
+                  {d.ownerPay.recurring.length === 0 ? <li className="text-slate-400">None detected.</li> : d.ownerPay.recurring.map((r, i) => (
+                    <li key={i} className="flex justify-between"><span className="truncate pr-2 text-slate-300">{r.name} <span className="text-slate-500">· {r.cadence}</span></span><span className="text-slate-200">{usd(r.avgAmountCents)}</span></li>
+                  ))}
+                </ul>
+              </Card>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Income distribution */}
+      {d.incomeSplit && d.incomeSplit.podRatios.length > 0 && (
+        <div>
+          <SectionTitle>Income distribution across pods ({d.incomeSplit.lookbackDays}d)</SectionTitle>
+          <Card>
+            <BarList empty="—" rows={d.incomeSplit.podRatios.map((p) => ({ label: p.podName ?? '—', amountCents: p.totalCents, pct: p.ratioPct }))} />
+            {!d.incomeSplit.sampleSizeAdequate && <p className="mt-3 text-xs text-slate-500">Small sample — ratios may not be representative yet.</p>}
+          </Card>
+        </div>
+      )}
+
+      {/* Per-pod anomalies */}
+      {d.anomalies.length > 0 && (
+        <div>
+          <SectionTitle>Spending anomalies (weekly spikes)</SectionTitle>
+          <Card>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs uppercase text-slate-500">
+                    <th className="pb-2 pr-3">Pod</th>
+                    <th className="pb-2 pr-3">Week</th>
+                    <th className="pb-2 pr-3">Driver</th>
+                    <th className="pb-2 text-right">Spent</th>
+                    <th className="pb-2 text-right">vs baseline</th>
+                  </tr>
+                </thead>
+                <tbody className="text-slate-200">
+                  {d.anomalies.slice(0, 12).map((a, i) => (
+                    <tr key={i} className="border-t border-white/5">
+                      <td className="py-2 pr-3">{a.podName}</td>
+                      <td className="py-2 pr-3 text-slate-400">{a.week}</td>
+                      <td className="max-w-[180px] truncate py-2 pr-3 text-slate-400">{a.driverName}</td>
+                      <td className="py-2 text-right">{usd(a.sumCents)}</td>
+                      <td className="py-2 text-right text-rose-300">{a.ratio.toFixed(1)}×</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Year-over-year by destination */}
+      {d.yoy.length > 0 && (
+        <div>
+          <SectionTitle>Year-over-year spend by destination</SectionTitle>
+          <Card>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs uppercase text-slate-500">
+                    <th className="pb-2 pr-3">Destination</th>
+                    <th className="pb-2 text-right">Last 12mo</th>
+                    <th className="pb-2 text-right">Prior 12mo</th>
+                    <th className="pb-2 text-right">Change</th>
+                  </tr>
+                </thead>
+                <tbody className="text-slate-200">
+                  {d.yoy.map((y, i) => {
+                    const change = y.prior > 0 ? (y.current - y.prior) / y.prior : null
+                    return (
+                      <tr key={i} className="border-t border-white/5">
+                        <td className="max-w-[200px] truncate py-2 pr-3">{y.name ?? '—'}</td>
+                        <td className="py-2 text-right">{usd(y.current)}</td>
+                        <td className="py-2 text-right text-slate-400">{usd(y.prior)}</td>
+                        <td className={`py-2 text-right ${change == null ? 'text-slate-500' : change > 0 ? 'text-rose-300' : 'text-emerald-300'}`}>
+                          {change == null ? '—' : `${change > 0 ? '+' : ''}${Math.round(change * 100)}%`}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </div>
+      )}
 
       {/* Debts (when configured) */}
       {d.debts && (
@@ -291,13 +472,73 @@ export default function CfoDashboardClient() {
             <Kpi label="Monthly interest" value={usd(d.debts.combinedMonthlyInterestCents)} />
             <Kpi label="Annual interest burden" value={usd(d.debts.combinedAnnualInterestCents)} />
           </div>
+          <Card className="mt-4">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs uppercase text-slate-500">
+                    <th className="pb-2 pr-3">Debt</th>
+                    <th className="pb-2 pr-3">Kind</th>
+                    <th className="pb-2 text-right">Balance</th>
+                    <th className="pb-2 text-right">APR</th>
+                    <th className="pb-2 text-right">Min/mo</th>
+                    <th className="pb-2 text-right">Interest/mo</th>
+                    <th className="pb-2 text-right">Payoff</th>
+                  </tr>
+                </thead>
+                <tbody className="text-slate-200">
+                  {d.debts.all.map((dt, i) => (
+                    <tr key={i} className="border-t border-white/5">
+                      <td className="max-w-[200px] truncate py-2 pr-3">{dt.name}</td>
+                      <td className="py-2 pr-3 capitalize text-slate-400">{dt.kind ?? 'business'}</td>
+                      <td className="py-2 text-right">{usd(dt.balanceCents)}</td>
+                      <td className="py-2 text-right text-slate-400">{dt.aprPct}%{dt.aprIsEstimate ? '*' : ''}</td>
+                      <td className="py-2 text-right">{usd(dt.minPaymentCents)}</td>
+                      <td className="py-2 text-right text-rose-300">{usd(dt.monthlyInterestCents)}</td>
+                      <td className="py-2 text-right text-slate-400">{dt.minMonths == null ? '∞' : `${dt.minMonths} mo`}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="mt-2 text-xs text-slate-500">* APR is an estimate — confirm against the statement in Settings.</p>
+          </Card>
+
           {d.debts.business && (
-            <Card className="mt-4">
-              <p className="text-sm text-slate-300">
+            <div className="mt-4">
+              <p className="mb-2 text-sm text-slate-300">
                 Business avalanche order (highest APR first):{' '}
                 <span className="text-white">{d.debts.business.avalancheOrder.join(' → ')}</span>
               </p>
-            </Card>
+              <Card>
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Business paydown scenarios (avalanche)</span>
+                <div className="mt-2 overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-xs uppercase text-slate-500">
+                        <th className="pb-2 pr-3">Extra/mo</th>
+                        <th className="pb-2 text-right">Months to zero</th>
+                        <th className="pb-2 text-right">Total interest</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-slate-200">
+                      {([
+                        ['Minimums only', d.debts.business.scenarios.minOnly],
+                        ['+$500', d.debts.business.scenarios.plus500],
+                        ['+$1,000', d.debts.business.scenarios.plus1000],
+                        ['+$2,000', d.debts.business.scenarios.plus2000],
+                      ] as const).map(([label, s], i) => (
+                        <tr key={i} className="border-t border-white/5">
+                          <td className="py-2 pr-3">{label}</td>
+                          <td className="py-2 text-right">{s.months}</td>
+                          <td className="py-2 text-right text-slate-400">{usd(s.totalInterestCents)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+            </div>
           )}
         </div>
       )}
@@ -329,6 +570,67 @@ export default function CfoDashboardClient() {
             <Kpi label="Likely collectable" value={usd(d.ar.likelyCollectableCents)} status="green" />
             <Kpi label="At risk (91+ days)" value={usd(d.ar.atRiskCents)} status={d.ar.atRiskCents > 0 ? 'yellow' : 'green'} />
           </div>
+          <div className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <Card>
+              <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Top customers by balance</span>
+              <ul className="mt-2 space-y-1 text-sm">
+                {d.ar.topCustomers.slice(0, 8).map((c, i) => (
+                  <li key={i} className="flex justify-between"><span className="truncate pr-2 text-slate-300">{c.name}</span><span className="text-slate-200">{usd(c.totalCents)}</span></li>
+                ))}
+              </ul>
+            </Card>
+            <Card>
+              <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Stale (91+ days) — chase these</span>
+              {d.ar.staleCustomers.length === 0 ? (
+                <p className="mt-2 text-sm text-slate-400">Nothing 91+ days past due.</p>
+              ) : (
+                <ul className="mt-2 space-y-1 text-sm">
+                  {d.ar.staleCustomers.slice(0, 8).map((c, i) => (
+                    <li key={i} className="flex justify-between"><span className="truncate pr-2 text-slate-300">{c.name}</span><span className="text-rose-300">{usd(c.atRiskCents)}</span></li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+          </div>
+        </div>
+      )}
+
+      {/* Sequence automation rules health */}
+      {d.rules.length > 0 && (
+        <div>
+          <SectionTitle>Sequence automation rules ({d.rules.length})</SectionTitle>
+          <Card>
+            <ul className="space-y-1 text-sm">
+              {d.rules.map((r) => (
+                <li key={r.id} className="flex items-center justify-between gap-2">
+                  <span className="truncate pr-2 text-slate-300">{r.name}</span>
+                  <span className={`whitespace-nowrap text-xs ${r.status === 'ACTIVE' || r.status === 'ENABLED' ? 'text-emerald-300' : 'text-slate-400'}`}>
+                    {r.status ?? 'unknown'}{r.isSupported === false ? ' · unsupported' : ''}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        </div>
+      )}
+
+      {/* Uncategorized spend — drives the category editor */}
+      {d.activityByDest.some((a) => !a.categorized) && (
+        <div>
+          <SectionTitle>Top uncategorized destinations</SectionTitle>
+          <Card>
+            <p className="mb-3 text-xs text-slate-400">
+              Tag these in <Link href="/admin/cfo/settings" className="text-cyan-300 hover:text-cyan-200">Settings</Link> so they roll into the right category.
+            </p>
+            <ul className="space-y-1 text-sm">
+              {d.activityByDest.filter((a) => !a.categorized).slice(0, 10).map((a, i) => (
+                <li key={i} className="flex justify-between">
+                  <span className="truncate pr-2 text-slate-300">{a.name} <span className="text-slate-500">· {a.transferCount}×</span></span>
+                  <span className="text-slate-200">{usd(a.totalCents)}</span>
+                </li>
+              ))}
+            </ul>
+          </Card>
         </div>
       )}
     </div>
