@@ -6,6 +6,7 @@ import {
   ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend,
 } from 'recharts'
 import type { CachedSnapshot } from '@/lib/cfo/build'
+import CfoSimulator from './CfoSimulator'
 
 // ─── formatting ─────────────────────────────────────────────────────────────
 
@@ -364,22 +365,41 @@ export default function CfoDashboardClient() {
             <Kpi label="Net flow (30d)" value={usd(d.ownerPay.netFlow30dCents)} status={d.ownerPay.netFlow30dCents >= 0 ? 'green' : 'yellow'} sub={`In ${usd(d.ownerPay.in30Cents)} · Out ${usd(d.ownerPay.out30Cents)}`} />
             <Kpi label="Spend (90d)" value={usd(d.ownerPay.total90Cents)} />
           </div>
-          {d.ownerPay.topDestinations.length > 0 && (
-            <div className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-2">
-              <Card>
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Top destinations (90d)</span>
-                <div className="mt-2"><BarList empty="—" rows={d.ownerPay.topDestinations.map((t) => ({ label: t.name, amountCents: t.amountCents, pct: t.pct }))} /></div>
-              </Card>
-              <Card>
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Recurring</span>
-                <ul className="mt-2 space-y-1 text-sm">
-                  {d.ownerPay.recurring.length === 0 ? <li className="text-slate-400">None detected.</li> : d.ownerPay.recurring.map((r, i) => (
-                    <li key={i} className="flex justify-between"><span className="truncate pr-2 text-slate-300">{r.name} <span className="text-slate-500">· {r.cadence}</span></span><span className="text-slate-200">{usd(r.avgAmountCents)}</span></li>
-                  ))}
-                </ul>
-              </Card>
+          <Card className="mt-4">
+            <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Monthly in / out (12 months)</span>
+            <div className="mt-2 h-56 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={d.ownerPay.monthlyTrend.map((p) => ({ label: p.label, in: Math.round(p.inCents / 100), out: Math.round(p.outCents / 100), net: Math.round(p.netCents / 100) }))} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
+                  <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                  <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
+                  <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#fff' }} formatter={(value) => `$${Number(value).toLocaleString()}`} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Bar dataKey="in" name="In" fill="#34d399" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="out" name="Out" fill="#f87171" radius={[3, 3, 0, 0]} />
+                  <Line dataKey="net" name="Net" stroke="#22d3ee" strokeWidth={2} dot={false} />
+                </ComposedChart>
+              </ResponsiveContainer>
             </div>
-          )}
+          </Card>
+          <div className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-3">
+            <Card>
+              <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Top destinations (90d)</span>
+              <div className="mt-2"><BarList empty="—" rows={d.ownerPay.topDestinations.map((t) => ({ label: t.name, amountCents: t.amountCents, pct: t.pct }))} /></div>
+            </Card>
+            <Card>
+              <span className="text-xs font-medium uppercase tracking-wide text-slate-400">By category (90d)</span>
+              <div className="mt-2"><BarList empty="—" rows={d.ownerPay.byCategory.map((c) => ({ label: c.category, amountCents: c.amountCents, pct: c.pct }))} /></div>
+            </Card>
+            <Card>
+              <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Recurring</span>
+              <ul className="mt-2 space-y-1 text-sm">
+                {d.ownerPay.recurring.length === 0 ? <li className="text-slate-400">None detected.</li> : d.ownerPay.recurring.map((r, i) => (
+                  <li key={i} className="flex justify-between"><span className="truncate pr-2 text-slate-300">{r.name} <span className="text-slate-500">· {r.cadence}</span></span><span className="text-slate-200">{usd(r.avgAmountCents)}</span></li>
+                ))}
+              </ul>
+            </Card>
+          </div>
         </div>
       )}
 
@@ -540,6 +560,26 @@ export default function CfoDashboardClient() {
               </Card>
             </div>
           )}
+
+          {d.debts.personal && (
+            <p className="mt-6 text-sm text-slate-300">
+              Personal debt · <span className="text-white">{usd(d.debts.personal.totalBalanceCents)}</span> balance ·{' '}
+              {usd(d.debts.personal.totalMonthlyInterestCents)}/mo interest
+              <span className="text-slate-500"> (low-APR personal debt — early payoff is rarely the best use of cash)</span>
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* What-if simulator */}
+      {d.debts?.business && d.debts.business.debts.length > 0 && d.ar && (
+        <div>
+          <SectionTitle>What-if · collect AR, pay off debt</SectionTitle>
+          <CfoSimulator
+            businessDebts={d.debts.business.debts}
+            incomeSplit={d.incomeSplit}
+            maxCollectCents={d.ar.likelyCollectableCents}
+          />
         </div>
       )}
 
@@ -570,6 +610,35 @@ export default function CfoDashboardClient() {
             <Kpi label="Likely collectable" value={usd(d.ar.likelyCollectableCents)} status="green" />
             <Kpi label="At risk (91+ days)" value={usd(d.ar.atRiskCents)} status={d.ar.atRiskCents > 0 ? 'yellow' : 'green'} />
           </div>
+          {d.ar.bucketTotalsCents && Object.keys(d.ar.bucketTotalsCents).length > 0 && (
+            <Card className="mt-4">
+              <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Aging buckets</span>
+              <ul className="mt-3 space-y-2">
+                {(() => {
+                  const order = ['Current', '1 - 30 days past due', '31 - 60 days past due', '61 - 90 days past due', '91 or more days past due']
+                  const colors: Record<string, string> = {
+                    'Current': 'bg-emerald-400', '1 - 30 days past due': 'bg-cyan-400',
+                    '31 - 60 days past due': 'bg-blue-400', '61 - 90 days past due': 'bg-rose-400',
+                    '91 or more days past due': 'bg-red-500',
+                  }
+                  const buckets = d.ar!.bucketTotalsCents!
+                  const max = Math.max(...Object.values(buckets), 1)
+                  const keys = order.filter((k) => buckets[k]).concat(Object.keys(buckets).filter((k) => !order.includes(k)))
+                  return keys.map((k) => (
+                    <li key={k}>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-300">{k}</span>
+                        <span className="text-slate-200">{usd(buckets[k])}</span>
+                      </div>
+                      <div className="mt-1 h-2 w-full rounded-full bg-white/5">
+                        <div className={`h-2 rounded-full ${colors[k] ?? 'bg-slate-400'}`} style={{ width: `${(buckets[k] / max) * 100}%` }} />
+                      </div>
+                    </li>
+                  ))
+                })()}
+              </ul>
+            </Card>
+          )}
           <div className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-2">
             <Card>
               <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Top customers by balance</span>
