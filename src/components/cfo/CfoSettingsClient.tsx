@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
-import type { DebtsConfig, CategoryMap } from '@/lib/cfo/types'
+import type { DebtsConfig, CategoryMap, QbSnapshot, ArSnapshot } from '@/lib/cfo/types'
 
 const CATEGORY_OPTIONS = ['', 'credit-card', 'payroll', 'loan', 'tax', 'insurance', 'vendor', 'personal', 'transfer-out', 'other']
 
@@ -28,6 +28,10 @@ export default function CfoSettingsClient() {
   const [loading, setLoading] = useState(true)
   const [debtsMsg, setDebtsMsg] = useState<string | null>(null)
   const [catMsg, setCatMsg] = useState<string | null>(null)
+  const [qbSnapText, setQbSnapText] = useState('')
+  const [arSnapText, setArSnapText] = useState('')
+  const [qbSnapMsg, setQbSnapMsg] = useState<string | null>(null)
+  const [arSnapMsg, setArSnapMsg] = useState<string | null>(null)
 
   const loadStatus = useCallback((signal?: AbortSignal) => {
     return fetch('/api/admin/cfo/qb/status', { signal })
@@ -42,10 +46,12 @@ export default function CfoSettingsClient() {
       loadStatus(c.signal),
       fetch('/api/admin/cfo/config', { signal: c.signal })
         .then((r) => (r.ok ? r.json() : null))
-        .then((d: { debts: DebtsConfig; categories: CategoryMap } | null) => {
+        .then((d: { debts: DebtsConfig; categories: CategoryMap; qbSnapshot: QbSnapshot | null; arSnapshot: ArSnapshot | null } | null) => {
           if (!d) return
           setDebtsText(JSON.stringify(d.debts, null, 2))
           setCategories(d.categories || {})
+          setQbSnapText(d.qbSnapshot ? JSON.stringify(d.qbSnapshot, null, 2) : '')
+          setArSnapText(d.arSnapshot ? JSON.stringify(d.arSnapshot, null, 2) : '')
         })
         .catch((e) => { if (!(e instanceof DOMException && e.name === 'AbortError')) {/* ignore */} }),
     ]).finally(() => setLoading(false))
@@ -83,6 +89,18 @@ export default function CfoSettingsClient() {
     })
     setCatMsg(res.ok ? 'Saved.' : 'Save failed.')
   }, [categories])
+
+  const saveSnapshot = useCallback(async (kind: 'qbSnapshot' | 'arSnapshot', text: string, setMsg: (m: string) => void) => {
+    setMsg('')
+    let parsed: unknown
+    try { parsed = JSON.parse(text) } catch { setMsg('Invalid JSON — check syntax.'); return }
+    const res = await fetch('/api/admin/cfo/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ [kind]: parsed }),
+    })
+    setMsg(res.ok ? 'Saved. Refresh the dashboard to apply.' : (await res.json().catch(() => ({})))?.error || 'Save failed.')
+  }, [])
 
   if (loading) {
     return <div className="h-40 animate-pulse rounded-xl border border-white/10 bg-white/5" />
@@ -151,6 +169,47 @@ export default function CfoSettingsClient() {
               Save debts
             </button>
             {debtsMsg && <span className="text-sm text-slate-300">{debtsMsg}</span>}
+          </div>
+        </Card>
+      </section>
+
+      {/* QuickBooks / AR snapshots (fallback used until QuickBooks is connected) */}
+      <section>
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-300">QuickBooks &amp; AR snapshots</h2>
+        <Card>
+          <p className="mb-3 text-xs text-slate-400">
+            Used as a fallback until QuickBooks is connected (once connected, live data overrides these).
+            Paste the contents of <code>qb-snapshot.json</code> and <code>ar-snapshot.json</code> from your local project.
+            These populate the QuickBooks panel, AR aging, and the what-if simulator.
+          </p>
+          <label className="text-xs font-medium uppercase tracking-wide text-slate-400">QuickBooks snapshot (qb-snapshot.json)</label>
+          <textarea
+            value={qbSnapText}
+            onChange={(e) => setQbSnapText(e.target.value)}
+            spellCheck={false}
+            placeholder="{ ... contents of qb-snapshot.json ... }"
+            className="mt-1 h-48 w-full rounded-lg border border-white/10 bg-slate-950/60 p-3 font-mono text-xs text-slate-200 focus:border-cyan-500/40 focus:outline-none"
+          />
+          <div className="mt-2 flex items-center gap-3">
+            <button onClick={() => saveSnapshot('qbSnapshot', qbSnapText, setQbSnapMsg)} className="rounded-md border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-sm text-cyan-300 hover:bg-cyan-500/20">
+              Save QuickBooks snapshot
+            </button>
+            {qbSnapMsg && <span className="text-sm text-slate-300">{qbSnapMsg}</span>}
+          </div>
+
+          <label className="mt-5 block text-xs font-medium uppercase tracking-wide text-slate-400">AR aging snapshot (ar-snapshot.json)</label>
+          <textarea
+            value={arSnapText}
+            onChange={(e) => setArSnapText(e.target.value)}
+            spellCheck={false}
+            placeholder="{ ... contents of ar-snapshot.json ... }"
+            className="mt-1 h-48 w-full rounded-lg border border-white/10 bg-slate-950/60 p-3 font-mono text-xs text-slate-200 focus:border-cyan-500/40 focus:outline-none"
+          />
+          <div className="mt-2 flex items-center gap-3">
+            <button onClick={() => saveSnapshot('arSnapshot', arSnapText, setArSnapMsg)} className="rounded-md border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-sm text-cyan-300 hover:bg-cyan-500/20">
+              Save AR snapshot
+            </button>
+            {arSnapMsg && <span className="text-sm text-slate-300">{arSnapMsg}</span>}
           </div>
         </Card>
       </section>

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { canAccessCfoDashboard } from '@/lib/cfo/access'
-import { getDebts, saveDebts, getCategoryOverrides, saveCategoryOverrides } from '@/lib/cfo/store'
-import type { DebtsConfig, DebtInput, CategoryMap } from '@/lib/cfo/types'
+import { getDebts, saveDebts, getCategoryOverrides, saveCategoryOverrides, getQbSnapshot, saveQbSnapshot, getArSnapshot, saveArSnapshot } from '@/lib/cfo/store'
+import type { DebtsConfig, DebtInput, CategoryMap, QbSnapshot, ArSnapshot } from '@/lib/cfo/types'
 
 export const dynamic = 'force-dynamic'
 
@@ -11,8 +11,8 @@ export async function GET() {
   if (!session || !(await canAccessCfoDashboard(session))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
-  const [debts, categories] = await Promise.all([getDebts(), getCategoryOverrides()])
-  return NextResponse.json({ debts: debts ?? { debts: [] }, categories: categories ?? {} })
+  const [debts, categories, qbSnapshot, arSnapshot] = await Promise.all([getDebts(), getCategoryOverrides(), getQbSnapshot(), getArSnapshot()])
+  return NextResponse.json({ debts: debts ?? { debts: [] }, categories: categories ?? {}, qbSnapshot: qbSnapshot ?? null, arSnapshot: arSnapshot ?? null })
 }
 
 function isValidDebt(d: unknown): d is DebtInput {
@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  let body: { debts?: DebtsConfig; categories?: CategoryMap }
+  let body: { debts?: DebtsConfig; categories?: CategoryMap; qbSnapshot?: QbSnapshot; arSnapshot?: ArSnapshot }
   try {
     body = await request.json()
   } catch {
@@ -49,6 +49,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'categories must be an object map' }, { status: 400 })
     }
     await saveCategoryOverrides(body.categories)
+  }
+
+  if (body.qbSnapshot) {
+    if (typeof body.qbSnapshot !== 'object') return NextResponse.json({ error: 'qbSnapshot must be an object' }, { status: 400 })
+    await saveQbSnapshot(body.qbSnapshot)
+  }
+
+  if (body.arSnapshot) {
+    if (typeof body.arSnapshot !== 'object') return NextResponse.json({ error: 'arSnapshot must be an object' }, { status: 400 })
+    await saveArSnapshot(body.arSnapshot)
   }
 
   return NextResponse.json({ ok: true })

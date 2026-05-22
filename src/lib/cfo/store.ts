@@ -50,7 +50,9 @@ export const getDebts = () => getSetting<DebtsConfig>('debts')
 export const saveDebts = (debts: DebtsConfig) => setSetting('debts', debts)
 
 export const getQbSnapshot = () => getSetting<QbSnapshot>('qb_snapshot')
+export const saveQbSnapshot = (snap: QbSnapshot) => setSetting('qb_snapshot', snap)
 export const getArSnapshot = () => getSetting<ArSnapshot>('ar_snapshot')
+export const saveArSnapshot = (snap: ArSnapshot) => setSetting('ar_snapshot', snap)
 
 export interface QbTokens {
   accessToken: string
