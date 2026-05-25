@@ -251,10 +251,15 @@ def build_cover(w: int, h: int, filename: str):
     block_h = hh + gap + th
     block_top = (h - block_h) // 2 - int(h * 0.04)
 
-    # Centre horizontally
-    hx = (w - hw) // 2 - hb[0]
+    # The LinkedIn company-page profile picture overlaps the bottom-left of
+    # the cover and clips anything inside the left ~22% of the width. Centre
+    # the text block in the region to the RIGHT of that overlap instead of
+    # the full cover, so neither line gets eaten by the avatar.
+    safe_left = int(w * 0.22)
+    safe_w    = w - safe_left
+    hx = safe_left + (safe_w - hw) // 2 - hb[0]
     hy = block_top - hb[1]
-    tx = (w - tw) // 2 - tb[0]
+    tx = safe_left + (safe_w - tw) // 2 - tb[0]
     ty = block_top + hh + gap - tb[1]
 
     # Subtle text shadow for legibility on the textured bg
