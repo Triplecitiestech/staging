@@ -232,45 +232,24 @@ def build_cover(w: int, h: int, filename: str):
 
     draw = ImageDraw.Draw(bg)
 
-    # --- Headline: "Triple Cities Tech" (white, font-black) ---
+    # Headline only — "Triple Cities Tech" centred in the FULL cover width,
+    # bigger now that we have the whole vertical space. The tagline is
+    # dropped: LinkedIn already shows the company description directly under
+    # the cover, so the cover repeating it is redundant, and any tagline
+    # placed lower-left was getting eaten by the profile-pic overlap.
     headline = "Triple Cities Tech"
-    # Target headline width ≈ 55% of cover width so the tagline fits below
-    head_font = fit_font(headline, FONT_BOLD, int(w * 0.58), start_size=int(h * 0.42))
-
-    # --- Tagline: "We turn IT into a competitive advantage." (cyan-400) ---
-    tagline = "We turn IT into a competitive advantage."
-    tag_font = fit_font(tagline, FONT_REG, int(w * 0.62), start_size=int(h * 0.22))
-
-    # Measure
+    head_font = fit_font(headline, FONT_BOLD, int(w * 0.72), start_size=int(h * 0.58))
     hb = head_font.getbbox(headline)
-    tb = tag_font.getbbox(tagline)
     hw, hh = hb[2] - hb[0], hb[3] - hb[1]
-    tw, th = tb[2] - tb[0], tb[3] - tb[1]
 
-    gap = int(h * 0.06)
-    block_h = hh + gap + th
-    block_top = (h - block_h) // 2 - int(h * 0.04)
-
-    # The LinkedIn company-page profile picture overlaps the bottom-left of
-    # the cover and clips anything inside the left ~22% of the width. Centre
-    # the text block in the region to the RIGHT of that overlap instead of
-    # the full cover, so neither line gets eaten by the avatar.
-    safe_left = int(w * 0.22)
-    safe_w    = w - safe_left
-    hx = safe_left + (safe_w - hw) // 2 - hb[0]
-    hy = block_top - hb[1]
-    tx = safe_left + (safe_w - tw) // 2 - tb[0]
-    ty = block_top + hh + gap - tb[1]
+    hx = (w - hw) // 2 - hb[0]
+    hy = (h - hh) // 2 - hb[1]
 
     # Subtle text shadow for legibility on the textured bg
     shadow_off = max(1, int(h * 0.012))
     draw.text((hx + shadow_off, hy + shadow_off), headline,
               font=head_font, fill=(0, 0, 0, 180))
     draw.text((hx, hy), headline, font=head_font, fill=WHITE)
-
-    draw.text((tx + shadow_off, ty + shadow_off), tagline,
-              font=tag_font, fill=(0, 0, 0, 160))
-    draw.text((tx, ty), tagline, font=tag_font, fill=CYAN_400)
 
     bg.convert("RGB").save(os.path.join(OUT_DIR, filename), "PNG", optimize=True)
 
