@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Generate LinkedIn company-page assets matching the Triple Cities Tech website hero."""
-from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageChops
+from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageChops, ImageEnhance
 import os
 
 OUT_DIR = "/home/user/staging/linkedin-assets"
@@ -18,23 +18,43 @@ NAVY     = (8, 14, 38)      # deep navy seen in hero
 os.makedirs(OUT_DIR, exist_ok=True)
 
 
-def crop_cover(img: Image.Image, target_w: int, target_h: int) -> Image.Image:
-    """Cover-crop an image to fill target dimensions (like CSS object-fit: cover)."""
+def crop_cover(img: Image.Image, target_w: int, target_h: int, y_bias: float = 0.20) -> Image.Image:
+    """Cover-crop an image to fill target dimensions (like CSS object-fit: cover).
+
+    y_bias=0.0 keeps the top, 1.0 keeps the bottom. The hero's hex mesh is
+    densest in the lower portion of the source, so use y_bias ≈ 0.85 for the
+    wide cover to pull that texture into the frame.
+    """
     src_w, src_h = img.size
     src_ratio = src_w / src_h
     tgt_ratio = target_w / target_h
     if src_ratio > tgt_ratio:
-        # source is wider — crop sides
+        # source is wider relative to target — crop sides
         new_w = int(src_h * tgt_ratio)
         x = (src_w - new_w) // 2
         img = img.crop((x, 0, x + new_w, src_h))
     else:
-        # source is taller — crop top/bottom (use object-[center_20%] bias like hero)
+        # source is taller relative to target — crop top/bottom with y_bias
         new_h = int(src_w / tgt_ratio)
-        y = int((src_h - new_h) * 0.20)
+        y = int((src_h - new_h) * y_bias)
         y = max(0, min(y, src_h - new_h))
         img = img.crop((0, y, src_w, y + new_h))
     return img.resize((target_w, target_h), Image.LANCZOS)
+
+
+def horizontal_gradient(size, left_alpha=0.55, right_alpha=0.0):
+    """Black gradient overlay — darker on the left, transparent on the right.
+    Used under the LinkedIn logo overlap zone to keep text readable."""
+    w, h = size
+    grad = Image.new("L", (w, 1))
+    for x in range(w):
+        t = x / max(1, w - 1)
+        alpha = left_alpha + (right_alpha - left_alpha) * t
+        grad.putpixel((x, 0), int(255 * alpha))
+    grad = grad.resize(size)
+    overlay = Image.new("RGBA", size, (0, 0, 0, 0))
+    overlay.putalpha(grad)
+    return overlay
 
 
 def load_logo_transparent(target_size: int, tint=None) -> Image.Image:
@@ -169,10 +189,34 @@ def build_profile(size: int, filename: str):
 # ---------------------------------------------------------------------------
 def build_cover(w: int, h: int, filename: str):
     bg_src = Image.open(HERO_BG).convert("RGBA")
-    bg = crop_cover(bg_src, w, h)
-    bg = darken(bg, 0.45)
-    # Bottom fade to match hero's gradient
-    bg = Image.alpha_composite(bg, vignette_gradient((w, h), top=0.0, bottom=0.35))
+
+    # For the 2x cover, upscale the source first so the cropped strip still
+    # has the natural hex density at output resolution (Lanczos ≈ 1.76x).
+    if w > 1500:
+        new_w = int(bg_src.width * 2)
+        new_h = int(bg_src.height * 2)
+        bg_src = bg_src.resize((new_w, new_h), Image.LANCZOS)
+
+    # Pull the crop from the LOWER portion of the source — that's where the
+    # hexagonal mesh is densest. The original `object-[center_20%]` bias used
+    # on the website hero is wrong for a 5.9:1 strip; it lands on the sparse
+    # top sky. y_bias≈0.85 lands on the dense hex band instead.
+    bg = crop_cover(bg_src, w, h, y_bias=0.85)
+
+    # Boost the blue/cyan saturation so the hex pattern reads more vividly.
+    bg = ImageEnhance.Color(bg.convert("RGB")).enhance(1.25).convert("RGBA")
+    bg = ImageEnhance.Contrast(bg.convert("RGB")).enhance(1.10).convert("RGBA")
+
+    # Lighter overall darken — keeps the hex mesh prominent.
+    bg = darken(bg, 0.22)
+
+    # Left-side dark gradient under the LinkedIn logo overlap (roughly the
+    # left 18% of the cover) so the brand mark still reads on busy texture.
+    left_grad = horizontal_gradient((int(w * 0.35), h), left_alpha=0.55, right_alpha=0.0)
+    bg.paste(left_grad, (0, 0), left_grad)
+
+    # Subtle bottom fade to match the hero's gradient transition.
+    bg = Image.alpha_composite(bg, vignette_gradient((w, h), top=0.0, bottom=0.25))
 
     draw = ImageDraw.Draw(bg)
 
