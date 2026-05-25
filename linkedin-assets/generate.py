@@ -232,18 +232,26 @@ def build_cover(w: int, h: int, filename: str):
 
     draw = ImageDraw.Draw(bg)
 
-    # Headline only — "Triple Cities Tech" centred in the FULL cover width,
-    # bigger now that we have the whole vertical space. The tagline is
-    # dropped: LinkedIn already shows the company description directly under
-    # the cover, so the cover repeating it is redundant, and any tagline
-    # placed lower-left was getting eaten by the profile-pic overlap.
+    # Headline only — same size & position as the previous tagline version,
+    # tagline simply not drawn. The (phantom) tagline still participates in
+    # the vertical block math so the headline sits where it did before
+    # (upper-centre), leaving the lower-left clear for the avatar overlap.
     headline = "Triple Cities Tech"
-    head_font = fit_font(headline, FONT_BOLD, int(w * 0.72), start_size=int(h * 0.58))
+    head_font = fit_font(headline, FONT_BOLD, int(w * 0.58), start_size=int(h * 0.42))
+    tagline   = "We turn IT into a competitive advantage."
+    tag_font  = fit_font(tagline,  FONT_REG,  int(w * 0.62), start_size=int(h * 0.22))
+
     hb = head_font.getbbox(headline)
+    tb = tag_font.getbbox(tagline)
     hw, hh = hb[2] - hb[0], hb[3] - hb[1]
+    _,  th = tb[2] - tb[0], tb[3] - tb[1]
+
+    gap = int(h * 0.06)
+    block_h = hh + gap + th
+    block_top = (h - block_h) // 2 - int(h * 0.04)
 
     hx = (w - hw) // 2 - hb[0]
-    hy = (h - hh) // 2 - hb[1]
+    hy = block_top - hb[1]
 
     # Subtle text shadow for legibility on the textured bg
     shadow_off = max(1, int(h * 0.012))
