@@ -90,6 +90,28 @@ def load_logo_transparent(target_size: int, tint=None) -> Image.Image:
     return out
 
 
+def load_logo_brand_colours(target_size: int) -> Image.Image:
+    """Load the TCT logo at its native colours, preserving the file's own
+    alpha channel. tctlogo.webp already has a transparent background — earlier
+    versions of this script were dropping it by converting to RGB first.
+    """
+    out = Image.open(LOGO).convert("RGBA")
+    # The transparent pixels in this file have dark-grey RGB values stored
+    # under them. Replace them with the matching foreground colour at
+    # alpha=0 so any feathering doesn't bleed dark grey around the mark.
+    import numpy as np
+    arr = np.array(out)
+    transparent = arr[:, :, 3] == 0
+    arr[transparent] = [255, 255, 255, 0]
+    out = Image.fromarray(arr, "RGBA")
+
+    bbox = out.getbbox()
+    if bbox:
+        out = out.crop(bbox)
+    out.thumbnail((target_size, target_size), Image.LANCZOS)
+    return out
+
+
 def darken(img: Image.Image, alpha: float) -> Image.Image:
     overlay = Image.new("RGBA", img.size, (0, 0, 0, int(255 * alpha)))
     return Image.alpha_composite(img.convert("RGBA"), overlay)
@@ -125,60 +147,50 @@ def fit_font(text, font_path, max_width, start_size, min_size=10):
 #    Also export 1080x1080 for max quality (LinkedIn accepts up to 8MP).
 # ---------------------------------------------------------------------------
 def build_profile(size: int, filename: str):
+    # Pull the square crop from the lower-centre of the hero so the dense
+    # hex band is visible behind the mark (matches the cover treatment).
     bg_src = Image.open(HERO_BG).convert("RGBA")
-    bg = crop_cover(bg_src, size, size)
-    # Slight dark overlay to make logo pop, keep tech-mesh visible
-    bg = darken(bg, 0.35)
+    if size >= 800:
+        bg_src = bg_src.resize((bg_src.width * 2, bg_src.height * 2), Image.LANCZOS)
+    bg = crop_cover(bg_src, size, size, y_bias=0.75)
 
-    # Soft radial-ish vignette: corners darker
+    # Boost saturation/contrast to make the cyan mesh pop, then a light
+    # darken so the foreground logo dominates.
+    bg = ImageEnhance.Color(bg.convert("RGB")).enhance(1.25).convert("RGBA")
+    bg = ImageEnhance.Contrast(bg.convert("RGB")).enhance(1.10).convert("RGBA")
+    bg = darken(bg, 0.30)
+
+    # Soft inner vignette — darker corners so the centered logo reads cleanly
+    # at LinkedIn's small (~80px feed) display sizes.
     vignette = Image.new("L", (size, size), 0)
-    vd = ImageDraw.Draw(vignette)
-    # draw a bright disc, then blur; invert -> darker corners
-    vd.ellipse((-size*0.1, -size*0.1, size*1.1, size*1.1), fill=255)
-    vignette = vignette.filter(ImageFilter.GaussianBlur(radius=size*0.18))
+    ImageDraw.Draw(vignette).ellipse(
+        (-size * 0.05, -size * 0.05, size * 1.05, size * 1.05), fill=255
+    )
+    vignette = vignette.filter(ImageFilter.GaussianBlur(radius=size * 0.22))
     vignette = ImageChops.invert(vignette)
     dark_corners = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    dark_corners.putalpha(vignette.point(lambda v: int(v * 0.45)))
+    dark_corners.putalpha(vignette.point(lambda v: int(v * 0.55)))
     bg = Image.alpha_composite(bg, dark_corners)
 
-    # Place the original logo (with its native white background) inside a
-    # clean rounded white card centred on the hero. The TCT mark is designed
-    # for a white backdrop, so this preserves the brand exactly while still
-    # showing the website's hero texture around the edges.
-    card_size = int(size * 0.66)
-    radius    = int(card_size * 0.18)
+    # Load the logo in its NATIVE brand colours — cyan bars + solid white
+    # shield — with only the canvas-edge white made transparent. This keeps
+    # the brand mark intact (no silhouette flattening, no white "card") and
+    # lets it sit directly on the hero texture without disconnected pieces.
+    logo_max = int(size * 0.74)
+    logo = load_logo_brand_colours(logo_max)
 
-    card = Image.new("RGBA", (card_size, card_size), (255, 255, 255, 255))
-    mask = Image.new("L", (card_size, card_size), 0)
-    ImageDraw.Draw(mask).rounded_rectangle(
-        (0, 0, card_size, card_size), radius=radius, fill=255
-    )
+    # Soft drop shadow so the logo lifts off the textured bg.
+    shadow_layer = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    sx = (size - logo.width) // 2
+    sy = (size - logo.height) // 2
+    shadow_alpha = logo.split()[-1].point(lambda v: int(v * 0.55))
+    shadow_only = Image.new("RGBA", logo.size, (0, 0, 0, 0))
+    shadow_only.putalpha(shadow_alpha)
+    shadow_layer.paste(shadow_only, (sx, sy + int(size * 0.015)), shadow_only)
+    shadow_layer = shadow_layer.filter(ImageFilter.GaussianBlur(radius=size * 0.018))
+    bg = Image.alpha_composite(bg, shadow_layer)
 
-    # Load logo on its native white background and fit inside the card
-    # with a little internal padding so the mark breathes.
-    logo_src = Image.open(LOGO).convert("RGBA")
-    inner = int(card_size * 0.86)
-    logo_src.thumbnail((inner, inner), Image.LANCZOS)
-    lx_in = (card_size - logo_src.width) // 2
-    ly_in = (card_size - logo_src.height) // 2
-    card.paste(logo_src, (lx_in, ly_in), logo_src)
-
-    # Soft shadow under the card
-    shadow = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    sx = (size - card_size) // 2
-    sy = (size - card_size) // 2
-    sd = ImageDraw.Draw(shadow)
-    sd.rounded_rectangle(
-        (sx, sy + int(size * 0.015), sx + card_size, sy + card_size + int(size * 0.015)),
-        radius=radius, fill=(0, 0, 0, 140)
-    )
-    shadow = shadow.filter(ImageFilter.GaussianBlur(radius=size * 0.025))
-    bg = Image.alpha_composite(bg, shadow)
-
-    # Composite the rounded card onto the hero
-    card_rgba = Image.new("RGBA", (card_size, card_size), (0, 0, 0, 0))
-    card_rgba.paste(card, (0, 0), mask)
-    bg.paste(card_rgba, (sx, sy), card_rgba)
+    bg.paste(logo, (sx, sy), logo)
 
     bg.convert("RGB").save(os.path.join(OUT_DIR, filename), "PNG", optimize=True)
 
