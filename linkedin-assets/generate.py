@@ -238,19 +238,33 @@ def build_cover(w: int, h: int, filename: str):
     # (upper-centre), leaving the lower-left clear for the avatar overlap.
     headline = "Triple Cities Tech"
     head_font = fit_font(headline, FONT_BOLD, int(w * 0.50), start_size=int(h * 0.36))
-
     hb = head_font.getbbox(headline)
     hw, hh = hb[2] - hb[0], hb[3] - hb[1]
 
-    # Centre the headline in the full cover, both axes
+    # Tagline sized so it never exceeds the headline width
+    tagline  = "We turn IT into a competitive advantage."
+    tag_font = fit_font(tagline, FONT_REG, hw, start_size=int(h * 0.20))
+    tb = tag_font.getbbox(tagline)
+    tw, th = tb[2] - tb[0], tb[3] - tb[1]
+
+    gap = int(h * 0.05)
+    block_h = hh + gap + th
+    block_top = (h - block_h) // 2
+
     hx = (w - hw) // 2 - hb[0]
-    hy = (h - hh) // 2 - hb[1]
+    hy = block_top - hb[1]
+    tx = (w - tw) // 2 - tb[0]
+    ty = block_top + hh + gap - tb[1]
 
     # Subtle text shadow for legibility on the textured bg
     shadow_off = max(1, int(h * 0.012))
     draw.text((hx + shadow_off, hy + shadow_off), headline,
               font=head_font, fill=(0, 0, 0, 180))
     draw.text((hx, hy), headline, font=head_font, fill=WHITE)
+
+    draw.text((tx + shadow_off, ty + shadow_off), tagline,
+              font=tag_font, fill=(0, 0, 0, 160))
+    draw.text((tx, ty), tagline, font=tag_font, fill=CYAN_400)
 
     bg.convert("RGB").save(os.path.join(OUT_DIR, filename), "PNG", optimize=True)
 
