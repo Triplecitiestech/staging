@@ -269,6 +269,59 @@ def build_cover(w: int, h: int, filename: str):
     bg.convert("RGB").save(os.path.join(OUT_DIR, filename), "PNG", optimize=True)
 
 
+# ---------------------------------------------------------------------------
+# 3) 16:9 cover photo — for AMP / Google Business Profile / generic listings.
+#    1920x1080 is the safe "looks sharp everywhere" size; Google's stated
+#    minimum is 1080x608. No avatar overlap on these platforms, so the
+#    layout can centre fully and use a bigger headline + tagline block.
+# ---------------------------------------------------------------------------
+def build_cover_16_9(w: int, h: int, filename: str):
+    bg_src = Image.open(HERO_BG).convert("RGBA")
+    # Upscale source ~2x so the hex mesh keeps natural density at 1920+ wide.
+    bg_src = bg_src.resize((bg_src.width * 2, bg_src.height * 2), Image.LANCZOS)
+
+    # 16:9 is close to the source's 1.6:1 aspect, so only a light
+    # bottom-bias crop is needed to keep the dense hex band in frame.
+    bg = crop_cover(bg_src, w, h, y_bias=0.70)
+
+    bg = ImageEnhance.Color(bg.convert("RGB")).enhance(1.25).convert("RGBA")
+    bg = ImageEnhance.Contrast(bg.convert("RGB")).enhance(1.10).convert("RGBA")
+    bg = darken(bg, 0.30)
+    bg = Image.alpha_composite(bg, vignette_gradient((w, h), top=0.0, bottom=0.25))
+
+    draw = ImageDraw.Draw(bg)
+
+    headline = "Triple Cities Tech"
+    head_font = fit_font(headline, FONT_BOLD, int(w * 0.62), start_size=int(h * 0.14))
+    hb = head_font.getbbox(headline)
+    hw, hh = hb[2] - hb[0], hb[3] - hb[1]
+
+    tagline  = "We turn IT into a competitive advantage."
+    tag_font = fit_font(tagline, FONT_REG, hw, start_size=int(h * 0.07))
+    tb = tag_font.getbbox(tagline)
+    tw, th = tb[2] - tb[0], tb[3] - tb[1]
+
+    gap = int(h * 0.025)
+    block_h = hh + gap + th
+    block_top = (h - block_h) // 2
+
+    hx = (w - hw) // 2 - hb[0]
+    hy = block_top - hb[1]
+    tx = (w - tw) // 2 - tb[0]
+    ty = block_top + hh + gap - tb[1]
+
+    shadow_off = max(2, int(h * 0.005))
+    draw.text((hx + shadow_off, hy + shadow_off), headline,
+              font=head_font, fill=(0, 0, 0, 180))
+    draw.text((hx, hy), headline, font=head_font, fill=WHITE)
+
+    draw.text((tx + shadow_off, ty + shadow_off), tagline,
+              font=tag_font, fill=(0, 0, 0, 160))
+    draw.text((tx, ty), tagline, font=tag_font, fill=CYAN_400)
+
+    bg.convert("RGB").save(os.path.join(OUT_DIR, filename), "PNG", optimize=True)
+
+
 if __name__ == "__main__":
     # LinkedIn company-page logo: 400x400 is LinkedIn's stated optimal.
     # We also export 1080x1080 so the asset stays crisp on retina / future redesigns.
@@ -279,6 +332,9 @@ if __name__ == "__main__":
     # We also export a 2x version (2256x382) so retina screens render sharp text.
     build_cover(1128, 191, "linkedin-company-cover-1128x191.png")
     build_cover(2256, 382, "linkedin-company-cover-2256x382@2x.png")
+
+    # 16:9 cover photo for AMP / Google Business Profile / generic listings.
+    build_cover_16_9(1920, 1080, "cover-16x9-1920x1080.png")
 
     print("Done.")
     for f in sorted(os.listdir(OUT_DIR)):
