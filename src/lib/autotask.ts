@@ -171,6 +171,14 @@ export interface AutotaskResource {
   userName?: string;
 }
 
+export interface AutotaskClientPortalUser {
+  id: number;
+  contactID: number;
+  isActive: boolean;
+  securityLevel?: number;
+  dateActivated?: string;
+}
+
 interface AutotaskApiResponse<T> {
   items?: T[];
   pageDetails?: {
@@ -402,6 +410,19 @@ export class AutotaskClient {
         { op: 'eq', field: 'companyID', value: companyId },
         { op: 'eq', field: 'isActive', value: true },
       ],
+    });
+  }
+
+  /**
+   * Get all active Client Access Portal users (legacy Autotask-hosted portal).
+   * Used by the portal-migration tool to build the outreach list of customers
+   * who need to be moved to the new TCT customer portal.
+   */
+  async getActiveClientPortalUsers(): Promise<AutotaskClientPortalUser[]> {
+    return this.queryAll<AutotaskClientPortalUser>('ClientPortalUsers', {
+      op: 'eq',
+      field: 'isActive',
+      value: true,
     });
   }
 
