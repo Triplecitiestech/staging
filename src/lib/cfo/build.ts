@@ -17,15 +17,68 @@ import {
   monthlyPL12, operationsBreakdown, recurringObligations, perPodAnomalies,
   yoyByDestination, rulesHealth, ownerPayView, recentActivityByDestination,
   monthCoverageAndPL, analyzeDebts, analyzeAr, generateActions, incomeDistribution,
-  isoDaysAgo,
 } from './compute'
 import { summarizeRoles } from './roles'
 import { buildCategoryMap } from './categories'
-import { getCategoryOverrides, getDebts, getQbSnapshot, getArSnapshot, setSetting, getSetting } from './store'
+import { getCategoryOverrides, getDebts, getQbSnapshot, getArSnapshot, setSetting, getSetting, getTransfersCache, saveTransfersCache } from './store'
 import { isConnected as qbConnected } from './qb-auth'
 import { getBalanceSheet, getProfitAndLoss, getAgedReceivableDetail } from './qb-client'
 import { parseBalanceSheet, parseProfitAndLoss, parseAgedReceivableDetail } from './qb-parse'
-import type { QbSnapshot, ArSnapshot } from './types'
+import type { QbSnapshot, ArSnapshot, Transfer, TransfersByAccount, Account } from './types'
+
+const DAY = 86_400_000
+const FULL_LOOKBACK_DAYS = 730   // 24 months — the analytics window
+const FULL_REFRESH_DAYS = 30     // cache older than this triggers a full re-sync
+const OVERLAP_DAYS = 30          // overlap window on delta fetch to catch status updates
+
+/**
+ * Fetch transfers using a delta strategy:
+ *   - First run (no cache, or cache older than FULL_REFRESH_DAYS): full 24-month pull.
+ *   - Subsequent runs: pull only from (cache.syncedAt - OVERLAP_DAYS) to now,
+ *     then merge into the cached set (fresh transfers win — captures status
+ *     transitions like PENDING → COMPLETE). Transfers older than the analytics
+ *     window are trimmed. Drops accounts that no longer exist in Sequence.
+ *
+ * This keeps us well inside Sequence's 100 req/min limit on every run except
+ * the very first / occasional full re-sync, per their guidance.
+ */
+async function getTransfersDelta(accounts: Account[], log: (msg: string) => void): Promise<TransfersByAccount[]> {
+  const cache = await getTransfersCache()
+  const now = new Date()
+  const cacheAgeMs = cache ? now.getTime() - new Date(cache.syncedAt).getTime() : Infinity
+  const useDelta = !!cache && cacheAgeMs < FULL_REFRESH_DAYS * DAY
+
+  const fromDate = useDelta
+    ? new Date(new Date(cache!.syncedAt).getTime() - OVERLAP_DAYS * DAY)
+    : new Date(now.getTime() - FULL_LOOKBACK_DAYS * DAY)
+  const fromIso = fromDate.toISOString()
+  const toIso = now.toISOString()
+  log(useDelta ? `Delta fetch from ${fromIso} (cache age ${Math.round(cacheAgeMs / DAY)}d)` : `Full 24-month fetch from ${fromIso}`)
+
+  const fresh = await getAllTransfers(accounts, fromIso, toIso)
+
+  const minKeep = now.getTime() - FULL_LOOKBACK_DAYS * DAY
+  const cachedByAccount = new Map(cache?.byAccount.map((b) => [b.accountId, b.transfers]) ?? [])
+
+  const merged: TransfersByAccount[] = accounts.map((acc) => {
+    const map = new Map<string, Transfer>()
+    for (const t of cachedByAccount.get(acc.id) ?? []) {
+      if (new Date(t.createdAt).getTime() >= minKeep) map.set(t.id, t)
+    }
+    for (const t of fresh.find((b) => b.accountId === acc.id)?.transfers ?? []) {
+      if (new Date(t.createdAt).getTime() >= minKeep) map.set(t.id, t) // fresh overwrites cached
+    }
+    return { accountId: acc.id, transfers: Array.from(map.values()) }
+  })
+
+  const totalCached = Array.from(cachedByAccount.values()).reduce((s, a) => s + a.length, 0)
+  const totalFresh = fresh.reduce((s, a) => s + a.transfers.length, 0)
+  const totalMerged = merged.reduce((s, a) => s + a.transfers.length, 0)
+  log(`Transfers: ${totalCached} cached + ${totalFresh} fresh → ${totalMerged} merged`)
+
+  await saveTransfersCache({ syncedAt: toIso, byAccount: merged })
+  return merged
+}
 
 function enrichPl(qb: QbSnapshot | null): QbSnapshot | null {
   if (qb?.pl && qb.monthsInPeriod) {
@@ -125,10 +178,7 @@ export async function buildDashboard(log: (msg: string) => void = () => {}): Pro
   const [accounts, rules] = await Promise.all([getAccountDetails(accountsList), listRules()])
   log(`Got ${accounts.length} accounts, ${rules.length} rules`)
 
-  const fromIso = isoDaysAgo(730)
-  const toIso = new Date().toISOString()
-  log('Fetching transfers (24mo)...')
-  const rawByAccount = await getAllTransfers(accounts, fromIso, toIso)
+  const rawByAccount = await getTransfersDelta(accounts, log)
   const rawTransfers = flattenTransfers(rawByAccount)
 
   const retryFiltered = dropRetries(rawTransfers)

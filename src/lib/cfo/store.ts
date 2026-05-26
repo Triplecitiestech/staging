@@ -9,7 +9,7 @@
  */
 
 import { getPool } from '@/lib/db-pool'
-import type { CategoryMap, DebtsConfig, QbSnapshot, ArSnapshot } from './types'
+import type { CategoryMap, DebtsConfig, QbSnapshot, ArSnapshot, TransfersByAccount } from './types'
 
 const pool = getPool()
 
@@ -53,6 +53,17 @@ export const getQbSnapshot = () => getSetting<QbSnapshot>('qb_snapshot')
 export const saveQbSnapshot = (snap: QbSnapshot) => setSetting('qb_snapshot', snap)
 export const getArSnapshot = () => getSetting<ArSnapshot>('ar_snapshot')
 export const saveArSnapshot = (snap: ArSnapshot) => setSetting('ar_snapshot', snap)
+
+// Sequence transfers cache — populated by the build orchestrator so subsequent
+// cron runs can fetch only deltas (with a small overlap window) instead of
+// pulling 24 months of history every time. Keeps us under Sequence's 100/min
+// rate limit. See docs Sequence sent us re: delta sync via ?from=.
+export interface TransfersCache {
+  syncedAt: string // ISO timestamp of the last successful sync
+  byAccount: TransfersByAccount[]
+}
+export const getTransfersCache = () => getSetting<TransfersCache>('transfers_cache')
+export const saveTransfersCache = (c: TransfersCache) => setSetting('transfers_cache', c)
 
 export interface QbTokens {
   accessToken: string
