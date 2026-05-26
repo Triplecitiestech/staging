@@ -31,6 +31,15 @@ const STATUS_DOT: Record<Status, string> = {
   green: 'bg-emerald-400', yellow: 'bg-rose-400', red: 'bg-red-400',
 }
 
+// Visual treatment for the Recommended actions cards (severity → label, tints).
+// Compliant with the forbidden-color rule (no yellow/amber/orange).
+const SEVERITY_META: Record<string, { label: string; tint: string; bar: string; pill: string }> = {
+  red:    { label: 'Urgent',      tint: 'border-red-500/30 bg-red-500/5',         bar: 'bg-red-500',     pill: 'bg-red-500/20 text-red-200' },
+  yellow: { label: 'Recommended', tint: 'border-rose-500/30 bg-rose-500/5',       bar: 'bg-rose-500',    pill: 'bg-rose-500/20 text-rose-200' },
+  green:  { label: 'Quick win',   tint: 'border-emerald-500/30 bg-emerald-500/5', bar: 'bg-emerald-500', pill: 'bg-emerald-500/20 text-emerald-200' },
+  gray:   { label: 'Note',        tint: 'border-slate-500/30 bg-slate-500/5',     bar: 'bg-slate-500',   pill: 'bg-slate-500/20 text-slate-200' },
+}
+
 // ─── primitives ─────────────────────────────────────────────────────────────
 
 function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
@@ -222,6 +231,41 @@ export default function CfoDashboardClient() {
         )}
       </div>
 
+      {/* Recommended actions — placed first so they're the headline item */}
+      {d.actions.length > 0 && (
+        <div>
+          <SectionTitle>Recommended actions</SectionTitle>
+          <div className="space-y-3">
+            {d.actions.map((a, i) => {
+              const sev = SEVERITY_META[a.severity] ?? SEVERITY_META.gray
+              return (
+                <div key={i} className={`relative overflow-hidden rounded-xl border ${sev.tint}`}>
+                  <div className={`absolute inset-y-0 left-0 w-1 ${sev.bar}`} />
+                  <div className="flex gap-4 p-5 pl-6">
+                    <div className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full ${sev.pill} text-sm font-bold`}>
+                      {a.priority}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-base font-semibold text-white">{a.title}</h3>
+                        <span className={`rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${sev.pill}`}>
+                          {sev.label}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-sm text-slate-300">{a.why}</p>
+                      <div className="mt-3 rounded-md border border-cyan-500/20 bg-cyan-500/5 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-cyan-300">Do this</p>
+                        <p className="mt-1 text-sm text-slate-100">{a.action}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Operations 30-day forecast */}
       {d.opsForecast && (
         <div>
@@ -257,22 +301,6 @@ export default function CfoDashboardClient() {
               </div>
             </Card>
           )}
-        </div>
-      )}
-
-      {/* Action items */}
-      {d.actions.length > 0 && (
-        <div>
-          <SectionTitle>Recommended actions</SectionTitle>
-          <div className="space-y-3">
-            {d.actions.map((a, i) => (
-              <Card key={i} className={STATUS_CLASSES[(a.severity === 'gray' ? 'green' : a.severity) as Status] ?? ''}>
-                <p className="font-semibold text-white">{a.title}</p>
-                <p className="mt-1 text-sm text-slate-300">{a.why}</p>
-                <p className="mt-2 text-sm text-slate-200"><span className="font-medium text-cyan-300">Do:</span> {a.action}</p>
-              </Card>
-            ))}
-          </div>
         </div>
       )}
 
