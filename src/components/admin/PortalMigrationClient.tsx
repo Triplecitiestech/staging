@@ -470,8 +470,8 @@ export default function PortalMigrationClient() {
 
   return (
     <div className="space-y-6">
-      {/* Step 1: Upload or paste */}
-      {!parsed && (
+      {/* Step 1: Upload, paste, or pull from Autotask */}
+      {!parsed && !matched && (
         <UploadStep
           onDrop={onDrop}
           onFileChange={onFileChange}
@@ -486,6 +486,30 @@ export default function PortalMigrationClient() {
             setParsed(result)
             setMapping(autoDetectColumns(result.headers))
           }}
+          onAutotaskPull={async () => {
+            setMatching(true)
+            setError(null)
+            setSendResult(null)
+            setSelected(new Set())
+            setFileName('(Autotask Client Access Portal — live)')
+            try {
+              const res = await fetch('/api/admin/portal-migration/old-portal-users')
+              const data = await res.json()
+              if (!res.ok) {
+                setError(data?.error || `Autotask pull failed (${res.status})`)
+                return
+              }
+              setMatched(data.rows as MatchedRow[])
+              // Autotask doesn't expose last-login via API — every row has lastLoginIso = null.
+              // Auto-enable the "include never-logged-in" toggle so the table isn't empty by default.
+              setIncludeNever(true)
+            } catch (err) {
+              setError(err instanceof Error ? err.message : 'Autotask pull failed')
+            } finally {
+              setMatching(false)
+            }
+          }}
+          autotaskPulling={matching}
           error={error}
           fileInputRef={fileInputRef}
         />
@@ -722,26 +746,38 @@ function UploadStep({
   onDrop,
   onFileChange,
   onPaste,
+  onAutotaskPull,
+  autotaskPulling,
   error,
   fileInputRef,
 }: {
   onDrop: (e: React.DragEvent) => void
   onFileChange: (e: React.ChangeEvent<HTMLInputElement>) => void
   onPaste: (text: string) => void
+  onAutotaskPull: () => void | Promise<void>
+  autotaskPulling: boolean
   error: string | null
   fileInputRef: React.RefObject<HTMLInputElement>
 }) {
-  const [mode, setMode] = useState<'file' | 'paste'>('file')
+  const [mode, setMode] = useState<'autotask' | 'file' | 'paste'>('autotask')
   const [pastedText, setPastedText] = useState('')
 
   return (
     <div className="bg-slate-800/50 border border-white/10 rounded-xl p-6">
-      <h2 className="text-lg font-semibold text-white mb-2">Load Autotask Client Portal data</h2>
+      <h2 className="text-lg font-semibold text-white mb-2">Build the outreach list</h2>
       <p className="text-sm text-slate-400 mb-5 max-w-2xl">
-        Use the <span className="text-slate-300">Client Portal Log</span> report from Autotask CRM (Reports → Client Portal Log) or the per-company Manage Users export. Either upload the CSV or paste the report text directly. Multi-row login logs are deduplicated to one entry per user (latest login wins).
+        Pull every active legacy-portal user live from Autotask (most complete), or upload / paste a Client Portal Log export when you want a specific date window. Either way you&rsquo;ll land in the same review table.
       </p>
 
-      <div className="flex gap-2 mb-4 border-b border-white/5">
+      <div className="flex gap-2 mb-4 border-b border-white/5 flex-wrap">
+        <button
+          onClick={() => setMode('autotask')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition ${
+            mode === 'autotask' ? 'border-cyan-400 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          Pull from Autotask
+        </button>
         <button
           onClick={() => setMode('file')}
           className={`px-4 py-2 text-sm font-medium border-b-2 transition ${
@@ -760,7 +796,26 @@ function UploadStep({
         </button>
       </div>
 
-      {mode === 'file' ? (
+      {mode === 'autotask' ? (
+        <div className="border-2 border-dashed border-white/15 rounded-xl p-10 text-center">
+          <svg className="w-10 h-10 mx-auto text-slate-500 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+          </svg>
+          <p className="text-sm text-slate-400 max-w-md mx-auto mb-5">
+            Queries <span className="text-slate-300">ClientPortalUsers</span> in Autotask and joins to your local contacts via <span className="text-slate-300">autotaskContactId</span>. Returns everyone who has legacy-portal access today, with their new-portal invite status.
+          </p>
+          <button
+            onClick={() => onAutotaskPull()}
+            disabled={autotaskPulling}
+            className="inline-block px-5 py-2.5 bg-cyan-500 hover:bg-cyan-400 disabled:bg-slate-700 disabled:text-slate-500 text-slate-950 font-semibold rounded-lg transition"
+          >
+            {autotaskPulling ? 'Querying Autotask…' : 'Pull live portal users'}
+          </button>
+          <p className="text-xs text-slate-500 mt-4">
+            No date filter — returns every active portal user. Use upload/paste below for a recent-logins-only list.
+          </p>
+        </div>
+      ) : mode === 'file' ? (
         <div
           onDrop={onDrop}
           onDragOver={(e) => e.preventDefault()}
