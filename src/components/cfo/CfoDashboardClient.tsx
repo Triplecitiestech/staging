@@ -1,11 +1,13 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
   ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend,
 } from 'recharts'
 import type { CachedSnapshot } from '@/lib/cfo/build'
+import { useDemoMode } from '@/components/admin/DemoModeProvider'
+import { applyCfoDemo } from '@/lib/cfo/demo'
 import CfoSimulator from './CfoSimulator'
 
 // ─── formatting ─────────────────────────────────────────────────────────────
@@ -76,6 +78,7 @@ const shortDate = (iso: string) => new Date(iso).toLocaleDateString('en-US', { m
 // ─── main ─────────────────────────────────────────────────────────────────
 
 export default function CfoDashboardClient() {
+  const demo = useDemoMode()
   const [snapshot, setSnapshot] = useState<CachedSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -135,7 +138,7 @@ export default function CfoDashboardClient() {
   }
 
   if (!snapshot) return null
-  const d = snapshot.data
+  const d = applyCfoDemo(snapshot.data, demo)
   const m = d.monthly
   const chartData = d.monthlyPL.map((p) => ({
     label: p.label,
@@ -146,16 +149,29 @@ export default function CfoDashboardClient() {
 
   return (
     <div className="space-y-8">
-      {/* Refresh bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      {/* Print-only header (hidden on screen) */}
+      <div className="hidden print:block print:mb-6">
+        <h1 className="text-2xl font-bold text-black">Triple Cities Tech — CFO Dashboard</h1>
+        <p className="text-sm text-slate-700">Refreshed {d.refreshedAt}{demo.active ? ' · Demo mode (values anonymized)' : ''}</p>
+      </div>
+
+      {/* Refresh / Print / Settings bar — hidden in print */}
+      <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
         <p className="text-xs text-slate-400">
           Refreshed {d.refreshedAt} · {d.meta.accountCount} accounts · {d.meta.transferCount24mo.toLocaleString()} transfers (24mo)
           {d.meta.qbSource === 'none' && ' · QuickBooks not connected'}
+          {demo.active && <span className="ml-2 rounded bg-rose-500/20 px-1.5 py-0.5 text-rose-300">Demo mode</span>}
         </p>
         <div className="flex items-center gap-2">
           <Link href="/admin/cfo/settings" className="rounded-md border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-slate-300 hover:bg-white/10">
             Settings
           </Link>
+          <button
+            onClick={() => window.print()}
+            className="rounded-md border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-slate-300 hover:bg-white/10"
+          >
+            Print PDF
+          </button>
           <button
             onClick={refresh}
             disabled={refreshing}

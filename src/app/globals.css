@@ -384,3 +384,22 @@ html {
     font-size: 16px;
   }
 }
+
+/* CFO dashboard print styles — invoked from the Print PDF button (window.print()).
+   The dashboard page already toggles dark→white via Tailwind `print:` variants;
+   these rules cover page-level concerns (margins, page breaks, contrast). */
+@media print {
+  @page { margin: 0.5in; }
+  body { background: white !important; color: #0f172a !important; }
+  /* Re-color the dashboard cards for paper: light surface, dark text. */
+  .min-h-screen.print\:bg-white * {
+    color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  /* Keep cards / charts / tables together when possible */
+  .rounded-xl, table, .h-72, .h-56 { page-break-inside: avoid; break-inside: avoid; }
+  /* Slate text tones become hard to read on white — darken */
+  .text-white, .text-slate-100, .text-slate-200, .text-slate-300 { color: #0f172a !important; }
+  .text-slate-400, .text-slate-500 { color: #475569 !important; }
+}
