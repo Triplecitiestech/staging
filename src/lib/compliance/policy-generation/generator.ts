@@ -16,6 +16,7 @@
 import type { GenerationMode, PolicyDocumentMetadata } from './types'
 import { getCatalogItem } from './catalog'
 import { FRAMEWORK_POLICY_MAPPINGS } from './framework-mappings'
+import { trackApiUsage } from '@/lib/api-usage-tracker'
 
 // ---------------------------------------------------------------------------
 // Prompt Construction
@@ -370,14 +371,17 @@ export async function generatePolicy(input: GenerationInput): Promise<GenerateRe
       const decoder = new TextDecoder()
       let buffer = ''
       let content = ''
+      // Capture usage from message_start (input_tokens + cache_*) and
+      // message_delta (final cumulative output_tokens). Without this the
+      // policy generator silently burned tokens with no row in
+      // api_usage_logs \u2014 accounting for the bulk of the $100/mo Anthropic
+      // bill before the meter was honest.
+      let inputTokens = 0
+      let outputTokens = 0
 
       // Parse Anthropic SSE stream. Events look like:
       //   event: content_block_delta
       //   data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"..."}}
-      //
-      // We only care about text deltas \u2014 everything else (start/stop
-      // markers, usage stats) is metadata we don't need to thread through
-      // the rest of the generator.
       // eslint-disable-next-line no-constant-condition
       while (true) {
         const { done, value } = await reader.read()
@@ -395,9 +399,27 @@ export async function generatePolicy(input: GenerationInput): Promise<GenerateRe
             const event = JSON.parse(data) as {
               type?: string
               delta?: { type?: string; text?: string }
+              message?: {
+                usage?: {
+                  input_tokens?: number
+                  output_tokens?: number
+                  cache_creation_input_tokens?: number
+                  cache_read_input_tokens?: number
+                }
+              }
+              usage?: { output_tokens?: number }
             }
             if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta' && event.delta.text) {
               content += event.delta.text
+            } else if (event.type === 'message_start' && event.message?.usage) {
+              const u = event.message.usage
+              inputTokens =
+                (u.input_tokens ?? 0) +
+                (u.cache_creation_input_tokens ?? 0) +
+                (u.cache_read_input_tokens ?? 0)
+              outputTokens = u.output_tokens ?? 0
+            } else if (event.type === 'message_delta' && event.usage?.output_tokens != null) {
+              outputTokens = event.usage.output_tokens
             }
           } catch {
             // Anthropic occasionally emits partial JSON lines on chunk
@@ -407,14 +429,23 @@ export async function generatePolicy(input: GenerationInput): Promise<GenerateRe
         }
       }
       cleanupTimers()
+      await trackApiUsage({
+        provider: 'anthropic',
+        feature: 'compliance_policy_generation',
+        model,
+        inputTokens,
+        outputTokens,
+        durationMs: Date.now() - started,
+        statusCode: 200,
+      })
       return content
     } catch (err) {
       cleanupTimers()
-      if ((err as { failure?: AttemptFailure }).failure) throw err
+      const existingFailure = (err as { failure?: AttemptFailure }).failure
       const elapsedMs = Date.now() - started
       const isTimeout = abortReason !== null
         || (err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError'))
-      const failure: AttemptFailure = {
+      const failure: AttemptFailure = existingFailure ?? {
         model,
         kind: isTimeout ? 'timeout' : (err instanceof TypeError ? 'network' : 'other'),
         message: abortReason === 'wall'
@@ -424,6 +455,15 @@ export async function generatePolicy(input: GenerationInput): Promise<GenerateRe
             : (err instanceof Error ? err.message : String(err)),
         elapsedMs,
       }
+      await trackApiUsage({
+        provider: 'anthropic',
+        feature: 'compliance_policy_generation',
+        model,
+        durationMs: elapsedMs,
+        statusCode: failure.kind === 'http_error' ? (failure.status ?? 500) : 500,
+        error: failure.message,
+      })
+      if (existingFailure) throw err
       console.error('[compliance/generator] Anthropic call failed', failure)
       throw Object.assign(new Error(failure.message), { failure })
     }

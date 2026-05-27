@@ -24,6 +24,7 @@
 
 import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
+import { trackApiUsage } from '@/lib/api-usage-tracker'
 
 export const dynamic = 'force-dynamic'
 // 50s budget — tier 1 pings finish in <1s, tier 2 streaming completion
@@ -67,6 +68,14 @@ async function pingModel(model: string, apiKey: string, timeoutMs = 10_000): Pro
     })
     if (!res.ok) {
       const body = await res.text().catch(() => '')
+      await trackApiUsage({
+        provider: 'anthropic',
+        feature: 'compliance_diagnose_ping',
+        model,
+        durationMs: Date.now() - started,
+        statusCode: res.status,
+        error: `HTTP ${res.status}`,
+      })
       return {
         model,
         ok: false,
@@ -75,6 +84,26 @@ async function pingModel(model: string, apiKey: string, timeoutMs = 10_000): Pro
         error: `HTTP ${res.status}: ${body.substring(0, 200)}`,
       }
     }
+    const data = (await res.json().catch(() => ({}))) as {
+      usage?: {
+        input_tokens?: number
+        output_tokens?: number
+        cache_creation_input_tokens?: number
+        cache_read_input_tokens?: number
+      }
+    }
+    await trackApiUsage({
+      provider: 'anthropic',
+      feature: 'compliance_diagnose_ping',
+      model,
+      inputTokens:
+        (data.usage?.input_tokens ?? 0) +
+        (data.usage?.cache_creation_input_tokens ?? 0) +
+        (data.usage?.cache_read_input_tokens ?? 0),
+      outputTokens: data.usage?.output_tokens ?? 0,
+      durationMs: Date.now() - started,
+      statusCode: 200,
+    })
     return { model, ok: true, status: 200, elapsedMs: Date.now() - started }
   } catch (err) {
     return {
@@ -197,6 +226,8 @@ async function staminaTest(model: string, apiKey: string): Promise<StaminaResult
     const reader = r.body.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
+    let inputTokens = 0
+    let outputTokens = 0
     // eslint-disable-next-line no-constant-condition
     while (true) {
       const { done, value } = await reader.read()
@@ -211,15 +242,45 @@ async function staminaTest(model: string, apiKey: string): Promise<StaminaResult
         const data = trimmed.slice(5).trim()
         if (!data || data === '[DONE]') continue
         try {
-          const event = JSON.parse(data) as { type?: string; delta?: { type?: string; text?: string } }
+          const event = JSON.parse(data) as {
+            type?: string
+            delta?: { type?: string; text?: string }
+            message?: {
+              usage?: {
+                input_tokens?: number
+                output_tokens?: number
+                cache_creation_input_tokens?: number
+                cache_read_input_tokens?: number
+              }
+            }
+            usage?: { output_tokens?: number }
+          }
           if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta' && event.delta.text) {
             // Rough token estimate: ~4 chars per token.
             approxTokens += Math.ceil(event.delta.text.length / 4)
+          } else if (event.type === 'message_start' && event.message?.usage) {
+            const u = event.message.usage
+            inputTokens =
+              (u.input_tokens ?? 0) +
+              (u.cache_creation_input_tokens ?? 0) +
+              (u.cache_read_input_tokens ?? 0)
+            outputTokens = u.output_tokens ?? 0
+          } else if (event.type === 'message_delta' && event.usage?.output_tokens != null) {
+            outputTokens = event.usage.output_tokens
           }
         } catch { /* ignore parse errors on chunk boundaries */ }
       }
     }
     clearTimeout(wallTimer)
+    await trackApiUsage({
+      provider: 'anthropic',
+      feature: 'compliance_diagnose_stamina',
+      model,
+      inputTokens,
+      outputTokens,
+      durationMs: Date.now() - started,
+      statusCode: 200,
+    })
     return { ok: true, model, elapsedMs: Date.now() - started, timeToFirstChunkMs: firstChunkAt, approxTokens }
   } catch (err) {
     clearTimeout(wallTimer)

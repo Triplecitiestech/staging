@@ -14,6 +14,7 @@ import {
   fetchSharePointFileText,
   fetchSharePointFileTextByUrl,
 } from '@/lib/compliance/policy-generation/sharepoint-fetch'
+import { trackApiUsage } from '@/lib/api-usage-tracker'
 
 // JSON-safe shape for an approval snapshot. Strips internal fields,
 // keeps what the UI badge + publish modal need.
@@ -528,6 +529,7 @@ Only include controls that are RELEVANT to this type of policy. A password polic
 
 Respond with ONLY valid JSON, no markdown.`
 
+    const anthropicStart = Date.now()
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -553,13 +555,40 @@ Respond with ONLY valid JSON, no markdown.`
     })
 
     if (!res.ok) {
+      await trackApiUsage({
+        provider: 'anthropic',
+        feature: 'compliance_policy_analysis',
+        model: 'claude-sonnet-4-6',
+        durationMs: Date.now() - anthropicStart,
+        statusCode: res.status,
+        error: `Anthropic API error: ${res.status}`,
+      })
       throw new Error(`Anthropic API error: ${res.status}`)
     }
 
     const data = (await res.json()) as {
       content: Array<{ type: string; text: string }>
       stop_reason?: string
+      usage?: {
+        input_tokens?: number
+        output_tokens?: number
+        cache_creation_input_tokens?: number
+        cache_read_input_tokens?: number
+      }
     }
+    await trackApiUsage({
+      provider: 'anthropic',
+      feature: 'compliance_policy_analysis',
+      model: 'claude-sonnet-4-6',
+      inputTokens:
+        (data.usage?.input_tokens ?? 0) +
+        (data.usage?.cache_creation_input_tokens ?? 0) +
+        (data.usage?.cache_read_input_tokens ?? 0),
+      outputTokens: data.usage?.output_tokens ?? 0,
+      durationMs: Date.now() - anthropicStart,
+      statusCode: 200,
+      metadata: { stop_reason: data.stop_reason },
+    })
     const text = data.content?.[0]?.text ?? ''
     const truncated = data.stop_reason === 'max_tokens'
 
