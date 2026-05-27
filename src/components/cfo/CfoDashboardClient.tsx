@@ -229,6 +229,13 @@ export default function CfoDashboardClient() {
             sub={`Projected month-end out ${usd(d.pace.projectedMonthEndCents)} vs typical ${usd(d.pace.typicalMonthlyCents)}`}
           />
         )}
+        {d.nextPayroll && (
+          <Kpi
+            label="Next payroll"
+            value={usd(d.nextPayroll.amountCents)}
+            sub={`${new Date(d.nextPayroll.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} · ${d.nextPayroll.source === 'scheduled' ? 'from Settings' : 'baseline estimate'}`}
+          />
+        )}
       </div>
 
       {/* Recommended actions — placed first so they're the headline item */}
@@ -290,7 +297,10 @@ export default function CfoDashboardClient() {
                   <tbody className="text-slate-200">
                     {d.opsForecast.expectedOut.map((o, i) => (
                       <tr key={i} className="border-t border-white/5">
-                        <td className="max-w-[200px] truncate py-2 pr-3">{o.name}</td>
+                        <td className="max-w-[200px] truncate py-2 pr-3">
+                          {o.name}
+                          {o.isScheduled && <span className="ml-2 rounded bg-cyan-500/20 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-cyan-300">Scheduled</span>}
+                        </td>
                         <td className="py-2 pr-3 capitalize text-slate-400">{o.cadence}</td>
                         <td className="py-2 pr-3 text-slate-400">{shortDate(o.nextExpectedDate)}</td>
                         <td className="py-2 text-right">{usd(o.avgAmountCents)}</td>

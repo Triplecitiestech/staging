@@ -17,10 +17,11 @@ import {
   monthlyPL12, operationsBreakdown, recurringObligations, perPodAnomalies,
   yoyByDestination, rulesHealth, ownerPayView, recentActivityByDestination,
   monthCoverageAndPL, analyzeDebts, analyzeAr, generateActions, incomeDistribution,
+  nextPayroll,
 } from './compute'
 import { summarizeRoles } from './roles'
 import { buildCategoryMap } from './categories'
-import { getCategoryOverrides, getDebts, getQbSnapshot, getArSnapshot, setSetting, getSetting, getTransfersCache, saveTransfersCache } from './store'
+import { getCategoryOverrides, getDebts, getQbSnapshot, getArSnapshot, setSetting, getSetting, getTransfersCache, saveTransfersCache, getScheduledOutflows } from './store'
 import { isConnected as qbConnected } from './qb-auth'
 import { getBalanceSheet, getProfitAndLoss, getAgedReceivableDetail } from './qb-client'
 import { parseBalanceSheet, parseProfitAndLoss, parseAgedReceivableDetail } from './qb-parse'
@@ -155,6 +156,7 @@ export interface DashboardData {
   debts: ReturnType<typeof analyzeDebts>
   ar: ReturnType<typeof analyzeAr>
   qb: QbSnapshot | null
+  nextPayroll: ReturnType<typeof nextPayroll>
   actions: ReturnType<typeof generateActions>
 }
 
@@ -202,8 +204,11 @@ export async function buildDashboard(log: (msg: string) => void = () => {}): Pro
 
   const { qb, arSnapshot, qbSource } = await loadQbAndAr(log)
   const debtsConfig = await getDebts()
+  const scheduledCfg = await getScheduledOutflows()
+  const scheduled = scheduledCfg?.items ?? []
 
   const empowerLiveBalanceCents = roles.empowerChecking?.balance?.balanceInCents ?? null
+  const opsForecastValue = operationsForecast30d(roles.operations, opTransfers, transfersByAccount, roles.incomeSource, 90, scheduled)
   const ar = analyzeAr(arSnapshot)
   const debts = analyzeDebts(debtsConfig)
 
@@ -223,12 +228,13 @@ export async function buildDashboard(log: (msg: string) => void = () => {}): Pro
     },
     totalCashCents: totalCashOnHand(accounts),
     empowerLiveBalanceCents,
-    monthly: monthCoverageAndPL(roles.operations, opTransfers, allTransfers, roles.incomeSource, transfersByAccount, cats.map),
+    monthly: monthCoverageAndPL(roles.operations, opTransfers, allTransfers, roles.incomeSource, transfersByAccount, cats.map, scheduled),
     netFlow: netFlow30dReal(allTransfers),
     runway: operationsRunway(roles.operations, opTransfers, 60),
     pace: monthlyPace(roles.operations, opTransfers),
     cards: creditCardEarmark(roles.creditCardPods, roles.operations, opTransfers),
-    opsForecast: operationsForecast30d(roles.operations, opTransfers, transfersByAccount, roles.incomeSource, 90),
+    opsForecast: opsForecastValue,
+    nextPayroll: nextPayroll(scheduled, opsForecastValue?.expectedOut ?? []),
     monthlyPL: monthlyPL12(allTransfers),
     opsBreakdown: operationsBreakdown(roles.operations, opTransfers, cats.map, 90),
     obligations: recurringObligations(transfersByAccount, accounts, 90),
