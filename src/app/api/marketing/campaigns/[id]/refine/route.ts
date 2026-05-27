@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import Anthropic from '@anthropic-ai/sdk';
+import { trackAnthropicCall } from '@/lib/api-usage-tracker';
 
 export const maxDuration = 60;
 
@@ -47,8 +48,9 @@ export async function POST(
       apiKey: process.env.ANTHROPIC_API_KEY!,
     });
 
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
+    const refineModel = 'claude-sonnet-4-6';
+    const response = await trackAnthropicCall('campaign-refine', refineModel, () => anthropic.messages.create({
+      model: refineModel,
       max_tokens: 4000,
       system: `You are an expert content editor for Triple Cities Tech, a managed IT services company. You refine marketing communications while maintaining professional tone and brand voice. Your edits should be precise and targeted — change only what the user asks for and keep everything else intact.
 
@@ -80,7 +82,7 @@ ${campaign.generatedContent}
 Please apply the requested changes and return the complete refined content as JSON. Only change what was requested — keep everything else the same.`,
         },
       ],
-    });
+    }));
 
     // Parse the response
     const responseText = response.content[0].type === 'text' ? response.content[0].text : '';

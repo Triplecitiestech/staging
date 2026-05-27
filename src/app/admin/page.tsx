@@ -6,6 +6,7 @@ import AdminShell from '@/components/admin/AdminShell'
 import SystemHealthDashboard from '@/components/admin/SystemHealthDashboard'
 import DashboardStatusCards from '@/components/admin/DashboardStatusCards'
 import DbLatencyGraph from '@/components/admin/DbLatencyGraph'
+import AiUsageMeter from '@/components/admin/AiUsageMeter'
 
 export default async function AdminPage() {
   const session = await auth()
@@ -52,6 +53,11 @@ export default async function AdminPage() {
         {/* System Health Dashboard (client component with auto-refresh) */}
         <div className="mb-10">
           <SystemHealthDashboard />
+        </div>
+
+        {/* AI Spend Meter — at-a-glance Anthropic usage across 1h/24h/7d/30d/60d */}
+        <div className="mb-10">
+          <AiUsageMeter variant="compact" />
         </div>
 
         {/* Historical DB Latency Graph */}
