@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import Anthropic from '@anthropic-ai/sdk';
+import { trackAnthropicCall } from '@/lib/api-usage-tracker';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -131,8 +132,9 @@ export async function GET(request: NextRequest) {
       if (apiKey) {
         try {
           const client = new Anthropic({ apiKey });
-          const response = await client.messages.create({
-            model: 'claude-haiku-4-5-20251001',
+          const trendsModel = 'claude-haiku-4-5-20251001';
+          const response = await trackAnthropicCall('soc-trends-recommendations', trendsModel, () => client.messages.create({
+            model: trendsModel,
             max_tokens: 2048,
             messages: [{
               role: 'user',
@@ -147,7 +149,7 @@ For each pattern, output a JSON object with:
 
 Respond with ONLY a JSON array of these objects. No markdown.`,
             }],
-          });
+          }));
 
           const text = response.content[0].type === 'text' ? response.content[0].text : '';
           const jsonMatch = text.match(/\[[\s\S]*\]/);

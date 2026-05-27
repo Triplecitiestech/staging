@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import Anthropic from '@anthropic-ai/sdk'
 import { prisma } from '@/lib/prisma'
+import { trackAnthropicCall } from '@/lib/api-usage-tracker'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -595,12 +596,13 @@ Instructions:
       content: msg.content,
     }))
 
-    const message = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
+    const reportsModel = 'claude-haiku-4-5-20251001'
+    const message = await trackAnthropicCall('reports-ai-assistant', reportsModel, () => client.messages.create({
+      model: reportsModel,
       max_tokens: 2048,
       system: systemPrompt,
       messages: anthropicMessages,
-    })
+    }))
 
     const textContent = message.content.find(c => c.type === 'text')
     const response = textContent ? textContent.text : 'No response generated'

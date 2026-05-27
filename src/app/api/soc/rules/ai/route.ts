@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import Anthropic from '@anthropic-ai/sdk';
+import { trackAnthropicCall } from '@/lib/api-usage-tracker';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,8 +45,9 @@ export async function POST(request: NextRequest) {
     }
 
     const client = new Anthropic({ apiKey });
-    const response = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
+    const rulesAiModel = 'claude-haiku-4-5-20251001';
+    const response = await trackAnthropicCall('soc-rules-ai', rulesAiModel, () => client.messages.create({
+      model: rulesAiModel,
       max_tokens: 1024,
       messages: [{
         role: 'user',
@@ -71,7 +73,7 @@ User's description: "${description.trim()}"
 
 Respond with ONLY valid JSON matching the schema above. No markdown, no explanation.`,
       }],
-    });
+    }));
 
     const text = response.content[0].type === 'text' ? response.content[0].text : '';
     // Extract JSON from response (handle potential markdown wrapping)

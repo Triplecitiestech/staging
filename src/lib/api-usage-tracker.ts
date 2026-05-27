@@ -7,11 +7,28 @@
 
 import type { PrismaClient } from '@prisma/client'
 
-// Anthropic pricing (per 1M tokens) as of 2025
+// Anthropic pricing in cents per 1M tokens.
+// Sonnet family (4, 4.5, 4.6, 4.7) all bill at $3 input / $15 output per 1M.
+// Opus family bills at $15 input / $75 output per 1M.
+// Haiku 4.5 bills at $0.80 input / $4 output per 1M.
 const ANTHROPIC_PRICING: Record<string, { input: number; output: number }> = {
-  'claude-sonnet-4-6': { input: 300, output: 1500 },      // $3/$15 per 1M
-  'claude-opus-4-6': { input: 1500, output: 7500 },       // $15/$75 per 1M
-  'claude-haiku-4-5-20251001': { input: 80, output: 400 }, // $0.80/$4 per 1M
+  'claude-sonnet-4-6': { input: 300, output: 1500 },
+  'claude-sonnet-4-7': { input: 300, output: 1500 },
+  'claude-sonnet-4-5-20250929': { input: 300, output: 1500 },
+  'claude-sonnet-4-20250514': { input: 300, output: 1500 },
+  'claude-opus-4-6': { input: 1500, output: 7500 },
+  'claude-opus-4-7': { input: 1500, output: 7500 },
+  'claude-haiku-4-5-20251001': { input: 80, output: 400 },
+}
+
+function resolvePricing(model: string | undefined): { input: number; output: number } | null {
+  if (!model) return null
+  if (ANTHROPIC_PRICING[model]) return ANTHROPIC_PRICING[model]
+  // Fallback by family — protects against new dated suffixes (e.g. claude-sonnet-4-6-20260101).
+  if (model.includes('opus')) return ANTHROPIC_PRICING['claude-opus-4-7']
+  if (model.includes('haiku')) return ANTHROPIC_PRICING['claude-haiku-4-5-20251001']
+  if (model.includes('sonnet')) return ANTHROPIC_PRICING['claude-sonnet-4-7']
+  return null
 }
 
 interface TrackApiUsageParams {
@@ -27,8 +44,7 @@ interface TrackApiUsageParams {
 }
 
 function estimateCostCents(model: string | undefined, inputTokens: number, outputTokens: number): number {
-  if (!model) return 0
-  const pricing = ANTHROPIC_PRICING[model]
+  const pricing = resolvePricing(model)
   if (!pricing) return 0
   const inputCost = (inputTokens / 1_000_000) * pricing.input
   const outputCost = (outputTokens / 1_000_000) * pricing.output

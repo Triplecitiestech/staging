@@ -2,6 +2,7 @@ import AdminHeader from '@/components/admin/AdminHeader'
 import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import MonitoringDashboardClient from '@/components/admin/MonitoringDashboardClient'
+import AiUsageMeter from '@/components/admin/AiUsageMeter'
 
 export default async function MonitoringPage() {
   const session = await auth()
@@ -21,6 +22,9 @@ export default async function MonitoringPage() {
           <div className="mb-6">
             <h1 className="text-2xl font-bold text-white">Platform Monitoring</h1>
             <p className="text-sm text-slate-400">AI usage, database limits, cost tracking, and threshold alerts</p>
+          </div>
+          <div className="mb-8">
+            <AiUsageMeter variant="full" />
           </div>
           <MonitoringDashboardClient />
         </main>
