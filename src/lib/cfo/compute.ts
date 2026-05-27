@@ -7,7 +7,7 @@
 import { categorize } from './categories'
 import type {
   Account, Transfer, TransfersByAccount, Rule, RuleLastExecution,
-  CategoryMap, DebtsConfig, DebtInput, QbSnapshot, ArSnapshot,
+  CategoryMap, DebtsConfig, DebtInput, QbSnapshot, ArSnapshot, ScheduledOutflow,
 } from './types'
 
 const DAY_MS = 86400000
@@ -134,6 +134,7 @@ export function monthCoverageAndPL(
   incomeSource: Account | null,
   transfersByAccount: TransfersByAccount[],
   categoryMap: CategoryMap,
+  scheduled: ScheduledOutflow[] = [],
 ) {
   const now = new Date()
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
@@ -175,7 +176,18 @@ export function monthCoverageAndPL(
   const paidPayroll = opTransfers.filter((t) => t.status === 'COMPLETE' && t.source?.id === opAccount?.id && inMonth(t) && isPayrollDest(t)).reduce((s, t) => s + t.amountInCents, 0)
   const paidAmex = opTransfers.filter((t) => t.status === 'COMPLETE' && t.source?.id === opAccount?.id && inMonth(t) && isCardPaymentDest(t)).reduce((s, t) => s + t.amountInCents, 0)
 
-  const remainingPayroll = Math.max(0, typicalPayrollPerMonth - paidPayroll)
+  // If the user entered scheduled payroll outflows for the remaining days of
+  // the current month, trust those numbers over the historical baseline.
+  const scheduledPayrollRemainingCents = scheduled
+    .filter((s) => s.category === 'payroll')
+    .filter((s) => {
+      const t = new Date(s.date).getTime()
+      return t >= now.getTime() && t < monthEnd.getTime()
+    })
+    .reduce((sum, s) => sum + s.amountCents, 0)
+  const remainingPayroll = scheduledPayrollRemainingCents > 0
+    ? scheduledPayrollRemainingCents
+    : Math.max(0, typicalPayrollPerMonth - paidPayroll)
   const remainingAmex = Math.max(0, typicalAmexPerMonth - paidAmex)
   const totalRemainingObligationsCents = remainingPayroll + remainingAmex
 
@@ -364,6 +376,7 @@ export function creditCardEarmark(creditCardPods: Account[], opAccount: Account 
 interface ExpectedOut {
   name: string; type: string; direction: string; cadence: string
   avgAmountCents: number; nextExpectedDate: string; lastSeen: string
+  isScheduled?: boolean
 }
 interface ExpectedIn { name: string; amountCents: number; expectedDate: string }
 
@@ -373,6 +386,7 @@ export function operationsForecast30d(
   transfersByAccount: TransfersByAccount[],
   incomeSource: Account | null,
   lookbackDays = 90,
+  scheduled: ScheduledOutflow[] = [],
 ) {
   if (!opAccount) return null
   const cutoff = Date.now() - lookbackDays * DAY_MS
@@ -405,6 +419,33 @@ export function operationsForecast30d(
       avgAmountCents: Math.round(mean(g.amts)),
       nextExpectedDate: new Date(nextTs).toISOString(),
       lastSeen: new Date(lastTs).toISOString(),
+    })
+  }
+  expectedOut.sort((a, b) => new Date(a.nextExpectedDate).getTime() - new Date(b.nextExpectedDate).getTime())
+
+  // Merge in user-entered scheduled outflows due in the next 30 days. If the
+  // user scheduled a payroll, suppress the baseline-detected Gusto/payroll
+  // entry to avoid double-counting.
+  const now30 = Date.now() + 30 * DAY_MS
+  const scheduled30 = scheduled.filter((s) => {
+    const t = new Date(s.date).getTime()
+    return t >= Date.now() - DAY_MS && t < now30
+  })
+  if (scheduled30.some((s) => s.category === 'payroll')) {
+    for (let i = expectedOut.length - 1; i >= 0; i--) {
+      if (/\bgusto\b|payroll/i.test(expectedOut[i].name)) expectedOut.splice(i, 1)
+    }
+  }
+  for (const s of scheduled30) {
+    expectedOut.push({
+      name: s.label,
+      type: 'SCHEDULED',
+      direction: 'MONEY_OUT',
+      cadence: 'one-time',
+      avgAmountCents: s.amountCents,
+      nextExpectedDate: s.date,
+      lastSeen: s.date,
+      isScheduled: true,
     })
   }
   expectedOut.sort((a, b) => new Date(a.nextExpectedDate).getTime() - new Date(b.nextExpectedDate).getTime())
@@ -976,4 +1017,31 @@ export function recentActivityByDestination(allTransfers: Transfer[], categoryMa
     })
   }
   return rows.sort((a, b) => Number(a.categorized) - Number(b.categorized) || b.totalCents - a.totalCents)
+}
+
+// ─── Next payroll lookup ─────────────────────────────────────────────────
+// Returns the next upcoming payroll: prefers a user-entered scheduled entry,
+// falls back to the baseline-detected Gusto/payroll cadence in the forecast.
+
+export interface NextPayroll {
+  date: string
+  amountCents: number
+  source: 'scheduled' | 'baseline'
+}
+
+export function nextPayroll(
+  scheduled: ScheduledOutflow[],
+  expectedOut: { name: string; nextExpectedDate: string; avgAmountCents: number }[],
+): NextPayroll | null {
+  const upcomingScheduled = scheduled
+    .filter((s) => s.category === 'payroll' && new Date(s.date).getTime() > Date.now() - DAY_MS)
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())[0]
+  if (upcomingScheduled) {
+    return { date: upcomingScheduled.date, amountCents: upcomingScheduled.amountCents, source: 'scheduled' }
+  }
+  const baseline = expectedOut.find((o) => /\bgusto\b|payroll/i.test(o.name))
+  if (baseline) {
+    return { date: baseline.nextExpectedDate, amountCents: baseline.avgAmountCents, source: 'baseline' }
+  }
+  return null
 }

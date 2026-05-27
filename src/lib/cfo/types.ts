@@ -77,6 +77,26 @@ export interface DebtsConfig {
   debts: DebtInput[]
 }
 
+// ─── Scheduled outflows (user-entered known upcoming payments) ──────────────
+// Used by the forecast + month coverage to replace the historical baseline
+// with the exact amount on a known date (e.g. next payroll, subcontractor
+// invoices, one-off bills). The dashboard uses these where they're present
+// and falls back to the historical baseline otherwise.
+
+export type ScheduledOutflowCategory = 'payroll' | 'subcontractor' | 'vendor' | 'tax' | 'other'
+
+export interface ScheduledOutflow {
+  id: string                          // stable UUID for editing
+  date: string                        // ISO date (YYYY-MM-DD)
+  amountCents: number
+  label: string                       // e.g. "Payroll 5/24", "James King invoice"
+  category?: ScheduledOutflowCategory
+}
+
+export interface ScheduledOutflowsConfig {
+  items: ScheduledOutflow[]
+}
+
 // ─── QuickBooks parsed shapes ────────────────────────────────────────────────
 
 export interface QbBalanceSheet {

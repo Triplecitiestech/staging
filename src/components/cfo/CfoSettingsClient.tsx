@@ -2,7 +2,17 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
-import type { DebtsConfig, CategoryMap, QbSnapshot, ArSnapshot } from '@/lib/cfo/types'
+import type { DebtsConfig, CategoryMap, QbSnapshot, ArSnapshot, ScheduledOutflow, ScheduledOutflowCategory } from '@/lib/cfo/types'
+
+const OUTFLOW_CATEGORIES: ScheduledOutflowCategory[] = ['payroll', 'subcontractor', 'vendor', 'tax', 'other']
+
+function newId() {
+  // Browser crypto.randomUUID() exists in modern browsers; fall back to a
+  // short random for older ones — uniqueness is local-to-the-list.
+  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `s-${Math.random().toString(36).slice(2, 10)}`
+}
 
 const CATEGORY_OPTIONS = ['', 'credit-card', 'payroll', 'loan', 'tax', 'insurance', 'vendor', 'personal', 'transfer-out', 'other']
 
@@ -32,6 +42,8 @@ export default function CfoSettingsClient() {
   const [arSnapText, setArSnapText] = useState('')
   const [qbSnapMsg, setQbSnapMsg] = useState<string | null>(null)
   const [arSnapMsg, setArSnapMsg] = useState<string | null>(null)
+  const [scheduled, setScheduled] = useState<ScheduledOutflow[]>([])
+  const [scheduledMsg, setScheduledMsg] = useState<string | null>(null)
 
   const loadStatus = useCallback((signal?: AbortSignal) => {
     return fetch('/api/admin/cfo/qb/status', { signal })
@@ -46,12 +58,13 @@ export default function CfoSettingsClient() {
       loadStatus(c.signal),
       fetch('/api/admin/cfo/config', { signal: c.signal })
         .then((r) => (r.ok ? r.json() : null))
-        .then((d: { debts: DebtsConfig; categories: CategoryMap; qbSnapshot: QbSnapshot | null; arSnapshot: ArSnapshot | null } | null) => {
+        .then((d: { debts: DebtsConfig; categories: CategoryMap; qbSnapshot: QbSnapshot | null; arSnapshot: ArSnapshot | null; scheduledOutflows?: { items: ScheduledOutflow[] } } | null) => {
           if (!d) return
           setDebtsText(JSON.stringify(d.debts, null, 2))
           setCategories(d.categories || {})
           setQbSnapText(d.qbSnapshot ? JSON.stringify(d.qbSnapshot, null, 2) : '')
           setArSnapText(d.arSnapshot ? JSON.stringify(d.arSnapshot, null, 2) : '')
+          setScheduled(d.scheduledOutflows?.items ?? [])
         })
         .catch((e) => { if (!(e instanceof DOMException && e.name === 'AbortError')) {/* ignore */} }),
     ]).finally(() => setLoading(false))
@@ -89,6 +102,17 @@ export default function CfoSettingsClient() {
     })
     setCatMsg(res.ok ? 'Saved.' : 'Save failed.')
   }, [categories])
+
+  const saveScheduled = useCallback(async () => {
+    setScheduledMsg(null)
+    const cleaned = scheduled.filter((s) => s.label.trim() && s.date && Number.isFinite(s.amountCents))
+    const res = await fetch('/api/admin/cfo/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scheduledOutflows: { items: cleaned } }),
+    })
+    setScheduledMsg(res.ok ? 'Saved. Refresh the dashboard to apply.' : (await res.json().catch(() => ({})))?.error || 'Save failed.')
+  }, [scheduled])
 
   const saveSnapshot = useCallback(async (kind: 'qbSnapshot' | 'arSnapshot', text: string, setMsg: (m: string) => void) => {
     setMsg('')
@@ -147,6 +171,87 @@ export default function CfoSettingsClient() {
               </a>
             </div>
           )}
+        </Card>
+      </section>
+
+      {/* Scheduled outflows — known upcoming payments (next payroll, subcontractor invoices, etc.) */}
+      <section>
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-300">Scheduled outflows</h2>
+        <Card>
+          <p className="mb-3 text-xs text-slate-400">
+            Enter known upcoming payments — next payroll, subcontractor invoices, one-off bills.
+            The dashboard uses these for the 30-day forecast and the &quot;Covers payroll + Amex&quot;
+            card, falling back to the rolling baseline when none are set.
+          </p>
+          {scheduled.length === 0 ? (
+            <p className="text-sm text-slate-400">No scheduled outflows yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {scheduled.map((s, i) => (
+                <div key={s.id} className="grid grid-cols-12 gap-2 items-center">
+                  <input
+                    type="date"
+                    value={s.date}
+                    onChange={(e) => setScheduled((prev) => prev.map((x, j) => j === i ? { ...x, date: e.target.value } : x))}
+                    className="col-span-3 rounded-md border border-white/10 bg-slate-950/60 px-2 py-1.5 text-sm text-slate-200 focus:border-cyan-500/40 focus:outline-none"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Label (e.g. Payroll 5/24, James King invoice)"
+                    value={s.label}
+                    onChange={(e) => setScheduled((prev) => prev.map((x, j) => j === i ? { ...x, label: e.target.value } : x))}
+                    className="col-span-4 rounded-md border border-white/10 bg-slate-950/60 px-2 py-1.5 text-sm text-slate-200 focus:border-cyan-500/40 focus:outline-none"
+                  />
+                  <div className="col-span-2 flex items-center gap-1">
+                    <span className="text-sm text-slate-500">$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="0.00"
+                      value={s.amountCents ? (s.amountCents / 100).toFixed(2) : ''}
+                      onChange={(e) => {
+                        const dollars = parseFloat(e.target.value)
+                        const cents = Number.isFinite(dollars) ? Math.round(dollars * 100) : 0
+                        setScheduled((prev) => prev.map((x, j) => j === i ? { ...x, amountCents: cents } : x))
+                      }}
+                      className="w-full rounded-md border border-white/10 bg-slate-950/60 px-2 py-1.5 text-sm text-slate-200 focus:border-cyan-500/40 focus:outline-none"
+                    />
+                  </div>
+                  <select
+                    value={s.category ?? 'other'}
+                    onChange={(e) => setScheduled((prev) => prev.map((x, j) => j === i ? { ...x, category: e.target.value as ScheduledOutflowCategory } : x))}
+                    className="col-span-2 rounded-md border border-white/10 bg-slate-950/60 px-2 py-1.5 text-sm text-slate-200 focus:border-cyan-500/40 focus:outline-none"
+                  >
+                    {OUTFLOW_CATEGORIES.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setScheduled((prev) => prev.filter((_, j) => j !== i))}
+                    className="col-span-1 rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1.5 text-sm text-red-300 hover:bg-red-500/20"
+                    aria-label="Delete row"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="mt-3 flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setScheduled((prev) => [...prev, { id: newId(), date: new Date().toISOString().slice(0, 10), label: '', amountCents: 0, category: 'payroll' }])}
+              className="rounded-md border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-slate-300 hover:bg-white/10"
+            >
+              + Add scheduled outflow
+            </button>
+            <button onClick={saveScheduled} className="rounded-md border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-sm text-cyan-300 hover:bg-cyan-500/20">
+              Save scheduled outflows
+            </button>
+            {scheduledMsg && <span className="text-sm text-slate-300">{scheduledMsg}</span>}
+          </div>
         </Card>
       </section>
 
