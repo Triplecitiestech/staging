@@ -81,10 +81,25 @@ export async function trackApiUsage(params: TrackApiUsageParams): Promise<void> 
 }
 
 /**
- * Wrap an Anthropic API call to automatically track usage
+ * Wrap an Anthropic API call to automatically track usage.
+ *
+ * NOTE: Anthropic bills cache-write tokens at 1.25x (5-min) or 2x (1-hour)
+ * the standard input rate, and cache-read tokens at 0.1x. Both arrive in
+ * the response as `cache_creation_input_tokens` / `cache_read_input_tokens`
+ * — separate from the unmarked `input_tokens` (which only reflects the
+ * uncached portion when caching is on). Rolling all three into
+ * `inputTokens` keeps the meter from undercounting whenever a caller
+ * starts using prompt caching. We slightly over-credit cache reads here
+ * (treating them at 1x instead of 0.1x); accepting that until enough
+ * callers cache to make the offset material.
  */
 export async function trackAnthropicCall<T extends {
-  usage?: { input_tokens: number; output_tokens: number }
+  usage?: {
+    input_tokens: number
+    output_tokens: number
+    cache_creation_input_tokens?: number | null
+    cache_read_input_tokens?: number | null
+  } | null
 }>(
   feature: string,
   model: string,
@@ -94,13 +109,17 @@ export async function trackAnthropicCall<T extends {
   try {
     const result = await apiCall()
     const durationMs = Date.now() - startMs
+    const u = result.usage
 
     await trackApiUsage({
       provider: 'anthropic',
       feature,
       model,
-      inputTokens: result.usage?.input_tokens ?? 0,
-      outputTokens: result.usage?.output_tokens ?? 0,
+      inputTokens:
+        (u?.input_tokens ?? 0) +
+        (u?.cache_creation_input_tokens ?? 0) +
+        (u?.cache_read_input_tokens ?? 0),
+      outputTokens: u?.output_tokens ?? 0,
       durationMs,
       statusCode: 200,
     })

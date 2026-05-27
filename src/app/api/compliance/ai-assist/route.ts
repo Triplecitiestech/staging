@@ -11,6 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
+import { trackApiUsage } from '@/lib/api-usage-tracker'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -64,6 +65,7 @@ Rules:
 
 Respond with ONLY valid JSON.`
 
+    const anthropicStart = Date.now()
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -82,10 +84,38 @@ Respond with ONLY valid JSON.`
     if (!res.ok) {
       const text = await res.text()
       console.error('[compliance/ai-assist] Anthropic error:', text)
+      await trackApiUsage({
+        provider: 'anthropic',
+        feature: 'compliance_ai_assist',
+        model: 'claude-haiku-4-5-20251001',
+        durationMs: Date.now() - anthropicStart,
+        statusCode: res.status,
+        error: `Anthropic API error: ${res.status}`,
+      })
       return NextResponse.json({ error: 'AI processing failed' }, { status: 502 })
     }
 
-    const data = (await res.json()) as { content: Array<{ type: string; text: string }> }
+    const data = (await res.json()) as {
+      content: Array<{ type: string; text: string }>
+      usage?: {
+        input_tokens?: number
+        output_tokens?: number
+        cache_creation_input_tokens?: number
+        cache_read_input_tokens?: number
+      }
+    }
+    await trackApiUsage({
+      provider: 'anthropic',
+      feature: 'compliance_ai_assist',
+      model: 'claude-haiku-4-5-20251001',
+      inputTokens:
+        (data.usage?.input_tokens ?? 0) +
+        (data.usage?.cache_creation_input_tokens ?? 0) +
+        (data.usage?.cache_read_input_tokens ?? 0),
+      outputTokens: data.usage?.output_tokens ?? 0,
+      durationMs: Date.now() - anthropicStart,
+      statusCode: 200,
+    })
     const text = data.content?.[0]?.text ?? ''
 
     let parsed: { suggestedStatus?: string | null; note?: string; reasoning?: string | null } = {}
