@@ -3,6 +3,42 @@ import { apiOk, apiError, generateRequestId } from '@/lib/api-response'
 
 export const dynamic = 'force-dynamic'
 
+// Every Anthropic-billing feature instrumented in the codebase. The meter
+// merges this catalog with live api_usage_logs results so a feature shows
+// up with zeros even before its first call — that way operators can
+// confirm tracking is wired without waiting for traffic. Add entries here
+// when you introduce a new tracked feature; the catalog is the single
+// source of truth for "what does the platform spend Anthropic dollars on."
+type Subsystem = 'SOC' | 'Compliance' | 'Marketing' | 'Blog' | 'Reporting' | 'Other'
+const FEATURE_CATALOG: Record<string, { subsystem: Subsystem; label: string }> = {
+  // SOC Analyst Agent
+  soc_triage: { subsystem: 'SOC', label: 'Triage screen' },
+  soc_triage_deep: { subsystem: 'SOC', label: 'Deep analysis' },
+  soc_action_plan: { subsystem: 'SOC', label: 'Action plan' },
+  soc_reasoning: { subsystem: 'SOC', label: 'Reasoning' },
+  'soc-trends-recommendations': { subsystem: 'SOC', label: 'Trend recommendations' },
+  'soc-rules-ai': { subsystem: 'SOC', label: 'AI rule suggestions' },
+  'soc-analyst': { subsystem: 'SOC', label: 'Analyst Q&A' },
+  // Compliance
+  compliance_policy_generation: { subsystem: 'Compliance', label: 'Policy generation' },
+  compliance_policy_analysis: { subsystem: 'Compliance', label: 'Framework analysis' },
+  compliance_ai_assist: { subsystem: 'Compliance', label: 'Reviewer assist' },
+  compliance_diagnose_ping: { subsystem: 'Compliance', label: 'Diagnostic ping' },
+  compliance_diagnose_stamina: { subsystem: 'Compliance', label: 'Stamina probe' },
+  // Marketing
+  'campaign-generation': { subsystem: 'Marketing', label: 'Campaign generation' },
+  'campaign-refine': { subsystem: 'Marketing', label: 'Campaign refine' },
+  // Blog
+  'blog-generation': { subsystem: 'Blog', label: 'Blog generation' },
+  'blog-regeneration': { subsystem: 'Blog', label: 'Blog regeneration' },
+  'blog-editor': { subsystem: 'Blog', label: 'Blog AI editor' },
+  // Reporting
+  'reports-ai-assistant': { subsystem: 'Reporting', label: 'Reports assistant' },
+  // Misc
+  'ai-chat': { subsystem: 'Other', label: 'Admin AI chat' },
+  'ai-support-review': { subsystem: 'Other', label: 'Support review' },
+}
+
 interface WindowMetrics {
   window: '1h' | '24h' | '7d' | '30d' | '60d'
   calls: number
@@ -16,9 +52,12 @@ interface WindowMetrics {
 
 interface FeatureBreakdown {
   feature: string
+  subsystem: Subsystem
+  label: string
   calls: number
   totalTokens: number
   costUsd: number
+  tracked: boolean
 }
 
 interface ModelBreakdown {
@@ -108,7 +147,7 @@ export async function GET() {
         AND "createdAt" >= NOW() - INTERVAL '30 days'
       GROUP BY feature
       ORDER BY "costCents" DESC
-      LIMIT 12
+      LIMIT 50
     `)
 
     const byModelQuery = safeQuery<{
@@ -168,12 +207,41 @@ export async function GET() {
       }
     })
 
-    const byFeature: FeatureBreakdown[] = byFeatureRows.map(r => ({
-      feature: r.feature,
-      calls: toNum(r.calls),
-      totalTokens: toNum(r.totalTokens),
-      costUsd: Math.round(toNum(r.costCents)) / 100,
-    }))
+    const dbByFeature = new Map<string, FeatureBreakdown>()
+    for (const r of byFeatureRows) {
+      const meta = FEATURE_CATALOG[r.feature]
+      dbByFeature.set(r.feature, {
+        feature: r.feature,
+        subsystem: meta?.subsystem ?? 'Other',
+        label: meta?.label ?? r.feature,
+        calls: toNum(r.calls),
+        totalTokens: toNum(r.totalTokens),
+        costUsd: Math.round(toNum(r.costCents)) / 100,
+        tracked: !!meta,
+      })
+    }
+    // Fill in catalog entries that have no usage yet, so the operator can
+    // see every tracked feature on the monitoring page — including the
+    // compliance ones that were just instrumented.
+    for (const [feature, meta] of Object.entries(FEATURE_CATALOG)) {
+      if (!dbByFeature.has(feature)) {
+        dbByFeature.set(feature, {
+          feature,
+          subsystem: meta.subsystem,
+          label: meta.label,
+          calls: 0,
+          totalTokens: 0,
+          costUsd: 0,
+          tracked: true,
+        })
+      }
+    }
+    const SUBSYSTEM_ORDER: Subsystem[] = ['SOC', 'Compliance', 'Marketing', 'Blog', 'Reporting', 'Other']
+    const byFeature: FeatureBreakdown[] = Array.from(dbByFeature.values()).sort((a, b) => {
+      const subDiff = SUBSYSTEM_ORDER.indexOf(a.subsystem) - SUBSYSTEM_ORDER.indexOf(b.subsystem)
+      if (subDiff !== 0) return subDiff
+      return b.costUsd - a.costUsd
+    })
 
     const byModel: ModelBreakdown[] = byModelRows.map(r => ({
       model: r.model,

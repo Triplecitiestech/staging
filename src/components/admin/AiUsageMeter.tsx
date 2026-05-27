@@ -17,12 +17,19 @@ interface WindowMetrics {
   avgDurationMs: number
 }
 
+type Subsystem = 'SOC' | 'Compliance' | 'Marketing' | 'Blog' | 'Reporting' | 'Other'
+
 interface FeatureBreakdown {
   feature: string
+  subsystem: Subsystem
+  label: string
   calls: number
   totalTokens: number
   costUsd: number
+  tracked: boolean
 }
+
+const SUBSYSTEM_ORDER: Subsystem[] = ['SOC', 'Compliance', 'Marketing', 'Blog', 'Reporting', 'Other']
 
 interface ModelBreakdown {
   model: string | null
@@ -192,19 +199,23 @@ export default function AiUsageMeter({ variant = 'compact' }: Props) {
           })}
         </div>
 
-        {variant === 'compact' && data.byFeature.length > 0 && (
+        {variant === 'compact' && data.byFeature.some(f => f.costUsd > 0) && (
           <div className="mt-4 pt-4 border-t border-slate-700/30">
             <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-2">Top features (30d)</p>
             <div className="flex flex-wrap gap-2">
-              {data.byFeature.slice(0, 5).map(f => (
-                <span
-                  key={f.feature}
-                  className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md bg-slate-900/50 border border-slate-700/50 text-slate-300"
-                >
-                  <span className="font-medium">{f.feature}</span>
-                  <span className="text-cyan-400">{fmtUsd(f.costUsd)}</span>
-                </span>
-              ))}
+              {[...data.byFeature]
+                .filter(f => f.costUsd > 0)
+                .sort((a, b) => b.costUsd - a.costUsd)
+                .slice(0, 5)
+                .map(f => (
+                  <span
+                    key={f.feature}
+                    className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md bg-slate-900/50 border border-slate-700/50 text-slate-300"
+                  >
+                    <span className="font-medium">{f.label}</span>
+                    <span className="text-cyan-400">{fmtUsd(f.costUsd)}</span>
+                  </span>
+                ))}
             </div>
           </div>
         )}
@@ -258,14 +269,33 @@ export default function AiUsageMeter({ variant = 'compact' }: Props) {
                     </tr>
                   </thead>
                   <tbody>
-                    {data.byFeature.map(f => (
-                      <tr key={f.feature} className="border-b border-slate-800/40">
-                        <td className="py-1.5 text-slate-300 font-medium">{f.feature}</td>
-                        <td className="py-1.5 text-right text-slate-400">{f.calls.toLocaleString()}</td>
-                        <td className="py-1.5 text-right text-slate-400">{compact(f.totalTokens)}</td>
-                        <td className="py-1.5 text-right text-cyan-300 font-semibold">{fmtUsd(f.costUsd)}</td>
-                      </tr>
-                    ))}
+                    {SUBSYSTEM_ORDER.flatMap(sub => {
+                      const rows = data.byFeature.filter(f => f.subsystem === sub)
+                      if (rows.length === 0) return []
+                      return [
+                        <tr key={`hdr-${sub}`} className="border-b border-slate-700/40">
+                          <td colSpan={4} className="pt-3 pb-1 text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+                            {sub}
+                          </td>
+                        </tr>,
+                        ...rows.map(f => {
+                          const idle = f.calls === 0
+                          return (
+                            <tr key={f.feature} className={`border-b border-slate-800/40 ${idle ? 'opacity-50' : ''}`}>
+                              <td className="py-1.5 font-medium">
+                                <span className={idle ? 'text-slate-500' : 'text-slate-300'}>{f.label}</span>
+                                <span className="ml-2 text-[10px] text-slate-600 font-mono">{f.feature}</span>
+                              </td>
+                              <td className="py-1.5 text-right text-slate-400">{f.calls.toLocaleString()}</td>
+                              <td className="py-1.5 text-right text-slate-400">{compact(f.totalTokens)}</td>
+                              <td className={`py-1.5 text-right font-semibold ${idle ? 'text-slate-600' : 'text-cyan-300'}`}>
+                                {idle ? '—' : fmtUsd(f.costUsd)}
+                              </td>
+                            </tr>
+                          )
+                        }),
+                      ]
+                    })}
                   </tbody>
                 </table>
               )}
