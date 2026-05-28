@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import CrossStackAssessment, { isCrossStackAssessment, type EnrichmentBundle } from './CrossStackAssessment';
 import { useDemoMode } from '@/components/admin/DemoModeProvider';
 
 // ── Types ──
@@ -89,6 +90,7 @@ interface AnalysisData {
   ticket: TicketInfo;
   analysis: SocAnalysis | null;
   reasoning: SocReasoningData | null;
+  enrichment?: unknown;
   incidentActionPlan: IncidentPlan | null;
   pendingActions: PendingAction[];
   autotaskWebUrl: string | null;
@@ -218,6 +220,7 @@ export default function SocTicketDetail({ ticketId, onBack }: SocTicketDetailPro
   const [showOriginalAlert, setShowOriginalAlert] = useState(false);
   const [decidingAction, setDecidingAction] = useState<string | null>(null);
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());
+  const [reprocessing, setReprocessing] = useState(false);
 
   const fetchAnalysis = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
@@ -242,6 +245,26 @@ export default function SocTicketDetail({ ticketId, onBack }: SocTicketDetailPro
     fetchAnalysis(c.signal);
     return () => c.abort();
   }, [fetchAnalysis]);
+
+  // Re-run the SOC analysis for just this one ticket. Reprocessing clears the
+  // prior analysis/incident/pending actions for this ticket, then re-pulls the
+  // security stack — so it only burns tokens for this ticket, not all of them.
+  const handleReprocess = async () => {
+    const id = data?.ticket.autotaskTicketId || ticketId;
+    setReprocessing(true);
+    try {
+      const res = await fetch('/api/soc/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticketIds: [id] }),
+      });
+      if (res.ok) await fetchAnalysis();
+    } catch {
+      // fetchAnalysis on next mount surfaces any issue
+    } finally {
+      setReprocessing(false);
+    }
+  };
 
   const handleActionDecision = async (actionId: string, decision: 'approve' | 'reject') => {
     setDecidingAction(actionId);
@@ -296,6 +319,10 @@ export default function SocTicketDetail({ ticketId, onBack }: SocTicketDetailPro
 
   // Parse reasoning from API
   const parsedReasoning = parseJsonField<SocReasoningData>(reasoning);
+  // New cross-stack assessment + enrichment (falls back to the legacy layout
+  // for incidents analyzed before the redesign).
+  const assessment = isCrossStackAssessment(reasoning) ? reasoning : null;
+  const enrichment = parseJsonField<EnrichmentBundle>(data.enrichment);
 
   // Legacy fields
   const proposedActions = parseJsonField<ProposedActions>(incidentActionPlan?.proposedActions);
@@ -340,12 +367,28 @@ export default function SocTicketDetail({ ticketId, onBack }: SocTicketDetailPro
               {ticket.queueLabel && <span className="text-slate-500">Queue: {ticket.queueLabel}</span>}
             </div>
           </div>
-          {autotaskUrl && (
-            <a href={autotaskUrl} target="_blank" rel="noopener noreferrer"
-              className="px-3 py-1.5 text-xs text-cyan-400 hover:text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/20 rounded-lg transition-colors flex-shrink-0">
-              Open in Autotask
-            </a>
-          )}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={handleReprocess}
+              disabled={reprocessing}
+              title="Re-run the SOC analysis for just this ticket (re-pulls the security stack; only burns tokens for this one ticket)"
+              className="px-3 py-1.5 text-xs text-white bg-slate-700 hover:bg-slate-600 border border-white/10 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2">
+              {reprocessing ? (
+                <>
+                  <span className="animate-spin rounded-full h-3 w-3 border-t-2 border-b-2 border-white" />
+                  Re-running…
+                </>
+              ) : (
+                'Re-run analysis'
+              )}
+            </button>
+            {autotaskUrl && (
+              <a href={autotaskUrl} target="_blank" rel="noopener noreferrer"
+                className="px-3 py-1.5 text-xs text-cyan-400 hover:text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/20 rounded-lg transition-colors">
+                Open in Autotask
+              </a>
+            )}
+          </div>
         </div>
       </div>
 
@@ -387,7 +430,9 @@ export default function SocTicketDetail({ ticketId, onBack }: SocTicketDetailPro
           {/* ═══════════════════════════════════════════
                SOC ASSESSMENT (the key decision — always first)
              ═══════════════════════════════════════════ */}
-          {useReasoningLayout && parsedReasoning ? (
+          {assessment ? (
+            <CrossStackAssessment assessment={assessment} enrichment={enrichment} />
+          ) : useReasoningLayout && parsedReasoning ? (
             <>
               {/* New reasoning layout */}
               <div className="bg-slate-800/50 border border-white/10 rounded-lg p-6">
@@ -806,8 +851,9 @@ export default function SocTicketDetail({ ticketId, onBack }: SocTicketDetailPro
             </button>
             {showTechnicalDetails && (
               <div className="px-6 pb-4 space-y-4">
-                {/* Full internal note from reasoning (unique to Technical Details) */}
-                {parsedReasoning?.internalNote && (
+                {/* Full internal note from reasoning (unique to Technical Details).
+                    Skipped for the new assessment, which already shows the note prominently. */}
+                {!assessment && parsedReasoning?.internalNote && (
                   <div>
                     <p className="text-xs font-semibold text-slate-500 uppercase mb-1">Internal Investigation Note</p>
                     <pre className="text-xs text-slate-400 whitespace-pre-wrap bg-slate-900/50 rounded p-3 max-h-60 overflow-y-auto">
