@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { canAccessCfoDashboard } from '@/lib/cfo/access'
-import { getDebts, saveDebts, getCategoryOverrides, saveCategoryOverrides, getQbSnapshot, saveQbSnapshot, getArSnapshot, saveArSnapshot, getScheduledOutflows, saveScheduledOutflows } from '@/lib/cfo/store'
+import { getDebts, saveDebts, getCategoryOverrides, saveCategoryOverrides, getQbSnapshot, saveQbSnapshot, getArSnapshot, saveArSnapshot, getScheduledOutflows, saveScheduledOutflows, getHiringAssumptions, saveHiringAssumptions } from '@/lib/cfo/store'
 import type { DebtsConfig, DebtInput, CategoryMap, QbSnapshot, ArSnapshot, ScheduledOutflowsConfig, ScheduledOutflow } from '@/lib/cfo/types'
+import type { HiringAssumptions } from '@/lib/cfo/hiring'
 
 export const dynamic = 'force-dynamic'
 
@@ -11,13 +12,14 @@ export async function GET() {
   if (!session || !(await canAccessCfoDashboard(session))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
-  const [debts, categories, qbSnapshot, arSnapshot, scheduled] = await Promise.all([getDebts(), getCategoryOverrides(), getQbSnapshot(), getArSnapshot(), getScheduledOutflows()])
+  const [debts, categories, qbSnapshot, arSnapshot, scheduled, hiring] = await Promise.all([getDebts(), getCategoryOverrides(), getQbSnapshot(), getArSnapshot(), getScheduledOutflows(), getHiringAssumptions()])
   return NextResponse.json({
     debts: debts ?? { debts: [] },
     categories: categories ?? {},
     qbSnapshot: qbSnapshot ?? null,
     arSnapshot: arSnapshot ?? null,
     scheduledOutflows: scheduled ?? { items: [] },
+    hiringAssumptions: hiring ?? null,
   })
 }
 
@@ -36,7 +38,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  let body: { debts?: DebtsConfig; categories?: CategoryMap; qbSnapshot?: QbSnapshot; arSnapshot?: ArSnapshot; scheduledOutflows?: ScheduledOutflowsConfig }
+  let body: { debts?: DebtsConfig; categories?: CategoryMap; qbSnapshot?: QbSnapshot; arSnapshot?: ArSnapshot; scheduledOutflows?: ScheduledOutflowsConfig; hiringAssumptions?: HiringAssumptions }
   try {
     body = await request.json()
   } catch {
@@ -73,6 +75,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Each scheduled outflow needs id (string), date (ISO), label (string), amountCents (number)' }, { status: 400 })
     }
     await saveScheduledOutflows({ items })
+  }
+
+  if (body.hiringAssumptions) {
+    const h = body.hiringAssumptions
+    if (typeof h !== 'object' || typeof h.us !== 'object' || typeof h.ph !== 'object') {
+      return NextResponse.json({ error: 'hiringAssumptions must include us + ph input objects' }, { status: 400 })
+    }
+    await saveHiringAssumptions(h)
   }
 
   return NextResponse.json({ ok: true })

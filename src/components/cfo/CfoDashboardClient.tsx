@@ -171,6 +171,9 @@ export default function CfoDashboardClient() {
           {demo.active && <span className="ml-2 rounded bg-rose-500/20 px-1.5 py-0.5 text-rose-300">Demo mode</span>}
         </p>
         <div className="flex items-center gap-2">
+          <Link href="/admin/cfo/hiring" className="rounded-md border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-slate-300 hover:bg-white/10">
+            Hiring calc
+          </Link>
           <Link href="/admin/cfo/settings" className="rounded-md border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-slate-300 hover:bg-white/10">
             Settings
           </Link>
