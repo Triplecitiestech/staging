@@ -57,6 +57,8 @@ export interface RocketCyberDetail {
   device: string | null
   organization: string | null
   detectionMessage: string | null
+  rawIncident?: unknown
+  rawEvents?: unknown[]
 }
 
 export interface DeviceHealth {
@@ -202,6 +204,16 @@ export default function CrossStackAssessment({ assessment, enrichment }: { asses
             <DetailField label="Parent Command Line" value={enrichment.rocketCyber.parentCommandLine} mono wide />
             <DetailField label="Detection Message" value={enrichment.rocketCyber.detectionMessage} wide />
           </div>
+          {/* Raw payload — what our API call actually received. Expand and share
+              this if fields above are empty so we can map the real structure. */}
+          {(enrichment.rocketCyber.rawIncident != null || (enrichment.rocketCyber.rawEvents?.length ?? 0) > 0) && (
+            <details className="px-4 pb-4">
+              <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-300">Raw RocketCyber API payload (debug)</summary>
+              <pre className="text-[11px] text-slate-400 whitespace-pre-wrap font-mono bg-black/40 p-3 rounded mt-2 max-h-[360px] overflow-y-auto">
+{JSON.stringify({ incident: enrichment.rocketCyber.rawIncident, events: enrichment.rocketCyber.rawEvents }, null, 2)}
+              </pre>
+            </details>
+          )}
         </Section>
       )}
 
