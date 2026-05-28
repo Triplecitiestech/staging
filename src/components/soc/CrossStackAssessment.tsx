@@ -103,7 +103,11 @@ export interface EnrichmentBundle {
     detections: Array<{ name: string; path: string | null; hash: string | null; threatName: string; threatScore: number | null; timestamp: string; hostname: string | null; status: string }>
     rawDetections?: unknown[]
   } | null
-  dns: { blockedQueries: number; totalQueries: number; topBlockedDomains: Array<{ domain: string; count: number }>; orgLevelOnly: boolean } | null
+  dns: {
+    orgName: string | null; totalBlocked: number; totalThreats: number; deviceScoped: boolean
+    topBlockedDomains: Array<{ domain: string; count: number }>
+    samples: Array<{ time: string; fqdn: string; result: string; threat: boolean; categories: string; device: string | null; requesterIp: string | null }>
+  } | null
   saasAlerts: { eventCount: number; events: Array<{ type: string; severity: string; description: string; time: string; user: string | null }> } | null
   knownBenignMatches: KnownBenignMatch[]
   dataSources: DataSourceStatus[]
@@ -291,6 +295,32 @@ export default function CrossStackAssessment({ assessment, enrichment }: { asses
                 </pre>
               </details>
             )}
+          </div>
+        </Section>
+      )}
+
+      {/* DNSFilter blocked/threat queries */}
+      {enrichment?.dns && (enrichment.dns.totalBlocked > 0 || enrichment.dns.samples.length > 0) && (
+        <Section title="DNSFilter Blocked Queries" subtitle={enrichment.dns.deviceScoped ? 'Some tied to the affected device' : 'Org-level — not tied to the specific device'}>
+          <div className="p-4 space-y-3">
+            <div className="flex flex-wrap gap-3 text-sm">
+              <span className="text-slate-300">{enrichment.dns.totalBlocked} blocked</span>
+              <span className={enrichment.dns.totalThreats > 0 ? 'text-rose-400' : 'text-slate-400'}>{enrichment.dns.totalThreats} threats</span>
+              {enrichment.dns.orgName && <span className="text-slate-500">org: {enrichment.dns.orgName}</span>}
+            </div>
+            {enrichment.dns.topBlockedDomains.length > 0 && (
+              <div className="text-xs text-slate-500">Top blocked: {enrichment.dns.topBlockedDomains.map(d => `${d.domain} (${d.count})`).join(' · ')}</div>
+            )}
+            <div className="space-y-1.5">
+              {enrichment.dns.samples.slice(0, 10).map((s, i) => (
+                <div key={i} className="bg-black/30 rounded p-2 text-xs">
+                  <span className={s.threat ? 'text-rose-400 font-medium' : 'text-slate-400'}>{s.threat ? 'THREAT' : 'blocked'}</span>
+                  <span className="text-white ml-2 break-all">{s.fqdn}</span>
+                  {s.categories && <span className="text-slate-500 ml-2">[{s.categories}]</span>}
+                  {s.device && <span className="text-slate-500 ml-2">on {s.device}</span>}
+                </div>
+              ))}
+            </div>
           </div>
         </Section>
       )}

@@ -451,11 +451,15 @@ export function formatEnrichmentForPrompt(bundle: EnrichmentBundle): string {
     lines.push('\nDATTO EDR: no related endpoint detections found in the window.');
   }
 
-  // DNSFilter.
+  // DNSFilter query-log correlation.
   if (bundle.dns) {
-    lines.push(`\nDNSFILTER (org-level, ±6h window): ${bundle.dns.blockedQueries} blocked / ${bundle.dns.totalQueries} total queries.`);
-    if (bundle.dns.topBlockedDomains.length > 0) {
-      lines.push(`  Top blocked domains: ${bundle.dns.topBlockedDomains.map(d => `${d.domain} (${d.count})`).join(', ')}`);
+    const d = bundle.dns;
+    lines.push(`\nDNSFILTER (org "${d.orgName || '?'}", ±6h window): ${d.totalBlocked} blocked quer${d.totalBlocked === 1 ? 'y' : 'ies'}, ${d.totalThreats} flagged as threats. ${d.deviceScoped ? 'Some tied to the affected device.' : 'NOT tied to the specific device (org-level).'}`);
+    if (d.topBlockedDomains.length > 0) {
+      lines.push(`  Top blocked domains: ${d.topBlockedDomains.map(x => `${x.domain} (${x.count})`).join(', ')}`);
+    }
+    for (const s of d.samples) {
+      lines.push(`  - ${s.threat ? 'THREAT' : 'blocked'} ${s.fqdn}${s.categories ? ` [${s.categories}]` : ''}${s.device ? ` on ${s.device}` : ''}${s.requesterIp ? ` from ${s.requesterIp}` : ''} (${s.time})`);
     }
   } else {
     lines.push('\nDNSFILTER: no data.');
