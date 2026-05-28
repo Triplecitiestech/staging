@@ -1,14 +1,13 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import {
-  ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend,
-} from 'recharts'
 import type { CachedSnapshot } from '@/lib/cfo/build'
 import { useDemoMode } from '@/components/admin/DemoModeProvider'
 import { applyCfoDemo } from '@/lib/cfo/demo'
 import CfoSimulator from './CfoSimulator'
+import CfoAccordion, { type Tone, type AccordionRow } from './CfoAccordion'
+import CfoAreaChart from './CfoAreaChart'
 
 // ─── formatting ─────────────────────────────────────────────────────────────
 
@@ -64,25 +63,25 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 }
 
 function BarList({ rows, empty }: { rows: { label: string; amountCents: number; pct: number }[]; empty: string }) {
-  if (rows.length === 0) return <p className="text-sm text-slate-400">{empty}</p>
-  return (
-    <ul className="space-y-2">
-      {rows.map((r, i) => (
-        <li key={i}>
-          <div className="flex justify-between text-sm">
-            <span className="truncate pr-2 capitalize text-slate-200" title={r.label}>{r.label}</span>
-            <span className="whitespace-nowrap text-slate-300">{usd(r.amountCents)} · {Math.round(r.pct * 100)}%</span>
-          </div>
-          <div className="mt-1 h-1.5 w-full rounded-full bg-white/5">
-            <div className="h-1.5 rounded-full bg-cyan-400/70" style={{ width: `${Math.min(100, r.pct * 100)}%` }} />
-          </div>
-        </li>
-      ))}
-    </ul>
-  )
+  const total = rows.reduce((s, r) => s + r.amountCents, 0)
+  const accRows: AccordionRow[] = rows.map((r, i) => ({
+    id: `${r.label}-${i}`,
+    rank: `#${i + 1}`,
+    label: cap(r.label),
+    badge: { label: `${Math.round(r.pct * 100)}%`, tone: 'slate' },
+    value: usd(r.amountCents),
+    bar: { pct: r.pct * 100, tone: 'cyan' },
+    details: [
+      { label: 'Amount', value: usd(r.amountCents) },
+      { label: 'Share of total', value: `${Math.round(r.pct * 100)}%` },
+      { label: 'Window total', value: usd(total) },
+    ],
+  }))
+  return <CfoAccordion rows={accRows} empty={empty} />
 }
 
 const shortDate = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s)
 
 // ─── main ─────────────────────────────────────────────────────────────────
 
@@ -283,33 +282,25 @@ export default function CfoDashboardClient() {
             <Kpi label="Expected outflows" value={usd(d.opsForecast.expectedOutCents)} />
           </div>
           {d.opsForecast.expectedOut.length > 0 && (
-            <Card className="mt-4">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-xs uppercase text-slate-500">
-                      <th className="pb-2 pr-3">Upcoming outflow</th>
-                      <th className="pb-2 pr-3">Cadence</th>
-                      <th className="pb-2 pr-3">Next</th>
-                      <th className="pb-2 text-right">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody className="text-slate-200">
-                    {d.opsForecast.expectedOut.map((o, i) => (
-                      <tr key={i} className="border-t border-white/5">
-                        <td className="max-w-[200px] truncate py-2 pr-3">
-                          {o.name}
-                          {o.isScheduled && <span className="ml-2 rounded bg-cyan-500/20 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-cyan-300">Scheduled</span>}
-                        </td>
-                        <td className="py-2 pr-3 capitalize text-slate-400">{o.cadence}</td>
-                        <td className="py-2 pr-3 text-slate-400">{shortDate(o.nextExpectedDate)}</td>
-                        <td className="py-2 text-right">{usd(o.avgAmountCents)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </Card>
+            <div className="mt-4">
+              <CfoAccordion
+                empty="No upcoming outflows."
+                rows={d.opsForecast.expectedOut.map((o, i) => ({
+                  id: `out-${i}`,
+                  badge: { label: cap(o.cadence), tone: 'slate' },
+                  label: o.name,
+                  sublabel: o.isScheduled ? 'Scheduled' : undefined,
+                  value: usd(o.avgAmountCents),
+                  dot: o.isScheduled ? 'cyan' : undefined,
+                  details: [
+                    { label: 'Cadence', value: cap(o.cadence) },
+                    { label: 'Next expected', value: shortDate(o.nextExpectedDate) },
+                    { label: 'Amount', value: usd(o.avgAmountCents) },
+                    { label: 'Scheduled', value: o.isScheduled ? 'Yes' : 'No', tone: o.isScheduled ? 'cyan' : 'slate' },
+                  ],
+                }))}
+              />
+            </div>
           )}
         </div>
       )}
@@ -317,78 +308,52 @@ export default function CfoDashboardClient() {
       {/* 12-month P&L */}
       <div>
         <SectionTitle>12-month income vs outflow</SectionTitle>
-        <Card>
-          <div className="h-72 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
-                <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 12 }} />
-                <YAxis tick={{ fill: '#94a3b8', fontSize: 12 }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
-                <Tooltip
-                  contentStyle={{ background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#fff' }}
-                  formatter={(value) => `$${Number(value).toLocaleString()}`}
-                />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="income" name="Income" fill="#34d399" radius={[3, 3, 0, 0]} />
-                <Bar dataKey="outflow" name="Outflow" fill="#f87171" radius={[3, 3, 0, 0]} />
-                <Line dataKey="net" name="Net" stroke="#22d3ee" strokeWidth={2} dot={false} />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
+        <CfoAreaChart
+          title="Income vs outflow"
+          subtitle={`${chartData.length} months · Net ${usd(d.monthlyPL.reduce((s, p) => s + p.netCents, 0))}`}
+          data={chartData}
+          series={[
+            { dataKey: 'income', name: 'Income', color: '#34d399' },
+            { dataKey: 'outflow', name: 'Outflow', color: '#f87171' },
+            { dataKey: 'net', name: 'Net', color: '#22d3ee' },
+          ]}
+          formatValue={(v) => `$${Math.round(v).toLocaleString()}`}
+          formatAxis={(v) => `$${(v / 1000).toFixed(0)}k`}
+        />
       </div>
 
       {/* Operations breakdown — category + destination */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div>
           <SectionTitle>Operations spend by category (90d)</SectionTitle>
-          <Card>
-            <BarList empty="No operations spend in window." rows={d.opsBreakdown.byCategory.map((c) => ({ label: c.category, amountCents: c.amountCents, pct: c.pct }))} />
-          </Card>
+          <BarList empty="No operations spend in window." rows={d.opsBreakdown.byCategory.map((c) => ({ label: c.category, amountCents: c.amountCents, pct: c.pct }))} />
         </div>
         <div>
           <SectionTitle>Operations spend by destination (90d)</SectionTitle>
-          <Card>
-            <BarList empty="No operations spend in window." rows={d.opsBreakdown.byDestination.map((c) => ({ label: c.name, amountCents: c.amountCents, pct: c.pct }))} />
-          </Card>
+          <BarList empty="No operations spend in window." rows={d.opsBreakdown.byDestination.map((c) => ({ label: c.name, amountCents: c.amountCents, pct: c.pct }))} />
         </div>
       </div>
 
       {/* Recurring obligations */}
       <div>
         <SectionTitle>Upcoming recurring obligations</SectionTitle>
-        <Card>
-          {d.obligations.length === 0 ? (
-            <p className="text-sm text-slate-400">No recurring obligations detected.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs uppercase text-slate-500">
-                    <th className="pb-2 pr-3">Destination</th>
-                    <th className="pb-2 pr-3">Pod</th>
-                    <th className="pb-2 pr-3">Cadence</th>
-                    <th className="pb-2 pr-3">Next</th>
-                    <th className="pb-2 text-right">Amount</th>
-                    <th className="pb-2 text-right">Annualized</th>
-                  </tr>
-                </thead>
-                <tbody className="text-slate-200">
-                  {d.obligations.slice(0, 15).map((o, i) => (
-                    <tr key={i} className="border-t border-white/5">
-                      <td className="max-w-[180px] truncate py-2 pr-3">{o.destName}</td>
-                      <td className="py-2 pr-3 text-slate-400">{o.podName}</td>
-                      <td className="py-2 pr-3 capitalize text-slate-400">{o.cadence}</td>
-                      <td className="py-2 pr-3 text-slate-400">{shortDate(o.nextExpectedDate)}</td>
-                      <td className="py-2 text-right">{usd(o.avgAmountCents)}</td>
-                      <td className="py-2 text-right text-slate-400">{usd(o.annualizedCents)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
+        <CfoAccordion
+          empty="No recurring obligations detected."
+          rows={d.obligations.slice(0, 15).map((o, i) => ({
+            id: `obl-${i}`,
+            badge: { label: cap(o.cadence), tone: 'slate' },
+            label: o.destName,
+            sublabel: o.podName,
+            value: usd(o.avgAmountCents),
+            details: [
+              { label: 'Pod', value: o.podName },
+              { label: 'Cadence', value: cap(o.cadence) },
+              { label: 'Next', value: shortDate(o.nextExpectedDate) },
+              { label: 'Amount', value: usd(o.avgAmountCents) },
+              { label: 'Annualized', value: usd(o.annualizedCents) },
+            ],
+          }))}
+        />
       </div>
 
       {/* Credit-card earmark */}
@@ -398,14 +363,18 @@ export default function CfoDashboardClient() {
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
             <Kpi label="Total set aside" value={usd(d.cards.totalSetAsideCents)} sub={`${d.cards.cardCount} card pod${d.cards.cardCount === 1 ? '' : 's'}`} />
             <Kpi label="Funded last month" value={usd(d.cards.lastMonthFundedCents)} />
-            <Card>
-              <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Per card</span>
-              <ul className="mt-2 space-y-1 text-sm">
-                {d.cards.cards.map((c, i) => (
-                  <li key={i} className="flex justify-between"><span className="truncate pr-2 text-slate-300">{c.name}</span><span className="text-slate-200">{usd(c.balanceCents)}</span></li>
-                ))}
-              </ul>
-            </Card>
+            <div>
+              <span className="mb-2 block text-xs font-medium uppercase tracking-wide text-slate-400">Per card</span>
+              <CfoAccordion
+                empty="No card pods."
+                rows={d.cards.cards.map((c, i) => ({
+                  id: `card-${i}`,
+                  label: c.name,
+                  value: usd(c.balanceCents),
+                  details: [{ label: 'Balance', value: usd(c.balanceCents) }],
+                }))}
+              />
+            </div>
           </div>
         </div>
       )}
@@ -419,40 +388,46 @@ export default function CfoDashboardClient() {
             <Kpi label="Net flow (30d)" value={usd(d.ownerPay.netFlow30dCents)} status={d.ownerPay.netFlow30dCents >= 0 ? 'green' : 'yellow'} sub={`In ${usd(d.ownerPay.in30Cents)} · Out ${usd(d.ownerPay.out30Cents)}`} />
             <Kpi label="Spend (90d)" value={usd(d.ownerPay.total90Cents)} />
           </div>
-          <Card className="mt-4">
-            <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Monthly in / out (12 months)</span>
-            <div className="mt-2 h-56 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={d.ownerPay.monthlyTrend.map((p) => ({ label: p.label, in: Math.round(p.inCents / 100), out: Math.round(p.outCents / 100), net: Math.round(p.netCents / 100) }))} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
-                  <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 11 }} />
-                  <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
-                  <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#fff' }} formatter={(value) => `$${Number(value).toLocaleString()}`} />
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Bar dataKey="in" name="In" fill="#34d399" radius={[3, 3, 0, 0]} />
-                  <Bar dataKey="out" name="Out" fill="#f87171" radius={[3, 3, 0, 0]} />
-                  <Line dataKey="net" name="Net" stroke="#22d3ee" strokeWidth={2} dot={false} />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
-          </Card>
+          <div className="mt-4">
+            <CfoAreaChart
+              title="Owner's Pay — monthly in / out"
+              subtitle="Last 12 months"
+              height={224}
+              data={d.ownerPay.monthlyTrend.map((p) => ({ label: p.label, in: Math.round(p.inCents / 100), out: Math.round(p.outCents / 100), net: Math.round(p.netCents / 100) }))}
+              series={[
+                { dataKey: 'in', name: 'In', color: '#34d399' },
+                { dataKey: 'out', name: 'Out', color: '#f87171' },
+                { dataKey: 'net', name: 'Net', color: '#22d3ee' },
+              ]}
+              formatValue={(v) => `$${Math.round(v).toLocaleString()}`}
+              formatAxis={(v) => `$${(v / 1000).toFixed(0)}k`}
+            />
+          </div>
           <div className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-3">
-            <Card>
-              <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Top destinations (90d)</span>
-              <div className="mt-2"><BarList empty="—" rows={d.ownerPay.topDestinations.map((t) => ({ label: t.name, amountCents: t.amountCents, pct: t.pct }))} /></div>
-            </Card>
-            <Card>
-              <span className="text-xs font-medium uppercase tracking-wide text-slate-400">By category (90d)</span>
-              <div className="mt-2"><BarList empty="—" rows={d.ownerPay.byCategory.map((c) => ({ label: c.category, amountCents: c.amountCents, pct: c.pct }))} /></div>
-            </Card>
-            <Card>
-              <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Recurring</span>
-              <ul className="mt-2 space-y-1 text-sm">
-                {d.ownerPay.recurring.length === 0 ? <li className="text-slate-400">None detected.</li> : d.ownerPay.recurring.map((r, i) => (
-                  <li key={i} className="flex justify-between"><span className="truncate pr-2 text-slate-300">{r.name} <span className="text-slate-500">· {r.cadence}</span></span><span className="text-slate-200">{usd(r.avgAmountCents)}</span></li>
-                ))}
-              </ul>
-            </Card>
+            <div>
+              <span className="mb-2 block text-xs font-medium uppercase tracking-wide text-slate-400">Top destinations (90d)</span>
+              <BarList empty="—" rows={d.ownerPay.topDestinations.map((t) => ({ label: t.name, amountCents: t.amountCents, pct: t.pct }))} />
+            </div>
+            <div>
+              <span className="mb-2 block text-xs font-medium uppercase tracking-wide text-slate-400">By category (90d)</span>
+              <BarList empty="—" rows={d.ownerPay.byCategory.map((c) => ({ label: c.category, amountCents: c.amountCents, pct: c.pct }))} />
+            </div>
+            <div>
+              <span className="mb-2 block text-xs font-medium uppercase tracking-wide text-slate-400">Recurring</span>
+              <CfoAccordion
+                empty="None detected."
+                rows={d.ownerPay.recurring.map((r, i) => ({
+                  id: `opr-${i}`,
+                  badge: { label: cap(r.cadence), tone: 'slate' },
+                  label: r.name,
+                  value: usd(r.avgAmountCents),
+                  details: [
+                    { label: 'Cadence', value: cap(r.cadence) },
+                    { label: 'Avg amount', value: usd(r.avgAmountCents) },
+                  ],
+                }))}
+              />
+            </div>
           </div>
         </div>
       )}
@@ -461,10 +436,8 @@ export default function CfoDashboardClient() {
       {d.incomeSplit && d.incomeSplit.podRatios.length > 0 && (
         <div>
           <SectionTitle>Income distribution across pods ({d.incomeSplit.lookbackDays}d)</SectionTitle>
-          <Card>
-            <BarList empty="—" rows={d.incomeSplit.podRatios.map((p) => ({ label: p.podName ?? '—', amountCents: p.totalCents, pct: p.ratioPct }))} />
-            {!d.incomeSplit.sampleSizeAdequate && <p className="mt-3 text-xs text-slate-500">Small sample — ratios may not be representative yet.</p>}
-          </Card>
+          <BarList empty="—" rows={d.incomeSplit.podRatios.map((p) => ({ label: p.podName ?? '—', amountCents: p.totalCents, pct: p.ratioPct }))} />
+          {!d.incomeSplit.sampleSizeAdequate && <p className="mt-3 text-xs text-slate-500">Small sample — ratios may not be representative yet.</p>}
         </div>
       )}
 
@@ -472,32 +445,28 @@ export default function CfoDashboardClient() {
       {d.anomalies.length > 0 && (
         <div>
           <SectionTitle>Spending anomalies (weekly spikes)</SectionTitle>
-          <Card>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs uppercase text-slate-500">
-                    <th className="pb-2 pr-3">Pod</th>
-                    <th className="pb-2 pr-3">Week</th>
-                    <th className="pb-2 pr-3">Driver</th>
-                    <th className="pb-2 text-right">Spent</th>
-                    <th className="pb-2 text-right">vs baseline</th>
-                  </tr>
-                </thead>
-                <tbody className="text-slate-200">
-                  {d.anomalies.slice(0, 12).map((a, i) => (
-                    <tr key={i} className="border-t border-white/5">
-                      <td className="py-2 pr-3">{a.podName}</td>
-                      <td className="py-2 pr-3 text-slate-400">{a.week}</td>
-                      <td className="max-w-[180px] truncate py-2 pr-3 text-slate-400">{a.driverName}</td>
-                      <td className="py-2 text-right">{usd(a.sumCents)}</td>
-                      <td className="py-2 text-right text-rose-300">{a.ratio.toFixed(1)}×</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Card>
+          <CfoAccordion
+            empty="No anomalies detected."
+            rows={d.anomalies.slice(0, 12).map((a, i) => {
+              const tone: Tone = a.ratio >= 3 ? 'red' : a.ratio >= 2 ? 'rose' : 'slate'
+              return {
+                id: `anom-${i}`,
+                badge: { label: `${a.ratio.toFixed(1)}×`, tone },
+                label: a.driverName,
+                sublabel: a.podName,
+                value: usd(a.sumCents),
+                valueTone: 'rose',
+                dot: tone,
+                details: [
+                  { label: 'Pod', value: a.podName },
+                  { label: 'Week', value: a.week },
+                  { label: 'Driver', value: a.driverName },
+                  { label: 'Spent', value: usd(a.sumCents) },
+                  { label: 'vs baseline', value: `${a.ratio.toFixed(1)}×`, tone: 'rose' },
+                ],
+              }
+            })}
+          />
         </div>
       )}
 
@@ -505,35 +474,26 @@ export default function CfoDashboardClient() {
       {d.yoy.length > 0 && (
         <div>
           <SectionTitle>Year-over-year spend by destination</SectionTitle>
-          <Card>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs uppercase text-slate-500">
-                    <th className="pb-2 pr-3">Destination</th>
-                    <th className="pb-2 text-right">Last 12mo</th>
-                    <th className="pb-2 text-right">Prior 12mo</th>
-                    <th className="pb-2 text-right">Change</th>
-                  </tr>
-                </thead>
-                <tbody className="text-slate-200">
-                  {d.yoy.map((y, i) => {
-                    const change = y.prior > 0 ? (y.current - y.prior) / y.prior : null
-                    return (
-                      <tr key={i} className="border-t border-white/5">
-                        <td className="max-w-[200px] truncate py-2 pr-3">{y.name ?? '—'}</td>
-                        <td className="py-2 text-right">{usd(y.current)}</td>
-                        <td className="py-2 text-right text-slate-400">{usd(y.prior)}</td>
-                        <td className={`py-2 text-right ${change == null ? 'text-slate-500' : change > 0 ? 'text-rose-300' : 'text-emerald-300'}`}>
-                          {change == null ? '—' : `${change > 0 ? '+' : ''}${Math.round(change * 100)}%`}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </Card>
+          <CfoAccordion
+            empty="No year-over-year data."
+            rows={d.yoy.map((y, i) => {
+              const change = y.prior > 0 ? (y.current - y.prior) / y.prior : null
+              const tone: Tone = change == null ? 'slate' : change > 0 ? 'rose' : 'emerald'
+              const changeLabel = change == null ? '—' : `${change > 0 ? '+' : ''}${Math.round(change * 100)}%`
+              return {
+                id: `yoy-${i}`,
+                badge: { label: changeLabel, tone },
+                label: y.name ?? '—',
+                value: usd(y.current),
+                dot: tone,
+                details: [
+                  { label: 'Last 12mo', value: usd(y.current) },
+                  { label: 'Prior 12mo', value: usd(y.prior) },
+                  { label: 'Change', value: changeLabel, tone },
+                ],
+              }
+            })}
+          />
         </div>
       )}
 
@@ -546,37 +506,31 @@ export default function CfoDashboardClient() {
             <Kpi label="Monthly interest" value={usd(d.debts.combinedMonthlyInterestCents)} />
             <Kpi label="Annual interest burden" value={usd(d.debts.combinedAnnualInterestCents)} />
           </div>
-          <Card className="mt-4">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs uppercase text-slate-500">
-                    <th className="pb-2 pr-3">Debt</th>
-                    <th className="pb-2 pr-3">Kind</th>
-                    <th className="pb-2 text-right">Balance</th>
-                    <th className="pb-2 text-right">APR</th>
-                    <th className="pb-2 text-right">Min/mo</th>
-                    <th className="pb-2 text-right">Interest/mo</th>
-                    <th className="pb-2 text-right">Payoff</th>
-                  </tr>
-                </thead>
-                <tbody className="text-slate-200">
-                  {d.debts.all.map((dt, i) => (
-                    <tr key={i} className="border-t border-white/5">
-                      <td className="max-w-[200px] truncate py-2 pr-3">{dt.name}</td>
-                      <td className="py-2 pr-3 capitalize text-slate-400">{dt.kind ?? 'business'}</td>
-                      <td className="py-2 text-right">{usd(dt.balanceCents)}</td>
-                      <td className="py-2 text-right text-slate-400">{dt.aprPct}%{dt.aprIsEstimate ? '*' : ''}</td>
-                      <td className="py-2 text-right">{usd(dt.minPaymentCents)}</td>
-                      <td className="py-2 text-right text-rose-300">{usd(dt.monthlyInterestCents)}</td>
-                      <td className="py-2 text-right text-slate-400">{dt.minMonths == null ? '∞' : `${dt.minMonths} mo`}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          <div className="mt-4">
+            <CfoAccordion
+              empty="No debts configured."
+              rows={d.debts.all.map((dt, i) => {
+                const apr = dt.aprPct ?? 0
+                const tone: Tone = apr >= 20 ? 'red' : apr >= 10 ? 'rose' : 'slate'
+                return {
+                  id: `debt-${i}`,
+                  badge: { label: cap(dt.kind ?? 'business'), tone: 'violet' },
+                  label: dt.name,
+                  value: usd(dt.balanceCents),
+                  dot: tone,
+                  details: [
+                    { label: 'Kind', value: cap(dt.kind ?? 'business') },
+                    { label: 'Balance', value: usd(dt.balanceCents) },
+                    { label: 'APR', value: `${dt.aprPct}%${dt.aprIsEstimate ? '*' : ''}`, tone },
+                    { label: 'Min/mo', value: usd(dt.minPaymentCents) },
+                    { label: 'Interest/mo', value: usd(dt.monthlyInterestCents), tone: 'rose' },
+                    { label: 'Payoff', value: dt.minMonths == null ? '∞' : `${dt.minMonths} mo` },
+                  ],
+                }
+              })}
+            />
             <p className="mt-2 text-xs text-slate-500">* APR is an estimate — confirm against the statement in Settings.</p>
-          </Card>
+          </div>
 
           {d.debts.business && (
             <div className="mt-4">
@@ -584,34 +538,25 @@ export default function CfoDashboardClient() {
                 Business avalanche order (highest APR first):{' '}
                 <span className="text-white">{d.debts.business.avalancheOrder.join(' → ')}</span>
               </p>
-              <Card>
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Business paydown scenarios (avalanche)</span>
-                <div className="mt-2 overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-left text-xs uppercase text-slate-500">
-                        <th className="pb-2 pr-3">Extra/mo</th>
-                        <th className="pb-2 text-right">Months to zero</th>
-                        <th className="pb-2 text-right">Total interest</th>
-                      </tr>
-                    </thead>
-                    <tbody className="text-slate-200">
-                      {([
-                        ['Minimums only', d.debts.business.scenarios.minOnly],
-                        ['+$500', d.debts.business.scenarios.plus500],
-                        ['+$1,000', d.debts.business.scenarios.plus1000],
-                        ['+$2,000', d.debts.business.scenarios.plus2000],
-                      ] as const).map(([label, s], i) => (
-                        <tr key={i} className="border-t border-white/5">
-                          <td className="py-2 pr-3">{label}</td>
-                          <td className="py-2 text-right">{s.months}</td>
-                          <td className="py-2 text-right text-slate-400">{usd(s.totalInterestCents)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </Card>
+              <div>
+                <span className="mb-2 block text-xs font-medium uppercase tracking-wide text-slate-400">Business paydown scenarios (avalanche)</span>
+                <CfoAccordion
+                  rows={([
+                    ['Minimums only', d.debts.business.scenarios.minOnly],
+                    ['+$500', d.debts.business.scenarios.plus500],
+                    ['+$1,000', d.debts.business.scenarios.plus1000],
+                    ['+$2,000', d.debts.business.scenarios.plus2000],
+                  ] as const).map(([label, s], i) => ({
+                    id: `scen-${i}`,
+                    label,
+                    value: `${s.months} mo`,
+                    details: [
+                      { label: 'Months to zero', value: `${s.months}` },
+                      { label: 'Total interest', value: usd(s.totalInterestCents), tone: 'rose' },
+                    ],
+                  }))}
+                />
+              </div>
             </div>
           )}
 
@@ -665,55 +610,69 @@ export default function CfoDashboardClient() {
             <Kpi label="At risk (91+ days)" value={usd(d.ar.atRiskCents)} status={d.ar.atRiskCents > 0 ? 'yellow' : 'green'} />
           </div>
           {d.ar.bucketTotalsCents && Object.keys(d.ar.bucketTotalsCents).length > 0 && (
-            <Card className="mt-4">
-              <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Aging buckets</span>
-              <ul className="mt-3 space-y-2">
-                {(() => {
-                  const order = ['Current', '1 - 30 days past due', '31 - 60 days past due', '61 - 90 days past due', '91 or more days past due']
-                  const colors: Record<string, string> = {
-                    'Current': 'bg-emerald-400', '1 - 30 days past due': 'bg-cyan-400',
-                    '31 - 60 days past due': 'bg-blue-400', '61 - 90 days past due': 'bg-rose-400',
-                    '91 or more days past due': 'bg-red-500',
-                  }
-                  const buckets = d.ar!.bucketTotalsCents!
-                  const max = Math.max(...Object.values(buckets), 1)
-                  const keys = order.filter((k) => buckets[k]).concat(Object.keys(buckets).filter((k) => !order.includes(k)))
-                  return keys.map((k) => (
-                    <li key={k}>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-slate-300">{k}</span>
-                        <span className="text-slate-200">{usd(buckets[k])}</span>
-                      </div>
-                      <div className="mt-1 h-2 w-full rounded-full bg-white/5">
-                        <div className={`h-2 rounded-full ${colors[k] ?? 'bg-slate-400'}`} style={{ width: `${(buckets[k] / max) * 100}%` }} />
-                      </div>
-                    </li>
-                  ))
-                })()}
-              </ul>
-            </Card>
+            <div className="mt-4">
+              <span className="mb-2 block text-xs font-medium uppercase tracking-wide text-slate-400">Aging buckets</span>
+              {(() => {
+                const order = ['Current', '1 - 30 days past due', '31 - 60 days past due', '61 - 90 days past due', '91 or more days past due']
+                const tones: Record<string, Tone> = {
+                  'Current': 'emerald', '1 - 30 days past due': 'cyan',
+                  '31 - 60 days past due': 'blue', '61 - 90 days past due': 'rose',
+                  '91 or more days past due': 'red',
+                }
+                const buckets = d.ar!.bucketTotalsCents!
+                const total = Object.values(buckets).reduce((s, v) => s + v, 0)
+                const max = Math.max(...Object.values(buckets), 1)
+                const keys = order.filter((k) => buckets[k]).concat(Object.keys(buckets).filter((k) => !order.includes(k)))
+                return (
+                  <CfoAccordion
+                    rows={keys.map((k) => {
+                      const tone = tones[k] ?? 'slate'
+                      return {
+                        id: `bucket-${k}`,
+                        label: k,
+                        value: usd(buckets[k]),
+                        valueTone: tone,
+                        bar: { pct: (buckets[k] / max) * 100, tone },
+                        details: [
+                          { label: 'Amount', value: usd(buckets[k]), tone },
+                          { label: 'Share of open', value: total > 0 ? `${Math.round((buckets[k] / total) * 100)}%` : '—' },
+                        ],
+                      }
+                    })}
+                  />
+                )
+              })()}
+            </div>
           )}
           <div className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-2">
-            <Card>
-              <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Top customers by balance</span>
-              <ul className="mt-2 space-y-1 text-sm">
-                {d.ar.topCustomers.slice(0, 8).map((c, i) => (
-                  <li key={i} className="flex justify-between"><span className="truncate pr-2 text-slate-300">{c.name}</span><span className="text-slate-200">{usd(c.totalCents)}</span></li>
-                ))}
-              </ul>
-            </Card>
-            <Card>
-              <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Stale (91+ days) — chase these</span>
-              {d.ar.staleCustomers.length === 0 ? (
-                <p className="mt-2 text-sm text-slate-400">Nothing 91+ days past due.</p>
-              ) : (
-                <ul className="mt-2 space-y-1 text-sm">
-                  {d.ar.staleCustomers.slice(0, 8).map((c, i) => (
-                    <li key={i} className="flex justify-between"><span className="truncate pr-2 text-slate-300">{c.name}</span><span className="text-rose-300">{usd(c.atRiskCents)}</span></li>
-                  ))}
-                </ul>
-              )}
-            </Card>
+            <div>
+              <span className="mb-2 block text-xs font-medium uppercase tracking-wide text-slate-400">Top customers by balance</span>
+              <CfoAccordion
+                empty="No open balances."
+                rows={d.ar.topCustomers.slice(0, 8).map((c, i) => ({
+                  id: `arc-${i}`,
+                  rank: `#${i + 1}`,
+                  label: c.name,
+                  value: usd(c.totalCents),
+                  details: [{ label: 'Open balance', value: usd(c.totalCents) }],
+                }))}
+              />
+            </div>
+            <div>
+              <span className="mb-2 block text-xs font-medium uppercase tracking-wide text-slate-400">Stale (91+ days) — chase these</span>
+              <CfoAccordion
+                empty="Nothing 91+ days past due."
+                rows={d.ar.staleCustomers.slice(0, 8).map((c, i) => ({
+                  id: `ars-${i}`,
+                  badge: { label: '91+', tone: 'red' },
+                  label: c.name,
+                  value: usd(c.atRiskCents),
+                  valueTone: 'rose',
+                  dot: 'red',
+                  details: [{ label: 'At risk', value: usd(c.atRiskCents), tone: 'rose' }],
+                }))}
+              />
+            </div>
           </div>
         </div>
       )}
@@ -722,18 +681,22 @@ export default function CfoDashboardClient() {
       {d.rules.length > 0 && (
         <div>
           <SectionTitle>Sequence automation rules ({d.rules.length})</SectionTitle>
-          <Card>
-            <ul className="space-y-1 text-sm">
-              {d.rules.map((r) => (
-                <li key={r.id} className="flex items-center justify-between gap-2">
-                  <span className="truncate pr-2 text-slate-300">{r.name}</span>
-                  <span className={`whitespace-nowrap text-xs ${r.status === 'ACTIVE' || r.status === 'ENABLED' ? 'text-emerald-300' : 'text-slate-400'}`}>
-                    {r.status ?? 'unknown'}{r.isSupported === false ? ' · unsupported' : ''}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </Card>
+          <CfoAccordion
+            empty="No automation rules."
+            rows={d.rules.map((r) => {
+              const active = r.status === 'ACTIVE' || r.status === 'ENABLED'
+              return {
+                id: r.id,
+                badge: { label: active ? 'On' : 'Off', tone: active ? 'emerald' : 'slate' },
+                label: r.name,
+                dot: r.isSupported === false ? 'rose' : active ? 'emerald' : 'slate',
+                details: [
+                  { label: 'Status', value: r.status ?? 'unknown', tone: active ? 'emerald' : 'slate' },
+                  { label: 'Supported', value: r.isSupported === false ? 'No' : 'Yes', tone: r.isSupported === false ? 'rose' : 'emerald' },
+                ],
+              }
+            })}
+          />
         </div>
       )}
 
@@ -741,19 +704,22 @@ export default function CfoDashboardClient() {
       {d.activityByDest.some((a) => !a.categorized) && (
         <div>
           <SectionTitle>Top uncategorized destinations</SectionTitle>
-          <Card>
-            <p className="mb-3 text-xs text-slate-400">
-              Tag these in <Link href="/admin/cfo/settings" className="text-cyan-300 hover:text-cyan-200">Settings</Link> so they roll into the right category.
-            </p>
-            <ul className="space-y-1 text-sm">
-              {d.activityByDest.filter((a) => !a.categorized).slice(0, 10).map((a, i) => (
-                <li key={i} className="flex justify-between">
-                  <span className="truncate pr-2 text-slate-300">{a.name} <span className="text-slate-500">· {a.transferCount}×</span></span>
-                  <span className="text-slate-200">{usd(a.totalCents)}</span>
-                </li>
-              ))}
-            </ul>
-          </Card>
+          <p className="mb-3 text-xs text-slate-400">
+            Tag these in <Link href="/admin/cfo/settings" className="text-cyan-300 hover:text-cyan-200">Settings</Link> so they roll into the right category.
+          </p>
+          <CfoAccordion
+            empty="Everything is categorized."
+            rows={d.activityByDest.filter((a) => !a.categorized).slice(0, 10).map((a, i) => ({
+              id: `uncat-${i}`,
+              label: a.name,
+              sublabel: `${a.transferCount}×`,
+              value: usd(a.totalCents),
+              details: [
+                { label: 'Total', value: usd(a.totalCents) },
+                { label: 'Transfers', value: `${a.transferCount}` },
+              ],
+            }))}
+          />
         </div>
       )}
 
