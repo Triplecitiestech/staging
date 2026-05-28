@@ -250,19 +250,33 @@ export class RocketCyberClient {
     const rawEvents: unknown[] = [];
     const needsEvents = !fields.process || !fields.path || !fields.hash;
     if (needsEvents && resolvedAccountId) {
-      try {
-        const createdAt = asString(inc.createdAt ?? inc.created_at);
-        const since = createdAt ? new Date(new Date(createdAt).getTime() - 60 * 60 * 1000).toISOString() : undefined;
-        const until = createdAt ? new Date(new Date(createdAt).getTime() + 60 * 60 * 1000).toISOString() : undefined;
-        // The /events endpoint is app-scoped; pass the incident's appId if present.
-        const appId = asString(inc.appId ?? inc.app_id ?? inc.applicationId) || undefined;
-        const events = await this.getEvents({ accountId: resolvedAccountId, appId, since, until, pageSize: 100 });
-        rawEvents.push(...events);
-        for (const ev of events) {
-          fields = mergeFields(fields, extractDetectionFields(ev));
+      const createdAt = asString(inc.createdAt ?? inc.created_at);
+      const since = createdAt ? new Date(new Date(createdAt).getTime() - 60 * 60 * 1000).toISOString() : undefined;
+      const until = createdAt ? new Date(new Date(createdAt).getTime() + 60 * 60 * 1000).toISOString() : undefined;
+      const appId = asString(inc.appId ?? inc.app_id ?? inc.applicationId) || undefined;
+      const dates = since || until ? JSON.stringify([since || '', until || '']) : undefined;
+
+      // The IOC detail (path/process/hash) lives on the EVENT, not the incident.
+      // RocketCyber's event linkage isn't consistently documented, so try the
+      // likely shapes and use whatever returns events. Each is best-effort.
+      const attempts: Array<() => Promise<unknown>> = [
+        () => this.request<unknown>(`/incidents/${encodeURIComponent(incidentId)}/events`),
+        () => this.request<unknown>('/events', { accountId: resolvedAccountId, incidentId, appId, dates }),
+        () => this.request<unknown>('/events', { accountId: resolvedAccountId, appId, dates }),
+        () => this.request<unknown>('/events', { accountId: resolvedAccountId, appId }),
+        () => this.request<unknown>('/events', { accountId: resolvedAccountId, dates }),
+      ];
+      for (const attempt of attempts) {
+        try {
+          const events = this.unwrap(await attempt());
+          if (events.length > 0) {
+            rawEvents.push(...events);
+            for (const ev of events) fields = mergeFields(fields, extractDetectionFields(ev));
+            if (fields.process || fields.path || fields.hash) break;
+          }
+        } catch {
+          // Try the next shape.
         }
-      } catch {
-        // Events are supplementary — never fail the whole enrichment over them.
       }
     }
 
