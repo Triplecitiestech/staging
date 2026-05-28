@@ -52,6 +52,9 @@ export const saveDebts = (debts: DebtsConfig) => setSetting('debts', debts)
 export const getScheduledOutflows = () => getSetting<ScheduledOutflowsConfig>('scheduled_outflows')
 export const saveScheduledOutflows = (cfg: ScheduledOutflowsConfig) => setSetting('scheduled_outflows', cfg)
 
+export const getHiringAssumptions = () => getSetting<import('./hiring').HiringAssumptions>('hiring_assumptions')
+export const saveHiringAssumptions = (a: import('./hiring').HiringAssumptions) => setSetting('hiring_assumptions', a)
+
 export const getQbSnapshot = () => getSetting<QbSnapshot>('qb_snapshot')
 export const saveQbSnapshot = (snap: QbSnapshot) => setSetting('qb_snapshot', snap)
 export const getArSnapshot = () => getSetting<ArSnapshot>('ar_snapshot')
