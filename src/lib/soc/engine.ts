@@ -337,6 +337,7 @@ function buildFallbackAssessment(
     ],
     dataGaps: [...enrichment.dataGaps, `Automated assessment step failed: ${detail}`],
     internalNote: note,
+    closureNote: `SOC screening-only result (${classification.replace(/_/g, ' ')}). Automated cross-stack assessment did not complete — technician review required before closing.`,
     customerMessageRequired: false,
     customerMessageDraft: null,
   };

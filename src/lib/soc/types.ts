@@ -516,6 +516,8 @@ export interface SocAssessment {
   dataGaps: string[];
   /** The full self-contained note posted to Autotask (Internal Only). */
   internalNote: string;
+  /** Short copy/paste resolution note the technician uses to close the ticket. */
+  closureNote: string;
   /** Whether a customer message is warranted (real concern, not FP). */
   customerMessageRequired: boolean;
   /** Copy-paste customer message — only when customerMessageRequired. */

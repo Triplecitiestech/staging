@@ -1,5 +1,7 @@
 'use client'
 
+import { useState } from 'react'
+
 // Shared cross-stack SOC assessment view. Rendered by both the incident detail
 // page and the dashboard ticket drill-down so the redesigned layout is
 // identical wherever you look.
@@ -36,6 +38,7 @@ export interface SocAssessment {
   recommendedTechnicianActions: string[]
   dataGaps: string[]
   internalNote: string
+  closureNote?: string
   customerMessageRequired: boolean
   customerMessageDraft: string | null
 }
@@ -286,10 +289,19 @@ export default function CrossStackAssessment({ assessment, enrichment }: { asses
         </Section>
       )}
 
+      {/* Ticket Closure Note — short copy/paste resolution */}
+      {assessment.closureNote && (
+        <Section title="Ticket Closure Note" subtitle="Copy/paste this to resolve/close the ticket">
+          <div className="p-4">
+            <CopyBlock text={assessment.closureNote} />
+          </div>
+        </Section>
+      )}
+
       {/* Internal Note Preview */}
       <Section title="Internal Note Preview" subtitle="Self-contained note for technicians — auto-posted to Autotask as Internal Only">
         <div className="p-4">
-          <pre className="text-xs text-slate-300 whitespace-pre-wrap font-mono bg-black/30 p-4 rounded-lg max-h-[420px] overflow-y-auto">{assessment.internalNote}</pre>
+          <CopyBlock text={assessment.internalNote} mono />
         </div>
       </Section>
 
@@ -297,7 +309,7 @@ export default function CrossStackAssessment({ assessment, enrichment }: { asses
       {assessment.customerMessageRequired && assessment.customerMessageDraft ? (
         <Section title="Customer Message Preview" subtitle="Copy/paste to inform the customer — sending stays technician-approved">
           <div className="p-4">
-            <pre className="text-sm text-slate-300 whitespace-pre-wrap font-mono bg-black/30 p-4 rounded-lg border border-violet-500/20">{assessment.customerMessageDraft}</pre>
+            <CopyBlock text={assessment.customerMessageDraft} accent />
           </div>
         </Section>
       ) : (
@@ -305,6 +317,27 @@ export default function CrossStackAssessment({ assessment, enrichment }: { asses
           <div className="p-4 text-sm text-slate-400">No customer message recommended for this incident.</div>
         </Section>
       )}
+    </div>
+  )
+}
+
+function CopyBlock({ text, mono, accent }: { text: string; mono?: boolean; accent?: boolean }) {
+  const [copied, setCopied] = useState(false)
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch { /* clipboard unavailable */ }
+  }
+  return (
+    <div className="relative">
+      <button
+        onClick={copy}
+        className="absolute top-2 right-2 px-2 py-1 text-[11px] font-medium bg-slate-700 hover:bg-slate-600 text-white rounded transition-colors z-10">
+        {copied ? 'Copied' : 'Copy'}
+      </button>
+      <pre className={`text-sm text-slate-300 whitespace-pre-wrap bg-black/30 p-4 pr-16 rounded-lg max-h-[420px] overflow-y-auto ${mono ? 'font-mono text-xs' : ''} ${accent ? 'border border-violet-500/20' : ''}`}>{text}</pre>
     </div>
   )
 }
