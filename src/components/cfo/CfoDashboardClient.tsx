@@ -115,8 +115,14 @@ export default function CfoDashboardClient() {
 
   const refresh = useCallback(async () => {
     setRefreshing(true)
+    setError(null)
     try {
-      await fetch('/api/admin/cfo/rebuild', { method: 'POST' })
+      const res = await fetch('/api/admin/cfo/rebuild', { method: 'POST' })
+      if (!res.ok) {
+        const msg = (await res.json().catch(() => ({})))?.error || `Rebuild failed (HTTP ${res.status})`
+        setError(`${msg}. The first build after connecting QuickBooks can take a minute — if this persists, the function may be timing out.`)
+        return
+      }
       await load()
     } finally {
       setRefreshing(false)
