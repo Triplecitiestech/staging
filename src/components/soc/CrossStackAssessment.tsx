@@ -100,7 +100,7 @@ export interface EnrichmentBundle {
   edr: {
     detectionCount: number; suspiciousCount: number; unclassifiedCount: number; deviceScoped: boolean
     byDevice: Array<{ hostname: string; total: number; suspicious: number }>
-    detections: Array<{ name: string; path: string | null; hash: string | null; threatName: string; threatScore: number | null; timestamp: string; hostname: string | null; status: string }>
+    detections: Array<{ name: string; path: string | null; hash: string | null; threatName: string; threatScore: number | null; timestamp: string; hostname: string | null; status: string; commandLine?: string | null; parentProcessName?: string | null; owner?: string | null; ruleName?: string | null; mitreId?: string | null; severity?: string | null }>
     rawDetections?: unknown[]
   } | null
   dns: {
@@ -289,7 +289,16 @@ export default function CrossStackAssessment({ assessment, enrichment }: { asses
                   <span className={d.threatName.toLowerCase() === 'bad' || d.threatName.toLowerCase() === 'suspicious' ? 'text-rose-400 font-medium' : 'text-slate-400'}>[{d.threatName}{d.threatScore != null ? ` ${d.threatScore}` : ''}]</span>
                   <span className="text-white ml-2">{d.name}</span>
                   {d.hostname && <span className="text-slate-500 ml-2">on {d.hostname}</span>}
+                  {d.mitreId && <span className="text-slate-500 ml-2">{d.mitreId}</span>}
                   {d.path && <div className="text-slate-500 font-mono break-all mt-0.5">{d.path}</div>}
+                  {d.commandLine && <div className="text-slate-500 font-mono break-all mt-0.5">cmd: {d.commandLine}</div>}
+                  {(d.parentProcessName || d.owner || d.ruleName) && (
+                    <div className="text-slate-500 mt-0.5">
+                      {d.parentProcessName && <span className="mr-3">parent: {d.parentProcessName}</span>}
+                      {d.owner && <span className="mr-3">owner: {d.owner}</span>}
+                      {d.ruleName && <span>rule: {d.ruleName}</span>}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

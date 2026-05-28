@@ -420,6 +420,13 @@ export interface EdrCorrelation {
     timestamp: string;
     hostname: string | null;
     status: string;
+    /** Detection detail nested under `data` on the /Alerts response. */
+    commandLine: string | null;
+    parentProcessName: string | null;
+    owner: string | null;
+    ruleName: string | null;
+    mitreId: string | null;
+    severity: string | null;
   }>;
   /** Raw alert objects for the top suspicious detections (diagnostic passthrough). */
   rawDetections: unknown[];
