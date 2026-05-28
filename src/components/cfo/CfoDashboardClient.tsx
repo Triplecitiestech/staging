@@ -2,14 +2,12 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import {
-  ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend,
-} from 'recharts'
 import type { CachedSnapshot } from '@/lib/cfo/build'
 import { useDemoMode } from '@/components/admin/DemoModeProvider'
 import { applyCfoDemo } from '@/lib/cfo/demo'
 import CfoSimulator from './CfoSimulator'
 import CfoAccordion, { type Tone, type AccordionRow } from './CfoAccordion'
+import CfoAreaChart from './CfoAreaChart'
 
 // ─── formatting ─────────────────────────────────────────────────────────────
 
@@ -300,25 +298,18 @@ export default function CfoDashboardClient() {
       {/* 12-month P&L */}
       <div>
         <SectionTitle>12-month income vs outflow</SectionTitle>
-        <Card>
-          <div className="h-72 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
-                <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 12 }} />
-                <YAxis tick={{ fill: '#94a3b8', fontSize: 12 }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
-                <Tooltip
-                  contentStyle={{ background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#fff' }}
-                  formatter={(value) => `$${Number(value).toLocaleString()}`}
-                />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="income" name="Income" fill="#34d399" radius={[3, 3, 0, 0]} />
-                <Bar dataKey="outflow" name="Outflow" fill="#f87171" radius={[3, 3, 0, 0]} />
-                <Line dataKey="net" name="Net" stroke="#22d3ee" strokeWidth={2} dot={false} />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
+        <CfoAreaChart
+          title="Income vs outflow"
+          subtitle={`${chartData.length} months · Net ${usd(d.monthlyPL.reduce((s, p) => s + p.netCents, 0))}`}
+          data={chartData}
+          series={[
+            { dataKey: 'income', name: 'Income', color: '#34d399' },
+            { dataKey: 'outflow', name: 'Outflow', color: '#f87171' },
+            { dataKey: 'net', name: 'Net', color: '#22d3ee' },
+          ]}
+          formatValue={(v) => `$${Math.round(v).toLocaleString()}`}
+          formatAxis={(v) => `$${(v / 1000).toFixed(0)}k`}
+        />
       </div>
 
       {/* Operations breakdown — category + destination */}
@@ -387,23 +378,21 @@ export default function CfoDashboardClient() {
             <Kpi label="Net flow (30d)" value={usd(d.ownerPay.netFlow30dCents)} status={d.ownerPay.netFlow30dCents >= 0 ? 'green' : 'yellow'} sub={`In ${usd(d.ownerPay.in30Cents)} · Out ${usd(d.ownerPay.out30Cents)}`} />
             <Kpi label="Spend (90d)" value={usd(d.ownerPay.total90Cents)} />
           </div>
-          <Card className="mt-4">
-            <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Monthly in / out (12 months)</span>
-            <div className="mt-2 h-56 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={d.ownerPay.monthlyTrend.map((p) => ({ label: p.label, in: Math.round(p.inCents / 100), out: Math.round(p.outCents / 100), net: Math.round(p.netCents / 100) }))} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
-                  <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 11 }} />
-                  <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
-                  <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#fff' }} formatter={(value) => `$${Number(value).toLocaleString()}`} />
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Bar dataKey="in" name="In" fill="#34d399" radius={[3, 3, 0, 0]} />
-                  <Bar dataKey="out" name="Out" fill="#f87171" radius={[3, 3, 0, 0]} />
-                  <Line dataKey="net" name="Net" stroke="#22d3ee" strokeWidth={2} dot={false} />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
-          </Card>
+          <div className="mt-4">
+            <CfoAreaChart
+              title="Owner's Pay — monthly in / out"
+              subtitle="Last 12 months"
+              height={224}
+              data={d.ownerPay.monthlyTrend.map((p) => ({ label: p.label, in: Math.round(p.inCents / 100), out: Math.round(p.outCents / 100), net: Math.round(p.netCents / 100) }))}
+              series={[
+                { dataKey: 'in', name: 'In', color: '#34d399' },
+                { dataKey: 'out', name: 'Out', color: '#f87171' },
+                { dataKey: 'net', name: 'Net', color: '#22d3ee' },
+              ]}
+              formatValue={(v) => `$${Math.round(v).toLocaleString()}`}
+              formatAxis={(v) => `$${(v / 1000).toFixed(0)}k`}
+            />
+          </div>
           <div className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-3">
             <div>
               <span className="mb-2 block text-xs font-medium uppercase tracking-wide text-slate-400">Top destinations (90d)</span>
