@@ -111,7 +111,7 @@ export async function enrichTicket(
 
   // 3–5. Correlate the rest of the stack in parallel.
   const [edr, dns, saas] = await Promise.all([
-    fetchEdr(companyId, effectiveHostname, alertTime),
+    fetchEdr(companyId, companyName, effectiveHostname, alertTime),
     fetchDns(companyId, companyName, alertTime, effectiveHostname, allIps),
     fetchSaasAlerts(companyId, companyName, alertTime),
   ]);
@@ -417,6 +417,7 @@ function isSuspiciousThreat(a: RawEdrAlert): boolean {
 
 async function fetchEdr(
   companyId: string | null,
+  companyName: string | null,
   hostname: string | null,
   alertTime: string,
 ): Promise<SourceResult<EdrCorrelation>> {
@@ -439,11 +440,36 @@ async function fetchEdr(
     const center = new Date(alertTime).getTime() || Date.now();
     const since = new Date(center - WINDOW_MS);
     const until = new Date(center + WINDOW_MS);
-    const orgId = mappings && mappings.length > 0 && mappings[0].externalId !== 'msp_wide' ? mappings[0].externalId : null;
+
+    // Resolve the customer's EDR org: explicit mapping first, then name-match.
+    // We NEVER query MSP-wide — an unscoped query returns every customer's
+    // detections, which is misleading. If we can't resolve the org, we skip.
+    let orgId = mappings && mappings.length > 0 && mappings[0].externalId !== 'msp_wide' ? mappings[0].externalId : null;
+    let orgName = mappings && mappings.length > 0 ? mappings[0].externalName : null;
+    if (!orgId && companyName) {
+      try {
+        const orgsRes = await fetch(`${edrUrl}/Organizations?${tokenParam}`, {
+          headers: { Authorization: token, Accept: 'application/json' },
+          signal: AbortSignal.timeout(15_000),
+        });
+        if (orgsRes.ok) {
+          const orgs = (await orgsRes.json()) as Array<{ id?: string | number; name?: string }>;
+          const matched = Array.isArray(orgs) ? orgs.find(o => o.name && matchesCompanyName(companyName, o.name)) : null;
+          if (matched?.id != null) { orgId = String(matched.id); orgName = matched.name || orgName; }
+        }
+      } catch { /* name-match best-effort */ }
+    }
+    if (!orgId) {
+      return {
+        result: null,
+        status: { source: 'Datto EDR', status: 'no_data', detail: `No Datto EDR org mapped/matched for ${companyName || 'this company'} — map it in Compliance > Connect Tools to enable EDR correlation.` },
+        gap: `No Datto EDR organization resolved for ${companyName || 'this company'}; EDR correlation was skipped (not run MSP-wide to avoid other customers' data).`,
+      };
+    }
 
     const where: Record<string, unknown> = {
       createdOn: { gte: since.toISOString(), lte: until.toISOString() },
-      ...(orgId ? { organizationId: orgId } : {}),
+      organizationId: orgId,
     };
     const filter = JSON.stringify({ where, limit: 500, order: 'createdOn DESC' });
     const res = await fetch(`${edrUrl}/Alerts?filter=${encodeURIComponent(filter)}&${tokenParam}`, {
@@ -453,15 +479,15 @@ async function fetchEdr(
     if (!res.ok) {
       return {
         result: null,
-        status: { source: 'Datto EDR', status: 'error', detail: `Alerts query failed (${res.status})` },
+        status: { source: 'Datto EDR', status: 'error', detail: `Alerts query failed (${res.status}) for org "${orgName || orgId}"` },
         gap: `Datto EDR alerts query failed (${res.status}).`,
       };
     }
     const alerts = (await res.json()) as RawEdrAlert[];
     const all = Array.isArray(alerts) ? alerts : [];
 
-    // Scope to the specific device when we know it; otherwise keep org-wide but
-    // make clear it is NOT confirmed related to this alert.
+    // Scope to the specific device when we know it; otherwise it's org-scoped
+    // (the customer's org only — never MSP-wide).
     const deviceScoped = !!hostname;
     const list = deviceScoped
       ? all.filter(a => a.hostname && a.hostname.toLowerCase().includes(hostname!.toLowerCase()))
@@ -470,7 +496,7 @@ async function fetchEdr(
     if (list.length === 0) {
       return {
         result: { detectionCount: 0, suspiciousCount: 0, unclassifiedCount: 0, deviceScoped, byDevice: [], detections: [], rawDetections: [] },
-        status: { source: 'Datto EDR', status: 'no_data', detail: deviceScoped ? `No EDR detections for "${hostname}" in window${orgId ? ` (org ${orgId})` : ''}.` : 'No EDR detections in window.' },
+        status: { source: 'Datto EDR', status: 'no_data', detail: deviceScoped ? `No EDR detections for "${hostname}" in window (org "${orgName || orgId}").` : `No EDR detections in window for org "${orgName || orgId}".` },
       };
     }
 
@@ -509,7 +535,7 @@ async function fetchEdr(
     // and the debug view, without us guessing the schema.
     const rawDetections = ordered.slice(0, 5);
 
-    const detailNote = `${list.length} detection(s)${deviceScoped ? ` on "${hostname}"` : ' org-wide (NOT confirmed related to this alert)'} — ${suspicious.length} suspicious/bad, ${unclassified} unclassified/unknown${orgId ? ` (org ${orgId})` : ''}.`;
+    const detailNote = `${list.length} detection(s)${deviceScoped ? ` on "${hostname}"` : ` across org "${orgName || orgId}" (org-level, not device-confirmed)`} — ${suspicious.length} suspicious/bad, ${unclassified} unclassified/unknown.`;
     return {
       result: { detectionCount: list.length, suspiciousCount: suspicious.length, unclassifiedCount: unclassified, deviceScoped, byDevice, detections, rawDetections },
       status: { source: 'Datto EDR', status: 'used', detail: detailNote },

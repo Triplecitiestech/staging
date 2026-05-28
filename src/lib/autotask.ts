@@ -830,6 +830,22 @@ export class AutotaskClient {
   }
 
   /**
+   * Fetch a single ticket by its human ticket number (e.g. "T20260527.0006").
+   * Autotask Extension Callouts send the ticket number, not the numeric id.
+   */
+  async getTicketByNumber(ticketNumber: string): Promise<AutotaskTicket | null> {
+    try {
+      const results = await this.queryAll<AutotaskTicket>('Tickets', {
+        op: 'eq', field: 'ticketNumber', value: ticketNumber,
+      });
+      return results[0] || null;
+    } catch (err) {
+      console.error(`[AutotaskClient] getTicketByNumber failed for ${ticketNumber}:`, err instanceof Error ? err.message : String(err));
+      throw err;
+    }
+  }
+
+  /**
    * Get notes for a specific ticket (for customer timeline)
    */
   async getTicketNotes(ticketId: number): Promise<AutotaskTicketNote[]> {

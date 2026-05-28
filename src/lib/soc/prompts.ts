@@ -437,7 +437,7 @@ export function formatEnrichmentForPrompt(bundle: EnrichmentBundle): string {
     lines.push(`\nDATTO EDR: ${e.detectionCount} detection(s) in the window — ${e.suspiciousCount} suspicious/bad, ${e.unclassifiedCount} unclassified/unknown.`);
     lines.push(e.deviceScoped
       ? '  (scoped to the affected device)'
-      : '  (org-wide — NOT confirmed related to this specific alert/user; do not treat raw volume as threat.)');
+      : "  (this customer's org only, not device-confirmed — do not treat raw volume as threat; weight only Bad/Suspicious tied to the affected device/user.)");
     if (!e.deviceScoped && e.byDevice.length > 0) {
       lines.push(`  Per-device: ${e.byDevice.map(d => `${d.hostname}: ${d.total} (${d.suspicious} susp)`).join('; ')}`);
     }
