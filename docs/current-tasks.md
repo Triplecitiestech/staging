@@ -4,7 +4,16 @@
 > **Branch**: `claude/review-workflow-architecture-DdCgz` → auto-merged to `main`.
 > **Detailed context**: `docs/SESSION_HANDOFF.md`.
 
-## Open — Resume here
+## SOC Cross-Stack Redesign (2026-05-28) — see `docs/SOC_CROSSSTACK_HANDOFF.md`
+
+Shipped: RocketCyber client, cross-stack enrichment (RMM/EDR/DNSFilter/SaaS), shared `CrossStackAssessment` UI, real-time `/api/soc/ingest` webhook (Autotask Extension Callout wired by operator), `soc_known_benign` table. Open:
+- [ ] **[HIGH]** Datto EDR `/Alerts` fields are under `data` — fix `fetchEdr` mapping to read `a.data ?? a` (threatName/path/md5/commandLine/parentProcessName/owner). Currently everything shows "[Unknown]".
+- [ ] **[HIGH]** SaaS Alerts `/reports/events/query` 422 — fix `SaasAlertsClient.getEvents` body shape (need the External Partner API Swagger).
+- [ ] **[MED]** Operator: map tools per customer in Compliance → Connect Tools (esp. Datto EDR org, SaaS Alerts customer).
+- [ ] **[MED]** Confirm Autotask Extension Callout sends a usable ticket id/number (check first callout's `receivedKeys`).
+- [ ] **[LOW]** Known Benign admin UI; confirm Vercel env (`ROCKETCYBER_API_TOKEN`, `SOC_INGEST_SECRET`) + `dry_run=false`.
+
+## Open — Resume here (compliance workflow stream)
 
 The operator's last instruction was **"do them all"** for these three slices. The previous session ran out of context partway through Slice A and paused.
 
