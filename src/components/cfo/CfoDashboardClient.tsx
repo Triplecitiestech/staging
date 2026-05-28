@@ -228,6 +228,13 @@ export default function CfoDashboardClient() {
             sub={`Projected month-end out ${usd(d.pace.projectedMonthEndCents)} vs typical ${usd(d.pace.typicalMonthlyCents)}`}
           />
         )}
+        {d.nextPayroll && (
+          <Kpi
+            label="Next payroll"
+            value={usd(d.nextPayroll.amountCents)}
+            sub={`${new Date(d.nextPayroll.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} · ${d.nextPayroll.source === 'scheduled' ? 'from Settings' : 'baseline estimate'}`}
+          />
+        )}
       </div>
 
       {/* Recommended actions — placed first so they're the headline item */}
@@ -282,11 +289,14 @@ export default function CfoDashboardClient() {
                   id: `out-${i}`,
                   badge: { label: cap(o.cadence), tone: 'slate' },
                   label: o.name,
+                  sublabel: o.isScheduled ? 'Scheduled' : undefined,
                   value: usd(o.avgAmountCents),
+                  dot: o.isScheduled ? 'cyan' : undefined,
                   details: [
                     { label: 'Cadence', value: cap(o.cadence) },
                     { label: 'Next expected', value: shortDate(o.nextExpectedDate) },
                     { label: 'Amount', value: usd(o.avgAmountCents) },
+                    { label: 'Scheduled', value: o.isScheduled ? 'Yes' : 'No', tone: o.isScheduled ? 'cyan' : 'slate' },
                   ],
                 }))}
               />

@@ -9,7 +9,7 @@
  */
 
 import { getPool } from '@/lib/db-pool'
-import type { CategoryMap, DebtsConfig, QbSnapshot, ArSnapshot, TransfersByAccount } from './types'
+import type { CategoryMap, DebtsConfig, QbSnapshot, ArSnapshot, TransfersByAccount, ScheduledOutflowsConfig } from './types'
 
 const pool = getPool()
 
@@ -48,6 +48,9 @@ export const saveCategoryOverrides = (map: CategoryMap) => setSetting('destinati
 
 export const getDebts = () => getSetting<DebtsConfig>('debts')
 export const saveDebts = (debts: DebtsConfig) => setSetting('debts', debts)
+
+export const getScheduledOutflows = () => getSetting<ScheduledOutflowsConfig>('scheduled_outflows')
+export const saveScheduledOutflows = (cfg: ScheduledOutflowsConfig) => setSetting('scheduled_outflows', cfg)
 
 export const getQbSnapshot = () => getSetting<QbSnapshot>('qb_snapshot')
 export const saveQbSnapshot = (snap: QbSnapshot) => setSetting('qb_snapshot', snap)

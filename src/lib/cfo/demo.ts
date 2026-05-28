@@ -229,6 +229,11 @@ export function applyCfoDemo(data: DashboardData, demo: DemoHelpers): DashboardD
     empowerLiveBalanceCents: scaleOpt(demo, data.empowerLiveBalanceCents),
   })
 
+  const nextPayrollMasked = data.nextPayroll && {
+    ...data.nextPayroll,
+    amountCents: scaleReq(demo, data.nextPayroll.amountCents),
+  }
+
   return {
     ...data,
     totalCashCents: scaleReq(demo, data.totalCashCents),
@@ -251,6 +256,7 @@ export function applyCfoDemo(data: DashboardData, demo: DemoHelpers): DashboardD
     debts,
     ar,
     qb,
+    nextPayroll: nextPayrollMasked,
     actions,
   }
 }
