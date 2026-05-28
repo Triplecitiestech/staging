@@ -270,6 +270,7 @@ export default function SocIncidentDetail({ incidentId }: { incidentId: string }
   const [overrideVerdict, setOverrideVerdict] = useState('')
   const [overrideStatus, setOverrideStatus] = useState('')
   const [saving, setSaving] = useState(false)
+  const [reprocessing, setReprocessing] = useState(false)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -361,6 +362,32 @@ export default function SocIncidentDetail({ incidentId }: { incidentId: string }
       // ignore
     } finally {
       setSaving(false)
+    }
+  }
+
+  // Re-run analysis for just this incident's ticket(s). Reprocessing deletes
+  // the old incident and creates a fresh one, so we send the user back to the
+  // list afterwards where the new analysis appears.
+  const handleReprocess = async () => {
+    const ids = Array.from(new Set(
+      (analyses.map(a => a.autotaskTicketId).filter(Boolean) as string[])
+        .concat(incident?.primaryTicketId ? [incident.primaryTicketId] : [])
+    ))
+    if (ids.length === 0) return
+    setReprocessing(true)
+    try {
+      const res = await fetch('/api/soc/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticketIds: ids }),
+      })
+      if (res.ok) {
+        window.location.href = '/admin/soc/incidents'
+      } else {
+        setReprocessing(false)
+      }
+    } catch {
+      setReprocessing(false)
     }
   }
 
@@ -480,6 +507,21 @@ export default function SocIncidentDetail({ incidentId }: { incidentId: string }
                 </p>
               )}
             </div>
+            <button
+              onClick={handleReprocess}
+              disabled={reprocessing}
+              title="Re-run the SOC analysis for just this incident (re-pulls the security stack and burns tokens only for this ticket)"
+              className="px-3 py-1.5 text-xs font-medium bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
+            >
+              {reprocessing ? (
+                <>
+                  <span className="animate-spin rounded-full h-3 w-3 border-t-2 border-b-2 border-white" />
+                  Re-running...
+                </>
+              ) : (
+                'Re-run analysis'
+              )}
+            </button>
           </div>
         </div>
 
