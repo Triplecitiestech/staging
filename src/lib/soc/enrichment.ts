@@ -113,7 +113,7 @@ export async function enrichTicket(
   const [edr, dns, saas] = await Promise.all([
     fetchEdr(companyId, effectiveHostname, alertTime),
     fetchDns(companyId, companyName, alertTime, effectiveHostname, allIps),
-    fetchSaasAlerts(companyId, alertTime),
+    fetchSaasAlerts(companyId, companyName, alertTime),
   ]);
 
   for (const r of [edr, dns, saas]) {
@@ -649,7 +649,7 @@ async function fetchDns(
   }
 }
 
-async function fetchSaasAlerts(companyId: string | null, alertTime: string): Promise<SourceResult<SaasCorrelation>> {
+async function fetchSaasAlerts(companyId: string | null, companyName: string | null, alertTime: string): Promise<SourceResult<SaasCorrelation>> {
   const client = new SaasAlertsClient();
   if (!client.isConfigured()) {
     return {
@@ -662,12 +662,24 @@ async function fetchSaasAlerts(companyId: string | null, alertTime: string): Pro
   if (mappings && mappings.some(m => m.externalId === '__none__')) {
     return { result: null, status: { source: 'SaaS Alerts', status: 'not_configured', detail: 'Company marked as not using SaaS Alerts.' } };
   }
-  const customerIds = (mappings ?? []).map(m => m.externalId).filter(id => id && id !== '__none__');
+  let customerIds = (mappings ?? []).map(m => m.externalId).filter(id => id && id !== '__none__');
+  let matchedBy = 'mapping';
+
+  // No explicit mapping — resolve the SaaS Alerts customer by company name.
+  // (These alerts are sourced FROM SaaS Alerts, so the customer exists there.)
+  if (customerIds.length === 0 && companyName) {
+    try {
+      const { customers } = await client.getCustomers();
+      customerIds = customers.filter(c => c.name && matchesCompanyName(companyName, c.name)).map(c => c.id).filter(Boolean);
+      matchedBy = 'name';
+    } catch { /* customer list unavailable */ }
+  }
+
   if (customerIds.length === 0) {
     return {
       result: null,
-      status: { source: 'SaaS Alerts', status: 'no_data', detail: 'No SaaS Alerts customer mapped for this company.' },
-      gap: 'No SaaS Alerts customer is mapped to this company; map it at the compliance Connect Tools step for identity correlation.',
+      status: { source: 'SaaS Alerts', status: 'no_data', detail: `No SaaS Alerts customer mapped or name-matched for ${companyName || 'this company'}.` },
+      gap: `No SaaS Alerts customer resolved for ${companyName || 'this company'}; map it at the compliance Connect Tools step for reliable identity correlation.`,
     };
   }
 
@@ -690,11 +702,11 @@ async function fetchSaasAlerts(companyId: string | null, alertTime: string): Pro
     }
 
     if (events.length === 0) {
-      return { result: { eventCount: 0, events: [] }, status: { source: 'SaaS Alerts', status: 'no_data', detail: `No SaaS Alerts events for the mapped customer(s) in window.` } };
+      return { result: { eventCount: 0, events: [] }, status: { source: 'SaaS Alerts', status: 'no_data', detail: `No SaaS Alerts events for the ${matchedBy}-resolved customer(s) in window.` } };
     }
     return {
       result: { eventCount: events.length, events: events.slice(0, 10) },
-      status: { source: 'SaaS Alerts', status: 'used', detail: `${events.length} SaaS Alerts event(s) for the mapped customer(s) near alert time.` },
+      status: { source: 'SaaS Alerts', status: 'used', detail: `${events.length} SaaS Alerts event(s) for the ${matchedBy}-resolved customer(s) near alert time.` },
     };
   } catch (err) {
     return {
