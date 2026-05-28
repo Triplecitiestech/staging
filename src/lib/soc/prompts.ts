@@ -425,11 +425,24 @@ export function formatEnrichmentForPrompt(bundle: EnrichmentBundle): string {
     lines.push('\nDATTO RMM: no device health available.');
   }
 
+  // Datto RMM company-network match (source IP → known company devices).
+  if (bundle.companyNetworkMatch) {
+    const n = bundle.companyNetworkMatch;
+    lines.push(`\nDATTO RMM NETWORK MATCH: source IP ${n.ip} belongs to this company's known network — ${n.deviceCount} managed device(s) behind it (${n.hostnames.slice(0, 6).join(', ')}). Activity originated from a known company location.`);
+  }
+
   // Datto EDR detections.
   if (bundle.edr && bundle.edr.detectionCount > 0) {
-    lines.push(`\nDATTO EDR: ${bundle.edr.detectionCount} detection(s) near the alert window:`);
-    for (const e of bundle.edr.detections) {
-      lines.push(`  - [${e.severity}] ${e.type}: ${e.description} (${e.timestamp}, status: ${e.status})`);
+    const e = bundle.edr;
+    lines.push(`\nDATTO EDR: ${e.detectionCount} detection(s) in the window — ${e.suspiciousCount} suspicious/bad, ${e.unclassifiedCount} unclassified/unknown.`);
+    lines.push(e.deviceScoped
+      ? '  (scoped to the affected device)'
+      : '  (org-wide — NOT confirmed related to this specific alert/user; do not treat raw volume as threat.)');
+    if (!e.deviceScoped && e.byDevice.length > 0) {
+      lines.push(`  Per-device: ${e.byDevice.map(d => `${d.hostname}: ${d.total} (${d.suspicious} susp)`).join('; ')}`);
+    }
+    for (const d of e.detections) {
+      lines.push(`  - [${d.threatName}${d.threatScore != null ? ` score ${d.threatScore}` : ''}] ${d.name}${d.path ? ` (${d.path})` : ''}${d.hostname ? ` on ${d.hostname}` : ''} — ${d.timestamp}, status ${d.status}${d.hash ? `, hash ${d.hash}` : ''}`);
     }
   } else {
     lines.push('\nDATTO EDR: no related endpoint detections found in the window.');
@@ -543,6 +556,21 @@ agents, security tools, approved scripts, and other known Kaseya/Datto tooling c
 ASR / LSASS-access rules. When the correlated evidence shows the triggering process is one of these
 (e.g. path under "C:\\Program Files\\Datto\\..."), and there are no corroborating detections elsewhere
 in the stack and the device is healthy, classify as likely/confirmed false positive and explain why.
+
+CORRELATION DISCIPLINE — DO NOT OVER-ESCALATE ON NOISE:
+- Datto EDR detection COUNT is not a threat signal. Most "Unknown"/"Good" threatName detections are
+  routine background scan results, not active threats. Weight only Bad/Suspicious detections, and only
+  when they are tied to the SAME device/timeframe as this alert.
+- If the EDR data is labeled "org-wide (NOT confirmed related)", it was NOT tied to this alert's
+  device/user — treat it as low-confidence context, not corroboration. Do not claim "138 active
+  detections on this device" when the detections are org-wide and unclassified. Say what is actually
+  known and put the rest in Data Gaps.
+- DATTO RMM NETWORK MATCH: if the alert's source IP belongs to the company's known managed network,
+  the activity originated from a known company location — this REDUCES suspicion for identity/SaaS
+  alerts (logins, file operations). Treat it as a benign-leaning signal unless other evidence contradicts.
+- For SaaS Alerts identity/file-activity alerts (bulk delete, login location), the user operating from a
+  known company device/network with a clean IP and a high historical FP rate points to false positive
+  unless there is device-scoped Bad/Suspicious EDR detail or confirmed compromise.
 
 INTERNAL NOTE — THE PRIMARY DELIVERABLE:
 Technicians act inside Autotask, NOT on this website. The internalNote you write IS the product. It must

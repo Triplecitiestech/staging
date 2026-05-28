@@ -96,7 +96,12 @@ export interface EnrichmentBundle {
   externalAccountId: string | null
   rocketCyber: RocketCyberDetail | null
   deviceHealth: DeviceHealth | null
-  edr: { detectionCount: number; detections: Array<{ type: string; severity: string; description: string; timestamp: string; status: string }> } | null
+  companyNetworkMatch: { ip: string; deviceCount: number; hostnames: string[] } | null
+  edr: {
+    detectionCount: number; suspiciousCount: number; unclassifiedCount: number; deviceScoped: boolean
+    byDevice: Array<{ hostname: string; total: number; suspicious: number }>
+    detections: Array<{ name: string; path: string | null; hash: string | null; threatName: string; threatScore: number | null; timestamp: string; hostname: string | null; status: string }>
+  } | null
   dns: { blockedQueries: number; totalQueries: number; topBlockedDomains: Array<{ domain: string; count: number }>; orgLevelOnly: boolean } | null
   saasAlerts: { eventCount: number; events: Array<{ type: string; severity: string; description: string; time: string; user: string | null }> } | null
   knownBenignMatches: KnownBenignMatch[]
@@ -237,6 +242,46 @@ export default function CrossStackAssessment({ assessment, enrichment }: { asses
             {enrichment.deviceHealth.recentSoftware.length > 0 && (
               <DetailField label="Recent Software" value={enrichment.deviceHealth.recentSoftware.map(s => `${s.name} ${s.version}`.trim()).join('; ')} wide />
             )}
+          </div>
+        </Section>
+      )}
+
+      {/* Source Network (Datto RMM IP match) */}
+      {enrichment?.companyNetworkMatch && (
+        <Section title="Source Network (Datto RMM)" subtitle="The alert's source IP matched to the company's known managed devices">
+          <div className="p-4 text-sm text-green-300">
+            IP {enrichment.companyNetworkMatch.ip} belongs to this company&apos;s known network — {enrichment.companyNetworkMatch.deviceCount} managed device(s) behind it
+            {enrichment.companyNetworkMatch.hostnames.length > 0 && (
+              <span className="text-slate-400"> (e.g. {enrichment.companyNetworkMatch.hostnames.slice(0, 6).join(', ')})</span>
+            )}. Activity originated from a known company location.
+          </div>
+        </Section>
+      )}
+
+      {/* Datto EDR Detections */}
+      {enrichment?.edr && enrichment.edr.detectionCount > 0 && (
+        <Section title="Datto EDR Detections" subtitle={enrichment.edr.deviceScoped ? 'Scoped to the affected device' : 'Org-wide — not confirmed related to this alert'}>
+          <div className="p-4 space-y-3">
+            <div className="flex flex-wrap gap-3 text-sm">
+              <span className="text-slate-300">{enrichment.edr.detectionCount} total</span>
+              <span className={enrichment.edr.suspiciousCount > 0 ? 'text-rose-400' : 'text-slate-400'}>{enrichment.edr.suspiciousCount} suspicious/bad</span>
+              <span className="text-slate-500">{enrichment.edr.unclassifiedCount} unclassified/unknown</span>
+            </div>
+            {!enrichment.edr.deviceScoped && enrichment.edr.byDevice.length > 0 && (
+              <div className="text-xs text-slate-500">
+                Per-device: {enrichment.edr.byDevice.map(d => `${d.hostname}: ${d.total} (${d.suspicious} susp)`).join(' · ')}
+              </div>
+            )}
+            <div className="space-y-1.5">
+              {enrichment.edr.detections.slice(0, 12).map((d, i) => (
+                <div key={i} className="bg-black/30 rounded p-2 text-xs">
+                  <span className={d.threatName.toLowerCase() === 'bad' || d.threatName.toLowerCase() === 'suspicious' ? 'text-rose-400 font-medium' : 'text-slate-400'}>[{d.threatName}{d.threatScore != null ? ` ${d.threatScore}` : ''}]</span>
+                  <span className="text-white ml-2">{d.name}</span>
+                  {d.hostname && <span className="text-slate-500 ml-2">on {d.hostname}</span>}
+                  {d.path && <div className="text-slate-500 font-mono break-all mt-0.5">{d.path}</div>}
+                </div>
+              ))}
+            </div>
           </div>
         </Section>
       )}
