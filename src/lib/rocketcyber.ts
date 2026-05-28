@@ -68,15 +68,15 @@ interface RawIncidentEnvelope {
 
 const DETECTION_FIELD_ALIASES: Record<keyof DetectionFields, string[]> = {
   actionTaken: ['actionTaken', 'action', 'remediationAction', 'responseAction', 'detectionAction'],
-  eventTime: ['eventTime', 'eventTimestamp', 'detectionTime', 'timestamp', 'time', 'occurredAt'],
+  eventTime: ['eventTime', 'event_time', 'eventTimestamp', 'detectionTime', 'timestamp', 'time', 'occurredAt'],
   path: ['path', 'filePath', 'imagePath', 'processPath', 'targetPath'],
   process: ['process', 'processName', 'image', 'imageName', 'fileName'],
-  targetCommandLine: ['targetCommandLine', 'commandLine', 'processCommandLine', 'cmdLine', 'targetCmdLine'],
-  parentCommandLine: ['parentCommandLine', 'parentCmdLine', 'parentProcessCommandLine'],
-  userContext: ['userContext', 'user', 'userName', 'username', 'account', 'accountName', 'subjectUserName'],
+  targetCommandLine: ['targetCommandLine', 'commandLine', 'processCommandLine', 'cmdLine', 'targetCmdLine', 'target_commandline'],
+  parentCommandLine: ['parentCommandLine', 'parentCmdLine', 'parentProcessCommandLine', 'parent_commandline'],
+  userContext: ['userContext', 'user', 'userName', 'username', 'account', 'accountName', 'subjectUserName', 'user_name'],
   hash: ['hash', 'sha256', 'sha1', 'md5', 'fileHash', 'sha256Hash', 'computedHash', 'computed_hash'],
-  threatName: ['threatName', 'threat', 'malwareName', 'detectionName', 'ruleName', 'signatureName'],
-  threatType: ['threatType', 'category', 'threatCategory', 'detectionType', 'malwareType'],
+  threatName: ['threatName', 'threat_name', 'threat', 'malwareName', 'detectionName', 'ruleName', 'signatureName'],
+  threatType: ['threatType', 'threat_type', 'category', 'threatCategory', 'detectionType', 'malwareType'],
   severity: ['severity', 'priority', 'riskLevel', 'level'],
   device: ['device', 'deviceName', 'hostname', 'host', 'computerName', 'machineName', 'endpoint'],
   organization: ['organization', 'organizationName', 'customer', 'customerName', 'accountName'],
@@ -250,15 +250,16 @@ export class RocketCyberClient {
     const rawEvents: unknown[] = [];
     const needsEvents = !fields.process || !fields.path || !fields.hash;
     if (needsEvents && resolvedAccountId) {
-      const createdAt = asString(inc.createdAt ?? inc.created_at);
-      const since = createdAt ? new Date(new Date(createdAt).getTime() - 60 * 60 * 1000).toISOString() : undefined;
-      const until = createdAt ? new Date(new Date(createdAt).getTime() + 60 * 60 * 1000).toISOString() : undefined;
+      const incidentMs = toMillis(inc.eventTime ?? inc.event_time ?? inc.createdAt ?? inc.created_at);
+      const since = incidentMs ? new Date(incidentMs - 60 * 60 * 1000).toISOString() : undefined;
+      const until = incidentMs ? new Date(incidentMs + 60 * 60 * 1000).toISOString() : undefined;
       const appId = asString(inc.appId ?? inc.app_id ?? inc.applicationId) || undefined;
       const dates = since || until ? JSON.stringify([since || '', until || '']) : undefined;
 
       // The IOC detail (path/process/hash) lives on the EVENT, not the incident.
-      // RocketCyber's event linkage isn't consistently documented, so try the
-      // likely shapes and use whatever returns events. Each is best-effort.
+      // The account-wide /events endpoint returns MANY detections (this device
+      // had msiexec, Dell, AND the Datto one), so we must pick the event that
+      // belongs to THIS incident — the one closest in time to it.
       const attempts: Array<() => Promise<unknown>> = [
         () => this.request<unknown>(`/incidents/${encodeURIComponent(incidentId)}/events`),
         () => this.request<unknown>('/events', { accountId: resolvedAccountId, incidentId, appId, dates }),
@@ -266,18 +267,36 @@ export class RocketCyberClient {
         () => this.request<unknown>('/events', { accountId: resolvedAccountId, appId }),
         () => this.request<unknown>('/events', { accountId: resolvedAccountId, dates }),
       ];
+      let candidates: unknown[] = [];
       for (const attempt of attempts) {
         try {
-          const events = this.unwrap(await attempt());
-          if (events.length > 0) {
-            rawEvents.push(...events);
-            for (const ev of events) fields = mergeFields(fields, extractDetectionFields(ev));
-            if (fields.process || fields.path || fields.hash) break;
-          }
+          const evs = this.unwrap(await attempt());
+          if (evs.length > 0) { candidates = evs; break; }
         } catch {
           // Try the next shape.
         }
       }
+      rawEvents.push(...candidates);
+
+      // Select the single event that belongs to this incident.
+      const best = selectClosestEvent(candidates, incidentMs);
+      if (best) fields = mergeFields(fields, extractDetectionFields(best));
+    }
+
+    // event_time often comes back as a unix timestamp — normalize to ISO.
+    if (fields.eventTime && /^\d{9,13}$/.test(fields.eventTime)) {
+      const ms = toMillis(fields.eventTime);
+      if (ms) fields.eventTime = new Date(ms).toISOString();
+    }
+
+    // The Defender message blob carries User / Target & Parent Commandline that
+    // aren't exposed as structured fields — parse them out when missing.
+    if (fields.detectionMessage) {
+      const m = fields.detectionMessage;
+      const grab = (re: RegExp) => { const x = m.match(re); return x && x[1].trim() ? x[1].trim() : null; };
+      fields.userContext = fields.userContext || grab(/\bUser:\s*([^\r\n]+)/i);
+      fields.targetCommandLine = fields.targetCommandLine || grab(/Target Commandline:\s*([^\r\n]+)/i);
+      fields.parentCommandLine = fields.parentCommandLine || grab(/Parent Commandline:\s*([^\r\n]+)/i);
     }
 
     return {
@@ -298,6 +317,53 @@ export class RocketCyberClient {
 }
 
 // ── Field extraction helpers ──
+
+/** Parse a time value (ISO string, unix seconds, or unix millis) to epoch ms. */
+function toMillis(v: unknown): number | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'number') return v > 1e12 ? v : v * 1000;
+  if (typeof v === 'string') {
+    const t = v.trim();
+    if (/^\d{9,13}$/.test(t)) {
+      const n = parseInt(t, 10);
+      return n > 1e12 ? n : n * 1000;
+    }
+    const parsed = Date.parse(t);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+  return null;
+}
+
+/** Get an event's timestamp in epoch ms (handles JSON:API `attributes` nesting). */
+function getEventMillis(ev: unknown): number | null {
+  if (!ev || typeof ev !== 'object') return null;
+  const o = ev as Record<string, unknown>;
+  const attrs = (o.attributes && typeof o.attributes === 'object' ? o.attributes : {}) as Record<string, unknown>;
+  return toMillis(
+    o.event_time ?? o.eventTime ?? o.timestamp ?? o.created_at ?? o.createdAt ??
+    attrs.event_time ?? attrs.eventTime ?? attrs.timestamp,
+  );
+}
+
+/**
+ * Pick the event that belongs to this incident from a list of account-wide
+ * events: the one whose timestamp is closest to the incident's. Without a
+ * reference time we only return a single unambiguous event.
+ */
+function selectClosestEvent(events: unknown[], incidentMs: number | null): unknown | null {
+  if (events.length === 0) return null;
+  if (events.length === 1) return events[0];
+  if (incidentMs === null) return null;
+  let best: unknown = null;
+  let bestDelta = Infinity;
+  for (const ev of events) {
+    const ms = getEventMillis(ev);
+    if (ms === null) continue;
+    const delta = Math.abs(ms - incidentMs);
+    if (delta < bestDelta) { bestDelta = delta; best = ev; }
+  }
+  return best;
+}
 
 function asString(v: unknown): string | null {
   if (v === null || v === undefined) return null;
