@@ -9,9 +9,10 @@ import { prisma } from '@/lib/prisma';
 import { trackAnthropicCall } from '@/lib/api-usage-tracker';
 import { correlateTickets } from './correlation';
 import { extractPrimaryIp } from './ip-extractor';
-import { buildScreeningPrompt, buildDeepAnalysisPrompt, buildActionPlanPrompt, buildReasoningPrompt, formatTicketNote } from './prompts';
+import { buildScreeningPrompt, buildCrossStackAssessmentPrompt, formatTicketNote } from './prompts';
 import { matchRules, isSecurityTicket, detectAlertSource } from './rules';
 import { verifyTechnicianByIp, verifyTechnicianLive } from './technician-verifier';
+import { enrichTicket } from './enrichment';
 import type {
   SecurityTicket,
   SocConfig,
@@ -19,11 +20,11 @@ import type {
   TriageResult,
   SocJobMeta,
   ScreeningResult,
-  DeepAnalysisResult,
   DeviceVerification,
   IncidentGroup,
-  IncidentActionPlan,
-  SocReasoning,
+  SocAssessment,
+  SocClassification,
+  EnrichmentBundle,
   Verdict,
   AlertSource,
   AlertCategory,
@@ -51,6 +52,7 @@ export async function loadSocConfig(): Promise<SocConfig> {
     screening_model: get('screening_model', 'claude-haiku-4-5-20251001'),
     deep_analysis_model: get('deep_analysis_model', 'claude-sonnet-4-6'),
     internal_site_ids: JSON.parse(get('internal_site_ids', '[]')),
+    auto_post_internal_note: get('auto_post_internal_note', 'true') === 'true',
   };
 }
 
@@ -148,8 +150,8 @@ export async function runTriagePipeline(
       meta.ticketsProcessed += group.tickets.length;
 
       if (result.verdict === 'false_positive') meta.falsePositives++;
-      if (result.verdict === 'escalate') meta.escalated++;
-      if (result.recommendedAction === 'close' && !config.dry_run) meta.notesAdded++;
+      if (result.verdict === 'escalate' || result.verdict === 'confirmed_threat') meta.escalated++;
+      if (result.noteAutoPosted) meta.notesAdded++;
 
       // Record per-ticket detail
       for (const ticket of group.tickets) {
@@ -162,18 +164,19 @@ export async function runTriagePipeline(
           confidence: result.confidence,
           reason: result.reasoning.slice(0, 200),
         });
-        await recordAnalysis(ticket, result, group, config);
+        await recordAnalysis(ticket, result);
       }
 
       // Log activity with rich metadata
-      const mergeInfo = result.actionPlan?.proposedActions?.merge;
-      const escalationInfo = result.actionPlan?.proposedActions?.escalation;
+      const usedSources = (result.enrichment?.dataSources || [])
+        .filter(s => s.status === 'used')
+        .map(s => s.source);
       await logActivity({
         analysisId: null,
         incidentId: result.incidentId || null,
         autotaskTicketId: result.ticketId,
         action: 'analyzed',
-        detail: `Verdict: ${result.verdict} (${Math.round(result.confidence * 100)}%). Action: ${result.recommendedAction}${mergeInfo?.shouldMerge ? `. Merge recommended → ${mergeInfo.survivingTicketNumber}` : ''}${escalationInfo?.recommended ? `. Escalation: ${escalationInfo.urgency}` : ''}`,
+        detail: `${result.assessment?.classification || result.verdict} (${Math.round(result.confidence * 100)}%). Action: ${result.recommendedAction}. Sources: ${usedSources.join(', ') || 'none'}${result.noteAutoPosted ? '. Internal note posted.' : ''}`,
         aiReasoning: result.reasoning,
         confidenceScore: result.confidence,
         metadata: {
@@ -182,14 +185,15 @@ export async function runTriagePipeline(
           ticketCount: group.tickets.length,
           model: result.aiModel,
           verdict: result.verdict,
+          classification: result.assessment?.classification || null,
           companyName: group.primaryTicket.companyName || null,
           companyId: group.primaryTicket.companyId || null,
-          deviceHostname: result.deviceVerification?.device?.hostname || null,
-          mergeRecommended: mergeInfo?.shouldMerge || false,
-          mergeSurvivingTicket: mergeInfo?.survivingTicketNumber || null,
-          escalationRecommended: escalationInfo?.recommended || false,
-          escalationUrgency: escalationInfo?.urgency || null,
-          riskLevel: result.actionPlan?.humanGuidance?.riskLevel || null,
+          deviceHostname: result.enrichment?.deviceHealth?.hostname || result.deviceVerification?.device?.hostname || null,
+          dataSourcesUsed: usedSources,
+          dataGaps: result.enrichment?.dataGaps || [],
+          knownBenignMatched: (result.enrichment?.knownBenignMatches?.length || 0) > 0,
+          noteAutoPosted: result.noteAutoPosted || false,
+          riskLevel: result.assessment?.riskLevel || null,
           ticketNumbers: group.tickets.map(t => t.ticketNumber),
         },
       });
@@ -254,20 +258,6 @@ async function getHistoricalFpRate(companyId: string | null, alertSource: string
   }
 }
 
-async function getTechnicianRoster(): Promise<string[]> {
-  try {
-    const resources = await prisma.resource.findMany({
-      where: { isActive: true },
-      select: { firstName: true, lastName: true },
-    });
-    return resources
-      .map(r => `${r.firstName} ${r.lastName}`.trim())
-      .filter(name => name.length > 0);
-  } catch {
-    return [];
-  }
-}
-
 // ── Process Single Incident Group ──
 
 async function processIncidentGroup(
@@ -302,184 +292,97 @@ async function processIncidentGroup(
     ? group.tickets.filter(t => t.autotaskTicketId !== primary.autotaskTicketId)
     : [];
 
-  // Step 1: Haiku screening — errors thrown to caller for proper error tracking
+  // Step 1: Fast Haiku screening for category/source/IP signal.
   onAiCall();
   const screening = await runScreening(primary, recentTickets, rules, deviceVerification, config.screening_model);
-
-  // Determine if deep analysis is needed
-  const needsDeep = screening.needsDeepAnalysis ||
-    screening.confidence < config.confidence_flag_review ||
-    group.tickets.length > 2;
-
-  let finalVerdict: Verdict = screening.isFalsePositive ? 'false_positive' : 'suspicious';
-  let finalConfidence = screening.confidence;
-  let finalReasoning = screening.reasoning;
-  let finalNote = '';
-  let finalModel = config.screening_model;
   let totalTokens = screening.tokensUsed || 0;
 
-  // Step 2: Deep analysis if needed
-  if (needsDeep && screening.confidence < 0.95) {
+  // Step 2: Cross-stack enrichment — pull the REAL evidence from the security
+  // stack (RocketCyber detail, Datto RMM health, Datto EDR, DNSFilter, SaaS Alerts).
+  const enrichment = await enrichTicket(primary, deviceVerification);
+
+  // Step 3: Authoritative cross-stack assessment over the correlated evidence.
+  const alertSource = detectAlertSource(primary);
+  const historicalData = await getHistoricalFpRate(primary.companyId, alertSource);
+
+  let assessment: SocAssessment | null = null;
+  try {
     onAiCall();
-    // Fetch historical FP data for deep analysis context
-    const alertSrc = detectAlertSource(primary);
-    const historicalData = await getHistoricalFpRate(primary.companyId, alertSrc);
-    const deepResult = await runDeepAnalysis(group, deviceVerification, config.deep_analysis_model, historicalData.fpRate, historicalData.similarFpCount);
-
-    if (deepResult) {
-      finalVerdict = deepResult.verdict;
-      finalConfidence = deepResult.confidence;
-      finalReasoning = deepResult.reasoning;
-      finalNote = deepResult.ticketNote;
-      finalModel = config.deep_analysis_model;
-      totalTokens += deepResult.tokensUsed || 0;
-    }
-  }
-
-  // Apply safeguards
-  // Never auto-recommend close for high-priority tickets
-  if (primary.priority <= 2 && finalVerdict === 'false_positive') {
-    finalVerdict = 'escalate';
-    finalReasoning += '\n[SAFEGUARD: High-priority ticket — escalated for human review regardless of AI assessment.]';
-  }
-
-  // Below confidence floor → informational only
-  const recommendedAction = determineAction(finalVerdict, finalConfidence, config, matchedRules);
-
-  // Build ticket note
-  if (!finalNote) {
-    finalNote = formatTicketNote(
-      finalVerdict,
-      finalConfidence,
-      screening.category,
-      recommendedAction,
-      finalReasoning,
-      group.tickets.filter(t => t.autotaskTicketId !== primary.autotaskTicketId).map(t => t.ticketNumber),
-      deviceVerification?.verified ? {
-        hostname: deviceVerification.device!.hostname,
-        technician: deviceVerification.technician!,
-        ip: deviceVerification.device!.extIpAddress,
-        lastSeen: deviceVerification.device!.lastSeen,
-      } : undefined,
+    assessment = await generateCrossStackAssessment(
+      primary, recentTickets, enrichment, deviceVerification,
+      config.deep_analysis_model, historicalData.fpRate, historicalData.similarFpCount,
     );
-  }
-
-  // Generate reasoning document (replaces action plan for new analyses)
-  // Skip for high-confidence single false positives to stay within timeout
-  let actionPlan: IncidentActionPlan | undefined;
-  let reasoning: SocReasoning | undefined;
-  if (finalVerdict !== 'false_positive' || group.tickets.length > 1 || finalConfidence < config.confidence_auto_close) {
-    try {
-      onAiCall();
-
-      // Fetch enrichment context in parallel
-      const alertSource = detectAlertSource(primary);
-      const [historicalData, technicianRoster] = await Promise.all([
-        getHistoricalFpRate(primary.companyId, alertSource),
-        getTechnicianRoster(),
-      ]);
-
-      reasoning = await generateReasoning(
-        group, finalVerdict, finalConfidence, finalReasoning, deviceVerification,
-        config.deep_analysis_model, technicianRoster,
-        historicalData.fpRate, historicalData.similarFpCount,
-      );
-
-      // Use reasoning's internal note if available
-      if (reasoning.internalNote) {
-        finalNote = reasoning.internalNote;
-      }
-
-      // Map reasoning classification to verdict for backwards compat
-      if (reasoning.classification === 'expected_activity') {
-        finalVerdict = 'expected_activity' as Verdict;
-      } else if (reasoning.classification === 'confirmed_threat') {
-        finalVerdict = 'confirmed_threat' as Verdict;
-      } else if (reasoning.classification === 'false_positive') {
-        finalVerdict = 'false_positive';
-      } else if (reasoning.classification === 'suspicious') {
-        finalVerdict = 'suspicious';
-      } else if (reasoning.classification === 'informational') {
-        finalVerdict = 'informational' as Verdict;
-      }
-
-      finalConfidence = reasoning.confidence;
-    } catch (err) {
-      console.error('[SOC] Reasoning generation failed, falling back to action plan:', err);
-      // Fallback to legacy action plan if reasoning fails
-      try {
-        onAiCall();
-        actionPlan = await generateActionPlan(
-          group, finalVerdict, finalConfidence, finalReasoning, deviceVerification, config.screening_model,
-        );
-        if (actionPlan.proposedActions.internalNote) {
-          finalNote = actionPlan.proposedActions.internalNote;
-        }
-        if (actionPlan.proposedActions.queueChange) {
-          actionPlan.proposedActions.queueChange = null;
-        }
-      } catch (apErr) {
-        console.error('[SOC] Action plan fallback also failed:', apErr);
-        await logActivity({
-          analysisId: null,
-          incidentId: null,
-          autotaskTicketId: primary.autotaskTicketId,
-          action: 'error',
-          detail: `Reasoning generation failed: ${err instanceof Error ? err.message : String(err)}`,
-          aiReasoning: null,
-          confidenceScore: null,
-          metadata: { ticketNumber: primary.ticketNumber, phase: 'reasoning' },
-        });
-      }
-    }
-  }
-
-  // Create incident record for every analyzed group (single or correlated)
-  const incidentId = await createIncident(group, finalVerdict, finalConfidence, finalReasoning, actionPlan, reasoning);
-
-  // Create pending actions for human approval
-  // Always create these — even in dry run mode — so the admin can preview and approve
-  if (finalConfidence >= config.confidence_floor) {
-    // 1. Internal note action
-    await createPendingAction({
-      incidentId: incidentId,
-      autotaskTicketId: primary.autotaskTicketId,
-      ticketNumber: primary.ticketNumber,
-      companyName: primary.companyName || null,
-      actionType: 'add_note',
-      actionPayload: {
-        noteTitle: 'SOC AI Triage Analysis',
-        noteBody: finalNote,
-        notePublish: 2, // Internal Only
-      },
-      previewSummary: `Add internal note to ticket #${primary.ticketNumber} (${primary.companyName || 'Unknown Company'}): "${finalNote.slice(0, 150)}${finalNote.length > 150 ? '...' : ''}"`,
+    totalTokens += (assessment as AssessmentWithTokens).tokensUsed || 0;
+    // The enrichment bundle is authoritative for which sources contributed + gaps.
+    assessment.correlatedSources = enrichment.dataSources;
+    assessment.dataGaps = Array.from(new Set([...enrichment.dataGaps, ...(assessment.dataGaps || [])]));
+  } catch (err) {
+    console.error('[SOC] Cross-stack assessment failed:', err);
+    await logActivity({
+      analysisId: null, incidentId: null, autotaskTicketId: primary.autotaskTicketId,
+      action: 'error', detail: `Assessment failed: ${err instanceof Error ? err.message : String(err)}`,
+      aiReasoning: null, confidenceScore: null,
+      metadata: { ticketNumber: primary.ticketNumber, phase: 'assessment' },
     });
+  }
 
-    // 2. Customer communication — use reasoning gate if available, fall back to action plan
-    const customerRequired = reasoning
-      ? reasoning.customerMessageRequired && reasoning.customerMessageDraft
-      : actionPlan?.customerCommunication?.required && actionPlan.customerCommunication.message;
+  // Derive verdict/action from the assessment (fall back to screening).
+  const classification: SocClassification = assessment?.classification
+    || (screening.isFalsePositive ? 'likely_false_positive' : 'suspicious_review');
+  const finalConfidence = assessment?.confidence ?? screening.confidence;
+  const finalVerdict = classificationToVerdict(classification);
+  const finalReasoning = assessment?.executiveSummary || screening.reasoning;
+  const recommendedAction = classificationToAction(classification, finalConfidence, config, matchedRules);
 
-    const customerMessage = reasoning?.customerMessageDraft || actionPlan?.customerCommunication?.message;
-    const customerRecipient = actionPlan?.customerCommunication?.recipient || 'primary contact';
+  // The internal note is the primary deliverable — self-contained for techs in Autotask.
+  const finalNote = assessment?.internalNote || formatTicketNote(
+    finalVerdict, finalConfidence, screening.category, recommendedAction, finalReasoning,
+    recentTickets.map(t => t.ticketNumber),
+    deviceVerification?.verified ? {
+      hostname: deviceVerification.device!.hostname,
+      technician: deviceVerification.technician!,
+      ip: deviceVerification.device!.extIpAddress,
+      lastSeen: deviceVerification.device!.lastSeen,
+    } : undefined,
+  );
 
-    if (customerRequired && customerMessage) {
+  // Persist the incident with the assessment + full enrichment bundle.
+  const incidentId = await createIncident(group, finalVerdict, finalConfidence, finalReasoning, assessment, enrichment);
+
+  // Auto-post the self-contained internal note to Autotask (Internal Only) when
+  // enabled and not a dry run. Closure and customer replies stay technician-approved.
+  let noteAutoPosted = false;
+  if (finalConfidence >= config.confidence_floor) {
+    if (!config.dry_run && config.auto_post_internal_note) {
+      await addAutotaskNote(primary.autotaskTicketId, finalNote, incidentId);
+      noteAutoPosted = true;
+    } else {
       await createPendingAction({
-        incidentId: incidentId,
+        incidentId,
+        autotaskTicketId: primary.autotaskTicketId,
+        ticketNumber: primary.ticketNumber,
+        companyName: primary.companyName || null,
+        actionType: 'add_note',
+        actionPayload: { noteTitle: 'SOC Analyst Assessment', noteBody: finalNote, notePublish: 2 },
+        previewSummary: `Add internal SOC assessment note to ticket #${primary.ticketNumber} (${primary.companyName || 'Unknown Company'})`,
+      });
+    }
+
+    // Customer message stays technician-approved — only when it's a real concern.
+    if (assessment?.customerMessageRequired && assessment.customerMessageDraft) {
+      await createPendingAction({
+        incidentId,
         autotaskTicketId: primary.autotaskTicketId,
         ticketNumber: primary.ticketNumber,
         companyName: primary.companyName || null,
         actionType: 'send_customer_message',
         actionPayload: {
           noteTitle: 'SOC Security Alert - Action Required',
-          noteBody: customerMessage,
-          notePublish: 1, // Customer-visible (All Autotask Users)
-          recipient: customerRecipient,
-          setStatusWaitingCustomer: reasoning ? reasoning.customerMessageRequired : actionPlan?.customerCommunication?.setStatusWaitingCustomer,
-          followUpDays: actionPlan?.customerCommunication?.followUpDays,
-          followUpMessage: actionPlan?.customerCommunication?.followUpMessage,
+          noteBody: assessment.customerMessageDraft,
+          notePublish: 1, // Customer-visible
+          recipient: 'primary contact',
         },
-        previewSummary: `Send customer message on ticket #${primary.ticketNumber} to ${customerRecipient} at ${primary.companyName || 'Unknown Company'}`,
+        previewSummary: `Send customer message on ticket #${primary.ticketNumber} to ${primary.companyName || 'Unknown Company'}`,
       });
     }
   }
@@ -490,16 +393,17 @@ async function processIncidentGroup(
     confidence: finalConfidence,
     reasoning: finalReasoning,
     recommendedAction: recommendedAction as TriageResult['recommendedAction'],
-    alertSource: screening.alertSource as AlertSource,
+    alertSource: enrichment.sourceSystem as AlertSource,
     alertCategory: screening.category as AlertCategory,
     extractedIps: screening.extractedIps,
     deviceVerification,
     ticketNote: finalNote,
-    aiModel: finalModel,
+    aiModel: assessment ? config.deep_analysis_model : config.screening_model,
     tokensUsed: totalTokens,
     incidentId,
-    actionPlan,
-    socReasoning: reasoning,
+    assessment: assessment || undefined,
+    enrichment,
+    noteAutoPosted,
   };
 }
 
@@ -546,96 +450,28 @@ async function runScreening(
   }
 }
 
-interface DeepAnalysisWithTokens extends DeepAnalysisResult {
+interface AssessmentWithTokens extends SocAssessment {
   tokensUsed?: number;
 }
 
-async function runDeepAnalysis(
-  group: IncidentGroup,
+/**
+ * Generate the authoritative cross-stack assessment. Reasons over the full
+ * correlated evidence bundle and produces a self-contained internal note.
+ */
+async function generateCrossStackAssessment(
+  ticket: SecurityTicket,
+  recentTickets: SecurityTicket[],
+  enrichment: EnrichmentBundle,
   deviceVerification: DeviceVerification | null,
   model: string,
-  historicalFpRate: number | null = null,
-  similarFpCount: number = 0,
-): Promise<DeepAnalysisWithTokens | null> {
-  const prompt = buildDeepAnalysisPrompt(
-    group.tickets,
-    group.reason,
-    deviceVerification,
-    historicalFpRate,
-    similarFpCount,
-  );
-
-  try {
-    const response = await trackAnthropicCall('soc_triage_deep', model, () =>
-      anthropic.messages.create({
-        model,
-        max_tokens: 1024,
-        temperature: 0,
-        messages: [{ role: 'user', content: prompt }],
-      })
-    );
-
-    const rawText = response.content[0]?.type === 'text' ? response.content[0].text : '';
-    const cleanText = rawText.replace(/^```json\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
-    const parsed = JSON.parse(cleanText) as DeepAnalysisResult;
-    return {
-      ...parsed,
-      tokensUsed: (response.usage?.input_tokens || 0) + (response.usage?.output_tokens || 0),
-    };
-  } catch (err) {
-    console.error('[SOC] Deep analysis AI call failed:', err);
-    return null;
-  }
-}
-
-// ── Action Plan Generation ──
-
-async function generateActionPlan(
-  group: IncidentGroup,
-  verdict: string,
-  confidence: number,
-  reasoning: string,
-  deviceVerification: DeviceVerification | null,
-  model: string,
-): Promise<IncidentActionPlan> {
-  const prompt = buildActionPlanPrompt(
-    group.tickets, group.reason, verdict, confidence, reasoning, deviceVerification,
-  );
-
-  const response = await trackAnthropicCall('soc_action_plan', model, () =>
-    anthropic.messages.create({
-      model,
-      max_tokens: 4096,
-      temperature: 0,
-      messages: [{ role: 'user', content: prompt }],
-    })
-  );
-
-  const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
-  if (!text) throw new Error('AI returned empty action plan');
-  const jsonText = text.replace(/^```json\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
-  return JSON.parse(jsonText) as IncidentActionPlan;
-}
-
-// ── Reasoning Generation ──
-
-async function generateReasoning(
-  group: IncidentGroup,
-  verdict: string,
-  confidence: number,
-  reasoning: string,
-  deviceVerification: DeviceVerification | null,
-  model: string,
-  technicianRoster: string[],
   historicalFpRate: number | null,
   similarFpCount: number,
-): Promise<SocReasoning> {
-  const prompt = buildReasoningPrompt(
-    group.tickets, group.reason, verdict, confidence, reasoning,
-    deviceVerification, technicianRoster, historicalFpRate, similarFpCount,
+): Promise<AssessmentWithTokens> {
+  const prompt = buildCrossStackAssessmentPrompt(
+    ticket, recentTickets, enrichment, deviceVerification, historicalFpRate, similarFpCount,
   );
 
-  const response = await trackAnthropicCall('soc_reasoning', model, () =>
+  const response = await trackAnthropicCall('soc_assessment', model, () =>
     anthropic.messages.create({
       model,
       max_tokens: 4096,
@@ -645,29 +481,39 @@ async function generateReasoning(
   );
 
   const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
-  if (!text) throw new Error('AI returned empty reasoning document');
+  if (!text) throw new Error('AI returned empty assessment');
   const jsonText = text.replace(/^```json\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
-  return JSON.parse(jsonText) as SocReasoning;
+  const parsed = JSON.parse(jsonText) as SocAssessment;
+  return {
+    ...parsed,
+    tokensUsed: (response.usage?.input_tokens || 0) + (response.usage?.output_tokens || 0),
+  };
 }
 
 // ── Helpers ──
 
-function determineAction(
-  verdict: Verdict,
+/** Map the technician-facing classification onto the stored verdict enum. */
+function classificationToVerdict(classification: SocClassification): Verdict {
+  switch (classification) {
+    case 'confirmed_malicious': return 'confirmed_threat';
+    case 'suspicious_review': return 'suspicious';
+    case 'likely_false_positive': return 'false_positive';
+    case 'confirmed_false_positive': return 'false_positive';
+    case 'insufficient_data': return 'suspicious';
+  }
+}
+
+/** Recommended ticket action. Nothing auto-closes — these are recommendations only. */
+function classificationToAction(
+  classification: SocClassification,
   confidence: number,
   config: SocConfig,
   matchedRules: SocRule[],
 ): string {
-  if (confidence < config.confidence_floor) return 'investigate';
-  if (verdict === 'escalate') return 'escalate';
-
-  if (verdict === 'false_positive') {
-    if (confidence >= config.confidence_auto_close) return 'close';
-    if (confidence >= config.confidence_flag_review) return 'close';
-    return 'investigate';
-  }
-
+  if (classification === 'confirmed_malicious') return 'escalate';
   if (matchedRules.some(r => r.action === 'escalate')) return 'escalate';
+  if (confidence < config.confidence_floor) return 'investigate';
+  if (classification === 'likely_false_positive' || classification === 'confirmed_false_positive') return 'close';
   return 'investigate';
 }
 
@@ -676,22 +522,20 @@ async function createIncident(
   verdict: Verdict,
   confidence: number,
   reasoningText: string,
-  actionPlan?: IncidentActionPlan,
-  reasoning?: SocReasoning,
+  assessment?: SocAssessment | null,
+  enrichment?: EnrichmentBundle,
 ): Promise<string> {
-  const title = actionPlan?.proposedActions?.merge?.proposedTitle
-    || (group.tickets.length > 1
-      ? `${group.tickets.length} correlated alerts: ${group.primaryTicket.title.slice(0, 100)}`
-      : group.primaryTicket.title.slice(0, 200));
-  const summary = reasoning?.incidentSummary || actionPlan?.incidentSummary || reasoningText.slice(0, 2000);
+  const title = group.tickets.length > 1
+    ? `${group.tickets.length} correlated alerts: ${group.primaryTicket.title.slice(0, 100)}`
+    : group.primaryTicket.title.slice(0, 200);
+  const summary = assessment?.executiveSummary || reasoningText.slice(0, 2000);
   const companyName = group.primaryTicket.companyName || null;
 
   const result = await prisma.$queryRaw<[{ id: string }]>`
     INSERT INTO soc_incidents (
       id, title, "companyId", "companyName", "alertSource", "ticketCount",
       verdict, "confidenceScore", "aiSummary", "correlationReason",
-      "primaryTicketId", status, "proposedActions", "humanGuidance",
-      "customerCommunication", "nextCycleChecks", reasoning
+      "primaryTicketId", status, reasoning, enrichment
     )
     VALUES (
       gen_random_uuid()::text,
@@ -706,11 +550,8 @@ async function createIncident(
       ${group.reason},
       ${group.primaryTicket.autotaskTicketId},
       ${'open'},
-      ${actionPlan?.proposedActions ? JSON.stringify(actionPlan.proposedActions) : null}::jsonb,
-      ${actionPlan?.humanGuidance ? JSON.stringify(actionPlan.humanGuidance) : null}::jsonb,
-      ${actionPlan?.customerCommunication ? JSON.stringify(actionPlan.customerCommunication) : null}::jsonb,
-      ${actionPlan?.nextCycleChecks ? JSON.stringify(actionPlan.nextCycleChecks) : null}::jsonb,
-      ${reasoning ? JSON.stringify(reasoning) : null}::jsonb
+      ${assessment ? JSON.stringify(assessment) : null}::jsonb,
+      ${enrichment ? JSON.stringify(enrichment) : null}::jsonb
     )
     RETURNING id
   `;
@@ -755,12 +596,12 @@ async function createPendingAction(action: {
   }
 }
 
-export async function addAutotaskNote(ticketId: string, noteText: string): Promise<void> {
+export async function addAutotaskNote(ticketId: string, noteText: string, incidentId: string | null = null): Promise<void> {
   try {
     const { AutotaskClient } = await import('@/lib/autotask');
     const client = new AutotaskClient();
     await client.createTicketNote(parseInt(ticketId, 10), {
-      title: 'SOC AI Triage Analysis',
+      title: 'SOC Analyst Assessment',
       description: noteText,
       noteType: 1,
       publish: 2, // Internal Only — NOT visible to customers
@@ -768,10 +609,10 @@ export async function addAutotaskNote(ticketId: string, noteText: string): Promi
 
     await logActivity({
       analysisId: null,
-      incidentId: null,
+      incidentId,
       autotaskTicketId: ticketId,
       action: 'note_added',
-      detail: 'Internal SOC analysis note added to Autotask ticket',
+      detail: 'Internal SOC assessment note auto-posted to Autotask ticket (Internal Only)',
       aiReasoning: null,
       confidenceScore: null,
       metadata: null,
@@ -784,8 +625,6 @@ export async function addAutotaskNote(ticketId: string, noteText: string): Promi
 async function recordAnalysis(
   ticket: SecurityTicket,
   result: TriageResult,
-  group: IncidentGroup,
-  config: SocConfig,
 ): Promise<void> {
   await prisma.$executeRawUnsafe(`
     INSERT INTO soc_ticket_analysis (
@@ -830,7 +669,7 @@ async function recordAnalysis(
     result.extractedIps[0] || null,
     result.deviceVerification?.verified || false,
     result.deviceVerification?.technician || null,
-    !config.dry_run && result.confidence >= config.confidence_floor,
+    result.noteAutoPosted || false,
     result.recommendedAction,
   );
 }

@@ -252,6 +252,12 @@ export interface TriageResult {
   incidentId?: string;
   actionPlan?: IncidentActionPlan;
   socReasoning?: SocReasoning;
+  /** Redesigned cross-stack assessment (primary output). */
+  assessment?: SocAssessment;
+  /** Full enrichment bundle correlated from the security stack. */
+  enrichment?: EnrichmentBundle;
+  /** True when the internal note was auto-posted to Autotask this run. */
+  noteAutoPosted?: boolean;
 }
 
 // ── Proposed Actions (Dry Run Preview) ──
@@ -361,6 +367,159 @@ export interface SocConfig {
   screening_model: string;
   deep_analysis_model: string;
   internal_site_ids: string[];
+  /** Auto-post the self-contained internal note to Autotask (Internal Only). Close/customer-reply stay approval-gated. */
+  auto_post_internal_note: boolean;
+}
+
+// ── Cross-Stack Enrichment ──
+
+/** Each security tool the analyst tried to pull data from, and how it went. */
+export type DataSourceState = 'used' | 'no_data' | 'not_configured' | 'error';
+
+export interface DataSourceStatus {
+  /** e.g. "RocketCyber", "Datto RMM", "Datto EDR", "DNSFilter", "SaaS Alerts" */
+  source: string;
+  status: DataSourceState;
+  /** Short human-readable note: what was found, or why nothing was. */
+  detail: string;
+}
+
+/** Datto RMM device health snapshot for the affected endpoint. */
+export interface DeviceHealth {
+  hostname: string;
+  online: boolean | null;
+  operatingSystem: string | null;
+  lastUser: string | null;
+  lastSeen: string | null;
+  rebootRequired: boolean | null;
+  patchStatus: string | null;
+  patchesApprovedPending: number | null;
+  antivirusProduct: string | null;
+  antivirusStatus: string | null;
+  siteName: string | null;
+  recentSoftware: Array<{ name: string; version: string; installDate: string | null }>;
+}
+
+/** Datto EDR detections that line up with the affected device/timeframe. */
+export interface EdrCorrelation {
+  detectionCount: number;
+  detections: Array<{
+    type: string;
+    severity: string;
+    description: string;
+    timestamp: string;
+    status: string;
+  }>;
+}
+
+/** DNSFilter blocked/threat lookups in the relevant window. */
+export interface DnsCorrelation {
+  blockedQueries: number;
+  totalQueries: number;
+  topBlockedDomains: Array<{ domain: string; count: number }>;
+  /** True when we could only get org-level aggregates, not device-specific data. */
+  orgLevelOnly: boolean;
+}
+
+/** SaaS Alerts events correlated by customer/timeframe. */
+export interface SaasCorrelation {
+  eventCount: number;
+  events: Array<{ type: string; severity: string; description: string; time: string; user: string | null }>;
+}
+
+/** Match against the Known Benign Security Events table (informational only). */
+export interface KnownBenignMatch {
+  id: string;
+  vendor: string;
+  product: string;
+  executablePath: string | null;
+  detectionType: string | null;
+  recommendedHandling: string | null;
+  scope: 'global' | 'tenant' | 'device';
+  /** How we matched: 'path' | 'hash' | 'signer' | 'vendor_product' */
+  matchedOn: string;
+}
+
+export interface EnrichmentBundle {
+  sourceSystem: AlertSource;
+  externalIncidentId: string | null;
+  externalAccountId: string | null;
+  rocketCyber: import('@/lib/rocketcyber').RocketCyberDetail | null;
+  deviceHealth: DeviceHealth | null;
+  edr: EdrCorrelation | null;
+  dns: DnsCorrelation | null;
+  saasAlerts: SaasCorrelation | null;
+  knownBenignMatches: KnownBenignMatch[];
+  dataSources: DataSourceStatus[];
+  dataGaps: string[];
+}
+
+// ── Known Benign Security Events ──
+
+export type BenignScope = 'global' | 'tenant' | 'device';
+
+export interface KnownBenignEvent {
+  id: string;
+  vendor: string;
+  product: string;
+  executablePath: string | null;
+  hashValue: string | null;
+  certificateSigner: string | null;
+  detectionType: string | null;
+  recommendedHandling: string | null;
+  scope: BenignScope;
+  companyId: string | null;
+  deviceHostname: string | null;
+  approvedBy: string | null;
+  approvedAt: Date | null;
+  notes: string | null;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// ── Redesigned SOC Assessment (cross-stack) ──
+
+/**
+ * The technician-facing classification buckets. These map onto the legacy
+ * Classification/Verdict values for storage but drive the new UI and the
+ * self-contained Autotask internal note.
+ */
+export type SocClassification =
+  | 'confirmed_malicious'
+  | 'suspicious_review'
+  | 'likely_false_positive'
+  | 'confirmed_false_positive'
+  | 'insufficient_data';
+
+/**
+ * Structured assessment the AI produces once it has correlated the stack.
+ * Persisted on soc_incidents.reasoning (extends SocReasoning at runtime).
+ */
+export interface SocAssessment {
+  executiveSummary: string;
+  finalRecommendation: string;
+  classification: SocClassification;
+  confidence: number;
+  riskLevel: RiskLevel;
+  /** Bullet-point evidence the analyst collected. */
+  evidence: EvidenceItem[];
+  /** Which tools contributed and what they showed. */
+  correlatedSources: DataSourceStatus[];
+  /** Populated when the activity matches a Known Benign entry. */
+  knownBenignMatch: { matched: boolean; reason: string } | null;
+  /** Plain-language customer impact. */
+  customerImpact: string;
+  /** Concrete steps for the technician (technical where needed). */
+  recommendedTechnicianActions: string[];
+  /** What we could NOT determine, and why. */
+  dataGaps: string[];
+  /** The full self-contained note posted to Autotask (Internal Only). */
+  internalNote: string;
+  /** Whether a customer message is warranted (real concern, not FP). */
+  customerMessageRequired: boolean;
+  /** Copy-paste customer message — only when customerMessageRequired. */
+  customerMessageDraft: string | null;
 }
 
 // ── Job Status ──

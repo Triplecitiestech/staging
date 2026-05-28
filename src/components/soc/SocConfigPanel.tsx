@@ -14,6 +14,7 @@ interface ConfigEntry {
 const CONFIG_SCHEMA: Omit<ConfigEntry, 'value'>[] = [
   { key: 'agent_enabled', label: 'Agent Enabled', type: 'boolean', description: 'Enable or disable the SOC agent' },
   { key: 'dry_run', label: 'Dry Run Mode', type: 'boolean', description: 'When enabled, agent analyzes but does not add Autotask notes' },
+  { key: 'auto_post_internal_note', label: 'Auto-Post Internal Note', type: 'boolean', description: 'Auto-post the self-contained SOC assessment to Autotask as an Internal Only note. Closing tickets and customer replies still require technician approval.' },
   { key: 'screening_model', label: 'Screening Model', type: 'select', options: ['claude-haiku-4-5-20251001', 'claude-sonnet-4-6'], description: 'AI model for initial ticket screening' },
   { key: 'deep_analysis_model', label: 'Deep Analysis Model', type: 'select', options: ['claude-sonnet-4-6', 'claude-haiku-4-5-20251001'], description: 'AI model for complex incident analysis' },
   { key: 'confidence_auto_close', label: 'Auto-Close Threshold', type: 'number', description: 'Minimum confidence to recommend automatic closure (0-1)' },

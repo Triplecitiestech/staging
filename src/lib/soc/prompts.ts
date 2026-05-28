@@ -2,7 +2,7 @@
  * SOC Analyst Agent — AI Prompt Templates
  */
 
-import type { SecurityTicket, DeviceVerification, SocRule } from './types';
+import type { SecurityTicket, DeviceVerification, SocRule, EnrichmentBundle } from './types';
 
 /**
  * Build the Tier 1 screening prompt (Haiku — fast, cheap).
@@ -366,6 +366,230 @@ Respond ONLY with valid JSON (no markdown, no backticks):
   "customerMessageRequired": true or false,
   "customerMessageDraft": "The exact customer message (plain language) or null if not required",
   "internalNote": "Full technical investigation note for Autotask internal use"
+}`;
+}
+
+/**
+ * Render the cross-stack enrichment bundle into a compact-but-complete block
+ * for the AI. The raw RocketCyber payload is included (truncated) so the model
+ * sees the real detection fields, not the gutted Autotask body.
+ */
+export function formatEnrichmentForPrompt(bundle: EnrichmentBundle): string {
+  const lines: string[] = [];
+
+  // RocketCyber detail — the headline evidence.
+  if (bundle.rocketCyber) {
+    const rc = bundle.rocketCyber;
+    lines.push('ROCKETCYBER INCIDENT DETAIL (pulled directly from the API — this is the "Details" data):');
+    const field = (label: string, val: string | null) => { if (val) lines.push(`  ${label}: ${val}`); };
+    field('Incident ID', rc.incidentId);
+    field('Account ID', rc.accountId);
+    field('Status', rc.status);
+    field('Threat Name', rc.threatName);
+    field('Threat Type', rc.threatType);
+    field('Severity', rc.severity);
+    field('Action Taken', rc.actionTaken);
+    field('Event Time', rc.eventTime);
+    field('Device', rc.device);
+    field('Organization', rc.organization);
+    field('User Context', rc.userContext);
+    field('Process', rc.process);
+    field('Path', rc.path);
+    field('Target Command Line', rc.targetCommandLine);
+    field('Parent Command Line', rc.parentCommandLine);
+    field('Hash', rc.hash);
+    field('Detection Message', rc.detectionMessage);
+    field('Remediation', rc.remediation);
+    // Raw payload so nothing is lost (truncated to keep token use sane).
+    const raw = JSON.stringify(rc.rawIncident).slice(0, 3500);
+    lines.push(`  Raw incident JSON (truncated): ${raw}`);
+    if (rc.rawEvents.length > 0) {
+      lines.push(`  Raw events JSON (truncated): ${JSON.stringify(rc.rawEvents).slice(0, 2500)}`);
+    }
+  } else {
+    lines.push('ROCKETCYBER: no detailed detection record retrieved.');
+  }
+
+  // Datto RMM device health.
+  if (bundle.deviceHealth) {
+    const d = bundle.deviceHealth;
+    lines.push('\nDATTO RMM DEVICE HEALTH:');
+    lines.push(`  Device: ${d.hostname} | Online: ${d.online ?? 'unknown'} | OS: ${d.operatingSystem || 'unknown'}`);
+    lines.push(`  Last User: ${d.lastUser || 'unknown'} | Last Seen: ${d.lastSeen || 'unknown'} | Site: ${d.siteName || 'unknown'}`);
+    lines.push(`  Reboot Required: ${d.rebootRequired ?? 'unknown'} | Patch Status: ${d.patchStatus || 'unknown'} | Pending Patches: ${d.patchesApprovedPending ?? 'unknown'}`);
+    lines.push(`  Antivirus: ${d.antivirusProduct || 'unknown'} (${d.antivirusStatus || 'unknown'})`);
+    if (d.recentSoftware.length > 0) {
+      lines.push(`  Recently installed software: ${d.recentSoftware.map(s => `${s.name} ${s.version}`.trim()).join('; ')}`);
+    }
+  } else {
+    lines.push('\nDATTO RMM: no device health available.');
+  }
+
+  // Datto EDR detections.
+  if (bundle.edr && bundle.edr.detectionCount > 0) {
+    lines.push(`\nDATTO EDR: ${bundle.edr.detectionCount} detection(s) near the alert window:`);
+    for (const e of bundle.edr.detections) {
+      lines.push(`  - [${e.severity}] ${e.type}: ${e.description} (${e.timestamp}, status: ${e.status})`);
+    }
+  } else {
+    lines.push('\nDATTO EDR: no related endpoint detections found in the window.');
+  }
+
+  // DNSFilter.
+  if (bundle.dns) {
+    lines.push(`\nDNSFILTER (org-level, ±6h window): ${bundle.dns.blockedQueries} blocked / ${bundle.dns.totalQueries} total queries.`);
+    if (bundle.dns.topBlockedDomains.length > 0) {
+      lines.push(`  Top blocked domains: ${bundle.dns.topBlockedDomains.map(d => `${d.domain} (${d.count})`).join(', ')}`);
+    }
+  } else {
+    lines.push('\nDNSFILTER: no data.');
+  }
+
+  // SaaS Alerts.
+  if (bundle.saasAlerts && bundle.saasAlerts.eventCount > 0) {
+    lines.push(`\nSAAS ALERTS: ${bundle.saasAlerts.eventCount} event(s) for this customer near the window:`);
+    for (const e of bundle.saasAlerts.events) {
+      lines.push(`  - [${e.severity}] ${e.type}: ${e.description} (${e.time}${e.user ? `, user: ${e.user}` : ''})`);
+    }
+  } else {
+    lines.push('\nSAAS ALERTS: no correlated identity/SaaS events found.');
+  }
+
+  // Known benign catalogue matches.
+  if (bundle.knownBenignMatches.length > 0) {
+    lines.push('\nKNOWN BENIGN MATCHES (informational — trusted-tool catalogue):');
+    for (const m of bundle.knownBenignMatches) {
+      lines.push(`  - ${m.vendor} ${m.product}${m.executablePath ? ` (${m.executablePath})` : ''} | matched on: ${m.matchedOn} | recommended: ${m.recommendedHandling || 'n/a'} | scope: ${m.scope}`);
+    }
+  } else {
+    lines.push('\nKNOWN BENIGN MATCHES: none.');
+  }
+
+  // Data source roll-up + gaps.
+  lines.push('\nDATA SOURCES ATTEMPTED:');
+  for (const s of bundle.dataSources) {
+    lines.push(`  - ${s.source}: ${s.status} — ${s.detail}`);
+  }
+  if (bundle.dataGaps.length > 0) {
+    lines.push('\nDATA GAPS:');
+    for (const g of bundle.dataGaps) lines.push(`  - ${g}`);
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * Build the cross-stack assessment prompt. This is the primary reasoning step
+ * once the enrichment bundle is assembled. It produces the redesigned
+ * SocAssessment, including a fully self-contained internal note (technicians
+ * act in Autotask, not on the website).
+ */
+export function buildCrossStackAssessmentPrompt(
+  ticket: SecurityTicket,
+  recentTickets: SecurityTicket[],
+  enrichment: EnrichmentBundle,
+  deviceVerification: DeviceVerification | null,
+  historicalFpRate: number | null,
+  similarFpCount: number,
+): string {
+  const recentSummary = recentTickets.length > 0
+    ? recentTickets.map(t => `  - [${t.ticketNumber}] ${t.title} (${t.createDate})`).join('\n')
+    : '  (none)';
+
+  const deviceSummary = deviceVerification
+    ? deviceVerification.verified
+      ? `VERIFIED as TCT technician device "${deviceVerification.device?.hostname}" (tech: ${deviceVerification.technician})`
+      : `NOT verified as a technician device: ${deviceVerification.reason || 'no match'}`
+    : 'No IP extracted for technician verification.';
+
+  const historicalSummary = historicalFpRate !== null
+    ? `This company's historical false-positive rate for this source: ${historicalFpRate}% (${similarFpCount} similar FPs in 30 days)`
+    : 'No historical FP data for this company/source.';
+
+  return `You are a senior SOC Analyst for Triple Cities Tech (TCT), a managed IT services provider.
+You triage RocketCyber / SaaS Alerts / Datto EDR security alerts that land in Autotask.
+
+CRITICAL CONTEXT: The Autotask ticket body is generated from a vendor email template that frequently
+blanks fields as "UNDEFINED". DO NOT base your verdict on the ticket body alone. Base it on the
+CORRELATED EVIDENCE below, which was pulled directly from the security stack APIs.
+
+TICKET:
+  Number: ${ticket.ticketNumber}
+  Title: ${ticket.title}
+  Company: ${ticket.companyName || ticket.companyId || 'Unknown'}
+  Source: ${ticket.sourceLabel || 'Unknown'} | Queue: ${ticket.queueLabel || 'Unknown'} | Priority: ${ticket.priorityLabel}
+  Created: ${ticket.createDate}
+  Body: ${ticket.description?.slice(0, 1500) || '(empty)'}
+
+RECENT TICKETS (same company):
+${recentSummary}
+
+TECHNICIAN DEVICE CHECK: ${deviceSummary}
+HISTORICAL: ${historicalSummary}
+
+═══ CORRELATED EVIDENCE FROM THE SECURITY STACK ═══
+${formatEnrichmentForPrompt(enrichment)}
+═══ END CORRELATED EVIDENCE ═══
+
+CLASSIFICATION (choose exactly one):
+- "confirmed_malicious": Evidence confirms a real malicious/compromise event. Immediate human response.
+- "suspicious_review": Cannot be confirmed benign from available data; a technician must review/investigate.
+- "likely_false_positive": Evidence strongly suggests benign (e.g. matches a trusted tool's behavior, no corroborating detections, device healthy) but is not 100% certain.
+- "confirmed_false_positive": Confirmed benign — matches a Known Benign entry or is unambiguously a trusted process/tool (e.g. Datto Rollback Driver, RMM/EDR/backup agent) with no other suspicious signals.
+- "insufficient_data": Not enough correlated data to make a call (e.g. RocketCyber/Datto not reachable, device not found). Say what is missing.
+
+TRUSTED-TOOL RECOGNITION: Datto Rollback Driver, Datto RMM components, Datto EDR components, backup
+agents, security tools, approved scripts, and other known Kaseya/Datto tooling commonly trip Defender
+ASR / LSASS-access rules. When the correlated evidence shows the triggering process is one of these
+(e.g. path under "C:\\Program Files\\Datto\\..."), and there are no corroborating detections elsewhere
+in the stack and the device is healthy, classify as likely/confirmed false positive and explain why.
+
+INTERNAL NOTE — THE PRIMARY DELIVERABLE:
+Technicians act inside Autotask, NOT on this website. The internalNote you write IS the product. It must
+be fully self-contained and follow this exact structure:
+
+═══ SOC ANALYST ASSESSMENT ═══
+Classification: <LABEL> (Confidence <X>%)  |  Risk: <level>
+
+EXECUTIVE SUMMARY
+<2-4 plain sentences: what fired, what the real detection was, and the bottom line.>
+
+EVIDENCE & CORRELATION
+- RocketCyber: <real process/path/hash/threat/action, or "no detail retrieved">
+- Datto RMM: <device health summary, or "n/a">
+- Datto EDR: <related detections or "none in window">
+- DNSFilter: <blocked-domain context or "n/a">
+- SaaS Alerts: <identity events or "none">
+- Known Benign: <matched entry or "no match">
+
+WHY THIS CLASSIFICATION
+- <bullet reasons tied to the evidence, e.g. "Defender blocked the action", "path matched Datto Rollback Driver", "no other detections", "device health clean">
+
+RECOMMENDED TECHNICIAN ACTION
+<Concrete, technical next steps if any are needed. For a clean false positive: "No remediation required; close after review." For real concerns: isolation, password reset, escalation, etc.>
+
+DATA GAPS
+- <what could not be determined and why, or "none">
+
+CUSTOMER MESSAGE (copy/paste — only if this is a real concern, NOT for false positives)
+<If customerMessageRequired is true: a plain-language, non-technical message the tech can paste to inform the customer. If false: write exactly "Not required — <reason>. No customer notification recommended.">
+═══ END SOC ASSESSMENT ═══
+
+Respond ONLY with valid JSON (no markdown, no backticks):
+{
+  "executiveSummary": "2-4 plain sentences, no jargon",
+  "finalRecommendation": "One clear sentence: what to do with this ticket",
+  "classification": "confirmed_malicious|suspicious_review|likely_false_positive|confirmed_false_positive|insufficient_data",
+  "confidence": 0.0,
+  "riskLevel": "none|low|medium|high|critical",
+  "evidence": [ { "label": "Triggering Process", "value": "updater.exe", "type": "neutral|positive|negative|info" } ],
+  "knownBenignMatch": { "matched": true, "reason": "Path matches Datto Rollback Driver catalogue entry" } or null,
+  "customerImpact": "Plain-language statement of impact to the customer, or 'None — no customer-visible impact.'",
+  "recommendedTechnicianActions": [ "step 1", "step 2" ],
+  "dataGaps": [ "what was missing" ],
+  "internalNote": "The full self-contained note following the structure above, ready to post to Autotask",
+  "customerMessageRequired": false,
+  "customerMessageDraft": "plain-language message or null"
 }`;
 }
 
