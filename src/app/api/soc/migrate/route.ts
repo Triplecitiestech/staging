@@ -81,6 +81,7 @@ export async function POST(request: Request) {
       await prisma.$executeRawUnsafe(`ALTER TABLE soc_incidents ADD COLUMN IF NOT EXISTS "customerCommunication" JSONB`);
       await prisma.$executeRawUnsafe(`ALTER TABLE soc_incidents ADD COLUMN IF NOT EXISTS "nextCycleChecks" JSONB`);
       await prisma.$executeRawUnsafe(`ALTER TABLE soc_incidents ADD COLUMN IF NOT EXISTS reasoning JSONB`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE soc_incidents ADD COLUMN IF NOT EXISTS enrichment JSONB`);
     } catch { /* columns may already exist */ }
     created.push('soc_incidents');
 
@@ -227,6 +228,34 @@ export async function POST(request: Request) {
     await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_soc_comms_status ON soc_communications (status, "followUpDueAt")`);
     created.push('soc_communications');
 
+    // 10. Known Benign Security Events — catalogue of trusted-tool detections.
+    //     INFORMATIONAL ONLY for now: it informs the analyst's recommendation,
+    //     it does NOT auto-suppress or auto-close anything.
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS soc_known_benign (
+        id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        vendor TEXT NOT NULL,
+        product TEXT NOT NULL,
+        "executablePath" TEXT,
+        "hashValue" TEXT,
+        "certificateSigner" TEXT,
+        "detectionType" TEXT,
+        "recommendedHandling" TEXT,
+        scope TEXT NOT NULL DEFAULT 'global',
+        "companyId" TEXT,
+        "deviceHostname" TEXT,
+        "approvedBy" TEXT,
+        "approvedAt" TIMESTAMP,
+        notes TEXT,
+        "isActive" BOOLEAN NOT NULL DEFAULT true,
+        "createdAt" TIMESTAMP DEFAULT now(),
+        "updatedAt" TIMESTAMP DEFAULT now()
+      )
+    `);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_soc_benign_active ON soc_known_benign ("isActive", scope)`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_soc_benign_company ON soc_known_benign ("companyId")`);
+    created.push('soc_known_benign');
+
     // Seed default config values
     const defaults = [
       ['agent_enabled', 'true'],
@@ -239,6 +268,7 @@ export async function POST(request: Request) {
       ['screening_model', 'claude-haiku-4-5-20251001'],
       ['deep_analysis_model', 'claude-sonnet-4-6'],
       ['internal_site_ids', '["177027"]'],
+      ['auto_post_internal_note', 'true'],
     ];
     for (const [key, value] of defaults) {
       await prisma.$executeRawUnsafe(`
@@ -291,6 +321,70 @@ export async function POST(request: Request) {
                '${rule.pattern}'::jsonb, '${rule.action}', true, 100
         WHERE NOT EXISTS (SELECT 1 FROM soc_rules WHERE name = '${rule.name}')
       `);
+    }
+
+    // Seed Known Benign starter catalogue (trusted Kaseya/Datto tooling that
+    // commonly trips Defender ASR / LSASS-access rules). Informational only.
+    const benignSeeds: Array<{
+      vendor: string; product: string; executablePath: string | null;
+      detectionType: string; recommendedHandling: string; notes: string;
+    }> = [
+      {
+        vendor: 'Datto', product: 'Rollback Driver',
+        executablePath: 'Datto\\Datto Rollback Driver',
+        detectionType: 'Defender ASR / LSASS access',
+        recommendedHandling: 'likely_false_positive',
+        notes: 'Datto Rollback Driver updater.exe legitimately triggers Defender ASR rules related to LSASS access. Verify path and lack of corroborating detections before closing.',
+      },
+      {
+        vendor: 'Datto', product: 'RMM Agent',
+        executablePath: 'CentraStage',
+        detectionType: 'RMM agent activity',
+        recommendedHandling: 'likely_false_positive',
+        notes: 'Datto RMM (CentraStage) agent components run remote scripts/automation that can look anomalous.',
+      },
+      {
+        vendor: 'Datto', product: 'EDR Agent',
+        executablePath: 'Infocyte',
+        detectionType: 'EDR agent activity',
+        recommendedHandling: 'likely_false_positive',
+        notes: 'Datto EDR (Infocyte) agent scanning behavior.',
+      },
+      {
+        vendor: 'Datto', product: 'Backup Agent',
+        executablePath: 'Datto\\Datto Windows Agent',
+        detectionType: 'Backup agent activity',
+        recommendedHandling: 'likely_false_positive',
+        notes: 'Datto BCDR Windows backup agent volume snapshot/IO activity.',
+      },
+      {
+        vendor: 'Microsoft', product: 'Windows Defender',
+        executablePath: 'Windows Defender\\MsMpEng',
+        detectionType: 'Defender engine / self-scan activity',
+        recommendedHandling: 'likely_false_positive',
+        notes: 'Microsoft Defender engine (MsMpEng.exe) self-scan/real-time-protection activity can self-report. Confirm the triggering process is the Defender engine itself, not a payload Defender flagged.',
+      },
+      {
+        vendor: 'Microsoft', product: 'Windows Update',
+        executablePath: 'Windows\\SoftwareDistribution',
+        detectionType: 'Windows Update / servicing activity',
+        recommendedHandling: 'likely_false_positive',
+        notes: 'Windows Update workers (wuauclt, TiWorker, svchost servicing) routinely trip behavior heuristics during patching.',
+      },
+      {
+        vendor: 'Microsoft', product: 'Sysinternals',
+        executablePath: 'Sysinternals',
+        detectionType: 'Admin tooling activity',
+        recommendedHandling: 'suspicious_review',
+        notes: 'Sysinternals (PsExec, ProcDump, etc.) are legitimate admin tools but are also dual-use. Verify the operator/context before dismissing — do NOT auto-treat as benign.',
+      },
+    ];
+    for (const b of benignSeeds) {
+      await prisma.$executeRawUnsafe(`
+        INSERT INTO soc_known_benign (id, vendor, product, "executablePath", "detectionType", "recommendedHandling", scope, "approvedBy", "approvedAt", notes, "isActive")
+        SELECT gen_random_uuid()::text, $1, $2, $3, $4, $5, 'global', 'system-seed', now(), $6, true
+        WHERE NOT EXISTS (SELECT 1 FROM soc_known_benign WHERE vendor = $1 AND product = $2)
+      `, b.vendor, b.product, b.executablePath, b.detectionType, b.recommendedHandling, b.notes);
     }
 
     return NextResponse.json({
