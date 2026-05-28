@@ -158,6 +158,68 @@ export async function syncTickets(defaultDays: number = 90, batchSize: number = 
   }
 }
 
+/**
+ * Sync a SINGLE ticket from Autotask into the local `tickets` table by its
+ * Autotask ID. Used by the SOC real-time ingest webhook so a ticket can be
+ * analyzed the moment it's created, instead of waiting for the 2-hour batch.
+ */
+export async function syncSingleTicket(
+  autotaskTicketId: string,
+): Promise<{ synced: boolean; companyId: string | null; reason?: string }> {
+  await ensureReportingTables();
+  const client = new AutotaskClient();
+
+  const atTicket = await client.getTicket(parseInt(autotaskTicketId, 10));
+  if (!atTicket) return { synced: false, companyId: null, reason: 'Ticket not found in Autotask' };
+
+  const company = await prisma.company.findFirst({
+    where: { autotaskCompanyId: String(atTicket.companyID) },
+    select: { id: true },
+  });
+  if (!company) {
+    return { synced: false, companyId: null, reason: `No local company mapped for Autotask company ${atTicket.companyID}` };
+  }
+
+  const picklistCache = await resolvePicklists(client);
+
+  const ticketData = {
+    autotaskTicketId: String(atTicket.id),
+    ticketNumber: atTicket.ticketNumber || `T${atTicket.id}`,
+    companyId: company.id,
+    title: atTicket.title || 'Untitled',
+    description: atTicket.description || null,
+    status: atTicket.status,
+    statusLabel: picklistCache.ticketStatus[atTicket.status] || null,
+    priority: atTicket.priority,
+    priorityLabel: picklistCache.ticketPriority[atTicket.priority] || null,
+    queueId: atTicket.queueID ?? null,
+    queueLabel: atTicket.queueID ? (picklistCache.ticketQueue[atTicket.queueID] || null) : null,
+    source: atTicket.source ?? null,
+    sourceLabel: atTicket.source ? (picklistCache.ticketSource[atTicket.source] || null) : null,
+    issueType: atTicket.issueType ?? null,
+    subIssueType: atTicket.subIssueType ?? null,
+    assignedResourceId: atTicket.assignedResourceID ?? null,
+    creatorResourceId: atTicket.creatorResourceID ?? null,
+    contactId: atTicket.contactID ?? null,
+    contractId: atTicket.contractID ?? null,
+    slaId: atTicket.serviceLevelAgreementID ?? null,
+    dueDateTime: atTicket.dueDateTime ? new Date(atTicket.dueDateTime) : null,
+    estimatedHours: atTicket.estimatedHours ?? null,
+    createDate: new Date(atTicket.createDate),
+    completedDate: atTicket.completedDate ? new Date(atTicket.completedDate) : null,
+    lastActivityDate: atTicket.lastActivityDate ? new Date(atTicket.lastActivityDate) : null,
+    autotaskLastSync: new Date(),
+  };
+
+  await prisma.ticket.upsert({
+    where: { autotaskTicketId: String(atTicket.id) },
+    update: ticketData,
+    create: ticketData,
+  });
+
+  return { synced: true, companyId: company.id };
+}
+
 /** Process tickets for a single company (extracted for batching) */
 async function processCompanyTickets(
   company: { id: string; autotaskCompanyId: string | null },
