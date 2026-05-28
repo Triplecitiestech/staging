@@ -433,13 +433,15 @@ export interface CompanyNetworkMatch {
   hostnames: string[];
 }
 
-/** DNSFilter blocked/threat lookups in the relevant window. */
+/** DNSFilter blocked/threat query-log lookups in the relevant window. */
 export interface DnsCorrelation {
-  blockedQueries: number;
-  totalQueries: number;
+  orgName: string | null;
+  totalBlocked: number;
+  totalThreats: number;
+  /** True when the sample could be tied to the affected device/IP. */
+  deviceScoped: boolean;
   topBlockedDomains: Array<{ domain: string; count: number }>;
-  /** True when we could only get org-level aggregates, not device-specific data. */
-  orgLevelOnly: boolean;
+  samples: Array<{ time: string; fqdn: string; result: string; threat: boolean; categories: string; device: string | null; requesterIp: string | null }>;
 }
 
 /** SaaS Alerts events correlated by customer/timeframe. */

@@ -26,7 +26,6 @@ import { getPool } from '@/lib/db-pool';
 import { matchesCompanyName } from '@/utils';
 import { RocketCyberClient } from '@/lib/rocketcyber';
 import { DattoRmmClient } from '@/lib/datto-rmm';
-import { DnsFilterClient } from '@/lib/dnsfilter';
 import { SaasAlertsClient } from '@/lib/saas-alerts';
 import { detectAlertSource } from './rules';
 import { extractIps } from './ip-extractor';
@@ -113,7 +112,7 @@ export async function enrichTicket(
   // 3–5. Correlate the rest of the stack in parallel.
   const [edr, dns, saas] = await Promise.all([
     fetchEdr(companyId, effectiveHostname, alertTime),
-    fetchDns(companyId, companyName),
+    fetchDns(companyId, companyName, alertTime, effectiveHostname, allIps),
     fetchSaasAlerts(companyId, alertTime),
   ]);
 
@@ -524,9 +523,21 @@ async function fetchEdr(
   }
 }
 
-async function fetchDns(companyId: string | null, companyName: string | null): Promise<SourceResult<DnsCorrelation>> {
-  const client = new DnsFilterClient();
-  if (!client.isConfigured()) {
+interface DnsQueryLogRow {
+  time?: string; fqdn?: string; domain?: string; result?: string; threat?: boolean;
+  categories_names?: string[]; lan_device_name?: string; request_address?: string;
+  local_ipv4_address?: string;
+}
+
+async function fetchDns(
+  companyId: string | null,
+  companyName: string | null,
+  alertTime: string,
+  hostname: string | null,
+  alertIps: string[],
+): Promise<SourceResult<DnsCorrelation>> {
+  const token = process.env.DNSFILTER_API_TOKEN;
+  if (!token) {
     return {
       result: null,
       status: { source: 'DNSFilter', status: 'not_configured', detail: 'DNSFILTER_API_TOKEN not set.' },
@@ -540,36 +551,94 @@ async function fetchDns(companyId: string | null, companyName: string | null): P
 
   try {
     const baseUrl = (process.env.DNSFILTER_API_URL || 'https://api.dnsfilter.com/v1').replace(/\/$/, '');
-    const headers = { Authorization: `Token ${process.env.DNSFILTER_API_TOKEN}`, Accept: 'application/json' };
+    const headers = { Authorization: `Token ${token}`, Accept: 'application/json' };
 
+    // Resolve the org id from the mapping, or by name match.
     const orgRes = await fetch(`${baseUrl}/organizations`, { headers, signal: AbortSignal.timeout(15_000) });
     if (!orgRes.ok) {
       return { result: null, status: { source: 'DNSFilter', status: 'error', detail: `Organizations endpoint failed (${orgRes.status})` }, gap: `DNSFilter lookup failed (${orgRes.status}).` };
     }
     const orgJson = (await orgRes.json()) as { data?: Array<{ id: string; attributes?: { name?: string } }> };
     const orgs = orgJson.data ?? [];
-
+    let orgId: string | null = null;
     let orgName: string | null = null;
     if (mappings && mappings.length > 0) {
-      const matched = orgs.find(o => o.id === mappings[0].externalId);
-      orgName = matched?.attributes?.name ?? mappings[0].externalName;
+      orgId = mappings[0].externalId;
+      orgName = orgs.find(o => o.id === orgId)?.attributes?.name ?? mappings[0].externalName;
     } else if (companyName) {
       const matched = orgs.find(o => matchesCompanyName(companyName, o.attributes?.name ?? ''));
+      orgId = matched?.id ?? null;
       orgName = matched?.attributes?.name ?? null;
     }
+    if (!orgId) {
+      return {
+        result: null,
+        status: { source: 'DNSFilter', status: 'no_data', detail: `No DNSFilter org mapped/matched for ${companyName || 'this company'}.` },
+        gap: `No DNSFilter org mapped to ${companyName || 'this company'}.`,
+      };
+    }
 
-    // The DNSFilter v1 API has no per-event query-log endpoint, so we confirm
-    // the org's filtering deployment rather than point-in-time blocked lookups.
+    // Pull blocked queries from the query log for the org in the alert window.
+    const center = new Date(alertTime).getTime() || Date.now();
+    const fmt = (ms: number) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
+    const qs = new URLSearchParams();
+    qs.set('organization_id', orgId);
+    qs.set('from', fmt(center - WINDOW_MS));
+    qs.set('to', fmt(center + WINDOW_MS));
+    qs.set('result', 'blocked');
+    qs.set('page[size]', '100');
+    const logRes = await fetch(`${baseUrl}/traffic_reports/query_logs?${qs.toString()}`, { headers, signal: AbortSignal.timeout(30_000) });
+    if (!logRes.ok) {
+      return {
+        result: null,
+        status: { source: 'DNSFilter', status: 'error', detail: `query_logs failed (${logRes.status}) for org "${orgName}"` },
+        gap: `DNSFilter query_logs failed (${logRes.status}).`,
+      };
+    }
+    const logJson = (await logRes.json()) as { data?: { values?: DnsQueryLogRow[]; page?: { total?: number } } };
+    const values = logJson.data?.values ?? [];
+    const totalBlocked = logJson.data?.page?.total ?? values.length;
+
+    // Try to tie the blocked lookups to the affected device/IP.
+    const deviceVals = values.filter(v =>
+      (hostname && v.lan_device_name && v.lan_device_name.toLowerCase().includes(hostname.toLowerCase())) ||
+      (alertIps.length > 0 && ((v.request_address && alertIps.includes(v.request_address)) || (v.local_ipv4_address && alertIps.includes(v.local_ipv4_address)))));
+    const deviceScoped = deviceVals.length > 0;
+    const scope = deviceScoped ? deviceVals : values;
+
+    const threats = scope.filter(v => v.threat);
+    const domainCounts = new Map<string, number>();
+    for (const v of scope) {
+      const d = v.domain || v.fqdn || '';
+      if (d) domainCounts.set(d, (domainCounts.get(d) || 0) + 1);
+    }
+    const topBlockedDomains = Array.from(domainCounts.entries())
+      .sort((a, b) => b[1] - a[1]).slice(0, 10).map(([domain, count]) => ({ domain, count }));
+    const samples = (threats.length > 0 ? threats : scope).slice(0, 10).map(v => ({
+      time: v.time || '',
+      fqdn: v.fqdn || v.domain || '',
+      result: v.result || 'blocked',
+      threat: !!v.threat,
+      categories: (v.categories_names || []).join(', '),
+      device: v.lan_device_name || null,
+      requesterIp: v.request_address || v.local_ipv4_address || null,
+    }));
+
     return {
-      result: null,
+      result: {
+        orgName,
+        totalBlocked,
+        totalThreats: threats.length,
+        deviceScoped,
+        topBlockedDomains,
+        samples,
+      },
       status: {
         source: 'DNSFilter',
-        status: orgName ? 'used' : 'no_data',
-        detail: orgName
-          ? `DNS filtering deployed for org "${orgName}" (${orgs.length} org(s) visible).`
-          : `No DNSFilter org mapped/matched for ${companyName || 'this company'}.`,
+        status: 'used',
+        detail: `${totalBlocked} blocked DNS quer${totalBlocked === 1 ? 'y' : 'ies'} in window for org "${orgName}"${deviceScoped ? ` — ${deviceVals.length} tied to this device` : ''}${threats.length > 0 ? `; ${threats.length} flagged as threats` : ''}.`,
       },
-      gap: 'DNSFilter v1 API exposes no per-event query log, so point-in-time blocked-domain correlation for this device/timeframe is not available.',
+      gap: deviceScoped ? undefined : 'DNSFilter blocked-query data could not be tied to this specific device/IP (org-level).',
     };
   } catch (err) {
     return {
