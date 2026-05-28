@@ -1,0 +1,35 @@
+# SOC Cross-Stack Redesign — Session Handoff
+
+> **Last updated**: 2026-05-28. Branch `claude/gracious-hawking-VT0su` (auto-merged to `main`).
+> This is a self-contained handoff for the SOC Analyst cross-stack correlation work.
+> (Separate from the compliance workflow stream in `session-summary.md`.)
+
+## Goal
+Make the SOC Analyst correlate the **full security stack** before classifying a ticket, instead of relying on the gutted Autotask ticket body (RocketCyber emails frequently land with all fields `UNDEFINED`). Pull real detail from RocketCyber, Datto RMM, Datto EDR, DNSFilter, SaaS Alerts; classify with a confidence-based assessment; auto-post a self-contained internal note; keep close/customer-reply technician-approved.
+
+## What shipped (all on `main`)
+- **RocketCyber client** `src/lib/rocketcyber.ts` — pulls the incident + its event (the "Details" payload). Base `https://api-us.rocketcyber.com/v3`, Bearer auth (with raw fallback). Selects the incident's **own** event by closest timestamp (account `/events` returns every device's events). Parses JSON:API `attributes` snake_case (`threat_name`, `computed_hash`, `event_time` unix), and User/Target/Parent command line out of the Defender `message` blob.
+- **Cross-stack enrichment** `src/lib/soc/enrichment.ts` — resolves each company to its platform entities via `compliance_platform_mappings` (Datto RMM site UID, Datto EDR org, DNSFilter org, SaaS Alerts customer), with **company-name-match fallback**. Correlates: RocketCyber detail, Datto RMM device health (live per-site `getSiteDevices`, + source-IP → known-company-network match), Datto EDR (org-scoped, **never MSP-wide**), DNSFilter blocked/threat queries via `/v1/traffic_reports/query_logs`, SaaS Alerts customer events. Plus `soc_known_benign` catalogue matching (informational only).
+- **Engine** `src/lib/soc/engine.ts` — screen (Haiku) → enrich → single authoritative cross-stack assessment (Sonnet, `max_tokens: 8000`). Never silently reverts to screening: on AI failure it builds a degraded assessment from evidence. Auto-posts the self-contained internal note to Autotask (Internal Only) when `!dry_run && auto_post_internal_note`. `dry_run` is currently **OFF** in prod (notes auto-post).
+- **Prompt** `src/lib/soc/prompts.ts` — `buildCrossStackAssessmentPrompt` + `formatEnrichmentForPrompt`. 5 classifications (confirmed_malicious / suspicious_review / likely_false_positive / confirmed_false_positive / insufficient_data). Anti-noise guidance: EDR count ≠ threat; known-company-network reduces suspicion. Internal note template includes closure note + (real-concern-only) customer message.
+- **Shared UI** `src/components/soc/CrossStackAssessment.tsx` — used by BOTH `SocIncidentDetail.tsx` (/admin/soc/incidents/[id]) and `SocTicketDetail.tsx` (dashboard drill-down). Sections: Executive Summary, Final Recommendation, Evidence, RocketCyber Detail (+ raw debug), Device Health, Source Network, Datto EDR Detections (+ raw debug), DNSFilter Blocked Queries, Correlated Data Sources, Customer Impact, Recommended Technician Actions, Data Gaps, Ticket Closure Note (Copy), Internal Note (Copy), Customer Message (Copy). `isCrossStackAssessment()` detects the new shape robustly. Per-ticket **Re-run analysis** button on both views.
+- **Real-time ingest webhook** `src/app/api/soc/ingest/route.ts` — GET+POST, parses query/JSON/Name-Value-Pair, auth via Bearer/Basic(secret in password)/x-soc-secret/?secret/body, resolves numeric id OR ticket number (`numberToId` via local table then `AutotaskClient.getTicketByNumber`), upserts via `syncSingleTicket` (`src/lib/reporting/sync.ts`), runs triage, idempotent. Autotask client gained `getTicket`, `getTicketByNumber`; `AutotaskTicket` gained `companyID`.
+- **Migrations** `/api/soc/migrate` — added `soc_known_benign` table, `soc_incidents.enrichment` column, `auto_post_internal_note` config, seeded benign entries (Datto Rollback Driver, RMM/EDR/backup agents, Defender/Windows tooling).
+- **Cadence**: `soc-triage` cron is hourly (`0 * * * *`); the ingest webhook is the new real-time path.
+
+## Env vars
+Set in Vercel: `ROCKETCYBER_API_TOKEN` (US), optional `ROCKETCYBER_API_URL`, `SOC_INGEST_SECRET`. Already present: `DATTO_RMM_*`, `DATTO_EDR_API_TOKEN/URL`, `DNSFILTER_API_TOKEN`, `SAAS_ALERTS_*`, `ANTHROPIC_API_KEY`, `MIGRATION_SECRET`.
+
+## Autotask real-time trigger (operator did this)
+Extension Callout `SOC Real-Time Triage` → URL `https://www.triplecitiestech.com/api/soc/ingest`, Username `soc`, Password = `SOC_INGEST_SECRET`, POST, blank UDF. Workflow Rule: Ticket created, Queue = Security Monitoring Alert, action = the callout.
+
+## OPEN ITEMS (resume here)
+1. **[HIGH] Datto EDR fields are nested under `data`** — `fetchEdr` in `enrichment.ts` reads `a.threatName/a.path/a.md5/a.hostname` top-level, but the `/Alerts` response nests them under `a.data.*` (confirmed in raw payload: `data.threatName:"Good"`, `data.path`, `data.commandLine`, `data.md5/sha256`, `data.parentProcessName`, `data.owner`, `data.ruleName`). Top-level only has `name`, `hostname`, `severity`, `mitreId`, `mitreTactic`, `description`, `sourceName`. **Fix**: in `RawEdrAlert` mapping, read from `a.data ?? a` (prefer nested). This will make `threatName:"Good"` register as benign (correctly), and surface commandLine/parent/owner/MITRE. Quick, high-impact.
+2. **[HIGH] SaaS Alerts `/reports/events/query` returns 422** ("'body' is required" / "Could not match the intersection against every type"). `SaasAlertsClient.getEvents` in `src/lib/saas-alerts.ts` sends `{ size, query: { bool: { must } } }` — the API rejects the body shape. Needs the SaaS Alerts External Partner API Swagger (`app.swaggerhub.com/apis/SaaS_Alerts/functions/0.20.0`) for the correct `/reports/events/query` body. Customer now name-resolves; only the body schema is wrong.
+3. **[MED] Operator action — map tools per customer** in Compliance → Connect Tools (`compliance_platform_mappings`), especially Datto EDR org + SaaS Alerts customer, for exact scoping (name-match is the fallback).
+4. **[MED] Confirm the Autotask Extension Callout** actually sends a usable ticket id/number — check the first real callout's response; if it returns `status: error` with `receivedKeys`, map that field name in `resolveTicketId` (NUMERIC_ID_KEYS / TICKET_NUMBER_KEYS).
+5. **[LOW] Known Benign admin UI** — `soc_known_benign` table exists + seeded, but no management UI yet (add/approve entries).
+6. **[LOW]** Confirm `ROCKETCYBER_API_TOKEN` + `SOC_INGEST_SECRET` are set in Vercel; confirm `dry_run=false` is intended (notes auto-post).
+
+## Verify (PowerShell)
+`Invoke-RestMethod -Method Post -Uri "https://www.triplecitiestech.com/api/soc/ingest?ticketId=34132" -Headers @{ Authorization = "Bearer <SOC_INGEST_SECRET>" }` (34132 = NYSWDA test ticket; doubles as on-demand reprocess).
