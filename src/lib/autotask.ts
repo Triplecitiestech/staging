@@ -112,6 +112,7 @@ export interface AutotaskTaskNote {
  */
 export interface AutotaskTicket {
   id: number;
+  companyID?: number;
   ticketNumber: string;
   title: string;
   description?: string;
@@ -813,8 +814,21 @@ export class AutotaskClient {
   }
 
   /**
-   * Find a resource by email address (for SSO matching)
+   * Fetch a single ticket by its Autotask ID. Used by the SOC real-time
+   * ingest webhook to pull a ticket the moment it lands.
    */
+  async getTicket(ticketId: number): Promise<AutotaskTicket | null> {
+    try {
+      const results = await this.queryAll<AutotaskTicket>('Tickets', {
+        op: 'eq', field: 'id', value: ticketId,
+      });
+      return results[0] || null;
+    } catch (err) {
+      console.error(`[AutotaskClient] getTicket failed for ${ticketId}:`, err instanceof Error ? err.message : String(err));
+      throw err;
+    }
+  }
+
   /**
    * Get notes for a specific ticket (for customer timeline)
    */
