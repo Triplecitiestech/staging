@@ -155,6 +155,9 @@ export default function CfoDashboardClient() {
   if (!snapshot) return null
   const d = applyCfoDemo(snapshot.data, demo)
   const m = d.monthly
+  // Format the build time in the viewer's local timezone (the server-side
+  // refreshedAt string renders in UTC, which reads as a confusing future time).
+  const refreshedAt = new Date(snapshot.builtAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })
   const chartData = d.monthlyPL.map((p) => ({
     label: p.label,
     income: Math.round(p.incomeCents / 100),
@@ -167,13 +170,13 @@ export default function CfoDashboardClient() {
       {/* Print-only header (hidden on screen) */}
       <div className="hidden print:block print:mb-6">
         <h1 className="text-2xl font-bold text-black">Triple Cities Tech — CFO Dashboard</h1>
-        <p className="text-sm text-slate-700">Refreshed {d.refreshedAt}{demo.active ? ' · Demo mode (values anonymized)' : ''}</p>
+        <p className="text-sm text-slate-700">Refreshed {refreshedAt}{demo.active ? ' · Demo mode (values anonymized)' : ''}</p>
       </div>
 
       {/* Refresh / Print / Settings bar — hidden in print */}
       <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
         <p className="text-xs text-slate-400">
-          Refreshed {d.refreshedAt} · {d.meta.accountCount} accounts · {d.meta.transferCount24mo.toLocaleString()} transfers (24mo)
+          Refreshed {refreshedAt} · {d.meta.accountCount} accounts · {d.meta.transferCount24mo.toLocaleString()} transfers (24mo)
           {d.meta.qbSource === 'none' && ' · QuickBooks not connected'}
           {demo.active && <span className="ml-2 rounded bg-rose-500/20 px-1.5 py-0.5 text-rose-300">Demo mode</span>}
         </p>
