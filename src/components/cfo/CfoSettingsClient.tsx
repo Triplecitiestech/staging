@@ -132,8 +132,9 @@ export default function CfoSettingsClient() {
 
   const banner = qbParam && {
     connected: ['QuickBooks connected.', 'text-emerald-300'],
-    error: ['QuickBooks connection failed. Try again.', 'text-red-300'],
+    error: ['QuickBooks connection failed (token exchange). Check that QB_CLIENT_ID / QB_CLIENT_SECRET are the production keys and the redirect URI matches. Then try again.', 'text-red-300'],
     csrf: ['QuickBooks connection blocked (state mismatch). Try again.', 'text-red-300'],
+    encryption_key: ['QuickBooks connected with Intuit, but tokens could not be saved: ENCRYPTION_MASTER_KEY_V1 is not set in Vercel. Add a 32-byte base64 key, redeploy, then reconnect.', 'text-rose-300'],
     not_configured: ['QuickBooks app keys not configured (set QB_CLIENT_ID / QB_CLIENT_SECRET).', 'text-rose-300'],
   }[qbParam]
 
