@@ -442,7 +442,15 @@ export function formatEnrichmentForPrompt(bundle: EnrichmentBundle): string {
       lines.push(`  Per-device: ${e.byDevice.map(d => `${d.hostname}: ${d.total} (${d.suspicious} susp)`).join('; ')}`);
     }
     for (const d of e.detections) {
-      lines.push(`  - [${d.threatName}${d.threatScore != null ? ` score ${d.threatScore}` : ''}] ${d.name}${d.path ? ` (${d.path})` : ''}${d.hostname ? ` on ${d.hostname}` : ''} — ${d.timestamp}, status ${d.status}${d.hash ? `, hash ${d.hash}` : ''}`);
+      const extra = [
+        d.commandLine && `cmd: ${d.commandLine}`,
+        d.parentProcessName && `parent: ${d.parentProcessName}`,
+        d.owner && `owner: ${d.owner}`,
+        d.ruleName && `rule: ${d.ruleName}`,
+        d.mitreId && `MITRE ${d.mitreId}`,
+        d.severity && `severity ${d.severity}`,
+      ].filter(Boolean).join(', ');
+      lines.push(`  - [${d.threatName}${d.threatScore != null ? ` score ${d.threatScore}` : ''}] ${d.name}${d.path ? ` (${d.path})` : ''}${d.hostname ? ` on ${d.hostname}` : ''} — ${d.timestamp}, status ${d.status}${d.hash ? `, hash ${d.hash}` : ''}${extra ? `; ${extra}` : ''}`);
     }
     if (e.rawDetections.length > 0) {
       lines.push(`  Raw top-detection JSON (truncated): ${JSON.stringify(e.rawDetections).slice(0, 2500)}`);

@@ -399,11 +399,43 @@ async function fetchDeviceHealth(
   }
 }
 
-interface RawEdrAlert {
+/** Detection detail — on Datto EDR `/Alerts` these live nested under `data`. */
+interface EdrDetectionData {
   threatName?: string; threatScore?: number; flagName?: string; type?: string;
   name?: string; path?: string; hostname?: string; createdOn?: string;
   compromised?: boolean; malicious?: boolean; suspicious?: boolean;
   md5?: string; sha256?: string;
+  commandLine?: string; parentProcessName?: string; owner?: string;
+  ruleName?: string; ruleMitreId?: string;
+}
+
+/**
+ * A Datto EDR `/Alerts` row. The real detection detail (threatName, path,
+ * hashes, command line, parent process, owner, rule) is nested under `data`;
+ * only identity fields (name, hostname, severity, MITRE, description) are
+ * top-level. We flatten `data` up before reading anything.
+ */
+interface RawEdrAlert extends EdrDetectionData {
+  severity?: string; mitreId?: string; mitreTactic?: string;
+  description?: string; sourceName?: string;
+  data?: EdrDetectionData;
+}
+
+/**
+ * Promote the nested `data` fields to the top level so every reader works off
+ * one object. Identity fields stay authoritative at the top level; the original
+ * nested `data` is preserved for the diagnostic raw passthrough.
+ */
+function flattenEdrAlert(a: RawEdrAlert): RawEdrAlert {
+  const data = a.data;
+  if (!data) return a;
+  return {
+    ...a,
+    ...data,
+    name: a.name ?? data.name,
+    hostname: a.hostname ?? data.hostname,
+    createdOn: a.createdOn ?? data.createdOn,
+  };
 }
 
 /** A threatName of Bad/Suspicious matters; Good/Unknown is usually scan noise. */
@@ -484,7 +516,7 @@ async function fetchEdr(
       };
     }
     const alerts = (await res.json()) as RawEdrAlert[];
-    const all = Array.isArray(alerts) ? alerts : [];
+    const all = (Array.isArray(alerts) ? alerts : []).map(flattenEdrAlert);
 
     // Scope to the specific device when we know it; otherwise it's org-scoped
     // (the customer's org only — never MSP-wide).
@@ -528,6 +560,12 @@ async function fetchEdr(
       timestamp: e.createdOn || '',
       hostname: e.hostname || null,
       status: e.compromised ? 'compromised' : e.malicious ? 'malicious' : e.suspicious ? 'suspicious' : 'active',
+      commandLine: e.commandLine || null,
+      parentProcessName: e.parentProcessName || null,
+      owner: e.owner || null,
+      ruleName: e.ruleName || null,
+      mitreId: e.ruleMitreId || e.mitreId || null,
+      severity: e.severity || null,
     }));
 
     // Raw passthrough of the top suspicious alerts (or first few) so any fields
