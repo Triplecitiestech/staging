@@ -258,6 +258,90 @@ async function getHistoricalFpRate(companyId: string | null, alertSource: string
   }
 }
 
+/** Robustly pull a JSON object out of a model response (handles fences/preamble). */
+function extractJson<T>(text: string): T {
+  let s = text.trim()
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/, '')
+    .replace(/```\s*$/, '')
+    .trim();
+  const first = s.indexOf('{');
+  const last = s.lastIndexOf('}');
+  if (first !== -1 && last !== -1 && last > first) s = s.slice(first, last + 1);
+  return JSON.parse(s) as T;
+}
+
+/**
+ * Build a degraded assessment from screening + enrichment when the AI
+ * assessment step fails. This guarantees the incident still carries the
+ * cross-stack structure (and is rendered with the new layout) instead of
+ * silently reverting to the legacy screening-only view.
+ */
+function buildFallbackAssessment(
+  ticket: SecurityTicket,
+  screening: ScreeningResult,
+  enrichment: EnrichmentBundle,
+  detail: string,
+): SocAssessment {
+  const classification: SocClassification = enrichment.knownBenignMatches.length > 0
+    ? 'likely_false_positive'
+    : screening.isFalsePositive ? 'likely_false_positive' : 'suspicious_review';
+
+  const evidence: SocAssessment['evidence'] = [];
+  const rc = enrichment.rocketCyber;
+  if (rc) {
+    if (rc.process) evidence.push({ label: 'Process', value: rc.process, type: 'neutral' });
+    if (rc.path) evidence.push({ label: 'Path', value: rc.path, type: 'neutral' });
+    if (rc.threatName) evidence.push({ label: 'Threat', value: rc.threatName, type: 'negative' });
+    if (rc.actionTaken) evidence.push({ label: 'Action Taken', value: rc.actionTaken, type: 'info' });
+  }
+  if (enrichment.deviceHealth) {
+    evidence.push({ label: 'Device', value: `${enrichment.deviceHealth.hostname}${enrichment.deviceHealth.online === null ? '' : enrichment.deviceHealth.online ? ' (online)' : ' (offline)'}`, type: 'neutral' });
+  }
+  for (const m of enrichment.knownBenignMatches) {
+    evidence.push({ label: 'Known Benign', value: `${m.vendor} ${m.product} (matched ${m.matchedOn})`, type: 'positive' });
+  }
+
+  const note = [
+    '═══ SOC ANALYST ASSESSMENT (screening-only fallback) ═══',
+    `Classification: ${classification} (Confidence ${Math.round(screening.confidence * 100)}%)`,
+    '',
+    'EXECUTIVE SUMMARY',
+    screening.reasoning || '(no screening reasoning)',
+    '',
+    'NOTE: The automated cross-stack assessment did not complete for this ticket, so this is a',
+    'screening-only result enriched with whatever security-stack data was reachable. Re-run the',
+    'analysis (and confirm RocketCyber/Datto integrations) for a full assessment.',
+    '',
+    'CORRELATED SOURCES',
+    ...enrichment.dataSources.map(s => `- ${s.source}: ${s.status} — ${s.detail}`),
+    '═══ END SOC ASSESSMENT ═══',
+  ].join('\n');
+
+  return {
+    executiveSummary: screening.reasoning || 'Screening-only assessment (full cross-stack assessment unavailable).',
+    finalRecommendation: 'Technician review recommended — the automated cross-stack assessment did not complete. See Data Gaps.',
+    classification,
+    confidence: screening.confidence,
+    riskLevel: classification === 'suspicious_review' ? 'medium' : 'low',
+    evidence,
+    correlatedSources: enrichment.dataSources,
+    knownBenignMatch: enrichment.knownBenignMatches.length > 0
+      ? { matched: true, reason: `Matches known benign tooling: ${enrichment.knownBenignMatches.map(m => `${m.vendor} ${m.product}`).join(', ')}` }
+      : null,
+    customerImpact: 'Not determined (assessment incomplete).',
+    recommendedTechnicianActions: [
+      'Review the original alert and the correlated evidence below.',
+      'Confirm RocketCyber / Datto integrations are configured so the full detection detail can be pulled.',
+      'Re-run the analysis once integrations are in place.',
+    ],
+    dataGaps: [...enrichment.dataGaps, `Automated assessment step failed: ${detail}`],
+    internalNote: note,
+    customerMessageRequired: false,
+    customerMessageDraft: null,
+  };
+}
+
 // ── Process Single Incident Group ──
 
 async function processIncidentGroup(
@@ -317,13 +401,19 @@ async function processIncidentGroup(
     assessment.correlatedSources = enrichment.dataSources;
     assessment.dataGaps = Array.from(new Set([...enrichment.dataGaps, ...(assessment.dataGaps || [])]));
   } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
     console.error('[SOC] Cross-stack assessment failed:', err);
     await logActivity({
       analysisId: null, incidentId: null, autotaskTicketId: primary.autotaskTicketId,
-      action: 'error', detail: `Assessment failed: ${err instanceof Error ? err.message : String(err)}`,
+      action: 'error', detail: `Assessment failed: ${detail}`,
       aiReasoning: null, confidenceScore: null,
       metadata: { ticketNumber: primary.ticketNumber, phase: 'assessment' },
     });
+    // Never silently revert to the legacy screening-only view: build a degraded
+    // assessment from the evidence we have so the cross-stack layout still renders.
+    assessment = buildFallbackAssessment(primary, screening, enrichment, detail);
+    assessment.correlatedSources = enrichment.dataSources;
+    assessment.dataGaps = Array.from(new Set([...enrichment.dataGaps, ...assessment.dataGaps]));
   }
 
   // Derive verdict/action from the assessment (fall back to screening).
@@ -474,7 +564,10 @@ async function generateCrossStackAssessment(
   const response = await trackAnthropicCall('soc_assessment', model, () =>
     anthropic.messages.create({
       model,
-      max_tokens: 4096,
+      // High budget: the assessment returns every section PLUS a long
+      // self-contained internal note. At 4096 the JSON was truncated mid-string
+      // and JSON.parse threw, silently dropping us back to the screening result.
+      max_tokens: 8000,
       temperature: 0,
       messages: [{ role: 'user', content: prompt }],
     })
@@ -482,8 +575,10 @@ async function generateCrossStackAssessment(
 
   const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
   if (!text) throw new Error('AI returned empty assessment');
-  const jsonText = text.replace(/^```json\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
-  const parsed = JSON.parse(jsonText) as SocAssessment;
+  if (response.stop_reason === 'max_tokens') {
+    throw new Error('AI assessment hit max_tokens (response truncated) — JSON would be invalid');
+  }
+  const parsed = extractJson<SocAssessment>(text);
   return {
     ...parsed,
     tokensUsed: (response.usage?.input_tokens || 0) + (response.usage?.output_tokens || 0),
