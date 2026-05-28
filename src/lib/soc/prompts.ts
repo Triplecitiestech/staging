@@ -573,6 +573,9 @@ DATA GAPS
 
 CUSTOMER MESSAGE (copy/paste — only if this is a real concern, NOT for false positives)
 <If customerMessageRequired is true: a plain-language, non-technical message the tech can paste to inform the customer. If false: write exactly "Not required — <reason>. No customer notification recommended.">
+
+SUGGESTED TICKET CLOSURE NOTE (copy/paste to resolve the ticket)
+<the same 2-4 sentence resolution note as the closureNote field below>
 ═══ END SOC ASSESSMENT ═══
 
 Respond ONLY with valid JSON (no markdown, no backticks):
@@ -588,6 +591,7 @@ Respond ONLY with valid JSON (no markdown, no backticks):
   "recommendedTechnicianActions": [ "step 1", "step 2" ],
   "dataGaps": [ "what was missing" ],
   "internalNote": "The full self-contained note following the structure above, ready to post to Autotask",
+  "closureNote": "A short (2-4 sentence) copy/paste resolution note the technician pastes when closing/updating the ticket. State the verdict, the triggering binary and why it's benign or a concern, that Defender blocked it (if applicable), and the disposition (e.g. 'Closing as false positive — no action required.'). For a real concern, summarize what was done / escalated instead.",
   "customerMessageRequired": false,
   "customerMessageDraft": "plain-language message or null"
 }`;

@@ -49,7 +49,10 @@ export async function GET(
       return NextResponse.json({ error: 'Ticket not found' }, { status: 404 });
     }
 
-    // Resolve resource name and SOC data in parallel
+    // Resolve resource name and SOC data in parallel. Fetch analysis WITHOUT a
+    // JOIN — selecting specific soc_incidents columns made the whole query throw
+    // whenever one didn't exist (e.g. supportingReasoning), silently dropping
+    // reasoning/enrichment and reverting the UI to the legacy panel.
     const [resource, analysisRows, pendingRows] = await Promise.all([
       ticket.assignedResourceId
         ? prisma.resource.findUnique({
@@ -58,19 +61,12 @@ export async function GET(
           })
         : Promise.resolve(null),
       prisma.$queryRaw<Array<Record<string, unknown>>>`
-        SELECT sa.*, si.title as "incidentTitle", si.verdict as "incidentVerdict",
-               si."confidenceScore" as "incidentConfidence", si."aiSummary",
-               si."proposedActions", si."humanGuidance", si."customerCommunication",
-               si."nextCycleChecks", si."supportingReasoning", si.status as "incidentStatus",
-               si."correlationReason", si."ticketCount", si.reasoning as "socReasoning",
-               si.enrichment as "enrichment"
-        FROM soc_ticket_analysis sa
-        LEFT JOIN soc_incidents si ON si.id = sa."incidentId"
-        WHERE sa."autotaskTicketId" = ${autotaskTicketId}
-        ORDER BY sa."processedAt" DESC
+        SELECT * FROM soc_ticket_analysis
+        WHERE "autotaskTicketId" = ${autotaskTicketId}
+        ORDER BY "processedAt" DESC
         LIMIT 1
       `.catch((err: unknown) => {
-        console.error('[soc/tickets/analysis] JOIN query failed:', err);
+        console.error('[soc/tickets/analysis] analysis query failed:', err);
         return [] as Array<Record<string, unknown>>;
       }),
       prisma.$queryRaw<Array<Record<string, unknown>>>`
@@ -83,21 +79,19 @@ export async function GET(
       }),
     ]);
 
-    // If the JOIN query failed silently, try a simpler query without the soc_incidents JOIN
-    let finalAnalysisRows = analysisRows;
-    if (finalAnalysisRows.length === 0) {
+    const row = analysisRows[0] || null;
+
+    // Fetch the incident with SELECT * so a missing legacy column can't break it.
+    let incidentRow: Record<string, unknown> | null = null;
+    if (row?.incidentId) {
       try {
-        finalAnalysisRows = await prisma.$queryRaw<Array<Record<string, unknown>>>`
-          SELECT * FROM soc_ticket_analysis
-          WHERE "autotaskTicketId" = ${autotaskTicketId}
-          ORDER BY "processedAt" DESC
-          LIMIT 1
-        `;
-        if (finalAnalysisRows.length > 0) {
-          console.warn('[soc/tickets/analysis] JOIN query returned empty but fallback found analysis — soc_incidents table may have issues');
-        }
-      } catch {
-        // soc_ticket_analysis table itself may not exist
+        const incidents = await prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(
+          `SELECT * FROM soc_incidents WHERE id = $1 LIMIT 1`,
+          row.incidentId,
+        );
+        incidentRow = incidents[0] || null;
+      } catch (err) {
+        console.error('[soc/tickets/analysis] incident query failed:', err);
       }
     }
 
@@ -105,9 +99,6 @@ export async function GET(
       ? `${resource.firstName} ${resource.lastName}`.trim()
       : 'Unassigned';
 
-    const row = finalAnalysisRows[0] || null;
-
-    // Split the joined row into analysis + incident plan
     const analysis = row ? {
       verdict: row.verdict,
       confidenceScore: row.confidenceScore,
@@ -122,26 +113,25 @@ export async function GET(
       incidentId: row.incidentId,
     } : null;
 
-    const incidentActionPlan = row?.incidentId ? {
-      id: row.incidentId,
-      title: row.incidentTitle,
-      verdict: row.incidentVerdict,
-      confidenceScore: row.incidentConfidence,
-      aiSummary: row.aiSummary,
-      proposedActions: row.proposedActions,
-      humanGuidance: row.humanGuidance,
-      customerCommunication: row.customerCommunication,
-      nextCycleChecks: row.nextCycleChecks,
-      supportingReasoning: row.supportingReasoning,
-      status: row.incidentStatus,
-      correlationReason: row.correlationReason,
-      ticketCount: row.ticketCount,
+    const incidentActionPlan = incidentRow ? {
+      id: incidentRow.id,
+      title: incidentRow.title,
+      verdict: incidentRow.verdict,
+      confidenceScore: incidentRow.confidenceScore,
+      aiSummary: incidentRow.aiSummary,
+      proposedActions: incidentRow.proposedActions ?? null,
+      humanGuidance: incidentRow.humanGuidance ?? null,
+      customerCommunication: incidentRow.customerCommunication ?? null,
+      nextCycleChecks: incidentRow.nextCycleChecks ?? null,
+      supportingReasoning: incidentRow.supportingReasoning ?? null,
+      status: incidentRow.status,
+      correlationReason: incidentRow.correlationReason,
+      ticketCount: incidentRow.ticketCount,
     } : null;
 
-    // Extract reasoning document from the incident (new format, may be null for old records)
-    const reasoning = row?.socReasoning || null;
-    // Full cross-stack enrichment bundle (new format)
-    const enrichment = row?.enrichment || null;
+    // Reasoning document + cross-stack enrichment bundle (new format).
+    const reasoning = incidentRow?.reasoning || null;
+    const enrichment = incidentRow?.enrichment || null;
 
     return NextResponse.json({
       ticket: {
