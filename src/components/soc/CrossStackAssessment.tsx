@@ -101,6 +101,7 @@ export interface EnrichmentBundle {
     detectionCount: number; suspiciousCount: number; unclassifiedCount: number; deviceScoped: boolean
     byDevice: Array<{ hostname: string; total: number; suspicious: number }>
     detections: Array<{ name: string; path: string | null; hash: string | null; threatName: string; threatScore: number | null; timestamp: string; hostname: string | null; status: string }>
+    rawDetections?: unknown[]
   } | null
   dns: { blockedQueries: number; totalQueries: number; topBlockedDomains: Array<{ domain: string; count: number }>; orgLevelOnly: boolean } | null
   saasAlerts: { eventCount: number; events: Array<{ type: string; severity: string; description: string; time: string; user: string | null }> } | null
@@ -282,6 +283,14 @@ export default function CrossStackAssessment({ assessment, enrichment }: { asses
                 </div>
               ))}
             </div>
+            {(enrichment.edr.rawDetections?.length ?? 0) > 0 && (
+              <details>
+                <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-300">Raw Datto EDR detection payload (debug)</summary>
+                <pre className="text-[11px] text-slate-400 whitespace-pre-wrap font-mono bg-black/40 p-3 rounded mt-2 max-h-[360px] overflow-y-auto">
+{JSON.stringify(enrichment.edr.rawDetections, null, 2)}
+                </pre>
+              </details>
+            )}
           </div>
         </Section>
       )}
