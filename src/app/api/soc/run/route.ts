@@ -42,7 +42,29 @@ export async function POST(request: NextRequest) {
     let tickets: SecurityTicket[];
 
     if (ticketIds.length > 0) {
-      // Process specific tickets (re-process even if already analyzed)
+      // Targeted reprocess of specific tickets. Clean up their prior analyses,
+      // incidents, and pending actions first so re-running doesn't pile up
+      // duplicate incidents.
+      await Promise.all([
+        prisma.$executeRawUnsafe(
+          `DELETE FROM soc_pending_actions WHERE "autotaskTicketId" = ANY($1::text[])`,
+          ticketIds,
+        ),
+        prisma.$executeRawUnsafe(
+          `DELETE FROM soc_pending_actions WHERE "incidentId" IN (SELECT id FROM soc_incidents WHERE "primaryTicketId" = ANY($1::text[]))`,
+          ticketIds,
+        ),
+      ]);
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM soc_incidents WHERE "primaryTicketId" = ANY($1::text[])`,
+        ticketIds,
+      );
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM soc_ticket_analysis WHERE "autotaskTicketId" = ANY($1::text[])`,
+        ticketIds,
+      );
+
+      // Process specific tickets (re-process even if already analyzed/closed)
       tickets = await prisma.$queryRaw<SecurityTicket[]>`
         SELECT
           t."autotaskTicketId",
