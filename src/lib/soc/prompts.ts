@@ -444,6 +444,9 @@ export function formatEnrichmentForPrompt(bundle: EnrichmentBundle): string {
     for (const d of e.detections) {
       lines.push(`  - [${d.threatName}${d.threatScore != null ? ` score ${d.threatScore}` : ''}] ${d.name}${d.path ? ` (${d.path})` : ''}${d.hostname ? ` on ${d.hostname}` : ''} — ${d.timestamp}, status ${d.status}${d.hash ? `, hash ${d.hash}` : ''}`);
     }
+    if (e.rawDetections.length > 0) {
+      lines.push(`  Raw top-detection JSON (truncated): ${JSON.stringify(e.rawDetections).slice(0, 2500)}`);
+    }
   } else {
     lines.push('\nDATTO EDR: no related endpoint detections found in the window.');
   }

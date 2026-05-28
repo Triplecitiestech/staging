@@ -470,7 +470,7 @@ async function fetchEdr(
 
     if (list.length === 0) {
       return {
-        result: { detectionCount: 0, suspiciousCount: 0, unclassifiedCount: 0, deviceScoped, byDevice: [], detections: [] },
+        result: { detectionCount: 0, suspiciousCount: 0, unclassifiedCount: 0, deviceScoped, byDevice: [], detections: [], rawDetections: [] },
         status: { source: 'Datto EDR', status: 'no_data', detail: deviceScoped ? `No EDR detections for "${hostname}" in window${orgId ? ` (org ${orgId})` : ''}.` : 'No EDR detections in window.' },
       };
     }
@@ -505,9 +505,14 @@ async function fetchEdr(
       status: e.compromised ? 'compromised' : e.malicious ? 'malicious' : e.suspicious ? 'suspicious' : 'active',
     }));
 
+    // Raw passthrough of the top suspicious alerts (or first few) so any fields
+    // the /Alerts response carries — command line, parent, etc. — reach the AI
+    // and the debug view, without us guessing the schema.
+    const rawDetections = ordered.slice(0, 5);
+
     const detailNote = `${list.length} detection(s)${deviceScoped ? ` on "${hostname}"` : ' org-wide (NOT confirmed related to this alert)'} — ${suspicious.length} suspicious/bad, ${unclassified} unclassified/unknown${orgId ? ` (org ${orgId})` : ''}.`;
     return {
-      result: { detectionCount: list.length, suspiciousCount: suspicious.length, unclassifiedCount: unclassified, deviceScoped, byDevice, detections },
+      result: { detectionCount: list.length, suspiciousCount: suspicious.length, unclassifiedCount: unclassified, deviceScoped, byDevice, detections, rawDetections },
       status: { source: 'Datto EDR', status: 'used', detail: detailNote },
     };
   } catch (err) {

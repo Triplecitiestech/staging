@@ -421,6 +421,8 @@ export interface EdrCorrelation {
     hostname: string | null;
     status: string;
   }>;
+  /** Raw alert objects for the top suspicious detections (diagnostic passthrough). */
+  rawDetections: unknown[];
 }
 
 /** Datto RMM identification of the source device/network behind the alert. */
