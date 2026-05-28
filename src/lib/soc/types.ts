@@ -403,13 +403,32 @@ export interface DeviceHealth {
 /** Datto EDR detections that line up with the affected device/timeframe. */
 export interface EdrCorrelation {
   detectionCount: number;
+  /** Bad / Suspicious threatName — the ones that actually matter. */
+  suspiciousCount: number;
+  /** Good / Unknown threatName — usually background scan noise. */
+  unclassifiedCount: number;
+  /** True when filtered to the specific affected device. */
+  deviceScoped: boolean;
+  /** Per-device rollup (hostname → counts) when not device-scoped. */
+  byDevice: Array<{ hostname: string; total: number; suspicious: number }>;
   detections: Array<{
-    type: string;
-    severity: string;
-    description: string;
+    name: string;
+    path: string | null;
+    hash: string | null;
+    threatName: string;
+    threatScore: number | null;
     timestamp: string;
+    hostname: string | null;
     status: string;
   }>;
+}
+
+/** Datto RMM identification of the source device/network behind the alert. */
+export interface CompanyNetworkMatch {
+  ip: string;
+  deviceCount: number;
+  /** Sample of hostnames behind that IP (for context). */
+  hostnames: string[];
 }
 
 /** DNSFilter blocked/threat lookups in the relevant window. */
@@ -446,6 +465,8 @@ export interface EnrichmentBundle {
   externalAccountId: string | null;
   rocketCyber: import('@/lib/rocketcyber').RocketCyberDetail | null;
   deviceHealth: DeviceHealth | null;
+  /** Datto RMM match of the alert's source IP to the company's known devices. */
+  companyNetworkMatch: CompanyNetworkMatch | null;
   edr: EdrCorrelation | null;
   dns: DnsCorrelation | null;
   saasAlerts: SaasCorrelation | null;

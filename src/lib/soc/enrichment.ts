@@ -29,6 +29,7 @@ import { DattoRmmClient } from '@/lib/datto-rmm';
 import { DnsFilterClient } from '@/lib/dnsfilter';
 import { SaasAlertsClient } from '@/lib/saas-alerts';
 import { detectAlertSource } from './rules';
+import { extractIps } from './ip-extractor';
 import type {
   SecurityTicket,
   DeviceVerification,
@@ -39,6 +40,7 @@ import type {
   DnsCorrelation,
   SaasCorrelation,
   KnownBenignMatch,
+  CompanyNetworkMatch,
   AlertSource,
 } from './types';
 import type { RocketCyberDetail } from '@/lib/rocketcyber';
@@ -99,16 +101,23 @@ export async function enrichTicket(
 
   const hostname = resolveHostname(rocketCyber, text, deviceVerification);
   const alertTime = rocketCyber?.eventTime || rocketCyber?.createdAt || ticket.createDate;
+  const { allIps } = extractIps(text);
 
-  // 2–5. Correlate the rest of the stack in parallel, scoped by platform mapping.
-  const [device, edr, dns, saas] = await Promise.all([
-    fetchDeviceHealth(companyId, companyName, hostname),
-    fetchEdr(companyId, hostname, alertTime),
+  // 2. Datto RMM first — it resolves the device (by hostname, or by the source
+  //    IP against the company's known devices), which scopes the EDR lookup.
+  const device = await fetchDeviceHealth(companyId, companyName, hostname, allIps);
+  dataSources.push(device.status);
+  if (device.gap) dataGaps.push(device.gap);
+  const effectiveHostname = device.result?.hostname || hostname;
+
+  // 3–5. Correlate the rest of the stack in parallel.
+  const [edr, dns, saas] = await Promise.all([
+    fetchEdr(companyId, effectiveHostname, alertTime),
     fetchDns(companyId, companyName),
     fetchSaasAlerts(companyId, alertTime),
   ]);
 
-  for (const r of [device, edr, dns, saas]) {
+  for (const r of [edr, dns, saas]) {
     dataSources.push(r.status);
     if (r.gap) dataGaps.push(r.gap);
   }
@@ -130,6 +139,7 @@ export async function enrichTicket(
     externalAccountId: accountId,
     rocketCyber,
     deviceHealth: device.result,
+    companyNetworkMatch: device.networkMatch || null,
     edr: edr.result,
     dns: dns.result,
     saasAlerts: saas.result,
@@ -260,7 +270,8 @@ async function fetchDeviceHealth(
   companyId: string | null,
   companyName: string | null,
   hostname: string | null,
-): Promise<SourceResult<DeviceHealth>> {
+  alertIps: string[],
+): Promise<SourceResult<DeviceHealth> & { networkMatch?: CompanyNetworkMatch | null }> {
   const client = new DattoRmmClient();
   if (!client.isConfigured()) {
     return {
@@ -269,8 +280,8 @@ async function fetchDeviceHealth(
       gap: 'Datto RMM not configured — no device health (patch/AV/reboot/online) available.',
     };
   }
-  if (!hostname) {
-    return { result: null, status: { source: 'Datto RMM', status: 'no_data', detail: 'No hostname to look up.' } };
+  if (!hostname && alertIps.length === 0) {
+    return { result: null, status: { source: 'Datto RMM', status: 'no_data', detail: 'No hostname or IP to look up.' } };
   }
 
   try {
@@ -299,22 +310,55 @@ async function fetchDeviceHealth(
       };
     }
 
-    // Search matched sites for the device (live per-site fetch — the global
-    // /account/devices endpoint only returns a tiny subset).
-    const want = hostname.toLowerCase();
-    let device: Awaited<ReturnType<DattoRmmClient['getSiteDevices']>>[number] | undefined;
+    // Pull all devices from the matched site(s) once (live per-site fetch — the
+    // global /account/devices endpoint only returns a tiny subset).
+    const all: Awaited<ReturnType<DattoRmmClient['getSiteDevices']>> = [];
     for (const site of matchedSites.slice(0, 5)) {
-      const devices = await client.getSiteDevices(site.uid);
-      device = devices.find(d => d.hostname && d.hostname.toLowerCase() === want)
-        || devices.find(d => d.hostname && d.hostname.toLowerCase().includes(want));
-      if (device) break;
+      try { all.push(...await client.getSiteDevices(site.uid)); } catch { /* skip site */ }
+    }
+
+    // 1. Exact device by hostname.
+    let device = hostname
+      ? (all.find(d => d.hostname && d.hostname.toLowerCase() === hostname.toLowerCase())
+        || all.find(d => d.hostname && d.hostname.toLowerCase().includes(hostname.toLowerCase())))
+      : undefined;
+
+    // 2. No hostname match — identify the source device/network by IP. The
+    //    alert's public IP usually NATs many company devices, so this confirms
+    //    "known company location" (an FP-reducing signal for identity alerts).
+    let networkMatch: CompanyNetworkMatch | null = null;
+    if (!device && alertIps.length > 0) {
+      const ipSet = new Set(alertIps);
+      const ipMatches = all.filter(d =>
+        (d.extIpAddress && ipSet.has(d.extIpAddress)) || (d.intIpAddress && ipSet.has(d.intIpAddress)));
+      if (ipMatches.length === 1) {
+        device = ipMatches[0];
+      } else if (ipMatches.length > 1) {
+        const ip = ipMatches[0].extIpAddress && ipSet.has(ipMatches[0].extIpAddress) ? ipMatches[0].extIpAddress : ipMatches[0].intIpAddress;
+        networkMatch = {
+          ip,
+          deviceCount: ipMatches.length,
+          hostnames: ipMatches.slice(0, 10).map(d => d.hostname).filter(Boolean),
+        };
+      }
     }
 
     if (!device) {
+      if (networkMatch) {
+        return {
+          result: null,
+          networkMatch,
+          status: {
+            source: 'Datto RMM',
+            status: 'used',
+            detail: `Source IP ${networkMatch.ip} matches ${companyName || 'the company'}'s known network — ${networkMatch.deviceCount} managed device(s) behind it (e.g. ${networkMatch.hostnames.slice(0, 4).join(', ')}). Activity originated from a known company location.`,
+          },
+        };
+      }
       return {
         result: null,
-        status: { source: 'Datto RMM', status: 'no_data', detail: `Device "${hostname}" not found in the ${matchedSites.length} mapped Datto RMM site(s).` },
-        gap: `Device "${hostname}" was not found in the mapped Datto RMM site(s) — verify the hostname/site mapping.`,
+        status: { source: 'Datto RMM', status: 'no_data', detail: hostname ? `Device "${hostname}" not found in the mapped site(s).` : `Source IP not matched to any managed device for ${companyName || 'this company'}.` },
+        gap: hostname ? `Device "${hostname}" was not found in the mapped Datto RMM site(s).` : 'Could not match the alert to a known company device in Datto RMM.',
       };
     }
 
@@ -345,7 +389,7 @@ async function fetchDeviceHealth(
     ].filter(Boolean).join(', ');
     return {
       result: health,
-      status: { source: 'Datto RMM', status: 'used', detail: `Device "${device.hostname}" found — ${bits}.` },
+      status: { source: 'Datto RMM', status: 'used', detail: `Known company device "${device.hostname}" — ${bits}.` },
     };
   } catch (err) {
     return {
@@ -358,7 +402,18 @@ async function fetchDeviceHealth(
 
 interface RawEdrAlert {
   threatName?: string; threatScore?: number; flagName?: string; type?: string;
-  name?: string; path?: string; hostname?: string; createdOn?: string; compromised?: boolean; malicious?: boolean;
+  name?: string; path?: string; hostname?: string; createdOn?: string;
+  compromised?: boolean; malicious?: boolean; suspicious?: boolean;
+  md5?: string; sha256?: string;
+}
+
+/** A threatName of Bad/Suspicious matters; Good/Unknown is usually scan noise. */
+function isSuspiciousThreat(a: RawEdrAlert): boolean {
+  const tn = (a.threatName || '').toLowerCase();
+  if (tn === 'bad' || tn === 'suspicious') return true;
+  if (a.compromised || a.malicious || a.suspicious) return true;
+  if (typeof a.threatScore === 'number' && a.threatScore >= 5) return true;
+  return false;
 }
 
 async function fetchEdr(
@@ -404,29 +459,56 @@ async function fetchEdr(
       };
     }
     const alerts = (await res.json()) as RawEdrAlert[];
-    const list = Array.isArray(alerts) ? alerts : [];
-    const relevant = hostname
-      ? list.filter(a => a.hostname && a.hostname.toLowerCase().includes(hostname.toLowerCase()))
-      : list;
+    const all = Array.isArray(alerts) ? alerts : [];
 
-    if (relevant.length === 0) {
+    // Scope to the specific device when we know it; otherwise keep org-wide but
+    // make clear it is NOT confirmed related to this alert.
+    const deviceScoped = !!hostname;
+    const list = deviceScoped
+      ? all.filter(a => a.hostname && a.hostname.toLowerCase().includes(hostname!.toLowerCase()))
+      : all;
+
+    if (list.length === 0) {
       return {
-        result: { detectionCount: 0, detections: [] },
-        status: { source: 'Datto EDR', status: 'no_data', detail: hostname ? `No EDR detections for "${hostname}" in window${orgId ? ` (org ${orgId})` : ''}.` : 'No EDR detections in window.' },
+        result: { detectionCount: 0, suspiciousCount: 0, unclassifiedCount: 0, deviceScoped, byDevice: [], detections: [] },
+        status: { source: 'Datto EDR', status: 'no_data', detail: deviceScoped ? `No EDR detections for "${hostname}" in window${orgId ? ` (org ${orgId})` : ''}.` : 'No EDR detections in window.' },
       };
     }
+
+    const suspicious = list.filter(isSuspiciousThreat);
+    const unclassified = list.length - suspicious.length;
+
+    // Per-device rollup (only meaningful when not device-scoped).
+    const byDeviceMap = new Map<string, { total: number; suspicious: number }>();
+    for (const a of list) {
+      const h = a.hostname || 'unknown';
+      const cur = byDeviceMap.get(h) || { total: 0, suspicious: 0 };
+      cur.total++;
+      if (isSuspiciousThreat(a)) cur.suspicious++;
+      byDeviceMap.set(h, cur);
+    }
+    const byDevice = Array.from(byDeviceMap.entries())
+      .map(([h, c]) => ({ hostname: h, total: c.total, suspicious: c.suspicious }))
+      .sort((a, b) => b.suspicious - a.suspicious || b.total - a.total)
+      .slice(0, 8);
+
+    // Surface suspicious detections first (with detail), then a few others.
+    const ordered = [...suspicious, ...list.filter(a => !isSuspiciousThreat(a))];
+    const detections = ordered.slice(0, 15).map(e => ({
+      name: e.name || e.path || e.flagName || e.type || 'detection',
+      path: e.path || null,
+      hash: e.sha256 || e.md5 || null,
+      threatName: e.threatName || 'Unknown',
+      threatScore: typeof e.threatScore === 'number' ? e.threatScore : null,
+      timestamp: e.createdOn || '',
+      hostname: e.hostname || null,
+      status: e.compromised ? 'compromised' : e.malicious ? 'malicious' : e.suspicious ? 'suspicious' : 'active',
+    }));
+
+    const detailNote = `${list.length} detection(s)${deviceScoped ? ` on "${hostname}"` : ' org-wide (NOT confirmed related to this alert)'} — ${suspicious.length} suspicious/bad, ${unclassified} unclassified/unknown${orgId ? ` (org ${orgId})` : ''}.`;
     return {
-      result: {
-        detectionCount: relevant.length,
-        detections: relevant.slice(0, 10).map(e => ({
-          type: e.flagName || e.type || 'detection',
-          severity: e.threatName || 'unknown',
-          description: e.name || e.path || '',
-          timestamp: e.createdOn || '',
-          status: e.compromised ? 'compromised' : e.malicious ? 'malicious' : 'active',
-        })),
-      },
-      status: { source: 'Datto EDR', status: 'used', detail: `${relevant.length} EDR detection(s) near alert time${orgId ? ` (org ${orgId})` : ''}.` },
+      result: { detectionCount: list.length, suspiciousCount: suspicious.length, unclassifiedCount: unclassified, deviceScoped, byDevice, detections },
+      status: { source: 'Datto EDR', status: 'used', detail: detailNote },
     };
   } catch (err) {
     return {
