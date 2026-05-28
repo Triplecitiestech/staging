@@ -116,7 +116,13 @@ export interface EnrichmentBundle {
 
 /** True when a parsed reasoning blob is the new cross-stack assessment shape. */
 export function isCrossStackAssessment(r: unknown): r is SocAssessment {
-  return !!r && typeof r === 'object' && 'executiveSummary' in (r as Record<string, unknown>) && 'classification' in (r as Record<string, unknown>)
+  if (!r || typeof r !== 'object') return false
+  const o = r as Record<string, unknown>
+  // Any of the new-shape-only fields is a definitive match.
+  if ('executiveSummary' in o || 'finalRecommendation' in o || 'correlatedSources' in o || 'recommendedTechnicianActions' in o) return true
+  // Fall back to the classification value: the new buckets are distinct from the legacy ones.
+  const NEW_CLASSIFICATIONS = ['confirmed_malicious', 'suspicious_review', 'likely_false_positive', 'confirmed_false_positive', 'insufficient_data']
+  return typeof o.classification === 'string' && NEW_CLASSIFICATIONS.includes(o.classification)
 }
 
 export const CLASSIFICATION_META: Record<SocClassification, { label: string; text: string; bg: string }> = {
