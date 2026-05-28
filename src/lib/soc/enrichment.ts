@@ -6,19 +6,26 @@
  * into a single EnrichmentBundle. The AI then reasons over evidence, not over
  * a gutted Autotask ticket body.
  *
+ * Company→platform resolution uses the SAME `compliance_platform_mappings`
+ * table the compliance tool uses (Datto RMM site UID, Datto EDR org, DNSFilter
+ * org, SaaS Alerts customer ID), with company-name matching as a fallback. This
+ * is why the compliance tool can pull this data and the earlier SOC code could
+ * not — it was using the incomplete device cache and non-existent endpoints.
+ *
  * Sources (all best-effort, each isolated so one failure never sinks the rest):
  *   - RocketCyber  → the actual incident/detection detail behind "Details"
- *   - Datto RMM    → device health (online, OS, patch, reboot, AV, user, software)
- *   - Datto EDR    → endpoint detections around the alert window
- *   - DNSFilter    → blocked/threat lookups in the window (org-level)
- *   - SaaS Alerts  → identity/SaaS events for the customer in the window
+ *   - Datto RMM    → live per-site device health (online, OS, patch, reboot, AV)
+ *   - Datto EDR    → org-scoped endpoint detections around the alert window
+ *   - DNSFilter    → org filtering deployment (v1 API has no per-event query log)
+ *   - SaaS Alerts  → customer-scoped identity/SaaS events in the window
  *   - Known Benign → informational match against trusted-tool catalogue
  */
 
 import { prisma } from '@/lib/prisma';
+import { getPool } from '@/lib/db-pool';
+import { matchesCompanyName } from '@/utils';
 import { RocketCyberClient } from '@/lib/rocketcyber';
 import { DattoRmmClient } from '@/lib/datto-rmm';
-import { DattoEdrClient } from '@/lib/datto-edr';
 import { DnsFilterClient } from '@/lib/dnsfilter';
 import { SaasAlertsClient } from '@/lib/saas-alerts';
 import { detectAlertSource } from './rules';
@@ -38,6 +45,33 @@ import type { RocketCyberDetail } from '@/lib/rocketcyber';
 
 const WINDOW_MS = 6 * 60 * 60 * 1000; // ±6h correlation window
 
+interface PlatformMapping {
+  externalId: string;
+  externalName: string | null;
+  externalType: string | null;
+}
+
+/** Resolve a company's external IDs for a platform (same table the compliance tool uses). */
+async function getPlatformMappings(companyId: string | null, platform: string): Promise<PlatformMapping[] | null> {
+  if (!companyId) return null;
+  try {
+    const pool = getPool();
+    const client = await pool.connect();
+    try {
+      const res = await client.query<PlatformMapping>(
+        `SELECT "externalId", "externalName", "externalType"
+         FROM compliance_platform_mappings WHERE "companyId" = $1 AND platform = $2`,
+        [companyId, platform],
+      );
+      return res.rows;
+    } finally {
+      client.release();
+    }
+  } catch {
+    return null; // table may not exist
+  }
+}
+
 /** Main entry: assemble the full cross-stack evidence bundle for a ticket. */
 export async function enrichTicket(
   ticket: SecurityTicket,
@@ -46,12 +80,13 @@ export async function enrichTicket(
   const sourceSystem = detectAlertSource(ticket) as AlertSource;
   const text = `${ticket.title}\n${ticket.description || ''}`;
   const { incidentId, accountId } = extractRocketCyberIds(text);
+  const companyId = ticket.companyId;
+  const companyName = ticket.companyName || null;
 
   const dataSources: DataSourceStatus[] = [];
   const dataGaps: string[] = [];
 
-  // 1. RocketCyber — fetch first, since its device/org fields improve every
-  //    downstream lookup.
+  // 1. RocketCyber — fetch first; its device/org fields improve downstream lookups.
   let rocketCyber: RocketCyberDetail | null = null;
   if (sourceSystem === 'rocketcyber' || incidentId) {
     const rc = await fetchRocketCyber(incidentId, accountId);
@@ -62,16 +97,15 @@ export async function enrichTicket(
     dataSources.push({ source: 'RocketCyber', status: 'no_data', detail: 'Not a RocketCyber-sourced ticket; no incident ID found in ticket text.' });
   }
 
-  // Resolve the affected device hostname from RC detail (most reliable) or text.
   const hostname = resolveHostname(rocketCyber, text, deviceVerification);
   const alertTime = rocketCyber?.eventTime || rocketCyber?.createdAt || ticket.createDate;
 
-  // 2–5. Correlate the rest of the stack in parallel.
+  // 2–5. Correlate the rest of the stack in parallel, scoped by platform mapping.
   const [device, edr, dns, saas] = await Promise.all([
-    fetchDeviceHealth(hostname),
-    fetchEdr(hostname, alertTime),
-    fetchDns(alertTime),
-    fetchSaasAlerts(ticket.companyName || rocketCyber?.organization || null, alertTime),
+    fetchDeviceHealth(companyId, companyName, hostname),
+    fetchEdr(companyId, hostname, alertTime),
+    fetchDns(companyId, companyName),
+    fetchSaasAlerts(companyId, alertTime),
   ]);
 
   for (const r of [device, edr, dns, saas]) {
@@ -84,7 +118,7 @@ export async function enrichTicket(
     text,
     path: rocketCyber?.path || null,
     hash: rocketCyber?.hash || null,
-    companyId: ticket.companyId,
+    companyId,
     hostname,
   });
 
@@ -112,13 +146,11 @@ export function extractRocketCyberIds(text: string): { incidentId: string | null
   let incidentId: string | null = null;
   let accountId: string | null = null;
 
-  // Account ID is most reliable from the portal URL: /accounts/<id>/apps/incidents/<incidentId>
   const urlMatch = text.match(/accounts\/(\d+)\/apps\/incidents\/(\d+)/i);
   if (urlMatch) {
     accountId = urlMatch[1];
     incidentId = urlMatch[2];
   }
-
   if (!incidentId) {
     const incMatch =
       text.match(/Alert\/Incident\s*#?\s*(\d+)/i) ||
@@ -126,7 +158,6 @@ export function extractRocketCyberIds(text: string): { incidentId: string | null
       text.match(/incident\s*#\s*(\d+)/i);
     if (incMatch) incidentId = incMatch[1];
   }
-
   if (!accountId) {
     const acctMatch =
       text.match(/switch_account_id=(\d+)/i) ||
@@ -134,7 +165,6 @@ export function extractRocketCyberIds(text: string): { incidentId: string | null
       text.match(/account[_\s]?id[:\s]+(\d+)/i);
     if (acctMatch) accountId = acctMatch[1];
   }
-
   return { incidentId, accountId };
 }
 
@@ -149,7 +179,6 @@ function resolveHostname(
   if (deviceVerification?.verified && deviceVerification.device?.hostname) {
     return deviceVerification.device.hostname;
   }
-
   const patterns = [
     /Device:\s*([A-Za-z0-9][A-Za-z0-9_-]{2,})/,
     /\b(DESKTOP-[A-Z0-9]+)\b/i,
@@ -196,8 +225,8 @@ async function fetchRocketCyber(
     if (!detail) {
       return {
         detail: null,
-        status: { source: 'RocketCyber', status: 'no_data', detail: `Incident #${incidentId} not found via API.` },
-        gap: `RocketCyber incident #${incidentId} could not be retrieved.`,
+        status: { source: 'RocketCyber', status: 'no_data', detail: `Incident #${incidentId} returned no data from the API (account ${accountId || 'unknown'}).` },
+        gap: `RocketCyber incident #${incidentId} could not be retrieved from the API.`,
       };
     }
     const summary = [
@@ -206,13 +235,17 @@ async function fetchRocketCyber(
       detail.threatName && `threat ${detail.threatName}`,
       detail.actionTaken && `action ${detail.actionTaken}`,
     ].filter(Boolean).join(', ');
+    const gotDetail = !!(detail.process || detail.path || detail.hash);
     return {
       detail,
       status: {
         source: 'RocketCyber',
-        status: 'used',
-        detail: `Pulled incident #${incidentId}${summary ? `: ${summary}` : ''}.`,
+        status: gotDetail ? 'used' : 'no_data',
+        detail: gotDetail
+          ? `Pulled incident #${incidentId}: ${summary}.`
+          : `Retrieved incident #${incidentId} but it had no process/path/hash detail in the API response.`,
       },
+      gap: gotDetail ? undefined : `RocketCyber incident #${incidentId} was retrieved but lacked detection detail; check the raw payload.`,
     };
   } catch (err) {
     return {
@@ -223,7 +256,11 @@ async function fetchRocketCyber(
   }
 }
 
-async function fetchDeviceHealth(hostname: string | null): Promise<SourceResult<DeviceHealth>> {
+async function fetchDeviceHealth(
+  companyId: string | null,
+  companyName: string | null,
+  hostname: string | null,
+): Promise<SourceResult<DeviceHealth>> {
   const client = new DattoRmmClient();
   if (!client.isConfigured()) {
     return {
@@ -233,85 +270,82 @@ async function fetchDeviceHealth(hostname: string | null): Promise<SourceResult<
     };
   }
   if (!hostname) {
-    return {
-      result: null,
-      status: { source: 'Datto RMM', status: 'no_data', detail: 'No hostname to look up.' },
-    };
+    return { result: null, status: { source: 'Datto RMM', status: 'no_data', detail: 'No hostname to look up.' } };
   }
 
   try {
-    // Resolve the device from the local cache first (fast, populated by the
-    // datto-device-sync cron), then enrich with a live detail call.
-    const rows = await prisma.$queryRaw<Array<{
-      dattoDeviceId: string; hostname: string; lastUser: string | null;
-      siteName: string | null; operatingSystem: string | null; lastSeen: Date | null;
-    }>>`
-      SELECT "dattoDeviceId", hostname, "lastUser", "siteName", "operatingSystem", "lastSeen"
-      FROM datto_devices
-      WHERE hostname ILIKE ${hostname}
-      ORDER BY "lastSeen" DESC NULLS LAST
-      LIMIT 1
-    `;
+    const sites = await client.getSites();
+    const mappings = await getPlatformMappings(companyId, 'datto_rmm');
 
-    if (rows.length === 0) {
+    if (mappings && mappings.some(m => m.externalId === '__none__')) {
+      return { result: null, status: { source: 'Datto RMM', status: 'not_configured', detail: 'Company marked as not using Datto RMM.' } };
+    }
+
+    let matchedSites = sites;
+    if (mappings && mappings.length > 0) {
+      const ids = new Set(mappings.map(m => m.externalId));
+      matchedSites = sites.filter(s => ids.has(s.uid) || ids.has(String(s.id)));
+    } else if (companyName) {
+      matchedSites = sites.filter(s => matchesCompanyName(companyName, s.name));
+    } else {
+      matchedSites = [];
+    }
+
+    if (matchedSites.length === 0) {
       return {
         result: null,
-        status: { source: 'Datto RMM', status: 'no_data', detail: `No device named "${hostname}" in Datto RMM cache.` },
-        gap: `Device "${hostname}" not found in Datto RMM — could not verify device health.`,
+        status: { source: 'Datto RMM', status: 'no_data', detail: `No Datto RMM site mapped/matched for ${companyName || 'this company'}.` },
+        gap: `No Datto RMM site is mapped to ${companyName || 'this company'}; map it at the compliance Connect Tools step for device correlation.`,
       };
     }
 
-    const cached = rows[0];
-    let online: boolean | null = null;
-    let rebootRequired: boolean | null = null;
-    let patchStatus: string | null = null;
-    let patchesApprovedPending: number | null = null;
-    let antivirusProduct: string | null = null;
-    let antivirusStatus: string | null = null;
-    let recentSoftware: DeviceHealth['recentSoftware'] = [];
-
-    try {
-      const [live, software] = await Promise.all([
-        client.getDevice(cached.dattoDeviceId),
-        client.getDeviceSoftware(cached.dattoDeviceId),
-      ]);
-      online = live.online;
-      rebootRequired = live.rebootRequired;
-      patchStatus = live.patchStatus;
-      patchesApprovedPending = live.patchesApprovedPending;
-      antivirusProduct = live.antivirusProduct || null;
-      antivirusStatus = live.antivirusStatus || null;
-      recentSoftware = (software || [])
-        .filter(s => s.installDate)
-        .sort((a, b) => new Date(b.installDate!).getTime() - new Date(a.installDate!).getTime())
-        .slice(0, 10);
-    } catch {
-      // Live detail failed — fall back to cached basics only.
+    // Search matched sites for the device (live per-site fetch — the global
+    // /account/devices endpoint only returns a tiny subset).
+    const want = hostname.toLowerCase();
+    let device: Awaited<ReturnType<DattoRmmClient['getSiteDevices']>>[number] | undefined;
+    for (const site of matchedSites.slice(0, 5)) {
+      const devices = await client.getSiteDevices(site.uid);
+      device = devices.find(d => d.hostname && d.hostname.toLowerCase() === want)
+        || devices.find(d => d.hostname && d.hostname.toLowerCase().includes(want));
+      if (device) break;
     }
 
+    if (!device) {
+      return {
+        result: null,
+        status: { source: 'Datto RMM', status: 'no_data', detail: `Device "${hostname}" not found in the ${matchedSites.length} mapped Datto RMM site(s).` },
+        gap: `Device "${hostname}" was not found in the mapped Datto RMM site(s) — verify the hostname/site mapping.`,
+      };
+    }
+
+    const software = await client.getDeviceSoftware(device.id).catch(() => []);
+    const recentSoftware = software
+      .filter(s => s.installDate)
+      .sort((a, b) => new Date(b.installDate!).getTime() - new Date(a.installDate!).getTime())
+      .slice(0, 10);
+
     const health: DeviceHealth = {
-      hostname: cached.hostname,
-      online,
-      operatingSystem: cached.operatingSystem,
-      lastUser: cached.lastUser,
-      lastSeen: cached.lastSeen ? cached.lastSeen.toISOString() : null,
-      rebootRequired,
-      patchStatus,
-      patchesApprovedPending,
-      antivirusProduct,
-      antivirusStatus,
-      siteName: cached.siteName,
+      hostname: device.hostname,
+      online: device.online,
+      operatingSystem: device.operatingSystem || null,
+      lastUser: device.lastUser || null,
+      lastSeen: device.lastSeen || null,
+      rebootRequired: device.rebootRequired,
+      patchStatus: device.patchStatus || null,
+      patchesApprovedPending: device.patchesApprovedPending,
+      antivirusProduct: device.antivirusProduct || null,
+      antivirusStatus: device.antivirusStatus || null,
+      siteName: device.siteName || null,
       recentSoftware,
     };
-
     const bits = [
-      online === null ? null : (online ? 'online' : 'offline'),
-      patchStatus && `patch: ${patchStatus}`,
-      antivirusStatus && `AV: ${antivirusStatus}`,
+      device.online ? 'online' : 'offline',
+      device.patchStatus && `patch: ${device.patchStatus}`,
+      device.antivirusStatus && `AV: ${device.antivirusStatus}`,
     ].filter(Boolean).join(', ');
     return {
       result: health,
-      status: { source: 'Datto RMM', status: 'used', detail: `Device "${cached.hostname}"${bits ? ` — ${bits}` : ''}.` },
+      status: { source: 'Datto RMM', status: 'used', detail: `Device "${device.hostname}" found — ${bits}.` },
     };
   } catch (err) {
     return {
@@ -322,43 +356,77 @@ async function fetchDeviceHealth(hostname: string | null): Promise<SourceResult<
   }
 }
 
-async function fetchEdr(hostname: string | null, alertTime: string): Promise<SourceResult<EdrCorrelation>> {
-  const client = new DattoEdrClient();
-  if (!client.isConfigured()) {
+interface RawEdrAlert {
+  threatName?: string; threatScore?: number; flagName?: string; type?: string;
+  name?: string; path?: string; hostname?: string; createdOn?: string; compromised?: boolean; malicious?: boolean;
+}
+
+async function fetchEdr(
+  companyId: string | null,
+  hostname: string | null,
+  alertTime: string,
+): Promise<SourceResult<EdrCorrelation>> {
+  const token = process.env.DATTO_EDR_API_TOKEN;
+  if (!token) {
     return {
       result: null,
       status: { source: 'Datto EDR', status: 'not_configured', detail: 'DATTO_EDR_API_TOKEN not set.' },
       gap: 'Datto EDR not configured — could not check for related endpoint detections.',
     };
   }
+  const mappings = await getPlatformMappings(companyId, 'datto_edr');
+  if (mappings && mappings.some(m => m.externalId === '__none__')) {
+    return { result: null, status: { source: 'Datto EDR', status: 'not_configured', detail: 'Company marked as not using Datto EDR.' } };
+  }
+
   try {
+    const edrUrl = (process.env.DATTO_EDR_API_URL || 'https://triple5695.infocyte.com/api').replace(/\/$/, '');
+    const tokenParam = `access_token=${encodeURIComponent(token)}`;
     const center = new Date(alertTime).getTime() || Date.now();
     const since = new Date(center - WINDOW_MS);
     const until = new Date(center + WINDOW_MS);
-    const events = await client.getEvents(since, until);
+    const orgId = mappings && mappings.length > 0 && mappings[0].externalId !== 'msp_wide' ? mappings[0].externalId : null;
+
+    const where: Record<string, unknown> = {
+      createdOn: { gte: since.toISOString(), lte: until.toISOString() },
+      ...(orgId ? { organizationId: orgId } : {}),
+    };
+    const filter = JSON.stringify({ where, limit: 500, order: 'createdOn DESC' });
+    const res = await fetch(`${edrUrl}/Alerts?filter=${encodeURIComponent(filter)}&${tokenParam}`, {
+      headers: { Authorization: token, Accept: 'application/json' },
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!res.ok) {
+      return {
+        result: null,
+        status: { source: 'Datto EDR', status: 'error', detail: `Alerts query failed (${res.status})` },
+        gap: `Datto EDR alerts query failed (${res.status}).`,
+      };
+    }
+    const alerts = (await res.json()) as RawEdrAlert[];
+    const list = Array.isArray(alerts) ? alerts : [];
     const relevant = hostname
-      ? events.filter(e => e.hostname && e.hostname.toLowerCase().includes(hostname.toLowerCase()))
-      : events;
+      ? list.filter(a => a.hostname && a.hostname.toLowerCase().includes(hostname.toLowerCase()))
+      : list;
 
     if (relevant.length === 0) {
       return {
         result: { detectionCount: 0, detections: [] },
-        status: { source: 'Datto EDR', status: 'no_data', detail: hostname ? `No EDR detections for "${hostname}" in window.` : 'No EDR detections in window.' },
+        status: { source: 'Datto EDR', status: 'no_data', detail: hostname ? `No EDR detections for "${hostname}" in window${orgId ? ` (org ${orgId})` : ''}.` : 'No EDR detections in window.' },
       };
     }
-
     return {
       result: {
         detectionCount: relevant.length,
         detections: relevant.slice(0, 10).map(e => ({
-          type: e.type,
-          severity: e.severity,
-          description: e.description,
-          timestamp: e.timestamp,
-          status: e.status,
+          type: e.flagName || e.type || 'detection',
+          severity: e.threatName || 'unknown',
+          description: e.name || e.path || '',
+          timestamp: e.createdOn || '',
+          status: e.compromised ? 'compromised' : e.malicious ? 'malicious' : 'active',
         })),
       },
-      status: { source: 'Datto EDR', status: 'used', detail: `${relevant.length} EDR detection(s) near alert time.` },
+      status: { source: 'Datto EDR', status: 'used', detail: `${relevant.length} EDR detection(s) near alert time${orgId ? ` (org ${orgId})` : ''}.` },
     };
   } catch (err) {
     return {
@@ -369,33 +437,52 @@ async function fetchEdr(hostname: string | null, alertTime: string): Promise<Sou
   }
 }
 
-async function fetchDns(alertTime: string): Promise<SourceResult<DnsCorrelation>> {
+async function fetchDns(companyId: string | null, companyName: string | null): Promise<SourceResult<DnsCorrelation>> {
   const client = new DnsFilterClient();
   if (!client.isConfigured()) {
     return {
       result: null,
       status: { source: 'DNSFilter', status: 'not_configured', detail: 'DNSFILTER_API_TOKEN not set.' },
-      gap: 'DNSFilter not configured — could not check for blocked/suspicious DNS lookups.',
+      gap: 'DNSFilter not configured.',
     };
   }
+  const mappings = await getPlatformMappings(companyId, 'dnsfilter');
+  if (mappings && mappings.some(m => m.externalId === '__none__')) {
+    return { result: null, status: { source: 'DNSFilter', status: 'not_configured', detail: 'Company marked as not using DNSFilter.' } };
+  }
+
   try {
-    const center = new Date(alertTime).getTime() || Date.now();
-    const since = new Date(center - WINDOW_MS);
-    const until = new Date(center + WINDOW_MS);
-    const report = await client.getTrafficReport(since, until);
+    const baseUrl = (process.env.DNSFILTER_API_URL || 'https://api.dnsfilter.com/v1').replace(/\/$/, '');
+    const headers = { Authorization: `Token ${process.env.DNSFILTER_API_TOKEN}`, Accept: 'application/json' };
+
+    const orgRes = await fetch(`${baseUrl}/organizations`, { headers, signal: AbortSignal.timeout(15_000) });
+    if (!orgRes.ok) {
+      return { result: null, status: { source: 'DNSFilter', status: 'error', detail: `Organizations endpoint failed (${orgRes.status})` }, gap: `DNSFilter lookup failed (${orgRes.status}).` };
+    }
+    const orgJson = (await orgRes.json()) as { data?: Array<{ id: string; attributes?: { name?: string } }> };
+    const orgs = orgJson.data ?? [];
+
+    let orgName: string | null = null;
+    if (mappings && mappings.length > 0) {
+      const matched = orgs.find(o => o.id === mappings[0].externalId);
+      orgName = matched?.attributes?.name ?? mappings[0].externalName;
+    } else if (companyName) {
+      const matched = orgs.find(o => matchesCompanyName(companyName, o.attributes?.name ?? ''));
+      orgName = matched?.attributes?.name ?? null;
+    }
+
+    // The DNSFilter v1 API has no per-event query-log endpoint, so we confirm
+    // the org's filtering deployment rather than point-in-time blocked lookups.
     return {
-      result: {
-        blockedQueries: report.blocked_queries,
-        totalQueries: report.total_queries,
-        topBlockedDomains: report.top_blocked.slice(0, 10),
-        orgLevelOnly: true,
-      },
+      result: null,
       status: {
         source: 'DNSFilter',
-        status: report.total_queries > 0 || report.blocked_queries > 0 ? 'used' : 'no_data',
-        detail: `${report.blocked_queries} blocked / ${report.total_queries} total queries (org-level).`,
+        status: orgName ? 'used' : 'no_data',
+        detail: orgName
+          ? `DNS filtering deployed for org "${orgName}" (${orgs.length} org(s) visible).`
+          : `No DNSFilter org mapped/matched for ${companyName || 'this company'}.`,
       },
-      gap: 'DNSFilter data is org-level only; could not isolate this specific device/user in the window.',
+      gap: 'DNSFilter v1 API exposes no per-event query log, so point-in-time blocked-domain correlation for this device/timeframe is not available.',
     };
   } catch (err) {
     return {
@@ -406,46 +493,52 @@ async function fetchDns(alertTime: string): Promise<SourceResult<DnsCorrelation>
   }
 }
 
-async function fetchSaasAlerts(companyName: string | null, alertTime: string): Promise<SourceResult<SaasCorrelation>> {
+async function fetchSaasAlerts(companyId: string | null, alertTime: string): Promise<SourceResult<SaasCorrelation>> {
   const client = new SaasAlertsClient();
   if (!client.isConfigured()) {
     return {
       result: null,
-      status: { source: 'SaaS Alerts', status: 'not_configured', detail: 'SaaS Alerts credentials not set.' },
+      status: { source: 'SaaS Alerts', status: 'not_configured', detail: `Missing ${client.missingCredentials().join(', ')}.` },
       gap: 'SaaS Alerts not configured — could not correlate identity/SaaS events.',
     };
   }
+  const mappings = await getPlatformMappings(companyId, 'saas_alerts');
+  if (mappings && mappings.some(m => m.externalId === '__none__')) {
+    return { result: null, status: { source: 'SaaS Alerts', status: 'not_configured', detail: 'Company marked as not using SaaS Alerts.' } };
+  }
+  const customerIds = (mappings ?? []).map(m => m.externalId).filter(id => id && id !== '__none__');
+  if (customerIds.length === 0) {
+    return {
+      result: null,
+      status: { source: 'SaaS Alerts', status: 'no_data', detail: 'No SaaS Alerts customer mapped for this company.' },
+      gap: 'No SaaS Alerts customer is mapped to this company; map it at the compliance Connect Tools step for identity correlation.',
+    };
+  }
+
   try {
     const center = new Date(alertTime).getTime() || Date.now();
     const since = new Date(center - WINDOW_MS).toISOString();
     const until = new Date(center + WINDOW_MS).toISOString();
-    const { events } = await client.getEvents({ since, until, limit: 200 });
-
-    // No reliable company→SaaS-customer mapping exists, so match on name.
-    const relevant = companyName
-      ? events.filter(e => (e.customerName || '').toLowerCase().includes(companyName.toLowerCase()))
-      : [];
-
-    if (relevant.length === 0) {
-      return {
-        result: { eventCount: 0, events: [] },
-        status: { source: 'SaaS Alerts', status: 'no_data', detail: companyName ? `No SaaS Alerts events matched "${companyName}" in window.` : 'No company name to match SaaS Alerts events.' },
-        gap: companyName ? undefined : 'No company name available to correlate SaaS Alerts events.',
-      };
-    }
-
-    return {
-      result: {
-        eventCount: relevant.length,
-        events: relevant.slice(0, 10).map(e => ({
+    const events: SaasCorrelation['events'] = [];
+    for (const customerId of customerIds) {
+      const { events: rows } = await client.getEvents({ customerId, since, until, limit: 200 });
+      for (const e of rows) {
+        events.push({
           type: e.jointType || e.eventType || e.type || 'event',
           severity: e.alertStatus || e.severity || 'unknown',
           description: e.jointDesc || e.description || '',
           time: e.time || e.timestamp || '',
           user: typeof e.user === 'string' ? e.user : (e.user?.email || e.user?.name || null),
-        })),
-      },
-      status: { source: 'SaaS Alerts', status: 'used', detail: `${relevant.length} SaaS Alerts event(s) for ${companyName} near alert time.` },
+        });
+      }
+    }
+
+    if (events.length === 0) {
+      return { result: { eventCount: 0, events: [] }, status: { source: 'SaaS Alerts', status: 'no_data', detail: `No SaaS Alerts events for the mapped customer(s) in window.` } };
+    }
+    return {
+      result: { eventCount: events.length, events: events.slice(0, 10) },
+      status: { source: 'SaaS Alerts', status: 'used', detail: `${events.length} SaaS Alerts event(s) for the mapped customer(s) near alert time.` },
     };
   } catch (err) {
     return {
@@ -483,7 +576,7 @@ export async function matchKnownBenign(params: {
         )
     `;
   } catch {
-    return []; // table may not exist yet
+    return [];
   }
 
   const matches: KnownBenignMatch[] = [];
@@ -492,23 +585,13 @@ export async function matchKnownBenign(params: {
 
   for (const r of rows) {
     let matchedOn: string | null = null;
-
     if (r.executablePath) {
       const ep = r.executablePath.toLowerCase();
       if ((lowerPath && lowerPath.includes(ep)) || lowerText.includes(ep)) matchedOn = 'path';
     }
-    if (!matchedOn && r.hashValue && params.hash && r.hashValue.toLowerCase() === params.hash.toLowerCase()) {
-      matchedOn = 'hash';
-    }
-    if (!matchedOn && r.certificateSigner && lowerText.includes(r.certificateSigner.toLowerCase())) {
-      matchedOn = 'signer';
-    }
-    if (!matchedOn && r.vendor && r.product) {
-      // Require both vendor and product tokens to appear to avoid loose hits.
-      if (lowerText.includes(r.vendor.toLowerCase()) && lowerText.includes(r.product.toLowerCase())) {
-        matchedOn = 'vendor_product';
-      }
-    }
+    if (!matchedOn && r.hashValue && params.hash && r.hashValue.toLowerCase() === params.hash.toLowerCase()) matchedOn = 'hash';
+    if (!matchedOn && r.certificateSigner && lowerText.includes(r.certificateSigner.toLowerCase())) matchedOn = 'signer';
+    if (!matchedOn && r.vendor && r.product && lowerText.includes(r.vendor.toLowerCase()) && lowerText.includes(r.product.toLowerCase())) matchedOn = 'vendor_product';
 
     if (matchedOn) {
       matches.push({
@@ -523,7 +606,6 @@ export async function matchKnownBenign(params: {
       });
     }
   }
-
   return matches;
 }
 

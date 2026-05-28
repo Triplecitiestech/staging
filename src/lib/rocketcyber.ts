@@ -74,7 +74,7 @@ const DETECTION_FIELD_ALIASES: Record<keyof DetectionFields, string[]> = {
   targetCommandLine: ['targetCommandLine', 'commandLine', 'processCommandLine', 'cmdLine', 'targetCmdLine'],
   parentCommandLine: ['parentCommandLine', 'parentCmdLine', 'parentProcessCommandLine'],
   userContext: ['userContext', 'user', 'userName', 'username', 'account', 'accountName', 'subjectUserName'],
-  hash: ['hash', 'sha256', 'sha1', 'md5', 'fileHash', 'sha256Hash'],
+  hash: ['hash', 'sha256', 'sha1', 'md5', 'fileHash', 'sha256Hash', 'computedHash', 'computed_hash'],
   threatName: ['threatName', 'threat', 'malwareName', 'detectionName', 'ruleName', 'signatureName'],
   threatType: ['threatType', 'category', 'threatCategory', 'detectionType', 'malwareType'],
   severity: ['severity', 'priority', 'riskLevel', 'level'],
@@ -103,6 +103,9 @@ type DetectionFields = {
 export class RocketCyberClient {
   private apiToken: string;
   private baseUrl: string;
+  // RocketCyber's documented header is Bearer, but some tenants accept a raw
+  // token. We try Bearer first and fall back to raw on a 401/403.
+  private authStyle: 'bearer' | 'raw' = 'bearer';
 
   constructor() {
     this.apiToken = process.env.ROCKETCYBER_API_TOKEN || '';
@@ -111,6 +114,10 @@ export class RocketCyberClient {
 
   isConfigured(): boolean {
     return !!this.apiToken;
+  }
+
+  private authHeader(): string {
+    return this.authStyle === 'bearer' ? `Bearer ${this.apiToken}` : this.apiToken;
   }
 
   private async request<T>(path: string, query?: Record<string, string | number | undefined>): Promise<T> {
@@ -122,19 +129,23 @@ export class RocketCyberClient {
     }
     const url = `${this.baseUrl}${path}${qs.toString() ? `?${qs.toString()}` : ''}`;
 
-    const res = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${this.apiToken}`,
-        Accept: 'application/json',
-      },
+    const doFetch = () => fetch(url, {
+      headers: { Authorization: this.authHeader(), Accept: 'application/json' },
       signal: AbortSignal.timeout(30_000),
     });
+
+    let res = await doFetch();
+    // Auth fallback: flip Bearer <-> raw once and retry.
+    if ((res.status === 401 || res.status === 403) && this.authStyle === 'bearer') {
+      this.authStyle = 'raw';
+      res = await doFetch();
+    }
 
     if (res.status === 401 || res.status === 403) {
       const text = await res.text().catch(() => '');
       throw new Error(
         `RocketCyber auth rejected (${res.status}) on ${path}. ` +
-        `Verify ROCKETCYBER_API_TOKEN (Provider Settings > RocketCyber API) and that the token has Customer API access. Body: ${text.slice(0, 200)}`
+        `Verify ROCKETCYBER_API_TOKEN (Provider Settings > RocketCyber API) and that it has Customer API access. Body: ${text.slice(0, 200)}`
       );
     }
     if (!res.ok) {
@@ -159,23 +170,38 @@ export class RocketCyberClient {
     return [];
   }
 
-  /** Fetch a single incident by its RocketCyber incident ID. */
-  async getIncident(incidentId: string, accountId?: string | null): Promise<unknown | null> {
-    const data = await this.request<unknown>('/incidents', {
-      id: incidentId,
-      accountId: accountId || undefined,
-    });
-    const list = this.unwrap(data);
-    if (list.length > 0) return list[0];
+  private matchById(list: unknown[], incidentId: string): unknown | undefined {
+    const byId = list.find(it => it && typeof it === 'object' && String((it as Record<string, unknown>).id ?? '') === String(incidentId));
+    if (byId) return byId;
+    return list.length === 1 ? list[0] : undefined;
+  }
 
-    // Some tenants ignore the `id` filter; fall back to a path-style lookup.
+  /** Fetch a single incident by its RocketCyber incident ID (tries several strategies). */
+  async getIncident(incidentId: string, accountId?: string | null): Promise<unknown | null> {
+    // 1. Filter by id (+ accountId if known).
+    try {
+      const data = await this.request<unknown>('/incidents', { id: incidentId, accountId: accountId || undefined });
+      const found = this.matchById(this.unwrap(data), incidentId);
+      if (found) return found;
+    } catch { /* try next */ }
+
+    // 2. Path-style lookup.
     try {
       const single = await this.request<unknown>(`/incidents/${encodeURIComponent(incidentId)}`);
       const unwrapped = this.unwrap(single);
-      return unwrapped[0] || (single && typeof single === 'object' ? single : null);
-    } catch {
-      return null;
+      if (unwrapped.length) return unwrapped[0];
+      if (single && typeof single === 'object' && 'id' in single) return single;
+    } catch { /* try next */ }
+
+    // 3. List the account's incidents and find by id.
+    if (accountId) {
+      try {
+        const data = await this.request<unknown>('/incidents', { accountId, pageSize: 1000 });
+        const found = this.matchById(this.unwrap(data), incidentId);
+        if (found) return found;
+      } catch { /* give up */ }
     }
+    return null;
   }
 
   /** Fetch detection-level events for an account, optionally narrowed by a date window. */
@@ -228,7 +254,9 @@ export class RocketCyberClient {
         const createdAt = asString(inc.createdAt ?? inc.created_at);
         const since = createdAt ? new Date(new Date(createdAt).getTime() - 60 * 60 * 1000).toISOString() : undefined;
         const until = createdAt ? new Date(new Date(createdAt).getTime() + 60 * 60 * 1000).toISOString() : undefined;
-        const events = await this.getEvents({ accountId: resolvedAccountId, since, until, pageSize: 50 });
+        // The /events endpoint is app-scoped; pass the incident's appId if present.
+        const appId = asString(inc.appId ?? inc.app_id ?? inc.applicationId) || undefined;
+        const events = await this.getEvents({ accountId: resolvedAccountId, appId, since, until, pageSize: 100 });
         rawEvents.push(...events);
         for (const ev of events) {
           fields = mergeFields(fields, extractDetectionFields(ev));
