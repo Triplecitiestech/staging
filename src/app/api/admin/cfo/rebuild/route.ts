@@ -4,7 +4,7 @@ import { checkSecretAuth } from '@/lib/api-auth'
 import { canAccessCfoDashboard } from '@/lib/cfo/access'
 import { buildDashboard } from '@/lib/cfo/build'
 
-export const maxDuration = 60
+export const maxDuration = 300
 export const dynamic = 'force-dynamic'
 
 // Rebuilds the cached dashboard snapshot. Authorized either by the cron/

@@ -78,7 +78,7 @@ async function apiGet<T = unknown>(path: string): Promise<T> {
   throw lastErr instanceof Error ? lastErr : new Error(`GET ${path} failed after ${MAX_RETRIES + 1} retries`)
 }
 
-async function paginate<T = unknown>(path: string, pageSize = 50): Promise<T[]> {
+async function paginate<T = unknown>(path: string, pageSize = 100): Promise<T[]> {
   const items: T[] = []
   let page = 1
   while (true) {

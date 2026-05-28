@@ -3,7 +3,7 @@ import { auth } from '@/auth'
 import { canAccessCfoDashboard } from '@/lib/cfo/access'
 import { buildDashboard, getCachedSnapshot } from '@/lib/cfo/build'
 
-export const maxDuration = 60
+export const maxDuration = 300
 export const dynamic = 'force-dynamic'
 
 // Returns the cached dashboard snapshot (fast). Builds inline if no snapshot
