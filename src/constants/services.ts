@@ -31,7 +31,7 @@ export const CHALLENGE_OPTIONS: Challenge[] = [
     description: 'Scaling my technology infrastructure to support business growth.',
     icon: '/icon/bg.webp',
     relatedServices: ['IT Strategy & Virtual CIO', 'AI Consulting'],
-    color: 'from-orange-500 to-red-500'
+    color: 'from-rose-500 to-red-500'
   },
   {
     id: 'compliance',
@@ -77,7 +77,7 @@ export const SERVICES: Service[] = [
       'Access to our full technology stack and best practices'
     ],
     description: 'Empower your internal IT team with the same enterprise-grade tools, security platforms, and automated processes we use for our fully managed clients.',
-    gradient: 'from-orange-500 to-rose-500',
+    gradient: 'from-red-500 to-rose-500',
     icon: '/icon/bg.webp',
     image: '/iws.webp'
   },
@@ -122,7 +122,7 @@ export const SERVICES: Service[] = [
       'Expertise without the overhead of an in-house IT leader'
     ],
     description: 'You get executive-level IT strategy — without executive-level costs.',
-    gradient: 'from-orange-500 to-red-500',
+    gradient: 'from-rose-500 to-red-500',
     icon: '/icon/bg.webp',
     image: '/it strategy.webp'
   },
