@@ -153,6 +153,7 @@ const PERMISSION_CATEGORIES: { category: string; permissions: { key: string; lab
       { key: 'view_reports', label: 'View Reports', description: 'Access reports and analytics', roles: ['SUPER_ADMIN', 'ADMIN', 'BILLING_ADMIN'] },
       { key: 'view_billing', label: 'View Billing', description: 'View billing information', roles: ['SUPER_ADMIN', 'ADMIN', 'BILLING_ADMIN'] },
       { key: 'manage_billing', label: 'Manage Billing', description: 'Manage billing and invoices', roles: ['SUPER_ADMIN', 'BILLING_ADMIN'] },
+      { key: 'view_cfo_dashboard', label: 'View CFO Dashboard', description: 'Access the financial CFO dashboard (cash flow, debts, AR, QuickBooks). Also grantable via Entra finance groups.', roles: ['SUPER_ADMIN'] },
     ],
   },
   {
