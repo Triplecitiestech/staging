@@ -130,13 +130,19 @@ export async function getTransfersForAccount(accountId: string, fromIso?: string
   return paginate<Transfer>(path)
 }
 
-// Fail-fast: a per-account failure throws (after retries are exhausted) so the
-// caller can fall back to the previous cache instead of saving partial data.
+// Resilient per-account: a single account's transfer failure (after retries)
+// is logged and returns empty rather than throwing — the delta merge then
+// keeps that account's previously-cached transfers, so one flaky account
+// can't blank the whole dashboard. Account-list / auth failures still throw.
 export async function getAllTransfers(accounts: Account[], fromIso?: string, toIso?: string): Promise<TransfersByAccount[]> {
-  return mapLimited(accounts, MAX_CONCURRENCY, async (a) => ({
-    accountId: a.id,
-    transfers: await getTransfersForAccount(a.id, fromIso, toIso),
-  }))
+  return mapLimited(accounts, MAX_CONCURRENCY, async (a) => {
+    try {
+      return { accountId: a.id, transfers: await getTransfersForAccount(a.id, fromIso, toIso) }
+    } catch (err) {
+      console.warn(`[sequence] transfers for account ${a.id} failed (keeping cached):`, err instanceof Error ? err.message : err)
+      return { accountId: a.id, transfers: [] }
+    }
+  })
 }
 
 export async function listRules(): Promise<Rule[]> {

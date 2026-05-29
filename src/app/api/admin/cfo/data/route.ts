@@ -24,7 +24,10 @@ export async function GET(request: NextRequest) {
     }
     return NextResponse.json(snapshot)
   } catch (err) {
-    console.error('[cfo/data] build failed:', err instanceof Error ? err.message : String(err))
-    return NextResponse.json({ error: 'Failed to load CFO dashboard data' }, { status: 502 })
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error('[cfo/data] build failed:', msg)
+    // This route is gated to finance staff, so surfacing the real cause is
+    // safe and saves a logs round-trip when something is misconfigured.
+    return NextResponse.json({ error: `Failed to load CFO dashboard data: ${msg}` }, { status: 502 })
   }
 }
