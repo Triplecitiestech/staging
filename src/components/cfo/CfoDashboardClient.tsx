@@ -172,6 +172,15 @@ export default function CfoDashboardClient() {
   const avgMonthlyIncomeCents = recent3.length
     ? Math.round(recent3.reduce((s, p) => s + p.incomeCents, 0) / recent3.length)
     : 0
+  // Prefer QuickBooks accrual income (true revenue) when connected; fall back
+  // to Sequence cash-in average otherwise.
+  const qbMonthlyRevenueCents = d.qb?.pl?.incomeCents != null && d.qb?.monthsInPeriod
+    ? Math.round(d.qb.pl.incomeCents / d.qb.monthsInPeriod)
+    : null
+  const monthlyRevenueCents = qbMonthlyRevenueCents ?? avgMonthlyIncomeCents
+  const revenueSub = qbMonthlyRevenueCents != null
+    ? 'QuickBooks accrual income · monthly avg'
+    : 'Avg cash in · last 3 full months'
   const monthlyDebtPaymentCents = (d.debts?.business?.totalMinPaymentCents ?? 0) + (d.debts?.personal?.totalMinPaymentCents ?? 0)
 
   return (
@@ -220,7 +229,7 @@ export default function CfoDashboardClient() {
           value={d.debts ? usd(d.debts.combinedTotalBalanceCents) : '—'}
           sub={d.debts ? `${usd(d.debts.combinedMonthlyInterestCents)}/mo interest` : 'Add debts in Settings'}
         />
-        <Kpi label="Est. monthly revenue" value={usd(avgMonthlyIncomeCents)} sub="Avg cash in · last 3 full months" />
+        <Kpi label="Est. monthly revenue" value={usd(monthlyRevenueCents)} sub={revenueSub} />
         <Kpi
           label="Est. monthly debt payments"
           value={usd(monthlyDebtPaymentCents)}
