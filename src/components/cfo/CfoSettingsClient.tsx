@@ -23,6 +23,7 @@ interface QbStatus {
   env?: string
   connectedAt?: string
   accessTokenValid?: boolean
+  encryptionKeyState?: 'ok' | 'missing' | 'invalid'
 }
 
 function Card({ children }: { children: React.ReactNode }) {
@@ -134,7 +135,8 @@ export default function CfoSettingsClient() {
     connected: ['QuickBooks connected.', 'text-emerald-300'],
     error: ['QuickBooks connection failed (token exchange). Check that QB_CLIENT_ID / QB_CLIENT_SECRET are the production keys and the redirect URI matches. Then try again.', 'text-red-300'],
     csrf: ['QuickBooks connection blocked (state mismatch). Try again.', 'text-red-300'],
-    encryption_key: ['QuickBooks connected with Intuit, but tokens could not be saved: ENCRYPTION_MASTER_KEY_V1 is not set in Vercel. Add a 32-byte base64 key, redeploy, then reconnect.', 'text-rose-300'],
+    encryption_key: ['QuickBooks connected with Intuit, but tokens could not be saved: ENCRYPTION_MASTER_KEY_V1 is not reaching the server. Set it in the Production scope and REDEPLOY (env changes need a fresh deploy), then reconnect.', 'text-rose-300'],
+    encryption_key_invalid: ['ENCRYPTION_MASTER_KEY_V1 is set but is not a valid 32-byte base64 key (likely truncated, quoted, or wrong format). Regenerate it, save without quotes, redeploy, then reconnect.', 'text-rose-300'],
     not_configured: ['QuickBooks app keys not configured (set QB_CLIENT_ID / QB_CLIENT_SECRET).', 'text-rose-300'],
   }[qbParam]
 
@@ -146,6 +148,12 @@ export default function CfoSettingsClient() {
       <section>
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-300">QuickBooks Online</h2>
         <Card>
+          {qb && qb.encryptionKeyState && qb.encryptionKeyState !== 'ok' && (
+            <p className="mb-3 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
+              ⚠ Encryption key {qb.encryptionKeyState === 'missing' ? 'not detected by the server' : 'set but invalid (not 32-byte base64)'}.
+              {' '}QuickBooks tokens can&apos;t be saved until <code>ENCRYPTION_MASTER_KEY_V1</code> is set in the <strong>Production</strong> scope and the app is <strong>redeployed</strong>. (Vercel hides the value after saving — that&apos;s normal; this check reads it live from the running server.)
+            </p>
+          )}
           {!qb?.configured ? (
             <p className="text-sm text-rose-300">
               App keys not configured. Set <code className="text-slate-300">QB_CLIENT_ID</code> and{' '}
