@@ -164,6 +164,16 @@ export default function CfoDashboardClient() {
     net: Math.round(p.netCents / 100),
   }))
 
+  // Headline summary figures. Revenue = avg cash-in over the last 3 *complete*
+  // months (excludes the current partial month). Monthly debt = required
+  // minimums across business + personal.
+  const completeMonths = d.monthlyPL.slice(0, -1)
+  const recent3 = completeMonths.slice(-3)
+  const avgMonthlyIncomeCents = recent3.length
+    ? Math.round(recent3.reduce((s, p) => s + p.incomeCents, 0) / recent3.length)
+    : 0
+  const monthlyDebtPaymentCents = (d.debts?.business?.totalMinPaymentCents ?? 0) + (d.debts?.personal?.totalMinPaymentCents ?? 0)
+
   return (
     <div className="space-y-8">
       {/* Print-only header (hidden on screen) */}
@@ -202,13 +212,24 @@ export default function CfoDashboardClient() {
         </div>
       </div>
 
+      {/* Financial summary — the headline numbers */}
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+        <Kpi label="Total cash on hand" value={usd(d.totalCashCents)} sub="Across all pods + income source" />
+        <Kpi
+          label="Total debt"
+          value={d.debts ? usd(d.debts.combinedTotalBalanceCents) : '—'}
+          sub={d.debts ? `${usd(d.debts.combinedMonthlyInterestCents)}/mo interest` : 'Add debts in Settings'}
+        />
+        <Kpi label="Est. monthly revenue" value={usd(avgMonthlyIncomeCents)} sub="Avg cash in · last 3 full months" />
+        <Kpi
+          label="Est. monthly debt payments"
+          value={usd(monthlyDebtPaymentCents)}
+          sub="Required minimums (business + personal)"
+        />
+      </div>
+
       {/* KPI grid */}
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-        <Kpi
-          label="Total cash on hand"
-          value={usd(d.totalCashCents)}
-          sub="Across all pods + income source"
-        />
         <Kpi
           label={`Covers payroll + Amex (${m.monthLabel})`}
           value={usd(m.coverage.cushionCents)}
@@ -320,6 +341,12 @@ export default function CfoDashboardClient() {
       {/* 12-month P&L */}
       <div>
         <SectionTitle>12-month income vs outflow</SectionTitle>
+        <p className="-mt-1 mb-3 text-xs text-slate-500">
+          Cash movement — every dollar in/out of your Sequence accounts. &quot;Outflow&quot; includes the
+          Amex bill (which bundles a whole month of card spend into one payment), payroll, loan/debt
+          payments, and taxes — so it&apos;s larger than operating expenses. For accrual profit, see the
+          QuickBooks panel below.
+        </p>
         <CfoAreaChart
           title="Income vs outflow"
           subtitle={`${chartData.length} months · Net ${usd(d.monthlyPL.reduce((s, p) => s + p.netCents, 0))}`}
