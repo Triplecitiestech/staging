@@ -95,6 +95,7 @@ These are the authoritative modules for each subsystem. Claude must use these �
 | API route auth (secrets) | `src/lib/api-auth.ts` | `checkSecretAuth()` — header + query param auth for diagnostic/cron routes |
 | API response envelope | `src/lib/api-response.ts` | `apiSuccess()`, `apiError()` — standardized response format |
 | Environment validation | `src/lib/env-validation.ts` | Startup validation of critical + recommended env vars |
+| CFO dashboard | `src/lib/cfo/` | Financial dashboard: Sequence (banking) + QuickBooks. `build.ts` orchestrates, `compute.ts` is the pure analytics, `store.ts` (raw-pg `cfo_settings`, NOT Prisma), `access.ts` gates it, `sequence-client.ts` / `qb-*.ts` are the API clients, `demo.ts` anonymizes, `hiring.ts` is the hiring calculator. |
 
 **Rule**: If you need functionality that one of these modules provides, import and use it. If it needs to be extended, extend the existing module. Do not create `autotask-v2.ts`, `prisma-new.ts`, `security-utils.ts`, or similar parallel files.
 
@@ -530,6 +531,23 @@ docs/
 
 ### Archive (`docs/archive/`):
 - Historical session summaries and superseded documents
+
+## CFO Dashboard (Financial) — `/admin/cfo`
+
+Internal staff-only financial dashboard. Combines **Sequence** (banking — pods, transfers, rules) + **QuickBooks Online** (accrual — Balance Sheet, P&L, AR aging). Pages: `/admin/cfo` (dashboard), `/admin/cfo/settings` (QB connect, debts, scheduled outflows, QB/AR snapshots, category overrides), `/admin/cfo/hiring` (loaded-cost hiring calculator). Built this session; all `src/lib/cfo/` + `src/components/cfo/` + `src/app/api/admin/cfo/*` + `/api/cron/cfo-rebuild`.
+
+**Access control (`src/lib/cfo/access.ts`):** a user sees it if EITHER (a) they hold the `view_cfo_dashboard` permission (in `permissions.ts`; SUPER_ADMIN by default; grant per-user in **/admin/staff** — note that editor's permission list is HARDCODED in `ContactsList.tsx`, not from `permissions.ts`), OR (b) they're in an Entra group listed in `CFO_DASHBOARD_ENTRA_GROUP_IDS` (live app-only Graph `checkMemberGroups` against the TCT `AZURE_AD` app — needs `GroupMember.Read.All` + `User.Read.All` + admin consent on THAT app). Fails closed. Nav link in AdminHeader fetches `/api/admin/cfo/access`.
+
+**Data model:** `build.ts` → `getTransfersDelta` (Sequence) + `loadQbAndAr` (live QB if connected, else stored snapshots) → `compute.ts` → caches a `CachedSnapshot` in `cfo_settings` key `dashboard`. UI reads the cached snapshot; cron `/api/cron/cfo-rebuild` (every 6h) + the Refresh button rebuild it.
+
+**Gotchas (CFO):**
+- **`ENCRYPTION_MASTER_KEY_V1` is REQUIRED for QB connect** — QB OAuth tokens are encrypted at rest (`src/lib/crypto.ts`). Must be a 32-byte base64 string (~44 chars), set in **Production** scope, and the app **redeployed** (env changes need a fresh deploy). Settings page shows a live `encryptionKeyState` (ok/missing/invalid) so it's self-diagnosing. A wrong value (e.g. an `sk_live_…` paste) → "invalid".
+- **maxDuration=300** on `/api/admin/cfo/data`, `/rebuild`, `/api/cron/cfo-rebuild` — the first full 24-month Sequence pull under the rate gate exceeds 60s. Requires Vercel Pro.
+- **Sequence rate limit is 100 req/min** — `sequence-client.ts` has a process-wide ~700ms gate, concurrency 2, backoff to 30s. `build.ts` keeps a `transfers_cache` (cfo_settings) and fetches only ~30-day deltas after the first full pull. `getAllTransfers` is resilient (one bad account logs + returns empty; delta keeps its cached history) — do NOT make it fail-fast (it blanks the whole dashboard).
+- **The income-vs-outflow chart is CASH MOVEMENT, not P&L.** "Outflow" = all MONEY_OUT (the Amex *bill* bundles a month of card spend, plus payroll, debt principal, owner draws). Real accrual profit = the QuickBooks panel. Don't conflate. Vendor-level expense detail is NOT in Sequence (most spend is on Amex, paid as one lump) — it lives in QuickBooks.
+- **Demo mode** (`demo.ts`, via existing AdminHeader toggle): masks every name through `useDemoMode().company()` and scales every cents value by ONE consistent factor (`num(_, 'cfo-scale')`) so ratios/runway/payoff math stay correct.
+- **Scheduled outflows** (Settings): user-entered known upcoming payments override the baseline in the forecast + "covers payroll" card. **Live QB overrides stored QB/AR snapshots** once connected.
+- Reporting tables pattern: `cfo_settings` is raw-pg/self-healing (`ensureCfoTables`), NOT Prisma — like reporting/SOC.
 
 ## Temporary Development Shortcuts
 

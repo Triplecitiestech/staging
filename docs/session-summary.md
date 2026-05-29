@@ -4,6 +4,10 @@
 > **Branch**: `claude/review-workflow-architecture-DdCgz` (auto-merged to `main`).
 > **Detailed handoff**: see `docs/SESSION_HANDOFF.md` first — this file is the quick state-of-the-world reference.
 
+## CFO Dashboard (2026-05-29) — see the "CFO Dashboard" section in `CLAUDE.md` + `docs/CFO_HANDOFF.md`
+
+New financial dashboard at `/admin/cfo` (staff finance only). Ported the standalone Sequence+QuickBooks CFO tool into the app: `src/lib/cfo/*` (sequence-client, qb-auth/client/parse, compute, build, store, access, demo, hiring), `src/components/cfo/*`, `src/app/api/admin/cfo/*`, `/api/cron/cfo-rebuild`. Shipped: access gate (`view_cfo_dashboard` permission OR Entra finance group), live Sequence analytics, QuickBooks OAuth (encrypted tokens), settings (debts/categories/scheduled-outflows/QB+AR snapshots), demo mode (anonymized + scaled), print-to-PDF, what-if AR→debt simulator, hiring cost calculator (US vs PH), Sequence rate-gate + delta sync, financial-summary KPI row, QB-accrual revenue. **Live in production; QuickBooks connected** (production realm). Next focus: spending insight (Amex / pod-account statement ingestion) for anomaly detection. Branch: `claude/add-project-access-control-U9Tde`.
+
 ## State
 
 All 8 workflow steps shipped + functional in production. Major operator-feedback iterations all complete. Three known follow-ups documented in the handoff and **not started yet** — the operator paused mid-Slice-A to conserve context.
