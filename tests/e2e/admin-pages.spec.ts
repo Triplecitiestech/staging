@@ -26,6 +26,8 @@ const ADMIN_PAGES = [
   '/admin/pto',
   '/admin/pto/queue',
   '/admin/settings/integrations/gusto',
+  '/admin/documents',
+  '/admin/documents/secure-boot-playbook',
 ]
 
 test.describe('Admin Pages — No Server Crashes', () => {
