@@ -495,12 +495,16 @@ export class SaasAlertsClient {
       if (params?.severity) must.push({ term: { 'alertStatus.keyword': params.severity } })
       if (params?.customerId) must.push({ term: { 'customerId.keyword': params.customerId } })
 
-      const body: Record<string, unknown> = {
+      // The External Partner API validates a request envelope: the ES-style
+      // search must be nested under a top-level `body` key. A 422 at path
+      // `body.body` ("'body' is required") confirms the bare {size,query} we
+      // used to send is rejected; the gateway proxies `body` to the events index.
+      const search: Record<string, unknown> = {
         size: params?.limit ?? 500,
         query: { bool: { must } },
       }
 
-      const data = await this.request<Record<string, unknown>>('/reports/events/query', 'POST', body)
+      const data = await this.request<Record<string, unknown>>('/reports/events/query', 'POST', { body: search })
       return { events: extractEvents(data), authMethod: 'api_key+idtoken' }
     }
 
