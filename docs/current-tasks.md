@@ -13,6 +13,17 @@ Shipped: RocketCyber client, cross-stack enrichment (RMM/EDR/DNSFilter/SaaS), sh
 - [ ] **[MED]** Confirm Autotask Extension Callout sends a usable ticket id/number (check first callout's `receivedKeys`).
 - [ ] **[LOW]** Known Benign admin UI; confirm Vercel env (`ROCKETCYBER_API_TOKEN`, `SOC_INGEST_SECRET`) + `dry_run=false`.
 
+## CFO Dashboard (2026-05-29) — shipped, live in production
+
+Full financial dashboard at `/admin/cfo`. See `CLAUDE.md` → "CFO Dashboard" section and `docs/CFO_HANDOFF.md` for everything. QuickBooks is connected (production). Done: access gate, Sequence analytics, QB OAuth (encrypted), settings, demo mode, print-PDF, AR→debt simulator, hiring calculator, rate-gate + delta sync, financial-summary KPIs.
+
+**Next focus — Spending insight / anomaly detection (NOT started):**
+- [ ] Get vendor-level spend visibility. Most spend is on **Amex (Platinum/Gold)** and only shows in Sequence as one lump "AMEX EPAYMENT" — the real detail is on the Amex statement / QuickBooks.
+- [ ] Investigate options: **(a)** Amex API / Plaid / card-feed API into the card transactions; **(b)** parse/scan uploaded statements (PDF/CSV) from SharePoint; **(c)** pull vendor/category expense detail from **QuickBooks** (live now — likely the best near-term source; QB P&L detail by account = the "Expenses by Vendor" report Rio sends).
+- [ ] Do the same for other spending pod accounts.
+- [ ] Goal: per-vendor/per-category spend over time → anomaly detection + better spending habits.
+- [ ] Possible UI: per-month outflow drill-down (click a chart month → top destinations that made it up) — offered but not built.
+
 ## Open — Resume here (compliance workflow stream)
 
 The operator's last instruction was **"do them all"** for these three slices. The previous session ran out of context partway through Slice A and paused.
