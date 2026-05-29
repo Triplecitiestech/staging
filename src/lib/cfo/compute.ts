@@ -8,6 +8,7 @@ import { categorize } from './categories'
 import type {
   Account, Transfer, TransfersByAccount, Rule, RuleLastExecution,
   CategoryMap, DebtsConfig, DebtInput, QbSnapshot, ArSnapshot, ScheduledOutflow,
+  QbSpendSeries, QbSpendAnomaly,
 } from './types'
 
 const DAY_MS = 86400000
@@ -1044,4 +1045,100 @@ export function nextPayroll(
     return { date: baseline.nextExpectedDate, amountCents: baseline.avgAmountCents, source: 'baseline' }
   }
   return null
+}
+
+// ─── QuickBooks spend anomalies (month-over-month, per category / vendor) ─────
+// Runs over a month-summarized QBO series (see parseSpendSeries). For each
+// category or vendor we compare the most recent complete month against the
+// mean of the prior complete months and flag three patterns:
+//   • spike   — latest is materially above baseline (ratio + absolute $ delta)
+//   • new     — little/no prior spend, material spend now (e.g. a new SaaS sub)
+//   • dropped — material recurring spend that stopped (vendor churn / one-off)
+// Thresholds are deliberately dollar-anchored so tiny line-items don't spam the
+// list; results are ranked by absolute dollar impact, not percentage.
+
+const SPEND_ANOMALY = {
+  minMonths: 4,                 // need enough history to form a baseline
+  materialFloorCents: 25_000,   // ignore rows under $250 (latest and baseline)
+  materialDeltaCents: 25_000,   // a spike must move at least $250
+  spikeRatio: 1.5,              // …and be ≥1.5× the baseline
+  zeroishCents: 5_000,          // ≤ $50 counts as effectively zero
+} as const
+
+export function detectSpendAnomalies(series: QbSpendSeries): QbSpendAnomaly[] {
+  const { months, rows, kind } = series
+  if (months.length < SPEND_ANOMALY.minMonths) return []
+  const lastIdx = months.length - 1
+  const monthKey = months[lastIdx].key
+  const monthLabel = months[lastIdx].label
+  const out: QbSpendAnomaly[] = []
+
+  for (const row of rows) {
+    const m = row.monthlyCents
+    if (m.length !== months.length) continue
+    const latest = m[lastIdx]
+    const baseline = mean(m.slice(0, lastIdx))
+    const baseRounded = Math.round(baseline)
+    if (Math.max(latest, baseline) < SPEND_ANOMALY.materialFloorCents) continue
+
+    const base = { kind, label: row.label, monthKey, monthLabel, latestCents: latest, baselineCents: baseRounded, monthly: m }
+
+    if (baseline <= SPEND_ANOMALY.zeroishCents && latest >= SPEND_ANOMALY.materialFloorCents) {
+      out.push({ ...base, type: 'new', deltaCents: latest - baseRounded, ratio: null })
+      continue
+    }
+    if (latest <= SPEND_ANOMALY.zeroishCents && baseline >= SPEND_ANOMALY.materialFloorCents) {
+      out.push({ ...base, type: 'dropped', deltaCents: latest - baseRounded, ratio: 0 })
+      continue
+    }
+    const delta = latest - baseline
+    const ratio = baseline > 0 ? latest / baseline : null
+    if (delta >= SPEND_ANOMALY.materialDeltaCents && ratio != null && ratio >= SPEND_ANOMALY.spikeRatio) {
+      out.push({ ...base, type: 'spike', deltaCents: Math.round(delta), ratio })
+    }
+  }
+
+  return out.sort((a, b) => Math.abs(b.deltaCents) - Math.abs(a.deltaCents))
+}
+
+// ─── Per-month outflow drill-down (Sequence cash) ────────────────────────────
+// The 12-month income/outflow chart shows cash movement in aggregate; this
+// breaks each month's MONEY_OUT into its top destinations so a spike on the
+// chart can be explained without leaving the dashboard.
+
+export interface OutflowMonth {
+  month: string
+  label: string
+  totalOutCents: number
+  top: { name: string; category: string; amountCents: number; pct: number }[]
+}
+
+export function monthlyOutflowDrilldown(allTransfers: Transfer[], categoryMap: CategoryMap, monthsBack = 12, topN = 8): OutflowMonth[] {
+  const now = new Date()
+  const months: string[] = []
+  for (let i = monthsBack - 1; i >= 0; i--) {
+    months.push(ymKey(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1))))
+  }
+  const byMonth = new Map<string, { total: number; byDest: Map<string, number> }>()
+  for (const m of months) byMonth.set(m, { total: 0, byDest: new Map() })
+
+  for (const t of allTransfers) {
+    if (t.status !== 'COMPLETE' || t.direction !== 'MONEY_OUT') continue
+    const bucket = byMonth.get(ymKey(t.createdAt))
+    if (!bucket) continue
+    const name = displayDestName(t)
+    bucket.total += t.amountInCents
+    bucket.byDest.set(name, (bucket.byDest.get(name) || 0) + t.amountInCents)
+  }
+
+  return months
+    .map((m) => {
+      const b = byMonth.get(m)!
+      const top = Array.from(b.byDest.entries())
+        .map(([name, amountCents]) => ({ name, category: categoryMap[name] || 'untagged', amountCents, pct: b.total > 0 ? amountCents / b.total : 0 }))
+        .sort((a, c) => c.amountCents - a.amountCents)
+        .slice(0, topN)
+      return { month: m, label: ymLabel(m), totalOutCents: b.total, top }
+    })
+    .reverse() // newest month first for display
 }

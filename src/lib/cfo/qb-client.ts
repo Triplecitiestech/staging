@@ -52,3 +52,25 @@ export function getProfitAndLoss(startDate: string, endDate?: string): Promise<Q
 export function getAgedReceivableDetail(asOf?: string): Promise<QbReport> {
   return getReport('AgedReceivableDetail', { report_date: asOf || ymd(new Date()) })
 }
+
+// ─── Month-summarized spend reports (vendor / category over time) ────────────
+// summarize_column_by=Month turns each report into a time series: one column
+// per month. ProfitAndLoss gives expense accounts (categories) × month;
+// VendorExpenses gives vendors × month (the "Expenses by Vendor" report).
+
+export function getProfitAndLossByMonth(startDate: string, endDate: string): Promise<QbReport> {
+  return getReport('ProfitAndLoss', {
+    start_date: startDate,
+    end_date: endDate,
+    accounting_method: 'Accrual',
+    summarize_column_by: 'Month',
+  })
+}
+
+export function getVendorExpensesByMonth(startDate: string, endDate: string): Promise<QbReport> {
+  return getReport('VendorExpenses', {
+    start_date: startDate,
+    end_date: endDate,
+    summarize_column_by: 'Month',
+  })
+}

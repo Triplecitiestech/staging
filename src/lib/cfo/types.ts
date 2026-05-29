@@ -156,3 +156,52 @@ export interface ArSnapshot {
   }>
   invoiceCount?: number
 }
+
+// ─── QuickBooks spend insight (vendor / category over time + anomalies) ──────
+// The Amex bill shows up in Sequence as one lump "AMEX EPAYMENT", but in
+// QuickBooks it's already split into real expense accounts and vendors. We pull
+// two month-summarized QBO reports — ProfitAndLoss (category × month) and
+// VendorExpenses (vendor × month, == the "Expenses by Vendor" report) — parse
+// them into these series, and run month-over-month anomaly detection on top.
+
+export interface QbSpendPoint {
+  key: string    // 'YYYY-MM'
+  label: string  // 'Apr 26'
+}
+
+export interface QbSpendRow {
+  label: string          // expense account/category name, or vendor name
+  monthlyCents: number[] // aligned 1:1 with QbSpendSeries.months
+  totalCents: number     // sum across the window
+}
+
+export interface QbSpendSeries {
+  kind: 'category' | 'vendor'
+  months: QbSpendPoint[]
+  rows: QbSpendRow[]     // sorted by totalCents desc
+}
+
+export type SpendAnomalyType = 'spike' | 'new' | 'dropped'
+
+export interface QbSpendAnomaly {
+  kind: 'category' | 'vendor'
+  type: SpendAnomalyType
+  label: string
+  monthKey: string
+  monthLabel: string
+  latestCents: number
+  baselineCents: number  // mean of the prior complete months
+  deltaCents: number     // latest − baseline (signed)
+  ratio: number | null   // latest / baseline (null when baseline ≈ 0)
+  monthly: number[]      // the row's full series, for the detail trail
+}
+
+export interface QbSpendInsights {
+  source: 'live'
+  asOfLabel: string            // last complete month, e.g. 'Apr 2026'
+  months: QbSpendPoint[]
+  totalMonthlyCents: number[]  // total expense per month (all categories), for the trend line
+  byCategory: QbSpendRow[]     // top categories by window total
+  byVendor: QbSpendRow[]       // top vendors by window total
+  anomalies: QbSpendAnomaly[]  // ranked by absolute dollar impact
+}

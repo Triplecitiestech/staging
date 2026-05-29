@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import type { CachedSnapshot } from '@/lib/cfo/build'
+import type { SpendAnomalyType } from '@/lib/cfo/types'
 import { useDemoMode } from '@/components/admin/DemoModeProvider'
 import { applyCfoDemo } from '@/lib/cfo/demo'
 import CfoSimulator from './CfoSimulator'
-import CfoAccordion, { type Tone, type AccordionRow } from './CfoAccordion'
+import CfoAccordion, { type Tone, type AccordionRow, type AccordionDetail } from './CfoAccordion'
 import CfoAreaChart from './CfoAreaChart'
 
 // ─── formatting ─────────────────────────────────────────────────────────────
@@ -82,6 +83,19 @@ function BarList({ rows, empty }: { rows: { label: string; amountCents: number; 
 
 const shortDate = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s)
+
+// Spend-anomaly visual treatment (forbidden-color safe: spike→red, new→rose, dropped→slate).
+const ANOM_META: Record<SpendAnomalyType, { label: string; tone: Tone }> = {
+  spike: { label: 'Spike', tone: 'red' },
+  new: { label: 'New', tone: 'rose' },
+  dropped: { label: 'Stopped', tone: 'slate' },
+}
+
+// Build "last N months" detail rows from a months[] + aligned monthlyCents[].
+function monthTrail(months: { key: string; label: string }[], monthly: number[], n = 6): AccordionDetail[] {
+  const start = Math.max(0, months.length - n)
+  return months.slice(start).map((mo, i) => ({ label: mo.label, value: usd(monthly[start + i] ?? 0) }))
+}
 
 // ─── main ─────────────────────────────────────────────────────────────────
 
@@ -163,6 +177,11 @@ export default function CfoDashboardClient() {
     outflow: Math.round(p.outflowCents / 100),
     net: Math.round(p.netCents / 100),
   }))
+
+  // QuickBooks spend insight (vendor/category over time + anomalies). Null when
+  // QB isn't connected or the spend reports couldn't be parsed.
+  const qs = d.qbSpend
+  const spendChartData = qs ? qs.months.map((mo, i) => ({ label: mo.label, spend: Math.round((qs.totalMonthlyCents[i] ?? 0) / 100) })) : []
 
   // Headline summary figures. Revenue = avg cash-in over the last 3 *complete*
   // months (excludes the current partial month). Monthly debt = required
@@ -370,6 +389,29 @@ export default function CfoDashboardClient() {
         />
       </div>
 
+      {/* Per-month outflow drill-down — explains spikes in the chart above */}
+      {d.outflowDrilldown.length > 0 && (
+        <div>
+          <SectionTitle>Monthly outflow drill-down</SectionTitle>
+          <p className="-mt-1 mb-3 text-xs text-slate-500">
+            Expand a month to see its largest cash outflows (Sequence). Use this to explain a spike in
+            the chart above. The Amex bill lands here as one lump — its line-item breakdown is in the
+            QuickBooks spend sections below.
+          </p>
+          <CfoAccordion
+            empty="No outflow history."
+            rows={d.outflowDrilldown.map((mo, i) => ({
+              id: `ofm-${i}`,
+              label: mo.label,
+              value: usd(mo.totalOutCents),
+              details: mo.top.length
+                ? mo.top.map((t) => ({ label: t.name, value: `${usd(t.amountCents)} · ${Math.round(t.pct * 100)}%` }))
+                : [{ label: '—', value: 'No outflows' }],
+            }))}
+          />
+        </div>
+      )}
+
       {/* Operations breakdown — category + destination */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div>
@@ -381,6 +423,95 @@ export default function CfoDashboardClient() {
           <BarList empty="No operations spend in window." rows={d.opsBreakdown.byDestination.map((c) => ({ label: c.name, amountCents: c.amountCents, pct: c.pct }))} />
         </div>
       </div>
+
+      {/* QuickBooks spend anomalies — the vendor/category detail behind the Amex lump */}
+      {qs && qs.anomalies.length > 0 && (
+        <div>
+          <SectionTitle>Spending anomalies — QuickBooks (month over month)</SectionTitle>
+          <p className="-mt-1 mb-3 text-xs text-slate-500">
+            Categories and vendors whose {qs.asOfLabel} spend spiked, newly appeared, or stopped versus
+            their prior-month baseline — ranked by dollar impact. This is the accrual detail QuickBooks
+            splits out of the single Amex payment.
+          </p>
+          <CfoAccordion
+            empty="No spend anomalies."
+            rows={qs.anomalies.map((a, i) => {
+              const meta = ANOM_META[a.type]
+              const changeStr = `${a.deltaCents >= 0 ? '+' : ''}${usd(a.deltaCents)}${a.ratio ? ` · ${a.ratio.toFixed(1)}×` : ''}`
+              return {
+                id: `qbanom-${i}`,
+                badge: { label: meta.label, tone: meta.tone },
+                label: a.label,
+                sublabel: `${a.kind} · ${a.monthLabel}`,
+                value: usd(a.latestCents),
+                valueTone: a.type === 'dropped' ? 'slate' : 'rose',
+                dot: meta.tone,
+                details: [
+                  { label: 'This month', value: usd(a.latestCents) },
+                  { label: 'Baseline avg', value: usd(a.baselineCents) },
+                  { label: 'Change', value: changeStr, tone: a.deltaCents >= 0 ? 'rose' : 'emerald' as Tone },
+                  ...monthTrail(qs.months, a.monthly, 6),
+                ],
+              }
+            })}
+          />
+        </div>
+      )}
+
+      {/* QuickBooks spend by category (monthly) */}
+      {qs && qs.byCategory.length > 0 && (
+        <div>
+          <SectionTitle>Spend by category — QuickBooks ({qs.months.length}mo, as of {qs.asOfLabel})</SectionTitle>
+          <p className="-mt-1 mb-3 text-xs text-slate-500">
+            Accrual expense detail from QuickBooks — the real categories behind the Amex bill. Expand a
+            row for its month-by-month trail.
+          </p>
+          {spendChartData.length > 0 && (
+            <div className="mb-4">
+              <CfoAreaChart
+                title="Total monthly spend"
+                subtitle="QuickBooks expenses · accrual"
+                height={224}
+                data={spendChartData}
+                series={[{ dataKey: 'spend', name: 'Spend', color: '#f87171' }]}
+                formatValue={(v) => `$${Math.round(v).toLocaleString()}`}
+                formatAxis={(v) => `$${(v / 1000).toFixed(0)}k`}
+              />
+            </div>
+          )}
+          <CfoAccordion
+            empty="No category spend."
+            rows={qs.byCategory.map((r, i) => ({
+              id: `cat-${i}`,
+              rank: `#${i + 1}`,
+              label: cap(r.label),
+              value: usd(r.totalCents),
+              details: [{ label: 'Window total', value: usd(r.totalCents) }, ...monthTrail(qs.months, r.monthlyCents, 6)],
+            }))}
+          />
+        </div>
+      )}
+
+      {/* QuickBooks spend by vendor (monthly) — the automated "Expenses by Vendor" */}
+      {qs && qs.byVendor.length > 0 && (
+        <div>
+          <SectionTitle>Spend by vendor — QuickBooks ({qs.months.length}mo, as of {qs.asOfLabel})</SectionTitle>
+          <p className="-mt-1 mb-3 text-xs text-slate-500">
+            The &quot;Expenses by Vendor&quot; report, automated — where each dollar actually goes. Expand a
+            row for its month-by-month trail.
+          </p>
+          <CfoAccordion
+            empty="No vendor spend."
+            rows={qs.byVendor.map((r, i) => ({
+              id: `ven-${i}`,
+              rank: `#${i + 1}`,
+              label: r.label,
+              value: usd(r.totalCents),
+              details: [{ label: 'Window total', value: usd(r.totalCents) }, ...monthTrail(qs.months, r.monthlyCents, 6)],
+            }))}
+          />
+        </div>
+      )}
 
       {/* Recurring obligations */}
       <div>
@@ -492,7 +623,7 @@ export default function CfoDashboardClient() {
       {/* Per-pod anomalies */}
       {d.anomalies.length > 0 && (
         <div>
-          <SectionTitle>Spending anomalies (weekly spikes)</SectionTitle>
+          <SectionTitle>Spending anomalies — Sequence pods (weekly spikes)</SectionTitle>
           <CfoAccordion
             empty="No anomalies detected."
             rows={d.anomalies.slice(0, 12).map((a, i) => {

@@ -7,9 +7,11 @@
  * { label, amountCents, isSummary } entries and pick lines by label matching.
  */
 
-import type { QbBalanceSheet, QbProfitAndLoss, ArSnapshot } from './types'
+import type { QbBalanceSheet, QbProfitAndLoss, ArSnapshot, QbSpendSeries, QbSpendRow, QbSpendPoint } from './types'
 
 interface ColDataCell { value?: string | null }
+interface QbColMeta { Name?: string; Value?: string }
+interface QbColumn { ColType?: string; ColTitle?: string; MetaData?: QbColMeta[] }
 interface QbRow {
   ColData?: ColDataCell[]
   Header?: { ColData?: ColDataCell[] }
@@ -18,7 +20,7 @@ interface QbRow {
 }
 export interface QbReport {
   Header?: { EndPeriod?: string; ReportDate?: string; StartPeriod?: string }
-  Columns?: { Column?: { ColType?: string; ColTitle?: string }[] }
+  Columns?: { Column?: QbColumn[] }
   Rows?: { Row?: QbRow[] }
 }
 
@@ -186,4 +188,85 @@ export function parseAgedReceivableDetail(report: QbReport): ArSnapshot {
     byCustomer: sortedByCustomer,
     invoiceCount: invoices.length,
   }
+}
+
+// ─── Month-summarized spend series (category / vendor × month) ───────────────
+// A report run with summarize_column_by=Month has one Column per month (plus a
+// trailing Total). Each month Column carries MetaData StartDate/EndDate, which
+// we use to derive a stable 'YYYY-MM' key. Data rows then expose one ColData
+// cell per column. We walk the rows ourselves (rather than reuse
+// flattenReport) so we can track the top-level section — for ProfitAndLoss we
+// keep only the Expenses / COGS region; VendorExpenses is a flat vendor list.
+
+interface PeriodCol { index: number; point: QbSpendPoint }
+
+function detectPeriodColumns(report: QbReport): PeriodCol[] {
+  const cols = report?.Columns?.Column ?? []
+  const periods: PeriodCol[] = []
+  cols.forEach((c, index) => {
+    if (index === 0) return // first column is the row label
+    const title = (c.ColTitle || '').trim()
+    if (/^total$/i.test(title)) return // skip the trailing Total column
+    const startMeta = c.MetaData?.find((m) => /start/i.test(m.Name || ''))?.Value
+    const dateStr = startMeta || (title && !Number.isNaN(new Date(title).getTime()) ? title : null)
+    if (!dateStr) return
+    const d = new Date(dateStr)
+    if (Number.isNaN(d.getTime())) return
+    const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
+    const label = d.toLocaleString('en-US', { month: 'short', year: '2-digit', timeZone: 'UTC' })
+    periods.push({ index, point: { key, label } })
+  })
+  return periods
+}
+
+interface RawSeriesRow { label: string; root: string | null; depth: number; monthlyCents: number[]; totalCents: number }
+
+/**
+ * Parse a month-summarized QBO report into a QbSpendSeries.
+ *   kind 'category' → ProfitAndLoss: keep leaf rows in the Expenses / COGS region.
+ *   kind 'vendor'   → VendorExpenses: keep every vendor data row.
+ * Tolerant: if no monthly columns are present (e.g. the report didn't honor
+ * summarize_column_by), returns an empty series so callers degrade gracefully.
+ */
+export function parseSpendSeries(report: QbReport | null | undefined, kind: 'category' | 'vendor'): QbSpendSeries {
+  const periods = report ? detectPeriodColumns(report) : []
+  if (!report || periods.length === 0) return { kind, months: [], rows: [] }
+
+  const raw: RawSeriesRow[] = []
+  const walk = (rowArr: QbRow[], depth: number, root: string | null) => {
+    for (const row of rowArr) {
+      const headerLabel = row.Header?.ColData?.[0]?.value ?? undefined
+      const nextRoot = depth === 0 ? (headerLabel ?? root) : root
+      // Only line-item data rows (ColData) become series rows — never the
+      // section Summary rows (which would double-count their children).
+      if (Array.isArray(row.ColData)) {
+        const label = (row.ColData[0]?.value ?? '').trim()
+        if (label && !/^total\b/i.test(label)) {
+          const monthlyCents = periods.map((p) => toCents(row.ColData![p.index]?.value) ?? 0)
+          const totalCents = monthlyCents.reduce((s, x) => s + x, 0)
+          raw.push({ label, root: nextRoot, depth, monthlyCents, totalCents })
+        }
+      }
+      if (row.Rows?.Row) walk(row.Rows.Row, depth + 1, nextRoot)
+    }
+  }
+  walk(report.Rows?.Row ?? [], 0, null)
+
+  let rows: RawSeriesRow[]
+  if (kind === 'category') {
+    const isExpenseRoot = (r: RawSeriesRow) => /expense|cost of goods|cogs/i.test(r.root || '')
+    rows = raw.filter(isExpenseRoot)
+    // Fallback if the P&L layout didn't surface an Expenses header: drop the
+    // income/revenue region and keep the rest.
+    if (rows.length === 0) rows = raw.filter((r) => !/income|revenue/i.test(r.root || ''))
+  } else {
+    rows = raw
+  }
+
+  const out: QbSpendRow[] = rows
+    .filter((r) => r.totalCents !== 0)
+    .map((r) => ({ label: r.label, monthlyCents: r.monthlyCents, totalCents: r.totalCents }))
+    .sort((a, b) => b.totalCents - a.totalCents)
+
+  return { kind, months: periods.map((p) => p.point), rows: out }
 }

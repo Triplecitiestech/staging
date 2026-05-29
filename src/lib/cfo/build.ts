@@ -17,15 +17,15 @@ import {
   monthlyPL12, operationsBreakdown, recurringObligations, perPodAnomalies,
   yoyByDestination, rulesHealth, ownerPayView, recentActivityByDestination,
   monthCoverageAndPL, analyzeDebts, analyzeAr, generateActions, incomeDistribution,
-  nextPayroll,
+  nextPayroll, detectSpendAnomalies, monthlyOutflowDrilldown,
 } from './compute'
 import { summarizeRoles } from './roles'
 import { buildCategoryMap } from './categories'
 import { getCategoryOverrides, getDebts, getQbSnapshot, getArSnapshot, setSetting, getSetting, getTransfersCache, saveTransfersCache, getScheduledOutflows } from './store'
 import { isConnected as qbConnected } from './qb-auth'
-import { getBalanceSheet, getProfitAndLoss, getAgedReceivableDetail } from './qb-client'
-import { parseBalanceSheet, parseProfitAndLoss, parseAgedReceivableDetail } from './qb-parse'
-import type { QbSnapshot, ArSnapshot, Transfer, TransfersByAccount, Account } from './types'
+import { getBalanceSheet, getProfitAndLoss, getAgedReceivableDetail, getProfitAndLossByMonth, getVendorExpensesByMonth } from './qb-client'
+import { parseBalanceSheet, parseProfitAndLoss, parseAgedReceivableDetail, parseSpendSeries } from './qb-parse'
+import type { QbSnapshot, ArSnapshot, Transfer, TransfersByAccount, Account, QbSpendInsights } from './types'
 
 const DAY = 86_400_000
 const FULL_LOOKBACK_DAYS = 730   // 24 months — the analytics window
@@ -122,6 +122,66 @@ async function loadQbAndAr(log: (msg: string) => void): Promise<{ qb: QbSnapshot
   return { qb: enrichPl(storedQb), arSnapshot: storedAr, qbSource: storedQb ? 'snapshot' : 'none' }
 }
 
+// Live-only QuickBooks spend insight: vendor / category spend over complete
+// months + month-over-month anomaly flags. Independent of loadQbAndAr so a
+// failure here never blanks the core BS / P&L / AR panels. Window is the last
+// 12 *complete* calendar months (the current partial month is excluded so a
+// half-finished month doesn't read as a spending collapse).
+async function loadQbSpendInsights(isLive: boolean, log: (msg: string) => void): Promise<QbSpendInsights | null> {
+  if (!isLive) return null
+  try {
+    const now = new Date()
+    const y = now.getUTCFullYear()
+    const mo = now.getUTCMonth()
+    const startDate = new Date(Date.UTC(y, mo - 12, 1)).toISOString().slice(0, 10)
+    const endDate = new Date(Date.UTC(y, mo, 0)).toISOString().slice(0, 10) // last day of the previous month
+    log(`Pulling QB spend reports (P&L + VendorExpenses by month, ${startDate}…${endDate})`)
+
+    const [plRaw, veRaw] = await Promise.all([
+      getProfitAndLossByMonth(startDate, endDate),
+      getVendorExpensesByMonth(startDate, endDate).catch((e) => {
+        log(`VendorExpenses fetch failed (${e instanceof Error ? e.message : String(e)}) — categories only`)
+        return null
+      }),
+    ])
+
+    const catSeries = parseSpendSeries(plRaw, 'category')
+    const venSeries = parseSpendSeries(veRaw, 'vendor')
+    const months = catSeries.months.length ? catSeries.months : venSeries.months
+    if (!months.length) {
+      log('QB spend: no monthly columns parsed — skipping spend insight')
+      return null
+    }
+
+    const anomalies = [...detectSpendAnomalies(catSeries), ...detectSpendAnomalies(venSeries)]
+      .sort((a, b) => Math.abs(b.deltaCents) - Math.abs(a.deltaCents))
+      .slice(0, 20)
+
+    // Total monthly spend from the full (unsliced) category set, for the trend line.
+    const totalMonthlyCents: number[] = []
+    for (let i = 0; i < months.length; i++) {
+      totalMonthlyCents.push(catSeries.rows.reduce((s, r) => s + (r.monthlyCents[i] ?? 0), 0))
+    }
+    const lastKey = months[months.length - 1].key
+    const [ly, lm] = lastKey.split('-')
+    const asOfLabel = new Date(Date.UTC(+ly, +lm - 1, 1)).toLocaleString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+
+    log(`QB spend: ${catSeries.rows.length} categories, ${venSeries.rows.length} vendors, ${anomalies.length} anomalies (as of ${asOfLabel})`)
+    return {
+      source: 'live',
+      asOfLabel,
+      months,
+      totalMonthlyCents,
+      byCategory: catSeries.rows.slice(0, 20),
+      byVendor: venSeries.rows.slice(0, 20),
+      anomalies,
+    }
+  } catch (e) {
+    log(`QB spend insight failed (${e instanceof Error ? e.message : String(e)}) — skipping`)
+    return null
+  }
+}
+
 export interface DashboardData {
   refreshedAt: string
   meta: {
@@ -156,6 +216,8 @@ export interface DashboardData {
   debts: ReturnType<typeof analyzeDebts>
   ar: ReturnType<typeof analyzeAr>
   qb: QbSnapshot | null
+  qbSpend: QbSpendInsights | null
+  outflowDrilldown: ReturnType<typeof monthlyOutflowDrilldown>
   nextPayroll: ReturnType<typeof nextPayroll>
   actions: ReturnType<typeof generateActions>
 }
@@ -203,6 +265,7 @@ export async function buildDashboard(log: (msg: string) => void = () => {}): Pro
   const ownerPayTransfers = roles.ownerPay ? transfersFor(roles.ownerPay.id, transfersByAccount) : []
 
   const { qb, arSnapshot, qbSource } = await loadQbAndAr(log)
+  const qbSpend = await loadQbSpendInsights(qbSource === 'live', log)
   const debtsConfig = await getDebts()
   const scheduledCfg = await getScheduledOutflows()
   const scheduled = scheduledCfg?.items ?? []
@@ -247,6 +310,8 @@ export async function buildDashboard(log: (msg: string) => void = () => {}): Pro
     debts,
     ar,
     qb,
+    qbSpend,
+    outflowDrilldown: monthlyOutflowDrilldown(allTransfers, cats.map, 12),
     actions: generateActions({ qb, debts, ar, empowerLiveBalanceCents }),
   }
 

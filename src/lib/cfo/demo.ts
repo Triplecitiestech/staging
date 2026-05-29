@@ -220,6 +220,30 @@ export function applyCfoDemo(data: DashboardData, demo: DemoHelpers): DashboardD
       : data.qb.balanceSheet,
   }
 
+  // ─── QuickBooks spend insight (scale cents; mask vendor names, keep account
+  // category names — same policy as opsBreakdown.byCategory) ───────────────
+  const scaleArr = (arr: number[]): number[] => arr.map((v) => scaleReq(demo, v))
+  const qbSpend = data.qbSpend && {
+    ...data.qbSpend,
+    totalMonthlyCents: scaleArr(data.qbSpend.totalMonthlyCents),
+    byCategory: data.qbSpend.byCategory.map((r) => ({ ...r, monthlyCents: scaleArr(r.monthlyCents), totalCents: scaleReq(demo, r.totalCents) })),
+    byVendor: data.qbSpend.byVendor.map((r) => ({ ...r, label: maskReq(demo, r.label), monthlyCents: scaleArr(r.monthlyCents), totalCents: scaleReq(demo, r.totalCents) })),
+    anomalies: data.qbSpend.anomalies.map((a) => ({
+      ...a,
+      label: a.kind === 'vendor' ? maskReq(demo, a.label) : a.label,
+      latestCents: scaleReq(demo, a.latestCents),
+      baselineCents: scaleReq(demo, a.baselineCents),
+      deltaCents: scaleReq(demo, a.deltaCents),
+      monthly: scaleArr(a.monthly),
+    })),
+  }
+
+  const outflowDrilldown = data.outflowDrilldown.map((mo) => ({
+    ...mo,
+    totalOutCents: scaleReq(demo, mo.totalOutCents),
+    top: mo.top.map((t) => ({ ...t, name: maskReq(demo, t.name), amountCents: scaleReq(demo, t.amountCents) })),
+  }))
+
   // Regenerate actions from the masked data so action text references the
   // anonymized names + scaled amounts.
   const actions = generateActions({
@@ -256,6 +280,8 @@ export function applyCfoDemo(data: DashboardData, demo: DemoHelpers): DashboardD
     debts,
     ar,
     qb,
+    qbSpend,
+    outflowDrilldown,
     nextPayroll: nextPayrollMasked,
     actions,
   }
