@@ -29,9 +29,10 @@ export async function GET(request: NextRequest) {
 
   if (!code || !realmId) return done('error')
   if (!state || !cookieState || state !== cookieState) return done('csrf')
-  // Tokens are encrypted at rest — if the key is missing the save would throw
-  // and silently bounce the user back unconnected. Surface it explicitly.
-  if (!isEncryptionKeyConfigured()) return done('encryption_key')
+  // Tokens are encrypted at rest — if the key is missing/invalid the save would
+  // throw and silently bounce the user back unconnected. Distinguish the two.
+  if (!process.env.ENCRYPTION_MASTER_KEY_V1) return done('encryption_key')
+  if (!isEncryptionKeyConfigured()) return done('encryption_key_invalid')
 
   try {
     await exchangeCode(code, realmId)
