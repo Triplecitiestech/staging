@@ -548,6 +548,7 @@ Internal staff-only financial dashboard. Combines **Sequence** (banking — pods
 - **Demo mode** (`demo.ts`, via existing AdminHeader toggle): masks every name through `useDemoMode().company()` and scales every cents value by ONE consistent factor (`num(_, 'cfo-scale')`) so ratios/runway/payoff math stay correct.
 - **Scheduled outflows** (Settings): user-entered known upcoming payments override the baseline in the forecast + "covers payroll" card. **Live QB overrides stored QB/AR snapshots** once connected.
 - Reporting tables pattern: `cfo_settings` is raw-pg/self-healing (`ensureCfoTables`), NOT Prisma — like reporting/SOC.
+- **Spend insight comes from QuickBooks, not Sequence**: vendor/category spend-over-time + month-over-month anomalies (`d.qbSpend`) are built from month-summarized QBO reports (`getProfitAndLossByMonth` = category×month, `getVendorExpensesByMonth` = vendor×month) parsed by `parseSpendSeries` and flagged by `detectSpendAnomalies`. This is the line-item detail QB splits out of the single Amex payment — the Sequence cash chart only sees the lump. Live-only (null when QB disconnected) over the last 12 **complete** months. **If the vendor section/anomalies are missing, `VendorExpenses` likely didn't honor `summarize_column_by=Month`** (returns a single Total col → no months parsed → graceful skip); fall back to per-month `ProfitAndLossDetail`/`TransactionListByVendor`. Don't confuse with `perPodAnomalies` (Sequence pod, weekly).
 
 ## Temporary Development Shortcuts
 

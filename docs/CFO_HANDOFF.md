@@ -64,12 +64,30 @@ A staff user gets in if EITHER:
   Sequence cash-in avg.
 - Demo mode masks names (`company()`) + scales all cents by one factor (`num(_,'cfo-scale')`).
 
-## NEXT FOCUS — Spending insight / anomaly detection (not started)
-Most spend is on **Amex**, invisible at vendor level in Sequence (one lump "AMEX EPAYMENT"). To detect
-spending anomalies / improve habits we need vendor-level detail. Options to evaluate:
-- **(c) QuickBooks (best near-term, already connected)** — pull P&L detail by account / a vendor-expense
-  report. This reproduces the "Expenses by Vendor" report Rio sends, automatically. Likely start here.
-- **(a) Card feed** — Amex API / Plaid / a transactions feed into the actual card line items.
-- **(b) Statement ingestion** — parse/scan uploaded Amex + pod-account statements (PDF/CSV) from SharePoint.
-- Same for other spending pod accounts. Goal: per-vendor/per-category spend over time → anomalies.
-- Also offered but not built: a per-month outflow drill-down (click a chart month → its top destinations).
+## Spending insight / anomaly detection — BUILT (QuickBooks)
+Most spend rides on **Amex** and is invisible at vendor level in Sequence (one lump "AMEX EPAYMENT"),
+but QuickBooks already splits it into real expense accounts + vendors. We went with **option (c)
+QuickBooks** (already connected; reconciled; reproduces Rio's "Expenses by Vendor" automatically). Card
+feed (a) / statement ingestion (b) were deferred — only worth it for sub-monthly latency.
+
+**What shipped:**
+- Two month-summarized QBO reports pulled live during the build (only when `qbSource==='live'`):
+  - `getProfitAndLossByMonth` → `ProfitAndLoss?summarize_column_by=Month&accounting_method=Accrual` → **category × month** (the accounts behind the Amex lump).
+  - `getVendorExpensesByMonth` → `VendorExpenses?summarize_column_by=Month` → **vendor × month** (Rio's report).
+- `parseSpendSeries(report, kind)` in `qb-parse.ts` — tolerant time-series parser. Reads `Columns[].MetaData` StartDate to key each month ('YYYY-MM'); walks rows tracking the **top-level section** so `category` keeps only the Expenses/COGS region (leaf rows, never section Summaries → no double-count), `vendor` keeps every vendor row. Returns `{kind, months, rows}`.
+- `detectSpendAnomalies(series)` in `compute.ts` — month-over-month, latest complete month vs. mean of prior months. Flags **spike** (≥1.5× baseline AND ≥$250 delta), **new** (baseline ≤$50, latest ≥$250), **dropped** (baseline ≥$250, latest ≤$50). Ranked by absolute $ impact. Thresholds are the `SPEND_ANOMALY` consts.
+- `monthlyOutflowDrilldown(allTransfers, categoryMap)` in `compute.ts` — per-month top Sequence MONEY_OUT destinations (the proposed chart drill-down; rendered as an accordion under the cash chart, newest month first — no fragile chart-click).
+- `build.ts` → `loadQbSpendInsights()` assembles `DashboardData.qbSpend: QbSpendInsights | null` (months, totalMonthlyCents, byCategory[20], byVendor[20], anomalies[20]) + `DashboardData.outflowDrilldown`. Window = **last 12 *complete* calendar months** (current partial month excluded so it doesn't read as a spending collapse).
+- UI (`CfoDashboardClient.tsx`): "Spending anomalies — QuickBooks (month over month)", "Spend by category — QuickBooks" (total-spend area chart + per-row monthly trail), "Spend by vendor — QuickBooks", and "Monthly outflow drill-down". Existing Sequence anomaly section relabeled "…Sequence pods (weekly spikes)".
+- `demo.ts` masks vendor names + scales all cents for the new shapes (category labels left as-is, matching opsBreakdown policy).
+
+**Caveats / still open:**
+- **VendorExpenses + `summarize_column_by=Month`**: if this QBO report doesn't honor month-summarization it returns a single Total column → the parser yields no months → the **vendor section + vendor anomalies silently disappear** (categories still work from P&L). Verify on the live preview (Refresh → check the vendor section renders with a month trail). If empty, switch the vendor source to per-month `ProfitAndLossDetail` grouped by vendor, or `TransactionListByVendor`.
+- No snapshot fallback for `qbSpend` (it's live-only; null when QB disconnected or a fetch fails). Could persist a `qb_spend_snapshot` like `qb_snapshot` for resilience.
+- Anomalies are **not** wired into the top "Recommended actions" strip (kept out to avoid renumbering churn + demo coupling). Easy add later via `generateActions`.
+- Anomaly thresholds are hardcoded consts — could move to Settings if Rio wants to tune sensitivity.
+- v1 Reports API (minorversion 75) is being superseded by a v2 (Intuit, Mar 2026); month-summarization over ~12 cols is well within v2 limits, but watch for migration.
+
+## Still open (other)
+- **Card feed (a) / SharePoint statements (b)** — only if sub-monthly anomaly latency is needed later.
+- Hiring calculator still needs Rio's burden-questionnaire answers to set real US/PH defaults.
