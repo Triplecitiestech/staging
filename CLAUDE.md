@@ -51,6 +51,9 @@ If `npm run build` fails, read the error, fix the code, rebuild. If a push fails
 ### 6. Keep CLAUDE.md up to date.
 When the user corrects you or you learn a new project convention, update this file so future sessions don't repeat the mistake. Add it under the appropriate section or add a new Gotcha.
 
+### 7. When you hand a task back to the user, be explicit and assume nothing.
+If you need the user to do something, state exactly **WHAT** to do, in **WHAT ORDER**, and in **WHICH SYSTEM** (the specific UI page + URL, API endpoint, file path, or tool). Do not assume the user shares your context, remembers a prior step, or will infer the missing pieces. Number multi-step instructions. Give exact URLs, page/button/field names, and example values/payloads. This applies to every request for user action — verification steps, operator tasks (e.g. Compliance → Connect Tools), external-data requests (e.g. "paste the Swagger"), credentials, and confirmations. Vague hand-offs are not acceptable.
+
 ---
 
 ## Duplicate Prevention Rules
