@@ -38,6 +38,7 @@ This document maps every major subsystem to its primary source files. Use it to 
 | Reporting | `reporting/` | Analytics, health scores, business reviews, pipeline status |
 | Blog CMS | `blog/` | Post management, AI generation, approval workflow |
 | Marketing | `marketing/` | Campaigns, social setup, audiences |
+| **Documents** | `documents/` | Branded document hub + Secure Boot 2023 playbook (`documents/secure-boot-playbook/`); shared client islands in `components/admin/documents/` (CopyButton, Countdown, PhaseNav) |
 | **Portal Preview** | `preview/[slug]/page.tsx` | Admin preview of customer portal (server component, uses `PreviewBanner` + `OnboardingPortal`) |
 | Autotask Logs | `autotask-logs/page.tsx` | Sync history and error log |
 | Pipeline Status | `reporting/status/page.tsx` | Manual pipeline job triggers |

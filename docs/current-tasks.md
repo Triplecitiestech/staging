@@ -4,6 +4,14 @@
 > **Branch**: `claude/review-workflow-architecture-DdCgz` → auto-merged to `main`.
 > **Detailed context**: `docs/SESSION_HANDOFF.md`.
 
+## Documents Hub (2026-05-30) — shipped, live in production
+
+Branded internal Documents feature at `/admin/documents` + the Secure Boot 2023 remediation playbook at `/admin/documents/secure-boot-playbook`. Shared client islands (CopyButton / Countdown / PhaseNav), AdminHeader link, e2e smoke coverage (both routes in `ADMIN_PAGES`). Auth-gated; TECHNICIAN can view. Branch `claude/fervent-pasteur-TLwSp` (auto-merged to `main`).
+
+**Possible follow-ups (not started):**
+- [ ] Build out a placeholder doc type — the hub has three "Coming soon" cards: Quarterly Business Review, branded Marketing content, Social dump.
+- [ ] Broader forbidden-orange sweep: the services gradients + ticket priority badge are fixed, but `#f97316`-family orange still appears in reporting **charts** (`PriorityBreakdownChart`, `HealthDistribution`, `MonitoringDashboardClient`) and in customer **email/PDF** templates. Decide which are in-scope for the dark-site no-orange rule vs. light-background documents (the e2e check only covers rendered page HTML).
+
 ## SOC Cross-Stack Redesign (2026-05-28) — see `docs/SOC_CROSSSTACK_HANDOFF.md`
 
 Shipped: RocketCyber client, cross-stack enrichment (RMM/EDR/DNSFilter/SaaS), shared `CrossStackAssessment` UI, real-time `/api/soc/ingest` webhook (Autotask Extension Callout wired by operator), `soc_known_benign` table. Open:
