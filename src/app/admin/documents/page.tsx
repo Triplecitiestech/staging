@@ -63,7 +63,8 @@ const documents: DocCard[] = [
     title: 'Social Content Dump',
     description:
       'Take raw social copy from the marketing company and format it into TCT-branded posts, captions, and campaign summaries ready for review or publishing.',
-    chips: [{ label: 'Coming soon', tone: 'muted' }, { label: 'Social' }],
+    href: '/admin/documents/social',
+    chips: [{ label: 'Live', tone: 'live' }, { label: 'Editable' }],
   },
 ]
 

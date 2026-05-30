@@ -30,6 +30,8 @@ const ADMIN_PAGES = [
   '/admin/documents/secure-boot-playbook',
   '/admin/documents/marketing-content',
   '/admin/documents/marketing-content/new',
+  '/admin/documents/social',
+  '/admin/documents/social/new',
 ]
 
 test.describe('Admin Pages — No Server Crashes', () => {
