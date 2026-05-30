@@ -3,7 +3,7 @@ import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import AdminHeader from '@/components/admin/AdminHeader'
 import AdminShell from '@/components/admin/AdminShell'
-import { ArrowUpRight, ShieldCheck, FileBarChart, Megaphone, Share2, FileText } from 'lucide-react'
+import { ArrowUpRight, ShieldCheck, FileBarChart, Megaphone, Share2, FileText, Sparkles } from 'lucide-react'
 
 export const dynamic = 'force-dynamic'
 
@@ -109,10 +109,16 @@ export default async function DocumentsHubPage() {
           <h1 className="mb-5 text-4xl font-black leading-[0.95] tracking-tight text-white sm:text-5xl lg:text-6xl">
             Branded <span className="text-cyan-400">Document</span> Hub
           </h1>
-          <p className="mb-10 max-w-2xl text-lg font-medium leading-relaxed text-white/90">
+          <p className="mb-7 max-w-2xl text-lg font-medium leading-relaxed text-white/90">
             Every report, playbook, and content piece — consistently branded in the TCT design
             system. Drop in a document and the branding applies automatically.
           </p>
+          <Link
+            href="/admin/documents/import"
+            className="mb-10 inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-cyan-400 to-cyan-600 px-5 py-2.5 text-sm font-black uppercase tracking-wide text-[#04222a] shadow-lg shadow-cyan-500/20 transition-transform hover:-translate-y-0.5"
+          >
+            <Sparkles size={16} /> Import &amp; rebrand a Kaseya campaign
+          </Link>
           <div className="flex flex-wrap items-center gap-7">
             <div>
               <div className="text-3xl font-black leading-none text-white">{liveCount}</div>
