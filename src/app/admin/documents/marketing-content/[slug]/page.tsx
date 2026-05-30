@@ -2,11 +2,14 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { auth } from '@/auth'
 import { redirect, notFound } from 'next/navigation'
-import { ArrowLeft, Pencil } from 'lucide-react'
+import { ArrowLeft, Pencil, ExternalLink } from 'lucide-react'
 import BrandedDoc from '@/components/admin/documents/BrandedDoc'
+import CopyButton from '@/components/admin/documents/CopyButton'
 import { getDocBySlug } from '@/lib/documents/store'
 
 export const dynamic = 'force-dynamic'
+
+const BASE = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.triplecitiestech.com'
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
   try {
@@ -46,10 +49,22 @@ export default async function MarketingDocPage({ params }: { params: Promise<{ s
             >
               <ArrowLeft size={13} /> Marketing
             </Link>
-            {doc.status === 'draft' && (
+            {doc.status === 'draft' ? (
               <span className="rounded-full border border-white/10 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-slate-500">
                 Draft
               </span>
+            ) : (
+              <>
+                <CopyButton text={`${BASE}/content/${doc.slug}`} label="Copy public link" variant="dark" />
+                <a
+                  href={`/content/${doc.slug}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hidden items-center gap-1.5 rounded-md border border-white/10 px-2.5 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400 transition-all hover:border-cyan-400/30 hover:text-cyan-300 sm:inline-flex"
+                >
+                  <ExternalLink size={13} /> Public
+                </a>
+              </>
             )}
             <Link
               href={`/admin/documents/marketing-content/${doc.slug}/edit`}

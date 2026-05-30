@@ -2,11 +2,11 @@ import Link from 'next/link'
 import ReactMarkdown from 'react-markdown'
 
 /**
- * Shared branded renderer for a Marketing-content document. Used by both the
- * read page (/admin/documents/marketing-content/[slug]) and the editor's live
- * preview, so what an author sees while typing is exactly what publishes.
+ * Shared branded renderer for a Marketing-content document. Used by the admin
+ * read page, the public content page, and the editor's live preview — so what
+ * an author sees while typing is exactly what publishes.
  *
- * No 'use client' — works in both the server render page and the client editor.
+ * No 'use client' — works in both server render pages and the client editor.
  * Renders the hero + Markdown body + CTA only (page chrome lives in the page).
  */
 
@@ -77,13 +77,20 @@ function CtaButton({ href, label }: { href: string; label: string }) {
     )
   }
   return (
-    <Link href={href || '/admin/documents'} className={cls}>
+    <Link href={href || '/contact'} className={cls}>
       {label}
     </Link>
   )
 }
 
-export default function BrandedDoc({ doc }: { doc: BrandedDocView }) {
+export default function BrandedDoc({
+  doc,
+  topInset = false,
+}: {
+  doc: BrandedDocView
+  /** Add extra hero top padding to clear a fixed site header (public pages). */
+  topInset?: boolean
+}) {
   const meta = doc.meta?.filter((m) => m.k || m.v) ?? []
   const cta = doc.cta
   return (
@@ -95,7 +102,11 @@ export default function BrandedDoc({ doc }: { doc: BrandedDocView }) {
           style={{ backgroundImage: "url('/herobg.webp')" }}
         />
         <div className="absolute inset-0 bg-gradient-to-b from-black/55 via-black/70 to-black" />
-        <div className="relative mx-auto max-w-4xl px-4 py-16 sm:px-6 lg:px-8">
+        <div
+          className={`relative mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 ${
+            topInset ? 'pb-16 pt-28 sm:pt-32' : 'py-16'
+          }`}
+        >
           {doc.eyebrow && (
             <div className="mb-4 inline-flex items-center gap-2 text-sm font-bold uppercase tracking-[0.16em] text-cyan-400">
               <span className="h-2 w-2 animate-pulse rounded-full bg-cyan-400" />
@@ -142,7 +153,7 @@ export default function BrandedDoc({ doc }: { doc: BrandedDocView }) {
             {cta.sub && (
               <p className="mx-auto mb-8 max-w-2xl text-lg leading-relaxed text-slate-400">{cta.sub}</p>
             )}
-            <CtaButton href={cta.primaryHref || '/admin/documents'} label={cta.primaryLabel || 'Back to Documents'} />
+            <CtaButton href={cta.primaryHref || '/contact'} label={cta.primaryLabel || 'Get in touch'} />
           </div>
         </section>
       )}
