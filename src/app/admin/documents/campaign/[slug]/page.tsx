@@ -3,7 +3,7 @@ import { auth } from '@/auth'
 import { redirect, notFound } from 'next/navigation'
 import AdminHeader from '@/components/admin/AdminHeader'
 import AdminShell from '@/components/admin/AdminShell'
-import { ArrowLeft, Pencil, ArrowUpRight, Mail, FileText, Globe, Share2, Plus } from 'lucide-react'
+import { ArrowLeft, Pencil, ArrowUpRight, Mail, FileText, Globe, Share2, Plus, Download } from 'lucide-react'
 import { getCampaignAssets, campaignTitle } from '@/lib/documents/store'
 
 export const dynamic = 'force-dynamic'
@@ -50,9 +50,18 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
             Imported from Kaseya and rebranded for TCT — {assets.length} asset{assets.length === 1 ? '' : 's'}. Each is a
             draft; review, tweak, and publish.
           </p>
-          <Link href="/admin/documents/import" className="inline-flex items-center gap-2 rounded-lg border border-white/15 px-4 py-2 text-sm font-bold text-slate-200 transition-all hover:border-cyan-400/30 hover:text-cyan-200">
-            <Plus size={15} /> Import another
-          </Link>
+          <div className="flex flex-wrap gap-3">
+            <a
+              href={`/api/admin/documents/campaign/${slug}/export`}
+              download={`${slug}-tct-branded.zip`}
+              className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-cyan-400 to-cyan-600 px-5 py-2.5 text-sm font-black uppercase tracking-wide text-[#04222a] shadow-lg shadow-cyan-500/20 transition-transform hover:-translate-y-0.5"
+            >
+              <Download size={16} /> Download branded zip
+            </a>
+            <Link href="/admin/documents/import" className="inline-flex items-center gap-2 rounded-lg border border-white/15 px-4 py-2 text-sm font-bold text-slate-200 transition-all hover:border-cyan-400/30 hover:text-cyan-200">
+              <Plus size={15} /> Import another
+            </Link>
+          </div>
         </div>
       </header>
 
