@@ -11,6 +11,7 @@
  */
 
 import { getPool } from '@/lib/db-pool'
+import { SOCIAL_PLATFORMS, type SocialDoc, type SocialDocInput, type SocialPost } from './social-types'
 
 const pool = getPool()
 
@@ -81,6 +82,10 @@ export async function ensureDocumentsTable(): Promise<void> {
       updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `)
+  // Self-healing: type-specific structured payload (e.g. social dump posts).
+  await pool.query(
+    `ALTER TABLE branded_documents ADD COLUMN IF NOT EXISTS data JSONB NOT NULL DEFAULT '{}'::jsonb`
+  )
   tableReady = true
 }
 
@@ -93,6 +98,7 @@ interface DocRow {
   body: string
   meta: unknown
   cta: unknown
+  data?: unknown
   status: string
   author_email: string | null
   created_at: Date | string
@@ -333,4 +339,162 @@ export function parseDocInput(
   const status: DocStatus = b.status === 'published' ? 'published' : 'draft'
 
   return { ok: true, value: { title, eyebrow, deck, body, meta, cta, status } }
+}
+
+// ─── Social Content Dumps (doc_type = 'social') ──────────────────────────────
+
+function rowToSocial(r: DocRow): SocialDoc {
+  const data = r.data && typeof r.data === 'object' ? (r.data as { posts?: unknown }) : {}
+  const posts: SocialPost[] = Array.isArray(data.posts)
+    ? (data.posts as unknown[]).map((p) => {
+        const o = (p ?? {}) as Record<string, unknown>
+        return {
+          platform: typeof o.platform === 'string' ? o.platform : 'general',
+          body: typeof o.body === 'string' ? o.body : '',
+          hashtags: typeof o.hashtags === 'string' ? o.hashtags : '',
+          note: typeof o.note === 'string' ? o.note : '',
+        }
+      })
+    : []
+  return {
+    id: r.id,
+    slug: r.slug,
+    title: r.title,
+    deck: r.deck,
+    posts,
+    status: r.status === 'published' ? 'published' : 'draft',
+    authorEmail: r.author_email,
+    createdAt: String(r.created_at),
+    updatedAt: String(r.updated_at),
+  }
+}
+
+export async function listSocialDocs(): Promise<SocialDoc[]> {
+  await ensureDocumentsTable()
+  const res = await pool.query<DocRow>(
+    `SELECT * FROM branded_documents WHERE doc_type = 'social' ORDER BY updated_at DESC`
+  )
+  return res.rows.map(rowToSocial)
+}
+
+export async function getSocialDocBySlug(slug: string): Promise<SocialDoc | null> {
+  await ensureDocumentsTable()
+  const res = await pool.query<DocRow>(
+    `SELECT * FROM branded_documents WHERE slug = $1 AND doc_type = 'social' LIMIT 1`,
+    [slug]
+  )
+  return res.rows.length ? rowToSocial(res.rows[0]) : null
+}
+
+export async function createSocialDoc(input: SocialDocInput, authorEmail: string | null): Promise<SocialDoc> {
+  await ensureDocumentsTable()
+  const slug = await uniqueSlug(input.title || 'social')
+  const res = await pool.query<DocRow>(
+    `INSERT INTO branded_documents (slug, doc_type, title, deck, status, author_email, data)
+     VALUES ($1, 'social', $2, $3, $4, $5, $6::jsonb)
+     RETURNING *`,
+    [
+      slug,
+      input.title,
+      input.deck,
+      input.status === 'published' ? 'published' : 'draft',
+      authorEmail,
+      JSON.stringify({ posts: input.posts ?? [] }),
+    ]
+  )
+  return rowToSocial(res.rows[0])
+}
+
+export async function updateSocialDoc(slug: string, input: SocialDocInput): Promise<SocialDoc | null> {
+  await ensureDocumentsTable()
+  const res = await pool.query<DocRow>(
+    `UPDATE branded_documents
+       SET title = $2, deck = $3, status = $4, data = $5::jsonb, updated_at = NOW()
+     WHERE slug = $1 AND doc_type = 'social'
+     RETURNING *`,
+    [
+      slug,
+      input.title,
+      input.deck,
+      input.status === 'published' ? 'published' : 'draft',
+      JSON.stringify({ posts: input.posts ?? [] }),
+    ]
+  )
+  return res.rows.length ? rowToSocial(res.rows[0]) : null
+}
+
+export async function deleteSocialDoc(slug: string): Promise<boolean> {
+  await ensureDocumentsTable()
+  const res = await pool.query(`DELETE FROM branded_documents WHERE slug = $1 AND doc_type = 'social'`, [slug])
+  return (res.rowCount ?? 0) > 0
+}
+
+/** Parse + validate a social-dump editor payload. Pure (no DB). */
+export function parseSocialInput(
+  raw: unknown
+): { ok: true; value: SocialDocInput } | { ok: false; error: string } {
+  if (!raw || typeof raw !== 'object') return { ok: false, error: 'Invalid request body.' }
+  const b = raw as Record<string, unknown>
+
+  const title = typeof b.title === 'string' ? b.title.trim() : ''
+  if (!title) return { ok: false, error: 'Title is required.' }
+  if (title.length > 300) return { ok: false, error: 'Title is too long (max 300 characters).' }
+
+  const deck = typeof b.deck === 'string' ? b.deck.trim().slice(0, 2000) : ''
+
+  const validKeys = new Set(SOCIAL_PLATFORMS.map((p) => p.key))
+  const postsRaw = Array.isArray(b.posts) ? b.posts : []
+  const posts: SocialPost[] = postsRaw
+    .slice(0, 100)
+    .map((p) => {
+      const o = (p ?? {}) as Record<string, unknown>
+      const platform = typeof o.platform === 'string' && validKeys.has(o.platform) ? o.platform : 'general'
+      return {
+        platform,
+        body: typeof o.body === 'string' ? o.body.slice(0, 20_000) : '',
+        hashtags: typeof o.hashtags === 'string' ? o.hashtags.trim().slice(0, 1000) : '',
+        note: typeof o.note === 'string' ? o.note.trim().slice(0, 500) : '',
+      }
+    })
+    .filter((p) => p.body.trim() || p.hashtags.trim())
+
+  const status: SocialDocInput['status'] = b.status === 'published' ? 'published' : 'draft'
+
+  return { ok: true, value: { title, deck, posts, status } }
+}
+
+const SAMPLE_SOCIAL: SocialDocInput = {
+  title: 'Secure Boot 2026 — awareness push',
+  deck: 'A short multi-platform set raising awareness of the June 2026 Secure Boot certificate deadline. Copy each post out to the platform when ready.',
+  status: 'published',
+  posts: [
+    {
+      platform: 'linkedin',
+      body: "Heads up, Windows users: Microsoft is retiring the 2011-era Secure Boot certificates starting June 24, 2026. Devices that don't get the 2023 update stop receiving validated boot-security updates.\n\nWe're already getting our managed clients ahead of it — no action needed on your end. Not sure if your fleet is covered? Let's talk.",
+      hashtags: '#CyberSecurity #ManagedIT #SecureBoot #SMB',
+      note: 'Lead post — pin for the week.',
+    },
+    {
+      platform: 'x',
+      body: 'Microsoft is expiring the 2011 Secure Boot certs in June 2026. If your PCs aren’t on the new 2023 certs, boot-security updates stop. We’re handling it for our clients. Are yours covered?',
+      hashtags: '#infosec #MSP',
+      note: 'Keep under 280 incl. hashtags.',
+    },
+    {
+      platform: 'instagram',
+      body: 'Your computer has a security gate that checks everything before Windows even starts. In 2026, the keys to that gate change. We make sure our clients’ devices get the new keys — quietly, before the deadline. 🔐',
+      hashtags: '#SmallBusiness #TechSupport #CyberSecurity #BinghamtonNY',
+      note: 'Pair with a lock/shield graphic.',
+    },
+  ],
+}
+
+export async function seedSampleSocialIfEmpty(authorEmail: string | null): Promise<void> {
+  await ensureDocumentsTable()
+  const res = await pool.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM branded_documents WHERE doc_type = 'social'`
+  )
+  if (res.rows[0] && Number(res.rows[0].count) === 0) {
+    await createSocialDoc(SAMPLE_SOCIAL, authorEmail)
+  }
 }
