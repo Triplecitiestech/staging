@@ -54,7 +54,7 @@ const documents: DocCard[] = [
     description:
       'Paste in content from the marketing agency and publish it under the TCT design system — replacing generic layouts and stock graphics with our own brand.',
     href: '/admin/documents/marketing-content',
-    chips: [{ label: 'Live', tone: 'live' }, { label: 'Sample' }],
+    chips: [{ label: 'Live', tone: 'live' }, { label: 'Editable' }],
   },
   {
     category: 'Social Media',
