@@ -12,7 +12,7 @@ export function formatMinutes(minutes: number): string {
 /** Priority → Tailwind class mapping */
 export const PRIORITY_COLORS: Record<number, string> = {
   1: 'bg-rose-400/20 text-rose-400',
-  2: 'bg-orange-400/20 text-orange-400',
+  2: 'bg-violet-400/20 text-violet-400',
   3: 'bg-cyan-400/20 text-cyan-400',
   4: 'bg-slate-400/20 text-slate-400',
 };
