@@ -6,10 +6,13 @@
 
 ## Documents Hub (2026-05-30) — shipped, live in production
 
-Branded internal Documents feature at `/admin/documents` + the Secure Boot 2023 remediation playbook at `/admin/documents/secure-boot-playbook`. Shared client islands (CopyButton / Countdown / PhaseNav), AdminHeader link, e2e smoke coverage (both routes in `ADMIN_PAGES`). Auth-gated; TECHNICIAN can view. Branch `claude/fervent-pasteur-TLwSp` (auto-merged to `main`).
+Branded internal Documents feature at `/admin/documents`: the Secure Boot 2023 playbook (`secure-boot-playbook`) **and** a full **Marketing Content** subsystem with an in-app editor. Shared client islands (CopyButton / Countdown / PhaseNav), AdminHeader link, e2e smoke coverage. Auth-gated; TECHNICIAN can view. Branch `claude/fervent-pasteur-TLwSp` (auto-merged to `main`).
+
+**Marketing Content editor (shipped):** self-service mini-CMS — list / new / edit / render under `/admin/documents/marketing-content`, backed by the self-healing raw-pg `branded_documents` table (`src/lib/documents/store.ts`, no migration). Markdown body + hero/meta/CTA, live branded preview (shared `BrandedDoc`), draft/published. API `/api/admin/documents` (+ `/[slug]`), session-gated + CSRF. **Public sharing:** published pieces render at `/content/[slug]` (drafts → 404) with site Header/Footer + SEO/OG; "Copy public link" in the editor and admin render. Verified end-to-end against a real Postgres (store CRUD, authed API, public published-vs-draft gating, render).
 
 **Possible follow-ups (not started):**
-- [ ] Build out a placeholder doc type — the hub has three "Coming soon" cards: Quarterly Business Review, branded Marketing content, Social dump.
+- [ ] Other doc types: Quarterly Business Review, Social dump (same editor/render pattern as Marketing).
+- [ ] Tighten permissions: marketing doc create/edit/delete is currently any authenticated staff — could restrict to ADMIN/SUPER_ADMIN.
 - [ ] Broader forbidden-orange sweep: the services gradients + ticket priority badge are fixed, but `#f97316`-family orange still appears in reporting **charts** (`PriorityBreakdownChart`, `HealthDistribution`, `MonitoringDashboardClient`) and in customer **email/PDF** templates. Decide which are in-scope for the dark-site no-orange rule vs. light-background documents (the e2e check only covers rendered page HTML).
 
 ## SOC Cross-Stack Redesign (2026-05-28) — see `docs/SOC_CROSSSTACK_HANDOFF.md`

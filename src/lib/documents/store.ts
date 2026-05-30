@@ -57,8 +57,8 @@ export interface MarketingDocInput {
 export const EMPTY_CTA: DocCta = {
   heading: '',
   sub: '',
-  primaryLabel: 'Back to Documents',
-  primaryHref: '/admin/documents',
+  primaryLabel: 'Get in touch',
+  primaryHref: '/contact',
 }
 
 let tableReady = false
@@ -240,10 +240,10 @@ const SAMPLE: MarketingDocInput = {
   ],
   status: 'published',
   cta: {
-    heading: 'Want this rendered for a real campaign?',
-    sub: 'Edit this document in the app — paste the agency draft and it publishes in the TCT brand automatically.',
-    primaryLabel: 'Back to Documents',
-    primaryHref: '/admin/documents',
+    heading: 'Worried something is slipping through?',
+    sub: 'Talk to Triple Cities Tech about managed detection and response. We’ll review what’s protecting you today and where the gaps are — no cost, no pressure.',
+    primaryLabel: 'Talk to TCT',
+    primaryHref: '/contact',
   },
   body: `Most small businesses don't get breached because they ignored security. They get breached because security was **something they bought once** — a box checked years ago — instead of something that runs every hour of every day. The threats kept evolving. The defense didn't.
 
@@ -323,11 +323,11 @@ export function parseDocInput(
     primaryLabel:
       typeof ctaRaw.primaryLabel === 'string' && ctaRaw.primaryLabel.trim()
         ? ctaRaw.primaryLabel.trim().slice(0, 60)
-        : 'Back to Documents',
+        : 'Get in touch',
     primaryHref:
       typeof ctaRaw.primaryHref === 'string' && ctaRaw.primaryHref.trim()
         ? ctaRaw.primaryHref.trim().slice(0, 500)
-        : '/admin/documents',
+        : '/contact',
   }
 
   const status: DocStatus = b.status === 'published' ? 'published' : 'draft'

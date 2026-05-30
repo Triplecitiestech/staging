@@ -5,7 +5,10 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Eye, Pencil, Plus, Trash2, Save, Loader2 } from 'lucide-react'
 import BrandedDoc from '@/components/admin/documents/BrandedDoc'
+import CopyButton from '@/components/admin/documents/CopyButton'
 import type { MarketingDoc, MarketingDocInput, DocMeta, DocCta } from '@/lib/documents/store'
+
+const PUBLIC_BASE = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.triplecitiestech.com'
 
 type EditableDoc = MarketingDocInput
 
@@ -138,6 +141,14 @@ export default function DocumentEditor({
                 <Eye size={12} /> Preview
               </button>
             </div>
+            {slug && initial?.status === 'published' && (
+              <CopyButton
+                text={`${PUBLIC_BASE}/content/${slug}`}
+                label="Public link"
+                variant="dark"
+                className="hidden sm:inline-flex"
+              />
+            )}
             {slug && (
               <button
                 type="button"
