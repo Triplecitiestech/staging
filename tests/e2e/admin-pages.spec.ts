@@ -32,6 +32,7 @@ const ADMIN_PAGES = [
   '/admin/documents/marketing-content/new',
   '/admin/documents/social',
   '/admin/documents/social/new',
+  '/admin/documents/import',
 ]
 
 test.describe('Admin Pages — No Server Crashes', () => {

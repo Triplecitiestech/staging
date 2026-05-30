@@ -86,6 +86,9 @@ export async function ensureDocumentsTable(): Promise<void> {
   await pool.query(
     `ALTER TABLE branded_documents ADD COLUMN IF NOT EXISTS data JSONB NOT NULL DEFAULT '{}'::jsonb`
   )
+  // Self-healing: campaign grouping + asset kind for imported Kaseya campaigns.
+  await pool.query(`ALTER TABLE branded_documents ADD COLUMN IF NOT EXISTS campaign TEXT`)
+  await pool.query(`ALTER TABLE branded_documents ADD COLUMN IF NOT EXISTS asset_kind TEXT`)
   tableReady = true
 }
 
@@ -133,7 +136,7 @@ export function slugify(input: string): string {
     .slice(0, 80) || 'document'
 }
 
-async function uniqueSlug(base: string, excludeSlug?: string): Promise<string> {
+export async function uniqueSlug(base: string, excludeSlug?: string): Promise<string> {
   await ensureDocumentsTable()
   // Route segments that must never be used as a document slug, or they'd
   // shadow the editor pages (/marketing-content/new, .../[slug]/edit).
@@ -176,14 +179,15 @@ export async function getDocBySlug(slug: string): Promise<MarketingDoc | null> {
 
 export async function createDoc(
   input: MarketingDocInput,
-  authorEmail: string | null
+  authorEmail: string | null,
+  opts?: { campaign?: string | null; assetKind?: string | null }
 ): Promise<MarketingDoc> {
   await ensureDocumentsTable()
   const slug = await uniqueSlug(input.title || 'document')
   const res = await pool.query<DocRow>(
     `INSERT INTO branded_documents
-       (slug, doc_type, title, eyebrow, deck, body, meta, cta, status, author_email)
-     VALUES ($1, 'marketing', $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9)
+       (slug, doc_type, title, eyebrow, deck, body, meta, cta, status, author_email, campaign, asset_kind)
+     VALUES ($1, 'marketing', $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11)
      RETURNING *`,
     [
       slug,
@@ -195,6 +199,8 @@ export async function createDoc(
       JSON.stringify(input.cta ?? EMPTY_CTA),
       input.status === 'published' ? 'published' : 'draft',
       authorEmail,
+      opts?.campaign ?? null,
+      opts?.assetKind ?? 'marketing',
     ]
   )
   return rowToDoc(res.rows[0])
@@ -386,12 +392,16 @@ export async function getSocialDocBySlug(slug: string): Promise<SocialDoc | null
   return res.rows.length ? rowToSocial(res.rows[0]) : null
 }
 
-export async function createSocialDoc(input: SocialDocInput, authorEmail: string | null): Promise<SocialDoc> {
+export async function createSocialDoc(
+  input: SocialDocInput,
+  authorEmail: string | null,
+  opts?: { campaign?: string | null }
+): Promise<SocialDoc> {
   await ensureDocumentsTable()
   const slug = await uniqueSlug(input.title || 'social')
   const res = await pool.query<DocRow>(
-    `INSERT INTO branded_documents (slug, doc_type, title, deck, status, author_email, data)
-     VALUES ($1, 'social', $2, $3, $4, $5, $6::jsonb)
+    `INSERT INTO branded_documents (slug, doc_type, title, deck, status, author_email, data, campaign, asset_kind)
+     VALUES ($1, 'social', $2, $3, $4, $5, $6::jsonb, $7, 'social')
      RETURNING *`,
     [
       slug,
@@ -400,6 +410,7 @@ export async function createSocialDoc(input: SocialDocInput, authorEmail: string
       input.status === 'published' ? 'published' : 'draft',
       authorEmail,
       JSON.stringify({ posts: input.posts ?? [] }),
+      opts?.campaign ?? null,
     ]
   )
   return rowToSocial(res.rows[0])
@@ -497,4 +508,61 @@ export async function seedSampleSocialIfEmpty(authorEmail: string | null): Promi
   if (res.rows[0] && Number(res.rows[0].count) === 0) {
     await createSocialDoc(SAMPLE_SOCIAL, authorEmail)
   }
+}
+
+// ─── Campaigns (imported Kaseya campaigns, grouped by `campaign` slug) ────────
+
+export interface CampaignAsset {
+  slug: string
+  title: string
+  docType: string
+  assetKind: string | null
+  status: string
+  updatedAt: string
+}
+
+export async function getCampaignAssets(campaign: string): Promise<CampaignAsset[]> {
+  await ensureDocumentsTable()
+  const res = await pool.query<{
+    slug: string
+    title: string
+    doc_type: string
+    asset_kind: string | null
+    status: string
+    updated_at: Date | string
+  }>(
+    `SELECT slug, title, doc_type, asset_kind, status, updated_at
+       FROM branded_documents WHERE campaign = $1
+       ORDER BY CASE asset_kind
+         WHEN 'email' THEN 1 WHEN 'landing' THEN 2 WHEN 'blog' THEN 3 WHEN 'social' THEN 4 ELSE 5 END,
+       updated_at DESC`,
+    [campaign]
+  )
+  return res.rows.map((r) => ({
+    slug: r.slug,
+    title: r.title,
+    docType: r.doc_type,
+    assetKind: r.asset_kind,
+    status: r.status,
+    updatedAt: String(r.updated_at),
+  }))
+}
+
+export async function listCampaigns(): Promise<{ campaign: string; count: number; updatedAt: string }[]> {
+  await ensureDocumentsTable()
+  const res = await pool.query<{ campaign: string; count: string; updated_at: Date | string }>(
+    `SELECT campaign, COUNT(*)::text AS count, MAX(updated_at) AS updated_at
+       FROM branded_documents WHERE campaign IS NOT NULL
+       GROUP BY campaign ORDER BY MAX(updated_at) DESC`
+  )
+  return res.rows.map((r) => ({ campaign: r.campaign, count: Number(r.count), updatedAt: String(r.updated_at) }))
+}
+
+/** Human title from a campaign slug, e.g. "disaster-recovery-testing" → "Disaster Recovery Testing". */
+export function campaignTitle(slug: string): string {
+  return slug
+    .split('-')
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ')
 }
