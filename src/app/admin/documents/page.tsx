@@ -53,7 +53,8 @@ const documents: DocCard[] = [
     title: 'Marketing Content — Branded',
     description:
       'Paste in content from the marketing agency and publish it under the TCT design system — replacing generic layouts and stock graphics with our own brand.',
-    chips: [{ label: 'Coming soon', tone: 'muted' }, { label: 'Content' }],
+    href: '/admin/documents/marketing-content',
+    chips: [{ label: 'Live', tone: 'live' }, { label: 'Sample' }],
   },
   {
     category: 'Social Media',

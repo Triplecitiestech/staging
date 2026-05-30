@@ -28,6 +28,7 @@ const ADMIN_PAGES = [
   '/admin/settings/integrations/gusto',
   '/admin/documents',
   '/admin/documents/secure-boot-playbook',
+  '/admin/documents/marketing-content',
 ]
 
 test.describe('Admin Pages — No Server Crashes', () => {
