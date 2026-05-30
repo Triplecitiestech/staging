@@ -8,7 +8,7 @@
 
 Shipped: RocketCyber client, cross-stack enrichment (RMM/EDR/DNSFilter/SaaS), shared `CrossStackAssessment` UI, real-time `/api/soc/ingest` webhook (Autotask Extension Callout wired by operator), `soc_known_benign` table. Open:
 - [x] **[HIGH]** Datto EDR `/Alerts` fields are under `data` — `fetchEdr` now flattens each alert via `flattenEdrAlert()` (promotes `data.*` up, keeps top-level identity, preserves raw `data`). Surfaces threatName/path/md5/commandLine/parentProcessName/owner/ruleName/mitreId through the type, AI prompt, and UI. "[Unknown]" issue resolved.
-- [ ] **[HIGH]** SaaS Alerts `/reports/events/query` 422 — fix `SaasAlertsClient.getEvents` body shape (need the External Partner API Swagger).
+- [x] **[HIGH]** SaaS Alerts `/reports/events/query` 422 — the gateway validates `{ body: <ES search> }`; `SaasAlertsClient.getEvents` now wraps the search under a top-level `body` key. Confirmed live on NYSWDA T20260527.0006: source flipped from `error (422)` to `no_data`.
 - [ ] **[MED]** Operator: map tools per customer in Compliance → Connect Tools (esp. Datto EDR org, SaaS Alerts customer).
 - [ ] **[MED]** Confirm Autotask Extension Callout sends a usable ticket id/number (check first callout's `receivedKeys`).
 - [ ] **[LOW]** Known Benign admin UI; confirm Vercel env (`ROCKETCYBER_API_TOKEN`, `SOC_INGEST_SECRET`) + `dry_run=false`.
