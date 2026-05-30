@@ -48,6 +48,45 @@ export default async function SocialDocPage({ params }: { params: Promise<{ slug
 
       <SocialPosts doc={{ title: doc.title, deck: doc.deck, posts: doc.posts }} />
 
+      {doc.posts.length > 0 && (
+        <section className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
+          <h2 className="mb-1 text-2xl font-black tracking-tight text-white">Branded graphics</h2>
+          <p className="mb-6 text-sm text-slate-400">
+            TCT-branded social cards generated from each post — download and post, or grab them all in the campaign zip.
+          </p>
+          <div className="space-y-8">
+            {doc.posts.map((_, i) => (
+              <div key={i} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={`/api/admin/documents/social/${doc.slug}/card?i=${i}&size=1200x628`}
+                  alt={`Post ${i + 1} branded card`}
+                  width={1200}
+                  height={628}
+                  className="w-full rounded-lg border border-white/10"
+                />
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <a
+                    href={`/api/admin/documents/social/${doc.slug}/card?i=${i}&size=1200x628`}
+                    download={`${doc.slug}-${i + 1}-1200x628.png`}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-cyan-400/30 px-3 py-1.5 text-xs font-bold text-cyan-400 transition-all hover:bg-cyan-400/10"
+                  >
+                    Download 1200×628
+                  </a>
+                  <a
+                    href={`/api/admin/documents/social/${doc.slug}/card?i=${i}&size=800x800`}
+                    download={`${doc.slug}-${i + 1}-800x800.png`}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-white/10 px-3 py-1.5 text-xs font-bold text-slate-300 transition-all hover:border-cyan-400/30 hover:text-cyan-300"
+                  >
+                    Download 800×800
+                  </a>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       <footer className="border-t border-white/10 bg-black py-12 text-center">
         <Image src="/logo/tctlogo.webp" alt="Triple Cities Tech" width={30} height={30} className="mx-auto mb-4 h-8 w-8 object-contain opacity-90" />
         <p className="text-sm text-slate-500">
