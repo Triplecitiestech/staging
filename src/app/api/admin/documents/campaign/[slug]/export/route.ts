@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import JSZip from 'jszip'
 import { auth } from '@/auth'
-import { getCampaignAssets, getDocBySlug, getSocialDocBySlug, campaignTitle } from '@/lib/documents/store'
+import { getCampaignAssets, getDocBySlug, getSocialDocBySlug, getCardBackground, campaignTitle } from '@/lib/documents/store'
 import { renderSocialCard, deriveCardCopy } from '@/lib/documents/social-card'
 import { renderBrandedHtml } from '@/lib/documents/export-html'
 import { composePost, platformInfo } from '@/lib/documents/social-types'
@@ -42,8 +42,10 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
         for (let i = 0; i < d.posts.length; i++) {
           const p = d.posts[i]
           const { headline, subhead } = deriveCardCopy(p.note, p.body)
+          const bg = await getCardBackground(d.slug, i)
+          const bgUrl = bg ? `data:${bg.mime};base64,${bg.b64}` : undefined
           for (const size of ['1200x628', '800x800'] as const) {
-            const img = renderSocialCard({ headline, subhead, size })
+            const img = renderSocialCard({ headline, subhead, size, bgUrl })
             zip.file(`social/Ad-${i + 1}-${size}.png`, Buffer.from(await img.arrayBuffer()))
           }
           captions.push(`=== Post ${i + 1} — ${platformInfo(p.platform).label} ===`, composePost(p), '')

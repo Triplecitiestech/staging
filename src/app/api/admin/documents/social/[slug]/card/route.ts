@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { auth } from '@/auth'
-import { getSocialDocBySlug } from '@/lib/documents/store'
+import { getSocialDocBySlug, getCardBackground } from '@/lib/documents/store'
 import { renderSocialCard, deriveCardCopy, parseCardSize } from '@/lib/documents/social-card'
 
 export const dynamic = 'force-dynamic'
@@ -20,5 +20,11 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
   const post = doc.posts[i]
   const { headline, subhead } = deriveCardCopy(post.note, post.body)
-  return renderSocialCard({ headline, subhead, size })
+
+  // Use a cached AI background if one has been generated for this post.
+  let bgUrl: string | undefined
+  const bg = await getCardBackground(slug, i)
+  if (bg) bgUrl = `data:${bg.mime};base64,${bg.b64}`
+
+  return renderSocialCard({ headline, subhead, size, bgUrl })
 }

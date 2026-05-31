@@ -89,7 +89,52 @@ export async function ensureDocumentsTable(): Promise<void> {
   // Self-healing: campaign grouping + asset kind for imported Kaseya campaigns.
   await pool.query(`ALTER TABLE branded_documents ADD COLUMN IF NOT EXISTS campaign TEXT`)
   await pool.query(`ALTER TABLE branded_documents ADD COLUMN IF NOT EXISTS asset_kind TEXT`)
+  // Self-healing: cache of AI-generated textless backgrounds for social cards.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS branded_doc_images (
+      slug       TEXT NOT NULL,
+      post_index INT NOT NULL,
+      mime       TEXT NOT NULL DEFAULT 'image/png',
+      data       TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (slug, post_index)
+    )
+  `)
   tableReady = true
+}
+
+/** Cached AI background for one social post (base64). Null if not generated yet. */
+export async function getCardBackground(slug: string, postIndex: number): Promise<{ b64: string; mime: string } | null> {
+  await ensureDocumentsTable()
+  const res = await pool.query<{ data: string; mime: string }>(
+    'SELECT data, mime FROM branded_doc_images WHERE slug = $1 AND post_index = $2 LIMIT 1',
+    [slug, postIndex]
+  )
+  return res.rows.length ? { b64: res.rows[0].data, mime: res.rows[0].mime } : null
+}
+
+export async function saveCardBackground(slug: string, postIndex: number, b64: string, mime: string): Promise<void> {
+  await ensureDocumentsTable()
+  await pool.query(
+    `INSERT INTO branded_doc_images (slug, post_index, mime, data, created_at)
+     VALUES ($1, $2, $3, $4, NOW())
+     ON CONFLICT (slug, post_index) DO UPDATE SET mime = EXCLUDED.mime, data = EXCLUDED.data, created_at = NOW()`,
+    [slug, postIndex, mime, b64]
+  )
+}
+
+export async function deleteCardBackground(slug: string, postIndex: number): Promise<void> {
+  await ensureDocumentsTable()
+  await pool.query('DELETE FROM branded_doc_images WHERE slug = $1 AND post_index = $2', [slug, postIndex])
+}
+
+export async function listCardBackgroundIndexes(slug: string): Promise<number[]> {
+  await ensureDocumentsTable()
+  const res = await pool.query<{ post_index: number }>(
+    'SELECT post_index FROM branded_doc_images WHERE slug = $1',
+    [slug]
+  )
+  return res.rows.map((r) => r.post_index)
 }
 
 interface DocRow {

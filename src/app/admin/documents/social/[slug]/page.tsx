@@ -4,7 +4,9 @@ import { auth } from '@/auth'
 import { redirect, notFound } from 'next/navigation'
 import { ArrowLeft, Pencil } from 'lucide-react'
 import SocialPosts from '@/components/admin/documents/SocialPosts'
-import { getSocialDocBySlug } from '@/lib/documents/store'
+import CardGraphic from '@/components/admin/documents/CardGraphic'
+import { getSocialDocBySlug, listCardBackgroundIndexes } from '@/lib/documents/store'
+import { isImageGenConfigured } from '@/lib/documents/image-gen'
 
 export const dynamic = 'force-dynamic'
 
@@ -26,6 +28,9 @@ export default async function SocialDocPage({ params }: { params: Promise<{ slug
   const { slug } = await params
   const doc = await getSocialDocBySlug(slug)
   if (!doc) notFound()
+
+  const bgIndexes = new Set(await listCardBackgroundIndexes(slug))
+  const imageConfigured = isImageGenConfigured()
 
   return (
     <div className="min-h-screen bg-black text-slate-300">
@@ -52,36 +57,18 @@ export default async function SocialDocPage({ params }: { params: Promise<{ slug
         <section className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
           <h2 className="mb-1 text-2xl font-black tracking-tight text-white">Branded graphics</h2>
           <p className="mb-6 text-sm text-slate-400">
-            TCT-branded social cards generated from each post — download and post, or grab them all in the campaign zip.
+            TCT-branded social cards. The headline text is always rendered crisply by us (never garbled). Add a real
+            AI-generated background per card, or keep the branded gradient.
           </p>
           <div className="space-y-8">
             {doc.posts.map((_, i) => (
-              <div key={i} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={`/api/admin/documents/social/${doc.slug}/card?i=${i}&size=1200x628`}
-                  alt={`Post ${i + 1} branded card`}
-                  width={1200}
-                  height={628}
-                  className="w-full rounded-lg border border-white/10"
-                />
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <a
-                    href={`/api/admin/documents/social/${doc.slug}/card?i=${i}&size=1200x628`}
-                    download={`${doc.slug}-${i + 1}-1200x628.png`}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-cyan-400/30 px-3 py-1.5 text-xs font-bold text-cyan-400 transition-all hover:bg-cyan-400/10"
-                  >
-                    Download 1200×628
-                  </a>
-                  <a
-                    href={`/api/admin/documents/social/${doc.slug}/card?i=${i}&size=800x800`}
-                    download={`${doc.slug}-${i + 1}-800x800.png`}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-white/10 px-3 py-1.5 text-xs font-bold text-slate-300 transition-all hover:border-cyan-400/30 hover:text-cyan-300"
-                  >
-                    Download 800×800
-                  </a>
-                </div>
-              </div>
+              <CardGraphic
+                key={i}
+                slug={doc.slug}
+                index={i}
+                hasImage={bgIndexes.has(i)}
+                configured={imageConfigured}
+              />
             ))}
           </div>
         </section>
