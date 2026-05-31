@@ -11,7 +11,35 @@
  * branded gradient — the feature is purely additive.
  */
 
+import { trackApiUsage } from '@/lib/api-usage-tracker'
+
 const OPENAI_URL = 'https://api.openai.com/v1/images/generations'
+
+/** gpt-image-1 token pricing, cents per 1M tokens (text in $5, image in $10, image out $40). */
+const PRICE_CENTS_PER_1M = { text: 500, imageIn: 1000, out: 4000 }
+
+/** Flat per-image cost (cents) by quality+size — fallback when the response omits usage. */
+const FLAT_CENTS: Record<string, Record<string, number>> = {
+  low: { '1024x1024': 1, '1536x1024': 2, '1024x1536': 2 },
+  medium: { '1024x1024': 4, '1536x1024': 6, '1024x1536': 6 },
+  high: { '1024x1024': 17, '1536x1024': 25, '1024x1536': 25 },
+}
+
+interface ImageUsage {
+  input_tokens?: number
+  output_tokens?: number
+  input_tokens_details?: { text_tokens?: number; image_tokens?: number }
+}
+
+function imageCostCents(usage: ImageUsage | undefined, size: string, quality: string): number {
+  if (usage && ((usage.output_tokens ?? 0) > 0 || (usage.input_tokens ?? 0) > 0)) {
+    const text = usage.input_tokens_details?.text_tokens ?? usage.input_tokens ?? 0
+    const imageIn = usage.input_tokens_details?.image_tokens ?? 0
+    const out = usage.output_tokens ?? 0
+    return (text * PRICE_CENTS_PER_1M.text + imageIn * PRICE_CENTS_PER_1M.imageIn + out * PRICE_CENTS_PER_1M.out) / 1_000_000
+  }
+  return FLAT_CENTS[quality]?.[size] ?? 25
+}
 
 export function imageApiKey(): string | null {
   return process.env.DOCUMENTS_IMAGE_API_KEY || process.env.OPENAI_API_KEY || null
@@ -57,34 +85,64 @@ export async function generateAdBackground(opts: {
   const key = imageApiKey()
   if (!key) throw new Error('Image generation is not configured (set OPENAI_API_KEY).')
 
-  const res = await fetch(OPENAI_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-    body: JSON.stringify({
-      model: 'gpt-image-1',
-      prompt: buildImagePrompt(opts.headline, opts.hint),
-      size: '1536x1024',
-      quality: opts.quality || 'high',
-      output_format: 'png',
-      n: 1,
-    }),
-    // gpt-image-1 can take 10–30s; keep a generous ceiling.
-    signal: AbortSignal.timeout(110_000),
-  })
+  const size = '1536x1024'
+  const quality = opts.quality || 'high'
+  const startMs = Date.now()
 
-  if (!res.ok) {
-    let detail = ''
-    try {
-      const j = (await res.json()) as { error?: { message?: string } }
-      detail = j?.error?.message || ''
-    } catch {
-      /* ignore */
+  try {
+    const res = await fetch(OPENAI_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+      body: JSON.stringify({
+        model: 'gpt-image-1',
+        prompt: buildImagePrompt(opts.headline, opts.hint),
+        size,
+        quality,
+        output_format: 'png',
+        n: 1,
+      }),
+      // gpt-image-1 can take 10–30s; keep a generous ceiling.
+      signal: AbortSignal.timeout(110_000),
+    })
+
+    if (!res.ok) {
+      let detail = ''
+      try {
+        const j = (await res.json()) as { error?: { message?: string } }
+        detail = j?.error?.message || ''
+      } catch {
+        /* ignore */
+      }
+      throw new Error(`Image API ${res.status}${detail ? `: ${detail}` : ''}`)
     }
-    throw new Error(`Image API ${res.status}${detail ? `: ${detail}` : ''}`)
-  }
 
-  const data = (await res.json()) as { data?: { b64_json?: string }[] }
-  const b64 = data?.data?.[0]?.b64_json
-  if (!b64) throw new Error('Image API returned no image data.')
-  return { b64, mime: 'image/png' }
+    const data = (await res.json()) as { data?: { b64_json?: string }[]; usage?: ImageUsage }
+    const b64 = data?.data?.[0]?.b64_json
+    if (!b64) throw new Error('Image API returned no image data.')
+
+    await trackApiUsage({
+      provider: 'openai',
+      feature: 'documents_social_image',
+      model: 'gpt-image-1',
+      inputTokens: data.usage?.input_tokens ?? 0,
+      outputTokens: data.usage?.output_tokens ?? 0,
+      costCents: imageCostCents(data.usage, size, quality),
+      durationMs: Date.now() - startMs,
+      statusCode: 200,
+      metadata: { size, quality },
+    })
+
+    return { b64, mime: 'image/png' }
+  } catch (err) {
+    await trackApiUsage({
+      provider: 'openai',
+      feature: 'documents_social_image',
+      model: 'gpt-image-1',
+      durationMs: Date.now() - startMs,
+      statusCode: 500,
+      error: err instanceof Error ? err.message : 'Unknown error',
+      metadata: { size, quality },
+    })
+    throw err
+  }
 }

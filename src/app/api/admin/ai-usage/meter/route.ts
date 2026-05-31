@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic'
 // confirm tracking is wired without waiting for traffic. Add entries here
 // when you introduce a new tracked feature; the catalog is the single
 // source of truth for "what does the platform spend Anthropic dollars on."
-type Subsystem = 'SOC' | 'Compliance' | 'Marketing' | 'Blog' | 'Reporting' | 'Other'
+type Subsystem = 'SOC' | 'Compliance' | 'Marketing' | 'Blog' | 'Reporting' | 'Images' | 'Other'
 const FEATURE_CATALOG: Record<string, { subsystem: Subsystem; label: string }> = {
   // SOC Analyst Agent
   soc_triage: { subsystem: 'SOC', label: 'Triage screen' },
@@ -34,6 +34,8 @@ const FEATURE_CATALOG: Record<string, { subsystem: Subsystem; label: string }> =
   'blog-editor': { subsystem: 'Blog', label: 'Blog AI editor' },
   // Reporting
   'reports-ai-assistant': { subsystem: 'Reporting', label: 'Reports assistant' },
+  // Images (OpenAI gpt-image-1)
+  documents_social_image: { subsystem: 'Images', label: 'Social card background' },
   // Misc
   'ai-chat': { subsystem: 'Other', label: 'Admin AI chat' },
   'ai-support-review': { subsystem: 'Other', label: 'Support review' },
@@ -127,7 +129,7 @@ export async function GET() {
         COUNT(CASE WHEN error IS NOT NULL THEN 1 END)::int as "errorCount",
         ROUND(COALESCE(AVG("durationMs"), 0)::numeric) as "avgDurationMs"
       FROM api_usage_logs
-      WHERE provider = 'anthropic'
+      WHERE provider IN ('anthropic', 'openai')
         AND "createdAt" >= NOW() - INTERVAL '${w.interval}'
     `))
 
@@ -143,7 +145,7 @@ export async function GET() {
         COALESCE(SUM("totalTokens"), 0)::bigint as "totalTokens",
         COALESCE(SUM("costCents"), 0)::numeric as "costCents"
       FROM api_usage_logs
-      WHERE provider = 'anthropic'
+      WHERE provider IN ('anthropic', 'openai')
         AND "createdAt" >= NOW() - INTERVAL '30 days'
       GROUP BY feature
       ORDER BY "costCents" DESC
@@ -162,7 +164,7 @@ export async function GET() {
         COALESCE(SUM("totalTokens"), 0)::bigint as "totalTokens",
         COALESCE(SUM("costCents"), 0)::numeric as "costCents"
       FROM api_usage_logs
-      WHERE provider = 'anthropic'
+      WHERE provider IN ('anthropic', 'openai')
         AND "createdAt" >= NOW() - INTERVAL '30 days'
       GROUP BY model
       ORDER BY "costCents" DESC
@@ -180,7 +182,7 @@ export async function GET() {
         COALESCE(SUM("totalTokens"), 0)::bigint as "totalTokens",
         COALESCE(SUM("costCents"), 0)::numeric as "costCents"
       FROM api_usage_logs
-      WHERE provider = 'anthropic'
+      WHERE provider IN ('anthropic', 'openai')
         AND "createdAt" >= NOW() - INTERVAL '60 days'
       GROUP BY DATE("createdAt")
       ORDER BY date
@@ -236,7 +238,7 @@ export async function GET() {
         })
       }
     }
-    const SUBSYSTEM_ORDER: Subsystem[] = ['SOC', 'Compliance', 'Marketing', 'Blog', 'Reporting', 'Other']
+    const SUBSYSTEM_ORDER: Subsystem[] = ['SOC', 'Compliance', 'Marketing', 'Blog', 'Reporting', 'Images', 'Other']
     const byFeature: FeatureBreakdown[] = Array.from(dbByFeature.values()).sort((a, b) => {
       const subDiff = SUBSYSTEM_ORDER.indexOf(a.subsystem) - SUBSYSTEM_ORDER.indexOf(b.subsystem)
       if (subDiff !== 0) return subDiff

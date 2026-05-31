@@ -37,6 +37,8 @@ interface TrackApiUsageParams {
   model?: string
   inputTokens?: number
   outputTokens?: number
+  /** Explicit cost in cents. Use for providers not priced by the Anthropic token table (e.g. OpenAI images). */
+  costCents?: number
   durationMs?: number
   statusCode?: number
   error?: string
@@ -57,7 +59,7 @@ export async function trackApiUsage(params: TrackApiUsageParams): Promise<void> 
     const inputTokens = params.inputTokens ?? 0
     const outputTokens = params.outputTokens ?? 0
     const totalTokens = inputTokens + outputTokens
-    const costCents = estimateCostCents(params.model, inputTokens, outputTokens)
+    const costCents = params.costCents ?? estimateCostCents(params.model, inputTokens, outputTokens)
 
     await (prisma as PrismaClient & Record<string, unknown>).$executeRawUnsafe(
       `INSERT INTO api_usage_logs (id, provider, feature, model, "inputTokens", "outputTokens", "totalTokens", "costCents", "durationMs", "statusCode", error, metadata, "createdAt")
