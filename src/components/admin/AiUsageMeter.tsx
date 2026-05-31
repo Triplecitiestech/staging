@@ -17,7 +17,7 @@ interface WindowMetrics {
   avgDurationMs: number
 }
 
-type Subsystem = 'SOC' | 'Compliance' | 'Marketing' | 'Blog' | 'Reporting' | 'Other'
+type Subsystem = 'SOC' | 'Compliance' | 'Marketing' | 'Blog' | 'Reporting' | 'Images' | 'Other'
 
 interface FeatureBreakdown {
   feature: string
@@ -29,7 +29,7 @@ interface FeatureBreakdown {
   tracked: boolean
 }
 
-const SUBSYSTEM_ORDER: Subsystem[] = ['SOC', 'Compliance', 'Marketing', 'Blog', 'Reporting', 'Other']
+const SUBSYSTEM_ORDER: Subsystem[] = ['SOC', 'Compliance', 'Marketing', 'Blog', 'Reporting', 'Images', 'Other']
 
 interface ModelBreakdown {
   model: string | null
@@ -162,7 +162,7 @@ export default function AiUsageMeter({ variant = 'compact' }: Props) {
                 {isLive ? 'Active' : 'Idle'}
               </span>
             </div>
-            <p className="text-xs text-slate-500 mt-0.5">Anthropic token spend across all features</p>
+            <p className="text-xs text-slate-500 mt-0.5">AI spend across all providers (Claude + image generation)</p>
           </div>
           {variant === 'compact' && (
             <Link
