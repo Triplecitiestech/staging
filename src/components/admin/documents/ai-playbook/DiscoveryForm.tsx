@@ -7,6 +7,7 @@ import {
   DISCOVERY_GROUPS,
   PLATFORM_LABELS,
   suggestPlatform,
+  sumMonthlyWaste,
   type PlatformLean,
 } from '@/lib/ai-discovery/questions'
 
@@ -119,6 +120,7 @@ export default function DiscoveryForm() {
   }
 
   const suggestion = draft ? suggestPlatform(draft.answers) : null
+  const wasteTotal = draft ? sumMonthlyWaste(draft.answers) : 0
 
   return (
     <div className="max-w-[1100px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -192,13 +194,24 @@ export default function DiscoveryForm() {
             <div className="flex flex-col gap-6">
               {/* Company + status bar */}
               <div className="rounded-xl border border-white/10 bg-white/[0.03] p-5">
-                <label className="block text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500 mb-1.5">Company</label>
-                <input
-                  value={draft.companyName}
-                  onChange={(e) => setDraft({ ...draft, companyName: e.target.value })}
-                  placeholder="Company name"
-                  className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-3.5 py-2.5 text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-400/50"
-                />
+                <div className="flex items-end justify-between gap-4 flex-wrap">
+                  <div className="flex-1 min-w-[220px]">
+                    <label className="block text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500 mb-1.5">Company</label>
+                    <input
+                      value={draft.companyName}
+                      onChange={(e) => setDraft({ ...draft, companyName: e.target.value })}
+                      placeholder="Company name"
+                      className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-3.5 py-2.5 text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-400/50"
+                    />
+                  </div>
+                  <div className="text-right">
+                    <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500 mb-1">Est. monthly waste</div>
+                    <div className="text-2xl font-black text-cyan-400 leading-none tabular-nums">
+                      ${wasteTotal.toLocaleString()}
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-1">summed from the zones</div>
+                  </div>
+                </div>
               </div>
 
               {/* Question groups */}
