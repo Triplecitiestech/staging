@@ -15,7 +15,7 @@ export default function Development() {
         <><strong className="text-white font-semibold">Every signature-ready quote states a development cycle.</strong> The product ships at, say, v1.2; new asks queue into the next release (1.3, 1.4).</>,
         <><strong className="text-white font-semibold">No live tweaking.</strong> Work flows development → test → production. AI makes this faster than traditional dev (you can speak tweaks into existence), so it needn't be rigid — but the guardrails protect your time.</>,
         <><strong className="text-white font-semibold">Communicate the roadmap like a game studio patch list:</strong> "here's what's in 1.3, here's what's on the PTR / dev list." Sets expectations and kills the "call you every other day" problem.</>,
-        <><strong className="text-white font-semibold">Custom builds always carry a monthly recurring maintenance fee</strong> — never sell a custom product without it.</>,
+        <><strong className="text-white font-semibold">Custom builds can carry their own monthly recurring maintenance fee</strong> — price it in whenever there's ongoing upkeep, so each build adds to the MRR.</>,
       ]} />
 
       <H3>The AI play catalog — pain → play</H3>

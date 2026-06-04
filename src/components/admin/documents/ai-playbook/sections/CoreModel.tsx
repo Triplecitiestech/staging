@@ -1,4 +1,3 @@
-import { AlertTriangle } from 'lucide-react'
 import { SecHead, Lead, Body, Callout, CalloutP, Bullets, H3 } from '../primitives'
 
 export default function CoreModel() {
@@ -32,9 +31,9 @@ export default function CoreModel() {
             Recurring · MRR
           </span>
           <h3 className="text-[27px] font-black text-white tracking-tight mb-1.5">AI Managed Services</h3>
-          <div className="text-sm font-semibold text-cyan-300 tracking-wide mb-4">"Set it and forget it" SaaS-style margin</div>
+          <div className="text-sm font-semibold text-cyan-300 tracking-wide mb-4">High-margin recurring — enablement, governance &amp; community</div>
           <p className="text-[15.5px] leading-relaxed text-slate-300 m-0">
-            Infrastructure, governance, user enablement, and adds / moves / changes on the managed environment. Predictable, near-free money once configured.
+            We configure the org, set token / consumption rules, run governance and adds / moves / changes — <strong className="text-white font-semibold">plus monthly customer AI webinars</strong> (success stories, what's new, what's coming). High margin because it rides on the MSP foundation; active, not "set and forget," because the AI landscape moves fast.
           </p>
           <div className="mt-5 pt-4 border-t border-white/10 text-sm leading-snug text-slate-200">
             <strong className="text-white font-semibold">Pitch this in every TBR.</strong> It's the foundation the AI layer rides on.
@@ -62,16 +61,6 @@ export default function CoreModel() {
       <Callout label="Why carry both">
         <CalloutP>
           MRR is the predictable, near-free money once configured. But in the near term the one-off projects will make more than the recurring. The natural regression: <strong className="text-white font-semibold">a client adopts managed services, gets a taste of what AI can do, then buys a project</strong> to push past the out-of-the-box limits.
-        </CalloutP>
-      </Callout>
-
-      <H3>Hard prerequisite — do not skip</H3>
-      <Callout warn label={<><AlertTriangle size={16} /> Foundations + clean data first</>}>
-        <CalloutP>
-          If they don't have a properly configured Microsoft environment, or the data is a mess, that's a <strong className="text-white font-semibold">full stop</strong>. You clean the data first — that's its own project.
-        </CalloutP>
-        <CalloutP>
-          Without good, clean, connected context, the LLM is just a chatbot with no knowledge of their business. Garbage in, garbage out. The MSP foundation is the thing that makes the AI layer possible — that's also why the margins work.
         </CalloutP>
       </Callout>
 
