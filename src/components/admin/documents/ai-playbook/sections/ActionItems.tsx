@@ -1,4 +1,5 @@
 import Image from 'next/image'
+import Link from 'next/link'
 import { GradSection, SecHead, Lead } from '../primitives'
 
 const ITEMS: React.ReactNode[] = [
@@ -12,7 +13,7 @@ const ITEMS: React.ReactNode[] = [
   <><strong className="text-white font-semibold">Productize the AIGPA in Autotask</strong> — the paid AI Growth &amp; Profit Assessment as a standardized offering starting at $1,000.</>,
   <><strong className="text-white font-semibold">Build the AIGPA report template + Business Snapshot intake form + ROI / monthly-waste calculator</strong> so every assessment is repeatable and on-brand.</>,
   <><strong className="text-white font-semibold">Stand up the AI Services Agreement</strong> (scope, pricing, liability, AI acceptable-use, implementation-period waiver) with local counsel — to attach when a client moves from assessment to engagement.</>,
-  <><strong className="text-white font-semibold">Standardize the Claude / Cowork build workspace</strong> (context folder, brand-voice, skills, scheduled tasks) so kit + report builds are fast and consistent across the team.</>,
+  <><strong className="text-white font-semibold">Standardize the Claude / Cowork build workspace</strong> (context folder, brand-voice, skills, scheduled tasks) so kit + report builds are fast and consistent across the team — <Link href="/admin/documents/ai-playbook/cowork-sop" className="text-cyan-400 hover:text-cyan-300 underline underline-offset-2">see the setup SOP</Link>.</>,
   <><strong className="text-white font-semibold">Assign Jim as owner of the monthly customer AI webinar</strong> and build the recurring agenda + deck template (wins, what we shipped, what's new, what's coming, Q&amp;A, one play to try). It's a committed part of the managed-services offering.</>,
 ]
 
