@@ -3,7 +3,7 @@ import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import AdminHeader from '@/components/admin/AdminHeader'
 import AdminShell from '@/components/admin/AdminShell'
-import { ArrowUpRight, ShieldCheck, FileBarChart, Megaphone, Share2, FileText, Sparkles, Bot } from 'lucide-react'
+import { ArrowUpRight, ShieldCheck, FileBarChart, Megaphone, Share2, FileText, Sparkles, Bot, ClipboardList, Workflow } from 'lucide-react'
 
 export const dynamic = 'force-dynamic'
 
@@ -35,6 +35,32 @@ const documents: DocCard[] = [
       { label: 'Live', tone: 'live' },
       { label: 'v1.0' },
       { label: 'Sales & Delivery' },
+    ],
+  },
+  {
+    category: 'AI Strategy',
+    categoryClass: 'text-cyan-400',
+    icon: <ClipboardList className="h-5 w-5 text-cyan-400" />,
+    title: 'AI Discovery & Readiness Form',
+    description:
+      'The staff-filled discovery tool — six profit zones, severity scoring, monthly-waste calculator, and platform direction. Saved per company; generates the client-facing AIGPA report.',
+    href: '/admin/documents/ai-playbook/discovery',
+    chips: [
+      { label: 'Live', tone: 'live' },
+      { label: 'Tool' },
+    ],
+  },
+  {
+    category: 'AI Strategy',
+    categoryClass: 'text-cyan-400',
+    icon: <Workflow className="h-5 w-5 text-cyan-400" />,
+    title: 'Claude / Cowork Setup SOP',
+    description:
+      'Internal enablement: how to configure Claude / Cowork (home base, context files, connectors, skills, scheduled tasks) so it builds AIGPA kits and reports in TCT\'s voice.',
+    href: '/admin/documents/ai-playbook/cowork-sop',
+    chips: [
+      { label: 'Live', tone: 'live' },
+      { label: 'Internal SOP' },
     ],
   },
   {

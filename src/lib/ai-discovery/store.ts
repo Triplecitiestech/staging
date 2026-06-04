@@ -24,6 +24,7 @@ export interface DiscoveryAssessment {
   notes: string | null
   report: AigpaReport | null
   reportGeneratedAt: string | null
+  shareToken: string | null
   createdAt: string
   updatedAt: string
 }
@@ -53,6 +54,8 @@ async function ensureDiscoveryTable(): Promise<void> {
   // Self-healing columns added after the initial table shipped.
   await pool.query(`ALTER TABLE ai_discovery_assessments ADD COLUMN IF NOT EXISTS report JSONB`)
   await pool.query(`ALTER TABLE ai_discovery_assessments ADD COLUMN IF NOT EXISTS report_generated_at TIMESTAMPTZ`)
+  await pool.query(`ALTER TABLE ai_discovery_assessments ADD COLUMN IF NOT EXISTS share_token TEXT`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_discovery_share_token ON ai_discovery_assessments(share_token)`)
   tableReady = true
 }
 
@@ -71,6 +74,7 @@ function rowToAssessment(r: any): DiscoveryAssessment {
     reportGeneratedAt: r.report_generated_at
       ? (typeof r.report_generated_at === 'string' ? r.report_generated_at : r.report_generated_at.toISOString?.() ?? null)
       : null,
+    shareToken: r.share_token ?? null,
     createdAt: typeof r.created_at === 'string' ? r.created_at : r.created_at?.toISOString?.() ?? '',
     updatedAt: typeof r.updated_at === 'string' ? r.updated_at : r.updated_at?.toISOString?.() ?? '',
   }
@@ -104,6 +108,40 @@ export async function saveReport(id: string, report: AigpaReport): Promise<void>
       WHERE id = $1`,
     [id, JSON.stringify(report)]
   )
+}
+
+/** Enable a public share link — idempotent (reuses an existing token). */
+export async function setShareToken(id: string): Promise<string | null> {
+  await ensureDiscoveryTable()
+  const existing = await pool.query<{ share_token: string | null }>(
+    'SELECT share_token FROM ai_discovery_assessments WHERE id = $1 LIMIT 1',
+    [id]
+  )
+  if (existing.rows.length === 0) return null
+  if (existing.rows[0].share_token) return existing.rows[0].share_token
+  const token = `${randomUUID()}${randomUUID().replace(/-/g, '')}`
+  await pool.query(
+    `UPDATE ai_discovery_assessments SET share_token = $2, updated_at = NOW() WHERE id = $1`,
+    [id, token]
+  )
+  return token
+}
+
+/** Revoke the public share link. */
+export async function clearShareToken(id: string): Promise<void> {
+  await ensureDiscoveryTable()
+  await pool.query(
+    `UPDATE ai_discovery_assessments SET share_token = NULL, updated_at = NOW() WHERE id = $1`,
+    [id]
+  )
+}
+
+/** Public lookup by share token (only used by the unauthenticated share page). */
+export async function getAssessmentByShareToken(token: string): Promise<DiscoveryAssessment | null> {
+  await ensureDiscoveryTable()
+  if (!token) return null
+  const res = await pool.query('SELECT * FROM ai_discovery_assessments WHERE share_token = $1 LIMIT 1', [token])
+  return res.rows.length ? rowToAssessment(res.rows[0]) : null
 }
 
 export async function getAssessment(id: string): Promise<DiscoveryAssessment | null> {
