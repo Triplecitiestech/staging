@@ -114,14 +114,22 @@ function H4({ children }: { children: React.ReactNode }) {
 
 function GradSection({ id, children }: { id: string; children: React.ReactNode }) {
   return (
-    <div
-      className="-mx-6 px-6 md:-mx-14 md:px-14"
-      style={{ background: 'linear-gradient(135deg, #000 0%, #0b1118 55%, #0a3543 130%)' }}
-    >
-      <section id={id} className="pt-20 scroll-mt-8 pb-0">
-        {children}
-      </section>
-    </div>
+    <section id={id} className="relative -mx-6 px-6 md:-mx-14 md:px-14 pt-20 pb-14 scroll-mt-8">
+      {/* Soft ambient wash — gives these sections a gentle tonal lift for rhythm,
+          but every edge dissolves into the page canvas so there are no band seams.
+          New sections wrapped in <GradSection> inherit this edge-less treatment. */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        aria-hidden
+        style={{
+          background:
+            'radial-gradient(110% 75% at 78% 32%, rgba(13,148,136,0.13) 0%, rgba(8,47,73,0.08) 38%, transparent 72%)',
+          maskImage: 'linear-gradient(180deg, transparent 0%, #000 14%, #000 86%, transparent 100%)',
+          WebkitMaskImage: 'linear-gradient(180deg, transparent 0%, #000 14%, #000 86%, transparent 100%)',
+        }}
+      />
+      <div className="relative">{children}</div>
+    </section>
   )
 }
 
@@ -387,14 +395,23 @@ export default function AiManagedServicesPlaybook() {
           </div>
 
           {/* ── MASTHEAD ── */}
-          <header className="relative overflow-hidden -mx-6 md:-mx-14 px-6 md:px-14 pt-24 pb-18 mb-0 border-b border-white/10">
+          <header className="relative overflow-hidden -mx-6 md:-mx-14 px-6 md:px-14 pt-24 pb-20 mb-0">
+            {/* Hero image, edge-faded so it melts into the page canvas instead of
+                hard-cutting at a rectangle boundary. */}
             <div
-              className="absolute inset-0 bg-cover bg-center opacity-[0.34]"
-              style={{ backgroundImage: "url('/herobg.webp')" }}
+              className="absolute inset-0 bg-cover bg-center"
+              style={{
+                backgroundImage: "url('/herobg.webp')",
+                opacity: 0.3,
+                maskImage: 'radial-gradient(82% 140% at 50% -12%, #000 0%, #000 26%, transparent 72%)',
+                WebkitMaskImage: 'radial-gradient(82% 140% at 50% -12%, #000 0%, #000 26%, transparent 72%)',
+              }}
             />
+            {/* Legibility + blend: dark at the top, dissolving into the canvas at the
+                bottom — no hard divider line between the masthead and §1. */}
             <div
               className="absolute inset-0"
-              style={{ background: 'linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.78) 60%, #000 100%)' }}
+              style={{ background: 'linear-gradient(180deg, rgba(3,6,11,0.6) 0%, rgba(5,8,14,0.32) 55%, transparent 100%)' }}
             />
             <div className="relative z-10 max-w-[828px] pb-16">
               <div className="flex items-center gap-3.5 mb-10">
