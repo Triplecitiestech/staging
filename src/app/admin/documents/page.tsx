@@ -3,7 +3,7 @@ import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import AdminHeader from '@/components/admin/AdminHeader'
 import AdminShell from '@/components/admin/AdminShell'
-import { ArrowUpRight, ShieldCheck, FileBarChart, Megaphone, Share2, FileText, Sparkles } from 'lucide-react'
+import { ArrowUpRight, ShieldCheck, FileBarChart, Megaphone, Share2, FileText, Sparkles, Bot } from 'lucide-react'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,6 +23,20 @@ interface DocCard {
 }
 
 const documents: DocCard[] = [
+  {
+    category: 'AI Strategy',
+    categoryClass: 'text-cyan-400',
+    icon: <Bot className="h-5 w-5 text-cyan-400" />,
+    title: 'AI Managed Services Playbook',
+    description:
+      'How TCT packages, sells, and delivers AI as a managed service — the two-part model (MRR vs. Development), scope boundaries, delivery phases, platform selection, token economics, and discovery questions.',
+    href: '/admin/documents/ai-playbook',
+    chips: [
+      { label: 'Live', tone: 'live' },
+      { label: 'v1.0' },
+      { label: 'Sales & Delivery' },
+    ],
+  },
   {
     category: 'IT Operations',
     categoryClass: 'text-cyan-400',
