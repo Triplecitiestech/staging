@@ -3,7 +3,7 @@ import { SecHead, Lead, Body, Bullets, H3, DividerQuote } from '../primitives'
 export default function Development() {
   return (
     <section id="development" className="pt-20 scroll-mt-8">
-      <SecHead n="08" kicker="Project Track & Release Discipline">
+      <SecHead n="07" kicker="Project Track & Release Discipline">
         AI <span className="text-cyan-400">Development</span>
       </SecHead>
 
