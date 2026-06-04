@@ -9,6 +9,10 @@ const ITEMS: React.ReactNode[] = [
   <><strong className="text-white font-semibold">Design the token-monitoring approach</strong> — deprioritize homegrown; lean on partner-channel multi-tenancy (Anthropic Partner Network live; manage OpenAI Business directly).</>,
   <><strong className="text-white font-semibold">Define AI office-hours curriculum</strong> (2–3 weeks of prompting sessions) and decide on the monthly all-client AI webinar.</>,
   <><strong className="text-white font-semibold">Document the scope boundary</strong> (AMC included / custom integrations excluded) into the standard quote terms, including the development-cycle language.</>,
+  <><strong className="text-white font-semibold">Productize the AIGPA in Autotask</strong> — the paid AI Growth &amp; Profit Assessment as a standardized offering starting at $1,000.</>,
+  <><strong className="text-white font-semibold">Build the AIGPA report template + Business Snapshot intake form + ROI / monthly-waste calculator</strong> so every assessment is repeatable and on-brand.</>,
+  <><strong className="text-white font-semibold">Stand up the AI Services Agreement</strong> (scope, pricing, liability, AI acceptable-use, implementation-period waiver) with local counsel — to attach when a client moves from assessment to engagement.</>,
+  <><strong className="text-white font-semibold">Standardize the Claude / Cowork build workspace</strong> (context folder, brand-voice, skills, scheduled tasks) so kit + report builds are fast and consistent across the team.</>,
 ]
 
 export default function ActionItems() {

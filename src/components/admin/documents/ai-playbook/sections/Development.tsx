@@ -18,6 +18,20 @@ export default function Development() {
         <><strong className="text-white font-semibold">Custom builds always carry a monthly recurring maintenance fee</strong> — never sell a custom product without it.</>,
       ]} />
 
+      <H3>The AI play catalog — pain → play</H3>
+      <Body>This is the build menu the discovery report maps each pain point to. Every play also reveals an IT / security need — the natural bridge into managed services, cybersecurity, and MRR.</Body>
+      <Bullets items={[
+        <><strong className="text-white font-semibold">AI email automation</strong> — follow-ups, outreach, responses. <span className="text-slate-400">Needs secure identity controls.</span></>,
+        <><strong className="text-white font-semibold">AI customer intake & support</strong> — chatbots + automated ticket creation. <span className="text-slate-400">Needs uptime, monitoring, integration.</span></>,
+        <><strong className="text-white font-semibold">AI sales prospecting engine</strong> — lead scoring, list building, outreach scripts. <span className="text-slate-400">Must comply with privacy laws.</span></>,
+        <><strong className="text-white font-semibold">AI SOP / documentation builder</strong> — turn tribal knowledge into structured docs. <span className="text-slate-400">Needs secured storage.</span></>,
+        <><strong className="text-white font-semibold">AI meeting capture + follow-up</strong> — summaries, tasks, decisions. <span className="text-slate-400">Must prevent sensitive-info leakage.</span></>,
+        <><strong className="text-white font-semibold">AI lead-qualification bot</strong> — warms leads automatically. <span className="text-slate-400">Needs secure embedding + API protection.</span></>,
+        <><strong className="text-white font-semibold">AI project-management automation</strong> — task creation and handoffs. <span className="text-slate-400">Requires strong system integrations.</span></>,
+        <><strong className="text-white font-semibold">AI finance workflow automation</strong> — AP/AR, reporting, forecasting. <span className="text-slate-400">High-risk → cybersecurity reinforcement.</span></>,
+        <><strong className="text-white font-semibold">AI content-repurposing engine</strong> — one asset → posts, emails, social. <span className="text-slate-400">Must avoid copyright / hallucination liability.</span></>,
+      ]} />
+
       <H3>Project examples — fast, one-off mini-projects</H3>
       <Bullets items={[
         'Custom GPT for grant writing.',
