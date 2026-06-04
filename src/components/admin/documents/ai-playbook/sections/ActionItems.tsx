@@ -14,7 +14,7 @@ const ITEMS: React.ReactNode[] = [
 export default function ActionItems() {
   return (
     <GradSection id="actions">
-      <SecHead n="10" kicker="On the Books by End of June">
+      <SecHead n="09" kicker="On the Books by End of June">
         Action Items to <span className="text-cyan-400">Operationalize</span>
       </SecHead>
 
