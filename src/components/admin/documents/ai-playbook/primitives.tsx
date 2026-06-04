@@ -199,21 +199,13 @@ export function SinglePathGate({ fork, question, pathColor, pathLabel, children 
 /**
  * A phase in the delivery timeline.
  *
- * Pass a `detail` node to attach a collapsible drill-down — use this for the
- * deep sub-phase breakdowns. The summary `children` always show; `detail`
- * reveals on click. Compose `detail` from <SubPhase> blocks, e.g.:
- *
- *   <Phase n="1" title="Foundation & Data Cleanup" gated
- *     detail={<>
- *       <SubPhase label="1.1" title="SharePoint audit">…</SubPhase>
- *       <SubPhase label="1.2" title="Entra hygiene">…</SubPhase>
- *     </>}
- *   >
- *     <Bullets items={[…]} />
- *   </Phase>
+ * Keep the always-visible `children` to 3–5 bullets. Pass a `detail` node for
+ * the deep dive (process, sub-phases, agendas) — the phase header becomes
+ * clickable and the detail expands below. Compose `detail` from <SubPhase>
+ * blocks, bullets, links, etc.
  */
 export function Phase({
-  n, title, gated, children, output, detail, detailLabel = 'Detailed sub-phases',
+  n, title, gated, children, output, detail,
 }: {
   n: string
   title: React.ReactNode
@@ -221,9 +213,15 @@ export function Phase({
   children: React.ReactNode
   output?: string
   detail?: React.ReactNode
-  detailLabel?: string
 }) {
   const [open, setOpen] = useState(false)
+  const hasDetail = !!detail
+  const gatedChip = gated ? (
+    <span className="ml-2.5 inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-rose-400/16 text-rose-400 border border-rose-400/30 align-middle">
+      Conditional
+    </span>
+  ) : null
+
   return (
     <div className="relative grid grid-cols-[90px_1fr] gap-7 pb-9 last:pb-0">
       {/* connector */}
@@ -241,32 +239,37 @@ export function Phase({
       </div>
       {/* body */}
       <div className="pt-1">
-        <h3 className="text-xl font-extrabold text-white tracking-tight mb-2">
-          {title}
-          {gated && (
-            <span className="ml-2.5 inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-rose-400/16 text-rose-400 border border-rose-400/30 align-middle">
-              Gated
-            </span>
-          )}
-        </h3>
+        {hasDetail ? (
+          <button
+            onClick={() => setOpen((o) => !o)}
+            aria-expanded={open}
+            className="group flex items-start gap-3 w-full text-left mb-2"
+          >
+            <h3 className="text-xl font-extrabold text-white tracking-tight flex-1 group-hover:text-cyan-100 transition-colors">
+              {title}{gatedChip}
+            </h3>
+            <ChevronRight size={20} className={`flex-none mt-0.5 text-cyan-400 transition-transform duration-200 ${open ? 'rotate-90' : ''}`} />
+          </button>
+        ) : (
+          <h3 className="text-xl font-extrabold text-white tracking-tight mb-2">{title}{gatedChip}</h3>
+        )}
+
         {children}
         {output && <p className="mt-3 text-sm text-cyan-200">{output}</p>}
-        {detail && (
-          <div className="mt-4">
-            <button
-              onClick={() => setOpen((o) => !o)}
-              aria-expanded={open}
-              className="inline-flex items-center gap-1.5 text-[12px] font-bold uppercase tracking-[0.12em] text-cyan-300 hover:text-cyan-200 transition-colors"
-            >
-              <ChevronRight size={15} className={`transition-transform duration-200 ${open ? 'rotate-90' : ''}`} />
-              {open ? 'Hide details' : detailLabel}
-            </button>
-            {open && (
-              <div className="mt-4 flex flex-col gap-5 rounded-xl border border-white/10 bg-white/[0.025] p-5 md:p-6">
-                {detail}
-              </div>
-            )}
+
+        {hasDetail && open && (
+          <div className="mt-4 flex flex-col gap-5 rounded-xl border border-white/10 bg-white/[0.025] p-5 md:p-6">
+            {detail}
           </div>
+        )}
+        {hasDetail && (
+          <button
+            onClick={() => setOpen((o) => !o)}
+            className="mt-3 inline-flex items-center gap-1.5 text-[12px] font-bold uppercase tracking-[0.12em] text-cyan-300 hover:text-cyan-200 transition-colors"
+          >
+            <ChevronRight size={14} className={`transition-transform duration-200 ${open ? 'rotate-90' : ''}`} />
+            {open ? 'Hide details' : 'Expand phase'}
+          </button>
         )}
       </div>
     </div>
