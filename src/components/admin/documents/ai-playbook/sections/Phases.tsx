@@ -24,9 +24,9 @@ function FormLink() {
 // The deep-dive process inside the assessment — what happens, who, how long.
 const PROCESS = [
   { n: 'Pre', title: 'Intake form', meta: 'Client · before the call', body: 'Client completes the Business Snapshot intake so the call starts warm. Captured in the discovery form.' },
-  { n: '1', title: 'Discovery call', meta: '30 min · Zoom/Teams', body: 'Run 2–3 questions per profit zone. AI notetaker captures the transcript, mapped to the six zones. Listen for "manual / copy-paste / I do it / we forget".' },
-  { n: '2', title: 'Foundations & data check', meta: 'During the engagement', body: 'Verify a healthy Microsoft / Entra / SharePoint environment and clean, connectable data — the gate that decides the roadmap.' },
-  { n: '3', title: 'Build the report', meta: '~3 hrs · solo', body: 'Feed the transcript to Claude, map each pain to an AI play, and assemble the AIGPA report: AI Profit Gap, readiness score, estimated monthly waste, 90-day roadmap.' },
+  { n: '1', title: 'Discovery call', meta: '30 min · Zoom/Teams', body: 'Run 2–3 questions per profit zone + the systems/LOB questions. AI notetaker captures the transcript, mapped to the six zones. Listen for "manual / copy-paste / I do it / we forget".' },
+  { n: '2', title: 'Readiness & integration check', meta: 'During the engagement', body: 'Verify the foundation (healthy Microsoft / Entra / SharePoint, clean connectable data) AND assess each line-of-business app for integration feasibility (native / MCP / custom). This sequences the roadmap.' },
+  { n: '3', title: 'Build the report', meta: '~3 hrs · solo', body: 'Feed the transcript to Claude, map each pain to an AI play, and assemble the report: Profit Gap, readiness verdict, estimated monthly waste, platform pick, 90-day roadmap.' },
   { n: '4', title: 'Review call', meta: '30 min · Zoom/Teams', body: 'Walk the client through the report and position the three paths forward — the upsell trigger.' },
 ]
 
@@ -70,7 +70,7 @@ function NeedsCard({ title, items }: { title: string; items: React.ReactNode[] }
   )
 }
 
-// Phase 1 — the 7-category AI Readiness Scorecard.
+// Part B — the 7-category AI Readiness Scorecard.
 const READINESS_CATEGORIES: [string, string][] = [
   ['Workflow Automation', 'How automated are daily tasks?'],
   ['Data Organization', 'Is data structured, accessible, and accurate?'],
@@ -149,24 +149,36 @@ export default function Phases() {
         Delivery <span className="text-cyan-400">Phases</span>
       </SecHead>
 
-      <Lead>One path, start to finish. <strong className="text-white font-bold">Every customer begins with the AI Readiness Assessment</strong> — branches are explicit gates, not detours.</Lead>
+      <Lead>One path, start to finish. <strong className="text-white font-bold">Every customer begins with the AI Profit &amp; Readiness Assessment</strong> — branches are explicit gates, not detours.</Lead>
       <Body>Each phase shows the essentials; click a phase to expand the full process, sub-steps, and templates.</Body>
 
-      <Callout label="The paid front door — AI Readiness Assessment">
+      <Callout label="The paid front door — AI Profit & Readiness Assessment">
         <CalloutP>
-          Every engagement starts with one paid <strong className="text-white font-semibold">AI Readiness Assessment</strong> (the AIGPA), from $1,000. It's a real deep-dive analysis — six profit zones, a readiness + foundations check, and a quantified AI Profit Gap — delivered as a report with a 90-day roadmap and three paths forward. <strong className="text-white font-semibold">The customer is buying clarity and a plan</strong>, not a sales pitch; everything downstream is scoped from its output.
+          Every engagement starts with one paid <strong className="text-white font-semibold">AI Profit &amp; Readiness Assessment</strong>, from $1,000. It bundles <strong className="text-white font-semibold">two distinct analyses</strong> into one engagement and one report. The customer is buying <strong className="text-white font-semibold">clarity and a sequenced plan</strong>, not a sales pitch — everything downstream is scoped from it.
+        </CalloutP>
+      </Callout>
+
+      <Callout label="Two different things — don't conflate them">
+        <CalloutP>
+          <strong className="text-white font-semibold">Part A · Profit Gap Analysis = the opportunity.</strong> Where is AI going to add profit or cut waste? (Six profit zones, the dollar value of the waste, the AI plays that close it.) You can run this for anyone.
+        </CalloutP>
+        <CalloutP>
+          <strong className="text-white font-semibold">Part B · Readiness Assessment = the feasibility.</strong> Can we actually implement — and what has to happen first? (Microsoft foundation, clean/connectable data, governance, and per-app integration feasibility.)
+        </CalloutP>
+        <CalloutP>
+          They're independent: a client can have a <em>huge</em> profit gap and <em>not</em> be ready. That isn't a contradiction — it's the plan. <strong className="text-white font-semibold">The gap proves it's worth it; readiness sets the starting point.</strong> If the foundation is missing, the roadmap simply opens with foundation / cleanup work (Phase 2), then the AI plays. Principle: anyone can <em>start</em> using basic AI today, but we won't <strong className="text-white font-semibold">implement managed, integrated AI on a broken foundation</strong> — that's what readiness gates.
         </CalloutP>
       </Callout>
 
       <div className="my-7">
         <Phase
           n="1"
-          title={<>AI Readiness Assessment <PriceChip /></>}
-          output="Output → the AIGPA report + a readiness verdict (go / clean-data-first / not-ready) + the client's chosen path (DIY / Consult / Done-For-You)."
+          title={<>AI Profit &amp; Readiness Assessment <PriceChip /></>}
+          output="Output → one report with both analyses + a verdict that sequences the roadmap (foundation-first if not ready) + the client's chosen path (DIY / Consult / Done-For-You)."
           detail={
             <>
               <p className="text-[15px] leading-relaxed text-slate-300 m-0">
-                <strong className="text-white font-semibold">What the client is paying for:</strong> a clear, quantified answer to "is AI worth it for us, and where's the ROI?" — delivered as the AIGPA report (AI Profit Gap, platform recommendation, 90-day roadmap, three paths). That's the differentiator: a real analysis, not a pitch.
+                <strong className="text-white font-semibold">What the client is paying for:</strong> a clear, quantified answer to "is AI worth it for us, can we do it, and in what order?" — delivered as one report (Profit Gap + Readiness + platform recommendation + a sequenced 90-day roadmap + three paths). A real analysis, not a pitch.
               </p>
 
               <H4>The process</H4>
@@ -179,7 +191,7 @@ export default function Phases() {
                   items={[
                     <><strong className="text-white font-semibold">AI notetaker</strong> on every call — transcript mapped to the six zones.</>,
                     <><strong className="text-white font-semibold">Claude / Cowork</strong> set up to <Link href="/admin/documents/ai-playbook/cowork-sop" className="text-cyan-400 hover:text-cyan-300 underline underline-offset-2">our SOP</Link> (context, brand-voice, skills) — the engine that builds the report.</>,
-                    <><strong className="text-white font-semibold">AIGPA report template</strong> + the discovery form (intake, questions, waste calculator).</>,
+                    <><strong className="text-white font-semibold">Report template</strong> + the discovery form (intake, questions, waste calculator).</>,
                     <><strong className="text-white font-semibold">~3 hrs solo build</strong> + the two 30-min calls.</>,
                     <>The <strong className="text-white font-semibold">AI Services Agreement</strong> ready to attach if they proceed.</>,
                   ]}
@@ -191,44 +203,46 @@ export default function Phases() {
                     <>A <strong className="text-white font-semibold">30-min discovery call</strong> and a <strong className="text-white font-semibold">30-min review call</strong>.</>,
                     <>The <strong className="text-white font-semibold">owner / real decision-maker</strong>, plus relevant department leads.</>,
                     <><strong className="text-white font-semibold">Real numbers</strong> — hours, payroll, metrics — to quantify monthly waste.</>,
-                    <><strong className="text-white font-semibold">Read / visibility access</strong> where needed to validate readiness.</>,
+                    <><strong className="text-white font-semibold">Read / visibility access</strong> + a list of their line-of-business apps.</>,
                   ]}
                 />
               </div>
 
-              <H4>Foundations &amp; data readiness (built in)</H4>
+              <H4>Part A — Profit Gap Analysis</H4>
               <p className="text-[15px] leading-relaxed text-slate-300 m-0">
-                Verifying the foundation is <em>part of</em> the assessment — not a separate step. Without a healthy Microsoft / Entra / SharePoint environment and clean, connectable data, the LLM is just a chatbot with no knowledge of the business (garbage in, garbage out). If the foundation fails, the roadmap opens with a cleanup project (Phase 2).
+                The six-zone discovery quantifies where time and money leak and maps each pain to an AI play. Output: a dollar AI Profit Gap and a prioritized play list. Captured in the discovery form (six zones + monthly-waste calculator).
               </p>
 
-              <H4>AI Readiness Scorecard</H4>
-              <p className="text-[15px] leading-relaxed text-slate-300 m-0">Score each 1–5; the total maps to a readiness band that backs the verdict.</p>
+              <H4>Part B — Readiness Assessment</H4>
+              <p className="text-[15px] leading-relaxed text-slate-300 m-0">
+                Verify the foundation (healthy Microsoft / Entra / SharePoint, clean connectable data, governance) and assess <strong className="text-white font-semibold">each line-of-business app for integration feasibility</strong> — native connector (fast, included), MCP (some work), or custom dev (a project). Score it on the scorecard below; the band sets the verdict.
+              </p>
               <ReadinessScorecard />
 
               <Callout label="Pricing">
                 <CalloutP>
-                  <strong className="text-white font-semibold">Starts at $1,000.</strong> Billable and valuable on its own. Scope up by company size, zones in play, and depth.
+                  <strong className="text-white font-semibold">Starts at $1,000.</strong> Billable and valuable on its own. Scope up by company size, zones in play, and depth. (See the Service Bundle section for the full pricing model.)
                 </CalloutP>
               </Callout>
 
               <FormLink />
-              <p className="text-[13px] text-slate-500 m-0">The form holds the intake, the six-zone deep dive, and the monthly-waste calculator. Generate the AIGPA report from a saved assessment, then open it to present / print.</p>
+              <p className="text-[13px] text-slate-500 m-0">The form holds the intake, the six-zone deep dive, the systems/LOB questions, and the monthly-waste calculator. Generate the report from a saved assessment, then open it to present / print / share.</p>
             </>
           }
         >
           <Bullets items={[
-            <><strong className="text-white font-semibold">Everyone starts here</strong> — a paid deep dive that answers "is AI worth it, and where's the ROI?"</>,
-            'Six-zone discovery (intake + call), readiness scored, monthly waste quantified in dollars.',
-            'Foundations & data readiness are checked as part of the assessment.',
-            <><strong className="text-white font-semibold">Deliverable:</strong> the AIGPA report — Profit Gap, platform rec, 90-day roadmap, three paths.</>,
+            <><strong className="text-white font-semibold">Everyone starts here</strong> — one paid engagement, two analyses, one report.</>,
+            <><strong className="text-white font-semibold">Part A · Profit Gap Analysis</strong> — six zones, monthly waste in dollars, the AI plays. <span className="text-slate-400">(the opportunity)</span></>,
+            <><strong className="text-white font-semibold">Part B · Readiness Assessment</strong> — foundations, data, governance, and per-app integration feasibility. <span className="text-slate-400">(can we, and what first)</span></>,
+            <><strong className="text-white font-semibold">Deliverable:</strong> the report — gap + readiness + platform rec + a sequenced 90-day roadmap + three paths.</>,
           ]} />
         </Phase>
 
         <Phase n="2" title="Foundation & Data Cleanup" gated>
           <Bullets items={[
-            <><strong className="text-white font-semibold">Fires only if the readiness check fails.</strong> It's a project, not part of the MRR.</>,
-            'Scope a cleanup / remediation project first (we use AI to do it). Cost scales with how messy SharePoint is.',
-            'Confirm Microsoft / Entra / SharePoint hygiene and that systems are AI-connectable.',
+            <><strong className="text-white font-semibold">Fires only when the readiness assessment says "not ready."</strong> It's the roadmap's first step, scoped as a project — not part of the MRR.</>,
+            'Scope the cleanup / remediation the assessment prescribed (we use AI to do it). Cost scales with how messy SharePoint / the data is.',
+            'Confirm Microsoft / Entra / SharePoint hygiene and that the must-connect systems are actually AI-connectable.',
             <><strong className="text-white font-semibold">Do not proceed to provisioning</strong> until the foundation passes.</>,
           ]} />
         </Phase>
@@ -237,14 +251,14 @@ export default function Phases() {
           <Bullets items={[
             'Confirm the platform direction from the assessment. Default to ChatGPT for everyday employee use; Claude for build / integration work.',
             'Stand up the business / Team account, configure the domain, prepare to invite employees.',
-            'Confirm training is off (default on Business — contractual) and document it. Corporate (not personal) accounts for everyone.',
+            'Connect the up-to-3 native integrations from onboarding. Confirm training is off (default on Business) and use corporate (not personal) accounts.',
           ]} />
         </Phase>
 
         <Phase n="4" title="Governance & Integrations">
           <Bullets items={[
-            'Apply the security & governance baseline; document the ring-fencing.',
-            <><strong className="text-white font-semibold">Wire native connectors:</strong> ChatGPT ↔ Microsoft, SharePoint, email. Clean context in → better output.</>,
+            'Apply the security & governance baseline; deploy the AI Acceptable Use Policy; document the ring-fencing.',
+            <><strong className="text-white font-semibold">Wire the native connectors:</strong> ChatGPT ↔ Microsoft, SharePoint, email, and the other included systems. Clean context in → better output.</>,
             'Define user tiers (basic vs. advanced consumers, like Microsoft licensing).',
           ]} />
         </Phase>
@@ -264,7 +278,7 @@ export default function Phases() {
         >
           <Bullets items={[
             'Monitor token consumption against the org pool; alert at thresholds; reallocate vs. buy more.',
-            'Handle adds / moves / changes.',
+            <>Handle adds / moves / changes <span className="text-slate-400">(billed additional — not in the plan)</span>.</>,
             <><strong className="text-white font-semibold">Run the monthly customer AI webinar</strong> (owner: Jim) — community, success stories, what\'s new & coming. Expand for the agenda.</>,
             'Surface project opportunities: "you\'ve got a taste — it can also do these as a project."',
           ]} />
@@ -280,11 +294,11 @@ export default function Phases() {
       <H3>Decision gates &amp; forks</H3>
       <Body>Run these in order. The first three qualify the engagement; the rest shape the build.</Body>
       <div className="my-6 space-y-0">
-        <Gate fork="Gate · Readiness" question="Do foundations + data pass the assessment?" yesText="Proceed to platform selection & provisioning." noText={<>Scope a foundation / data-cleanup project first <strong className="text-white font-semibold">(Phase 2)</strong>.</>} />
+        <Gate fork="Gate · Readiness" question="Do foundations + data pass the assessment?" yesText="Proceed to platform selection & provisioning." noText={<>The roadmap opens with a foundation / data-cleanup project first <strong className="text-white font-semibold">(Phase 2)</strong>.</>} />
         <Gate fork="Gate · Compliance" question="Any CUI / CMMC-regulated data in scope?" yesText="Keep it out of cloud AI — out of scope at this stage." noText="Proceed under the standard disclaimer; ring-fence training off." />
-        <Gate fork="Gate · Procurement" question="Is the client buying AI through TCT?" yesText="Full managed services — we run it end to end." noText="Support only on a contract; ongoing maintenance stays theirs." />
+        <Gate fork="Gate · Procurement" question="Is the client buying AI through TCT?" yesText="Full managed services — we run it end to end." noText="T&M at $250/hr and/or advisory-only, with a waiver. Full management strongly preferred." />
         <Gate fork="Gate · Platform" question="Primary use = everyday chat & employee enablement?" yesText="Standardize on ChatGPT." noText="Custom build / automation → Claude + an AI Development project." />
-        <Gate fork="Gate · Sensitivity" question={'Is "AI sees our data" a true full-stop concern?'} yesText="Go local — Spark / private cloud (fewer integrations; set expectations)." noLabel="Otherwise" noText="Educate (see Security &amp; Risk below) and proceed — same risk model as Google / Microsoft for 20 yrs." />
+        <Gate fork="Gate · Integration" question="Do the must-connect systems have native connectors?" yesText="Include up to 3 in onboarding." noText="MCP = additional integration project; no connector = custom dev (or out of scope)." />
         <Gate fork="Gate · Expansion" question="Does the client want a custom build now?" yesText="Scope as AI Development — release cycle + recurring maintenance fee." noText="Stay in managed services; surface at the next TBR." />
       </div>
     </GradSection>

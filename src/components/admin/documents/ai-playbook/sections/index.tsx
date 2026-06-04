@@ -17,6 +17,7 @@ import Phases from './Phases'
 import Platform from './Platform'
 import Risk from './Risk'
 import Tokens from './Tokens'
+import ServiceBundle from './ServiceBundle'
 import Development from './Development'
 import CaseStudies from './CaseStudies'
 import ActionItems from './ActionItems'
@@ -35,7 +36,8 @@ export const SECTIONS: PlaybookSection[] = [
   { id: 'platform',    num: '04', label: 'ChatGPT vs. Claude',          Component: Platform },
   { id: 'risk',        num: '05', label: 'Security, Risk & Compliance', Component: Risk },
   { id: 'tokens',      num: '06', label: 'Token Economics & Billing',   Component: Tokens },
-  { id: 'development', num: '07', label: 'AI Development Track',         Component: Development },
-  { id: 'cases',       num: '08', label: 'Examples & Case Studies',     Component: CaseStudies },
-  { id: 'actions',     num: '09', label: 'Action Items',                Component: ActionItems },
+  { id: 'bundle',      num: '07', label: 'Service Bundle & Pricing',    Component: ServiceBundle },
+  { id: 'development', num: '08', label: 'AI Development Track',         Component: Development },
+  { id: 'cases',       num: '09', label: 'Examples & Case Studies',     Component: CaseStudies },
+  { id: 'actions',     num: '10', label: 'Action Items',                Component: ActionItems },
 ]

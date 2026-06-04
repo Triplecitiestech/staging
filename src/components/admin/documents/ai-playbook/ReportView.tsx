@@ -31,7 +31,7 @@ export default function ReportView({ report }: { report: AigpaReport }) {
           <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-cyan-700">Triple Cities Tech</span>
           <span className="text-[11px] font-medium text-slate-400">{date}</span>
         </div>
-        <div className="text-[13px] font-bold uppercase tracking-[0.18em] text-cyan-700 mb-2">AI Growth &amp; Profit Assessment</div>
+        <div className="text-[13px] font-bold uppercase tracking-[0.18em] text-cyan-700 mb-2">AI Profit &amp; Readiness Assessment</div>
         <h1 className="text-3xl sm:text-4xl font-black tracking-tight text-slate-900">{report.companyName}</h1>
         {report.executiveSummary && (
           <p className="text-[16px] leading-relaxed text-slate-600 mt-4">{report.executiveSummary}</p>
@@ -41,7 +41,7 @@ export default function ReportView({ report }: { report: AigpaReport }) {
       <div className="px-8 sm:px-12 py-8 flex flex-col gap-9">
         {/* AI Profit Gap */}
         <section>
-          <h2 className="text-[12px] font-bold uppercase tracking-[0.16em] text-cyan-700 mb-3">The AI Profit Gap</h2>
+          <h2 className="text-[12px] font-bold uppercase tracking-[0.16em] text-cyan-700 mb-3">Part A · Profit Gap Analysis</h2>
           {(monthly || annual) && (
             <div className="grid grid-cols-2 gap-4 mb-4">
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-5">
@@ -96,7 +96,7 @@ export default function ReportView({ report }: { report: AigpaReport }) {
         <section className="grid grid-cols-1 sm:grid-cols-2 gap-4 break-inside-avoid">
           {report.readiness && (
             <div className="rounded-lg border border-slate-200 p-5">
-              <h2 className="text-[12px] font-bold uppercase tracking-[0.16em] text-cyan-700 mb-2">AI Readiness</h2>
+              <h2 className="text-[12px] font-bold uppercase tracking-[0.16em] text-cyan-700 mb-2">Part B · Readiness Assessment</h2>
               {report.readiness.band && <div className="text-lg font-bold text-slate-900 mb-1">{report.readiness.band}</div>}
               {report.readiness.summary && <p className="text-[14.5px] leading-relaxed text-slate-700">{report.readiness.summary}</p>}
             </div>
@@ -163,7 +163,7 @@ export default function ReportView({ report }: { report: AigpaReport }) {
       </div>
 
       <footer className="px-8 sm:px-12 py-5 border-t border-slate-200 text-[12px] text-slate-400 flex items-center justify-between">
-        <span>Triple Cities Tech · AI Growth &amp; Profit Assessment</span>
+        <span>Triple Cities Tech · AI Profit &amp; Readiness Assessment</span>
         <span>{report.companyName}</span>
       </footer>
     </article>

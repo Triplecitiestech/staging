@@ -1,66 +1,94 @@
-import { AlertTriangle, Check, X } from 'lucide-react'
-import { SecHead, Lead, H4, Callout, CalloutP } from '../primitives'
+import { AlertTriangle, Check, Plus } from 'lucide-react'
+import { SecHead, Lead, Body, H4, Callout, CalloutP } from '../primitives'
 
-const ROWS: [string, string][] = [
-  ['Infrastructure setup — domain, business / Team account, inviting employees', 'Custom GPTs and agents — one-off builds (can be done at onboarding)'],
-  ['Security & governance — confirm & document that client data is not used for training (off by default on Business)', 'Custom integrations to ERP / CRM where no native connector exists'],
-  ['Ecosystem integrations — native connectors: ChatGPT ↔ Microsoft, SharePoint, email', 'Automations & scheduled agents built for a specific business outcome'],
-  ['User enablement — AI office hours, prompting education, sharing what works', 'Data cleanup / SharePoint remediation (prerequisite project)'],
-  ['Adds, moves, changes (AMC) on the managed environment', 'Building or maintaining a custom app (e.g., an ERP replacement)'],
-  ['Token pool monitoring & threshold alerting (roadmap — see §6)', 'Live one-off tweaks to delivered custom products (governed by a release cycle)'],
-  ['Platform selection guidance — ChatGPT vs. Claude per use case', 'CUI / CMMC-regulated workloads (see §5 risk)'],
+const INCLUDED: React.ReactNode[] = [
+  <><strong className="text-white font-semibold">Infrastructure setup</strong> — domain, the business / Team account, and full setup on the chosen platform (ChatGPT or Claude).</>,
+  <><strong className="text-white font-semibold">AI Acceptable Use Policy</strong> — drafted, deployed, and documented.</>,
+  <><strong className="text-white font-semibold">Up to 3 native integrations</strong> — connect the AI to up to three systems with native connectors (e.g., M365 email + SharePoint, Fathom, Monday.com) so it becomes the central brain tying systems together.</>,
+  <><strong className="text-white font-semibold">Security & governance</strong> — confirm & document that data is not used for training (off by default on Business).</>,
+  <><strong className="text-white font-semibold">User enablement</strong> — AI office hours + the monthly customer AI webinar.</>,
+  <><strong className="text-white font-semibold">Token-pool monitoring</strong> & threshold alerting (roadmap — see Token Economics).</>,
+  <><strong className="text-white font-semibold">Platform & integration-feasibility guidance</strong> — which platform fits, and which of their systems can actually connect.</>,
 ]
+
+const ADDITIONAL: React.ReactNode[] = [
+  <><strong className="text-white font-semibold">Adds, moves & changes (AMC)</strong> — any change after onboarding. Always additional.</>,
+  <><strong className="text-white font-semibold">Custom GPTs & agents</strong> — one-off builds.</>,
+  <><strong className="text-white font-semibold">Workflows & automations</strong> built for a specific business outcome.</>,
+  <><strong className="text-white font-semibold">Integrations beyond the included 3</strong>, or any non-native connection (MCP / custom).</>,
+  <><strong className="text-white font-semibold">Data cleanup / SharePoint remediation</strong> (prerequisite project).</>,
+  <><strong className="text-white font-semibold">Custom app builds</strong> (e.g., an ERP replacement).</>,
+  <><strong className="text-white font-semibold">CUI / CMMC-regulated workloads</strong> — out of scope at this stage (see Security & Risk).</>,
+]
+
+function ScopeList({ title, items, kind }: { title: string; items: React.ReactNode[]; kind: 'in' | 'add' }) {
+  const Icon = kind === 'in' ? Check : Plus
+  const iconClass = kind === 'in' ? 'text-emerald-400' : 'text-violet-300'
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-5">
+      <h4 className={`text-[13px] font-bold uppercase tracking-[0.12em] mb-3 ${kind === 'in' ? 'text-emerald-400' : 'text-violet-300'}`}>{title}</h4>
+      <ul className="flex flex-col gap-2.5 list-none p-0 m-0">
+        {items.map((it, i) => (
+          <li key={i} className="flex gap-2.5 items-start text-[14.5px] leading-relaxed text-slate-300">
+            <Icon size={17} className={`${iconClass} flex-none mt-0.5`} />
+            <span>{it}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
 
 export default function Scope() {
   return (
     <section id="scope" className="pt-20 scroll-mt-8">
       <SecHead n="02" kicker="The Scope Boundary">
-        What's Included <span className="text-cyan-400">vs. What's Not</span>
+        What's Included <span className="text-cyan-400">vs. What's Additional</span>
       </SecHead>
 
       <Lead>
-        The clarity here — <strong className="text-white font-bold">"adds / moves / changes yes, custom integrations no"</strong> — is what protects your time and keeps the recurring fee honest.
+        The recurring fee covers <strong className="text-white font-bold">setup, policy, and up to three native integrations</strong>. Everything you change, add, or build after that is additional — that's the line that keeps the fee honest.
       </Lead>
 
-      <H4>AI Managed Services — the recurring bundle</H4>
-      <div className="rounded-xl overflow-hidden border border-white/10 my-6">
-        <table className="w-full border-collapse text-[15px]">
-          <thead>
-            <tr>
-              <th className="text-left px-5 py-4 text-emerald-400 font-bold text-[13px] uppercase tracking-wide bg-emerald-400/10 border-b border-cyan-400/30 w-1/2">✅ Included in MRR</th>
-              <th className="text-left px-5 py-4 text-rose-400 font-bold text-[13px] uppercase tracking-wide bg-rose-400/10 border-b border-cyan-400/30 w-1/2">❌ Not included (= AI Development project)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ROWS.map(([inc, exc], i) => (
-              <tr key={i} className="border-b border-white/10 last:border-0 hover:bg-white/[0.02] transition-colors">
-                <td className="px-5 py-4 align-top text-slate-300 border-r border-white/10">
-                  <div className="flex gap-3 items-start">
-                    <Check size={18} className="text-emerald-400 flex-none mt-0.5" />
-                    <span dangerouslySetInnerHTML={{ __html: inc.replace(/—/, '<strong class="text-white">—</strong>').replace(/^([^—]+)/, (m) => `<strong class="text-white">${m}</strong>`) }} />
-                  </div>
-                </td>
-                <td className="px-5 py-4 align-top text-slate-300">
-                  <div className="flex gap-3 items-start">
-                    <X size={18} className="text-rose-400 flex-none mt-0.5" />
-                    <span dangerouslySetInnerHTML={{ __html: exc.replace(/—/, '<strong class="text-white">—</strong>').replace(/^([^—]+)/, (m) => `<strong class="text-white">${m}</strong>`) }} />
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <H4>Managed AI Services — what the recurring fee covers</H4>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 my-6">
+        <ScopeList title="✅ Included" items={INCLUDED} kind="in" />
+        <ScopeList title="➕ Always additional (project or T&M)" items={ADDITIONAL} kind="add" />
+      </div>
+
+      <Callout label="Onboarding fee">
+        <CalloutP>
+          A one-time <strong className="text-white font-semibold">onboarding fee</strong> covers the initial infrastructure setup, the AI Acceptable Use Policy, and connecting the first <strong className="text-white font-semibold">up to three native integrations</strong>. The monthly per-user fee starts once the environment is live. (See the Service Bundle for current numbers.)
+        </CalloutP>
+      </Callout>
+
+      <H4>Integration feasibility — how we scope each system</H4>
+      <Body>Part of the assessment is checking each line-of-business app against the chosen platform. Three outcomes:</Body>
+      <div className="rounded-lg border border-white/10 divide-y divide-white/5 my-5">
+        {[
+          ['Native connector exists', 'Included (counts toward the 3). Fast — the AI plugs straight in.', 'text-emerald-400'],
+          ['MCP available', 'Some work — possible, but usually scoped as additional (an integration project).', 'text-cyan-300'],
+          ['No connector / custom or legacy app', 'A custom-development project — or, sometimes, not worth it. Set expectations.', 'text-violet-300'],
+        ].map(([k, d, c]) => (
+          <div key={k as string} className="grid grid-cols-[210px_1fr] gap-4 px-4 py-3">
+            <div className={`text-[14px] font-bold ${c as string}`}>{k}</div>
+            <div className="text-[14px] text-slate-300 leading-snug">{d}</div>
+          </div>
+        ))}
       </div>
 
       <Callout label="The line in the sand">
         <CalloutP quote>
-          "We manage the infrastructure — the Microsoft, the OpenAI. You want adds, moves, changes, whatever — included. But if you're building custom integrations, that's not supported, that's not in scope."
+          "We set up and manage the platform — the account, the policy, and up to three native integrations. Anything you want changed, added, or built after that — adds/moves/changes, custom GPTs, workflows, extra integrations — is additional, quoted as a project or billed T&amp;M."
         </CalloutP>
       </Callout>
 
       <Callout warn label={<><AlertTriangle size={16} /> If a client buys AI direct (not through TCT)</>}>
         <CalloutP>
-          We will still help them manage it — <strong className="text-white font-semibold">but only on a contract.</strong> We can't force them through us; we just can't carry the ongoing maintenance for free.
+          We don't carry it under managed services. We can support it on a <strong className="text-white font-semibold">premium T&amp;M AI rate ($250/hr)</strong> and/or <strong className="text-white font-semibold">advisory-only</strong> — we guide, we don't implement — and we'll likely require a <strong className="text-white font-semibold">liability waiver</strong>.
+        </CalloutP>
+        <CalloutP>
+          Without full management and visibility into their systems, we can't safely own outcomes or work backwards from someone else's setup. <strong className="text-white font-semibold">Full management is strongly preferred</strong> — and if an unmanaged setup breaks, that's the case for managed services.
         </CalloutP>
       </Callout>
     </section>

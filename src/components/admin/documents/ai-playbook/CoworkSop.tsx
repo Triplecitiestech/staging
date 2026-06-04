@@ -55,7 +55,7 @@ export default function CoworkSop() {
             Claude / Cowork <span className="text-cyan-400">Setup</span>
           </h1>
           <Lead>
-            The engine behind every AIGPA. Out of the box Cowork doesn't know who we are — it starts every session from zero. This is the 30-minute setup that turns it into a trained second employee that builds our kits and reports in our voice.
+            The engine behind every assessment. Out of the box Cowork doesn't know who we are — it starts every session from zero. This is the 30-minute setup that turns it into a trained second employee that builds our kits and reports in our voice.
           </Lead>
         </header>
 
@@ -117,7 +117,7 @@ export default function CoworkSop() {
             <H4>TCT skills worth building first</H4>
             <Bullets items={[
               <><strong className="text-white font-semibold">Discovery transcript → six zones</strong> — feed the call transcript, get pains mapped to Acquisition / Conversion / Fulfillment / Retention / Administration / Strategy.</>,
-              <><strong className="text-white font-semibold">AIGPA report builder</strong> — turn a mapped transcript into our report format (Profit Gap, plays, 90-day roadmap, three paths).</>,
+              <><strong className="text-white font-semibold">Assessment report builder</strong> — turn a mapped transcript into our report format (Profit Gap, Readiness, plays, 90-day roadmap, three paths).</>,
               <><strong className="text-white font-semibold">Proposal / deliverable generator</strong> — the format we always build to, in one command.</>,
               <><strong className="text-white font-semibold">Meeting notes → action items</strong>, <strong className="text-white font-semibold">research assistant</strong>, <strong className="text-white font-semibold">content repurposing</strong> (reads brand-voice.md), and the <strong className="text-white font-semibold">skill creator</strong> (a skill that builds skills).</>,
             ]} />
@@ -147,7 +147,7 @@ export default function CoworkSop() {
           <div>
             <H3>Cowork vs. Claude Code</H3>
             <Body>
-              Same model, different tools. <strong className="text-white font-semibold">Claude Code</strong> is a terminal coding agent for builders shipping software. <strong className="text-white font-semibold">Cowork</strong> is the point-click-type middle ground for operators — file access, connectors, skills, scheduled tasks, no terminal. For AIGPA delivery, Cowork is where you live; reach for Claude Code on the AI Development build track.
+              Same model, different tools. <strong className="text-white font-semibold">Claude Code</strong> is a terminal coding agent for builders shipping software. <strong className="text-white font-semibold">Cowork</strong> is the point-click-type middle ground for operators — file access, connectors, skills, scheduled tasks, no terminal. For assessment delivery, Cowork is where you live; reach for Claude Code on the AI Development build track.
             </Body>
           </div>
 

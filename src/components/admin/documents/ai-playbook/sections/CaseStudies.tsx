@@ -3,7 +3,7 @@ import { SecHead, Callout, CalloutP, Bullets, H3, ExCard, DividerQuote } from '.
 export default function CaseStudies() {
   return (
     <section id="cases" className="pt-20 scroll-mt-8">
-      <SecHead n="08" kicker="To Be Authored">
+      <SecHead n="09" kicker="To Be Authored">
         Examples <span className="text-cyan-400">&amp; Case Studies</span>
       </SecHead>
 

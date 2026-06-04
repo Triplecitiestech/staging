@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic'
 
 // Public, unauthenticated deliverable. Don't index shared client reports.
 export const metadata = {
-  title: 'AI Growth & Profit Assessment',
+  title: 'AI Profit & Readiness Assessment',
   robots: { index: false, follow: false },
 }
 

@@ -202,8 +202,8 @@ export default function DiscoveryForm() {
 
       <div className="flex flex-wrap items-end justify-between gap-4 mb-7">
         <div>
-          <div className="text-[12px] font-bold uppercase tracking-[0.2em] text-cyan-400 mb-1.5">Phase 0 · Discovery</div>
-          <h1 className="text-3xl font-black tracking-tight text-white">AI Discovery &amp; Readiness</h1>
+          <div className="text-[12px] font-bold uppercase tracking-[0.2em] text-cyan-400 mb-1.5">Phase 1 · The Assessment</div>
+          <h1 className="text-3xl font-black tracking-tight text-white">AI Profit &amp; Readiness Assessment</h1>
           <p className="text-slate-400 mt-2 max-w-2xl text-[15px] leading-relaxed">
             Fill this out with the client during the discovery call. Answers are saved per company and steer the platform
             recommendation, the readiness gates, and the downstream project scope.

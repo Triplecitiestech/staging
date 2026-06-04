@@ -3,9 +3,10 @@
  *   • the staff-filled discovery form (/admin/documents/ai-playbook/discovery)
  *   • the read-only worksheet rendered in Phase 0 of the playbook
  *
- * Structure follows the AI Growth & Profit Assessment (AIGPA) methodology: six
- * "profit zones" where work piles up and money leaks, plus a readiness/gates
- * group and a platform-direction group. On the call, pick 2–3 questions per
+ * Structure follows the AI Profit & Readiness Assessment methodology: six
+ * "profit zones" where work piles up and money leaks (Profit Gap Analysis),
+ * plus a systems/LOB group, a readiness/gates group, and a platform-direction
+ * group (Readiness Assessment). On the call, pick 2–3 questions per
  * zone (don't ask all of them) and listen for "manual", "copy-paste", "I do
  * it", "we forget" — that's a Red zone. Each zone captures an estimated
  * monthly $ waste (the "Follow-Up Multiplier" number that anchors the report).
@@ -36,7 +37,7 @@ export interface DiscoveryGroup {
   id: string
   title: string
   blurb?: string
-  /** One of the six AIGPA profit zones. */
+  /** One of the six profit zones. */
   zone?: boolean
   /** The platform-direction group — the doc/form flag it and tally leans. */
   platform?: boolean
@@ -147,6 +148,17 @@ export const DISCOVERY_GROUPS: DiscoveryGroup[] = [
       { id: 'compliance', theme: 'Compliance', kind: 'choice', prompt: 'Do you handle CUI / CMMC-regulated data?', tells: 'Compliance fork — keep CUI out of cloud AI for now.', choices: [{ label: 'No' }, { label: 'Some' }, { label: 'Yes' }, { label: 'Unsure' }] },
       { id: 'ai_state', theme: 'Current AI Use', kind: 'choice', prompt: 'Is anyone already using AI — and is it governed (policies, corporate accounts)?', tells: 'Shadow-AI risk + adoption maturity.', choices: [{ label: 'None yet' }, { label: 'Some, ungoverned' }, { label: 'Some, governed' }, { label: 'Widespread' }] },
       { id: 'buying_through', theme: 'Procurement', kind: 'choice', prompt: 'Will you buy AI through us, or do you already have / insist on your own?', tells: 'Scope fork — full managed vs. contract-only support.', choices: [{ label: 'Through TCT' }, { label: 'Already have it' }, { label: 'Insist on own' }, { label: 'Undecided' }] },
+    ],
+  },
+  {
+    id: 'systems',
+    title: 'Systems & Integrations — line-of-business apps',
+    blurb: 'Critical for platform choice and scope: which platform integrates best with their systems, and what each integration would take (native connector → MCP → custom dev).',
+    questions: [
+      { id: 'lob_apps', theme: 'LOB Apps', kind: 'longtext', prompt: 'What are your primary line-of-business applications — the systems you run the business on?', tells: 'Drives the platform pick (native-connector coverage) and the integration scope.' },
+      { id: 'must_connect', theme: 'Must Connect', kind: 'longtext', prompt: 'Which systems must the AI connect to / pull context from to be useful (the "central brain" targets)?', tells: 'Maps to the up-to-3 native integrations included in onboarding; extras are additional.' },
+      { id: 'custom_legacy', theme: 'Custom / Legacy', kind: 'text', prompt: 'Any industry-specific, custom, or legacy apps with no modern API?', tells: 'Likely no native connector → MCP or a custom-development project.' },
+      { id: 'data_location', theme: 'Where Data Lives', kind: 'text', prompt: 'Where does the business-critical data actually live (M365/SharePoint, a CRM, file shares, a LOB DB)?', tells: 'Connectability + the data-readiness gate.' },
     ],
   },
   {
