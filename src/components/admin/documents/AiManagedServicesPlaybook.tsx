@@ -275,6 +275,17 @@ export default function AiManagedServicesPlaybook() {
 
   return (
     <>
+      {/* Page canvas — this playbook was designed for a uniform near-black surface.
+          AdminShell paints a blue ambient gradient behind admin pages, which turns
+          every dark block here into a hard-edged rectangle. This full-bleed dark
+          layer covers that ambient (only while this page is mounted) so the masthead,
+          section bands, and cards melt into the canvas the way the design intends. */}
+      <div
+        className="fixed inset-0 -z-10 pointer-events-none"
+        aria-hidden
+        style={{ background: 'radial-gradient(125% 90% at 50% -8%, #0b121c 0%, #07090e 55%, #050609 100%)' }}
+      />
+
       {/* Progress bar */}
       <div className="fixed top-14 left-0 right-0 z-50 h-[2px]">
         <div
