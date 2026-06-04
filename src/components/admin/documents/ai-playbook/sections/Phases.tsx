@@ -178,7 +178,7 @@ export default function Phases() {
                   title="What we need — internal"
                   items={[
                     <><strong className="text-white font-semibold">AI notetaker</strong> on every call — transcript mapped to the six zones.</>,
-                    <><strong className="text-white font-semibold">Claude / Cowork</strong> set up to our SOP (context, brand-voice, skills) — the engine that builds the report.</>,
+                    <><strong className="text-white font-semibold">Claude / Cowork</strong> set up to <Link href="/admin/documents/ai-playbook/cowork-sop" className="text-cyan-400 hover:text-cyan-300 underline underline-offset-2">our SOP</Link> (context, brand-voice, skills) — the engine that builds the report.</>,
                     <><strong className="text-white font-semibold">AIGPA report template</strong> + the discovery form (intake, questions, waste calculator).</>,
                     <><strong className="text-white font-semibold">~3 hrs solo build</strong> + the two 30-min calls.</>,
                     <>The <strong className="text-white font-semibold">AI Services Agreement</strong> ready to attach if they proceed.</>,
