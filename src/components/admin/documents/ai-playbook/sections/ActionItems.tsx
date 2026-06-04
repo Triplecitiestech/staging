@@ -10,8 +10,9 @@ const ITEMS: React.ReactNode[] = [
   <><strong className="text-white font-semibold">Design the token-monitoring approach</strong> — deprioritize homegrown; lean on partner-channel multi-tenancy (Anthropic Partner Network live; manage OpenAI Business directly).</>,
   <><strong className="text-white font-semibold">Define AI office-hours curriculum</strong> (2–3 weeks of prompting sessions) and decide on the monthly all-client AI webinar.</>,
   <><strong className="text-white font-semibold">Document the scope boundary</strong> (AMC included / custom integrations excluded) into the standard quote terms, including the development-cycle language.</>,
-  <><strong className="text-white font-semibold">Productize the AIGPA in Autotask</strong> — the paid AI Growth &amp; Profit Assessment as a standardized offering starting at $1,000.</>,
-  <><strong className="text-white font-semibold">Build the AIGPA report template + Business Snapshot intake form + ROI / monthly-waste calculator</strong> so every assessment is repeatable and on-brand.</>,
+  <><strong className="text-white font-semibold">Productize the offering in Autotask</strong> — the AI Profit &amp; Readiness Assessment (from $1,000), the $50/user managed bundle, the onboarding fee, and the add-on rates (see Service Bundle &amp; Pricing).</>,
+  <><strong className="text-white font-semibold">Confirm vendor minimums &amp; partner terms</strong> — pin down OpenAI (Business/Enterprise, no public reseller) and Anthropic (Claude Partner Network) per-seat cost, seat minimums, and token/usage limits before quoting.</>,
+  <><strong className="text-white font-semibold">Build the assessment report template + Business Snapshot intake form + ROI / monthly-waste calculator</strong> so every assessment is repeatable and on-brand.</>,
   <><strong className="text-white font-semibold">Stand up the AI Services Agreement</strong> (scope, pricing, liability, AI acceptable-use, implementation-period waiver) with local counsel — to attach when a client moves from assessment to engagement.</>,
   <><strong className="text-white font-semibold">Standardize the Claude / Cowork build workspace</strong> (context folder, brand-voice, skills, scheduled tasks) so kit + report builds are fast and consistent across the team — <Link href="/admin/documents/ai-playbook/cowork-sop" className="text-cyan-400 hover:text-cyan-300 underline underline-offset-2">see the setup SOP</Link>.</>,
   <><strong className="text-white font-semibold">Assign Jim as owner of the monthly customer AI webinar</strong> and build the recurring agenda + deck template (wins, what we shipped, what's new, what's coming, Q&amp;A, one play to try). It's a committed part of the managed-services offering.</>,
@@ -20,7 +21,7 @@ const ITEMS: React.ReactNode[] = [
 export default function ActionItems() {
   return (
     <GradSection id="actions">
-      <SecHead n="09" kicker="On the Books by End of June">
+      <SecHead n="10" kicker="On the Books by End of June">
         Action Items to <span className="text-cyan-400">Operationalize</span>
       </SecHead>
 

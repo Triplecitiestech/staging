@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic'
 
 export const metadata = {
   title: 'Claude / Cowork Setup SOP — TCT Admin',
-  description: 'Internal SOP for configuring Claude / Cowork so it builds AIGPA kits and reports consistently in TCT\'s voice.',
+  description: 'Internal SOP for configuring Claude / Cowork so it builds AI assessment kits and reports consistently in TCT\'s voice.',
 }
 
 export default async function CoworkSopPage() {

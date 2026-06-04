@@ -8,7 +8,7 @@ import ReportActions from '@/components/admin/documents/ai-playbook/ReportAction
 export const dynamic = 'force-dynamic'
 
 export const metadata = {
-  title: 'AIGPA Report — TCT Admin',
+  title: 'AI Profit & Readiness Assessment — TCT Admin',
 }
 
 export default async function AigpaReportPage({ params }: { params: Promise<{ id: string }> }) {

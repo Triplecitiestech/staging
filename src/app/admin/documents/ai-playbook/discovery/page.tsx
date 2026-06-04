@@ -7,7 +7,7 @@ import DiscoveryForm from '@/components/admin/documents/ai-playbook/DiscoveryFor
 export const dynamic = 'force-dynamic'
 
 export const metadata = {
-  title: 'AI Discovery & Readiness — TCT Admin',
+  title: 'AI Profit & Readiness Assessment — TCT Admin',
   description: 'Staff-filled discovery questionnaire that steers platform selection and readiness for the AI Managed Services engagement.',
 }
 
