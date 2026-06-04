@@ -28,6 +28,7 @@ interface Draft {
   notes: string
   status: 'draft' | 'complete'
   reportGeneratedAt: string | null
+  shareToken: string | null
 }
 
 const blankDraft = (): Draft => ({
@@ -38,6 +39,7 @@ const blankDraft = (): Draft => ({
   notes: '',
   status: 'draft',
   reportGeneratedAt: null,
+  shareToken: null,
 })
 
 function fmtDate(iso: string): string {
@@ -55,6 +57,11 @@ export default function DiscoveryForm() {
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [generating, setGenerating] = useState(false)
   const [reportError, setReportError] = useState<string | null>(null)
+  const [sharePending, setSharePending] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [origin, setOrigin] = useState('')
+
+  useEffect(() => { setOrigin(window.location.origin) }, [])
 
   const fetchList = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -90,6 +97,7 @@ export default function DiscoveryForm() {
         notes: assessment.notes ?? '',
         status: assessment.status ?? 'draft',
         reportGeneratedAt: assessment.reportGeneratedAt ?? null,
+        shareToken: assessment.shareToken ?? null,
       })
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Failed to open assessment')
@@ -150,6 +158,34 @@ export default function DiscoveryForm() {
     } finally {
       setGenerating(false)
     }
+  }
+
+  const toggleShare = async (enable: boolean) => {
+    if (!draft?.id || sharePending) return
+    setReportError(null)
+    setSharePending(true)
+    try {
+      const res = await fetch('/api/admin/ai-discovery/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: draft.id, enable }),
+      })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || `HTTP ${res.status}`)
+      const { token } = await res.json()
+      setDraft((d) => (d ? { ...d, shareToken: token ?? null } : d))
+    } catch (err) {
+      setReportError(err instanceof Error ? err.message : 'Failed to update share link')
+    } finally {
+      setSharePending(false)
+    }
+  }
+
+  const shareUrl = draft?.shareToken ? `${origin}/share/aigpa/${draft.shareToken}` : ''
+  const copyShare = () => {
+    if (!shareUrl) return
+    navigator.clipboard?.writeText(shareUrl)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
   }
 
   const suggestion = draft ? suggestPlatform(draft.answers) : null
@@ -357,6 +393,53 @@ export default function DiscoveryForm() {
                   className="w-full bg-white/[0.04] border border-white/10 rounded-lg px-3.5 py-2.5 text-[15px] text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-cyan-400/50 resize-y"
                 />
               </section>
+
+              {/* Client share link — only once a report exists */}
+              {draft.id && draft.reportGeneratedAt && (
+                <section className="rounded-xl border border-white/10 bg-white/[0.03] p-5">
+                  <h3 className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500 mb-3">Client share link</h3>
+                  {draft.shareToken ? (
+                    <>
+                      <div className="flex gap-2 flex-wrap items-center">
+                        <input
+                          readOnly
+                          value={shareUrl}
+                          onFocus={(e) => e.currentTarget.select()}
+                          className="flex-1 min-w-[240px] bg-white/[0.04] border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-200"
+                        />
+                        <button
+                          onClick={copyShare}
+                          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg font-semibold text-sm bg-white/10 text-white hover:bg-white/15"
+                        >
+                          {copied ? 'Copied' : 'Copy'}
+                        </button>
+                        <button
+                          onClick={() => toggleShare(false)}
+                          disabled={sharePending}
+                          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg font-semibold text-sm bg-rose-400/15 text-rose-300 border border-rose-400/30 hover:bg-rose-400/25 disabled:opacity-50"
+                        >
+                          Disable
+                        </button>
+                      </div>
+                      <p className="text-[12px] text-slate-500 mt-2">
+                        Anyone with this link can view the report — no login required. Disable to revoke access immediately.
+                      </p>
+                    </>
+                  ) : (
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <button
+                        onClick={() => toggleShare(true)}
+                        disabled={sharePending}
+                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg font-semibold text-sm bg-white/10 text-white hover:bg-white/15 disabled:opacity-50"
+                      >
+                        {sharePending ? <Loader2 size={16} className="animate-spin" /> : <ExternalLink size={15} />}
+                        Create client share link
+                      </button>
+                      <span className="text-[12px] text-slate-500">Generates a private, revocable link clients can open without logging in.</span>
+                    </div>
+                  )}
+                </section>
+              )}
 
               {/* Save bar */}
               <div className="sticky bottom-4 flex flex-wrap items-center gap-3 rounded-xl border border-white/10 bg-[#0a0e14]/95 backdrop-blur p-4">
