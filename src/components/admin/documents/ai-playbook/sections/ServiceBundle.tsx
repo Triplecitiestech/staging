@@ -1,4 +1,22 @@
+import CopyButton from '@/components/admin/documents/CopyButton'
 import { SecHead, Lead, Body, H4, Callout, CalloutP, Bullets } from '../primitives'
+
+const AUTOTASK_LINES = `AI Managed Services — per user / month .............. $50.00 / user / mo
+  Includes: platform setup, AI Acceptable Use Policy, up to 3 native
+  integrations, governance, AI office hours, monthly AI webinar,
+  token-pool monitoring, managed-environment support.
+  Minimum seats follow the platform (ChatGPT Business 2 / Claude Team 5).
+
+AI Onboarding & Implementation (one-time) ........... $[set per engagement]
+  Domain + business/Team account setup, AUP, first up-to-3 native integrations.
+
+AI Profit & Readiness Assessment (one-time) ......... from $1,000.00
+  Profit Gap Analysis + Readiness Assessment + 90-day roadmap + 3 paths.
+  May be credited toward onboarding if engaged within 30 days.
+
+Add / Move / Change — AI (T&M) ...................... $[standard AI rate] / hr
+AI Development — custom GPT / workflow / integration . project quote
+Unmanaged AI support (no full management) ........... $250.00 / hr  (waiver req.)`
 
 // Platform cost reference — current public pricing (~mid-2026). CONFIRM live +
 // partner/reseller terms directly before quoting.
@@ -89,23 +107,11 @@ export default function ServiceBundle() {
         <><strong className="text-white font-semibold">Suggested incentive:</strong> credit the $1,000 assessment toward the onboarding fee if they engage within 30 days.</>,
       ]} />
 
-      <H4>Autotask line items (copy-paste)</H4>
-      <pre className="text-[12.5px] leading-relaxed text-slate-300 bg-white/[0.03] border border-white/10 rounded-xl p-5 overflow-x-auto whitespace-pre">{`AI Managed Services — per user / month .............. $50.00 / user / mo
-  Includes: platform setup, AI Acceptable Use Policy, up to 3 native
-  integrations, governance, AI office hours, monthly AI webinar,
-  token-pool monitoring, managed-environment support.
-  Minimum seats follow the platform (ChatGPT Business 2 / Claude Team 5).
-
-AI Onboarding & Implementation (one-time) ........... $[set per engagement]
-  Domain + business/Team account setup, AUP, first up-to-3 native integrations.
-
-AI Profit & Readiness Assessment (one-time) ......... from $1,000.00
-  Profit Gap Analysis + Readiness Assessment + 90-day roadmap + 3 paths.
-  May be credited toward onboarding if engaged within 30 days.
-
-Add / Move / Change — AI (T&M) ...................... $[standard AI rate] / hr
-AI Development — custom GPT / workflow / integration . project quote
-Unmanaged AI support (no full management) ........... $250.00 / hr  (waiver req.)`}</pre>
+      <div className="flex items-center justify-between gap-3 flex-wrap mt-8 mb-3">
+        <h4 className="text-[15px] font-bold uppercase tracking-[0.12em] text-cyan-300">Autotask line items (copy-paste)</h4>
+        <CopyButton text={AUTOTASK_LINES} label="Copy line items" variant="dark" />
+      </div>
+      <pre className="text-[12.5px] leading-relaxed text-slate-300 bg-white/[0.03] border border-white/10 rounded-xl p-5 overflow-x-auto whitespace-pre">{AUTOTASK_LINES}</pre>
     </section>
   )
 }

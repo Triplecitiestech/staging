@@ -1,9 +1,10 @@
+import Link from 'next/link'
 import { AlertTriangle, Check, Plus } from 'lucide-react'
 import { SecHead, Lead, Body, H4, Callout, CalloutP } from '../primitives'
 
 const INCLUDED: React.ReactNode[] = [
   <><strong className="text-white font-semibold">Infrastructure setup</strong> — domain, the business / Team account, and full setup on the chosen platform (ChatGPT or Claude).</>,
-  <><strong className="text-white font-semibold">AI Acceptable Use Policy</strong> — drafted, deployed, and documented.</>,
+  <><strong className="text-white font-semibold">AI Acceptable Use Policy</strong> — drafted, deployed, and documented (<Link href="/admin/documents/ai-playbook/aup" className="text-cyan-400 hover:text-cyan-300 underline underline-offset-2">template</Link>).</>,
   <><strong className="text-white font-semibold">Up to 3 native integrations</strong> — connect the AI to up to three systems with native connectors (e.g., M365 email + SharePoint, Fathom, Monday.com) so it becomes the central brain tying systems together.</>,
   <><strong className="text-white font-semibold">Security & governance</strong> — confirm & document that data is not used for training (off by default on Business).</>,
   <><strong className="text-white font-semibold">User enablement</strong> — AI office hours + the monthly customer AI webinar.</>,

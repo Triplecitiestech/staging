@@ -53,6 +53,19 @@ const documents: DocCard[] = [
   {
     category: 'AI Strategy',
     categoryClass: 'text-cyan-400',
+    icon: <FileText className="h-5 w-5 text-cyan-400" />,
+    title: 'AI Acceptable Use Policy',
+    description:
+      'Deployable AUP template included in managed AI services — approved tools & accounts, data-handling rules, human oversight, prohibited uses, and an acknowledgment. Copy as plain text, customize per client.',
+    href: '/admin/documents/ai-playbook/aup',
+    chips: [
+      { label: 'Live', tone: 'live' },
+      { label: 'Template' },
+    ],
+  },
+  {
+    category: 'AI Strategy',
+    categoryClass: 'text-cyan-400',
     icon: <Workflow className="h-5 w-5 text-cyan-400" />,
     title: 'Claude / Cowork Setup SOP',
     description:
