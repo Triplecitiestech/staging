@@ -257,7 +257,7 @@ export default function Phases() {
 
         <Phase n="4" title="Governance & Integrations">
           <Bullets items={[
-            'Apply the security & governance baseline; deploy the AI Acceptable Use Policy; document the ring-fencing.',
+            <>Apply the security & governance baseline; deploy the <Link href="/admin/documents/ai-playbook/aup" className="text-cyan-400 hover:text-cyan-300 underline underline-offset-2">AI Acceptable Use Policy</Link>; document the ring-fencing.</>,
             <><strong className="text-white font-semibold">Wire the native connectors:</strong> ChatGPT ↔ Microsoft, SharePoint, email, and the other included systems. Clean context in → better output.</>,
             'Define user tiers (basic vs. advanced consumers, like Microsoft licensing).',
           ]} />
