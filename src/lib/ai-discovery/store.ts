@@ -9,6 +9,7 @@
 
 import { randomUUID } from 'crypto'
 import { getPool } from '@/lib/db-pool'
+import type { AigpaReport } from './report'
 
 const pool = getPool()
 
@@ -21,6 +22,8 @@ export interface DiscoveryAssessment {
   answers: Record<string, string>
   platformRecommendation: string | null
   notes: string | null
+  report: AigpaReport | null
+  reportGeneratedAt: string | null
   createdAt: string
   updatedAt: string
 }
@@ -28,7 +31,7 @@ export interface DiscoveryAssessment {
 export type DiscoveryAssessmentSummary = Pick<
   DiscoveryAssessment,
   'id' | 'companyName' | 'status' | 'platformRecommendation' | 'updatedAt'
->
+> & { hasReport: boolean }
 
 let tableReady = false
 async function ensureDiscoveryTable(): Promise<void> {
@@ -47,6 +50,9 @@ async function ensureDiscoveryTable(): Promise<void> {
       updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `)
+  // Self-healing columns added after the initial table shipped.
+  await pool.query(`ALTER TABLE ai_discovery_assessments ADD COLUMN IF NOT EXISTS report JSONB`)
+  await pool.query(`ALTER TABLE ai_discovery_assessments ADD COLUMN IF NOT EXISTS report_generated_at TIMESTAMPTZ`)
   tableReady = true
 }
 
@@ -61,6 +67,10 @@ function rowToAssessment(r: any): DiscoveryAssessment {
     answers: r.answers ?? {},
     platformRecommendation: r.platform_recommendation ?? null,
     notes: r.notes ?? null,
+    report: r.report ?? null,
+    reportGeneratedAt: r.report_generated_at
+      ? (typeof r.report_generated_at === 'string' ? r.report_generated_at : r.report_generated_at.toISOString?.() ?? null)
+      : null,
     createdAt: typeof r.created_at === 'string' ? r.created_at : r.created_at?.toISOString?.() ?? '',
     updatedAt: typeof r.updated_at === 'string' ? r.updated_at : r.updated_at?.toISOString?.() ?? '',
   }
@@ -70,7 +80,8 @@ function rowToAssessment(r: any): DiscoveryAssessment {
 export async function listAssessments(): Promise<DiscoveryAssessmentSummary[]> {
   await ensureDiscoveryTable()
   const res = await pool.query(
-    `SELECT id, company_name, status, platform_recommendation, updated_at
+    `SELECT id, company_name, status, platform_recommendation, updated_at,
+            (report IS NOT NULL) AS has_report
        FROM ai_discovery_assessments
       ORDER BY updated_at DESC
       LIMIT 200`
@@ -81,7 +92,18 @@ export async function listAssessments(): Promise<DiscoveryAssessmentSummary[]> {
     status: r.status,
     platformRecommendation: r.platform_recommendation ?? null,
     updatedAt: typeof r.updated_at === 'string' ? r.updated_at : r.updated_at?.toISOString?.() ?? '',
+    hasReport: r.has_report ?? false,
   }))
+}
+
+export async function saveReport(id: string, report: AigpaReport): Promise<void> {
+  await ensureDiscoveryTable()
+  await pool.query(
+    `UPDATE ai_discovery_assessments
+        SET report = $2::jsonb, report_generated_at = NOW(), updated_at = NOW()
+      WHERE id = $1`,
+    [id, JSON.stringify(report)]
+  )
 }
 
 export async function getAssessment(id: string): Promise<DiscoveryAssessment | null> {

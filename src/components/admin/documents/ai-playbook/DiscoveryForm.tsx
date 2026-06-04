@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Plus, Check, Loader2, Sparkles } from 'lucide-react'
+import { ArrowLeft, Plus, Check, Loader2, Sparkles, FileText, ExternalLink } from 'lucide-react'
 import {
   DISCOVERY_GROUPS,
   PLATFORM_LABELS,
@@ -17,6 +17,7 @@ interface Summary {
   status: 'draft' | 'complete'
   platformRecommendation: string | null
   updatedAt: string
+  hasReport: boolean
 }
 
 interface Draft {
@@ -26,6 +27,7 @@ interface Draft {
   platformRecommendation: string
   notes: string
   status: 'draft' | 'complete'
+  reportGeneratedAt: string | null
 }
 
 const blankDraft = (): Draft => ({
@@ -35,6 +37,7 @@ const blankDraft = (): Draft => ({
   platformRecommendation: 'undecided',
   notes: '',
   status: 'draft',
+  reportGeneratedAt: null,
 })
 
 function fmtDate(iso: string): string {
@@ -50,6 +53,8 @@ export default function DiscoveryForm() {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [savedAt, setSavedAt] = useState<number | null>(null)
+  const [generating, setGenerating] = useState(false)
+  const [reportError, setReportError] = useState<string | null>(null)
 
   const fetchList = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -76,6 +81,7 @@ export default function DiscoveryForm() {
       const res = await fetch(`/api/admin/ai-discovery?id=${encodeURIComponent(id)}`)
       if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || `HTTP ${res.status}`)
       const { assessment } = await res.json()
+      setReportError(null)
       setDraft({
         id: assessment.id,
         companyName: assessment.companyName ?? '',
@@ -83,6 +89,7 @@ export default function DiscoveryForm() {
         platformRecommendation: assessment.platformRecommendation ?? 'undecided',
         notes: assessment.notes ?? '',
         status: assessment.status ?? 'draft',
+        reportGeneratedAt: assessment.reportGeneratedAt ?? null,
       })
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Failed to open assessment')
@@ -93,11 +100,11 @@ export default function DiscoveryForm() {
     setDraft((d) => (d ? { ...d, answers: { ...d.answers, [qid]: value } } : d))
   }
 
-  const save = async (status?: 'draft' | 'complete') => {
-    if (!draft) return
+  const save = async (status?: 'draft' | 'complete'): Promise<string | null> => {
+    if (!draft) return null
     if (!draft.companyName.trim()) {
       setSaveError('Company name is required.')
-      return
+      return null
     }
     setSaving(true)
     setSaveError(null)
@@ -112,10 +119,36 @@ export default function DiscoveryForm() {
       setDraft((d) => (d ? { ...d, id: assessment.id, status: assessment.status } : d))
       setSavedAt(Date.now())
       await fetchList()
+      return assessment.id as string
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Failed to save')
+      return null
     } finally {
       setSaving(false)
+    }
+  }
+
+  const generateReport = async () => {
+    if (!draft || generating) return
+    setReportError(null)
+    // Always save first so the report reflects the latest answers and we have an id.
+    const id = await save(draft.status)
+    if (!id) return
+    setGenerating(true)
+    try {
+      const res = await fetch('/api/admin/ai-discovery/report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || `HTTP ${res.status}`)
+      await res.json()
+      setDraft((d) => (d ? { ...d, reportGeneratedAt: new Date().toISOString() } : d))
+      await fetchList()
+    } catch (err) {
+      setReportError(err instanceof Error ? err.message : 'Failed to generate report')
+    } finally {
+      setGenerating(false)
     }
   }
 
@@ -172,11 +205,12 @@ export default function DiscoveryForm() {
                     <span className="text-sm font-semibold text-white truncate">{s.companyName}</span>
                     {s.status === 'complete' && <Check size={14} className="text-emerald-400 flex-none" />}
                   </div>
-                  <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1.5">
+                  <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1.5 flex-wrap">
                     {fmtDate(s.updatedAt)}
                     {s.platformRecommendation && s.platformRecommendation !== 'undecided' && (
                       <span className="text-cyan-400/80">· {PLATFORM_LABELS[s.platformRecommendation as PlatformLean] ?? s.platformRecommendation}</span>
                     )}
+                    {s.hasReport && <span className="text-emerald-400/80">· report</span>}
                   </div>
                 </button>
               </li>
@@ -328,24 +362,42 @@ export default function DiscoveryForm() {
               <div className="sticky bottom-4 flex flex-wrap items-center gap-3 rounded-xl border border-white/10 bg-[#0a0e14]/95 backdrop-blur p-4">
                 <button
                   onClick={() => save('draft')}
-                  disabled={saving}
+                  disabled={saving || generating}
                   className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg font-semibold text-sm bg-white/10 text-white hover:bg-white/15 disabled:opacity-50"
                 >
                   {saving ? <Loader2 size={16} className="animate-spin" /> : null} Save draft
                 </button>
                 <button
                   onClick={() => save('complete')}
-                  disabled={saving}
-                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg font-semibold text-sm text-[#04222a] disabled:opacity-50"
-                  style={{ background: 'linear-gradient(135deg, #22D3EE, #0891B2)' }}
+                  disabled={saving || generating}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg font-semibold text-sm bg-white/10 text-white hover:bg-white/15 disabled:opacity-50"
                 >
                   <Check size={16} /> Mark complete
                 </button>
+                <button
+                  onClick={generateReport}
+                  disabled={saving || generating}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg font-semibold text-sm text-[#04222a] disabled:opacity-50"
+                  style={{ background: 'linear-gradient(135deg, #22D3EE, #0891B2)' }}
+                >
+                  {generating ? <Loader2 size={16} className="animate-spin" /> : <FileText size={16} />}
+                  {draft.reportGeneratedAt ? 'Regenerate report' : 'Generate AI Profit Report'}
+                </button>
+                {draft.id && draft.reportGeneratedAt && (
+                  <Link
+                    href={`/admin/documents/ai-playbook/discovery/${draft.id}/report`}
+                    className="inline-flex items-center gap-1.5 text-sm font-semibold text-cyan-400 hover:text-cyan-300"
+                  >
+                    Open report <ExternalLink size={14} />
+                  </Link>
+                )}
                 {draft.status === 'complete' && (
                   <span className="text-sm text-emerald-400 font-medium inline-flex items-center gap-1.5"><Check size={14} /> Complete</span>
                 )}
-                {savedAt && !saveError && <span className="text-sm text-slate-400">Saved.</span>}
+                {generating && <span className="text-sm text-slate-400">Generating report… (up to ~30s)</span>}
+                {savedAt && !saveError && !generating && <span className="text-sm text-slate-400">Saved.</span>}
                 {saveError && <span className="text-sm text-rose-400">{saveError}</span>}
+                {reportError && <span className="text-sm text-rose-400">{reportError}</span>}
               </div>
             </div>
           )}
