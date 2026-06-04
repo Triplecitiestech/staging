@@ -15,7 +15,8 @@ AI Profit & Readiness Assessment (one-time) ......... from $1,000.00
   May be credited toward onboarding if engaged within 30 days.
 
 Add / Move / Change — AI (T&M) ...................... $[standard AI rate] / hr
-AI Development — custom GPT / workflow / integration . project quote
+AI Development — custom GPT / agent .................. from $1,000.00 (by complexity)
+AI Development — workflow / integration / app build . project quote
 Unmanaged AI support (no full management) ........... $250.00 / hr  (waiver req.)`
 
 // Platform cost reference — current public pricing (~mid-2026). CONFIRM live +
@@ -94,7 +95,7 @@ export default function ServiceBundle() {
 
       <H4>Add-ons &amp; rates</H4>
       <Bullets items={[
-        <><strong className="text-white font-semibold">AMC, custom GPTs, workflows, extra/non-native integrations</strong> → project quote or T&M (standard AI dev rate). Never folded into the $50.</>,
+        <><strong className="text-white font-semibold">AMC, custom GPTs, workflows, extra/non-native integrations</strong> → custom GPTs &amp; agents from $1,000 each; larger automations, integrations &amp; app builds are project-quoted or T&M. Never folded into the $50.</>,
         <><strong className="text-white font-semibold">Integrations beyond the included 3</strong> → additional: native = small, MCP = larger, no connector = a custom-dev project.</>,
         <><strong className="text-white font-semibold">Custom builds</strong> → can carry their own optional recurring maintenance fee.</>,
         <><strong className="text-white font-semibold">Unmanaged / direct-buy AI support</strong> → <strong className="text-white font-semibold">$250/hr T&M</strong>, advisory-only by default, liability waiver required.</>,
