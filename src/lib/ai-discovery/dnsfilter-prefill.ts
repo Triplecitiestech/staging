@@ -13,7 +13,6 @@
  */
 
 import { getPool } from '@/lib/db-pool'
-import { matchesCompanyName } from '@/utils'
 
 export interface PrefillItem { name: string; domain: string; count: number }
 export interface DnsfilterPrefill {
@@ -95,6 +94,22 @@ const NOISE = [
 function firstMatch(fqdn: string, list: { match: string; name: string }[]): { match: string; name: string } | null {
   return list.find((e) => fqdn.includes(e.match)) ?? null
 }
+
+// Strict company↔org matcher for the data pull — the app's shared
+// matchesCompanyName is too loose for this (e.g. "Tech" ⊂ "Technologies" would
+// match TCT to "A-Line Technologies" and pull the WRONG client's data). Require
+// one name's significant words (generic suffixes dropped) to be fully contained
+// in the other's, as whole tokens.
+const GENERIC = new Set(['technologies', 'technology', 'tech', 'inc', 'llc', 'ltd', 'corp', 'corporation', 'co', 'company', 'group', 'holdings', 'services', 'service', 'solutions', 'systems', 'it', 'the', 'and', 'of'])
+function sigWords(s: string): string[] {
+  return s.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter((w) => w && !GENERIC.has(w))
+}
+function strongNameMatch(a: string, b: string): boolean {
+  const sa = sigWords(a), sb = sigWords(b)
+  if (sa.length === 0 || sb.length === 0) return false
+  const setA = new Set(sa), setB = new Set(sb)
+  return sa.every((w) => setB.has(w)) || sb.every((w) => setA.has(w))
+}
 function baseDomain(fqdn: string): string {
   const parts = fqdn.split('.').filter(Boolean)
   return parts.length >= 2 ? parts.slice(-2).join('.') : fqdn
@@ -125,7 +140,7 @@ async function resolveOrg(companyId: string | null, companyName: string, baseUrl
     return { orgId: mappingExternalId, orgName: orgs.find((o) => o.id === mappingExternalId)?.attributes?.name ?? mappingExternalName, skip: false }
   }
   if (companyName) {
-    const matched = orgs.find((o) => matchesCompanyName(companyName, o.attributes?.name ?? ''))
+    const matched = orgs.find((o) => strongNameMatch(companyName, o.attributes?.name ?? ''))
     if (matched) return { orgId: matched.id, orgName: matched.attributes?.name ?? null, skip: false }
   }
   return { orgId: null, orgName: null, skip: false }
@@ -149,21 +164,35 @@ export async function buildDnsfilterPrefill(companyId: string | null, companyNam
     return empty(`DNSFilter lookup failed: ${err instanceof Error ? err.message : String(err)}`)
   }
   if (!orgId) return empty(`No DNSFilter organization mapped or matched for "${companyName}". Map it in Compliance → Connect Tools, then retry.`)
+  const oid = orgId
 
-  // Pull a recent sample of ALL query logs for the org (last 30 days).
+  // Pull a recent sample of query logs for the org (last 30 days). page[size]=100
+  // mirrors the proven SOC call; we try without a result filter, then retry with
+  // result=allowed if the API rejects it (we need allowed traffic, not blocked).
   const now = Date.now()
   const fmt = (ms: number) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z')
+  const fromIso = fmt(now - 30 * 24 * 60 * 60 * 1000)
+  const toIso = fmt(now)
+
+  async function fetchLogs(extra?: Record<string, string>): Promise<{ ok: boolean; status: number; body: string; rows: QueryLogRow[] }> {
+    const qs = new URLSearchParams()
+    qs.set('organization_id', oid)
+    qs.set('from', fromIso)
+    qs.set('to', toIso)
+    qs.set('page[size]', '100')
+    if (extra) for (const [k, v] of Object.entries(extra)) qs.set(k, v)
+    const res = await fetch(`${baseUrl}/traffic_reports/query_logs?${qs.toString()}`, { headers, signal: AbortSignal.timeout(30_000) })
+    if (!res.ok) return { ok: false, status: res.status, body: (await res.text().catch(() => '')).slice(0, 300), rows: [] }
+    const json = (await res.json()) as { data?: { values?: QueryLogRow[] } }
+    return { ok: true, status: 200, body: '', rows: json.data?.values ?? [] }
+  }
+
   let rows: QueryLogRow[] = []
   try {
-    const qs = new URLSearchParams()
-    qs.set('organization_id', orgId)
-    qs.set('from', fmt(now - 30 * 24 * 60 * 60 * 1000))
-    qs.set('to', fmt(now))
-    qs.set('page[size]', '1000')
-    const logRes = await fetch(`${baseUrl}/traffic_reports/query_logs?${qs.toString()}`, { headers, signal: AbortSignal.timeout(30_000) })
-    if (!logRes.ok) return empty(`DNSFilter query_logs failed (${logRes.status}) for org "${orgName}".`)
-    const logJson = (await logRes.json()) as { data?: { values?: QueryLogRow[] } }
-    rows = logJson.data?.values ?? []
+    let r = await fetchLogs()
+    if (!r.ok && r.status === 400) r = await fetchLogs({ result: 'allowed' })
+    if (!r.ok) return empty(`DNSFilter query_logs failed (${r.status}) for org "${orgName}"${r.body ? `: ${r.body}` : ''}`)
+    rows = r.rows
   } catch (err) {
     return empty(`DNSFilter query_logs error: ${err instanceof Error ? err.message : String(err)}`)
   }

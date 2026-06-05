@@ -9,6 +9,7 @@
 
 import { randomUUID } from 'crypto'
 import { getPool } from '@/lib/db-pool'
+import { withDbRetry } from '@/lib/resilience'
 import type { AigpaReport } from './report'
 
 const pool = getPool()
@@ -94,6 +95,7 @@ function rowToAssessment(r: any): DiscoveryAssessment {
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 export async function listAssessments(): Promise<DiscoveryAssessmentSummary[]> {
+  return withDbRetry(async () => {
   await ensureDiscoveryTable()
   const res = await pool.query(
     `SELECT id, company_name, status, platform_recommendation, updated_at,
@@ -110,6 +112,7 @@ export async function listAssessments(): Promise<DiscoveryAssessmentSummary[]> {
     updatedAt: typeof r.updated_at === 'string' ? r.updated_at : r.updated_at?.toISOString?.() ?? '',
     hasReport: r.has_report ?? false,
   }))
+  }, 'ai-discovery list')
 }
 
 export async function saveReport(id: string, report: AigpaReport): Promise<void> {
@@ -200,9 +203,11 @@ export async function saveIntake(token: string, data: Record<string, string>): P
 }
 
 export async function getAssessment(id: string): Promise<DiscoveryAssessment | null> {
-  await ensureDiscoveryTable()
-  const res = await pool.query('SELECT * FROM ai_discovery_assessments WHERE id = $1 LIMIT 1', [id])
-  return res.rows.length ? rowToAssessment(res.rows[0]) : null
+  return withDbRetry(async () => {
+    await ensureDiscoveryTable()
+    const res = await pool.query('SELECT * FROM ai_discovery_assessments WHERE id = $1 LIMIT 1', [id])
+    return res.rows.length ? rowToAssessment(res.rows[0]) : null
+  }, 'ai-discovery get')
 }
 
 export interface UpsertInput {
@@ -217,8 +222,9 @@ export interface UpsertInput {
 }
 
 export async function upsertAssessment(input: UpsertInput): Promise<DiscoveryAssessment> {
-  await ensureDiscoveryTable()
   const id = input.id || randomUUID()
+  return withDbRetry(async () => {
+  await ensureDiscoveryTable()
   const res = await pool.query(
     `INSERT INTO ai_discovery_assessments
        (id, company_id, company_name, created_by, status, answers, platform_recommendation, notes, updated_at)
@@ -244,4 +250,5 @@ export async function upsertAssessment(input: UpsertInput): Promise<DiscoveryAss
     ]
   )
   return rowToAssessment(res.rows[0])
+  }, 'ai-discovery upsert')
 }
