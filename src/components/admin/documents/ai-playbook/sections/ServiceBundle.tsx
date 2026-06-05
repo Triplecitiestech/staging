@@ -64,11 +64,11 @@ export default function ServiceBundle() {
       </Body>
       <p className="text-[13.5px] text-slate-400 -mt-1 mb-2">Quantify it for the client: <Link href="/admin/documents/ai-playbook/roi" className="text-cyan-400 hover:text-cyan-300 underline underline-offset-2">open the ROI calculator</Link>.</p>
 
-      <Callout label="Pricing status — draft, pending sign-off">
+      <Callout label="Pricing status">
         <CalloutP>
-          <strong className="text-white font-semibold">Set:</strong> assessment from $1,000 · custom GPTs / agents from $1,000.{' '}
-          <strong className="text-white font-semibold">Provisional (confirm):</strong> $50 / user / mo (validate against vendor cost + target margin), onboarding from $1,500, unmanaged T&M $250/hr.{' '}
-          <strong className="text-white font-semibold">Blocked on vendors:</strong> per-seat reseller cost, seat minimums, and token / usage limits — pin these down through the partner channels before quoting live.
+          <strong className="text-white font-semibold">Set (your numbers):</strong> $50 / user / mo · assessment from $1,000 · custom GPTs / agents from $1,000.{' '}
+          <strong className="text-white font-semibold">Provisional (confirm):</strong> onboarding from $1,500 and the unmanaged T&M rate of $250/hr.{' '}
+          <strong className="text-white font-semibold">Open dependency:</strong> the per-seat reseller cost (it's what validates the $50 margin), plus seat minimums and token / usage limits — pin these down through the partner channels before quoting live.
         </CalloutP>
       </Callout>
 
