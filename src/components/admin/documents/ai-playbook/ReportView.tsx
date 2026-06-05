@@ -1,5 +1,5 @@
 /**
- * Client-facing AIGPA report — light themed and print-friendly (it's the paid
+ * Client-facing AI Profit & Readiness Assessment report — light themed and print-friendly (it's the paid
  * deliverable presented on the Review Call / exported to PDF). Presentational
  * only; data comes from a saved DiscoveryAssessment's report.
  */

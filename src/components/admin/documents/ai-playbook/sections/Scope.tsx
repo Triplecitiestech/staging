@@ -59,7 +59,7 @@ export default function Scope() {
 
       <Callout label="Onboarding fee">
         <CalloutP>
-          A one-time <strong className="text-white font-semibold">onboarding fee</strong> covers the initial infrastructure setup, the AI Acceptable Use Policy, and connecting the first <strong className="text-white font-semibold">up to three native integrations</strong>. The monthly per-user fee starts once the environment is live. (See the Service Bundle for current numbers.)
+          A one-time <strong className="text-white font-semibold">onboarding fee</strong> (provisional: from $1,500) covers the initial infrastructure setup, the AI Acceptable Use Policy, and connecting the first <strong className="text-white font-semibold">up to three native integrations</strong>. The monthly per-user fee starts once the environment is live. (See the Service Bundle for current numbers.)
         </CalloutP>
       </Callout>
 

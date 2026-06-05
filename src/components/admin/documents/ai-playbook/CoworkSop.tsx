@@ -3,7 +3,7 @@ import { ArrowLeft } from 'lucide-react'
 import { Lead, Body, H3, H4, Bullets, Callout, CalloutP } from '@/components/admin/documents/ai-playbook/primitives'
 
 /**
- * Internal SOP: how TCT sets up Claude / Cowork so it builds the AIGPA kit +
+ * Internal SOP: how TCT sets up Claude / Cowork so it builds the assessment kit +
  * report consistently. Referenced from Phase 1 ("Claude / Cowork set up to our
  * SOP") and the Action Items. Tailored for TCT internal use.
  */
