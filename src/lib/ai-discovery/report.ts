@@ -11,6 +11,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { trackAnthropicCall } from '@/lib/api-usage-tracker'
 import { DISCOVERY_GROUPS, PLATFORM_LABELS, sumMonthlyWaste, type PlatformLean } from './questions'
+import { formatIntakeSummary } from './intake'
 import type { DiscoveryAssessment } from './store'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
@@ -81,6 +82,9 @@ function buildUserInput(a: DiscoveryAssessment): string {
     lines.push(`Platform recommendation (set by the rep): ${label}`)
   }
   if (a.notes) lines.push(`Rep notes: ${a.notes}`)
+  if (a.intake && Object.keys(a.intake).length > 0) {
+    lines.push('', 'CLIENT PRE-CALL INTAKE (Business Snapshot):', formatIntakeSummary(a.intake))
+  }
   lines.push('')
   lines.push('DISCOVERY ANSWERS (blank = not asked; skip blanks):')
 
