@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, Plus, Check, Loader2, Sparkles, FileText, ExternalLink } from 'lucide-react'
+import CopyButton from '@/components/admin/documents/CopyButton'
 import {
   DISCOVERY_GROUPS,
   PLATFORM_LABELS,
@@ -10,6 +11,7 @@ import {
   sumMonthlyWaste,
   type PlatformLean,
 } from '@/lib/ai-discovery/questions'
+import { formatIntakeSummary } from '@/lib/ai-discovery/intake'
 
 interface Summary {
   id: string
@@ -29,6 +31,9 @@ interface Draft {
   status: 'draft' | 'complete'
   reportGeneratedAt: string | null
   shareToken: string | null
+  intakeToken: string | null
+  intake: Record<string, string> | null
+  intakeSubmittedAt: string | null
 }
 
 const blankDraft = (): Draft => ({
@@ -40,6 +45,9 @@ const blankDraft = (): Draft => ({
   status: 'draft',
   reportGeneratedAt: null,
   shareToken: null,
+  intakeToken: null,
+  intake: null,
+  intakeSubmittedAt: null,
 })
 
 function fmtDate(iso: string): string {
@@ -60,6 +68,9 @@ export default function DiscoveryForm() {
   const [sharePending, setSharePending] = useState(false)
   const [copied, setCopied] = useState(false)
   const [origin, setOrigin] = useState('')
+  const [intakePending, setIntakePending] = useState(false)
+  const [copiedIntake, setCopiedIntake] = useState(false)
+  const [showIntake, setShowIntake] = useState(false)
 
   useEffect(() => { setOrigin(window.location.origin) }, [])
 
@@ -98,6 +109,9 @@ export default function DiscoveryForm() {
         status: assessment.status ?? 'draft',
         reportGeneratedAt: assessment.reportGeneratedAt ?? null,
         shareToken: assessment.shareToken ?? null,
+        intakeToken: assessment.intakeToken ?? null,
+        intake: assessment.intake ?? null,
+        intakeSubmittedAt: assessment.intakeSubmittedAt ?? null,
       })
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Failed to open assessment')
@@ -186,6 +200,34 @@ export default function DiscoveryForm() {
     navigator.clipboard?.writeText(shareUrl)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  const toggleIntake = async (enable: boolean) => {
+    if (!draft?.id || intakePending) return
+    setReportError(null)
+    setIntakePending(true)
+    try {
+      const res = await fetch('/api/admin/ai-discovery/intake', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: draft.id, enable }),
+      })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || `HTTP ${res.status}`)
+      const { token } = await res.json()
+      setDraft((d) => (d ? { ...d, intakeToken: token ?? null } : d))
+    } catch (err) {
+      setReportError(err instanceof Error ? err.message : 'Failed to update intake link')
+    } finally {
+      setIntakePending(false)
+    }
+  }
+
+  const intakeUrl = draft?.intakeToken ? `${origin}/intake/${draft.intakeToken}` : ''
+  const copyIntake = () => {
+    if (!intakeUrl) return
+    navigator.clipboard?.writeText(intakeUrl)
+    setCopiedIntake(true)
+    setTimeout(() => setCopiedIntake(false), 2000)
   }
 
   const suggestion = draft ? suggestPlatform(draft.answers) : null
@@ -284,6 +326,68 @@ export default function DiscoveryForm() {
                   </div>
                 </div>
               </div>
+
+              {/* Client intake — Business Snapshot link + submitted responses */}
+              {draft.id && (
+                <section className="rounded-xl border border-white/10 bg-white/[0.03] p-5">
+                  <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
+                    <h3 className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Client intake — Business Snapshot</h3>
+                    {draft.intakeSubmittedAt && (
+                      <span className="text-[11px] font-semibold text-emerald-400 inline-flex items-center gap-1"><Check size={12} /> Submitted</span>
+                    )}
+                  </div>
+                  {draft.intakeToken ? (
+                    <>
+                      <div className="flex gap-2 flex-wrap items-center">
+                        <input
+                          readOnly
+                          value={intakeUrl}
+                          onFocus={(e) => e.currentTarget.select()}
+                          className="flex-1 min-w-[240px] bg-white/[0.04] border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-200"
+                        />
+                        <button onClick={copyIntake} className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg font-semibold text-sm bg-white/10 text-white hover:bg-white/15">
+                          {copiedIntake ? 'Copied' : 'Copy'}
+                        </button>
+                        <button
+                          onClick={() => toggleIntake(false)}
+                          disabled={intakePending}
+                          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg font-semibold text-sm bg-rose-400/15 text-rose-300 border border-rose-400/30 hover:bg-rose-400/25 disabled:opacity-50"
+                        >
+                          Disable
+                        </button>
+                      </div>
+                      <p className="text-[12px] text-slate-500 mt-2">
+                        Send this to the prospect to fill before the call. {draft.intakeSubmittedAt ? 'Responses received — review below before the six-zone questions.' : 'No responses yet.'}
+                      </p>
+                      {draft.intake && (
+                        <div className="mt-3">
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <button onClick={() => setShowIntake((s) => !s)} className="text-[12px] font-bold uppercase tracking-[0.12em] text-cyan-300 hover:text-cyan-200">
+                              {showIntake ? 'Hide responses' : 'View responses'}
+                            </button>
+                            {showIntake && <CopyButton text={formatIntakeSummary(draft.intake)} label="Copy" variant="dark" />}
+                          </div>
+                          {showIntake && (
+                            <pre className="mt-3 text-[12.5px] leading-relaxed text-slate-300 bg-white/[0.03] border border-white/10 rounded-lg p-4 overflow-x-auto whitespace-pre-wrap">{formatIntakeSummary(draft.intake)}</pre>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <button
+                        onClick={() => toggleIntake(true)}
+                        disabled={intakePending}
+                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg font-semibold text-sm bg-white/10 text-white hover:bg-white/15 disabled:opacity-50"
+                      >
+                        {intakePending ? <Loader2 size={16} className="animate-spin" /> : <ExternalLink size={15} />}
+                        Create client intake link
+                      </button>
+                      <span className="text-[12px] text-slate-500">A private link the prospect fills before the call; their answers land here.</span>
+                    </div>
+                  )}
+                </section>
+              )}
 
               {/* Question groups */}
               {DISCOVERY_GROUPS.map((group) => (

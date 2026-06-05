@@ -25,6 +25,9 @@ export interface DiscoveryAssessment {
   report: AigpaReport | null
   reportGeneratedAt: string | null
   shareToken: string | null
+  intake: Record<string, string> | null
+  intakeToken: string | null
+  intakeSubmittedAt: string | null
   createdAt: string
   updatedAt: string
 }
@@ -56,6 +59,10 @@ async function ensureDiscoveryTable(): Promise<void> {
   await pool.query(`ALTER TABLE ai_discovery_assessments ADD COLUMN IF NOT EXISTS report_generated_at TIMESTAMPTZ`)
   await pool.query(`ALTER TABLE ai_discovery_assessments ADD COLUMN IF NOT EXISTS share_token TEXT`)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_discovery_share_token ON ai_discovery_assessments(share_token)`)
+  await pool.query(`ALTER TABLE ai_discovery_assessments ADD COLUMN IF NOT EXISTS intake JSONB`)
+  await pool.query(`ALTER TABLE ai_discovery_assessments ADD COLUMN IF NOT EXISTS intake_token TEXT`)
+  await pool.query(`ALTER TABLE ai_discovery_assessments ADD COLUMN IF NOT EXISTS intake_submitted_at TIMESTAMPTZ`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_discovery_intake_token ON ai_discovery_assessments(intake_token)`)
   tableReady = true
 }
 
@@ -75,6 +82,11 @@ function rowToAssessment(r: any): DiscoveryAssessment {
       ? (typeof r.report_generated_at === 'string' ? r.report_generated_at : r.report_generated_at.toISOString?.() ?? null)
       : null,
     shareToken: r.share_token ?? null,
+    intake: r.intake ?? null,
+    intakeToken: r.intake_token ?? null,
+    intakeSubmittedAt: r.intake_submitted_at
+      ? (typeof r.intake_submitted_at === 'string' ? r.intake_submitted_at : r.intake_submitted_at.toISOString?.() ?? null)
+      : null,
     createdAt: typeof r.created_at === 'string' ? r.created_at : r.created_at?.toISOString?.() ?? '',
     updatedAt: typeof r.updated_at === 'string' ? r.updated_at : r.updated_at?.toISOString?.() ?? '',
   }
@@ -142,6 +154,49 @@ export async function getAssessmentByShareToken(token: string): Promise<Discover
   if (!token) return null
   const res = await pool.query('SELECT * FROM ai_discovery_assessments WHERE share_token = $1 LIMIT 1', [token])
   return res.rows.length ? rowToAssessment(res.rows[0]) : null
+}
+
+/** Enable a client-intake link — idempotent (reuses an existing token). */
+export async function setIntakeToken(id: string): Promise<string | null> {
+  await ensureDiscoveryTable()
+  const existing = await pool.query<{ intake_token: string | null }>(
+    'SELECT intake_token FROM ai_discovery_assessments WHERE id = $1 LIMIT 1',
+    [id]
+  )
+  if (existing.rows.length === 0) return null
+  if (existing.rows[0].intake_token) return existing.rows[0].intake_token
+  const token = `${randomUUID()}${randomUUID().replace(/-/g, '')}`
+  await pool.query('UPDATE ai_discovery_assessments SET intake_token = $2, updated_at = NOW() WHERE id = $1', [id, token])
+  return token
+}
+
+export async function clearIntakeToken(id: string): Promise<void> {
+  await ensureDiscoveryTable()
+  await pool.query('UPDATE ai_discovery_assessments SET intake_token = NULL, updated_at = NOW() WHERE id = $1', [id])
+}
+
+/** Public: fetch the company name for an intake token (to title the form). */
+export async function getIntakeContext(token: string): Promise<{ companyName: string } | null> {
+  await ensureDiscoveryTable()
+  if (!token) return null
+  const res = await pool.query<{ company_name: string }>(
+    'SELECT company_name FROM ai_discovery_assessments WHERE intake_token = $1 LIMIT 1',
+    [token]
+  )
+  return res.rows.length ? { companyName: res.rows[0].company_name } : null
+}
+
+/** Public: save a submitted intake against its token. Returns false if invalid. */
+export async function saveIntake(token: string, data: Record<string, string>): Promise<boolean> {
+  await ensureDiscoveryTable()
+  if (!token) return false
+  const res = await pool.query(
+    `UPDATE ai_discovery_assessments
+        SET intake = $2::jsonb, intake_submitted_at = NOW(), updated_at = NOW()
+      WHERE intake_token = $1`,
+    [token, JSON.stringify(data)]
+  )
+  return (res.rowCount ?? 0) > 0
 }
 
 export async function getAssessment(id: string): Promise<DiscoveryAssessment | null> {
