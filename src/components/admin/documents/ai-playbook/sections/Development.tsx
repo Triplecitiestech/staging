@@ -5,7 +5,7 @@ const VALUE_ADDS: { name: string; desc: string; price: string }[] = [
   { name: 'Custom agents (ChatGPT)', desc: 'Scheduled or triggered agents that perform a task automatically.', price: 'from $1,000+' },
   { name: 'Claude Cowork enablement', desc: "Teach the client's team to set up & use Cowork — context, skills, scheduled tasks.", price: 'scoped package' },
   { name: 'Done-for-you Cowork builds', desc: 'We build their Cowork workspace, scheduled tasks, and custom automations.', price: 'project quote' },
-  { name: 'Data ingestion & routing', desc: 'e.g. analyze call logs for missed / unreturned calls and new callers, then auto-ingest & route the data — eliminating manual entry (the Brooms Over Broom win).', price: 'scoped project' },
+  { name: 'Data ingestion & routing', desc: 'e.g. analyze call logs for missed / unreturned calls and new callers, then auto-ingest & route the data — eliminating manual entry (the Brooms Over Broome win).', price: 'scoped project' },
   { name: 'Workflows & integrations', desc: 'Beyond the 3 included native integrations — native = small, MCP / custom = larger.', price: 'project quote' },
 ]
 
