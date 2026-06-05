@@ -1,15 +1,17 @@
 /**
  * DNSFilter-powered pre-fill for the AI assessment. Piggybacks the EXISTING
  * DNSFilter connection (the compliance_platform_mappings 'dnsfilter' mapping +
- * DNSFILTER_API_TOKEN) and the same /traffic_reports/query_logs endpoint the
- * SOC enrichment already uses — no new integration.
+ * DNSFILTER_API_TOKEN) — no new integration.
  *
- * Scope: high-confidence "AI + systems" fields only. DNS shows the *domains* a
- * client reaches, so we can reliably surface (a) which AI tools are in use
- * (chatgpt.com, claude.ai, copilot…) and (b) the top cloud/SaaS apps. It does
- * NOT see desktop apps or exact per-user time (that's CyberSight agent
- * telemetry — a possible future upgrade via the CyberSight CSV export). Output
- * is suggestions the rep reviews and edits — never a silent autofill.
+ * Two data sources, best → fallback:
+ *  1. CyberSight CSV export (env-configurable) — the rich source: it sees
+ *     desktop AI apps and applications, not just DNS domains. Enabled only when
+ *     DNSFILTER_CYBERSIGHT_EXPORT_PATH is set (the exact path/columns vary by
+ *     account, so we keep it config-driven rather than hard-coding a guess).
+ *  2. query_logs (always available) — paginated DNS sample; reliably surfaces
+ *     AI tools and cloud/SaaS apps by domain. This is the default + the fallback.
+ *
+ * Output is suggestions the rep reviews and edits — never a silent autofill.
  */
 
 import { getPool } from '@/lib/db-pool'
@@ -26,28 +28,29 @@ export interface DnsfilterPrefill {
 
 interface QueryLogRow { domain?: string; fqdn?: string }
 
-const AI_DOMAINS: { match: string; name: string }[] = [
-  { match: 'chatgpt.com', name: 'ChatGPT' },
-  { match: 'openai.com', name: 'OpenAI / ChatGPT' },
-  { match: 'claude.ai', name: 'Claude' },
-  { match: 'anthropic.com', name: 'Claude (Anthropic)' },
-  { match: 'gemini.google.com', name: 'Google Gemini' },
-  { match: 'copilot.microsoft.com', name: 'Microsoft Copilot' },
-  { match: 'copilot.cloud.microsoft', name: 'Microsoft 365 Copilot' },
-  { match: 'perplexity.ai', name: 'Perplexity' },
-  { match: 'poe.com', name: 'Poe' },
+// Brand tokens — matched as substrings so they hit both domains (chatgpt.com)
+// and CyberSight desktop-app names ("ChatGPT Desktop", "GitHub Copilot").
+const AI_TOKENS: { match: string; name: string }[] = [
+  { match: 'chatgpt', name: 'ChatGPT' },
+  { match: 'openai', name: 'OpenAI / ChatGPT' },
+  { match: 'claude', name: 'Claude' },
+  { match: 'anthropic', name: 'Claude (Anthropic)' },
+  { match: 'gemini', name: 'Google Gemini' },
+  { match: 'copilot', name: 'Microsoft Copilot' },
+  { match: 'perplexity', name: 'Perplexity' },
+  { match: 'midjourney', name: 'Midjourney' },
+  { match: 'huggingface', name: 'Hugging Face' },
+  { match: 'deepseek', name: 'DeepSeek' },
+  { match: 'mistral', name: 'Mistral' },
+  { match: 'ollama', name: 'Ollama (local)' },
+  { match: 'lm studio', name: 'LM Studio (local)' },
+  { match: 'lmstudio', name: 'LM Studio (local)' },
+  { match: 'grok', name: 'Grok (xAI)' },
   { match: 'character.ai', name: 'Character.AI' },
-  { match: 'midjourney.com', name: 'Midjourney' },
-  { match: 'huggingface.co', name: 'Hugging Face' },
-  { match: 'x.ai', name: 'Grok (xAI)' },
-  { match: 'deepseek.com', name: 'DeepSeek' },
-  { match: 'mistral.ai', name: 'Mistral' },
-  { match: 'cohere.com', name: 'Cohere' },
-  { match: 'jasper.ai', name: 'Jasper' },
+  { match: 'poe.com', name: 'Poe' },
+  { match: 'elevenlabs', name: 'ElevenLabs' },
+  { match: 'jasper', name: 'Jasper' },
   { match: 'copy.ai', name: 'Copy.ai' },
-  { match: 'elevenlabs.io', name: 'ElevenLabs' },
-  { match: 'runwayml.com', name: 'Runway' },
-  { match: 'suno.com', name: 'Suno' },
   { match: 'gamma.app', name: 'Gamma' },
 ]
 
@@ -91,15 +94,18 @@ const NOISE = [
   'msn.com', 'windows.com', 'microsoftonline.com', 'msftauth', 'office.net', 'trafficmanager', 'akamaiedge',
 ]
 
-function firstMatch(fqdn: string, list: { match: string; name: string }[]): { match: string; name: string } | null {
-  return list.find((e) => fqdn.includes(e.match)) ?? null
+function firstMatch(s: string, list: { match: string; name: string }[]): { match: string; name: string } | null {
+  return list.find((e) => s.includes(e.match)) ?? null
+}
+function baseDomain(fqdn: string): string {
+  const parts = fqdn.split('.').filter(Boolean)
+  return parts.length >= 2 ? parts.slice(-2).join('.') : fqdn
 }
 
-// Strict company↔org matcher for the data pull — the app's shared
-// matchesCompanyName is too loose for this (e.g. "Tech" ⊂ "Technologies" would
-// match TCT to "A-Line Technologies" and pull the WRONG client's data). Require
-// one name's significant words (generic suffixes dropped) to be fully contained
-// in the other's, as whole tokens.
+// Strict company↔org matcher for the data pull — the shared matchesCompanyName
+// is too loose ("Tech" ⊂ "Technologies" would match TCT to "A-Line Technologies"
+// and pull the WRONG client's data). Require one name's significant words
+// (generic suffixes dropped) to be fully contained in the other's.
 const GENERIC = new Set(['technologies', 'technology', 'tech', 'inc', 'llc', 'ltd', 'corp', 'corporation', 'co', 'company', 'group', 'holdings', 'services', 'service', 'solutions', 'systems', 'it', 'the', 'and', 'of'])
 function sigWords(s: string): string[] {
   return s.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter((w) => w && !GENERIC.has(w))
@@ -110,13 +116,35 @@ function strongNameMatch(a: string, b: string): boolean {
   const setA = new Set(sa), setB = new Set(sb)
   return sa.every((w) => setB.has(w)) || sb.every((w) => setA.has(w))
 }
-function baseDomain(fqdn: string): string {
-  const parts = fqdn.split('.').filter(Boolean)
-  return parts.length >= 2 ? parts.slice(-2).join('.') : fqdn
+
+// Minimal CSV → signal extraction for the CyberSight export. Pulls cells from
+// any column whose header looks like a domain / app / activity name.
+function splitCsvLine(line: string): string[] {
+  const out: string[] = []; let cur = ''; let q = false
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]
+    if (q) { if (c === '"') { if (line[i + 1] === '"') { cur += '"'; i++ } else q = false } else cur += c }
+    else if (c === '"') q = true
+    else if (c === ',') { out.push(cur); cur = '' }
+    else cur += c
+  }
+  out.push(cur); return out
+}
+function parseCsvSignals(csv: string): string[] {
+  const lines = csv.split(/\r?\n/).filter((l) => l.trim())
+  if (lines.length < 2) return []
+  const header = splitCsvLine(lines[0]).map((h) => h.toLowerCase().trim())
+  const idxs = header.map((h, i) => (/domain|fqdn|url|host|application|\bapp\b|activity|tool|name/.test(h) ? i : -1)).filter((i) => i >= 0)
+  if (idxs.length === 0) return []
+  const signals: string[] = []
+  for (let i = 1; i < lines.length && i < 5000; i++) {
+    const cells = splitCsvLine(lines[i])
+    for (const idx of idxs) { const v = (cells[idx] || '').trim().toLowerCase(); if (v) signals.push(v) }
+  }
+  return signals
 }
 
 async function resolveOrg(companyId: string | null, companyName: string, baseUrl: string, headers: Record<string, string>): Promise<{ orgId: string | null; orgName: string | null; skip: boolean }> {
-  // Explicit mapping (compliance_platform_mappings) first.
   let mappingExternalId: string | null = null
   let mappingExternalName = ''
   if (companyId) {
@@ -166,70 +194,116 @@ export async function buildDnsfilterPrefill(companyId: string | null, companyNam
   if (!orgId) return empty(`No DNSFilter organization mapped or matched for "${companyName}". Map it in Compliance → Connect Tools, then retry.`)
   const oid = orgId
 
-  // Pull a recent sample of query logs for the org (last 30 days). page[size]=100
-  // mirrors the proven SOC call; we try without a result filter, then retry with
-  // result=allowed if the API rejects it (we need allowed traffic, not blocked).
   const now = Date.now()
   const fmt = (ms: number) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z')
   const fromIso = fmt(now - 30 * 24 * 60 * 60 * 1000)
   const toIso = fmt(now)
 
-  async function fetchLogs(extra?: Record<string, string>): Promise<{ ok: boolean; status: number; body: string; rows: QueryLogRow[] }> {
-    const qs = new URLSearchParams()
-    qs.set('organization_id', oid)
-    qs.set('from', fromIso)
-    qs.set('to', toIso)
-    qs.set('page[size]', '100')
-    if (extra) for (const [k, v] of Object.entries(extra)) qs.set(k, v)
-    const res = await fetch(`${baseUrl}/traffic_reports/query_logs?${qs.toString()}`, { headers, signal: AbortSignal.timeout(30_000) })
-    if (!res.ok) return { ok: false, status: res.status, body: (await res.text().catch(() => '')).slice(0, 300), rows: [] }
-    const json = (await res.json()) as { data?: { values?: QueryLogRow[] } }
-    return { ok: true, status: 200, body: '', rows: json.data?.values ?? [] }
+  // ---- Source 1: CyberSight CSV export (env-configurable; the rich source) ----
+  async function cybersightSignals(): Promise<{ signals: string[]; note: string | null } | null> {
+    const createPath = process.env.DNSFILTER_CYBERSIGHT_EXPORT_PATH
+    if (!createPath) return null // not configured → use DNS
+    try {
+      const startRes = await fetch(`${baseUrl}${createPath.startsWith('/') ? '' : '/'}${createPath}`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ report_type: process.env.DNSFILTER_CYBERSIGHT_REPORT_TYPE || 'activity', start_at: fromIso, end_at: toIso, organization_id: oid }),
+        signal: AbortSignal.timeout(20_000),
+      })
+      if (!startRes.ok) return { signals: [], note: `CyberSight export start failed (${startRes.status})` }
+      const sj = (await startRes.json()) as { data?: { id?: string; uuid?: string; attributes?: { url?: string } }; id?: string; uuid?: string }
+      const id = sj.data?.id || sj.data?.uuid || sj.id || sj.uuid
+      let downloadUrl: string | null = sj.data?.attributes?.url ?? null
+      if (!id && !downloadUrl) return { signals: [], note: 'CyberSight export returned no id/url' }
+
+      const statusBase = process.env.DNSFILTER_CYBERSIGHT_STATUS_PATH || createPath
+      for (let i = 0; i < 6 && !downloadUrl && id; i++) {
+        await new Promise((r) => setTimeout(r, 2500))
+        const stat = await fetch(`${baseUrl}${statusBase.startsWith('/') ? '' : '/'}${statusBase}/${id}`, { headers, signal: AbortSignal.timeout(15_000) })
+        if (!stat.ok) continue
+        const stj = (await stat.json()) as { data?: { attributes?: { url?: string; download_url?: string } } }
+        downloadUrl = stj.data?.attributes?.url || stj.data?.attributes?.download_url || null
+      }
+      if (!downloadUrl) return { signals: [], note: 'CyberSight export did not produce a download URL in time' }
+
+      const csvRes = await fetch(downloadUrl, { signal: AbortSignal.timeout(20_000) })
+      if (!csvRes.ok) return { signals: [], note: `CyberSight CSV download failed (${csvRes.status})` }
+      return { signals: parseCsvSignals(await csvRes.text()), note: null }
+    } catch (err) {
+      return { signals: [], note: `CyberSight export error: ${err instanceof Error ? err.message : String(err)}` }
+    }
   }
 
-  let rows: QueryLogRow[] = []
-  try {
-    let r = await fetchLogs()
-    if (!r.ok && r.status === 400) r = await fetchLogs({ result: 'allowed' })
-    if (!r.ok) return empty(`DNSFilter query_logs failed (${r.status}) for org "${orgName}"${r.body ? `: ${r.body}` : ''}`)
-    rows = r.rows
-  } catch (err) {
-    return empty(`DNSFilter query_logs error: ${err instanceof Error ? err.message : String(err)}`)
+  // ---- Source 2: query_logs (paginated DNS sample; default + fallback) ----
+  async function queryLogSignals(): Promise<{ signals: string[]; note: string | null }> {
+    const collected: string[] = []
+    let resultFilter: string | undefined
+    for (let page = 1; page <= 5; page++) {
+      const qs = new URLSearchParams()
+      qs.set('organization_id', oid); qs.set('from', fromIso); qs.set('to', toIso)
+      qs.set('page[size]', '100'); qs.set('page[number]', String(page))
+      if (resultFilter) qs.set('result', resultFilter)
+      const res = await fetch(`${baseUrl}/traffic_reports/query_logs?${qs.toString()}`, { headers, signal: AbortSignal.timeout(30_000) })
+      if (!res.ok) {
+        if (page === 1 && res.status === 400 && !resultFilter) { resultFilter = 'allowed'; page = 0; continue }
+        const body = (await res.text().catch(() => '')).slice(0, 200)
+        return { signals: collected, note: `query_logs failed (${res.status})${body ? ': ' + body : ''}` }
+      }
+      const json = (await res.json()) as { data?: { values?: QueryLogRow[] } }
+      const vals = json.data?.values ?? []
+      for (const v of vals) { const d = (v.fqdn || v.domain || '').toLowerCase(); if (d) collected.push(d) }
+      if (vals.length < 100) break
+    }
+    return { signals: collected, note: null }
   }
 
-  // Aggregate.
+  // Prefer CyberSight; fall back to DNS on miss/failure.
+  let signals: string[] = []
+  let source: 'CyberSight' | 'DNS' = 'DNS'
+  let fetchNote: string | null = null
+  const cs = await cybersightSignals()
+  if (cs && cs.signals.length > 0) {
+    signals = cs.signals; source = 'CyberSight'; fetchNote = cs.note
+  } else {
+    const ql = await queryLogSignals()
+    signals = ql.signals; source = 'DNS'
+    fetchNote = ql.note || cs?.note || null
+    if (!ql.signals.length && ql.note) {
+      return empty(`DNSFilter ${ql.note} for org "${orgName}".`)
+    }
+  }
+
+  // ---- Aggregate signals → AI tools + top apps ----
   const ai = new Map<string, PrefillItem>()
   const apps = new Map<string, PrefillItem>()
-  for (const row of rows) {
-    const fqdn = (row.fqdn || row.domain || '').toLowerCase()
-    if (!fqdn) continue
-    const aiHit = firstMatch(fqdn, AI_DOMAINS)
+  for (const s of signals) {
+    if (!s) continue
+    const aiHit = firstMatch(s, AI_TOKENS)
     if (aiHit) {
       const cur = ai.get(aiHit.name) ?? { name: aiHit.name, domain: aiHit.match, count: 0 }
       cur.count++; ai.set(aiHit.name, cur)
       continue
     }
-    if (NOISE.some((n) => fqdn.includes(n))) continue
-    const saasHit = firstMatch(fqdn, SAAS_DOMAINS)
-    const key = saasHit ? saasHit.name : baseDomain(fqdn)
-    const cur = apps.get(key) ?? { name: key, domain: saasHit ? saasHit.match : baseDomain(fqdn), count: 0 }
+    if (NOISE.some((n) => s.includes(n))) continue
+    const saasHit = firstMatch(s, SAAS_DOMAINS)
+    const key = saasHit ? saasHit.name : baseDomain(s)
+    const cur = apps.get(key) ?? { name: key, domain: saasHit ? saasHit.match : baseDomain(s), count: 0 }
     cur.count++; apps.set(key, cur)
   }
 
   const aiTools = Array.from(ai.values()).sort((a, b) => b.count - a.count)
   const topApps = Array.from(apps.values()).sort((a, b) => b.count - a.count).slice(0, 12)
-  const namedApps = topApps.filter((a) => SAAS_DOMAINS.some((s) => s.name === a.name))
+  const namedApps = topApps.filter((a) => SAAS_DOMAINS.some((sd) => sd.name === a.name))
 
   const suggestions: Record<string, string> = {}
-  // Maps to the discovery question ids (questions.ts): ai_state is a choice
-  // whose value must match a label exactly; lob_apps / must_connect are text.
   suggestions.ai_state = aiTools.length > 0 ? 'Some, ungoverned' : 'None yet'
   if (topApps.length > 0) suggestions.lob_apps = topApps.map((a) => a.name).join(', ')
   if (namedApps.length > 0) suggestions.must_connect = namedApps.map((a) => a.name).join(', ')
 
-  const note = rows.length === 0
-    ? `Connected to DNSFilter org "${orgName}", but no recent query sample was returned.`
-    : `From a recent DNSFilter sample for "${orgName}" (${rows.length} queries). DNS shows domains, not desktop apps — confirm on the call.`
+  const srcLabel = source === 'CyberSight' ? 'CyberSight activity' : 'a DNS sample'
+  const note = signals.length === 0
+    ? `Connected to DNSFilter org "${orgName}", but no activity was returned${fetchNote ? ` (${fetchNote})` : ''}.`
+    : `From ${srcLabel} for "${orgName}" (${signals.length} signals). ${source === 'DNS' ? 'DNS shows domains, not desktop apps — confirm on the call.' : 'Includes desktop apps.'}`
 
   return { available: true, orgName, aiTools, topApps, suggestions, note }
 }
