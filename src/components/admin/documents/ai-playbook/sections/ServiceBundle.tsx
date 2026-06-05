@@ -8,7 +8,7 @@ const AUTOTASK_LINES = `AI Managed Services — per user / month .............. 
   token-pool monitoring, managed-environment support.
   Minimum seats follow the platform (ChatGPT Business 2 / Claude Team 5).
 
-AI Onboarding & Implementation (one-time) ........... $[set per engagement]
+AI Onboarding & Implementation (one-time) ........... from $1,500.00  (provisional)
   Domain + business/Team account setup, AUP, first up-to-3 native integrations.
 
 AI Profit & Readiness Assessment (one-time) ......... from $1,000.00
@@ -50,7 +50,7 @@ export default function ServiceBundle() {
         {[
           { n: '$50', l: 'per user / month (TCT)', s: 'The recurring line item' },
           { n: 'from $1,000', l: 'AI Profit & Readiness Assessment', s: 'One-time front door' },
-          { n: 'one-time', l: 'Onboarding & implementation fee', s: 'Set per engagement' },
+          { n: 'one-time', l: 'Onboarding & implementation fee', s: 'Provisional — from $1,500' },
         ].map((c) => (
           <div key={c.l} className="p-5 rounded-xl bg-white/[0.03] border border-white/10">
             <div className="text-2xl font-black text-cyan-400 leading-none tracking-tight">{c.n}</div>
@@ -63,6 +63,14 @@ export default function ServiceBundle() {
         The <strong className="text-white font-semibold">$50/user/month</strong> covers the managed environment (see §2 for the full included list): platform setup, the AI Acceptable Use Policy, up to 3 native integrations, governance, AI office hours, the monthly AI webinar, and token-pool monitoring. <strong className="text-white font-semibold">Practical seat floor follows the platform's own minimum</strong> — ChatGPT Business = 2 seats, Claude Team = 5 seats.
       </Body>
       <p className="text-[13.5px] text-slate-400 -mt-1 mb-2">Quantify it for the client: <Link href="/admin/documents/ai-playbook/roi" className="text-cyan-400 hover:text-cyan-300 underline underline-offset-2">open the ROI calculator</Link>.</p>
+
+      <Callout label="Pricing status — draft, pending sign-off">
+        <CalloutP>
+          <strong className="text-white font-semibold">Set:</strong> assessment from $1,000 · custom GPTs / agents from $1,000.{' '}
+          <strong className="text-white font-semibold">Provisional (confirm):</strong> $50 / user / mo (validate against vendor cost + target margin), onboarding from $1,500, unmanaged T&M $250/hr.{' '}
+          <strong className="text-white font-semibold">Blocked on vendors:</strong> per-seat reseller cost, seat minimums, and token / usage limits — pin these down through the partner channels before quoting live.
+        </CalloutP>
+      </Callout>
 
       <H4>Platform cost reference (confirm live)</H4>
       <div className="rounded-xl overflow-hidden border border-white/10 my-5">

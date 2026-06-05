@@ -1,6 +1,6 @@
 /**
- * AIGPA report generator. Turns a saved discovery assessment into the
- * client-facing AI Growth & Profit Assessment report — the paid deliverable
+ * AI Profit & Readiness Assessment report generator. Turns a saved discovery
+ * assessment into the client-facing report — the paid deliverable
  * presented on the Review Call.
  *
  * Reuses the project's Anthropic client conventions (claude-sonnet-4-6 +
