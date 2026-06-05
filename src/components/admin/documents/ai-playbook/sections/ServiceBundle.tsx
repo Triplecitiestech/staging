@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import CopyButton from '@/components/admin/documents/CopyButton'
 import { SecHead, Lead, Body, H4, Callout, CalloutP, Bullets } from '../primitives'
 
@@ -61,6 +62,7 @@ export default function ServiceBundle() {
       <Body>
         The <strong className="text-white font-semibold">$50/user/month</strong> covers the managed environment (see §2 for the full included list): platform setup, the AI Acceptable Use Policy, up to 3 native integrations, governance, AI office hours, the monthly AI webinar, and token-pool monitoring. <strong className="text-white font-semibold">Practical seat floor follows the platform's own minimum</strong> — ChatGPT Business = 2 seats, Claude Team = 5 seats.
       </Body>
+      <p className="text-[13.5px] text-slate-400 -mt-1 mb-2">Quantify it for the client: <Link href="/admin/documents/ai-playbook/roi" className="text-cyan-400 hover:text-cyan-300 underline underline-offset-2">open the ROI calculator</Link>.</p>
 
       <H4>Platform cost reference (confirm live)</H4>
       <div className="rounded-xl overflow-hidden border border-white/10 my-5">

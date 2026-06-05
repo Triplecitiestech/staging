@@ -3,7 +3,7 @@ import { auth } from '@/auth'
 import { redirect } from 'next/navigation'
 import AdminHeader from '@/components/admin/AdminHeader'
 import AdminShell from '@/components/admin/AdminShell'
-import { ArrowUpRight, ShieldCheck, FileBarChart, Megaphone, Share2, FileText, Sparkles, Bot, ClipboardList, Workflow } from 'lucide-react'
+import { ArrowUpRight, ShieldCheck, FileBarChart, Megaphone, Share2, FileText, Sparkles, Bot, ClipboardList, Workflow, Calculator } from 'lucide-react'
 
 export const dynamic = 'force-dynamic'
 
@@ -45,6 +45,19 @@ const documents: DocCard[] = [
     description:
       'The staff-filled discovery tool — six profit zones, severity scoring, monthly-waste calculator, and platform direction. Saved per company; generates the client-facing AIGPA report.',
     href: '/admin/documents/ai-playbook/discovery',
+    chips: [
+      { label: 'Live', tone: 'live' },
+      { label: 'Tool' },
+    ],
+  },
+  {
+    category: 'AI Strategy',
+    categoryClass: 'text-cyan-400',
+    icon: <Calculator className="h-5 w-5 text-cyan-400" />,
+    title: 'AI ROI Calculator',
+    description:
+      'Put a number on the opportunity for the review call — time saved becomes labor dollars, plus any revenue lift, netted against tool + service cost. Live ROI %, payback period, and a copyable summary.',
+    href: '/admin/documents/ai-playbook/roi',
     chips: [
       { label: 'Live', tone: 'live' },
       { label: 'Tool' },
