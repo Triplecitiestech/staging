@@ -280,6 +280,7 @@ export default function DiscoveryForm() {
                       ${wasteTotal.toLocaleString()}
                     </div>
                     <div className="text-[11px] text-slate-500 mt-1">summed from the zones</div>
+                    <Link href="/admin/documents/ai-playbook/roi" className="text-[11px] font-semibold text-cyan-400 hover:text-cyan-300 mt-1 inline-block">ROI calculator →</Link>
                   </div>
                 </div>
               </div>
