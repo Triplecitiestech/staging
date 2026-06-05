@@ -36,6 +36,15 @@ interface Draft {
   intakeSubmittedAt: string | null
 }
 
+interface Prefill {
+  available: boolean
+  orgName: string | null
+  aiTools: { name: string }[]
+  topApps: { name: string }[]
+  suggestions: Record<string, string>
+  note: string | null
+}
+
 const blankDraft = (): Draft => ({
   id: null,
   companyName: '',
@@ -71,6 +80,10 @@ export default function DiscoveryForm() {
   const [intakePending, setIntakePending] = useState(false)
   const [copiedIntake, setCopiedIntake] = useState(false)
   const [showIntake, setShowIntake] = useState(false)
+  const [prefill, setPrefill] = useState<Prefill | null>(null)
+  const [prefillPending, setPrefillPending] = useState(false)
+  const [prefillError, setPrefillError] = useState<string | null>(null)
+  const [prefillApplied, setPrefillApplied] = useState(false)
 
   useEffect(() => { setOrigin(window.location.origin) }, [])
 
@@ -230,6 +243,37 @@ export default function DiscoveryForm() {
     setTimeout(() => setCopiedIntake(false), 2000)
   }
 
+  const runPrefill = async () => {
+    if (!draft) return
+    if (!draft.companyName.trim()) { setPrefillError('Enter the company name first.'); return }
+    setPrefillPending(true); setPrefillError(null); setPrefill(null); setPrefillApplied(false)
+    try {
+      const res = await fetch('/api/admin/ai-discovery/prefill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyName: draft.companyName }),
+      })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || `HTTP ${res.status}`)
+      const data = await res.json()
+      setPrefill(data.prefill)
+    } catch (err) {
+      setPrefillError(err instanceof Error ? err.message : 'Pre-fill failed')
+    } finally {
+      setPrefillPending(false)
+    }
+  }
+
+  const applyPrefill = () => {
+    if (!draft || !prefill) return
+    const aiNote = prefill.aiTools.length ? `AI tools seen in DNS: ${prefill.aiTools.map((t) => t.name).join(', ')}` : ''
+    setDraft((d) => (d ? {
+      ...d,
+      answers: { ...d.answers, ...prefill.suggestions },
+      notes: aiNote ? (d.notes ? `${d.notes}\n${aiNote}` : aiNote) : d.notes,
+    } : d))
+    setPrefillApplied(true)
+  }
+
   const suggestion = draft ? suggestPlatform(draft.answers) : null
   const wasteTotal = draft ? sumMonthlyWaste(draft.answers) : 0
 
@@ -326,6 +370,51 @@ export default function DiscoveryForm() {
                   </div>
                 </div>
               </div>
+
+              {/* Pre-fill from DNSFilter (existing clients) */}
+              <section className="rounded-xl border border-white/10 bg-white/[0.03] p-5">
+                <div className="flex items-center justify-between gap-3 flex-wrap mb-1.5">
+                  <h3 className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Pre-fill from DNSFilter</h3>
+                  <button
+                    onClick={runPrefill}
+                    disabled={prefillPending}
+                    className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg font-semibold text-sm bg-white/10 text-white hover:bg-white/15 disabled:opacity-50"
+                  >
+                    {prefillPending ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />} Pull from DNSFilter
+                  </button>
+                </div>
+                {!prefill && !prefillError && !prefillPending && (
+                  <p className="text-[12px] text-slate-500">Existing DNSFilter client? Auto-suggest the AI tools in use and top systems from their DNS activity — you review before it fills.</p>
+                )}
+                {prefillError && <p className="text-sm text-rose-400">{prefillError}</p>}
+                {prefill && (prefill.available ? (
+                  <div className="mt-1">
+                    {prefill.note && <p className="text-[12px] text-slate-500 mb-3">{prefill.note}</p>}
+                    {prefill.aiTools.length > 0 && (
+                      <p className="text-sm text-slate-200 mb-1.5"><span className="text-[11px] font-bold uppercase tracking-wide text-cyan-400 mr-2">AI tools</span>{prefill.aiTools.map((t) => t.name).join(', ')}</p>
+                    )}
+                    {prefill.topApps.length > 0 && (
+                      <p className="text-sm text-slate-200 mb-3"><span className="text-[11px] font-bold uppercase tracking-wide text-cyan-400 mr-2">Top apps</span>{prefill.topApps.map((a) => a.name).join(', ')}</p>
+                    )}
+                    {Object.keys(prefill.suggestions).length > 0 ? (
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <button
+                          onClick={applyPrefill}
+                          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg font-semibold text-sm text-[#04222a]"
+                          style={{ background: 'linear-gradient(135deg, #22D3EE, #0891B2)' }}
+                        >
+                          Apply to AI-state &amp; systems
+                        </button>
+                        {prefillApplied && <span className="text-sm text-emerald-400 inline-flex items-center gap-1"><Check size={14} /> Applied — review the fields below</span>}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-slate-500">No AI tools or notable apps in the sample.</p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-400 mt-1">{prefill.note}</p>
+                ))}
+              </section>
 
               {/* Client intake — Business Snapshot link + submitted responses */}
               {draft.id && (
