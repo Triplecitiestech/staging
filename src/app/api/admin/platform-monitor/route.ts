@@ -122,8 +122,23 @@ export async function GET() {
     // is initializing." The AI Spend Meter route avoids this by passing
     // every value through a toNum helper; do the equivalent here.
     const tables = (dbTableSizes.status === 'fulfilled' ? deepNumberize(dbTableSizes.value) : []) as { rowCount: number; sizeBytes: number; tableName: string }[]
-    const totalDbRows = tables.reduce((sum, t) => sum + Number(t.rowCount), 0)
-    const totalDbBytes = tables.reduce((sum, t) => sum + Number(t.sizeBytes), 0)
+    // Top-30 sums — used ONLY as a fallback. The dbTableSizes query is
+    // capped at LIMIT 30 for the display list, so summing it undercounts
+    // the real totals on a 35+ table schema (this was the 953.7 MB vs
+    // 972.64 MB split the operator caught).
+    const topTablesRows = tables.reduce((sum, t) => sum + Number(t.rowCount), 0)
+    const topTablesBytes = tables.reduce((sum, t) => sum + Number(t.sizeBytes), 0)
+
+    // Live threshold metrics (gatherMetrics) cover ALL tables. Prefer
+    // them for the Database section totals so the page shows ONE DB size,
+    // matching the "Database Storage" / "Database Total Rows" meters.
+    const liveMetrics = liveThresholdMetrics.status === 'fulfilled' && Array.isArray(liveThresholdMetrics.value)
+      ? (liveThresholdMetrics.value as Array<{ metricKey: string; currentValue: number }>)
+      : []
+    const liveByKey = new Map(liveMetrics.map((m) => [m.metricKey, Number(m.currentValue) || 0]))
+
+    const totalRows = liveByKey.get('db_rows_total') ?? topTablesRows
+    const totalSizeMB = liveByKey.get('db_storage_mb') ?? Math.round(topTablesBytes / 1024 / 1024 * 100) / 100
 
     return apiOk({
       aiUsage: {
@@ -133,11 +148,11 @@ export async function GET() {
       },
       database: {
         tables: tables.slice(0, 20),
-        totalRows: totalDbRows,
-        totalSizeBytes: totalDbBytes,
-        totalSizeMB: Math.round(totalDbBytes / 1024 / 1024 * 100) / 100,
+        totalRows,
+        totalSizeBytes: Math.round(totalSizeMB * 1024 * 1024),
+        totalSizeMB,
       },
-      thresholds: thresholds.status === 'fulfilled' ? mergeLiveValues(deepNumberize(thresholds.value), liveThresholdMetrics) : [],
+      thresholds: thresholds.status === 'fulfilled' ? mergeLiveValues(deepNumberize(thresholds.value), liveByKey) : [],
       errorTrend: recentErrors.status === 'fulfilled' ? deepNumberize(recentErrors.value) : [],
     }, reqId)
   } catch (error) {
@@ -190,13 +205,9 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  * without this merge every meter on the page would read its initial
  * seed value (almost always 0) even when the real usage is dramatic.
  */
-function mergeLiveValues(
-  stored: unknown,
-  live: PromiseSettledResult<Array<{ metricKey: string; currentValue: number }>>,
-): unknown {
+function mergeLiveValues(stored: unknown, liveByKey: Map<string, number>): unknown {
   if (!Array.isArray(stored)) return stored
-  if (live.status !== 'fulfilled' || !Array.isArray(live.value)) return stored
-  const liveByKey = new Map(live.value.map((m) => [m.metricKey, Number(m.currentValue) || 0]))
+  if (liveByKey.size === 0) return stored
   return stored.map((row) => {
     if (!row || typeof row !== 'object') return row
     const r = row as Record<string, unknown>
