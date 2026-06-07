@@ -440,7 +440,8 @@ export default function MonitoringDashboardClient() {
                   />
                   <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
                   <Area type="monotone" dataKey="errors" stroke="#f43f5e" fill="url(#errorGrad)" strokeWidth={2} name="Unique Errors" />
-                  <Area type="monotone" dataKey="occurrences" stroke="#f97316" fill="transparent" strokeWidth={1.5} strokeDasharray="4 2" name="Total Occurrences" />
+                  {/* violet-400 (not orange) — CLAUDE.md forbids orange-* */}
+                  <Area type="monotone" dataKey="occurrences" stroke="#a78bfa" fill="transparent" strokeWidth={1.5} strokeDasharray="4 2" name="Total Occurrences" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>

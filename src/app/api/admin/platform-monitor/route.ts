@@ -156,13 +156,27 @@ async function safeQuery(prisma: { $queryRawUnsafe: (q: string) => Promise<unkno
  * return BigInt values, which throw on JSON.stringify. Every numeric
  * field on this dashboard fits comfortably in a Number, so the lossy
  * conversion is safe.
+ *
+ * CRITICAL: only recurse into PLAIN objects + arrays. Postgres `date`
+ * columns come back as Date instances and Postgres `numeric` columns
+ * come back as Prisma Decimal instances — both have prototypes and
+ * empty `Object.entries`, so naive recursion strips them to `{}` and
+ * the client ends up with `new Date({})` → Invalid Date and
+ * `Number({})` → NaN. JSON.stringify already handles both via their
+ * native toJSON() methods, so leaving them untouched is correct.
  */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== 'object') return false
+  const proto = Object.getPrototypeOf(value)
+  return proto === Object.prototype || proto === null
+}
+
 function deepNumberize(value: unknown): unknown {
   if (typeof value === 'bigint') return Number(value)
   if (Array.isArray(value)) return value.map(deepNumberize)
-  if (value && typeof value === 'object') {
+  if (isPlainObject(value)) {
     const out: Record<string, unknown> = {}
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    for (const [k, v] of Object.entries(value)) {
       out[k] = deepNumberize(v)
     }
     return out
