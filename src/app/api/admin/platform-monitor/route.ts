@@ -1,6 +1,6 @@
 import { auth } from '@/auth'
 import { apiOk, apiError, generateRequestId } from '@/lib/api-response'
-import { gatherMetrics } from '@/lib/threshold-alerter'
+import { gatherMetrics, DEFAULT_THRESHOLDS } from '@/lib/threshold-alerter'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,6 +19,14 @@ export async function GET() {
     }
 
     const { prisma } = await import('@/lib/prisma')
+
+    // Auto-heal threshold limits from code defaults. The ON CONFLICT in
+    // the migrate route now re-syncs limits, but operators forget to
+    // re-run migrate — so make the code's DEFAULT_THRESHOLDS the actual
+    // source of truth by reconciling on every GET. Each UPDATE only
+    // fires when something actually differs, so it's a no-op once the
+    // DB matches the code (the common case).
+    void ensureThresholdLimits(prisma)
 
     // Fetch all data in parallel
     const [
@@ -158,6 +166,30 @@ export async function GET() {
   } catch (error) {
     console.error('[platform-monitor] Error:', error)
     return apiError('Failed to load platform metrics', reqId, 500)
+  }
+}
+
+/**
+ * Reconcile platform_thresholds rows with DEFAULT_THRESHOLDS in code.
+ * The conditional WHERE means each statement is a no-op once values
+ * match; mismatches get corrected. Fire-and-forget — failure here
+ * doesn't block the dashboard from rendering with the stored values.
+ */
+async function ensureThresholdLimits(
+  prisma: { $executeRawUnsafe: (q: string, ...args: unknown[]) => Promise<number> },
+): Promise<void> {
+  for (const def of DEFAULT_THRESHOLDS) {
+    try {
+      await prisma.$executeRawUnsafe(
+        `UPDATE platform_thresholds
+         SET "limitValue" = $1, unit = $2, "displayName" = $3, provider = $4, "updatedAt" = NOW()
+         WHERE "metricKey" = $5
+           AND ("limitValue" != $1 OR unit != $2 OR "displayName" != $3 OR provider != $4)`,
+        def.limitValue, def.unit, def.displayName, def.provider, def.metricKey,
+      )
+    } catch (err) {
+      console.error('[platform-monitor] ensureThresholdLimits', def.metricKey, err)
+    }
   }
 }
 
