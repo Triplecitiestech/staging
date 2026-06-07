@@ -1,5 +1,6 @@
 import { auth } from '@/auth'
 import { apiOk, apiError, generateRequestId } from '@/lib/api-response'
+import { gatherMetrics } from '@/lib/threshold-alerter'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,6 +28,7 @@ export async function GET() {
       dbTableSizes,
       thresholds,
       recentErrors,
+      liveThresholdMetrics,
     ] = await Promise.allSettled([
       // AI usage summary (last 30 days)
       safeQuery(prisma, `
@@ -100,6 +102,16 @@ export async function GET() {
         GROUP BY DATE("lastSeen")
         ORDER BY date
       `),
+
+      // Live threshold values — recomputed on every GET so the dashboard
+      // doesn't depend on the threshold-check cron (there is none) or on
+      // anyone manually clicking "Run Threshold Check". Without this,
+      // platform_thresholds.currentValue stays stuck at its seeded 0 and
+      // every meter on the page reads 0/limit.
+      gatherMetrics(prisma).catch((err) => {
+        console.error('[platform-monitor] gatherMetrics failed', err)
+        return [] as Array<{ metricKey: string; currentValue: number }>
+      }),
     ])
 
     // Calculate DB total size. Postgres ::bigint casts come back as
@@ -125,7 +137,7 @@ export async function GET() {
         totalSizeBytes: totalDbBytes,
         totalSizeMB: Math.round(totalDbBytes / 1024 / 1024 * 100) / 100,
       },
-      thresholds: thresholds.status === 'fulfilled' ? deepNumberize(thresholds.value) : [],
+      thresholds: thresholds.status === 'fulfilled' ? mergeLiveValues(deepNumberize(thresholds.value), liveThresholdMetrics) : [],
       errorTrend: recentErrors.status === 'fulfilled' ? deepNumberize(recentErrors.value) : [],
     }, reqId)
   } catch (error) {
@@ -169,6 +181,29 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (!value || typeof value !== 'object') return false
   const proto = Object.getPrototypeOf(value)
   return proto === Object.prototype || proto === null
+}
+
+/**
+ * Override each threshold row's stored currentValue with the freshly-
+ * gathered live value (keyed by metricKey). The stored column is only
+ * updated by the threshold-check POST route, which has no cron — so
+ * without this merge every meter on the page would read its initial
+ * seed value (almost always 0) even when the real usage is dramatic.
+ */
+function mergeLiveValues(
+  stored: unknown,
+  live: PromiseSettledResult<Array<{ metricKey: string; currentValue: number }>>,
+): unknown {
+  if (!Array.isArray(stored)) return stored
+  if (live.status !== 'fulfilled' || !Array.isArray(live.value)) return stored
+  const liveByKey = new Map(live.value.map((m) => [m.metricKey, Number(m.currentValue) || 0]))
+  return stored.map((row) => {
+    if (!row || typeof row !== 'object') return row
+    const r = row as Record<string, unknown>
+    const liveVal = liveByKey.get(r.metricKey as string)
+    if (liveVal == null) return row
+    return { ...r, currentValue: liveVal }
+  })
 }
 
 function deepNumberize(value: unknown): unknown {
