@@ -76,9 +76,24 @@ export async function trackApiUsage(params: TrackApiUsageParams): Promise<void> 
       params.error ?? null,
       params.metadata ? JSON.stringify(params.metadata) : null
     )
-  } catch {
-    // Don't let tracking failures break the main flow
-    console.error('[api-usage-tracker] Failed to log usage (table may not exist yet)')
+  } catch (err) {
+    // Tracking failures must not break the caller's main flow, but they
+    // also must not be silent — operators were burning Anthropic dollars
+    // for weeks against an undercounted meter because a bare `catch {}`
+    // here hid the real reason. Surface enough context to triage from
+    // Vercel function logs without leaking secrets (no prompts, no
+    // metadata blob beyond what was already going into the row).
+    console.error('[api-usage-tracker] insert failed', {
+      provider: params.provider,
+      feature: params.feature,
+      model: params.model,
+      inputTokens: params.inputTokens ?? 0,
+      outputTokens: params.outputTokens ?? 0,
+      statusCode: params.statusCode,
+      error: err instanceof Error
+        ? { name: err.name, message: err.message, stack: err.stack?.slice(0, 500) }
+        : String(err),
+    })
   }
 }
 
