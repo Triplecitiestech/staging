@@ -43,14 +43,17 @@ export const DEFAULT_THRESHOLDS = [
   {
     metricKey: 'anthropic_cost_monthly',
     displayName: 'Anthropic API Cost (Monthly)',
-    limitValue: 5000, // $50 in cents
+    limitValue: 10_000, // $100 in cents — actual API-key spend has been
+                         // averaging $80–100/mo against $30 of in-platform
+                         // tracking, so $50 was an undercount that left
+                         // the meter perma-yellow before tracking caught up.
     unit: 'cents',
     provider: 'anthropic',
   },
   {
     metricKey: 'db_storage_mb',
-    displayName: 'Database Storage',
-    limitValue: 512, // 512 MB (Vercel Postgres hobby)
+    displayName: 'Database Storage (Prisma Starter cap)',
+    limitValue: 1024, // Prisma Postgres Starter plan = 1 GB
     unit: 'MB',
     provider: 'vercel-postgres',
   },

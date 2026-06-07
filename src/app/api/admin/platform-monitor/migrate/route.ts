@@ -77,13 +77,23 @@ export async function POST(request: NextRequest) {
     `)
     await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_health_snapshots_created ON system_health_snapshots ("createdAt")`)
 
-    // Seed default thresholds (upsert)
+    // Seed default thresholds (upsert). The ON CONFLICT branch must
+    // re-sync limitValue/unit/provider too — previously it only updated
+    // displayName, so a stale limit (e.g. db_storage_mb = 512 from the
+    // original Vercel-Postgres-Hobby default) could never be corrected
+    // by re-running this migration. That's the silent bug that left the
+    // Database Storage meter showing 190% against a fictional cap.
     let seeded = 0
     for (const t of DEFAULT_THRESHOLDS) {
       const result = await prisma.$executeRawUnsafe(
         `INSERT INTO platform_thresholds (id, "metricKey", "displayName", "limitValue", unit, provider, "updatedAt")
          VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, NOW())
-         ON CONFLICT ("metricKey") DO UPDATE SET "displayName" = $2, "updatedAt" = NOW()`,
+         ON CONFLICT ("metricKey") DO UPDATE SET
+           "displayName" = EXCLUDED."displayName",
+           "limitValue" = EXCLUDED."limitValue",
+           unit = EXCLUDED.unit,
+           provider = EXCLUDED.provider,
+           "updatedAt" = NOW()`,
         t.metricKey, t.displayName, t.limitValue, t.unit, t.provider
       )
       if (result) seeded++
