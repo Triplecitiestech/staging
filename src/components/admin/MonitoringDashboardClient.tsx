@@ -84,27 +84,39 @@ const PIE_COLORS = ['#06b6d4', '#8b5cf6', '#f43f5e', '#3b82f6', '#10b981', '#ec4
 export default function MonitoringDashboardClient() {
   const [data, setData] = useState<MonitorData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [activeSection, setActiveSection] = useState<string | null>(null)
 
   const [setupNeeded, setSetupNeeded] = useState(false)
   const [settingUp, setSettingUp] = useState(false)
 
   const fetchDataImpl = useCallback(async (signal?: AbortSignal) => {
+    setError(null)
     try {
       const res = await fetch('/api/admin/platform-monitor', { signal })
-      if (res.ok) {
-        const result = await res.json()
-        const isEmpty = result.aiUsage?.summary?.length === 0 &&
-          result.database?.tables?.length === 0 &&
-          result.thresholds?.length === 0 &&
-          result.errorTrend?.length === 0
-        if (isEmpty) {
-          setSetupNeeded(true)
-        }
-        setData(result)
+      if (!res.ok) {
+        const body = await res.text().catch(() => '')
+        let detail = ''
+        try {
+          const parsed = body ? JSON.parse(body) : null
+          detail = parsed?.error || parsed?.message || body.slice(0, 200)
+        } catch { detail = body.slice(0, 200) }
+        setError(`HTTP ${res.status}${detail ? ` — ${detail}` : ''}`)
+        setLoading(false)
+        return
       }
+      const result = await res.json()
+      const isEmpty = result.aiUsage?.summary?.length === 0 &&
+        result.database?.tables?.length === 0 &&
+        result.thresholds?.length === 0 &&
+        result.errorTrend?.length === 0
+      if (isEmpty) {
+        setSetupNeeded(true)
+      }
+      setData(result)
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return
+      setError(err instanceof Error ? `${err.name}: ${err.message}` : String(err))
     }
     setLoading(false)
   }, [])
@@ -144,7 +156,12 @@ export default function MonitoringDashboardClient() {
   if (!data) {
     return (
       <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-8 text-center">
-        <p className="text-slate-400 mb-4">Platform monitoring data is loading or session is initializing.</p>
+        <p className="text-slate-300 mb-2 font-medium">
+          {error ? "Couldn't load platform monitoring data" : 'No platform monitoring data yet'}
+        </p>
+        {error && (
+          <p className="text-rose-300 text-sm font-mono mb-4 break-words max-w-2xl mx-auto">{error}</p>
+        )}
         <button onClick={fetchData} className="px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors text-sm">
           Retry
         </button>
