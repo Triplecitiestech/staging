@@ -17,7 +17,7 @@ interface WindowMetrics {
   avgDurationMs: number
 }
 
-type Subsystem = 'SOC' | 'Compliance' | 'Marketing' | 'Blog' | 'Reporting' | 'Images' | 'Other'
+type Subsystem = 'SOC' | 'Compliance' | 'Marketing' | 'Blog' | 'Reporting' | 'Images' | 'Discovery' | 'Other'
 
 interface FeatureBreakdown {
   feature: string
@@ -29,7 +29,7 @@ interface FeatureBreakdown {
   tracked: boolean
 }
 
-const SUBSYSTEM_ORDER: Subsystem[] = ['SOC', 'Compliance', 'Marketing', 'Blog', 'Reporting', 'Images', 'Other']
+const SUBSYSTEM_ORDER: Subsystem[] = ['SOC', 'Compliance', 'Marketing', 'Blog', 'Reporting', 'Images', 'Discovery', 'Other']
 
 interface ModelBreakdown {
   model: string | null
