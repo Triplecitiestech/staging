@@ -234,6 +234,16 @@ export default function MonitoringDashboardClient() {
               const barColor = pct >= 95 ? 'bg-rose-500' : pct >= 80 ? 'bg-violet-500' : pct >= 60 ? 'bg-cyan-500' : 'bg-emerald-500'
               const textColor = pct >= 95 ? 'text-rose-400' : pct >= 80 ? 'text-violet-400' : 'text-emerald-400'
 
+              // Cost thresholds are stored in cents (limit 5000 = $50) and
+              // the live currentValue is a fractional cents sum, so a raw
+              // .toLocaleString() prints e.g. "216.719 cents". Render money
+              // thresholds as dollars to match the rest of the page.
+              const isCents = t.unit === 'cents'
+              const fmt = (v: number) =>
+                isCents
+                  ? `$${(v / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                  : v.toLocaleString()
+
               return (
                 <div key={t.id} className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4">
                   <div className="flex items-center justify-between mb-2">
@@ -247,7 +257,7 @@ export default function MonitoringDashboardClient() {
                   </div>
                   <div className="flex justify-between text-xs">
                     <span className="text-slate-400">
-                      {t.currentValue.toLocaleString()} / {t.limitValue.toLocaleString()} {t.unit}
+                      {fmt(t.currentValue)} / {fmt(t.limitValue)}{isCents ? '' : ` ${t.unit}`}
                     </span>
                     <span className={`font-medium ${textColor}`}>{Math.round(pct)}%</span>
                   </div>
