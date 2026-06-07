@@ -1,26 +1,28 @@
 /**
  * GET /api/admin/ai-usage/tracker-test
  *
- * Five-stage round-trip health check for the AI usage tracker. Lets an
- * operator answer "is the tracker working?" with one URL hit instead of
- * waiting 30 days for the meter to converge. Each stage isolates one
- * possible failure mode and surfaces the real Postgres error (not the
- * silent catch in trackApiUsage that hid the original problem for weeks):
+ * Five-stage round-trip health check for the AI usage tracker. Answers
+ * "is the tracker actually working?" without waiting for the meter to
+ * converge. Each stage isolates one possible failure mode and surfaces
+ * the real Postgres error directly in the response — the catch block in
+ * trackApiUsage swallows them in production by design (tracking must not
+ * break the caller), so this endpoint is the only way to see them
+ * outside of Vercel function logs.
  *
  *   1. probe       — does the api_usage_logs table exist + which columns
  *   2. cleanup     — can we delete? (tests write + the test-row janitor)
  *   3. insert      — can we write a fresh row? (the actual tracker path)
  *   4. read-back   — can we read what we just wrote? (verifies durability)
  *   5. recent      — per-feature counts in the last 24h, so the operator
- *                    can see whether compliance/SOC/etc. rows are
- *                    actually landing
+ *                    can see whether each subsystem's rows are landing
  *
  * Auth-gated to any signed-in staff session. Test rows go in under
  * provider='internal' so they don't pollute the meter (which filters to
- * provider IN ('anthropic','openai')).
+ * provider IN ('anthropic','openai')). Stale test rows (>1h old) are
+ * cleaned up on every call so the table doesn't accumulate junk.
  *
- * INTENDED TO BE TEMPORARY — delete this route once tracking health is
- * confirmed and the convergence window has elapsed.
+ * Permanent ops tool — pairs with /api/admin/ai-usage/meter (which shows
+ * what the meter sees) so an operator can compare against ground truth.
  */
 
 import { NextResponse } from 'next/server'

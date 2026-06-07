@@ -9,13 +9,14 @@ export const dynamic = 'force-dynamic'
 // confirm tracking is wired without waiting for traffic. Add entries here
 // when you introduce a new tracked feature; the catalog is the single
 // source of truth for "what does the platform spend Anthropic dollars on."
-type Subsystem = 'SOC' | 'Compliance' | 'Marketing' | 'Blog' | 'Reporting' | 'Images' | 'Other'
+type Subsystem = 'SOC' | 'Compliance' | 'Marketing' | 'Blog' | 'Reporting' | 'Images' | 'Discovery' | 'Other'
 const FEATURE_CATALOG: Record<string, { subsystem: Subsystem; label: string }> = {
-  // SOC Analyst Agent
+  // SOC Analyst Agent — the cross-stack redesign consolidated the old
+  // triage_deep / action_plan / reasoning calls into a single assessment
+  // pass, so only `soc_triage` (screen) and `soc_assessment` (deep+plan)
+  // remain in the live tracking path.
   soc_triage: { subsystem: 'SOC', label: 'Triage screen' },
-  soc_triage_deep: { subsystem: 'SOC', label: 'Deep analysis' },
-  soc_action_plan: { subsystem: 'SOC', label: 'Action plan' },
-  soc_reasoning: { subsystem: 'SOC', label: 'Reasoning' },
+  soc_assessment: { subsystem: 'SOC', label: 'Cross-stack assessment' },
   'soc-trends-recommendations': { subsystem: 'SOC', label: 'Trend recommendations' },
   'soc-rules-ai': { subsystem: 'SOC', label: 'AI rule suggestions' },
   'soc-analyst': { subsystem: 'SOC', label: 'Analyst Q&A' },
@@ -36,6 +37,8 @@ const FEATURE_CATALOG: Record<string, { subsystem: Subsystem; label: string }> =
   'reports-ai-assistant': { subsystem: 'Reporting', label: 'Reports assistant' },
   // Images (OpenAI gpt-image-1)
   documents_social_image: { subsystem: 'Images', label: 'Social card background' },
+  // Discovery / AI-readiness sales tooling
+  'aigpa-report': { subsystem: 'Discovery', label: 'AI readiness report' },
   // Misc
   'ai-chat': { subsystem: 'Other', label: 'Admin AI chat' },
   'ai-support-review': { subsystem: 'Other', label: 'Support review' },
@@ -238,7 +241,7 @@ export async function GET() {
         })
       }
     }
-    const SUBSYSTEM_ORDER: Subsystem[] = ['SOC', 'Compliance', 'Marketing', 'Blog', 'Reporting', 'Images', 'Other']
+    const SUBSYSTEM_ORDER: Subsystem[] = ['SOC', 'Compliance', 'Marketing', 'Blog', 'Reporting', 'Images', 'Discovery', 'Other']
     const byFeature: FeatureBreakdown[] = Array.from(dbByFeature.values()).sort((a, b) => {
       const subDiff = SUBSYSTEM_ORDER.indexOf(a.subsystem) - SUBSYSTEM_ORDER.indexOf(b.subsystem)
       if (subDiff !== 0) return subDiff
