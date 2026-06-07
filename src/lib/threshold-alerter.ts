@@ -173,7 +173,7 @@ export async function checkThresholds(): Promise<ThresholdAlert[]> {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function gatherMetrics(prisma: any): Promise<ThresholdCheck[]> {
+export async function gatherMetrics(prisma: any): Promise<ThresholdCheck[]> {
   const p = prisma as { $queryRawUnsafe: (q: string, ...args: unknown[]) => Promise<unknown[]> }
   const checks: ThresholdCheck[] = []
 
