@@ -13,10 +13,17 @@ type Subsystem = 'SOC' | 'Compliance' | 'Marketing' | 'Blog' | 'Reporting' | 'Im
 const FEATURE_CATALOG: Record<string, { subsystem: Subsystem; label: string }> = {
   // SOC Analyst Agent — the cross-stack redesign consolidated the old
   // triage_deep / action_plan / reasoning calls into a single assessment
-  // pass, so only `soc_triage` (screen) and `soc_assessment` (deep+plan)
-  // remain in the live tracking path.
+  // pass. `soc_triage` (screen) and `soc_assessment` (the consolidated
+  // deep analysis) are the active tracking paths. The three retired
+  // features are kept in the catalog so their historical rows (still
+  // present in the 30d/60d windows after the rework) display grouped
+  // under SOC with human labels instead of as raw snake_case under
+  // 'Other'. Drop them once they age past the 60d window.
   soc_triage: { subsystem: 'SOC', label: 'Triage screen' },
   soc_assessment: { subsystem: 'SOC', label: 'Cross-stack assessment' },
+  soc_triage_deep: { subsystem: 'SOC', label: 'Deep analysis (retired)' },
+  soc_action_plan: { subsystem: 'SOC', label: 'Action plan (retired)' },
+  soc_reasoning: { subsystem: 'SOC', label: 'Reasoning (retired)' },
   'soc-trends-recommendations': { subsystem: 'SOC', label: 'Trend recommendations' },
   'soc-rules-ai': { subsystem: 'SOC', label: 'AI rule suggestions' },
   'soc-analyst': { subsystem: 'SOC', label: 'Analyst Q&A' },

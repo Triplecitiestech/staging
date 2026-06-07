@@ -102,16 +102,22 @@ export async function GET() {
       `),
     ])
 
-    // Calculate DB total size
-    const tables = (dbTableSizes.status === 'fulfilled' ? dbTableSizes.value : []) as { rowCount: number; sizeBytes: number; tableName: string }[]
+    // Calculate DB total size. Postgres ::bigint casts come back as
+    // JavaScript BigInt; deepNumberize() before returning JSON or
+    // NextResponse.json will throw "Do not know how to serialize a
+    // BigInt" — which is exactly what was making MonitoringDashboardClient
+    // silently fail with "Platform monitoring data is loading or session
+    // is initializing." The AI Spend Meter route avoids this by passing
+    // every value through a toNum helper; do the equivalent here.
+    const tables = (dbTableSizes.status === 'fulfilled' ? deepNumberize(dbTableSizes.value) : []) as { rowCount: number; sizeBytes: number; tableName: string }[]
     const totalDbRows = tables.reduce((sum, t) => sum + Number(t.rowCount), 0)
     const totalDbBytes = tables.reduce((sum, t) => sum + Number(t.sizeBytes), 0)
 
     return apiOk({
       aiUsage: {
-        summary: aiUsageSummary.status === 'fulfilled' ? aiUsageSummary.value : [],
-        byDay: aiUsageByDay.status === 'fulfilled' ? aiUsageByDay.value : [],
-        byFeature: aiUsageByFeature.status === 'fulfilled' ? aiUsageByFeature.value : [],
+        summary: aiUsageSummary.status === 'fulfilled' ? deepNumberize(aiUsageSummary.value) : [],
+        byDay: aiUsageByDay.status === 'fulfilled' ? deepNumberize(aiUsageByDay.value) : [],
+        byFeature: aiUsageByFeature.status === 'fulfilled' ? deepNumberize(aiUsageByFeature.value) : [],
       },
       database: {
         tables: tables.slice(0, 20),
@@ -119,8 +125,8 @@ export async function GET() {
         totalSizeBytes: totalDbBytes,
         totalSizeMB: Math.round(totalDbBytes / 1024 / 1024 * 100) / 100,
       },
-      thresholds: thresholds.status === 'fulfilled' ? thresholds.value : [],
-      errorTrend: recentErrors.status === 'fulfilled' ? recentErrors.value : [],
+      thresholds: thresholds.status === 'fulfilled' ? deepNumberize(thresholds.value) : [],
+      errorTrend: recentErrors.status === 'fulfilled' ? deepNumberize(recentErrors.value) : [],
     }, reqId)
   } catch (error) {
     console.error('[platform-monitor] Error:', error)
@@ -131,7 +137,35 @@ export async function GET() {
 async function safeQuery(prisma: { $queryRawUnsafe: (q: string) => Promise<unknown[]> }, sql: string): Promise<unknown[]> {
   try {
     return await prisma.$queryRawUnsafe(sql)
-  } catch {
+  } catch (err) {
+    // Don't swallow silently — log it so an operator can see which
+    // sub-query failed (the parent route already gracefully degrades
+    // by returning [] for any failed sub-query, so this is purely for
+    // diagnosis, not for changing behavior).
+    console.error('[platform-monitor] safeQuery failed', {
+      sqlSnippet: sql.trim().split('\n')[0]?.slice(0, 120),
+      error: err instanceof Error ? { name: err.name, message: err.message } : String(err),
+    })
     return []
   }
+}
+
+/**
+ * Recursively walk an object/array and convert every BigInt to a
+ * regular Number. Postgres `::bigint` casts via Prisma's $queryRawUnsafe
+ * return BigInt values, which throw on JSON.stringify. Every numeric
+ * field on this dashboard fits comfortably in a Number, so the lossy
+ * conversion is safe.
+ */
+function deepNumberize(value: unknown): unknown {
+  if (typeof value === 'bigint') return Number(value)
+  if (Array.isArray(value)) return value.map(deepNumberize)
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = deepNumberize(v)
+    }
+    return out
+  }
+  return value
 }
