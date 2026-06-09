@@ -1,17 +1,24 @@
 name: Auto-merge Claude branches
 
-# Gated auto-merge: a push to claude/** only reaches main (and therefore
+# Gated auto-merge: a push to claude/** reaches main (and therefore
 # production) after ALL of the following succeed on that exact commit:
 #
-#   1. secret-scan   — gitleaks
-#   2. quality       — lint + schema-drift check + production build + unit tests
-#   3. e2e-preview   — full Playwright suite against the Vercel preview
-#                      deployment of this commit
+#   1. secret-scan — gitleaks
+#   2. quality    — lint + schema-drift check + production build + unit tests
+#   3. e2e-smoke  — critical-path Playwright specs against the Vercel preview
+#                   (~5 min: critical-workflows, api-health, public-pages,
+#                   customer-portal, authenticated-admin)
+#
+# The FULL Playwright suite (e2e-full) runs against the same preview in
+# parallel but does NOT block the merge — a failure auto-opens a GitHub
+# issue for follow-up. Owner decision 2026-06-09: fast merges, full
+# coverage still runs on every push.
 #
 # Escape hatch (pipeline emergencies ONLY — e.g. the Vercel GitHub
 # integration is down so no preview deployment ever appears): include
-# [skip-e2e] in the commit message to skip gate 3. Gates 1–2 can never
-# be skipped. Document any use of [skip-e2e] in docs/session-summary.md.
+# [skip-e2e] in the commit SUBJECT line (first line only) to skip both
+# e2e jobs. Gates 1–2 can never be skipped. Document any use of
+# [skip-e2e] in docs/session-summary.md.
 
 on:
   push:
@@ -26,6 +33,7 @@ permissions:
   contents: write
   deployments: read
   pull-requests: write
+  issues: write
 
 jobs:
   secret-scan:
@@ -44,27 +52,40 @@ jobs:
   quality:
     uses: ./.github/workflows/quality-gates.yml
 
-  e2e-preview:
+  flags:
+    # Parse [skip-e2e] from the head commit SUBJECT line only, so a flag
+    # mentioned in a commit body (e.g. quoting this file) can't skip gates.
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-    if: ${{ !contains(github.event.head_commit.message, '[skip-e2e]') }}
+    outputs:
+      skip_e2e: ${{ steps.parse.outputs.skip_e2e }}
+    steps:
+      - name: Parse skip flag from commit subject
+        id: parse
+        env:
+          HEAD_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          SUBJECT="$(printf '%s' "$HEAD_MSG" | head -n1)"
+          if [[ "$SUBJECT" == *"[skip-e2e]"* ]]; then
+            echo "skip_e2e=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::[skip-e2e] flag detected — e2e gates skipped. Record this in docs/session-summary.md."
+          else
+            echo "skip_e2e=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  preview:
+    # Wait for the Vercel preview deployment of this commit and expose its URL
+    # to both e2e jobs.
+    runs-on: ubuntu-latest
+    needs: [flags]
+    if: ${{ needs.flags.outputs.skip_e2e != 'true' }}
+    timeout-minutes: 35
+    outputs:
+      url: ${{ steps.wait.outputs.url }}
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
       - name: Wait for Vercel preview deployment
-        id: preview
+        id: wait
         run: |
           # Vercel's GitHub integration creates a Deployment for every push and
           # posts statuses to it. Poll until this commit's preview is live.
@@ -94,40 +115,129 @@ jobs:
             fi
             sleep 30
           done
-          echo "::error::Timed out (30 min) waiting for a Vercel preview deployment. Is the Vercel GitHub integration healthy? If the integration itself is broken, push again with [skip-e2e] in the commit message and record it in docs/session-summary.md."
+          echo "::error::Timed out (30 min) waiting for a Vercel preview deployment. Is the Vercel GitHub integration healthy? If the integration itself is broken, push again with [skip-e2e] in the commit subject and record it in docs/session-summary.md."
           exit 1
+
+  e2e-smoke:
+    # BLOCKING merge gate: critical-path specs only (~5 min).
+    # Keep this list short — every spec here delays every production deploy.
+    runs-on: ubuntu-latest
+    needs: [preview]
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium webkit
 
-      - name: Run e2e suite against preview
+      - name: Run smoke suite against preview
         env:
-          PLAYWRIGHT_BASE_URL: ${{ steps.preview.outputs.url }}
+          PLAYWRIGHT_BASE_URL: ${{ needs.preview.outputs.url }}
           E2E_TEST_SECRET: ${{ secrets.E2E_TEST_SECRET }}
           CI: 'true'
-        run: npm run test:e2e
+        run: >-
+          npx playwright test --workers=4
+          tests/e2e/critical-workflows.spec.ts
+          tests/e2e/api-health.spec.ts
+          tests/e2e/public-pages.spec.ts
+          tests/e2e/customer-portal.spec.ts
+          tests/e2e/authenticated-admin.spec.ts
 
       - name: Upload failure artifacts
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-failures-${{ github.sha }}
+          name: e2e-smoke-failures-${{ github.sha }}
           path: |
             test-results/failures/
             playwright-report/
           retention-days: 14
           if-no-files-found: ignore
 
+  e2e-full:
+    # NON-BLOCKING: full Playwright suite against the same preview. The merge
+    # does not wait for this job; a failure opens a GitHub issue so it can't
+    # be silently ignored.
+    runs-on: ubuntu-latest
+    needs: [preview]
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium webkit
+
+      - name: Run full e2e suite against preview
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ needs.preview.outputs.url }}
+          E2E_TEST_SECRET: ${{ secrets.E2E_TEST_SECRET }}
+          CI: 'true'
+        run: npx playwright test --workers=4
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-full-failures-${{ github.sha }}
+          path: |
+            test-results/failures/
+            playwright-report/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Open issue on full-suite failure
+        if: failure()
+        run: |
+          SHA7="${GITHUB_SHA:0:7}"
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          BODY="The full Playwright suite failed for \`${GITHUB_REF_NAME}\` at \`${GITHUB_SHA}\`."
+          BODY+=$'\n\n'"**The merge was NOT blocked** — the smoke gate passed, so this commit may already be live in production. Investigate promptly."
+          BODY+=$'\n\n'"- Workflow run: ${RUN_URL}"
+          BODY+=$'\n'"- Failure artifacts: see the run's Artifacts section (\`e2e-full-failures-${GITHUB_SHA}\`)"
+          BODY+=$'\n'"- Local triage: \`npm run debug:failures\` / https://www.triplecitiestech.com/admin/debug/failures"
+          BODY+=$'\n\n'"If the failure is real, push a fix to a \`claude/**\` branch as usual."
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "Full e2e suite failed: ${GITHUB_REF_NAME} @ ${SHA7}" \
+            --body "$BODY" || echo "::warning::Could not create issue for e2e-full failure"
+
   merge:
     runs-on: ubuntu-latest
-    needs: [secret-scan, quality, e2e-preview]
-    # e2e-preview may be skipped via [skip-e2e]; secret-scan and quality must
-    # always be green. `always()` lets this job evaluate even when e2e skipped.
+    needs: [secret-scan, quality, flags, e2e-smoke]
+    # e2e-smoke may only be skipped via the [skip-e2e] subject flag;
+    # secret-scan and quality must always be green. `always()` lets this job
+    # evaluate even when the e2e chain was skipped.
     if: >-
       always() &&
       needs.secret-scan.result == 'success' &&
       needs.quality.result == 'success' &&
-      (needs.e2e-preview.result == 'success' || needs.e2e-preview.result == 'skipped')
+      (
+        needs.e2e-smoke.result == 'success' ||
+        (needs.flags.outputs.skip_e2e == 'true' && needs.e2e-smoke.result == 'skipped')
+      )
     steps:
       - name: Checkout
         uses: actions/checkout@v4

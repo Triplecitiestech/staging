@@ -117,8 +117,8 @@ npm run seed            # Seed database
 ```
 Plan → Implement → Verify (build + lint + e2e) → Review (git diff) → Commit → Push → Confirm to user
 ```
-- Branches: `claude/[description]-[sessionId]`. **Never push to `main`.** Auto-merge to main is **gated**: every push to a `claude/**` branch must pass secret-scan + lint + schema-drift + build + unit tests + the full e2e suite against the Vercel preview before `.github/workflows/auto-merge-claude.yml` merges it. A failed gate = no merge = no production deploy.
-- `[skip-e2e]` in a commit message skips ONLY the e2e gate — pipeline emergencies only (e.g. Vercel integration down); record any use in `docs/session-summary.md`.
+- Branches: `claude/[description]-[sessionId]`. **Never push to `main`.** Auto-merge to main is **gated**: every push to a `claude/**` branch must pass secret-scan + lint + schema-drift + build + unit tests + an **e2e smoke gate** (~5 min: critical-workflows, api-health, public-pages, customer-portal, authenticated-admin vs the Vercel preview) before `.github/workflows/auto-merge-claude.yml` merges it. A failed gate = no merge = no production deploy. The **full e2e suite runs in parallel, non-blocking** — a failure auto-opens a GitHub issue that must be triaged promptly (the commit may already be live in production).
+- `[skip-e2e]` in the commit **subject line** (first line only) skips both e2e jobs — pipeline emergencies only (e.g. Vercel integration down) or explicit owner approval; record any use in `docs/session-summary.md`.
 - Commit style: imperative summary, optional bullets. Commit + push after every logical unit — don't batch.
 - If verify fails, go back to implement. Never commit a broken build. Local verify still matters: the gates catch what you miss, but a red gate is a wasted deploy iteration.
 - Use subagents for broad codebase searches, parallel independent tasks, and keeping context clean during large refactors.
@@ -138,6 +138,7 @@ Plan → Implement → Verify (build + lint + e2e) → Review (git diff) → Com
 - SaaS Alerts server calls moved to the External Partner API; the portal API is Cloudflare-blocked for server-to-server.
 - `2026-06-09` — Restructured CLAUDE.md to the operating-manual format; full gotcha list moved to `docs/gotchas.md` (mandatory bootstrap read #6).
 - `2026-06-09` — Gated the auto-merge: claude/** pushes now require secret-scan + lint + schema-drift + build + unit tests + e2e-vs-preview before merging to main. Schema-drift check wired into Vercel builds. `_prisma_migrations` retrofit planned (`docs/runbooks/MIGRATIONS_RETROFIT.md`).
+- `2026-06-09` — Merge gate switched to an e2e **smoke subset** (~5 min); full suite runs non-blocking in parallel and auto-opens a GitHub issue on failure. Owner decision: fast production deploys over pre-merge full coverage. `[skip-e2e]` restricted to the commit subject line.
 
 ## Critical Gotchas — digest
 
