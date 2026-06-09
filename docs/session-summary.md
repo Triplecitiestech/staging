@@ -14,6 +14,13 @@ Prompted by a review of the open-source `tegwin/AutotaskMCP` server vs our integ
 - **Post-deploy verify**: tickets sync (`/admin/reporting` pipeline) runs green and SOC ingest still resolves tickets — first live run exercises `includeFields` against the real instance.
 - Deferred (discussed, not built): ticket creation support, ticket-level time entries with role/billing fields, picklist cache TTL, MCP-style tool layer for AI agents.
 
+## Customer portal ticket fixes (2026-06-09, same branch)
+
+Operator-reported: portal open-ticket counts wrong + no visible time window. Fixes:
+- **`isResolvedStatus(status, statusLabel?)` is now label-aware** (`src/lib/tickets/utils.ts`) — custom Autotask statuses ("Complete - No Notify") have new picklist IDs outside `[5,13,29]` and were counted as open. Customer adapter passes the live picklist label; staff adapter + SOC tickets route pass synced `statusLabel`.
+- **CustomerDashboard**: 7/30/90-day history selector (default 90 = old behavior, 90 is max), filters closed count + list client-side (no API change — still one 90-day fetch). Open tickets always shown ("open now" caption); "Tickets Closed" captioned "last N days". Footer note: older history via Contact support (opens messenger).
+- Mobile: header row is `flex-wrap`; cards unchanged grid. Verify at `sm` + `lg`.
+
 ## Documents Hub (2026-05-30) — `/admin/documents`
 
 New branded internal **Documents** feature: a hub that renders TCT content in the house brand (dark/cyan, Inter, glass cards) so everything the company publishes is visually consistent. First live document is the **Secure Boot 2023 Certificate Remediation** playbook at `/admin/documents/secure-boot-playbook` (full P1 operational playbook — phases 0/1/3/4/5, copy-ready ticket templates, PowerShell Detection + Remediation components, troubleshooting, UDF 10 status legend). Three placeholder cards (QBR / branded Marketing / Social dump) are stubbed "Coming soon". Files: `src/app/admin/documents/{page,loading}.tsx` + `secure-boot-playbook/page.tsx`, shared client islands `src/components/admin/documents/{CopyButton,Countdown,PhaseNav}.tsx`, "Documents" link in `AdminHeader`. Auth-gated (redirect to `/admin`); TECHNICIAN can view. e2e: both routes added to the `ADMIN_PAGES` smoke list. Also removed pre-existing forbidden orange from `src/constants/services.ts` (services gradients) and `src/lib/tickets/utils.ts` (priority badge). Branch: `claude/fervent-pasteur-TLwSp` (auto-merged to `main`).
