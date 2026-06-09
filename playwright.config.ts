@@ -27,6 +27,19 @@ export default defineConfig({
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
+    // Vercel previews have Deployment Protection enabled. The bypass secret
+    // (Vercel project → Settings → Deployment Protection → Protection Bypass
+    // for Automation) lets the test runner through; the set-bypass-cookie
+    // header makes the browser keep bypassing on subsequent requests.
+    // No-op when the env var is absent (local runs).
+    ...(process.env.VERCEL_AUTOMATION_BYPASS_SECRET
+      ? {
+          extraHTTPHeaders: {
+            'x-vercel-protection-bypass': process.env.VERCEL_AUTOMATION_BYPASS_SECRET,
+            'x-vercel-set-bypass-cookie': 'true',
+          },
+        }
+      : {}),
   },
   projects: [
     // Auth setup — runs first, creates session state for authenticated tests

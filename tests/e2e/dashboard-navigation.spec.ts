@@ -17,7 +17,7 @@ test.describe('Public Page Rendering', () => {
 
   test('contact page loads with form', async ({ page }) => {
     await page.goto('/contact')
-    await expect(page.locator('form')).toBeVisible()
+    await expect(page.locator('form').first()).toBeVisible()
   })
 
   test('blog page loads', async ({ page }) => {

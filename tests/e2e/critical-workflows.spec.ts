@@ -18,7 +18,7 @@ test.describe('Critical Workflow: Public Site', () => {
   test('homepage loads with navigation and CTA', async ({ page }) => {
     await page.goto('/')
     // Verify key navigation elements exist
-    await expect(page.locator('nav')).toBeVisible()
+    await expect(page.locator('nav').first()).toBeVisible()
     // Verify page has content (not blank/error)
     const bodyText = await page.textContent('body')
     expect(bodyText?.length).toBeGreaterThan(100)

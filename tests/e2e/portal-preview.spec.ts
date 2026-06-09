@@ -41,9 +41,9 @@ test.describe('Responsive Layout — Mobile', () => {
 
   test('contact page form is usable on mobile', async ({ page }) => {
     await page.goto('/contact')
-    await expect(page.locator('form')).toBeVisible()
+    await expect(page.locator('form').first()).toBeVisible()
     // Form should be within viewport width
-    const formBox = await page.locator('form').boundingBox()
+    const formBox = await page.locator('form').first().boundingBox()
     if (formBox) {
       expect(formBox.width).toBeLessThanOrEqual(375)
     }

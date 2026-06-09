@@ -87,7 +87,7 @@ test.describe('Public Pages — Content Checks', () => {
 
   test('contact page has a form', async ({ page }) => {
     await page.goto('/contact')
-    await expect(page.locator('form')).toBeVisible()
+    await expect(page.locator('form').first()).toBeVisible()
   })
 
   test('services page has substantial content', async ({ page }) => {
