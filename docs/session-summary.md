@@ -20,6 +20,7 @@ Operator-reported: portal open-ticket counts wrong + no visible time window. Fix
 - **`isResolvedStatus(status, statusLabel?)` is now label-aware** (`src/lib/tickets/utils.ts`) — custom Autotask statuses ("Complete - No Notify") have new picklist IDs outside `[5,13,29]` and were counted as open. Customer adapter passes the live picklist label; staff adapter + SOC tickets route pass synced `statusLabel`.
 - **CustomerDashboard**: 7/30/90-day history selector (default 90 = old behavior, 90 is max), filters closed count + list client-side (no API change — still one 90-day fetch). Open tickets always shown ("open now" caption); "Tickets Closed" captioned "last N days". Footer note: older history via Contact support (opens messenger).
 - Mobile: header row is `flex-wrap`; cards unchanged grid. Verify at `sm` + `lg`.
+- **`[skip-e2e]` used (2026-06-09, operator-approved)**: owner requested immediate production deploy; e2e gate (~30 min) skipped for the final push of this branch. Quality + secret-scan gates still ran. Changes were unit-tested (102 green) + built locally; owner verified live counts after deploy. Follow-up: gate restructure to smoke-on-merge + full-suite non-blocking (also requested by owner).
 
 ## Documents Hub (2026-05-30) — `/admin/documents`
 
