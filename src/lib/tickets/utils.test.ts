@@ -40,6 +40,26 @@ describe('isResolvedStatus', () => {
     expect(isResolvedStatus(7)).toBe(false);
     expect(isResolvedStatus(0)).toBe(false);
   });
+
+  it('treats custom statuses with resolved-sounding labels as resolved', () => {
+    // Custom instance statuses get NEW picklist IDs — the label is authoritative
+    expect(isResolvedStatus(99, 'Complete - No Notify')).toBe(true);
+    expect(isResolvedStatus(99, 'Completed')).toBe(true);
+    expect(isResolvedStatus(99, 'Closed by Customer')).toBe(true);
+    expect(isResolvedStatus(99, 'Cancelled')).toBe(true);
+  });
+
+  it('does not treat open-sounding labels as resolved', () => {
+    expect(isResolvedStatus(99, 'In Progress')).toBe(false);
+    expect(isResolvedStatus(99, 'Waiting Customer')).toBe(false);
+    expect(isResolvedStatus(99, 'Billing Reconciliation')).toBe(false);
+    expect(isResolvedStatus(99, 'Need to Order Materials')).toBe(false);
+    expect(isResolvedStatus(99, null)).toBe(false);
+  });
+
+  it('resolved status IDs win regardless of label', () => {
+    expect(isResolvedStatus(5, 'In Progress')).toBe(true);
+  });
 });
 
 describe('isWaitingCustomerStatus', () => {

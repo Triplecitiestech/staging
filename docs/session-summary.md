@@ -1,8 +1,26 @@
 # Session Summary
 
-> **Last updated**: 2026-05-17. Multi-session compliance workflow build.
-> **Branch**: `claude/review-workflow-architecture-DdCgz` (auto-merged to `main`).
+> **Last updated**: 2026-06-09. Autotask client hardening (retry + includeFields).
+> **Branch**: `claude/friendly-euler-cn1z6r`.
 > **Detailed handoff**: see `docs/SESSION_HANDOFF.md` first — this file is the quick state-of-the-world reference.
+
+## Autotask client hardening (2026-06-09) — `src/lib/autotask.ts`
+
+Prompted by a review of the open-source `tegwin/AutotaskMCP` server vs our integration (verdict: ours is more mature; two of its ideas were worth adopting). Changes:
+- **`queryAll` accepts `includeFields`** and ticket queries (`getCompanyTickets`, `getTicket`, `getTicketByNumber`) now request only `TICKET_QUERY_FIELDS` (the `AutotaskTicket` interface fields) — without it Autotask returns ~80 fields + userDefinedFields per ticket on every reporting-sync pull.
+- **Wired `resilience.ts` into the client**: GET/query/PATCH go through `withRetry` (2 retries, 1s base, transient-only — 429/5xx/timeout). POST deliberately not retried (non-idempotent creates would duplicate notes/time entries). Permanent 4xx surfaces immediately so entity-path fallback chains stay fast.
+- **Pagination no longer silently truncates**: a page that fails after retries now throws (`Autotask pagination for X failed after N records`) instead of returning a partial set — this was the root cause of the "empty phases" gotcha. Callers (per-company ticket sync, fallback chains) already handle thrown errors at the right granularity.
+- New unit tests `src/lib/autotask.test.ts` (mocked fetch: includeFields body, 429 retry, 404 no-retry, multi-page concat, truncation throw, PATCH retry, POST no-retry). Removed a stale "extended ticket fetch" comment in `reporting/sync.ts`. Gotchas updated (Autotask section).
+- **Post-deploy verify**: tickets sync (`/admin/reporting` pipeline) runs green and SOC ingest still resolves tickets — first live run exercises `includeFields` against the real instance.
+- Deferred (discussed, not built): ticket creation support, ticket-level time entries with role/billing fields, picklist cache TTL, MCP-style tool layer for AI agents.
+
+## Customer portal ticket fixes (2026-06-09, same branch)
+
+Operator-reported: portal open-ticket counts wrong + no visible time window. Fixes:
+- **`isResolvedStatus(status, statusLabel?)` is now label-aware** (`src/lib/tickets/utils.ts`) — custom Autotask statuses ("Complete - No Notify") have new picklist IDs outside `[5,13,29]` and were counted as open. Customer adapter passes the live picklist label; staff adapter + SOC tickets route pass synced `statusLabel`.
+- **CustomerDashboard**: 7/30/90-day history selector (default 90 = old behavior, 90 is max), filters closed count + list client-side (no API change — still one 90-day fetch). Open tickets always shown ("open now" caption); "Tickets Closed" captioned "last N days". Footer note: older history via Contact support (opens messenger).
+- Mobile: header row is `flex-wrap`; cards unchanged grid. Verify at `sm` + `lg`.
+- **`[skip-e2e]` used (2026-06-09, operator-approved)**: owner requested immediate production deploy; e2e gate (~30 min) skipped for the final push of this branch. Quality + secret-scan gates still ran. Changes were unit-tested (102 green) + built locally; owner verified live counts after deploy. Follow-up: gate restructure to smoke-on-merge + full-suite non-blocking (also requested by owner).
 
 ## Documents Hub (2026-05-30) — `/admin/documents`
 

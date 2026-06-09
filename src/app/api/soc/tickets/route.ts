@@ -148,7 +148,7 @@ export async function GET(request: NextRequest) {
         description: t.description || null,
         status: t.status,
         statusLabel: t.statusLabel || `Status ${t.status}`,
-        isResolved: isResolvedStatus(t.status),
+        isResolved: isResolvedStatus(t.status, t.statusLabel),
         priority: t.priority,
         priorityLabel: t.priorityLabel || PRIORITY_LABELS[t.priority] || `P${t.priority}`,
         assignedTo: t.assignedResourceId ? resourceNameMap.get(t.assignedResourceId) || 'Unassigned' : 'Unassigned',
@@ -159,7 +159,7 @@ export async function GET(request: NextRequest) {
         hoursLogged: round1(hoursByTicket.get(t.autotaskTicketId) || 0),
         slaResponseMet: null,
         slaResolutionMet:
-          t.dueDateTime && isResolvedStatus(t.status) && t.completedDate ? t.completedDate <= t.dueDateTime : null,
+          t.dueDateTime && isResolvedStatus(t.status, t.statusLabel) && t.completedDate ? t.completedDate <= t.dueDateTime : null,
         autotaskUrl: autotaskWebUrl ? `${autotaskWebUrl}?ticketId=${t.autotaskTicketId}` : null,
         companyName: t.company?.displayName || null,
         socVerdict: soc?.verdict || null,

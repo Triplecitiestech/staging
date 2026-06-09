@@ -43,8 +43,16 @@ export function getAutotaskTicketUrl(ticketId: string): string | null {
 /** Autotask resolved statuses (5=Complete, 13=Resolved, 29=Customer Resolved) */
 const RESOLVED_STATUSES = new Set([5, 13, 29]);
 
-export function isResolvedStatus(status: number): boolean {
-  return RESOLVED_STATUSES.has(status);
+/**
+ * Resolved-label fallback. Custom instance statuses (e.g. "Complete - No Notify")
+ * get NEW picklist IDs that aren't in RESOLVED_STATUSES, so callers must pass the
+ * status label whenever one is available or closed counts will be understated.
+ */
+const RESOLVED_LABEL_PATTERN = /\b(complete|completed|closed|resolved|done|cancelled|canceled|merged)\b/i;
+
+export function isResolvedStatus(status: number, statusLabel?: string | null): boolean {
+  if (RESOLVED_STATUSES.has(status)) return true;
+  return !!statusLabel && RESOLVED_LABEL_PATTERN.test(statusLabel);
 }
 
 /** Autotask "waiting on customer" statuses (7=Waiting Customer, 12=Customer Note Added) */

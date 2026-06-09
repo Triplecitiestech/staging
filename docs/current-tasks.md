@@ -1,8 +1,18 @@
 # Current Tasks
 
-> **Last updated**: 2026-05-17. Compliance workflow build, multi-session.
-> **Branch**: `claude/review-workflow-architecture-DdCgz` → auto-merged to `main`.
+> **Last updated**: 2026-06-09. Autotask client hardening (retry + includeFields).
+> **Branch**: `claude/friendly-euler-cn1z6r`.
 > **Detailed context**: `docs/SESSION_HANDOFF.md`.
+
+## Autotask client hardening (2026-06-09) — done, pending gate/merge
+
+`queryAll` includeFields (ticket queries now field-limited), resilience.ts retry wired into GET/query/PATCH (POST not retried — duplicates), pagination throws instead of silently truncating. Unit tests added. See session-summary for detail.
+
+**Follow-ups (not started, from the AutotaskMCP comparison):**
+- [ ] `createTicket()` support (SOC remediation tickets / portal ticket creation) — business decision.
+- [ ] Ticket-level time entries with `roleID`/`billingCodeID`/`contractID` (current `createTimeEntry` is task-only, no billing fields).
+- [ ] Picklist metadata cache TTL (currently re-fetched every sync run).
+- [ ] Optional: internal MCP-style tool layer over `autotask.ts` for AI agents (must inherit scoping/permissions/audit).
 
 ## Documents Hub (2026-05-30) — shipped, live in production
 

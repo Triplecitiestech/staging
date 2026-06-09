@@ -2,7 +2,7 @@
 
 **Repository**: Triplecitiestech/staging
 **User**: Kurtis (Triple Cities Tech Development Lead)
-**Last Updated**: 2026-01-29
+**Last Updated**: 2026-06-09
 
 This document contains preferences, workflows, and best practices for Claude Code sessions working on this project. Read this file at the start of every new session to understand the user's expectations and working style.
 
@@ -292,6 +292,19 @@ After pushing changes, the user expects you to:
 - **Action-Oriented**: Focus on what you're doing, not extensive explanations
 - **Proactive**: Suggest improvements when you spot issues
 - **Honest**: Admit when you don't know something or need clarification
+
+### Hand-offs and instructions to the user (2026-06-09 — user correction)
+
+Kurtis is not a developer. Any time he is asked to do something, the instructions must name the exact system and the exact clicks — never assume he knows where a thing lives or what jargon means.
+
+Every instruction must include, in this order:
+1. **WHICH SYSTEM** — name it explicitly ("in your web browser", "in the Vercel dashboard at https://vercel.com", "in the TCT admin portal at https://www.triplecitiestech.com/admin", "in Autotask", "in the Azure portal"). Never say just "check the pipeline" or "verify the deploy".
+2. **Numbered steps, one action per step** — log in where, click what (exact button/menu/tab text as it appears on screen, e.g. "click **Run All**", "open the **Deployments** tab"), type what.
+3. **What he should SEE when it worked** — the exact label/color/status ("a green **Ready** dot with a blue **Production** tag"), and what to do if he sees something else (usually: tell Claude).
+4. **Full URLs always** — `https://www.triplecitiestech.com/admin/reporting/status`, never `/admin/reporting/status` or "the reporting page".
+5. **PowerShell syntax** for anything command-line (he's on Windows) — but prefer browser/UI steps over commands whenever possible.
+
+Don't assume he knows project conventions either (e.g. that `claude/**` branches auto-merge to production after gates pass, or that Vercel "Preview" rows aren't the live site) — state those inline when they matter to what he's looking at.
 
 ### Response Format
 
