@@ -10,8 +10,10 @@ name: Auto-merge Claude branches
 #
 # Escape hatch (pipeline emergencies ONLY — e.g. the Vercel GitHub
 # integration is down so no preview deployment ever appears): include
-# [skip-e2e] in the commit message to skip gate 3. Gates 1–2 can never
-# be skipped. Document any use of [skip-e2e] in docs/session-summary.md.
+# the skip flag "[skip-e2e]" in the commit SUBJECT (first line only —
+# body text is ignored, so prose discussing the flag can't trip it) to
+# skip gate 3. Gates 1–2 can never be skipped. Document any use of the
+# flag in docs/session-summary.md.
 
 on:
   push:
@@ -44,10 +46,29 @@ jobs:
   quality:
     uses: ./.github/workflows/quality-gates.yml
 
+  flags:
+    runs-on: ubuntu-latest
+    outputs:
+      skip_e2e: ${{ steps.check.outputs.skip }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Check commit subject for skip flag
+        id: check
+        run: |
+          SUBJECT=$(git log -1 --pretty=%s)
+          if echo "$SUBJECT" | grep -qF "[skip-e2e]"; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::[skip-e2e] flag found in commit subject — e2e gate will be SKIPPED. Record this in docs/session-summary.md."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
   e2e-preview:
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    if: ${{ !contains(github.event.head_commit.message, '[skip-e2e]') }}
+    needs: [flags]
+    if: needs.flags.outputs.skip_e2e != 'true'
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
@@ -120,13 +141,15 @@ jobs:
 
   merge:
     runs-on: ubuntu-latest
-    needs: [secret-scan, quality, e2e-preview]
-    # e2e-preview may be skipped via [skip-e2e]; secret-scan and quality must
-    # always be green. `always()` lets this job evaluate even when e2e skipped.
+    needs: [secret-scan, quality, flags, e2e-preview]
+    # e2e-preview may be skipped via the subject-line flag; secret-scan,
+    # quality, and flags must always be green. `always()` lets this job
+    # evaluate even when e2e was skipped.
     if: >-
       always() &&
       needs.secret-scan.result == 'success' &&
       needs.quality.result == 'success' &&
+      needs.flags.result == 'success' &&
       (needs.e2e-preview.result == 'success' || needs.e2e-preview.result == 'skipped')
     steps:
       - name: Checkout
