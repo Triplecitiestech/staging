@@ -66,7 +66,7 @@ jobs:
 
   e2e-preview:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     needs: [flags]
     if: needs.flags.outputs.skip_e2e != 'true'
     env:
@@ -126,7 +126,10 @@ jobs:
           PLAYWRIGHT_BASE_URL: ${{ steps.preview.outputs.url }}
           E2E_TEST_SECRET: ${{ secrets.E2E_TEST_SECRET }}
           CI: 'true'
-        run: npm run test:e2e
+        # --workers=4 overrides the config's CI workers:1 — serial execution
+        # took >42 min against the preview and hit the job timeout (run 1057).
+        # The runner only drives browsers; the preview serves the load.
+        run: npm run test:e2e -- --workers=4
 
       - name: Upload failure artifacts
         if: failure()
