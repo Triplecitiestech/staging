@@ -781,13 +781,4 @@ async function resolvePicklists(client: AutotaskClient): Promise<PicklistCache> 
   return cache;
 }
 
-// ============================================
-// EXTENDED TICKET FETCH
-// ============================================
-
-/**
- * Extended version of getCompanyTickets that also fetches queue, source, SLA fields.
- * The base AutotaskClient.getCompanyTickets returns limited fields.
- * This function uses the same query but the Autotask API returns all fields by default.
- */
 export { isResolvedStatus };

@@ -1,8 +1,18 @@
 # Session Summary
 
-> **Last updated**: 2026-05-17. Multi-session compliance workflow build.
-> **Branch**: `claude/review-workflow-architecture-DdCgz` (auto-merged to `main`).
+> **Last updated**: 2026-06-09. Autotask client hardening (retry + includeFields).
+> **Branch**: `claude/friendly-euler-cn1z6r`.
 > **Detailed handoff**: see `docs/SESSION_HANDOFF.md` first — this file is the quick state-of-the-world reference.
+
+## Autotask client hardening (2026-06-09) — `src/lib/autotask.ts`
+
+Prompted by a review of the open-source `tegwin/AutotaskMCP` server vs our integration (verdict: ours is more mature; two of its ideas were worth adopting). Changes:
+- **`queryAll` accepts `includeFields`** and ticket queries (`getCompanyTickets`, `getTicket`, `getTicketByNumber`) now request only `TICKET_QUERY_FIELDS` (the `AutotaskTicket` interface fields) — without it Autotask returns ~80 fields + userDefinedFields per ticket on every reporting-sync pull.
+- **Wired `resilience.ts` into the client**: GET/query/PATCH go through `withRetry` (2 retries, 1s base, transient-only — 429/5xx/timeout). POST deliberately not retried (non-idempotent creates would duplicate notes/time entries). Permanent 4xx surfaces immediately so entity-path fallback chains stay fast.
+- **Pagination no longer silently truncates**: a page that fails after retries now throws (`Autotask pagination for X failed after N records`) instead of returning a partial set — this was the root cause of the "empty phases" gotcha. Callers (per-company ticket sync, fallback chains) already handle thrown errors at the right granularity.
+- New unit tests `src/lib/autotask.test.ts` (mocked fetch: includeFields body, 429 retry, 404 no-retry, multi-page concat, truncation throw, PATCH retry, POST no-retry). Removed a stale "extended ticket fetch" comment in `reporting/sync.ts`. Gotchas updated (Autotask section).
+- **Post-deploy verify**: tickets sync (`/admin/reporting` pipeline) runs green and SOC ingest still resolves tickets — first live run exercises `includeFields` against the real instance.
+- Deferred (discussed, not built): ticket creation support, ticket-level time entries with role/billing fields, picklist cache TTL, MCP-style tool layer for AI agents.
 
 ## Documents Hub (2026-05-30) — `/admin/documents`
 

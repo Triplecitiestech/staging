@@ -1,7 +1,7 @@
 /**
  * Autotask PSA REST API Client
  *
- * Handles authentication, pagination, and entity queries for the Autotask REST API v1.0.
+ * Handles authentication, pagination, retry, and entity queries for the Autotask REST API v1.0.
  * Used by the sync cron job to pull companies, projects, contacts, and tasks.
  *
  * Required env vars:
@@ -10,6 +10,8 @@
  *   AUTOTASK_API_INTEGRATION_CODE - Integration code from Autotask
  *   AUTOTASK_API_BASE_URL - Zone-specific base URL (e.g. https://webservices6.autotask.net/ATServicesRest)
  */
+
+import { withRetry } from '@/lib/resilience';
 
 // ============================================
 // TYPES
@@ -133,6 +135,20 @@ export interface AutotaskTicket {
   estimatedHours?: number | null;
   lastActivityDate?: string | null;
 }
+
+/**
+ * Fields requested on ticket queries via includeFields — keep in sync with the
+ * AutotaskTicket interface. Without includeFields, Autotask returns every
+ * entity field plus userDefinedFields per ticket, which bloats the reporting
+ * sync's 30-day pull across all companies.
+ */
+const TICKET_QUERY_FIELDS = [
+  'id', 'companyID', 'ticketNumber', 'title', 'description', 'status',
+  'createDate', 'completedDate', 'priority', 'queueID', 'source',
+  'issueType', 'subIssueType', 'assignedResourceID', 'creatorResourceID',
+  'contactID', 'contractID', 'serviceLevelAgreementID', 'dueDateTime',
+  'estimatedHours', 'lastActivityDate',
+];
 
 export interface AutotaskTicketNote {
   id: number;
@@ -264,20 +280,27 @@ export class AutotaskClient {
   // GENERIC QUERY HELPERS
   // ============================================
 
-  private async get<T>(endpoint: string): Promise<T> {
-    const url = `${this.baseUrl}${endpoint}`;
+  /**
+   * Single-attempt HTTP request with a hard timeout. Throws on non-2xx with
+   * the status code in the message so classifyError() can judge retryability.
+   */
+  private async requestJson<T>(
+    url: string,
+    options: { method: 'GET' | 'POST' | 'PATCH'; body?: string; timeoutMs: number; label: string },
+  ): Promise<T> {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30_000); // 30s timeout
+    const timeoutId = setTimeout(() => controller.abort(), options.timeoutMs);
     try {
       const response = await fetch(url, {
-        method: 'GET',
+        method: options.method,
         headers: this.headers,
+        body: options.body,
         signal: controller.signal,
       });
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`Autotask API GET ${endpoint} failed (${response.status}): ${errorText}`);
+        throw new Error(`Autotask API ${options.label} failed (${response.status}): ${errorText}`);
       }
 
       return response.json() as Promise<T>;
@@ -287,66 +310,91 @@ export class AutotaskClient {
   }
 
   /**
+   * Retry wrapper for idempotent Autotask calls. Retries transient failures
+   * (429 rate limit, 5xx, timeouts) with exponential backoff; permanent errors
+   * (4xx) surface immediately so entity-path fallback chains still work.
+   * Kept short (2 retries, 1s base) to fit serverless time budgets and avoid
+   * piling onto Autotask's 3-thread limit.
+   */
+  private withRetries<T>(label: string, fn: () => Promise<T>): Promise<T> {
+    return withRetry(fn, {
+      maxRetries: 2,
+      baseDelayMs: 1000,
+      maxDelayMs: 8000,
+      onRetry: (attempt, err, delayMs) => {
+        console.warn(`[AutotaskClient] ${label}: retry ${attempt} after ${err.category} error (waiting ${Math.round(delayMs)}ms): ${err.message}`);
+      },
+    });
+  }
+
+  private async get<T>(endpoint: string): Promise<T> {
+    return this.withRetries(`GET ${endpoint}`, () =>
+      this.requestJson<T>(`${this.baseUrl}${endpoint}`, {
+        method: 'GET',
+        timeoutMs: 30_000,
+        label: `GET ${endpoint}`,
+      })
+    );
+  }
+
+  /**
    * Query all records from an Autotask entity with compound filters.
    * Accepts a single filter OR an array of filters (implicitly ANDed by the API).
+   * Pass includeFields to limit the response to the listed fields — without it
+   * Autotask returns every entity field plus userDefinedFields per record.
+   * Pages are retried on transient failures; a page that still fails throws
+   * instead of silently returning a truncated result set.
    */
-  private async queryAll<T>(entityPath: string, filter: object | object[]): Promise<T[]> {
+  private async queryAll<T>(
+    entityPath: string,
+    filter: object | object[],
+    includeFields?: string[],
+  ): Promise<T[]> {
     const results: T[] = [];
-    let nextPageUrl: string | undefined;
 
     // First request — wrap single filter in array, pass arrays as-is
     const filterArray = Array.isArray(filter) ? filter : [filter];
     const url = `${this.baseUrl}/v1.0/${entityPath}/query`;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30_000); // 30s timeout
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: this.headers,
-        body: JSON.stringify({ filter: filterArray }),
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Autotask API query ${entityPath} failed (${response.status}): ${errorText}`);
-      }
-
-      const data = (await response.json()) as AutotaskApiResponse<T>;
-      if (data.items) {
-        results.push(...data.items);
-      }
-
-      nextPageUrl = data.pageDetails?.nextPageUrl;
-    } finally {
-      clearTimeout(timeoutId);
+    const queryBody: Record<string, unknown> = { filter: filterArray };
+    if (includeFields?.length) {
+      queryBody.includeFields = includeFields;
     }
 
-    // Paginate through all results (each page gets its own timeout)
+    const data = await this.withRetries(`query ${entityPath}`, () =>
+      this.requestJson<AutotaskApiResponse<T>>(url, {
+        method: 'POST',
+        body: JSON.stringify(queryBody),
+        timeoutMs: 30_000,
+        label: `query ${entityPath}`,
+      })
+    );
+    if (data.items) {
+      results.push(...data.items);
+    }
+    let nextPageUrl = data.pageDetails?.nextPageUrl;
+
+    // Paginate through all results (each page gets its own timeout + retries)
     while (nextPageUrl) {
-      const pageController = new AbortController();
-      const pageTimeoutId = setTimeout(() => pageController.abort(), 30_000);
+      const pageUrl: string = nextPageUrl;
+      let pageData: AutotaskApiResponse<T>;
       try {
-        const pageResponse = await fetch(nextPageUrl, {
-          method: 'GET',
-          headers: this.headers,
-          signal: pageController.signal,
-        });
-
-        if (!pageResponse.ok) break;
-
-        const pageData = (await pageResponse.json()) as AutotaskApiResponse<T>;
-        if (pageData.items) {
-          results.push(...pageData.items);
-        }
-        nextPageUrl = pageData.pageDetails?.nextPageUrl;
-      } catch {
-        // Stop pagination on timeout/error — return what we have so far
-        console.warn(`[AutotaskClient] Pagination stopped for ${entityPath} — returning ${results.length} results collected so far`);
-        break;
-      } finally {
-        clearTimeout(pageTimeoutId);
+        pageData = await this.withRetries(`query ${entityPath} (page)`, () =>
+          this.requestJson<AutotaskApiResponse<T>>(pageUrl, {
+            method: 'GET',
+            timeoutMs: 30_000,
+            label: `query ${entityPath} page`,
+          })
+        );
+      } catch (err) {
+        // A truncated result set silently corrupts downstream syncs (the
+        // "empty phases" failure mode) — surface the partial fetch instead.
+        const message = err instanceof Error ? err.message : String(err);
+        throw new Error(`Autotask pagination for ${entityPath} failed after ${results.length} records: ${message}`);
       }
+      if (pageData.items) {
+        results.push(...pageData.items);
+      }
+      nextPageUrl = pageData.pageDetails?.nextPageUrl;
     }
 
     return results;
@@ -574,52 +622,29 @@ export class AutotaskClient {
    * PATCH (update) an entity in Autotask
    */
   private async patch<T>(entityPath: string, data: object): Promise<T> {
-    const url = `${this.baseUrl}/v1.0/${entityPath}`;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15_000);
-    try {
-      const response = await fetch(url, {
+    // PATCH sets absolute field values, so retrying a transient failure is safe
+    return this.withRetries(`PATCH ${entityPath}`, () =>
+      this.requestJson<T>(`${this.baseUrl}/v1.0/${entityPath}`, {
         method: 'PATCH',
-        headers: this.headers,
         body: JSON.stringify(data),
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Autotask API PATCH ${entityPath} failed (${response.status}): ${errorText}`);
-      }
-
-      return response.json() as Promise<T>;
-    } finally {
-      clearTimeout(timeoutId);
-    }
+        timeoutMs: 15_000,
+        label: `PATCH ${entityPath}`,
+      })
+    );
   }
 
   /**
-   * POST (create) an entity in Autotask
+   * POST (create) an entity in Autotask.
+   * NOT retried: creates aren't idempotent — a timeout after Autotask accepted
+   * the request would duplicate the note/time entry on retry.
    */
   private async post<T>(entityPath: string, data: object): Promise<T> {
-    const url = `${this.baseUrl}/v1.0/${entityPath}`;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15_000);
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: this.headers,
-        body: JSON.stringify(data),
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Autotask API POST ${entityPath} failed (${response.status}): ${errorText}`);
-      }
-
-      return response.json() as Promise<T>;
-    } finally {
-      clearTimeout(timeoutId);
-    }
+    return this.requestJson<T>(`${this.baseUrl}/v1.0/${entityPath}`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+      timeoutMs: 15_000,
+      label: `POST ${entityPath}`,
+    });
   }
 
   /**
@@ -805,7 +830,7 @@ export class AutotaskClient {
             ],
           },
         ],
-      });
+      }, TICKET_QUERY_FIELDS);
     } catch (err) {
       // Never silently swallow — surface the error so sync can report it
       console.error(`[AutotaskClient] getCompanyTickets failed for company ${companyId}:`, err instanceof Error ? err.message : String(err));
@@ -821,7 +846,7 @@ export class AutotaskClient {
     try {
       const results = await this.queryAll<AutotaskTicket>('Tickets', {
         op: 'eq', field: 'id', value: ticketId,
-      });
+      }, TICKET_QUERY_FIELDS);
       return results[0] || null;
     } catch (err) {
       console.error(`[AutotaskClient] getTicket failed for ${ticketId}:`, err instanceof Error ? err.message : String(err));
@@ -837,7 +862,7 @@ export class AutotaskClient {
     try {
       const results = await this.queryAll<AutotaskTicket>('Tickets', {
         op: 'eq', field: 'ticketNumber', value: ticketNumber,
-      });
+      }, TICKET_QUERY_FIELDS);
       return results[0] || null;
     } catch (err) {
       console.error(`[AutotaskClient] getTicketByNumber failed for ${ticketNumber}:`, err instanceof Error ? err.message : String(err));
