@@ -1,8 +1,17 @@
 # Current Tasks
 
-> **Last updated**: 2026-05-17. Compliance workflow build, multi-session.
-> **Branch**: `claude/review-workflow-architecture-DdCgz` → auto-merged to `main`.
+> **Last updated**: 2026-06-09. Pipeline hardening + CLAUDE.md restructure.
+> **Branch**: `claude/zealous-hypatia-4cfnyp` → gated auto-merge to `main`.
 > **Detailed context**: `docs/SESSION_HANDOFF.md`.
+
+## Deploy-Pipeline Reliability (2026-06-09) — shipped; two operator follow-ups
+
+Gated auto-merge (secret-scan + lint + schema-drift + build + unit + e2e-vs-preview), reusable quality-gates workflow, drift check in Vercel/local builds, `docs/gotchas.md` split out of CLAUDE.md. See session-summary for details.
+
+- [ ] **[HIGH] Operator: run `docs/runbooks/MIGRATIONS_RETROFIT.md`** — baselines `_prisma_migrations`; makes schema changes a single deploy with no manual POST step. ~30 min, low risk, fully reversible.
+- [ ] **[MED] Operator: add branch protection ruleset on `main`** — GitHub → Settings → Rules → Rulesets → target `main`: block force pushes, restrict deletions, require the `quality / quality` status check. The workflow gate stops bad auto-merges, but nothing yet stops a direct manual push to main.
+- [x] **[DONE] `E2E_TEST_SECRET`** added to GitHub Actions secrets + Vercel (Preview scope) — authenticated e2e specs run on pushes whose preview was built after the secret existed.
+- [ ] **[LOW] Consider preview/prod database separation** (also on the pre-launch checklist) — previews currently share the production DB; a separate preview DB would let e2e run destructive flows safely.
 
 ## Documents Hub (2026-05-30) — shipped, live in production
 

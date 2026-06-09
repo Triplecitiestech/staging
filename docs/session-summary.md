@@ -1,8 +1,18 @@
 # Session Summary
 
-> **Last updated**: 2026-05-17. Multi-session compliance workflow build.
-> **Branch**: `claude/review-workflow-architecture-DdCgz` (auto-merged to `main`).
+> **Last updated**: 2026-06-09. CLAUDE.md operating-manual restructure + deploy-pipeline reliability hardening.
+> **Branch**: `claude/zealous-hypatia-4cfnyp` (gated auto-merge to `main`).
 > **Detailed handoff**: see `docs/SESSION_HANDOFF.md` first — this file is the quick state-of-the-world reference.
+
+## Pipeline Hardening + CLAUDE.md Restructure (2026-06-09)
+
+Owner priority: reliability above all, fewest deploy iterations. Three commits on `claude/zealous-hypatia-4cfnyp`:
+
+1. **CLAUDE.md restructured** to the operating-manual format (190 lines, A–G sections, dated decision log, Critical Gotchas digest). Full gotcha list + subsystem field notes moved verbatim to `docs/gotchas.md` — now mandatory bootstrap read #6.
+2. **Auto-merge to main is now gated.** Previously any push to `claude/**` merged to main (= production) with zero checks. Now `auto-merge-claude.yml` requires: gitleaks secret-scan + quality gates (lint, `check:schema`, `next build`, vitest — reusable `.github/workflows/quality-gates.yml`, also used by `ci.yml`) + full Playwright e2e against the commit's Vercel preview (located via GitHub Deployments API). Schema-drift check also wired into the Vercel build (`vercel.json`) and local `npm run build`. Escape hatch: `[skip-e2e]` in the commit **subject line only** — first version checked the whole message and a commit *describing* the flag skipped its own e2e run (run 1056); fixed with a `flags` job reading `git log -1 --pretty=%s` (run 1057 = first true full-gate run).
+3. **Migration retrofit prepared, not executed**: `docs/runbooks/MIGRATIONS_RETROFIT.md` (PowerShell, operator-run) baselines `_prisma_migrations` so `prisma migrate deploy` becomes real and the manual POST `/api/migrations/run` step disappears. `vercel.json` must NOT get `prisma migrate deploy` until the baseline is done. Expand-contract migration policy documented in CLAUDE.md + gotchas.
+
+Operator completed: `E2E_TEST_SECRET` added to GitHub Actions secrets + Vercel (Preview scope) — authenticated e2e specs activate on pushes after the secret-enabled preview redeploy. Still open for operator: branch protection ruleset on `main`; run the migrations retrofit.
 
 ## Documents Hub (2026-05-30) — `/admin/documents`
 
