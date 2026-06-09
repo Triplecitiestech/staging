@@ -177,7 +177,7 @@ Vercel supports instant rollback:
 
 ### Background
 
-The SaaS Alerts compliance integration has two surfaces. Each is documented in the **Gotchas** section of `CLAUDE.md` ("SaaS Alerts has TWO HTTP surfaces").
+The SaaS Alerts compliance integration has two surfaces. Each is documented in the **SaaS Alerts Integration** section of `docs/gotchas.md` ("SaaS Alerts has TWO HTTP surfaces").
 
 - **Webhook receiver** (`/api/compliance/webhooks/saas-alerts`) — primary event source. Push-based, not affected by token state.
 - **External Partner API** (`https://us-central1-the-byway-248217.cloudfunctions.net/reportApi/api/v1`) — on-demand REST reads via `SaasAlertsClient` in `src/lib/saas-alerts.ts`. Requires `api_key` + `idtoken` headers.
