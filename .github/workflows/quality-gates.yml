@@ -1,0 +1,48 @@
+name: Quality Gates
+
+# Reusable quality-gate workflow. Called by:
+#   - ci.yml            (pull requests + pushes to main)
+#   - auto-merge-claude.yml (every push to claude/** — gates the merge to main)
+#
+# Gates: lint → schema-drift check → production build → unit tests.
+# `next build` needs no real database: dummy env vars below are enough
+# (all DB-touching pages are dynamic, so nothing queries at build time).
+
+on:
+  workflow_call:
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+      PRISMA_DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+      NEXTAUTH_SECRET: ci-only-dummy-secret
+      NEXTAUTH_URL: http://localhost:3000
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Schema drift check
+        run: npm run check:schema
+
+      - name: Build
+        run: npx next build
+
+      - name: Unit tests
+        run: npm test

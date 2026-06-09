@@ -5,7 +5,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma migrate deploy && next build",
+    "build": "prisma migrate deploy && tsx scripts/check-schema-drift.ts && next build",
+    "build:ci": "prisma generate && tsx scripts/check-schema-drift.ts && next build",
     "start": "next start",
     "lint": "next lint",
     "postinstall": "prisma generate",
