@@ -1,0 +1,231 @@
+# Gotchas & Field Notes
+
+> **Mandatory session-start reading.** This file holds the complete gotcha list and subsystem field notes that previously lived inline in `CLAUDE.md`. Per the operating-manual restructure (2026-06-09), `CLAUDE.md` keeps only a digest of the most dangerous rules — **this file is the full record. Read all of it before writing code.** When a session learns a new lesson, add it here (and add a one-liner to the CLAUDE.md digest only if it is catastrophic-if-missed).
+
+---
+
+## Database & Migrations
+
+- **`prisma migrate deploy` does NOT actually run on this DB**: As of 2026-04-26, the production Postgres instance has no `_prisma_migrations` table — meaning Prisma's migration runner has never successfully applied any of the files in `prisma/migrations/`. Every column in production was created by raw `ALTER TABLE IF NOT EXISTS` statements in `src/app/api/migrations/run/route.ts`. **When adding a new schema field, you MUST also add a matching `ALTER TABLE` to that route AND have someone POST to `/api/migrations/run` after deploy. Adding a `prisma/migrations/<name>/migration.sql` file alone is a no-op.** Symptoms when you forget: admin dashboard shows "Something went wrong / An unexpected error occurred in the admin dashboard" and the customer portal shows zero projects, because Prisma's `include: { ... }` generates SELECTs against columns that don't exist. Permanent fix is to retrofit `_prisma_migrations` (mark every existing migration as applied via `prisma migrate resolve --applied`) so future migration files actually run; until that's done, the raw-SQL route is the source of truth.
+- **Every Prisma schema field MUST have a migration**: Never add a field to `schema.prisma` without a corresponding migration SQL. Without a migration, any Prisma query without an explicit `select` will crash with "column does not exist". Runtime `ALTER TABLE` hacks in API routes are not sufficient — they only run when that specific endpoint is called, not when other pages query the same model. The migration `20260310000000_add_missing_columns` fixed a batch of these.
+- **Prisma schema + raw SQL migration must stay in sync**: Any column added via raw SQL migration must also be added to `prisma/schema.prisma`. Otherwise Prisma will throw `column (not available) does not exist` on any query touching that table. When adding schema fields, also check for `select` clauses in server components that pass data to components typed as the full Prisma model — those selects need the new fields too.
+- **Production migrations must use API endpoints, not Prisma CLI.** Never run `prisma migrate` directly on production.
+- **Reporting tables are NOT Prisma-managed**: The reporting system uses raw SQL tables (`report_tickets`, `report_time_entries`, `report_ticket_notes`, `report_aggregations`, `report_schedules`, `report_targets`) created via migration endpoint. `src/lib/reporting/ensure-tables.ts` auto-creates them if missing. Don't try to add these to Prisma schema.
+- **SOC tables are NOT Prisma-managed**: SOC uses raw SQL tables (`soc_incidents`, `soc_activities`, `soc_config`, `soc_rules`, `soc_known_benign`) created via `/api/soc/bootstrap` or `/api/soc/migrate`. Same pattern as reporting.
+- **HR routes use raw pg, NEVER Prisma**: All routes under `src/app/api/hr/` use `getPool()` from `src/lib/db-pool.ts`. Do not switch them to Prisma — it caused 500s. Always pass `companySlug` in the request body (POST) or query params (GET).
+- **HR Prisma models use `@map()` to point at snake_case columns**: HR routes use raw pg (above) and the live DB has snake_case columns (`company_id`, `submitted_by_email`, etc.). The `HrRequest`, `HrRequestStep`, and `HrAuditLog` models in `schema.prisma` declare camelCase field names with explicit `@map()` directives so Prisma reads the same columns the raw pg routes write to. Do not strip those `@map()` directives or any future Prisma query against those models will look for columns that don't exist.
+- **Prisma column names are camelCase** — raw SQL must use quoted camelCase (`"companyId"`, `"displayName"`, `"autotaskCompanyId"`), NOT snake_case. Prisma has no `@map` on these fields (exception: HR + M365 columns, see their entries).
+- **M365 routes use raw pg**: `src/app/api/admin/companies/[id]/m365/route.ts` uses raw pg. Column `updatedAt` must be quoted: `"updatedAt" = NOW()` — NOT `updated_at`.
+- **M365 columns are snake_case in DB**: The 6 M365 columns (`m365_tenant_id`, `m365_client_id`, etc.) use `@map()` in Prisma schema and ARE snake_case in PostgreSQL. All other Company fields are camelCase in the DB.
+- **JSONB columns need ::jsonb cast in raw pg**: When inserting a JSON.stringify() string into a jsonb column via raw pg, use `$1::jsonb` not `$1`.
+- **db-pool.ts MUST have SSL config**: The shared raw pg pool in `src/lib/db-pool.ts` MUST include `ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false`. Without it, all 24+ routes using `getPool()` silently fail to connect in production. This was a regression when consolidating pools — never remove the SSL config.
+- **prisma.ts MUST have SSL config**: The Prisma adapter pg pool in `src/lib/prisma.ts` also MUST include the same SSL config. Without it, all Prisma queries fail with "Connection terminated due to connection timeout" in production. Both pool files must always have SSL.
+- **DB pools MUST be cached globally (all environments)**: Both `src/lib/prisma.ts` and `src/lib/db-pool.ts` cache their pools on `globalThis`. In serverless, the same isolate handles multiple invocations — without global caching, each invocation creates a new pool, causing connection churn and pool exhaustion. Never change the caching to dev-only.
+- **Connection pool exhaustion**: Creating audiences or other bulk operations can exhaust the connection pool. Use explicit `$disconnect()` or connection-aware patterns for batch operations.
+- **No hard deletes** — use status fields or `deletedAt` timestamps.
+- **Progress should use status, not `completed` boolean**: Task completion is tracked via status (REVIEWED_AND_DONE, NOT_APPLICABLE, ITG_DOCUMENTED), not the legacy `completed` boolean field.
+
+## Serverless, Cron & Resilience
+
+- **All external API fetch() calls MUST have timeouts**: Every `fetch()` call to an external service (Autotask, Graph, Pax8, Datto, Resend, Anthropic, Turnstile, social media) MUST include `signal: AbortSignal.timeout(X)`. Without a timeout, a hung external API blocks the entire serverless function indefinitely. Use 15s for auth/token calls, 30s for data requests. The `src/lib/resilience.ts` module provides `withTimeout()` for wrapping non-fetch operations.
+- **Use `src/lib/resilience.ts` for all retry/timeout/circuit-breaker needs**: single source of truth for `withRetry()` (exponential backoff), `withTimeout()`, `withCircuitBreaker()`, `withDbRetry()` (optimized for serverless cold starts), `classifyError()`, and `structuredLog`. Do NOT create ad-hoc retry loops elsewhere.
+- **Cron jobs must NEVER return 500 for transient failures**: Use `classifyError()` from `resilience.ts` and return 200 with `{ transient: true }` for connection/timeout/rate-limit errors. This prevents Vercel from flagging cron invocations as failures and triggering its own alerting. Only return 500 for permanent/validation errors.
+- **Cron auth uses Vercel Authorization header**: Cron endpoints authenticate via `Authorization: Bearer <CRON_SECRET>` header (set by Vercel automatically). Don't use secret in query params or URL paths.
+- **Health monitor uses sliding window, NOT point-in-time checks**: The health monitor (`/api/cron/health-monitor`) requires 3 consecutive failures to alert and 2 consecutive healthy checks to resolve. It uses the `health_monitor_state` DB table (NOT `health_monitor_alerts` which is legacy). Do not reduce these thresholds — they prevent alert oscillation.
+- **Health monitor job names use underscores**: The health monitor checks for `sync_tickets`, `sync_time_entries`, `aggregate_company`, `aggregate_technician` (underscores). Never use hyphens for job names in the DB — the health monitor had a mismatch bug that sent false alerts every 15 minutes until fixed (2026-03-27).
+- **Serverless timeout**: 30s max for API routes (blog generation can be tight). The Autotask trigger route uses `maxDuration = 60` since sync can be slow (page size 5 projects/request to stay within timeout). CFO routes (`/api/admin/cfo/data`, `/rebuild`, `/api/cron/cfo-rebuild`) use `maxDuration = 300` — the first full 24-month Sequence pull under the rate gate exceeds 60s (requires Vercel Pro).
+- **Self-chaining backfill**: The reporting sync uses fire-and-forget self-chaining — one API call triggers the next batch server-side. A single URL invocation runs all jobs to completion. Don't add polling or retry logic on top.
+
+## API Routes & Security
+
+- **API catch blocks must NEVER return 200 with empty data**: When an API route catches an error, it must return an error status code (4xx/5xx) with an `{ error: 'message' }` body. NEVER return `{ data: [] }` or `{ tickets: [] }` inside a catch block — this makes the UI show "no data" instead of an error message, and the user thinks the feature is broken. If there is legitimately no data (not an error), that should be outside the catch block.
+- **Use `checkSecretAuth()` from `src/lib/api-auth.ts` for secret-based route auth**: accepts both `Authorization: Bearer <secret>` headers (preferred — not logged) and `?secret=` query params (legacy — logged in URLs). It checks both `MIGRATION_SECRET` and `CRON_SECRET`. Do not write inline secret checks in new routes.
+- **Use `checkCsrf()` from `src/lib/security.ts` on all customer mutation endpoints**: All POST/PUT/PATCH/DELETE endpoints that accept browser form submissions must call `checkCsrf(request)` before processing. Validates Origin/Referer headers. Skips for API clients with Authorization headers and in development.
+- **Use `checkRateLimit()` from `src/lib/security.ts` on auth endpoints**: All login, password, and email-lookup endpoints must be rate-limited. Call `checkRateLimit(request)` (or `checkRateLimit(request, { strict: true })` for sensitive endpoints). Returns a 429 response if the limit is exceeded.
+- **Never log auth details**: Do not use `console.log` for password validation results, session tokens, signing keys, company slugs in auth context, or env variable names related to credentials. These appear in Vercel function logs which are accessible to anyone with Vercel dashboard access.
+- **Never use default/fallback signing keys**: Session signing keys (`ONBOARDING_SIGNING_KEY`, `NEXTAUTH_SECRET`) must come from environment variables. Never provide a hardcoded fallback — it's visible in source code and makes sessions forgeable.
+- **Use `NEXT_PUBLIC_BASE_URL` for dynamic URLs in components**: Never hardcode `triplecitiestech.com` in component code that generates links, callback URLs, or form share URLs. Use `process.env.NEXT_PUBLIC_BASE_URL || 'https://www.triplecitiestech.com'` so preview deployments work correctly.
+- **CSP is strict**: Adding any third-party resource requires updating headers in `next.config.js` (separate dev/prod policies).
+- **ChatGenie widget**: Must use standard `<script>` tag, not Next.js `<Script>` component.
+- **forEach return does NOT stop execution**: `array.forEach(cb)` ignores return values inside the callback. If you need early return (e.g., to send an HTTP error response), use a `for` loop or `Array.from().some()`. The middleware had this bug for query param filtering — it was completely non-functional until fixed.
+
+## React & UI
+
+- **useState does not auto-sync with props**: When using `useState(prop)`, the state only initializes on mount. If the prop changes (e.g., via `router.refresh()`), add `useEffect(() => setState(prop), [prop])` to keep them in sync. Applies to all components that receive data as props and store it locally.
+- **Every useEffect+fetch MUST have AbortController cleanup**: Create an AbortController, pass `{ signal: controller.signal }` to fetch(), and return `() => controller.abort()` from the cleanup function. Without this, navigating away causes memory leaks and stale state updates. Check for `AbortError` in catch blocks: `if (err instanceof DOMException && err.name === 'AbortError') return`. If the fetch function is also used as an onClick handler, create a parameterless wrapper: `const fetchData = useCallback(() => fetchDataImpl(), [fetchDataImpl])`.
+- **overflow-hidden clips absolute dropdowns**: Never use `overflow-hidden` on a parent element that contains an absolute-positioned dropdown (like AssignmentPicker, CommentThread, DueDatePicker). Use `min-w-0` with `truncate` for text overflow instead.
+- **Every admin subsection must have a loading.tsx**: Admin routes (`/admin/soc`, `/admin/reporting`, etc.) must have a `loading.tsx` file that shows a skeleton screen. Without it, navigation shows a blank page during data loading, which looks like a crash.
+- **Error boundaries must wrap all major layout sections**: Use `AdminErrorBoundary` for admin and `PortalErrorBoundary` for portal. Without them, a single component crash blanks the entire section.
+- **Mobile matters**: Every UI change must account for `sm`/`md`/`lg` breakpoints. Never ship desktop-only layouts.
+- **ContactsList has a `mode` prop**: `'both' | 'clients-only' | 'staff-only'`. `/admin/contacts` uses `clients-only`, `/admin/staff` uses `staff-only`. Don't render ContactsList without a mode if you want only one tab visible — the legacy `'both'` mode still shows the tabs.
+- **Demo mode null safety**: All anonymization functions (`anonCompany`, `anonPerson`, `anonEmail`, `anonTicketTitle`) return `''` for null/undefined input. The `title` callback in DemoModeProvider also guards: `anonTicketTitle(t || '')`. This prevents React rendering crashes when demo mode is active and data fields are undefined.
+- **Status badges**: Always display as `Status: <label>` (e.g., "Status: In Progress").
+- **Marketing pages**: All `/admin/marketing/*` pages must include AdminHeader and the ambient gradient background.
+
+## Testing & QA
+
+- **Quality gates**: `npm run build`, `npm run lint`, and `npm run test:e2e` are the quality gates — always run all three before pushing.
+- **Run e2e tests on every change**: `npm run test:e2e` covers all systems. Tests are in `tests/e2e/` and include: admin page health, public page rendering, customer portal, blog system, marketing system, SOC system, Autotask sync, API health, auth enforcement, forbidden colors, responsive viewports, and security checks. Requires the `test_failures` table (run migration via `POST /api/test-failures/migrate` with Bearer MIGRATION_SECRET).
+- **E2e test failures generate debug summaries**: When Playwright tests fail, the custom reporter writes structured JSON + markdown summaries to `test-results/failures/`. Run `npm run debug:failures` to review. See `docs/DEBUGGING_WORKFLOW.md` for the full Claude debugging process. A fix is never confirmed until the previously failing test passes.
+- **Authenticated e2e tests require E2E_TEST_SECRET**: The `/api/test/auth` endpoint creates test sessions for Playwright. Set `E2E_TEST_SECRET` env var on both server and test runner. Tests in files matching `authenticated` use stored session state from `auth.setup.ts`. This endpoint is gated and does nothing without the env var.
+- **Admin test failure dashboard**: Available at `/admin/debug/failures`.
+- **Proactive error checking**: After making changes, actively look for potential errors — check browser console output, test API endpoints with edge cases, verify state sync between components, and confirm that absolute-positioned dropdowns aren't clipped by parent overflow. Don't wait for the user to find bugs. Log and fix them.
+- **Don't guess about external APIs**: When integrating with external APIs (Datto RMM, Autotask, etc.), read the actual API documentation before writing code. Trial-and-error wastes deployment cycles.
+
+---
+
+## Autotask Integration — Key Knowledge
+
+Primary external data source for companies, projects, phases, and tasks. The owner considers Autotask data authoritative. See `docs/reference/AUTOTASK_SYNC.md` for full docs.
+
+**Sync endpoint**: `GET /api/autotask/trigger?step=<step>` — authenticate with `Authorization: Bearer <MIGRATION_SECRET>` (preferred) or `?secret=<MIGRATION_SECRET>` (legacy, URL-logged — avoid)
+
+**Steps** (run in order):
+1. `cleanup` — delete AT-synced companies with no projects
+2. `companies` — sync companies that have projects in Autotask
+3. `projects&page=1` — sync projects with phases, tasks, descriptions, notes (5/page, paginated)
+4. `contacts` — sync contacts (auto-creates table if missing)
+5. `merge` — deduplicate companies (keeps AT-synced, absorbs non-AT duplicates)
+6. `resync&page=1` — re-fetch phases+tasks for existing AT projects (fixes empty phases)
+7. `diagnose` — show raw API response for debugging
+
+**Critical bugs fixed (do NOT reintroduce)**:
+- **Never silently catch phase/task API errors** — the original code had `try { } catch { /* no phases */ }` which hid all failures and made it look like projects had no data. Always report errors.
+- **Task status values must be distinct** — Autotask uses picklist values: 1=New, 4=In Progress, 5=Complete, 7=Waiting Customer. The old code had both IN_PROGRESS and COMPLETE mapped to `5`, so tasks never showed as complete.
+- **company_contacts table may not exist** — the contacts sync auto-creates it via raw SQL if missing. Don't bail out with "run migration first".
+
+**Key files**: `src/lib/autotask.ts` (API client, types, status mappers), `src/app/api/autotask/trigger/route.ts` (multi-step sync endpoint), `src/app/api/autotask/status/route.ts` (sync history viewer).
+
+**Data flow**: Autotask → AutotaskClient (REST API) → syncCompany/syncProject/syncPhase/syncTask → Prisma models
+
+**Autotask gotchas**:
+- **Multiple entity paths**: Tasks can be at `Projects/{id}/Tasks`, `ProjectTasks`, or `Tasks`. Phases at `Projects/{id}/Phases` or `Phases`. The client tries multiple paths with fallbacks.
+- **Task status values are instance-specific**: Use the `?step=diagnose` endpoint to see actual picklist values. Don't hardcode assumptions.
+- **Duplicate companies**: Autotask sync can create duplicates of companies that already existed locally. Use `?step=merge` to deduplicate (keeps AT-synced company, moves projects from non-AT duplicate).
+- **Empty phases after sync**: If phases show up empty, the task API likely failed silently. Use `?step=resync` to re-fetch and check `?step=diagnose` for API errors. Resync also cleans up genuinely empty phases and updates phase statuses based on task completion.
+- **Write-back: PATCH vs POST**: Task status PATCH returns 404 on all 3 entity paths for this Autotask instance. However, notes (POST `TaskNotes`) and time entries (POST `TimeEntries`) work fine. The task PATCH API (`/api/tasks/[id]`) returns `autotaskSyncFailed: true` when the write-back fails so the UI can warn the admin.
+- **`?step=companies` only syncs Autotask companies that have projects**: Customers without an active project in AT won't be pulled in via that step. Use the `/admin/companies/new` "Import from Autotask" search + Import & Sync button, or the wizard's Step 1 search/link box, to import a project-less company. `/api/autotask/companies/import` is the single endpoint that sets `autotaskCompanyId` from a manual flow.
+- **`/api/companies` POST does NOT set autotaskCompanyId**: The manual New Company create endpoint creates a local-only row with no AT link. The form at `/admin/companies/new` hides the manual section when an AT company is selected so users can't accidentally bypass `/api/autotask/companies/import`. Don't add new entry points to `/api/companies` POST without also taking the AT path into account, or you'll regress the orphan-company trap.
+- **Contact sync is NOT in the Pipeline Status "Run All"**: `sync_contacts` is registered in `JOB_MAP` and visible in the Pipeline Status UI as a single button, but it's intentionally excluded from `PIPELINE_ORDER`. Iterating every Autotask-linked company nightly adds API cost for no benefit (contacts change rarely). Per-company sync via `POST /api/admin/companies/[id]/sync-contacts` is the recommended path for onboarding.
+
+---
+
+## M365 Multi-Tenant Onboarding
+
+Customer M365 integration supports two modes that coexist on the `companies` table:
+
+- **`legacy` (default for existing rows)** — customer creates their own app reg in their Entra tenant; `m365_tenant_id` + `m365_client_id` + `m365_client_secret` all stored on the company row.
+- **`multi_tenant` (default for new onboardings)** — customer Global Admin grants tenant-wide consent to TCT's published `TCT Customer Portal` app reg (in the TCT tenant). Only `m365_tenant_id` is stored; client_id/secret come from `M365_PORTAL_CLIENT_ID` / `M365_PORTAL_CLIENT_SECRET` env vars at runtime.
+
+The mode is `companies.m365_consent_mode`. `m365_consent_granted_at` is stamped by the consent callback.
+
+**Consent flow routes:**
+- `GET /api/admin/m365/consent?companyId=…` — initiates Microsoft `/adminconsent` (scoped to `organizations`, work tenants only). Requires TCT staff session.
+- `GET /api/admin/m365/consent/callback` — Microsoft redirect target. Validates HMAC state, blocks tenant double-binding, writes the tenant link + flips mode.
+
+**At runtime**, all Graph callers go through `getTenantCredentials(companyId)` / `getTenantCredentialsBySlug(slug)` in `src/lib/graph.ts`. The branch on `m365_consent_mode` is invisible to downstream callers (HR, cron, forms, compliance) — they just get a `TenantCredentials` object. **Downstream Graph callers must NOT read the per-tenant columns directly.** Check `m365_consent_mode` if you need to branch.
+
+**Customer portal SSO** (`/api/portal/auth/login` + `/callback`) branches on `m365_consent_mode`: multi-tenant uses `M365_PORTAL_CLIENT_ID/SECRET`, legacy uses the per-tenant fields.
+
+**The onboarding wizard** (`/admin/companies/[id]/onboard`) has 5 steps: Autotask Sync → M365 Connection (admin consent) → Test Connection → Manager & Invite → Finalize. Step 1 has an inline Autotask company search/link UI when `autotaskCompanyId` is null. Step 4 fetches contacts and chains role-update + send-invite in one click.
+
+**Onboarding gotchas**:
+- **Wizard step status must derive from durable DB state**: stepStatus[N] initial values should reflect what's persisted (e.g. step 2 checks `m365_consent_granted_at` for multi_tenant, step 4 checks for an existing `CLIENT_MANAGER` contact with `INVITED/ACCEPTED`). Don't rely on in-session button clicks alone — the user will refresh, deep-link, or come back tomorrow and expect the sidebar to be accurate.
+- **TECHNICIAN role can invite customers and manage portal roles**: As of session 8, TECHNICIAN holds `invite_customers` and `manage_customer_roles` so techs running the wizard's Manager & Invite step don't hit Forbidden. Sensitive scopes (`impersonate_customer`, staff role management) remain admin-only. `/api/contacts/invite` GET/POST/PATCH use granular `hasPermission()` checks — not role arrays — so per-user `permissionOverrides` are honored.
+
+---
+
+## SOC Analyst Agent — Cross-Stack Knowledge
+
+See `docs/SOC_CROSSSTACK_HANDOFF.md` for the full handoff. The SOC Analyst correlates RocketCyber + Datto RMM + Datto EDR + DNSFilter + SaaS Alerts before classifying, not just the Autotask ticket body. Key modules: `src/lib/rocketcyber.ts`, `src/lib/soc/enrichment.ts`, shared UI `src/components/soc/CrossStackAssessment.tsx`, real-time webhook `src/app/api/soc/ingest/route.ts`. Env: `ROCKETCYBER_API_TOKEN`, `SOC_INGEST_SECRET`.
+
+- **SOC enrichment MUST scope every tool to the customer — never query MSP-wide**: resolve each company to its platform entity via `compliance_platform_mappings` (`getPlatformMappings(companyId, '<platform>')`) first, then fall back to company-name matching. Datto EDR previously had no name-match and leaked other customers' detections (e.g. Tri-Bros `tbt-004` under NYSWDA) — it now name-matches `/Organizations` and SKIPS rather than running unscoped. Explicit mappings (Compliance → Connect Tools) are authoritative; name-match is fallback. Platform keys: `datto_rmm` (site UID), `datto_edr` (org id), `dnsfilter` (org id), `saas_alerts` (customer id).
+- **RocketCyber: incident is shallow, IOC detail lives on the EVENT**: `/v3/incidents` returns a gutted incident; real path/process/hash/command-line is in `/v3/events` under `attributes` (snake_case, `event_time` is unix). Account-wide `/events` returns EVERY device's events — `getIncidentDetail` selects the one closest in time to the incident. Don't merge the first event blindly.
+- **Datto EDR `/Alerts` nests detection fields under `data`**: `threatName`/`path`/`md5`/`sha256`/`commandLine`/`parentProcessName`/`owner`/`ruleName` are under `alert.data.*`, NOT top-level (top-level has `name`, `hostname`, `severity`, `mitreId`, `description`). `fetchEdr` in `src/lib/soc/enrichment.ts` flattens every alert via `flattenEdrAlert()` (promotes `data.*` up, keeps top-level identity fields authoritative, preserves the original nested `data` for the raw passthrough) before reading anything — don't reintroduce top-level `a.threatName` reads.
+- **DNSFilter v1 HAS a per-event query log**: `/v1/traffic_reports/query_logs` (params `organization_id`, `from`, `to`, `result=blocked`, `page[size]`; `page.total` = count; rows in `data.values`). Auth uses `Authorization: Token <key>` even though docs show the raw key.
+- **Datto RMM API: site UID vs numeric ID**: Sites have a numeric `id` (e.g. `405222`) and a UUID `uid` (e.g. `380a3e72-...`). Site-specific endpoints like `/api/v2/site/{id}/devices` require the **UID**, not the numeric ID. The `DattoSite` type stores both. Always use `site.uid` for API calls. The global `/api/v2/account/devices` endpoint returns only a subset of devices (5 out of hundreds) — use per-site fetching via `getSiteDevices(uid)` instead.
+- **SOC real-time ingest**: `/api/soc/ingest` (Autotask Extension Callout target) pulls one ticket via `syncSingleTicket` and triages immediately; hourly `soc-triage` cron is the safety net. Idempotent. Auth via `SOC_INGEST_SECRET` (Bearer/Basic-password/x-soc-secret/?secret/body). The `tickets` table SOC reads is populated by `syncTickets` in `src/lib/reporting/sync.ts` (the every-2h `/api/reports/jobs/sync-tickets` cron) — NOT by `autotask-sync`.
+- **SOC assessment must not silently fall back to screening**: the cross-stack assessment uses `max_tokens: 8000` (4096 truncated the JSON → parse failure → silent revert to the old "SOC AI Triage" note). On failure the engine builds a degraded `SocAssessment` from evidence so the new layout always renders. Auto-posts the internal note only when `!dry_run && auto_post_internal_note`.
+
+---
+
+## SaaS Alerts Integration
+
+- **SaaS Alerts has TWO HTTP surfaces — use the right one**: (1) The portal API at `manage.saasalerts.com/api` IS Cloudflare-blocked — 403s every server-to-server call regardless of auth headers. Do NOT call this from server code. (2) The "External Partner API" at `https://us-central1-the-byway-248217.cloudfunctions.net/reportApi/api/v1` is hosted on Google Cloud Functions, has no Cloudflare in front of it, and works fine. Swagger: https://app.swaggerhub.com/apis/SaaS_Alerts/functions/0.20.0. Auth requires BOTH `api_key` AND `idtoken` headers — the `idtoken` is a Firebase Auth JWT with a 1h TTL, so `SaasAlertsClient` in `src/lib/saas-alerts.ts` exchanges a long-lived Firebase refresh token (`SAAS_ALERTS_REFRESH_TOKEN`) for a fresh idtoken via `POST https://securetoken.googleapis.com/v1/token?key=<webApiKey>` and caches it per-isolate with a 5min refresh buffer. Env vars: `SAAS_ALERTS_API_KEY` + `SAAS_ALERTS_REFRESH_TOKEN` (production); `SAAS_ALERTS_ID_TOKEN` is supported as a one-off-testing fallback only and will go stale after an hour. The refresh token lives in the portal's IndexedDB at `firebaseLocalStorageDb > firebaseLocalStorage > firebase:authUser:* > stsTokenManager.refreshToken` (NOT localStorage — Firebase v9 SDK migrated to IndexedDB). The webhook receiver at `/api/compliance/webhooks/saas-alerts` remains the primary event source — REST is for on-demand reads (customers, billing details, ad-hoc event queries) and as a cron fallback. The refresh token is bound to the partner user account (currently kurtis@triplecitiestech.com); the long-term goal is a Kaseya-provisioned service account / OAuth client credentials flow.
+- **External Partner API requires a `body`-wrapped envelope on POST `/reports/events/query`**: the gateway validates the request body as `{ body: <ES-style search> }` and proxies `body` to the events index. Sending the search bare (`{ size, query }`) returns 422 with `Issues: [{"body.body":{"message":"'body' is required"}}]`. `SaasAlertsClient.getEvents` in `src/lib/saas-alerts.ts` wraps the search; any other future POST endpoints on this API likely use the same envelope.
+
+---
+
+## Customer Portal Architecture
+
+The customer portal is at `/onboarding/[companyName]`. Key components:
+- **OnboardingPortal** — Main container. `isAuthenticated` is always `true` (password gate removed 2026-03-20)
+- **CustomerDashboard** — Primary dashboard with projects, tickets, stats, smart ticket sorting, metrics, chat CTA
+- **HrRequestSection** — Employee Management card. Rendered below CustomerDashboard. Gated by manager email verify (not password)
+- **HrRequestCards** — Action cards + FormRendererLoader. Loads config from `/api/forms/config`, renders FormRenderer (schema-driven)
+- **FormRenderer** — Schema-driven step-by-step wizard (replaced legacy HrRequestWizard which was deleted 2026-03-22)
+- **OnboardingJourney** — First-time login guided tour (5 steps, skippable)
+- **TicketTimeline** — Chronological ticket comms trail from Autotask
+
+**Portal auth**: URL is the access control — TCT shares the URL directly with the customer. `PasswordGate` component still exists but is never rendered.
+
+**HR access gate**: Clicking "Request Employee Changes" prompts manager email verification. The email is checked against `company_contacts` for `customerRole = CLIENT_MANAGER` or `isPrimary = true`. Stored in sessionStorage for the browser session.
+
+**Ticket Timeline**: When a customer clicks a ticket, they see a full chronological timeline fetched from Autotask via `/api/customer/tickets/timeline`. Only external (customer-visible) notes appear. Customers can reply to open tickets via `/api/customer/tickets/reply`, which creates an Autotask note.
+
+**Customer Invites**: Staff can invite contacts via `/api/contacts/invite`. Contacts get portal roles (CLIENT_MANAGER, CLIENT_USER, CLIENT_VIEWER). Set via the Portal Role badge (click to edit inline dropdown) on `/admin/contacts`. NOT managed in Autotask.
+
+**Tech onboarding wizard (legacy 4-step reference)**: At `/admin/companies/[id]/onboard`. Step 1 = Autotask sync (run from Pipeline Status page). Step 2 = M365 app registration creds. Step 3 = test connection. Step 4 = mark complete + share portal URL. (Superseded by the 5-step wizard described in the M365 section above.)
+
+---
+
+## CFO Dashboard (Financial) — `/admin/cfo`
+
+Internal staff-only financial dashboard. Combines **Sequence** (banking — pods, transfers, rules) + **QuickBooks Online** (accrual — Balance Sheet, P&L, AR aging). Pages: `/admin/cfo` (dashboard), `/admin/cfo/settings` (QB connect, debts, scheduled outflows, QB/AR snapshots, category overrides), `/admin/cfo/hiring` (loaded-cost hiring calculator). All `src/lib/cfo/` + `src/components/cfo/` + `src/app/api/admin/cfo/*` + `/api/cron/cfo-rebuild`.
+
+**Access control (`src/lib/cfo/access.ts`):** a user sees it if EITHER (a) they hold the `view_cfo_dashboard` permission (in `permissions.ts`; SUPER_ADMIN by default; grant per-user in **/admin/staff** — note that editor's permission list is HARDCODED in `ContactsList.tsx`, not from `permissions.ts`), OR (b) they're in an Entra group listed in `CFO_DASHBOARD_ENTRA_GROUP_IDS` (live app-only Graph `checkMemberGroups` against the TCT `AZURE_AD` app — needs `GroupMember.Read.All` + `User.Read.All` + admin consent on THAT app). Fails closed. Nav link in AdminHeader fetches `/api/admin/cfo/access`.
+
+**Data model:** `build.ts` → `getTransfersDelta` (Sequence) + `loadQbAndAr` (live QB if connected, else stored snapshots) → `compute.ts` → caches a `CachedSnapshot` in `cfo_settings` key `dashboard`. UI reads the cached snapshot; cron `/api/cron/cfo-rebuild` (every 6h) + the Refresh button rebuild it.
+
+**CFO gotchas:**
+- **`ENCRYPTION_MASTER_KEY_V1` is REQUIRED for QB connect** — QB OAuth tokens are encrypted at rest (`src/lib/crypto.ts`). Must be a 32-byte base64 string (~44 chars), set in **Production** scope, and the app **redeployed** (env changes need a fresh deploy). Settings page shows a live `encryptionKeyState` (ok/missing/invalid) so it's self-diagnosing. A wrong value (e.g. an `sk_live_…` paste) → "invalid".
+- **Sequence rate limit is 100 req/min** — `sequence-client.ts` has a process-wide ~700ms gate, concurrency 2, backoff to 30s. `build.ts` keeps a `transfers_cache` (cfo_settings) and fetches only ~30-day deltas after the first full pull. `getAllTransfers` is resilient (one bad account logs + returns empty; delta keeps its cached history) — do NOT make it fail-fast (it blanks the whole dashboard).
+- **The income-vs-outflow chart is CASH MOVEMENT, not P&L.** "Outflow" = all MONEY_OUT (the Amex *bill* bundles a month of card spend, plus payroll, debt principal, owner draws). Real accrual profit = the QuickBooks panel. Don't conflate. Vendor-level expense detail is NOT in Sequence (most spend is on Amex, paid as one lump) — it lives in QuickBooks.
+- **Demo mode** (`demo.ts`, via existing AdminHeader toggle): masks every name through `useDemoMode().company()` and scales every cents value by ONE consistent factor (`num(_, 'cfo-scale')`) so ratios/runway/payoff math stay correct.
+- **Scheduled outflows** (Settings): user-entered known upcoming payments override the baseline in the forecast + "covers payroll" card. **Live QB overrides stored QB/AR snapshots** once connected.
+- `cfo_settings` is raw-pg/self-healing (`ensureCfoTables`), NOT Prisma — like reporting/SOC.
+- **Spend insight comes from QuickBooks, not Sequence**: vendor/category spend-over-time + month-over-month anomalies (`d.qbSpend`) are built from month-summarized QBO reports (`getProfitAndLossByMonth` = category×month, `getVendorExpensesByMonth` = vendor×month) parsed by `parseSpendSeries` and flagged by `detectSpendAnomalies`. This is the line-item detail QB splits out of the single Amex payment — the Sequence cash chart only sees the lump. Live-only (null when QB disconnected) over the last 12 **complete** months. **If the vendor section/anomalies are missing, `VendorExpenses` likely didn't honor `summarize_column_by=Month`** (returns a single Total col → no months parsed → graceful skip); fall back to per-month `ProfitAndLossDetail`/`TransactionListByVendor`. Don't confuse with `perPodAnomalies` (Sequence pod, weekly).
+
+---
+
+## Temporary Development Shortcuts
+
+> **Intentionally kept to speed up active development. NOT production-ready; clean up before broader customer-facing rollout.**
+
+1. **Auto-deploy from all branches** — Vercel auto-deploys preview environments from every push; any branch push creates a publicly accessible preview.
+2. **Auto-merge workflow** — Claude branches auto-merge to main via GitHub Actions, triggering production deployment. Bypasses manual review.
+3. **Query-param secret fallback in `checkSecretAuth()`** — The Autotask sync trigger still accepts `?secret=` in query params. Migrate callers to `Authorization: Bearer` before removing.
+4. **Impersonation endpoint** — `/api/onboarding/impersonate` allows staff to access customer portal sessions. Requires audit before broader rollout.
+5. **Debug endpoints accessible** — `/admin/debug/failures`, `/admin/setup`, `/admin/run-migration`, `/blog/setup` are accessible with minimal auth guards.
+
+**Rules for Claude sessions:** Preserve these shortcuts unless the user explicitly asks to remove them. Do not expand them further. Do not treat them as patterns to follow for new code.
+
+## Pre-Launch Cleanup Required
+
+> Hardening checklist before broader customer-facing production access. Future task — not the immediate priority.
+
+- [x] **Remove secrets from documentation** — MIGRATION_SECRET and CRON_SECRET values purged from CLAUDE.md. Both should be rotated in Vercel since they were in git history.
+- [ ] **Move all secrets to environment-variable-only handling** — No secret values in source code, documentation, or URL query parameters.
+- [ ] **Encrypt per-tenant integration credentials at rest** — M365 client secrets currently stored plaintext in `companies.m365_client_secret`. Migration path in `docs/runbooks/CREDENTIALS_MIGRATION.md`.
+- [ ] **Rotate MIGRATION_SECRET and CRON_SECRET in Vercel** — Prior values were committed to CLAUDE.md and are in git history. Follow the dual-accept rotation procedure in `docs/runbooks/CREDENTIALS_MIGRATION.md`.
+- [ ] **Review deployment and branch protection rules** — Add required reviews for main branch, restrict auto-merge to passing CI only.
+- [ ] **Review auto-deploy behavior** — Customer-facing production deploys should require explicit approval or at minimum passing e2e tests.
+- [ ] **Audit auth flows and impersonation** — Review `/api/onboarding/impersonate` for proper authorization, logging, and rate limiting. Consider an audit trail for impersonation sessions.
+- [ ] **Review logging for secret leakage** — Audit all `console.log` statements for secrets, tokens, or sensitive customer data in Vercel function logs.
+- [ ] **Validate production-safe migration procedures** — Ensure database migrations cannot be triggered by unauthorized parties. Review MIGRATION_SECRET rotation policy.
+- [ ] **Audit admin/debug endpoints** — Add session auth guards to `/admin/setup`, `/admin/run-migration`, `/blog/setup`. Consider removing or restricting `/admin/debug/failures` in production.
+- [ ] **Confirm CSP and third-party script usage** — Review `'unsafe-inline'` in production CSP. Implement CSP violation reporting (`report-uri` / `report-to`).
+- [ ] **Review demo mode and internal-only tools** — Ensure demo mode cannot be accidentally activated in production by non-staff users.
+- [ ] **Verify preview/production environment separation** — Ensure preview deployments cannot access production data or send real emails to customers.
+- [ ] **Audit customer portal security** — Review password hashing, session handling, rate limiting on auth endpoints, and contact role enforcement.
+- [ ] **Review MCP server access** — Ensure the MCP server (`mcp-server/`) is not deployed or accessible in production environments.
