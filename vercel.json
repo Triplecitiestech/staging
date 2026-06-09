@@ -1,5 +1,5 @@
 {
-  "buildCommand": "next build",
+  "buildCommand": "tsx scripts/check-schema-drift.ts && next build",
   "devCommand": "next dev",
   "installCommand": "npm install",
   "framework": "nextjs",

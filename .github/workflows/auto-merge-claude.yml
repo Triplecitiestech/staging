@@ -1,17 +1,133 @@
 name: Auto-merge Claude branches
 
+# Gated auto-merge: a push to claude/** only reaches main (and therefore
+# production) after ALL of the following succeed on that exact commit:
+#
+#   1. secret-scan   — gitleaks
+#   2. quality       — lint + schema-drift check + production build + unit tests
+#   3. e2e-preview   — full Playwright suite against the Vercel preview
+#                      deployment of this commit
+#
+# Escape hatch (pipeline emergencies ONLY — e.g. the Vercel GitHub
+# integration is down so no preview deployment ever appears): include
+# [skip-e2e] in the commit message to skip gate 3. Gates 1–2 can never
+# be skipped. Document any use of [skip-e2e] in docs/session-summary.md.
+
 on:
   push:
     branches:
       - 'claude/**'
 
+concurrency:
+  group: auto-merge-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
+  deployments: read
   pull-requests: write
 
 jobs:
-  auto-merge:
+  secret-scan:
     runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Gitleaks scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+  quality:
+    uses: ./.github/workflows/quality-gates.yml
+
+  e2e-preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    if: ${{ !contains(github.event.head_commit.message, '[skip-e2e]') }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Wait for Vercel preview deployment
+        id: preview
+        run: |
+          # Vercel's GitHub integration creates a Deployment for every push and
+          # posts statuses to it. Poll until this commit's preview is live.
+          SHA="${{ github.sha }}"
+          REPO="${{ github.repository }}"
+          echo "Waiting for Vercel preview deployment of $SHA …"
+          for i in $(seq 1 60); do
+            DEPLOYMENT_ID=$(gh api "repos/$REPO/deployments?sha=$SHA&per_page=10" \
+              --jq '[.[] | select(.environment | test("(?i)preview"))][0].id' 2>/dev/null || true)
+            if [ -n "$DEPLOYMENT_ID" ] && [ "$DEPLOYMENT_ID" != "null" ]; then
+              STATE=$(gh api "repos/$REPO/deployments/$DEPLOYMENT_ID/statuses?per_page=1" \
+                --jq '.[0].state' 2>/dev/null || true)
+              URL=$(gh api "repos/$REPO/deployments/$DEPLOYMENT_ID/statuses?per_page=1" \
+                --jq '.[0].environment_url // .[0].target_url // empty' 2>/dev/null || true)
+              echo "  attempt $i: deployment $DEPLOYMENT_ID state=$STATE"
+              if [ "$STATE" = "success" ] && [ -n "$URL" ]; then
+                echo "Preview ready: $URL"
+                echo "url=$URL" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              if [ "$STATE" = "failure" ] || [ "$STATE" = "error" ]; then
+                echo "::error::Vercel preview deployment FAILED for $SHA — fix the deploy before merging."
+                exit 1
+              fi
+            else
+              echo "  attempt $i: no preview deployment yet"
+            fi
+            sleep 30
+          done
+          echo "::error::Timed out (30 min) waiting for a Vercel preview deployment. Is the Vercel GitHub integration healthy? If the integration itself is broken, push again with [skip-e2e] in the commit message and record it in docs/session-summary.md."
+          exit 1
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium webkit
+
+      - name: Run e2e suite against preview
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ steps.preview.outputs.url }}
+          E2E_TEST_SECRET: ${{ secrets.E2E_TEST_SECRET }}
+          CI: 'true'
+        run: npm run test:e2e
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-failures-${{ github.sha }}
+          path: |
+            test-results/failures/
+            playwright-report/
+          retention-days: 14
+          if-no-files-found: ignore
+
+  merge:
+    runs-on: ubuntu-latest
+    needs: [secret-scan, quality, e2e-preview]
+    # e2e-preview may be skipped via [skip-e2e]; secret-scan and quality must
+    # always be green. `always()` lets this job evaluate even when e2e skipped.
+    if: >-
+      always() &&
+      needs.secret-scan.result == 'success' &&
+      needs.quality.result == 'success' &&
+      (needs.e2e-preview.result == 'success' || needs.e2e-preview.result == 'skipped')
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,5 +143,5 @@ jobs:
         run: |
           git fetch origin main
           git checkout main
-          git merge ${{ github.ref_name }} --no-ff -m "Auto-merge: ${{ github.ref_name }}"
+          git merge ${{ github.ref_name }} --no-ff -m "Auto-merge: ${{ github.ref_name }} (gates passed)"
           git push origin main

@@ -62,6 +62,17 @@
 - **Status badges**: Always display as `Status: <label>` (e.g., "Status: In Progress").
 - **Marketing pages**: All `/admin/marketing/*` pages must include AdminHeader and the ambient gradient background.
 
+## CI/CD & Deploy Pipeline
+
+- **Auto-merge to main is gated (2026-06-09)**: `.github/workflows/auto-merge-claude.yml` runs secret-scan + quality gates (lint, schema-drift, `next build`, unit tests via the reusable `.github/workflows/quality-gates.yml`) + the full Playwright e2e suite against the commit's Vercel preview deployment, and only merges when all pass. Do not remove the `needs`/`if` conditions on the merge job — the ungated version shipped broken commits straight to production.
+- **`[skip-e2e]` in the commit message skips only the e2e gate** — for pipeline emergencies (Vercel GitHub integration down, no preview deployments being created). Secret-scan and quality gates can never be skipped. Record any use in `docs/session-summary.md`.
+- **The e2e gate finds the preview via the GitHub Deployments API** (Vercel posts deployment statuses). If Vercel's GitHub integration is ever disconnected, the gate times out after 30 min and blocks merges — that's by design; fix the integration or use `[skip-e2e]`.
+- **Authenticated e2e in CI needs the `E2E_TEST_SECRET` repo Actions secret** (Settings → Secrets and variables → Actions). Without it, `auth.setup.ts` skips authenticated specs gracefully — unauthenticated coverage still gates the merge.
+- **`next build` in CI uses dummy env vars** (`DATABASE_URL`, `PRISMA_DATABASE_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL` — see `quality-gates.yml`). All DB-touching pages are dynamic, so nothing queries at build time. If a future change makes a page static (SSG) with a DB query, the CI build will fail — make the page dynamic rather than adding real credentials to CI.
+- **Schema drift check runs in three places**: CI (`quality-gates.yml`), the Vercel build (`vercel.json` buildCommand), and local `npm run build`. It validates raw SQL column references against `schema.prisma` and that schema fields have migrations — it is the automated guard for the #1 production-killer. Never remove it from the build path.
+- **Expand-contract migrations**: schema changes shipped alongside code must be additive only (ADD COLUMN / CREATE TABLE / CREATE INDEX), applied before the code goes live. DROP/RENAME happens in a *later* deploy after production code stops referencing the old name. This keeps Vercel instant-rollback safe at all times.
+- **`_prisma_migrations` retrofit**: `docs/runbooks/MIGRATIONS_RETROFIT.md` is the operator-run procedure that makes `prisma migrate deploy` real and eliminates the manual POST-after-deploy step. Until executed, `vercel.json` must NOT contain `prisma migrate deploy` (it would fail every build — migrations can't apply over already-existing tables without the baseline).
+
 ## Testing & QA
 
 - **Quality gates**: `npm run build`, `npm run lint`, and `npm run test:e2e` are the quality gates — always run all three before pushing.
@@ -203,7 +214,7 @@ Internal staff-only financial dashboard. Combines **Sequence** (banking — pods
 > **Intentionally kept to speed up active development. NOT production-ready; clean up before broader customer-facing rollout.**
 
 1. **Auto-deploy from all branches** — Vercel auto-deploys preview environments from every push; any branch push creates a publicly accessible preview.
-2. **Auto-merge workflow** — Claude branches auto-merge to main via GitHub Actions, triggering production deployment. Bypasses manual review.
+2. **Auto-merge workflow** — Claude branches auto-merge to main via GitHub Actions, triggering production deployment. Bypasses manual *review*, but as of 2026-06-09 it is CI-gated (secret-scan + lint + schema-drift + build + unit + e2e-vs-preview must pass first).
 3. **Query-param secret fallback in `checkSecretAuth()`** — The Autotask sync trigger still accepts `?secret=` in query params. Migrate callers to `Authorization: Bearer` before removing.
 4. **Impersonation endpoint** — `/api/onboarding/impersonate` allows staff to access customer portal sessions. Requires audit before broader rollout.
 5. **Debug endpoints accessible** — `/admin/debug/failures`, `/admin/setup`, `/admin/run-migration`, `/blog/setup` are accessible with minimal auth guards.
@@ -218,8 +229,9 @@ Internal staff-only financial dashboard. Combines **Sequence** (banking — pods
 - [ ] **Move all secrets to environment-variable-only handling** — No secret values in source code, documentation, or URL query parameters.
 - [ ] **Encrypt per-tenant integration credentials at rest** — M365 client secrets currently stored plaintext in `companies.m365_client_secret`. Migration path in `docs/runbooks/CREDENTIALS_MIGRATION.md`.
 - [ ] **Rotate MIGRATION_SECRET and CRON_SECRET in Vercel** — Prior values were committed to CLAUDE.md and are in git history. Follow the dual-accept rotation procedure in `docs/runbooks/CREDENTIALS_MIGRATION.md`.
-- [ ] **Review deployment and branch protection rules** — Add required reviews for main branch, restrict auto-merge to passing CI only.
-- [ ] **Review auto-deploy behavior** — Customer-facing production deploys should require explicit approval or at minimum passing e2e tests.
+- [x] **Restrict auto-merge to passing CI only** — Done 2026-06-09: auto-merge now requires secret-scan + lint + schema-drift + build + unit tests + e2e-vs-preview.
+- [ ] **Add branch protection on main** — Require the CI status checks and block direct pushes in GitHub settings (the workflow gating exists, but nothing yet stops a manual push to main).
+- [x] **Auto-deploy requires passing e2e tests** — Done 2026-06-09: production deploys only happen via the gated merge, which includes the full e2e suite against the preview.
 - [ ] **Audit auth flows and impersonation** — Review `/api/onboarding/impersonate` for proper authorization, logging, and rate limiting. Consider an audit trail for impersonation sessions.
 - [ ] **Review logging for secret leakage** — Audit all `console.log` statements for secrets, tokens, or sensitive customer data in Vercel function logs.
 - [ ] **Validate production-safe migration procedures** — Ensure database migrations cannot be triggered by unauthorized parties. Review MIGRATION_SECRET rotation policy.
