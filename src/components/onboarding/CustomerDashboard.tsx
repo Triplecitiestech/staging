@@ -165,6 +165,9 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
   const [notesLoading, setNotesLoading] = useState(false)
   const [ticketSearch, setTicketSearch] = useState('')
   const [ticketFilter, setTicketFilter] = useState<TicketFilter>('all')
+  // Ticket history window shown to the customer. Data is fetched for the max
+  // (90 days); shorter ranges filter client-side for instant switching.
+  const [ticketRangeDays, setTicketRangeDays] = useState<7 | 30 | 90>(90)
   const [ticketDisplayLimit, setTicketDisplayLimit] = useState(10)
   const [projectFilter, setProjectFilter] = useState<'active' | 'closed' | 'all'>('active')
   const [complianceData, setComplianceData] = useState<CompliancePortalData | null>(null)
@@ -281,8 +284,17 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
   const needsAction = allTasks.filter(t => t.status === 'WAITING_ON_CLIENT' || t.status === 'CUSTOMER_NOTE_ADDED')
   const activeProjects = projects.filter(p => p.status === 'ACTIVE' || p.status === 'IN_PROGRESS')
 
+  // "Open" is a current state, so open counts ignore the range selector;
+  // the selector narrows which CLOSED tickets are counted/listed.
   const openTickets = tickets.filter(t => !t.isResolved)
   const closedTickets = tickets.filter(t => t.isResolved)
+
+  const rangeCutoff = new Date()
+  rangeCutoff.setDate(rangeCutoff.getDate() - ticketRangeDays)
+  const closedInRange = closedTickets.filter(t => {
+    const when = t.completedDate || t.createDate
+    return new Date(when) >= rangeCutoff
+  })
 
   // Compute "closed this month" from live ticket data (not stale DB cache)
   const closedThisMonth = closedTickets.filter(t => {
@@ -316,7 +328,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
         base = openTickets
         break
       case 'closed':
-        base = closedTickets
+        base = closedInRange
         break
       case 'closed-this-month':
         base = closedThisMonth
@@ -325,15 +337,33 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
         base = openTickets.filter(t => isWaitingOnCustomer(t))
         break
       default:
-        base = tickets
+        base = [...openTickets, ...closedInRange]
     }
     return [...base].sort((a, b) => new Date(b.createDate).getTime() - new Date(a.createDate).getTime())
   })()
 
-  // Reset pagination when filter/search changes
+  // Reset pagination when filter/search/range changes
   useEffect(() => {
     setTicketDisplayLimit(10)
-  }, [ticketFilter, ticketSearch])
+  }, [ticketFilter, ticketSearch, ticketRangeDays])
+
+  // Open the Thread/ChatGenie messenger via JS API only (not DOM click, which toggles)
+  const openSupportMessenger = () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const win = window as any
+    if (win.chatgenie) {
+      try {
+        const messenger = win.chatgenie.default.messenger()
+        // Try every known method name to open the messenger
+        const methods = ['show', 'open', 'toggle', 'showMessages', 'openChat']
+        for (const m of methods) {
+          if (typeof messenger[m] === 'function') { messenger[m](); return }
+        }
+      } catch { /* fallback below */ }
+    }
+    // Fallback: open livechat page which shows the chat bubble
+    window.open('/livechat', '_blank')
+  }
 
   // Only show the first N tickets until user clicks "Show More"
   const visibleTickets = filteredTickets.slice(0, ticketDisplayLimit)
@@ -348,7 +378,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
   const ticketSectionLabel = (() => {
     switch (ticketFilter) {
       case 'open': return `Open Tickets (${openTickets.length})`
-      case 'closed': return `Closed Tickets (${closedTickets.length})`
+      case 'closed': return `Closed Tickets (${closedInRange.length})`
       case 'closed-this-month': return `Closed This Month (${closedThisMonth.length})`
       case 'awaiting': return `Needs Your Action (${openTickets.filter(t => isWaitingOnCustomer(t)).length})`
       default: return 'Tickets'
@@ -756,23 +786,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
       {/* Summary Cards - click to filter tickets below, click again to reset */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
         <button
-          onClick={() => {
-            // Open the Thread/ChatGenie messenger via JS API only (not DOM click, which toggles)
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const win = window as any
-            if (win.chatgenie) {
-              try {
-                const messenger = win.chatgenie.default.messenger()
-                // Try every known method name to open the messenger
-                const methods = ['show', 'open', 'toggle', 'showMessages', 'openChat']
-                for (const m of methods) {
-                  if (typeof messenger[m] === 'function') { messenger[m](); return }
-                }
-              } catch { /* fallback below */ }
-            }
-            // Fallback: open livechat page which shows the chat bubble
-            window.open('/livechat', '_blank')
-          }}
+          onClick={openSupportMessenger}
           className="bg-gradient-to-br from-violet-600/30 to-violet-500/10 border border-violet-500/40 hover:border-violet-400/70 hover:shadow-lg hover:shadow-violet-500/20 rounded-lg p-4 text-center transition-all cursor-pointer"
         >
           <div className="text-3xl font-bold text-violet-400">
@@ -792,6 +806,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
         >
           <div className="text-3xl font-bold text-blue-400">{openTickets.length}</div>
           <div className="text-sm text-gray-400 mt-1">Open Tickets</div>
+          <div className="text-[10px] text-gray-500 mt-0.5">open now</div>
         </button>
         <button
           onClick={() => { toggleFilter('closed'); document.getElementById('tickets-section')?.scrollIntoView({ behavior: 'smooth' }) }}
@@ -801,8 +816,9 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
               : 'border-green-500/30 hover:border-green-400/60 hover:shadow-lg hover:shadow-green-500/10'
           }`}
         >
-          <div className="text-3xl font-bold text-green-400">{closedTickets.length}</div>
+          <div className="text-3xl font-bold text-green-400">{closedInRange.length}</div>
           <div className="text-sm text-gray-400 mt-1">Tickets Closed</div>
+          <div className="text-[10px] text-gray-500 mt-0.5">last {ticketRangeDays} days</div>
         </button>
         <button
           onClick={() => { toggleFilter('closed-this-month'); document.getElementById('tickets-section')?.scrollIntoView({ behavior: 'smooth' }) }}
@@ -987,7 +1003,7 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
 
       {/* Tickets Section */}
       <div id="tickets-section" className="mb-8">
-        <div className="flex items-center gap-3 mb-3">
+        <div className="flex flex-wrap items-center gap-3 mb-3">
           <h2 className="text-xl font-bold text-white">{ticketSectionLabel}</h2>
           {ticketFilter !== 'all' && (
             <button
@@ -998,6 +1014,21 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
             </button>
           )}
           <div className="flex-1" />
+          <div className="flex items-center border border-gray-600/50 rounded-md overflow-hidden" role="group" aria-label="Ticket history range">
+            {([7, 30, 90] as const).map(days => (
+              <button
+                key={days}
+                onClick={() => setTicketRangeDays(days)}
+                className={`px-2.5 py-1.5 text-xs transition-colors ${
+                  ticketRangeDays === days
+                    ? 'bg-cyan-500/20 text-cyan-300'
+                    : 'text-gray-400 hover:text-gray-200'
+                }`}
+              >
+                {days} days
+              </button>
+            ))}
+          </div>
           <input
             type="text"
             placeholder="Search tickets..."
@@ -1060,6 +1091,16 @@ export default function CustomerDashboard({ projects, companyName, companySlug, 
                 </button>
               </div>
             )}
+            <p className="mt-3 text-xs text-gray-500">
+              Showing closed tickets from the last {ticketRangeDays} days (open tickets always shown). Need history beyond 90 days?{' '}
+              <button
+                onClick={openSupportMessenger}
+                className="text-cyan-400 hover:text-cyan-300 underline"
+              >
+                Contact support
+              </button>{' '}
+              and we&apos;ll pull it for you.
+            </p>
           </>
         )}
       </div>

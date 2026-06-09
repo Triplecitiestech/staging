@@ -123,7 +123,7 @@ export async function getStaffTicketList(params: StaffTicketListParams): Promise
   // SLA computation
   let slaResMet = 0;
   let slaResTotal = 0;
-  const resolvedTickets = tickets.filter(t => isResolvedStatus(t.status) && t.completedDate);
+  const resolvedTickets = tickets.filter(t => isResolvedStatus(t.status, t.statusLabel) && t.completedDate);
   for (const t of resolvedTickets) {
     if (t.dueDateTime) {
       slaResTotal++;
@@ -138,7 +138,7 @@ export async function getStaffTicketList(params: StaffTicketListParams): Promise
     const firstNote = firstNoteMap.get(t.autotaskTicketId);
     const frtMinutes = firstNote ? (firstNote.getTime() - t.createDate.getTime()) / (1000 * 60) : null;
     const resMins =
-      isResolvedStatus(t.status) && t.completedDate
+      isResolvedStatus(t.status, t.statusLabel) && t.completedDate
         ? (t.completedDate.getTime() - t.createDate.getTime()) / (1000 * 60)
         : null;
 
@@ -149,7 +149,7 @@ export async function getStaffTicketList(params: StaffTicketListParams): Promise
       description: t.description || null,
       status: t.status,
       statusLabel: t.statusLabel || `Status ${t.status}`,
-      isResolved: isResolvedStatus(t.status),
+      isResolved: isResolvedStatus(t.status, t.statusLabel),
       priority: t.priority,
       priorityLabel: t.priorityLabel || PRIORITY_LABELS[t.priority] || `P${t.priority}`,
       assignedTo: t.assignedResourceId ? resourceNameMap.get(t.assignedResourceId) || 'Unassigned' : 'Unassigned',
@@ -160,13 +160,13 @@ export async function getStaffTicketList(params: StaffTicketListParams): Promise
       hoursLogged: round1(hoursByTicket.get(t.autotaskTicketId) || 0),
       slaResponseMet: null,
       slaResolutionMet:
-        t.dueDateTime && isResolvedStatus(t.status) && t.completedDate ? t.completedDate <= t.dueDateTime : null,
+        t.dueDateTime && isResolvedStatus(t.status, t.statusLabel) && t.completedDate ? t.completedDate <= t.dueDateTime : null,
       autotaskUrl: autotaskWebUrl ? `${autotaskWebUrl}?ticketId=${t.autotaskTicketId}` : null,
     };
   });
 
-  const resolved = tickets.filter(t => isResolvedStatus(t.status));
-  const open = tickets.filter(t => !isResolvedStatus(t.status));
+  const resolved = tickets.filter(t => isResolvedStatus(t.status, t.statusLabel));
+  const open = tickets.filter(t => !isResolvedStatus(t.status, t.statusLabel));
 
   return {
     tickets: rows,
@@ -408,7 +408,9 @@ export async function getCustomerTicketList(params: CustomerTicketListParams): P
     description: t.description || null,
     status: t.status,
     statusLabel: resolveCustomerStatusLabel(t.status, statusPicklist),
-    isResolved: isResolvedStatus(t.status),
+    // Pass the live Autotask picklist label so custom statuses like
+    // "Complete - No Notify" count as closed (their IDs aren't in the static set)
+    isResolved: isResolvedStatus(t.status, statusPicklist?.[t.status]),
     priority: t.priority,
     priorityLabel: PRIORITY_LABELS[t.priority] || `P${t.priority}`,
     assignedTo: '', // Not shown to customers
