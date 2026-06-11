@@ -104,6 +104,9 @@ jobs:
         env:
           PLAYWRIGHT_BASE_URL: ${{ steps.preview.outputs.url }}
           E2E_TEST_SECRET: ${{ secrets.E2E_TEST_SECRET }}
+          # Required while Vercel Deployment Protection is on — without it every
+          # preview route 401s and the whole suite fails (docs/gotchas.md → CI/CD)
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
           CI: 'true'
         run: npm run test:e2e
 
