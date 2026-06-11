@@ -1,8 +1,36 @@
 # Current Tasks
 
-> **Last updated**: 2026-06-09. Autotask client hardening (retry + includeFields).
-> **Branch**: `claude/friendly-euler-cn1z6r`.
+> **Last updated**: 2026-06-11. SOC dashboard alert history + search shipped; SOC improvement backlog added.
+> **Branch**: `claude/wonderful-lamport-ngzbi5`.
 > **Detailed context**: `docs/SESSION_HANDOFF.md`.
+
+## SOC dashboard alert history + search (2026-06-11) — shipped (PR #89)
+
+Security Alerts tab now shows full analyzed history (open pinned first, then resolved), with text search, verdict filter, open/resolved filter, 7–365-day range selector, and Show-more paging. Pure helpers + unit tests in `src/lib/soc/ticket-filter.ts`. `/api/soc/tickets` clamps `days` to 1–365 and trims list-payload descriptions to 300 chars.
+
+## CI e2e gate restoration (2026-06-11) — BLOCKED on operator, then small CI change
+
+The e2e-vs-preview merge gate fails for **every** branch because Vercel Deployment Protection 401-walls all preview routes (see gotchas → CI/CD). Until fixed, merges need `[skip-e2e]` (record each use). Restoration plan:
+
+1. **[OPERATOR] Create the bypass secret**: Vercel dashboard → `staging` project → Settings → Deployment Protection → "Protection Bypass for Automation" → generate secret. (Alternative: disable Deployment Protection entirely, restoring the documented "publicly accessible previews" shortcut — owner's call.)
+2. **[OPERATOR] Add GitHub secret**: repo Settings → Secrets and variables → Actions → new secret `VERCEL_AUTOMATION_BYPASS_SECRET`.
+3. **[CODE] Wire the header**: `playwright.config.ts` → `use.extraHTTPHeaders` with `x-vercel-protection-bypass` + `x-vercel-set-bypass-cookie: true` when the env var is set; pass the secret through in `auto-merge-claude.yml` + `ci.yml`.
+4. **[CODE] Land the gate restructure**: the owner-approved smoke-blocking/full-suite-non-blocking rework already exists as `98b0d69` on `claude/friendly-euler-cn1z6r` (failed its gate only because of the 401 wall). Cherry-pick after 1–3 so deploys gate on a ~5-min smoke run.
+
+## SOC improvement backlog (2026-06-11 analysis) — prioritized, not started
+
+From a full review of `src/lib/soc/` + `/api/soc/*` + cron wiring. Discuss before building; items 1–3 are the high-value ones.
+
+- [ ] **[HIGH] Escalation notifications**: nothing pages a human — a `confirmed_malicious` verdict only writes an Autotask note + dashboard row. Wire Resend email (and/or SMS) for `escalate`/`confirmed_threat` verdicts, reusing the health-monitor email pattern. An overnight real threat currently waits for someone to open the dashboard.
+- [ ] **[HIGH] Suppression rules don't suppress**: `matchRules()` results only feed prompt context and the escalate path in `classificationToAction()` (`src/lib/soc/engine.ts`). Rules with action `suppress`/`auto_close_recommend` never short-circuit the pipeline, so every known-noise alert still costs 2 AI calls (Haiku screen + Sonnet 8k assessment). Honor suppress rules before the AI steps (still log + store a rule-based verdict).
+- [ ] **[HIGH] Cron timeout budget**: `/api/cron/soc-triage` has `maxDuration = 60` but processes up to 50 tickets × (enrichment fetches + 2 AI calls ≈ 20–40s each). Fine when ingest keeps the queue near-zero; a backlog (agent paused, alert flood) would hard-timeout hourly and drain over days. Raise to 300 like `/api/soc/run`, or self-chain batches like the reporting sync.
+- [ ] **[MED] Verdict feedback loop**: pending-action approve/reject decisions are stored but never analyzed; no "AI was wrong" signal feeds rules/Known Benign/trends. Track human-vs-AI disposition agreement as a precision metric on the dashboard.
+- [ ] **[MED] Dead config keys**: `confidence_auto_close` + `confidence_flag_review` are loaded and shown in Config UI but never read by the engine — remove from UI or implement.
+- [ ] **[MED] Verdict vocabulary drift**: `classificationToVerdict()` only emits `confirmed_threat`/`suspicious`/`false_positive`; `expected_activity` + `informational` exist only on legacy rows (and in stats counters/UI filters). Either map a classification to them or retire them once legacy rows age out.
+- [ ] **[LOW] Known Benign admin UI** (carried from cross-stack handoff) — catalogue is migration-seeded only.
+- [ ] **[LOW] SocConfigPanel reads config via `/api/soc/status`** instead of `GET /api/soc/config`; works (status embeds config) but is indirect. `SocIncidentsList` has a `typeFilter` state that is never sent to the API.
+- [ ] **[LOW] `internal_site_ids` default `["177027"]`** is hardcoded in `loadSocConfig` — fine while seeded, but document it as instance-specific.
+- [ ] **[LOW] Server-side alert search**: current dashboard search is client-side over the fetched range (≤365d of security tickets, trimmed payload — fine at today's volume). If ticket volume grows ~10×, move search/pagination into `/api/soc/tickets` (indexes on `soc_ticket_analysis` already support it).
 
 ## Autotask client hardening (2026-06-09) — done, pending gate/merge
 

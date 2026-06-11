@@ -1,8 +1,22 @@
 # Session Summary
 
-> **Last updated**: 2026-06-09. Autotask client hardening (retry + includeFields).
-> **Branch**: `claude/friendly-euler-cn1z6r`.
+> **Last updated**: 2026-06-11. SOC dashboard alert history + search/filters.
+> **Branch**: `claude/wonderful-lamport-ngzbi5`.
 > **Detailed handoff**: see `docs/SESSION_HANDOFF.md` first — this file is the quick state-of-the-world reference.
+
+## SOC dashboard: searchable alert history (2026-06-11) — PR #89
+
+Operator-reported: `/admin/soc` Security Alerts tab only showed the ~6 open tickets from a hard-coded 30-day fetch; analyzed/resolved history was fetched but never rendered, and there was no search.
+
+- **SocDashboardClient**: full history list (open pinned first, then resolved, newest first), search box (title/ticket #/company/assignee/verdict, multi-term AND), verdict filter (all 6 verdicts + Not analyzed), open/resolved filter, 7/30/90/180/365-day range selector (refetches; stat-card labels follow), 50-row Show-more paging, clear-filters empty state, Open/Resolved chip + create date per row (colors match staff TicketTable).
+- **Verdict styling fix**: `expected_activity` and `confirmed_threat` previously fell through to informational blue — a confirmed threat rendered like an info note. Centralized in `VERDICT_DOT`/`VERDICT_BADGE` maps covering every `Verdict` value; Activity Feed badges reuse the helper.
+- **`/api/soc/tickets`**: `days` clamped 1–365; list-payload `description` trimmed to 300 chars (EDR bodies are multi-KB; detail view fetches full data via `/api/soc/tickets/[id]/analysis`).
+- **New `src/lib/soc/ticket-filter.ts`** (pure filter/sort helpers) + 15 unit tests (117 total green). e2e: SOC endpoint list covers `/api/soc/tickets` incl. out-of-range `days`; authenticated spec drives the search toolbar, empty state, clear filters, range switch.
+- Also produced a **SOC improvement backlog** (notifications gap, suppression rules not short-circuiting AI calls, cron `maxDuration=60` vs workload, dead config keys, verdict vocabulary drift) — recorded in `docs/current-tasks.md`.
+
+### `[skip-e2e]` used (2026-06-11) — preview 401 wall, gate cannot pass for any branch
+
+The e2e-vs-preview gate run for `475fee2` hit the 45-min job timeout (run 1065). Diagnosis: **Vercel Deployment Protection is enabled on preview deployments — every route returns 401 with Vercel's auth HTML** (verified by curling the READY preview `staging-git-claude-wonderful-l-d1b4ab-…vercel.app`: `/`, `/contact`, `/admin/soc`, `/api/health`, and a nonsense path ALL return 401). Every `page.goto()` test fails fast and retries 3× (1,223+ test attempts at cancellation = the timeout); only the lenient "200 or 401" API specs pass. Same signature on other branches (runs 1057/1059/1064 on June 9) — **the gate has never passed against a protected preview; this includes run 1064, which is why the owner-approved smoke-gate restructure (`98b0d69` on `claude/friendly-euler-cn1z6r`) failed its own gate and never merged.** The operator's [skip-e2e] precedent (2026-06-09) was the same underlying situation. Quality + secret-scan gates still ran on this push; the change was additionally verified by local build + lint + 117 unit tests, and the operator will verify live. Pipeline restoration steps are in `docs/current-tasks.md` (needs an operator-created Vercel Protection Bypass for Automation secret — CI can't fix this alone).
 
 ## Autotask client hardening (2026-06-09) — `src/lib/autotask.ts`
 
