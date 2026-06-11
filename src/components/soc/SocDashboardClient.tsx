@@ -127,6 +127,7 @@ export default function SocDashboardClient() {
   // Alert search / filter / history range
   const [rangeDays, setRangeDays] = useState(30)
   const [ticketsLoading, setTicketsLoading] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [verdictFilter, setVerdictFilter] = useState<VerdictFilter>('all')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
@@ -176,9 +177,23 @@ export default function SocDashboardClient() {
         const data = await activityRes.json()
         setActivity(data.entries || [])
       }
+      // Never render an empty "all clear" when the data simply failed to load
+      const failed: Array<[string, Response]> = (
+        [['agent status', statusRes], ['alerts', ticketsRes], ['activity feed', activityRes]] as Array<[string, Response]>
+      ).filter(([, res]) => !res.ok)
+      if (failed.length > 0) {
+        const detail = failed.map(([name, res]) => `${name} (HTTP ${res.status})`).join(', ')
+        setLoadError(
+          failed.some(([, res]) => res.status === 401)
+            ? `${detail} — your session may have expired. Refresh the page or sign in again, then Retry.`
+            : `${detail} — the data shown may be incomplete.`,
+        )
+      } else {
+        setLoadError(null)
+      }
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return
-      // Tables may not exist yet
+      setLoadError('Could not reach the server — check your connection, then Retry.')
     } finally {
       setLoading(false)
       setTicketsLoading(false)
@@ -450,6 +465,25 @@ export default function SocDashboardClient() {
         </div>
       </div>
 
+      {/* Data load failure — never silently show an empty dashboard */}
+      {loadError && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-red-400">SOC data failed to load</p>
+              <p className="text-sm text-slate-300 mt-1">{loadError}</p>
+            </div>
+            <button
+              onClick={() => fetchData()}
+              disabled={ticketsLoading}
+              className="px-3 py-1.5 text-sm font-medium bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/30 rounded-lg transition-colors flex-shrink-0 disabled:opacity-50"
+            >
+              {ticketsLoading ? 'Retrying...' : 'Retry'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Run Result / Error Banners */}
       {runError && (
         <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
@@ -580,7 +614,9 @@ export default function SocDashboardClient() {
             <p className="text-xs text-slate-500">
               {ticketsLoading
                 ? 'Loading alerts...'
-                : `Showing ${shownTickets.length} of ${filteredTickets.length} alerts from the last ${rangeDays} days — Security Monitoring queue + keyword matches, open alerts first, then analyzed history`}
+                : !ticketsData && loadError
+                  ? 'Alerts unavailable — use Retry above.'
+                  : `Showing ${shownTickets.length} of ${filteredTickets.length} alerts from the last ${rangeDays} days — Security Monitoring queue + keyword matches, open alerts first, then analyzed history`}
             </p>
           </div>
           {filteredTickets.length === 0 ? (
@@ -590,6 +626,8 @@ export default function SocDashboardClient() {
                   <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-cyan-500" />
                   <span className="text-sm">Loading alerts...</span>
                 </div>
+              ) : !ticketsData && loadError ? (
+                'Security alerts could not be loaded — use Retry above.'
               ) : hasActiveFilters ? (
                 <>
                   <p>No alerts match your search or filters.</p>

@@ -27,6 +27,17 @@ export default defineConfig({
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
+    // Vercel Deployment Protection 401-walls every preview route unless the
+    // automation bypass header is sent (docs/gotchas.md → CI/CD section).
+    // set-bypass-cookie makes the browser's client-side fetches pass too.
+    ...(process.env.VERCEL_AUTOMATION_BYPASS_SECRET
+      ? {
+          extraHTTPHeaders: {
+            'x-vercel-protection-bypass': process.env.VERCEL_AUTOMATION_BYPASS_SECRET,
+            'x-vercel-set-bypass-cookie': 'true',
+          },
+        }
+      : {}),
   },
   projects: [
     // Auth setup — runs first, creates session state for authenticated tests
