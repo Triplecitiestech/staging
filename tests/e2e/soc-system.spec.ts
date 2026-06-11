@@ -35,6 +35,9 @@ test.describe('SOC API Health', () => {
     '/api/soc/config',
     '/api/soc/activity',
     '/api/soc/pending-actions',
+    '/api/soc/tickets',
+    '/api/soc/tickets?days=365&filter=actionable',
+    '/api/soc/tickets?days=99999', // out-of-range days must clamp, not crash
   ]
 
   for (const path of socEndpoints) {
