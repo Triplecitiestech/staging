@@ -44,6 +44,33 @@ test.describe('Admin Dashboard Workflows', () => {
     await expect(page.locator('text=Something went wrong')).not.toBeVisible()
   })
 
+  test('SOC dashboard has alert search, filters, and history range', async ({ page }) => {
+    await page.goto('/admin/soc')
+    await expect(page.locator('text=Something went wrong')).not.toBeVisible()
+
+    // Toolbar renders once data loads (skip gracefully if session/DB unavailable)
+    const search = page.getByLabel('Search security alerts')
+    const toolbarVisible = await search.isVisible({ timeout: 15000 }).catch(() => false)
+    if (!toolbarVisible) {
+      test.skip(true, 'SOC dashboard data did not load (no session or empty environment)')
+      return
+    }
+
+    await expect(page.getByLabel('Filter by AI verdict')).toBeVisible()
+    await expect(page.getByLabel('Filter by ticket status')).toBeVisible()
+    await expect(page.getByLabel('History range')).toBeVisible()
+
+    // Searching must filter without crashing; nonsense query shows the empty state
+    await search.fill('zzz-no-such-ticket-xyz')
+    await expect(page.locator('text=No alerts match your search or filters.')).toBeVisible()
+    await page.locator('text=Clear filters').click()
+    await expect(page.locator('text=Something went wrong')).not.toBeVisible()
+
+    // Switching the history range refetches without crashing
+    await page.getByLabel('History range').selectOption('90')
+    await expect(page.locator('text=Something went wrong')).not.toBeVisible()
+  })
+
   test('admin can navigate to reporting dashboard', async ({ page }) => {
     await page.goto('/admin/reporting')
     await expect(page).toHaveURL(/\/admin\/reporting/)
@@ -96,6 +123,17 @@ test.describe('Admin API Workflows (Authenticated)', () => {
       const body = await response.json()
       expect(body).toHaveProperty('jobs')
       expect(body).toHaveProperty('config')
+    }
+    expect(response.status()).toBeLessThan(500)
+  })
+
+  test('SOC tickets API supports extended history range', async ({ request }) => {
+    const response = await request.get('/api/soc/tickets?days=365&filter=actionable')
+    if (response.status() === 200) {
+      const body = await response.json()
+      expect(Array.isArray(body.tickets)).toBe(true)
+      expect(body).toHaveProperty('openCount')
+      expect(body).toHaveProperty('resolvedCount')
     }
     expect(response.status()).toBeLessThan(500)
   })

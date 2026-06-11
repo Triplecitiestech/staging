@@ -6,6 +6,14 @@ import type { UnifiedTicketRow } from '@/types/tickets'
 import StatCard from '@/components/reporting/StatCard'
 import SocTicketDetail from './SocTicketDetail'
 import { useDemoMode } from '@/components/admin/DemoModeProvider'
+import {
+  filterSocTickets,
+  sortSocTickets,
+  SOC_VERDICTS,
+  VERDICT_LABELS,
+  type VerdictFilter,
+  type StatusFilter,
+} from '@/lib/soc/ticket-filter'
 
 // ── Interfaces ──
 
@@ -76,6 +84,33 @@ interface ChatMessage {
   content: string
 }
 
+// ── Verdict styling (covers every Verdict value in src/lib/soc/types.ts) ──
+
+const VERDICT_DOT: Record<string, string> = {
+  false_positive: 'bg-green-500',
+  expected_activity: 'bg-blue-500',
+  informational: 'bg-cyan-500',
+  suspicious: 'bg-rose-500',
+  escalate: 'bg-red-500',
+  confirmed_threat: 'bg-red-600',
+}
+
+const VERDICT_BADGE: Record<string, string> = {
+  false_positive: 'bg-green-500/20 text-green-400 border-green-500/30',
+  expected_activity: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+  informational: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30',
+  suspicious: 'bg-rose-500/20 text-rose-400 border-rose-500/30',
+  escalate: 'bg-red-500/20 text-red-400 border-red-500/30',
+  confirmed_threat: 'bg-red-500/30 text-red-300 border-red-500/40',
+}
+
+const verdictDot = (v: string | null) => (v && VERDICT_DOT[v]) || 'bg-slate-600'
+const verdictBadge = (v: string | null) =>
+  (v && VERDICT_BADGE[v]) || 'bg-slate-500/20 text-slate-400 border-slate-500/30'
+
+const RANGE_OPTIONS = [7, 30, 90, 180, 365]
+const PAGE_SIZE = 50
+
 // ── Component ──
 
 export default function SocDashboardClient() {
@@ -88,6 +123,14 @@ export default function SocDashboardClient() {
   const [activeTab, setActiveTab] = useState<'tickets' | 'activity' | 'analyst'>('tickets')
   const [runError, setRunError] = useState<string | null>(null)
   const [lastRunResult, setLastRunResult] = useState<RunResultData | null>(null)
+
+  // Alert search / filter / history range
+  const [rangeDays, setRangeDays] = useState(30)
+  const [ticketsLoading, setTicketsLoading] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [verdictFilter, setVerdictFilter] = useState<VerdictFilter>('all')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
 
   // SOC ticket detail view
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null)
@@ -120,10 +163,11 @@ export default function SocDashboardClient() {
   }, [chatMessages, chatLoading])
 
   const fetchData = useCallback(async (signal?: AbortSignal) => {
+    setTicketsLoading(true)
     try {
       const [statusRes, ticketsRes, activityRes] = await Promise.all([
         fetch('/api/soc/status', { signal }),
-        fetch('/api/soc/tickets?days=30&filter=actionable', { signal }),
+        fetch(`/api/soc/tickets?days=${rangeDays}&filter=actionable`, { signal }),
         fetch('/api/soc/activity?limit=50', { signal }),
       ])
       if (statusRes.ok) setStatus(await statusRes.json())
@@ -137,14 +181,20 @@ export default function SocDashboardClient() {
       // Tables may not exist yet
     } finally {
       setLoading(false)
+      setTicketsLoading(false)
     }
-  }, [])
+  }, [rangeDays])
 
   useEffect(() => {
     const controller = new AbortController()
     fetchData(controller.signal)
     return () => controller.abort()
   }, [fetchData])
+
+  // New search/filter/range = back to the first page of results
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE)
+  }, [searchQuery, verdictFilter, statusFilter, rangeDays])
 
   const handleRunNow = async (reprocess = false) => {
     setRunning(true)
@@ -339,8 +389,16 @@ export default function SocDashboardClient() {
     return `${Math.floor(hrs / 24)}d ago`
   }
 
-  // Only open security tickets
-  const openSecurityTickets = ticketsData?.tickets.filter(t => !t.isResolved) || []
+  const allTickets = ticketsData?.tickets || []
+  const openSecurityTickets = allTickets.filter(t => !t.isResolved)
+
+  // Search + filters over the whole fetched range (open alerts pinned on top,
+  // then resolved/analyzed history) — paged client-side via "Show more"
+  const filteredTickets = sortSocTickets(
+    filterSocTickets(allTickets, { query: searchQuery, verdict: verdictFilter, status: statusFilter }),
+  )
+  const shownTickets = filteredTickets.slice(0, visibleCount)
+  const hasActiveFilters = searchQuery.trim() !== '' || verdictFilter !== 'all' || statusFilter !== 'all'
 
   return (
     <div className="space-y-6">
@@ -427,9 +485,9 @@ export default function SocDashboardClient() {
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard label="Open Alerts" value={openSecurityTickets.length} />
-        <StatCard label="Total (30d)" value={ticketsData?.totalTickets || 0} />
+        <StatCard label={`Total (${rangeDays}d)`} value={ticketsData?.totalTickets || 0} />
         <StatCard label="Suspicious" value={ticketsData?.suspiciousCount || 0} />
-        <StatCard label="Resolved (30d)" value={ticketsData?.resolvedCount || 0} />
+        <StatCard label={`Resolved (${rangeDays}d)`} value={ticketsData?.resolvedCount || 0} />
       </div>
 
       {/* Tabs */}
@@ -468,18 +526,87 @@ export default function SocDashboardClient() {
       {/* ── Tab: Security Alerts ── */}
       {activeTab === 'tickets' && (
         <div className="bg-slate-800/50 backdrop-blur-sm border border-white/10 rounded-lg overflow-hidden">
-          <div className="px-4 py-3 border-b border-white/5">
+          {/* Search + filter toolbar */}
+          <div className="px-4 py-3 border-b border-white/5 space-y-2">
+            <div className="flex flex-col lg:flex-row gap-2">
+              <div className="relative flex-1">
+                <svg className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z" />
+                </svg>
+                <input
+                  type="search"
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  placeholder="Search by title, ticket #, company, or verdict..."
+                  aria-label="Search security alerts"
+                  className="w-full bg-slate-900/50 border border-white/10 rounded-lg pl-9 pr-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50"
+                />
+              </div>
+              <div className="flex flex-wrap gap-2 lg:flex-nowrap lg:flex-shrink-0">
+                <select
+                  value={verdictFilter}
+                  onChange={e => setVerdictFilter(e.target.value as VerdictFilter)}
+                  aria-label="Filter by AI verdict"
+                  className="flex-1 min-w-[140px] bg-slate-900/50 border border-white/10 rounded-lg px-2.5 py-2 text-sm text-white focus:outline-none focus:border-cyan-500/50"
+                >
+                  <option value="all">All verdicts</option>
+                  {SOC_VERDICTS.map(v => (
+                    <option key={v} value={v}>{VERDICT_LABELS[v]}</option>
+                  ))}
+                  <option value="not_analyzed">Not analyzed</option>
+                </select>
+                <select
+                  value={statusFilter}
+                  onChange={e => setStatusFilter(e.target.value as StatusFilter)}
+                  aria-label="Filter by ticket status"
+                  className="flex-1 min-w-[130px] bg-slate-900/50 border border-white/10 rounded-lg px-2.5 py-2 text-sm text-white focus:outline-none focus:border-cyan-500/50"
+                >
+                  <option value="all">Open + resolved</option>
+                  <option value="open">Open only</option>
+                  <option value="resolved">Resolved only</option>
+                </select>
+                <select
+                  value={rangeDays}
+                  onChange={e => setRangeDays(Number(e.target.value))}
+                  aria-label="History range"
+                  className="flex-1 min-w-[120px] bg-slate-900/50 border border-white/10 rounded-lg px-2.5 py-2 text-sm text-white focus:outline-none focus:border-cyan-500/50"
+                >
+                  {RANGE_OPTIONS.map(d => (
+                    <option key={d} value={d}>Last {d} days</option>
+                  ))}
+                </select>
+              </div>
+            </div>
             <p className="text-xs text-slate-500">
-              Showing open tickets from Security Monitoring Alert queue and keyword-matched security alerts
+              {ticketsLoading
+                ? 'Loading alerts...'
+                : `Showing ${shownTickets.length} of ${filteredTickets.length} alerts from the last ${rangeDays} days — Security Monitoring queue + keyword matches, open alerts first, then analyzed history`}
             </p>
           </div>
-          {openSecurityTickets.length === 0 ? (
+          {filteredTickets.length === 0 ? (
             <div className="p-8 text-center text-slate-400">
-              No open security alerts. All clear.
+              {ticketsLoading ? (
+                <div className="flex items-center justify-center gap-2">
+                  <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-cyan-500" />
+                  <span className="text-sm">Loading alerts...</span>
+                </div>
+              ) : hasActiveFilters ? (
+                <>
+                  <p>No alerts match your search or filters.</p>
+                  <button
+                    onClick={() => { setSearchQuery(''); setVerdictFilter('all'); setStatusFilter('all') }}
+                    className="mt-3 px-3 py-1.5 text-xs font-medium text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 rounded-lg transition-colors"
+                  >
+                    Clear filters
+                  </button>
+                </>
+              ) : (
+                `No security alerts in the last ${rangeDays} days.`
+              )}
             </div>
           ) : (
             <div className="divide-y divide-white/5">
-              {openSecurityTickets.map(ticket => (
+              {shownTickets.map(ticket => (
                 <button
                   key={ticket.ticketId}
                   onClick={() => setSelectedTicketId(ticket.ticketId)}
@@ -488,13 +615,7 @@ export default function SocDashboardClient() {
                   {/* Desktop: single row layout */}
                   <div className="hidden sm:flex items-center gap-3">
                     {/* Verdict indicator */}
-                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                      ticket.socVerdict === 'false_positive' ? 'bg-green-500'
-                      : ticket.socVerdict === 'escalate' ? 'bg-red-500'
-                      : ticket.socVerdict === 'suspicious' ? 'bg-rose-500'
-                      : ticket.socVerdict === 'informational' ? 'bg-blue-500'
-                      : 'bg-slate-600'
-                    }`} />
+                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${verdictDot(ticket.socVerdict)}`} />
 
                     {/* Ticket info */}
                     <div className="min-w-0 flex-1">
@@ -503,6 +624,12 @@ export default function SocDashboardClient() {
                         <span className="text-sm text-white truncate">{demo.title(ticket.title)}</span>
                       </div>
                       <div className="flex items-center gap-3 mt-0.5 text-xs text-slate-500">
+                        <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${
+                          ticket.isResolved ? 'bg-emerald-400/20 text-emerald-400' : 'bg-cyan-400/20 text-cyan-400'
+                        }`}>
+                          {ticket.isResolved ? 'Resolved' : 'Open'}
+                        </span>
+                        <span>{new Date(ticket.createDate).toLocaleDateString()}</span>
                         {ticket.companyName && <span className="text-cyan-400/70">{demo.company(ticket.companyName)}</span>}
                         <span>{ticket.priorityLabel}</span>
                         <span>{demo.person(ticket.assignedTo)}</span>
@@ -511,12 +638,7 @@ export default function SocDashboardClient() {
 
                     {/* SOC verdict badge */}
                     {ticket.socVerdict && (
-                      <span className={`px-2 py-0.5 text-[10px] font-medium rounded-full border flex-shrink-0 ${
-                        ticket.socVerdict === 'false_positive' ? 'bg-green-500/20 text-green-400 border-green-500/30'
-                        : ticket.socVerdict === 'escalate' ? 'bg-red-500/20 text-red-400 border-red-500/30'
-                        : ticket.socVerdict === 'suspicious' ? 'bg-rose-500/20 text-rose-400 border-rose-500/30'
-                        : 'bg-blue-500/20 text-blue-400 border-blue-500/30'
-                      }`}>
+                      <span className={`px-2 py-0.5 text-[10px] font-medium rounded-full border flex-shrink-0 ${verdictBadge(ticket.socVerdict)}`}>
                         {ticket.socVerdict.replace(/_/g, ' ')}
                       </span>
                     )}
@@ -544,29 +666,24 @@ export default function SocDashboardClient() {
                   {/* Mobile: stacked layout */}
                   <div className="sm:hidden">
                     <div className="flex items-start gap-2">
-                      <div className={`w-2 h-2 rounded-full flex-shrink-0 mt-1.5 ${
-                        ticket.socVerdict === 'false_positive' ? 'bg-green-500'
-                        : ticket.socVerdict === 'escalate' ? 'bg-red-500'
-                        : ticket.socVerdict === 'suspicious' ? 'bg-rose-500'
-                        : ticket.socVerdict === 'informational' ? 'bg-blue-500'
-                        : 'bg-slate-600'
-                      }`} />
+                      <div className={`w-2 h-2 rounded-full flex-shrink-0 mt-1.5 ${verdictDot(ticket.socVerdict)}`} />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-mono text-slate-500 flex-shrink-0">#{ticket.ticketNumber}</span>
                           <span className="text-sm text-white line-clamp-2">{demo.title(ticket.title)}</span>
                         </div>
                         <div className="flex items-center gap-2 mt-1 text-xs text-slate-500 flex-wrap">
+                          <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded ${
+                            ticket.isResolved ? 'bg-emerald-400/20 text-emerald-400' : 'bg-cyan-400/20 text-cyan-400'
+                          }`}>
+                            {ticket.isResolved ? 'Resolved' : 'Open'}
+                          </span>
+                          <span>{new Date(ticket.createDate).toLocaleDateString()}</span>
                           {ticket.companyName && <span className="text-cyan-400/70">{demo.company(ticket.companyName)}</span>}
                           <span>{ticket.priorityLabel}</span>
                           <span>{demo.person(ticket.assignedTo)}</span>
                           {ticket.socVerdict && (
-                            <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded-full border ${
-                              ticket.socVerdict === 'false_positive' ? 'bg-green-500/20 text-green-400 border-green-500/30'
-                              : ticket.socVerdict === 'escalate' ? 'bg-red-500/20 text-red-400 border-red-500/30'
-                              : ticket.socVerdict === 'suspicious' ? 'bg-rose-500/20 text-rose-400 border-rose-500/30'
-                              : 'bg-blue-500/20 text-blue-400 border-blue-500/30'
-                            }`}>
+                            <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded-full border ${verdictBadge(ticket.socVerdict)}`}>
                               {ticket.socVerdict.replace(/_/g, ' ')}
                             </span>
                           )}
@@ -579,6 +696,16 @@ export default function SocDashboardClient() {
                   </div>
                 </button>
               ))}
+            </div>
+          )}
+          {filteredTickets.length > visibleCount && (
+            <div className="px-4 py-3 border-t border-white/5 text-center">
+              <button
+                onClick={() => setVisibleCount(c => c + PAGE_SIZE)}
+                className="px-4 py-2 text-sm font-medium text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 rounded-lg transition-colors"
+              >
+                Show more ({filteredTickets.length - visibleCount} remaining)
+              </button>
             </div>
           )}
         </div>
@@ -618,11 +745,9 @@ export default function SocDashboardClient() {
                             </span>
                           )}
                           {Boolean(meta.verdict) && (
-                            <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded border ${
-                              meta.verdict === 'false_positive' ? 'bg-green-500/20 text-green-400 border-green-500/30'
-                              : meta.verdict === 'escalate' ? 'bg-red-500/20 text-red-400 border-red-500/30'
-                              : 'bg-slate-500/20 text-slate-400 border-slate-500/30'
-                            }`}>{String(meta.verdict).replace(/_/g, ' ')}</span>
+                            <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded border ${verdictBadge(String(meta.verdict))}`}>
+                              {String(meta.verdict).replace(/_/g, ' ')}
+                            </span>
                           )}
                         </div>
                         {entry.detail && (

@@ -21,6 +21,8 @@ interface SocAnalysis {
 /**
  * GET /api/soc/tickets — Fetch all recent Autotask tickets for SOC dashboard.
  * Returns UnifiedTicketRow[] with SOC analysis data overlaid.
+ * Query params: days (history range, clamped 1–365, default 30),
+ * filter ('actionable' = security tickets only, 'all' = everything).
  */
 export async function GET(request: NextRequest) {
   const reqId = generateRequestId();
@@ -30,7 +32,8 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const days = parseInt(request.nextUrl.searchParams.get('days') || '30', 10);
+    const daysParam = parseInt(request.nextUrl.searchParams.get('days') || '30', 10);
+    const days = Math.min(Math.max(Number.isNaN(daysParam) ? 30 : daysParam, 1), 365);
     const fromDate = new Date();
     fromDate.setDate(fromDate.getDate() - days);
 
@@ -145,7 +148,9 @@ export async function GET(request: NextRequest) {
         ticketId: t.autotaskTicketId,
         ticketNumber: t.ticketNumber,
         title: t.title,
-        description: t.description || null,
+        // List payload only — full description comes from /api/soc/tickets/[id]/analysis.
+        // Datto/EDR alert bodies run multiple KB each; a 365-day range would be a multi-MB response untrimmed.
+        description: t.description ? t.description.slice(0, 300) : null,
         status: t.status,
         statusLabel: t.statusLabel || `Status ${t.status}`,
         isResolved: isResolvedStatus(t.status, t.statusLabel),
