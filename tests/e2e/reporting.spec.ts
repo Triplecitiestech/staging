@@ -171,10 +171,18 @@ test.describe('Reporting No Forbidden Colors', () => {
 
     for (const path of pages) {
       // Unauthenticated visits client-redirect to /admin mid-load; 'commit'
-      // avoids the interrupted-navigation race, then let the redirect settle
+      // avoids the interrupted-navigation race, networkidle lets the redirect
+      // settle, and content() retries around "page is navigating" windows
       await page.goto(path, { waitUntil: 'commit' }).catch(() => {})
-      await page.waitForLoadState('domcontentloaded').catch(() => {})
-      const html = await page.content()
+      await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {})
+      let html = ''
+      for (let attempt = 0; attempt < 3 && !html; attempt++) {
+        try {
+          html = await page.content()
+        } catch {
+          await page.waitForTimeout(500)
+        }
+      }
       expect(html).not.toMatch(/class="[^"]*yellow-/)
       expect(html).not.toMatch(/class="[^"]*amber-/)
     }

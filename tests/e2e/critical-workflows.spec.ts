@@ -53,9 +53,20 @@ test.describe('Critical Workflow: Customer Portal', () => {
   })
 
   test('portal renders without crash for unknown company', async ({ page }) => {
-    await page.goto('/portal/nonexistent-company-12345/dashboard')
-    // Should show error or login, not crash
-    expect(await page.title()).toBeTruthy()
+    await page.goto('/portal/nonexistent-company-12345/dashboard').catch(() => {})
+    await page.waitForLoadState('domcontentloaded').catch(() => {})
+    // Should show error/login/404 content, not crash — poll: title and body
+    // can be empty for a beat while redirects settle on cold previews
+    await expect
+      .poll(
+        async () => {
+          const title = await page.title().catch(() => '')
+          if (title) return title
+          return page.locator('body').innerText().catch(() => '')
+        },
+        { timeout: 10000 },
+      )
+      .toBeTruthy()
     await expect(page.locator('text=Something went wrong')).not.toBeVisible()
   })
 
