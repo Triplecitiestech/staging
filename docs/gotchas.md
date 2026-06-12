@@ -49,6 +49,15 @@
 - **ChatGenie widget**: Must use standard `<script>` tag, not Next.js `<Script>` component.
 - **forEach return does NOT stop execution**: `array.forEach(cb)` ignores return values inside the callback. If you need early return (e.g., to send an HTTP error response), use a `for` loop or `Array.from().some()`. The middleware had this bug for query param filtering — it was completely non-functional until fixed.
 
+## Testing & CI
+
+- **The e2e gate's first real run (2026-06-12, run 1068) exposed specs that had never executed against a deployment.** Lessons locked in:
+  - **Specs must match real route methods.** `/api/tasks` is POST-only, `/api/companies` is POST/DELETE-only (admin pages list via server components, not GETs) — `request.get()` against them returns Next.js's bare 405 (empty body), not the app's 401. Check the route's exported methods before writing an API spec.
+  - **`auth.setup.ts` must fail loudly in CI.** Its silent `setup.skip()` when `E2E_TEST_SECRET` was unset let 16 authenticated specs run against a nonexistent storage-state file (ENOENT × 16, cause buried). It now throws in CI when the secret is missing or `/api/test/auth` 404s.
+  - **CI needs BOTH GitHub Actions secrets**: `VERCEL_AUTOMATION_BYPASS_SECRET` (or every preview request dies at the Deployment Protection wall — zero runtime logs on the preview is the telltale) and `E2E_TEST_SECRET` (must match the Vercel env var, or authenticated specs can't mint a session).
+  - **Third-party console noise on preview domains is expected**: Turnstile (`challenges.cloudflare.com` frame errors — the widget only allowlists production domains) and the MyGlue embed ("A network error occurred"). The no-fatal-JS-errors specs filter these; don't "fix" them by allowlisting `*.vercel.app` in vendor dashboards.
+  - **Auth before input validation in routes**: customer ticket timeline/reply returned 400 (missing params) before checking the portal session — unauthenticated callers could enumerate expected params. Session check now comes first (401 wins).
+
 ## React & UI
 
 - **Client dashboards must surface fetch failures, not render empty states (2026-06-11)**: the SOC dashboard swallowed non-ok responses (`if (res.ok) setState(...)` and an empty catch) and rendered zeros + "No security alerts" when its three API calls failed — during a deploy-rollover DB blip the operator saw an "empty SOC" and assumed data loss. Same class as the server-side rule "API catch blocks must never return 200 with empty data": a failed fetch must set an error state with a Retry action, never fall through to the empty-data UI. Also note: **deploy rollovers can blip database-backed sessions** — `strategy: "database"` means every `auth()` does a DB read; intermittent Prisma connection errors during rollover surface as 401s on authenticated APIs for a few minutes (observed 19:30–19:39 on 2026-06-11, self-recovered). Check Vercel runtime logs for `prisma:error` before assuming an auth or code regression.

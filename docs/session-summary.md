@@ -14,6 +14,10 @@ Operator-reported: `/admin/soc` Security Alerts tab only showed the ~6 open tick
 - **New `src/lib/soc/ticket-filter.ts`** (pure filter/sort helpers) + 15 unit tests (117 total green). e2e: SOC endpoint list covers `/api/soc/tickets` incl. out-of-range `days`; authenticated spec drives the search toolbar, empty state, clear filters, range switch.
 - Also produced a **SOC improvement backlog** (notifications gap, suppression rules not short-circuiting AI calls, cron `maxDuration=60` vs workload, dead config keys, verdict vocabulary drift) — recorded in `docs/current-tasks.md`.
 
+### e2e gate first real run + failure triage (2026-06-12, run 1068)
+
+After the operator added `VERCEL_AUTOMATION_BYPASS_SECRET` to GitHub, the rerun of run 1068 was the gate's first genuine execution: **830 passed / 27 failed / 2 flaky in 14.8 min**. All 27 triaged to four root causes, all fixed (see gotchas → Testing & CI): (1) auth.setup silently skipped on missing `E2E_TEST_SECRET` → 16 ENOENT failures, now throws in CI; (2) specs GETting POST-only routes (`/api/tasks`, `/api/companies`) → 405s, specs now use real methods; (3) customer ticket timeline/reply validated input before auth → 400 instead of 401, routes now check session first; (4) Turnstile/MyGlue third-party console noise on preview domains, now filtered in the no-fatal-JS-errors specs. Outstanding operator action: add `E2E_TEST_SECRET` to GitHub Actions secrets (same value as the Vercel env var).
+
 ### e2e gate validation push (2026-06-11 ~20:05 UTC)
 
 Validation push with NO skip flag: first gate run exercising the `VERCEL_AUTOMATION_BYPASS_SECRET` wiring (Playwright bypass headers + workflow env). Green = the `[skip-e2e]` era ends. Side effect: Vercel dropped the deploy webhook for merge `dafa366` (banner fix — merged but never built); this push's merge re-triggers the production deploy and ships it.

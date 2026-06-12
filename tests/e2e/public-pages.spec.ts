@@ -47,6 +47,8 @@ test.describe('Public Pages — No Fatal JS Errors', () => {
         (e) =>
           !e.includes('chatgenie') &&
           !e.includes('turnstile') &&
+          !e.includes('challenges.cloudflare.com') &&
+          !e.includes('A network error occurred') &&
           !e.includes('ChunkLoadError')
       )
       expect(criticalErrors).toEqual([])
