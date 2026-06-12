@@ -170,7 +170,10 @@ test.describe('Reporting No Forbidden Colors', () => {
     ]
 
     for (const path of pages) {
-      await page.goto(path)
+      // Unauthenticated visits client-redirect to /admin mid-load; 'commit'
+      // avoids the interrupted-navigation race, then let the redirect settle
+      await page.goto(path, { waitUntil: 'commit' }).catch(() => {})
+      await page.waitForLoadState('domcontentloaded').catch(() => {})
       const html = await page.content()
       expect(html).not.toMatch(/class="[^"]*yellow-/)
       expect(html).not.toMatch(/class="[^"]*amber-/)
