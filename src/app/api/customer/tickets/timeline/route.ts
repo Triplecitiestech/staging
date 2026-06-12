@@ -27,13 +27,18 @@ export async function GET(request: NextRequest) {
     const companySlug = request.nextUrl.searchParams.get('companySlug')
     const ticketId = request.nextUrl.searchParams.get('ticketId')
 
+    // Auth before input validation — unauthenticated callers get 401, not
+    // a 400 that confirms which params the endpoint expects
+    const session = await getPortalSession()
+    if (!session) {
+      return apiError('Unauthorized', reqId, 401)
+    }
+
     if (!companySlug || !ticketId) {
       return apiError('companySlug and ticketId required', reqId, 400)
     }
 
-    // Verify customer is authenticated for this company
-    const session = await getPortalSession()
-    if (!session || session.companySlug !== companySlug.toLowerCase().trim()) {
+    if (session.companySlug !== companySlug.toLowerCase().trim()) {
       return apiError('Unauthorized', reqId, 401)
     }
 

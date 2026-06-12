@@ -30,12 +30,14 @@ test.describe('Admin Auth Enforcement', () => {
 
 test.describe('API Auth Enforcement', () => {
   test('tasks API requires auth', async ({ request }) => {
-    const response = await request.get('/api/tasks')
+    // /api/tasks only exports POST (creation); GET returns 405 before auth runs
+    const response = await request.post('/api/tasks', { data: {} })
     expect([401, 403]).toContain(response.status())
   })
 
   test('companies API requires auth', async ({ request }) => {
-    const response = await request.get('/api/companies')
+    // /api/companies only exports POST/DELETE; GET returns 405 before auth runs
+    const response = await request.post('/api/companies', { data: {} })
     expect([401, 403]).toContain(response.status())
   })
 

@@ -59,7 +59,8 @@ test.describe('Sensitive Endpoints', () => {
 
 test.describe('API Response Format', () => {
   test('unauthenticated API returns JSON error', async ({ request }) => {
-    const response = await request.get('/api/companies')
+    // /api/projects has a real GET handler; /api/companies is POST/DELETE-only (405, empty body)
+    const response = await request.get('/api/projects')
     const contentType = response.headers()['content-type'] || ''
     expect(contentType).toContain('application/json')
     const body = await response.json()

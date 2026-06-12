@@ -17,6 +17,13 @@ export async function POST(request: NextRequest) {
 
   const reqId = generateRequestId()
   try {
+    // Auth before input validation — unauthenticated callers get 401, not
+    // a 400 that confirms which fields the endpoint expects
+    const session = await getPortalSession()
+    if (!session) {
+      return apiError('Unauthorized', reqId, 401)
+    }
+
     const body = await request.json()
     const { companySlug, ticketId, message } = body
 
@@ -24,9 +31,7 @@ export async function POST(request: NextRequest) {
       return apiError('companySlug, ticketId, and message are required', reqId, 400)
     }
 
-    // Verify customer is authenticated for this company
-    const session = await getPortalSession()
-    if (!session || session.companySlug !== companySlug.toLowerCase().trim()) {
+    if (session.companySlug !== companySlug.toLowerCase().trim()) {
       return apiError('Unauthorized', reqId, 401)
     }
 

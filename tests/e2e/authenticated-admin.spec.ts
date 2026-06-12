@@ -92,18 +92,18 @@ test.describe('Admin API Workflows (Authenticated)', () => {
     expect(response.status()).toBeLessThan(500)
   })
 
-  test('companies API returns data when authenticated', async ({ request }) => {
-    const response = await request.get('/api/companies')
-    if (response.status() === 200) {
-      const body = await response.json()
-      // Should be an array of companies
-      expect(Array.isArray(body) || body.companies).toBeTruthy()
-    }
+  test('companies API accepts the authenticated session', async ({ request }) => {
+    // No GET listing exists (admin pages load via server components); POST with
+    // an empty body proves the session passes auth and reaches input validation
+    const response = await request.post('/api/companies', { data: {} })
+    expect([401, 403]).not.toContain(response.status())
     expect(response.status()).toBeLessThan(500)
   })
 
-  test('tasks API returns data when authenticated', async ({ request }) => {
-    const response = await request.get('/api/tasks')
+  test('tasks API accepts the authenticated session', async ({ request }) => {
+    // POST-only route; empty body proves auth passes and validation answers 400
+    const response = await request.post('/api/tasks', { data: {} })
+    expect([401, 403]).not.toContain(response.status())
     expect(response.status()).toBeLessThan(500)
   })
 
