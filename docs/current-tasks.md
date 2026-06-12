@@ -8,14 +8,11 @@
 
 Security Alerts tab now shows full analyzed history (open pinned first, then resolved), with text search, verdict filter, open/resolved filter, 7–365-day range selector, and Show-more paging. Pure helpers + unit tests in `src/lib/soc/ticket-filter.ts`. `/api/soc/tickets` clamps `days` to 1–365 and trims list-payload descriptions to 300 chars.
 
-## CI e2e gate restoration (2026-06-11) — BLOCKED on operator, then small CI change
+## CI e2e gate restoration — ✅ DONE 2026-06-12 (first green gate: run 1072)
 
-The e2e-vs-preview merge gate fails for **every** branch because Vercel Deployment Protection 401-walls all preview routes (see gotchas → CI/CD). Until fixed, merges need `[skip-e2e]` (record each use). Restoration plan:
+Steps 1–3 of the original plan executed (bypass secret + `E2E_TEST_SECRET` in GitHub, header wired in `playwright.config.ts` + workflow). Suite failures from the first real runs were triaged and fixed (see session-summary 2026-06-12 + gotchas → Testing & CI). Full suite (~15 min) now blocks merges and runs 859 specs including authenticated flows. `[skip-e2e]` is for genuine pipeline emergencies only again.
 
-1. **[OPERATOR] Create the bypass secret**: Vercel dashboard → `staging` project → Settings → Deployment Protection → "Protection Bypass for Automation" → generate secret. (Alternative: disable Deployment Protection entirely, restoring the documented "publicly accessible previews" shortcut — owner's call.)
-2. **[OPERATOR] Add GitHub secret**: repo Settings → Secrets and variables → Actions → new secret `VERCEL_AUTOMATION_BYPASS_SECRET`.
-3. **[CODE] Wire the header**: `playwright.config.ts` → `use.extraHTTPHeaders` with `x-vercel-protection-bypass` + `x-vercel-set-bypass-cookie: true` when the env var is set; pass the secret through in `auto-merge-claude.yml` + `ci.yml`.
-4. **[CODE] Land the gate restructure**: the owner-approved smoke-blocking/full-suite-non-blocking rework already exists as `98b0d69` on `claude/friendly-euler-cn1z6r` (failed its gate only because of the 401 wall). Cherry-pick after 1–3 so deploys gate on a ~5-min smoke run.
+Remaining optional follow-up: **step 4, the smoke-gate restructure** (`98b0d69` on `claude/friendly-euler-cn1z6r`, owner-approved) would cut the blocking gate from ~15 min to ~5 min with the full suite non-blocking. Re-evaluate whether it's still wanted now that the full suite passes reliably; also consider moving the reporting forbidden-colors scan into the authenticated project so it checks real page content.
 
 ## SOC improvement backlog (2026-06-11 analysis) — prioritized, not started
 
