@@ -83,14 +83,18 @@ export async function GET() {
         ORDER BY tokens DESC
       `),
 
-      // Database table sizes
+      // Database table sizes — sorted by bytes-on-disk, not row count.
+      // Row count is a misleading signal for "what's eating the plan
+      // cap" because a row in tickets/error_logs (long text, JSONB) can
+      // be 30× the size of a row in *_metrics_daily. The dashboard's
+      // top-table list now answers "what's taking up the most space?"
       safeQuery(prisma, `
         SELECT
           relname as "tableName",
           n_live_tup::bigint as "rowCount",
           pg_total_relation_size(quote_ident(relname))::bigint as "sizeBytes"
         FROM pg_stat_user_tables
-        ORDER BY n_live_tup DESC
+        ORDER BY pg_total_relation_size(quote_ident(relname)) DESC
         LIMIT 30
       `),
 

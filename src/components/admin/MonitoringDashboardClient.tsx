@@ -208,7 +208,7 @@ export default function MonitoringDashboardClient() {
     cost: Number(f.costCents) / 100,
   }))
 
-  // Top tables by row count
+  // Top tables by size on disk (server already sorts by sizeBytes DESC)
   const topTables = data.database.tables.slice(0, 10).map(t => ({
     name: t.tableName.length > 20 ? t.tableName.substring(0, 20) + '…' : t.tableName,
     fullName: t.tableName,
@@ -403,23 +403,26 @@ export default function MonitoringDashboardClient() {
             onClick={() => setActiveSection(activeSection === 'db-tables' ? null : 'db-tables')}
           >
             <h3 className="text-sm font-medium text-slate-300 mb-4">
-              Top Tables by Row Count
+              Top Tables by Size on Disk
               <span className="text-xs text-slate-500 ml-2">Click to {activeSection === 'db-tables' ? 'collapse' : 'expand'}</span>
             </h3>
             <div style={{ height: activeSection === 'db-tables' ? 400 : 220 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={topTables} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                  <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 11 }} tickFormatter={v => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)} />
+                  <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 11 }} tickFormatter={v => `${v} MB`} />
                   <YAxis type="category" dataKey="name" tick={{ fill: '#94a3b8', fontSize: 10 }} width={140} />
                   <Tooltip
                     contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }}
-                    formatter={(value, name) => {
-                      if (name === 'rows') return [Number(value).toLocaleString() + ' rows', 'Rows']
-                      return [`${Number(value)} MB`, 'Size']
+                    formatter={(value, name, item) => {
+                      if (name === 'sizeMB') {
+                        const rows = item?.payload?.rows
+                        return [`${Number(value)} MB${rows != null ? ` · ${Number(rows).toLocaleString()} rows` : ''}`, 'Size']
+                      }
+                      return [String(value), String(name)]
                     }}
                   />
-                  <Bar dataKey="rows" fill="#06b6d4" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="sizeMB" fill="#06b6d4" radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
