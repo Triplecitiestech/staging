@@ -18,6 +18,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/auth';
 import { checkSecretAuth } from '@/lib/api-auth';
 import { AutotaskClient, AutotaskCompany, AutotaskTicket } from '@/lib/autotask';
 import { DattoRmmClient } from '@/lib/datto-rmm';
@@ -126,8 +127,14 @@ interface DattoSection {
 // ============================================
 
 export async function GET(request: NextRequest) {
-  const denied = checkSecretAuth(request);
-  if (denied) return denied;
+  // Allow either a logged-in staff session (admin UI / shareable links for the
+  // team) OR the MIGRATION_SECRET (scripts / PowerShell). Staff session first so
+  // internal links never need to carry a secret.
+  const session = await auth();
+  if (!session?.user?.email) {
+    const denied = checkSecretAuth(request);
+    if (denied) return denied;
+  }
 
   const startTime = Date.now();
   const sp = request.nextUrl.searchParams;
