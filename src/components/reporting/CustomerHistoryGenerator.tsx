@@ -1,11 +1,10 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
-interface CompanyOption {
-  id: string
-  displayName: string
-  ticketCount: number
+interface AutotaskCompanyResult {
+  id: number
+  name: string
 }
 
 /**
@@ -15,50 +14,93 @@ interface CompanyOption {
  * full multi-year ticket history live from Autotask (+ Datto RMM) — independent of
  * the reporting sync's rolling cache. Produces a printable report and a shareable
  * link any logged-in staff member can open.
+ *
+ * Customer picker is a live typeahead against Autotask (/api/autotask/companies/search),
+ * so any active Autotask company is selectable — not just ones already in our cache.
  */
 export default function CustomerHistoryGenerator() {
-  const [companies, setCompanies] = useState<CompanyOption[]>([])
-  const [companyName, setCompanyName] = useState('')
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<AutotaskCompanyResult[]>([])
+  const [searching, setSearching] = useState(false)
+  const [showResults, setShowResults] = useState(false)
+  const [selectedId, setSelectedId] = useState<number | null>(null)
+
   const [years, setYears] = useState(3)
-  const [includeHours, setIncludeHours] = useState(false)
+  const [includeHours, setIncludeHours] = useState(true)
   const [includeDatto, setIncludeDatto] = useState(true)
   const [origin, setOrigin] = useState('')
   const [copied, setCopied] = useState(false)
+
+  const boxRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     setOrigin(window.location.origin)
   }, [])
 
-  const fetchCompanies = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const res = await fetch('/api/reports/selectors', { signal })
-      if (!res.ok) return
-      const data = await res.json()
-      const list: CompanyOption[] = (data.companies || [])
-        .map((c: { id: string; displayName: string; ticketCount?: number }) => ({
-          id: c.id,
-          displayName: c.displayName,
-          ticketCount: c.ticketCount || 0,
-        }))
-        .sort((a: CompanyOption, b: CompanyOption) =>
-          b.ticketCount - a.ticketCount || a.displayName.localeCompare(b.displayName),
-        )
-      setCompanies(list)
-    } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') return
-      console.error('Failed to load companies:', err)
+  // Live typeahead against Autotask (debounced). Skips when a company is already
+  // selected (the query equals the chosen name), so picking doesn't re-search.
+  useEffect(() => {
+    if (selectedId !== null) {
+      setResults([])
+      return
     }
+    const term = query.trim()
+    if (term.length < 2) {
+      setResults([])
+      setSearching(false)
+      return
+    }
+    const controller = new AbortController()
+    setSearching(true)
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/autotask/companies/search?q=${encodeURIComponent(term)}`, { signal: controller.signal })
+        if (!res.ok) throw new Error('search failed')
+        const data = await res.json()
+        const list: AutotaskCompanyResult[] = (data.companies || []).map((c: { id: number; name: string }) => ({ id: c.id, name: c.name }))
+        setResults(list)
+        setShowResults(true)
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return
+        setResults([])
+      } finally {
+        setSearching(false)
+      }
+    }, 300)
+    return () => {
+      controller.abort()
+      clearTimeout(timer)
+    }
+  }, [query, selectedId])
+
+  // Close the dropdown when clicking outside.
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setShowResults(false)
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
   }, [])
 
-  useEffect(() => {
-    const c = new AbortController()
-    fetchCompanies(c.signal)
-    return () => c.abort()
-  }, [fetchCompanies])
+  const onQueryChange = (value: string) => {
+    setSelectedId(null) // editing the text clears any prior selection
+    setQuery(value)
+  }
+
+  const pickCompany = (c: AutotaskCompanyResult) => {
+    setSelectedId(c.id)
+    setQuery(c.name)
+    setResults([])
+    setShowResults(false)
+  }
 
   const buildUrl = (format: 'html' | 'json'): string => {
     const params = new URLSearchParams()
-    params.set('company', companyName.trim())
+    if (selectedId !== null) {
+      params.set('companyId', String(selectedId)) // exact Autotask match
+    } else {
+      params.set('company', query.trim()) // fuzzy name match server-side
+    }
     params.set('years', String(years))
     if (includeHours) params.set('hours', 'true')
     if (!includeDatto) params.set('datto', 'false')
@@ -66,7 +108,7 @@ export default function CustomerHistoryGenerator() {
     return `${origin}/api/reports/tbr-export?${params.toString()}`
   }
 
-  const canRun = companyName.trim().length >= 2 && origin.length > 0
+  const canRun = (selectedId !== null || query.trim().length >= 2) && origin.length > 0
   const reportUrl = canRun ? buildUrl('html') : ''
 
   const copyLink = async () => {
@@ -89,23 +131,39 @@ export default function CustomerHistoryGenerator() {
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* Company picker (dropdown fills the field; you can also type any name) */}
-          <div className="lg:col-span-2">
+          {/* Customer typeahead (searches all active Autotask companies) */}
+          <div className="lg:col-span-2" ref={boxRef}>
             <label className="block text-sm font-medium text-slate-400 mb-1">Customer</label>
-            <input
-              list="tbr-company-list"
-              className="w-full bg-slate-900 border border-slate-600 text-white rounded-lg px-3 py-2 text-sm"
-              placeholder="Start typing or pick a customer…"
-              value={companyName}
-              onChange={e => setCompanyName(e.target.value)}
-            />
-            <datalist id="tbr-company-list">
-              {companies.map(c => (
-                <option key={c.id} value={c.displayName}>
-                  {c.ticketCount > 0 ? `${c.ticketCount} recent tickets` : ''}
-                </option>
-              ))}
-            </datalist>
+            <div className="relative">
+              <input
+                className="w-full bg-slate-900 border border-slate-600 text-white rounded-lg px-3 py-2 text-sm"
+                placeholder="Search Autotask customers…"
+                value={query}
+                onChange={e => onQueryChange(e.target.value)}
+                onFocus={() => results.length > 0 && setShowResults(true)}
+                autoComplete="off"
+              />
+              {selectedId !== null && (
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-emerald-400 text-xs">✓ selected</span>
+              )}
+              {showResults && (searching || results.length > 0) && (
+                <div className="absolute z-20 mt-1 w-full bg-slate-900 border border-slate-600 rounded-lg shadow-xl max-h-64 overflow-y-auto">
+                  {searching && results.length === 0 ? (
+                    <div className="px-3 py-2 text-sm text-slate-500">Searching…</div>
+                  ) : (
+                    results.map(c => (
+                      <button
+                        key={c.id}
+                        onClick={() => pickCompany(c)}
+                        className="w-full text-left px-3 py-2 text-sm text-slate-200 hover:bg-cyan-500/10 hover:text-cyan-300 transition-colors"
+                      >
+                        {c.name}
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Time range */}
@@ -123,19 +181,19 @@ export default function CustomerHistoryGenerator() {
             </select>
           </div>
 
-          {/* Actions */}
-          <div className="flex items-end gap-2">
+          {/* Action */}
+          <div className="flex items-end">
             {canRun ? (
               <a
                 href={buildUrl('html')}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex-1 text-center bg-cyan-600 hover:bg-cyan-500 text-white font-semibold rounded-lg px-4 py-2 text-sm transition-colors"
+                className="w-full text-center bg-cyan-600 hover:bg-cyan-500 text-white font-semibold rounded-lg px-4 py-2 text-sm transition-colors"
               >
                 Open Report
               </a>
             ) : (
-              <span className="flex-1 text-center bg-slate-700 text-slate-500 font-semibold rounded-lg px-4 py-2 text-sm cursor-not-allowed">
+              <span className="w-full text-center bg-slate-700 text-slate-500 font-semibold rounded-lg px-4 py-2 text-sm cursor-not-allowed">
                 Open Report
               </span>
             )}
@@ -150,7 +208,7 @@ export default function CustomerHistoryGenerator() {
           </label>
           <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
             <input type="checkbox" checked={includeHours} onChange={() => setIncludeHours(v => !v)} className="accent-cyan-500" />
-            Include labor hours <span className="text-slate-500">(slower)</span>
+            Include labor hours
           </label>
           {canRun && (
             <a
