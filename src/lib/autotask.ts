@@ -839,6 +839,21 @@ export class AutotaskClient {
   }
 
   /**
+   * Get ALL tickets for a company created on/after a given date, fully paginated.
+   *
+   * Unlike getCompanyTickets() — which caps at a rolling N-day window and ORs in
+   * lastActivityDate for incremental sync — this pulls the complete created-in-window
+   * history for long-range reporting (e.g. a multi-year Technology Business Review).
+   * Scoping to a single company keeps the paginated result bounded.
+   */
+  async getCompanyTicketsCreatedSince(companyId: number, since: Date): Promise<AutotaskTicket[]> {
+    return this.queryAll<AutotaskTicket>('Tickets', [
+      { op: 'eq', field: 'companyID', value: companyId },
+      { op: 'gte', field: 'createDate', value: since.toISOString() },
+    ], TICKET_QUERY_FIELDS);
+  }
+
+  /**
    * Fetch a single ticket by its Autotask ID. Used by the SOC real-time
    * ingest webhook to pull a ticket the moment it lands.
    */
@@ -975,6 +990,39 @@ export class AutotaskClient {
       console.error(`[autotask] Failed to get time entries for range ${fromStr} to ${toStr}: ${err instanceof Error ? err.message : String(err)}`);
       return [];
     }
+  }
+
+  /**
+   * Get time entries for a set of tickets, batched with the `in` operator.
+   * Used by long-range reporting to total labor hours without a per-ticket
+   * round trip. Batches stay modest to respect Autotask query limits, and an
+   * optional deadline lets the caller bound total time and accept a partial
+   * (best-effort) result rather than risk a serverless timeout.
+   */
+  async getTimeEntriesByTicketIds(
+    ticketIds: number[],
+    opts: { batchSize?: number; deadlineMs?: number } = {},
+  ): Promise<{ entries: AutotaskTimeEntry[]; completed: boolean }> {
+    const batchSize = opts.batchSize ?? 250;
+    const entries: AutotaskTimeEntry[] = [];
+    for (let i = 0; i < ticketIds.length; i += batchSize) {
+      if (opts.deadlineMs && Date.now() > opts.deadlineMs) {
+        return { entries, completed: false };
+      }
+      const batch = ticketIds.slice(i, i + batchSize);
+      if (batch.length === 0) continue;
+      const filter = batch.length === 1
+        ? { op: 'eq', field: 'ticketID', value: batch[0] }
+        : { op: 'in', field: 'ticketID', value: batch };
+      try {
+        const batchEntries = await this.queryAll<AutotaskTimeEntry>('TimeEntries', filter);
+        entries.push(...batchEntries);
+      } catch (err) {
+        console.error(`[AutotaskClient] getTimeEntriesByTicketIds batch failed: ${err instanceof Error ? err.message : String(err)}`);
+        return { entries, completed: false };
+      }
+    }
+    return { entries, completed: true };
   }
 
   /**
