@@ -162,14 +162,28 @@ export async function GET(request: NextRequest) {
     if (companyIdParam) {
       company = await client.getCompany(parseInt(companyIdParam, 10));
     } else if (companyQuery) {
-      const matches = await client.searchCompanies(companyQuery);
+      let matches = await client.searchCompanies(companyQuery);
+      if (matches.length === 0) {
+        // Fallback: Autotask `contains` is literal, so punctuation/spacing
+        // differences (e.g. "Tribros" vs "Tri-Bros Transportation") miss.
+        // Retry with a normalized, punctuation-insensitive match across all
+        // active companies.
+        const nq = normalizeName(companyQuery);
+        if (nq.length >= 2) {
+          const all = await client.getActiveCompanies();
+          matches = all.filter(c => {
+            const nc = normalizeName(c.companyName);
+            return nc.includes(nq) || nq.includes(nc);
+          });
+        }
+      }
       if (matches.length === 0) {
         return NextResponse.json(
           { error: `No active Autotask company matches "${companyQuery}".` },
           { status: 404 },
         );
       }
-      const exact = matches.find(m => m.companyName.toLowerCase() === companyQuery.toLowerCase());
+      const exact = matches.find(m => normalizeName(m.companyName) === normalizeName(companyQuery));
       if (!exact && matches.length > 1) {
         return NextResponse.json({
           ambiguous: true,
@@ -666,6 +680,11 @@ function median(sorted: number[]): number | null {
 
 function pad2(n: number): string {
   return n < 10 ? `0${n}` : `${n}`;
+}
+
+/** Lowercase and strip non-alphanumerics for punctuation-insensitive name matching. */
+function normalizeName(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
 // ============================================
