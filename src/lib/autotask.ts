@@ -901,10 +901,14 @@ export class AutotaskClient {
     ], TICKET_QUERY_FIELDS);
 
     const spanMs = to.getTime() - from.getTime();
-    // Stop splitting at a 1-hour floor (or excessive depth) to avoid infinite
-    // recursion; a single hour with >500 tickets is implausible for one company.
-    if (!hasMore || spanMs <= 60 * 60 * 1000 || depth > 24) {
-      if (hasMore && (spanMs <= 60 * 60 * 1000 || depth > 24)) {
+    // Stop splitting at a 1-DAY floor (or excessive depth). Autotask appears to
+    // filter createDate at day granularity, so sub-day windows return the same
+    // day's tickets repeatedly — splitting below a day causes duplicate fetches
+    // (de-duplicated downstream by ticket id) without finding new records. A
+    // single day with >500 tickets for one company is implausible.
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    if (!hasMore || spanMs <= DAY_MS || depth > 24) {
+      if (hasMore && (spanMs <= DAY_MS || depth > 24)) {
         console.warn(`[AutotaskClient] collectCompanyTickets: window ${from.toISOString()}–${to.toISOString()} still reports >500 tickets at the split floor; result may be truncated.`);
       }
       acc.push(...items);
