@@ -1,8 +1,29 @@
 # Current Tasks
 
-> **Last updated**: 2026-06-11. SOC dashboard alert history + search shipped; SOC improvement backlog added.
-> **Branch**: `claude/wonderful-lamport-ngzbi5`.
-> **Detailed context**: `docs/SESSION_HANDOFF.md`.
+> **Last updated**: 2026-06-16. TBR / Customer History live Autotask export shipped to production.
+> **Branch**: `claude/pensive-cannon-sc50gx` (merged to `main`).
+> **Detailed context**: `docs/session-summary.md` (2026-06-16 section) + `docs/reference/TBR_DATA_CAPABILITIES.md`.
+
+## TBR / Customer History export (2026-06-16) — ✅ shipped & in production (PRs #92–#95)
+
+Live multi-year Autotask ticket export for Technology Business Reviews: `GET /api/reports/tbr-export` + admin page `/admin/reporting/customer-history` (Reporting dashboard → "Customer History (TBR)"). Counts split **Human support vs Proactive monitoring** by queue. Accuracy verified against a raw Autotask CSV export. Full detail in `docs/session-summary.md`.
+
+**Follow-ups (not started):**
+- [ ] **[MED — offered to owner, awaiting answer]** Break the monitoring bucket into **Security / Network / Other** sub-types so the security-coverage number stands alone on the TBR.
+- [ ] **[MED]** Split CLOSED tickets by human/monitoring too (currently only "created" is split; closed is a single total).
+- [ ] **[LOW]** Annualize the current partial year (run-rate) so a half-year isn't visually compared to full years.
+- [ ] **[LOW]** Reuse the live Autotask pull in the Annual Report / Business Review engines (they still read the 30-day DB cache → can't do multi-year). Step toward consolidating the scattered reporting (owner flagged).
+- [ ] **[LOW]** `hours=true` can be slow for high-volume companies (batched per-ticket TimeEntries under a deadline) — consider a company-scoped TimeEntries date-range query.
+- [ ] **[INFRA]** Fix the `triple-cities-tech` MCP server: `api_call` can't auth to gated endpoints (its `MIGRATION_SECRET` ≠ prod), and `db_query`/`ticket_check`/`company_lookup` fail with "ENOTFOUND base". Until fixed, a Claude session cannot pull/verify prod data directly.
+
+### Next Session Starting Point
+
+- **Current objective**: TBR/Customer History export is shipped, in production, and verified accurate. Owner was reviewing the human-vs-monitoring split for Tri-Bros. No open blocker.
+- **Recommended next tasks**: (1) await/act on owner feedback on the split; (2) if wanted, add the Security/Network/Other monitoring sub-split (small change in `aggregateTickets` + the report HTML in `route.ts`, classify off `queueLabel`); (3) optionally annualize the partial year.
+- **Most relevant files**: `src/app/api/reports/tbr-export/route.ts` (endpoint, `aggregateTickets`, HTML renderer, `isMonitoringQueue`), `src/components/reporting/CustomerHistoryGenerator.tsx` (UI), `src/lib/autotask.ts` (`getCompanyTicketsCreatedSince` / `collectCompanyTickets` / `queryOnePage` / `getTimeEntriesByTicketIds`), `src/components/reporting/ReportingDashboard.tsx` (nav link), `docs/reference/TBR_DATA_CAPABILITIES.md` (reference).
+- **Open questions**: Sub-split monitoring into Security/Network/Other? Should the Annual Report/Business Review engines switch to the live pull (de-scatter reporting)?
+- **Validation still needed**: confirm `/admin/reporting/customer-history` renders the human/monitoring split correctly post-deploy (owner re-running); the post-merge e2e runs of #94/#95 were expedited past — confirm they went green.
+- **Access constraints for the next session**: NO Autotask/Datto creds in the dev sandbox; the `triple-cities-tech` MCP `api_call` 401s on gated routes and its DB tools are broken — so you cannot pull prod data yourself. The owner runs the report (`/admin/reporting/customer-history`) or provides CSV exports. Use those for any data verification.
 
 ## SOC dashboard alert history + search (2026-06-11) — shipped (PR #89)
 

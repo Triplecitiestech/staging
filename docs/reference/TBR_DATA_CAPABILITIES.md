@@ -135,3 +135,32 @@ The three existing report engines read the local DB (30-day window), and **this 
 - **Option C — Document only (this file).** You take this menu and pull the numbers later using your own tools.
 
 *The exact Autotask company name doesn't need to be confirmed up front — the tool matches on a partial name (e.g., "Tribros" or "Transport") and reports which company it matched so you can verify.*
+
+---
+
+## 7. IMPLEMENTED (2026-06-16) — what was actually built and how to use it
+
+Option A was built and shipped to production. Two surfaces:
+
+### A. Admin UI (for staff — recommended)
+**Admin → Reporting → "Customer History (TBR)"** → `https://www.triplecitiestech.com/admin/reporting/customer-history`
+- Staff log in normally (Azure AD); no secret in any URL. Pick a customer (live Autotask typeahead — *any* active company, not just cached ones), choose 1/2/3/5 years, toggle Datto + labor hours, **Open Report** (printable HTML) or open raw JSON, and copy a shareable link for the team.
+- Files: `src/app/admin/reporting/customer-history/page.tsx`, `src/components/reporting/CustomerHistoryGenerator.tsx`.
+
+### B. API (for scripts / PowerShell)
+`GET /api/reports/tbr-export` — read-only; auth = staff session **or** `Authorization: Bearer <MIGRATION_SECRET>` / `?secret=`.
+Params: `company=<name>` (fuzzy) **or** `companyId=<autotaskId>` (exact) · `years` (default 3) · `hours=true` (labor hours; slower) · `datto=false` (skip RMM) · `alertPages` (Datto alert page cap, default 40) · `format=html|json`.
+```powershell
+$base="https://www.triplecitiestech.com"; $secret="<MIGRATION_SECRET>"
+Start-Process "$base/api/reports/tbr-export?company=Tri-Bros&years=3&hours=true&format=html&secret=$secret"
+```
+Source: `src/app/api/reports/tbr-export/route.ts`; Autotask client methods in `src/lib/autotask.ts` (`getCompanyTicketsCreatedSince`, `queryOnePage`, `getTimeEntriesByTicketIds`).
+
+### Key implementation facts (read before changing it)
+- **Pulls live from Autotask**, not the DB cache → multi-year works. Paginates by recursively splitting the `createDate` window (Autotask's `nextPageUrl` GET 405s on `includeFields` queries; it also filters createDate at **day** granularity, so results are **de-duplicated by ticket id** — see `docs/gotchas.md` → Autotask).
+- **Counts are split Human support vs Proactive monitoring** by queue (`isMonitoringQueue`: `Monitoring Alert` / `Security Monitoring Alert` / `Network Monitoring Alert` = monitoring). This matters: for Tri-Bros, 35% of tickets were automated monitoring, and a new Security Monitoring Alert feed (133 in H1 2026 vs 3 in 2025) made a half-year look like a full year. **Don't quote raw totals on a TBR — use the human/monitoring split.**
+- Accuracy was confirmed against a raw Autotask CSV export (per-year counts matched within ±2 tickets at the start-date boundary).
+- Datto device/patch/AV = current snapshot; Datto alerts = retention-limited history.
+
+### Open follow-ups
+See `docs/current-tasks.md` → "TBR / Customer History export" (e.g. Security/Network/Other monitoring sub-split; split closed tickets too; annualize partial year; reuse the live pull in the Annual Report engine).
