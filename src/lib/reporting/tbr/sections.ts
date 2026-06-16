@@ -11,6 +11,7 @@
  */
 
 import {
+  backupSource,
   devicesAlertsSource,
   manualSource,
   pendingSource,
@@ -18,6 +19,7 @@ import {
 } from './data-sources';
 import {
   dataTable,
+  esc,
   fmtNum,
   ghostMetrics,
   shareTable,
@@ -27,6 +29,7 @@ import {
 } from './template';
 import { type TbrTheme } from './theme';
 import type {
+  BackupData,
   DevicesAlertsData,
   RenderedSection,
   SectionState,
@@ -100,7 +103,7 @@ const m365 = defineSection({
   title: 'Microsoft 365',
   load: pendingSource(
     'Microsoft 365 usage analytics',
-    'Graph Reports.Read.All is already consented — usage-report calls (active users, email/Teams activity, OneDrive/SharePoint files, app usage) still need to be added to graph.ts.',
+    'Tenant-scoped (Company.m365TenantId) and Reports.Read.All is already consented, so no leak risk — but the Graph usage-report calls (CSV) still need adding to graph.ts and the parsed figures verified against the M365 admin center before showing customer-facing numbers.',
   ),
   ghost: ['Active users', 'Email activities', 'Teams activities', 'OneDrive files', 'SharePoint files', 'Active app users'],
   render: () => '',
@@ -124,7 +127,7 @@ const contentFiltering = defineSection({
   title: 'Content Filtering',
   load: pendingSource(
     'DNS content filtering (DNSFilter)',
-    'DNSFilter client exists but is not customer-scoped (uses the first MSP org). Add a companyId→DNSFilter-org mapping before customer-facing use, then wire this section.',
+    "DNSFilter's buildSummary is MSP-wide (it uses the account's first org). Wiring it customer-facing would mix customers' traffic — add a companyId→DNSFilter-org mapping (compliance_platform_mappings, platform 'dnsfilter') + an org-scoped query first.",
   ),
   ghost: ['Total requests', 'Allowed', 'Blocked', 'Threats', 'Top categories', 'Top domains'],
   render: () => '',
@@ -153,7 +156,7 @@ const securityAlerts = defineSection({
   title: 'Security Alerts',
   load: pendingSource(
     'Managed endpoint detection & SOC (Datto EDR)',
-    'Datto EDR client exists (events captured / total / critical). The "events analyzed" funnel step needs SOC-engine data; wire EDR + SOC to complete this slide.',
+    "Datto EDR's buildSummary is MSP-wide (no per-customer org filter), so it can't be shown customer-facing without leaking cross-customer events. Needs a client change to filter events by org via compliance_platform_mappings; the \"events analyzed\" funnel step also needs SOC-engine data.",
   ),
   ghost: ['Events captured', 'Events analyzed', 'Total alerts', 'Critical alerts'],
   render: () => '',
@@ -171,16 +174,13 @@ const securityAwareness = defineSection({
   render: () => '',
 });
 
-const backup = defineSection({
+const backup = defineSection<BackupData>({
   id: 'backup',
   eyebrow: 'Backup & Continuity',
   title: 'Backup & Business Continuity',
-  load: pendingSource(
-    'Cloud backup & SaaS protection (Datto SaaS)',
-    'Datto SaaS client exists (per-workload seat/protected counts). Total-TB, last-backup and jobs-in-progress are not exposed by current calls; wire seat counts and investigate /saas/{id}/applications for the rest.',
-  ),
-  ghost: ['Total protected data', 'OneDrive', 'Exchange', 'SharePoint', 'Teams', 'Last protected'],
-  render: () => '',
+  load: backupSource,
+  ghost: ['Protected seats', 'Active', 'Workloads', 'Total protected data'],
+  render: (state, theme) => renderBackup(state, theme),
 });
 
 /** The ordered registry (deck order). */
@@ -257,4 +257,23 @@ function renderDevicesAlerts(state: SectionState<DevicesAlertsData>, theme: TbrT
   ];
 
   return tileGrid(theme, tiles, 3) + shareTable('Alerts by priority', d.alertsByPriority);
+}
+
+function renderBackup(state: SectionState<BackupData>, theme: TbrTheme): string {
+  const d = state.data;
+  if (!d) return stateBanner(state);
+
+  const tiles: StatTile[] = [
+    { value: fmtNum(d.totalSeats), label: 'Protected seats', sub: `across ${d.customers} SaaS customer${d.customers === 1 ? '' : 's'}`, tone: 'accent' },
+    { value: fmtNum(d.activeSeats), label: 'Active', tone: 'good' },
+    { value: fmtNum(d.inactiveSeats), label: 'Paused / archived', tone: d.inactiveSeats > 0 ? 'warn' : 'default' },
+    { value: d.totalProtectedTB === null ? '—' : `${d.totalProtectedTB} TB`, label: 'Protected data', sub: d.totalProtectedTB === null ? 'not exposed by API' : undefined },
+  ];
+  const rows = d.workloads.map((w) => [esc(w.name), fmtNum(w.seats)]);
+  return (
+    tileGrid(theme, tiles, 4) +
+    (rows.length
+      ? dataTable([{ header: 'Workload' }, { header: 'Seats', num: true }], rows)
+      : '')
+  );
 }

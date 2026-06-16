@@ -128,14 +128,14 @@ export interface SecurityAwarenessData {
 
 /** Slide 12 — Backup & Business Continuity (Datto SaaS Protection + BCDR). */
 export interface BackupData {
+  totalSeats: number;
+  activeSeats: number;
+  inactiveSeats: number;
+  customers: number;
+  /** Total protected data — not exposed by the current SaaS API calls (`null`). */
   totalProtectedTB: number | null;
-  lastBackup: string | null;
-  workloads: Array<{
-    name: string;
-    active: number;
-    protected: number;
-    lastProtected: string | null;
-  }>;
+  /** Protected seats grouped by workload type. */
+  workloads: Array<{ name: string; seats: number }>;
 }
 
 // ---------------------------------------------------------------------------

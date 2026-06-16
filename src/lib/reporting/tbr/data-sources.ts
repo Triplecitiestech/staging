@@ -12,14 +12,28 @@
 
 import { AutotaskClient } from '@/lib/autotask';
 import { DattoRmmClient, type DattoAlert } from '@/lib/datto-rmm';
+import { DattoSaasClient } from '@/lib/datto-saas';
 import { matchesCompanyName } from '@/utils';
 import type {
+  BackupData,
   CountShare,
   DevicesAlertsData,
   SectionState,
   TbrContext,
   TicketVolumeData,
 } from './types';
+
+const SAAS_SOURCE = 'Cloud backup & SaaS protection (Datto SaaS)';
+
+/** Friendly workload labels for Datto SaaS seat types. */
+const SAAS_WORKLOAD_LABELS: Record<string, string> = {
+  User: 'Microsoft 365 users',
+  SharedMailbox: 'Shared mailboxes',
+  Site: 'SharePoint sites',
+  TeamSite: 'SharePoint team sites',
+  Team: 'Teams',
+  SharedDrive: 'Shared drives',
+};
 
 const SERVICE_DESK_SOURCE = 'Autotask PSA + Datto RMM';
 
@@ -286,6 +300,49 @@ export async function ticketVolumeSource(ctx: TbrContext): Promise<SectionState<
 
 export async function devicesAlertsSource(ctx: TbrContext): Promise<SectionState<DevicesAlertsData>> {
   return (await loadServiceDesk(ctx)).devicesAlerts;
+}
+
+/**
+ * Backup & Business Continuity (Datto SaaS Protection). Scoped per-customer via
+ * the client's `buildSummary(companyName)` name match — safe because it filters
+ * to the matching SaaS customer(s) rather than returning MSP-wide data. Total-TB
+ * / last-backup / jobs-in-progress are not exposed by the current calls (null).
+ */
+export async function backupSource(ctx: TbrContext): Promise<SectionState<BackupData>> {
+  const client = new DattoSaasClient();
+  if (!client.isConfigured()) {
+    return { status: 'empty', source: SAAS_SOURCE, note: 'Datto SaaS not configured (DATTO_BCDR_PUBLIC_KEY / DATTO_BCDR_PRIVATE_KEY unset).' };
+  }
+  try {
+    const s = await client.buildSummary(ctx.company.name);
+    if (!s.available) {
+      return { status: 'error', source: SAAS_SOURCE, note: s.note ?? 'Datto SaaS unavailable.' };
+    }
+    if (s.totalCustomers === 0) {
+      return {
+        status: 'empty',
+        source: SAAS_SOURCE,
+        note: s.note ?? `No Datto SaaS customer matched "${ctx.company.name}".`,
+      };
+    }
+    return {
+      status: 'success',
+      source: 'Datto SaaS Protection',
+      data: {
+        totalSeats: s.totalSeats,
+        activeSeats: s.activeSeats,
+        inactiveSeats: s.pausedSeats + s.archivedSeats + s.unprotectedSeats,
+        customers: s.totalCustomers,
+        totalProtectedTB: null,
+        workloads: s.seatsByType.map((t) => ({
+          name: SAAS_WORKLOAD_LABELS[t.type] ?? t.type,
+          seats: t.count,
+        })),
+      },
+    };
+  } catch (err) {
+    return { status: 'error', source: SAAS_SOURCE, note: errMsg(err) };
+  }
 }
 
 /**
