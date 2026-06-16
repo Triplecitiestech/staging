@@ -33,20 +33,24 @@ wired). A thrown loader is caught and becomes `error`, so **one failing source
 never breaks the report**. Non-`success` sections render a banner plus a
 "ghost" of the metrics they will show once wired.
 
-Current wiring: **Ticket Volume**, **Devices & Alerts** (Autotask + Datto RMM),
-**Backup & Business Continuity** (Datto SaaS) and **Content Filtering**
-(DNSFilter) are live and per-customer scoped. Content Filtering is scoped via an
-explicit `compliance_platform_mappings` entry (platform `dnsfilter`, set in the
-compliance Platform Mappings UI); `DnsFilterClient.buildSummary(start, end,
-orgId)` then queries only that organization with the account-wide fallback
-disabled, so it can never mix customers. A customer with no DNSFilter mapping
-renders `pending` (never an account-wide pull). **Security Alerts (Datto EDR)**
-stays `pending` — its `buildSummary` is still MSP-wide (needs the same per-org
-scoping); **M365** is `pending` (tenant-scoped, so no leak risk, but its Graph
-usage-report CSV calls must be added to graph.ts and verified live). **Email
-Security (INKY)** and **Security Awareness (BullPhish ID)** are `manual` (no
-integration exists). Verified end-to-end: with no credentials present the whole
-deck still renders, degrading each source independently.
+Current wiring — **six** sections are live and per-customer scoped: **Ticket
+Volume** & **Devices & Alerts** (Autotask + Datto RMM), **Content Filtering**
+(DNSFilter), **Security Alerts** (Datto EDR), **Backup & Business Continuity**
+(Datto SaaS), and **Microsoft 365** (Graph). **Email Security (INKY)** and
+**Security Awareness (BullPhish ID)** stay `manual` — no integration exists.
+
+Per-customer scoping mirrors the compliance/SOC pattern (`src/lib/soc/
+enrichment.ts`): for each integration we resolve the local `Company` (by
+`autotaskCompanyId`, then `displayName`), read an explicit
+`compliance_platform_mappings` row, and if there is none **name-match a specific
+org/customer** against the vendor's own list — never an MSP-wide / account-wide
+pull. DNSFilter and Datto EDR are queried scoped to one organization (org-id
+filter / account-wide fallback disabled); Datto SaaS uses the `datto_saas`
+customer ids (else name match); M365 uses the customer's connected tenant
+credentials (`getTenantCredentials`). Anything that can't be resolved or
+connected degrades to `pending`/`empty` with an actionable note. Verified
+end-to-end: with no credentials/DB present the whole deck still renders,
+degrading each source independently.
 
 ## How to add a data source
 
@@ -86,11 +90,13 @@ or `?secret=`). `format=json` returns `{ meta, coverage }` (per-section status
 roll-up) without the HTML. The raw multi-year data export remains
 `/api/reports/tbr-export`.
 
-## Not yet done (tracked in the feasibility report §7)
+## Not yet done
 
-EDR per-customer org scoping + SOC "events analyzed" (then wire Security Alerts —
-apply the same `compliance_platform_mappings` org-scoping pattern now used for
-DNSFilter); M365 Graph Reports calls + delta snapshot (then wire Microsoft 365);
-Datto SaaS TB / last-backup / jobs (investigate `/saas/{id}/applications`); INKY +
-BullPhish connectors; persistence to `BusinessReview` (`reportType:'tbr'`) + an
-admin UI entry point reusing the existing customer typeahead + date-range picker.
+SOC "events analyzed" funnel step for Security Alerts (the EDR detection count is
+wired; the SOC-escalated count is still `null`); Microsoft 365 usage *activity*
+(email/Teams/file activity via the Reports API — the current slide shows reliable
+counts: users, devices, sites, groups, license utilization); Datto SaaS TB /
+last-backup / jobs (investigate `/saas/{id}/applications`); INKY + BullPhish
+connectors (no integration exists — `manual`); persistence to `BusinessReview`
+(`reportType:'tbr'`) + an admin UI entry point reusing the existing customer
+typeahead + date-range picker.

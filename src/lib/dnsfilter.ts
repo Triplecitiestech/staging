@@ -102,6 +102,20 @@ export class DnsFilterClient {
   }
 
   /**
+   * List the organizations visible to this API token (MSP sub-orgs). Used to
+   * resolve a customer's org by name when there is no explicit mapping — the
+   * same approach the SOC enrichment and compliance collectors use.
+   */
+  async listOrganizations(): Promise<Array<{ id: string; name: string }>> {
+    const orgData = await this.request<{
+      data?: Array<{ id?: string; attributes?: { name?: string } }>;
+    }>('/organizations');
+    return (orgData.data ?? [])
+      .filter((o): o is { id: string; attributes?: { name?: string } } => !!o.id)
+      .map((o) => ({ id: o.id, name: o.attributes?.name ?? '' }));
+  }
+
+  /**
    * Fetch traffic/threat reports for a date range.
    * Tries multiple endpoint patterns since DNSFilter API docs aren't fully public.
    *
