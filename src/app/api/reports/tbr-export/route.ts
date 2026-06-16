@@ -45,6 +45,8 @@ interface YearRow {
   year: number;
   created: number;
   closed: number;
+  humanCreated: number;
+  monitoringCreated: number;
 }
 
 interface MonthRow {
@@ -52,6 +54,9 @@ interface MonthRow {
   created: number;
   closed: number;
 }
+
+/** Per-bucket counters used for year/month aggregation. */
+type PeriodCounts = { created: number; closed: number; humanCreated: number; monitoringCreated: number };
 
 interface TbrExportData {
   company: { autotaskId: number; name: string; classification: string | null };
@@ -62,6 +67,7 @@ interface TbrExportData {
     totalCreated: number;
     openCreatedInPeriod: number;
     closed: number;
+    supportSplit: { humanCreated: number; monitoringCreated: number };
     byYear: YearRow[];
     byMonth: MonthRow[];
     byQueue: CountPct[];
@@ -296,6 +302,7 @@ export async function GET(request: NextRequest) {
         totalCreated: 'Tickets whose Autotask createDate falls within the period.',
         closed: 'Tickets with a completedDate set (resolved at some point).',
         open: 'Tickets created in the period whose current status is not Complete/Closed/Resolved/Cancelled.',
+        humanVsMonitoring: 'Human support = staffed queues (Help Desk, Level I/II, Escalation, etc.). Proactive monitoring = auto-generated tickets in Monitoring / Security / Network Alert queues (RMM, EDR, SaaS Alerts).',
         proactiveVsReactive: 'Derived from the Autotask ticket Source: monitoring/RMM/automation = proactive; phone/email/portal/web = reactive.',
         resolutionTime: 'completedDate − createDate, for tickets closed in the period.',
         dattoDevices: 'Current snapshot of Datto RMM device inventory (not historical).',
@@ -389,8 +396,8 @@ function aggregateTickets(
   const bySubIssueType = new Map<string, number>();
   const bySource = new Map<string, number>();
   const sourceSplit = { reactive: 0, proactive: 0, other: 0 };
-  const yearMap = new Map<number, { created: number; closed: number }>();
-  const monthMap = new Map<string, { created: number; closed: number }>();
+  const yearMap = new Map<number, PeriodCounts>();
+  const monthMap = new Map<string, PeriodCounts>();
 
   let openCount = 0;
   let agingOver7 = 0;
@@ -398,6 +405,8 @@ function aggregateTickets(
   let urgentOpen = 0;
   let highOpen = 0;
   let closedCount = 0;
+  let humanCreatedTotal = 0;
+  let monitoringCreatedTotal = 0;
 
   const resByPriority = new Map<string, number[]>();
   const allResHours: number[] = [];
@@ -410,6 +419,7 @@ function aggregateTickets(
     // Queue
     const queueLabel = t.queueID != null ? (maps.queueMap.get(t.queueID) || `Queue ${t.queueID}`) : 'Unassigned';
     byQueue.set(queueLabel, (byQueue.get(queueLabel) || 0) + 1);
+    const monitoring = isMonitoringQueue(queueLabel);
 
     // Priority
     const priorityLabel = maps.priorityMap.get(t.priority) || PRIORITY_LABELS[t.priority] || `Priority ${t.priority}`;
@@ -438,10 +448,13 @@ function aggregateTickets(
       sourceSplit.other++;
     }
 
-    // Year + month (created)
+    // Year + month (created), split human support vs proactive monitoring
     const cy = created.getFullYear();
     const cm = `${cy}-${pad2(created.getMonth() + 1)}`;
-    getOrInit(yearMap, cy).created++;
+    const yEntry = getOrInit(yearMap, cy);
+    yEntry.created++;
+    if (monitoring) { yEntry.monitoringCreated++; monitoringCreatedTotal++; }
+    else { yEntry.humanCreated++; humanCreatedTotal++; }
     getOrInit(monthMap, cm).created++;
 
     // Closed bucketing
@@ -475,7 +488,7 @@ function aggregateTickets(
   // byYear / byMonth as sorted arrays
   const byYear: YearRow[] = Array.from(yearMap.entries())
     .sort((a, b) => a[0] - b[0])
-    .map(([year, v]) => ({ year, created: v.created, closed: v.closed }));
+    .map(([year, v]) => ({ year, created: v.created, closed: v.closed, humanCreated: v.humanCreated, monitoringCreated: v.monitoringCreated }));
 
   const byMonth: MonthRow[] = buildMonthSeries(periodStart, periodEnd, monthMap);
 
@@ -492,6 +505,7 @@ function aggregateTickets(
     totalCreated: total,
     openCreatedInPeriod: openCount,
     closed: closedCount,
+    supportSplit: { humanCreated: humanCreatedTotal, monitoringCreated: monitoringCreatedTotal },
     byYear,
     byMonth,
     byQueue: toCountPct(byQueue, total),
@@ -653,18 +667,18 @@ async function buildDattoSection(
 // SMALL HELPERS
 // ============================================
 
-function getOrInit<K>(map: Map<K, { created: number; closed: number }>, key: K) {
+function getOrInit<K>(map: Map<K, PeriodCounts>, key: K): PeriodCounts {
   let v = map.get(key);
-  if (!v) { v = { created: 0, closed: 0 }; map.set(key, v); }
+  if (!v) { v = { created: 0, closed: 0, humanCreated: 0, monitoringCreated: 0 }; map.set(key, v); }
   return v;
 }
 
-function buildMonthSeries(start: Date, end: Date, monthMap: Map<string, { created: number; closed: number }>): MonthRow[] {
+function buildMonthSeries(start: Date, end: Date, monthMap: Map<string, PeriodCounts>): MonthRow[] {
   const rows: MonthRow[] = [];
   const cursor = new Date(start.getFullYear(), start.getMonth(), 1);
   while (cursor <= end) {
     const key = `${cursor.getFullYear()}-${pad2(cursor.getMonth() + 1)}`;
-    const v = monthMap.get(key) || { created: 0, closed: 0 };
+    const v = monthMap.get(key) || { created: 0, closed: 0, humanCreated: 0, monitoringCreated: 0 };
     rows.push({ month: key, created: v.created, closed: v.closed });
     cursor.setMonth(cursor.getMonth() + 1);
   }
@@ -682,6 +696,17 @@ function sourceClass(label: string): 'reactive' | 'proactive' | 'other' {
   if (s.includes('monitor') || s.includes('alert') || s.includes('rmm') || s.includes('automation') || s.includes('proactive')) return 'proactive';
   if (s.includes('phone') || s.includes('email') || s.includes('portal') || s.includes('web') || s.includes('verbal') || s.includes('person') || s.includes('chat') || s.includes('client')) return 'reactive';
   return 'other';
+}
+
+/**
+ * Classify a ticket queue as automated proactive monitoring (vs. human support).
+ * Matches the Autotask "Monitoring Alert", "Security Monitoring Alert" and
+ * "Network Monitoring Alert" queues (auto-generated by RMM/EDR/SaaS Alerts),
+ * which should be reported separately from human-worked support tickets.
+ */
+function isMonitoringQueue(label: string): boolean {
+  const l = label.toLowerCase();
+  return l.includes('monitor') || l.includes('alert') || l.includes('rmm') || l.includes('automat');
 }
 
 function severityOf(label: string): 'urgent' | 'high' | 'other' {
@@ -785,6 +810,8 @@ function renderHtml(d: TbrExportData): string {
   <h2>Headline numbers</h2>
   <div class="cards">
     ${card('Tickets (created)', String(t.totalCreated), `${d.period.years}-year total`)}
+    ${card('Human support', String(t.supportSplit.humanCreated), 'staffed queues')}
+    ${card('Proactive monitoring', String(t.supportSplit.monitoringCreated), 'auto-generated alerts')}
     ${card('Tickets closed', String(t.closed))}
     ${card('Currently open', String(t.backlog.open), `${t.backlog.agingOver30Days} aging >30d`)}
     ${card('Support hours', t.labor.available ? String(t.labor.totalHours) : '—', t.labor.available ? `${t.labor.billableHours} billable` : 'add &hours=true')}
@@ -793,7 +820,8 @@ function renderHtml(d: TbrExportData): string {
   </div>
 
   <h2>Ticket volume by year</h2>
-  ${table(['Year', 'Created', 'Closed'], t.byYear.map(y => [String(y.year), String(y.created), String(y.closed)]))}
+  ${table(['Year', 'Human support', 'Proactive monitoring', 'Total created', 'Closed'], t.byYear.map(y => [String(y.year), String(y.humanCreated), String(y.monitoringCreated), String(y.created), String(y.closed)]))}
+  <p class="muted">Human support = staffed queues (Help Desk, Level I/II, Escalation…). Proactive monitoring = auto-generated Monitoring / Security / Network Alert tickets (RMM, EDR, SaaS Alerts).</p>
 
   <h2>What kinds of tickets</h2>
   ${countTable('By queue', t.byQueue)}
