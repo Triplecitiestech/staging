@@ -13,9 +13,11 @@
 import { AutotaskClient } from '@/lib/autotask';
 import { DattoRmmClient, type DattoAlert } from '@/lib/datto-rmm';
 import { DattoSaasClient } from '@/lib/datto-saas';
+import { DnsFilterClient } from '@/lib/dnsfilter';
 import { matchesCompanyName } from '@/utils';
 import type {
   BackupData,
+  ContentFilteringData,
   CountShare,
   DevicesAlertsData,
   SectionState,
@@ -24,6 +26,7 @@ import type {
 } from './types';
 
 const SAAS_SOURCE = 'Cloud backup & SaaS protection (Datto SaaS)';
+const DNSFILTER_SOURCE = 'DNS content filtering (DNSFilter)';
 
 /** Friendly workload labels for Datto SaaS seat types. */
 const SAAS_WORKLOAD_LABELS: Record<string, string> = {
@@ -342,6 +345,116 @@ export async function backupSource(ctx: TbrContext): Promise<SectionState<Backup
     };
   } catch (err) {
     return { status: 'error', source: SAAS_SOURCE, note: errMsg(err) };
+  }
+}
+
+/**
+ * Resolve the DNSFilter organization id(s) explicitly mapped to this customer.
+ *
+ * DNSFilter is multi-tenant under one MSP account, so a customer-facing report
+ * MUST be scoped to that customer's org(s). We read the operator-managed
+ * `compliance_platform_mappings` (platform `dnsfilter`, set via the compliance
+ * Platform Mappings UI) rather than name-matching org names — a wrong match
+ * would leak another customer's traffic. No mapping → no DNSFilter section
+ * (degrade to `pending`), never an account-wide pull.
+ */
+async function dnsfilterMappedOrgs(ctx: TbrContext): Promise<{ orgIds: string[]; markedNone: boolean }> {
+  try {
+    const { prisma } = await import('@/lib/prisma');
+    const company = await prisma.company.findFirst({
+      where: { autotaskCompanyId: String(ctx.company.autotaskId) },
+      select: { id: true },
+    });
+    if (!company) return { orgIds: [], markedNone: false };
+
+    const { getPool } = await import('@/lib/db-pool');
+    const conn = await getPool().connect();
+    try {
+      const res = await conn.query<{ externalId: string }>(
+        `SELECT "externalId" FROM compliance_platform_mappings WHERE "companyId" = $1 AND platform = 'dnsfilter'`,
+        [company.id],
+      );
+      const ids = res.rows.map((r) => r.externalId);
+      if (ids.some((id) => id === '__none__')) return { orgIds: [], markedNone: true };
+      return { orgIds: ids.filter(Boolean), markedNone: false };
+    } finally {
+      conn.release();
+    }
+  } catch {
+    // Mapping table may not exist yet — treat as unmapped (degrade, never leak).
+    return { orgIds: [], markedNone: false };
+  }
+}
+
+/**
+ * Content Filtering (DNSFilter), scoped per-customer via an explicit
+ * company→DNSFilter-org mapping. Aggregates across all mapped orgs. Unmapped
+ * customers render `pending` with an actionable note — we never fall back to the
+ * account's first org (that would mix customers). Implements feasibility §7 #2.
+ */
+export async function contentFilteringSource(ctx: TbrContext): Promise<SectionState<ContentFilteringData>> {
+  const client = new DnsFilterClient();
+  if (!client.isConfigured()) {
+    return { status: 'empty', source: DNSFILTER_SOURCE, note: 'DNSFilter not configured (DNSFILTER_API_TOKEN unset).' };
+  }
+
+  const { orgIds, markedNone } = await dnsfilterMappedOrgs(ctx);
+  if (markedNone) {
+    return { status: 'empty', source: DNSFILTER_SOURCE, note: 'This customer is marked as not using DNSFilter.' };
+  }
+  if (orgIds.length === 0) {
+    return {
+      status: 'pending',
+      source: DNSFILTER_SOURCE,
+      note: 'No DNSFilter organization is mapped to this customer. Map it in the compliance Platform Mappings (DNSFilter → Organization) so it can be shown per-customer — an unmapped pull would be account-wide and mix customers.',
+    };
+  }
+
+  try {
+    let totalRequests = 0;
+    let blocked = 0;
+    const catCounts = new Map<string, number>();
+    const domainCounts = new Map<string, number>();
+    let anyAvailable = false;
+    let firstNote: string | null = null;
+
+    for (const orgId of orgIds) {
+      const s = await client.buildSummary(ctx.periodStart, ctx.periodEnd, orgId);
+      if (!s.available) {
+        firstNote = firstNote ?? s.note;
+        continue;
+      }
+      anyAvailable = true;
+      totalRequests += s.totalQueries;
+      blocked += s.blockedQueries;
+      for (const c of s.threatsByCategory) catCounts.set(c.category, (catCounts.get(c.category) ?? 0) + c.count);
+      for (const d of s.topBlockedDomains) domainCounts.set(d.domain, (domainCounts.get(d.domain) ?? 0) + d.count);
+    }
+
+    if (!anyAvailable) {
+      return { status: 'error', source: DNSFILTER_SOURCE, note: firstNote ?? 'DNSFilter returned no data for the mapped organization(s).' };
+    }
+
+    const threats = Array.from(catCounts.values()).reduce((a, b) => a + b, 0);
+    const topDomains = Array.from(domainCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([domain, count]) => ({ domain, count }));
+
+    return {
+      status: totalRequests === 0 ? 'empty' : 'success',
+      source: orgIds.length > 1 ? `DNSFilter (${orgIds.length} orgs)` : 'DNSFilter',
+      data: {
+        totalRequests,
+        allowed: Math.max(0, totalRequests - blocked),
+        blocked,
+        threats,
+        topCategories: toShare(catCounts, threats).slice(0, 8),
+        topDomains,
+      },
+    };
+  } catch (err) {
+    return { status: 'error', source: DNSFILTER_SOURCE, note: errMsg(err) };
   }
 }
 

@@ -33,18 +33,20 @@ wired). A thrown loader is caught and becomes `error`, so **one failing source
 never breaks the report**. Non-`success` sections render a banner plus a
 "ghost" of the metrics they will show once wired.
 
-Current wiring: **Ticket Volume**, **Devices & Alerts** (Autotask + Datto RMM)
-and **Backup & Business Continuity** (Datto SaaS) are live and per-customer
-scoped. **Content Filtering (DNSFilter)** and **Security Alerts (Datto EDR)**
-are intentionally left `pending` — their clients' `buildSummary` is **MSP-wide**
-(no per-customer parameter), so wiring them customer-facing would leak
-cross-customer data (CLAUDE.md gotcha #6); they need per-customer org scoping
-via `compliance_platform_mappings` first. **M365** is `pending` (tenant-scoped,
-so no leak risk, but its Graph usage-report CSV calls must be added to graph.ts
-and verified live). **Email Security (INKY)** and **Security Awareness
-(BullPhish ID)** are `manual` (no integration exists). Verified end-to-end: with
-no credentials present the whole deck still renders, degrading each source
-independently.
+Current wiring: **Ticket Volume**, **Devices & Alerts** (Autotask + Datto RMM),
+**Backup & Business Continuity** (Datto SaaS) and **Content Filtering**
+(DNSFilter) are live and per-customer scoped. Content Filtering is scoped via an
+explicit `compliance_platform_mappings` entry (platform `dnsfilter`, set in the
+compliance Platform Mappings UI); `DnsFilterClient.buildSummary(start, end,
+orgId)` then queries only that organization with the account-wide fallback
+disabled, so it can never mix customers. A customer with no DNSFilter mapping
+renders `pending` (never an account-wide pull). **Security Alerts (Datto EDR)**
+stays `pending` — its `buildSummary` is still MSP-wide (needs the same per-org
+scoping); **M365** is `pending` (tenant-scoped, so no leak risk, but its Graph
+usage-report CSV calls must be added to graph.ts and verified live). **Email
+Security (INKY)** and **Security Awareness (BullPhish ID)** are `manual` (no
+integration exists). Verified end-to-end: with no credentials present the whole
+deck still renders, degrading each source independently.
 
 ## How to add a data source
 
@@ -86,9 +88,9 @@ roll-up) without the HTML. The raw multi-year data export remains
 
 ## Not yet done (tracked in the feasibility report §7)
 
-DNSFilter per-customer org scoping (then wire Content Filtering); EDR
-per-customer org scoping + SOC "events analyzed" (then wire Security Alerts);
-M365 Graph Reports calls + delta snapshot (then wire Microsoft 365); Datto SaaS
-TB / last-backup / jobs (investigate `/saas/{id}/applications`); INKY + BullPhish
-connectors; persistence to `BusinessReview` (`reportType:'tbr'`) + an admin UI
-entry point reusing the existing customer typeahead + date-range picker.
+EDR per-customer org scoping + SOC "events analyzed" (then wire Security Alerts —
+apply the same `compliance_platform_mappings` org-scoping pattern now used for
+DNSFilter); M365 Graph Reports calls + delta snapshot (then wire Microsoft 365);
+Datto SaaS TB / last-backup / jobs (investigate `/saas/{id}/applications`); INKY +
+BullPhish connectors; persistence to `BusinessReview` (`reportType:'tbr'`) + an
+admin UI entry point reusing the existing customer typeahead + date-range picker.
