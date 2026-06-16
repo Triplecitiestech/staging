@@ -57,6 +57,7 @@ interface TbrExportData {
   company: { autotaskId: number; name: string; classification: string | null };
   period: { years: number; start: string; end: string; generatedAt: string };
   definitions: Record<string, string>;
+  diagnostics: { rawFetched: number; uniqueTickets: number; duplicatesRemoved: number };
   tickets: {
     totalCreated: number;
     openCreatedInPeriod: number;
@@ -232,7 +233,17 @@ export async function GET(request: NextRequest) {
     }
 
     // 3. Pull the full ticket history (live, paginated) -------------------------
-    const tickets = await client.getCompanyTicketsCreatedSince(company.id, periodStart);
+    const fetched = await client.getCompanyTicketsCreatedSince(company.id, periodStart);
+    // De-duplicate by Autotask ticket id. The date-window pagination can return a
+    // ticket in more than one window (e.g. if Autotask compares createDate at day
+    // granularity), which would otherwise inflate counts in dense recent periods.
+    const seenIds = new Set<number>();
+    const tickets = fetched.filter(t => {
+      if (seenIds.has(t.id)) return false;
+      seenIds.add(t.id);
+      return true;
+    });
+    const rawFetched = fetched.length;
 
     // 4. Aggregate ticket metrics ----------------------------------------------
     const ticketSummary = aggregateTickets(
@@ -275,6 +286,11 @@ export async function GET(request: NextRequest) {
         start: periodStart.toISOString().split('T')[0],
         end: periodEnd.toISOString().split('T')[0],
         generatedAt: new Date().toISOString(),
+      },
+      diagnostics: {
+        rawFetched,
+        uniqueTickets: tickets.length,
+        duplicatesRemoved: rawFetched - tickets.length,
       },
       definitions: {
         totalCreated: 'Tickets whose Autotask createDate falls within the period.',
@@ -834,6 +850,7 @@ function renderHtml(d: TbrExportData): string {
   <strong>Definitions</strong>
   <dl>${Object.entries(d.definitions).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
   Pulled live from Autotask PSA${dt.available ? ' + Datto RMM' : ''}. Numbers are point-in-time as of generation.
+  <div style="margin-top:6px">${d.diagnostics.uniqueTickets} unique tickets analyzed${d.diagnostics.duplicatesRemoved > 0 ? ` (de-duplicated ${d.diagnostics.duplicatesRemoved} repeat fetches)` : ''}.</div>
 </footer>
 </div></body></html>`;
 }
