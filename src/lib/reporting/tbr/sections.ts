@@ -14,6 +14,7 @@ import {
   backupSource,
   contentFilteringSource,
   devicesAlertsSource,
+  edrSecurityAlertsSource,
   manualSource,
   pendingSource,
   ticketVolumeSource,
@@ -34,6 +35,7 @@ import type {
   ContentFilteringData,
   DevicesAlertsData,
   RenderedSection,
+  SecurityAlertsData,
   SectionState,
   StatTile,
   TbrContext,
@@ -149,16 +151,13 @@ const devicesAlerts = defineSection<DevicesAlertsData>({
   render: (state, theme) => renderDevicesAlerts(state, theme),
 });
 
-const securityAlerts = defineSection({
+const securityAlerts = defineSection<SecurityAlertsData>({
   id: 'security_alerts',
   eyebrow: 'Security Posture',
   title: 'Security Alerts',
-  load: pendingSource(
-    'Managed endpoint detection & SOC (Datto EDR)',
-    "Datto EDR's buildSummary is MSP-wide (no per-customer org filter), so it can't be shown customer-facing without leaking cross-customer events. Needs a client change to filter events by org via compliance_platform_mappings; the \"events analyzed\" funnel step also needs SOC-engine data.",
-  ),
+  load: edrSecurityAlertsSource,
   ghost: ['Events captured', 'Events analyzed', 'Total alerts', 'Critical alerts'],
-  render: () => '',
+  render: (state, theme) => renderSecurityAlerts(state, theme),
 });
 
 const securityAwareness = defineSection({
@@ -277,6 +276,19 @@ function renderContentFiltering(state: SectionState<ContentFilteringData>, theme
       ? dataTable([{ header: 'Top blocked domain' }, { header: 'Hits', num: true }], domainRows)
       : '')
   );
+}
+
+function renderSecurityAlerts(state: SectionState<SecurityAlertsData>, theme: TbrTheme): string {
+  const d = state.data;
+  if (!d) return stateBanner(state);
+
+  const tiles: StatTile[] = [
+    { value: fmtNum(d.eventsCaptured), label: 'Events captured', sub: 'EDR detections this period', tone: 'accent' },
+    { value: fmtNum(d.totalAlerts), label: 'Actionable alerts', sub: 'suspicious / bad', tone: d.totalAlerts > 0 ? 'warn' : 'good' },
+    { value: fmtNum(d.criticalAlerts), label: 'Critical', tone: d.criticalAlerts > 0 ? 'danger' : 'good' },
+    { value: d.eventsAnalyzed === null ? '—' : fmtNum(d.eventsAnalyzed), label: 'Escalated by SOC', sub: d.eventsAnalyzed === null ? 'SOC pipeline not wired' : undefined },
+  ];
+  return tileGrid(theme, tiles, 4);
 }
 
 function renderBackup(state: SectionState<BackupData>, theme: TbrTheme): string {

@@ -11,6 +11,7 @@
  */
 
 import { AutotaskClient } from '@/lib/autotask';
+import { DattoEdrClient } from '@/lib/datto-edr';
 import { DattoRmmClient, type DattoAlert } from '@/lib/datto-rmm';
 import { DattoSaasClient } from '@/lib/datto-saas';
 import { DnsFilterClient } from '@/lib/dnsfilter';
@@ -20,6 +21,7 @@ import type {
   ContentFilteringData,
   CountShare,
   DevicesAlertsData,
+  SecurityAlertsData,
   SectionState,
   TbrContext,
   TicketVolumeData,
@@ -27,6 +29,7 @@ import type {
 
 const SAAS_SOURCE = 'Cloud backup & SaaS protection (Datto SaaS)';
 const DNSFILTER_SOURCE = 'DNS content filtering (DNSFilter)';
+const EDR_SOURCE = 'Managed endpoint detection (Datto EDR)';
 
 /** Friendly workload labels for Datto SaaS seat types. */
 const SAAS_WORKLOAD_LABELS: Record<string, string> = {
@@ -305,11 +308,66 @@ export async function devicesAlertsSource(ctx: TbrContext): Promise<SectionState
   return (await loadServiceDesk(ctx)).devicesAlerts;
 }
 
+// ---------------------------------------------------------------------------
+// Per-customer scoping helpers — mirror the compliance/SOC pattern: explicit
+// compliance_platform_mappings first, then name-match a SPECIFIC org/customer.
+// Never an MSP-wide / account-wide pull. (See src/lib/soc/enrichment.ts.)
+// ---------------------------------------------------------------------------
+
+/** Resolve the local Company.id for the report's Autotask company (id → name). */
+async function resolveLocalCompanyId(ctx: TbrContext): Promise<string | null> {
+  try {
+    const { prisma } = await import('@/lib/prisma');
+    const byAt = await prisma.company.findFirst({
+      where: { autotaskCompanyId: String(ctx.company.autotaskId) },
+      select: { id: true },
+    });
+    if (byAt) return byAt.id;
+    // The Autotask id may not be synced locally — fall back to the display name.
+    const byName = await prisma.company.findFirst({
+      where: { displayName: { equals: ctx.company.name, mode: 'insensitive' } },
+      select: { id: true },
+    });
+    return byName?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Backup & Business Continuity (Datto SaaS Protection). Scoped per-customer via
- * the client's `buildSummary(companyName)` name match — safe because it filters
- * to the matching SaaS customer(s) rather than returning MSP-wide data. Total-TB
- * / last-backup / jobs-in-progress are not exposed by the current calls (null).
+ * Explicit platform mappings for a company (the same table the compliance
+ * Platform Mappings UI writes). `markedNone` = the customer is flagged as not
+ * using the platform (`__none__`); `msp_wide` sentinels are dropped.
+ */
+async function platformMappingIds(
+  companyId: string | null,
+  platform: string,
+): Promise<{ ids: string[]; markedNone: boolean }> {
+  if (!companyId) return { ids: [], markedNone: false };
+  try {
+    const { getPool } = await import('@/lib/db-pool');
+    const conn = await getPool().connect();
+    try {
+      const res = await conn.query<{ externalId: string }>(
+        `SELECT "externalId" FROM compliance_platform_mappings WHERE "companyId" = $1 AND platform = $2`,
+        [companyId, platform],
+      );
+      const ids = res.rows.map((r) => r.externalId).filter(Boolean);
+      if (ids.some((id) => id === '__none__')) return { ids: [], markedNone: true };
+      return { ids: ids.filter((id) => id !== 'msp_wide'), markedNone: false };
+    } finally {
+      conn.release();
+    }
+  } catch {
+    return { ids: [], markedNone: false };
+  }
+}
+
+/**
+ * Backup & Business Continuity (Datto SaaS Protection). Scoped per-customer:
+ * explicit `datto_saas` mapping (SaaS customer ids) first, else fuzzy name
+ * match — the same priority the compliance side uses. Total-TB / last-backup /
+ * jobs-in-progress are not exposed by the current calls (null).
  */
 export async function backupSource(ctx: TbrContext): Promise<SectionState<BackupData>> {
   const client = new DattoSaasClient();
@@ -317,7 +375,15 @@ export async function backupSource(ctx: TbrContext): Promise<SectionState<Backup
     return { status: 'empty', source: SAAS_SOURCE, note: 'Datto SaaS not configured (DATTO_BCDR_PUBLIC_KEY / DATTO_BCDR_PRIVATE_KEY unset).' };
   }
   try {
-    const s = await client.buildSummary(ctx.company.name);
+    const localId = await resolveLocalCompanyId(ctx);
+    const { ids, markedNone } = await platformMappingIds(localId, 'datto_saas');
+    if (markedNone) {
+      return { status: 'empty', source: SAAS_SOURCE, note: 'This customer is marked as not using Datto SaaS Protection.' };
+    }
+    const customerIds = ids.map((id) => Number(id)).filter((n) => Number.isFinite(n));
+    const s = customerIds.length > 0
+      ? await client.buildSummary(undefined, { customerIds })
+      : await client.buildSummary(ctx.company.name);
     if (!s.available) {
       return { status: 'error', source: SAAS_SOURCE, note: s.note ?? 'Datto SaaS unavailable.' };
     }
@@ -325,12 +391,12 @@ export async function backupSource(ctx: TbrContext): Promise<SectionState<Backup
       return {
         status: 'empty',
         source: SAAS_SOURCE,
-        note: s.note ?? `No Datto SaaS customer matched "${ctx.company.name}".`,
+        note: s.note ?? `No Datto SaaS customer matched "${ctx.company.name}". Map it in compliance Platform Mappings (Datto SaaS Protect → Customer).`,
       };
     }
     return {
       status: 'success',
-      source: 'Datto SaaS Protection',
+      source: customerIds.length > 0 ? 'Datto SaaS Protection (mapped)' : 'Datto SaaS Protection',
       data: {
         totalSeats: s.totalSeats,
         activeSeats: s.activeSeats,
@@ -349,48 +415,61 @@ export async function backupSource(ctx: TbrContext): Promise<SectionState<Backup
 }
 
 /**
- * Resolve the DNSFilter organization id(s) explicitly mapped to this customer.
- *
- * DNSFilter is multi-tenant under one MSP account, so a customer-facing report
- * MUST be scoped to that customer's org(s). We read the operator-managed
- * `compliance_platform_mappings` (platform `dnsfilter`, set via the compliance
- * Platform Mappings UI) rather than name-matching org names — a wrong match
- * would leak another customer's traffic. No mapping → no DNSFilter section
- * (degrade to `pending`), never an account-wide pull.
+ * Security Alerts (Datto EDR). Scoped to the customer's EDR organization:
+ * explicit `datto_edr` mapping first, then name-match against the EDR org list
+ * — identical to the SOC enrichment. `/Alerts` is filtered by organizationId,
+ * so it is never MSP-wide. Unresolved org → `pending` (never an MSP-wide pull).
  */
-async function dnsfilterMappedOrgs(ctx: TbrContext): Promise<{ orgIds: string[]; markedNone: boolean }> {
+export async function edrSecurityAlertsSource(ctx: TbrContext): Promise<SectionState<SecurityAlertsData>> {
+  const client = new DattoEdrClient();
+  if (!client.isConfigured()) {
+    return { status: 'empty', source: EDR_SOURCE, note: 'Datto EDR not configured (DATTO_EDR_API_TOKEN unset).' };
+  }
   try {
-    const { prisma } = await import('@/lib/prisma');
-    const company = await prisma.company.findFirst({
-      where: { autotaskCompanyId: String(ctx.company.autotaskId) },
-      select: { id: true },
-    });
-    if (!company) return { orgIds: [], markedNone: false };
-
-    const { getPool } = await import('@/lib/db-pool');
-    const conn = await getPool().connect();
-    try {
-      const res = await conn.query<{ externalId: string }>(
-        `SELECT "externalId" FROM compliance_platform_mappings WHERE "companyId" = $1 AND platform = 'dnsfilter'`,
-        [company.id],
-      );
-      const ids = res.rows.map((r) => r.externalId);
-      if (ids.some((id) => id === '__none__')) return { orgIds: [], markedNone: true };
-      return { orgIds: ids.filter(Boolean), markedNone: false };
-    } finally {
-      conn.release();
+    const localId = await resolveLocalCompanyId(ctx);
+    const { ids, markedNone } = await platformMappingIds(localId, 'datto_edr');
+    if (markedNone) {
+      return { status: 'empty', source: EDR_SOURCE, note: 'This customer is marked as not using Datto EDR.' };
     }
-  } catch {
-    // Mapping table may not exist yet — treat as unmapped (degrade, never leak).
-    return { orgIds: [], markedNone: false };
+    let orgId: string | null = ids[0] ?? null;
+    if (!orgId) {
+      const orgs = await client.listOrganizations();
+      orgId = orgs.find((o) => o.name && matchesCompanyName(ctx.company.name, o.name))?.id ?? null;
+    }
+    if (!orgId) {
+      return {
+        status: 'pending',
+        source: EDR_SOURCE,
+        note: `No Datto EDR organization mapped or name-matched for "${ctx.company.name}". Map it in compliance Platform Mappings (Datto EDR → Organization) — EDR is never queried MSP-wide.`,
+      };
+    }
+    const s = await client.buildSummary(ctx.periodStart, ctx.periodEnd, orgId);
+    if (!s.available) {
+      return { status: 'error', source: EDR_SOURCE, note: s.note ?? 'Datto EDR unavailable.' };
+    }
+    const bySev = (name: string) => s.eventsBySeverity.find((e) => e.severity === name)?.count ?? 0;
+    const critical = bySev('critical');
+    const high = bySev('high');
+    return {
+      status: s.totalEvents === 0 ? 'empty' : 'success',
+      source: 'Datto EDR',
+      data: {
+        eventsCaptured: s.totalEvents,
+        eventsAnalyzed: null, // SOC-engine "escalated" count not wired into this slide yet
+        totalAlerts: critical + high, // actionable detections (suspicious/bad)
+        criticalAlerts: critical,
+      },
+    };
+  } catch (err) {
+    return { status: 'error', source: EDR_SOURCE, note: errMsg(err) };
   }
 }
 
 /**
- * Content Filtering (DNSFilter), scoped per-customer via an explicit
- * company→DNSFilter-org mapping. Aggregates across all mapped orgs. Unmapped
- * customers render `pending` with an actionable note — we never fall back to the
- * account's first org (that would mix customers). Implements feasibility §7 #2.
+ * Content Filtering (DNSFilter). Scoped to the customer's org(s): explicit
+ * `dnsfilter` mapping first, else name-match against the live org list (the
+ * same resolution the SOC enrichment uses). Each org is queried with the
+ * account-wide fallback disabled, so customers never mix. Unresolved → pending.
  */
 export async function contentFilteringSource(ctx: TbrContext): Promise<SectionState<ContentFilteringData>> {
   const client = new DnsFilterClient();
@@ -398,19 +477,26 @@ export async function contentFilteringSource(ctx: TbrContext): Promise<SectionSt
     return { status: 'empty', source: DNSFILTER_SOURCE, note: 'DNSFilter not configured (DNSFILTER_API_TOKEN unset).' };
   }
 
-  const { orgIds, markedNone } = await dnsfilterMappedOrgs(ctx);
-  if (markedNone) {
-    return { status: 'empty', source: DNSFILTER_SOURCE, note: 'This customer is marked as not using DNSFilter.' };
-  }
-  if (orgIds.length === 0) {
-    return {
-      status: 'pending',
-      source: DNSFILTER_SOURCE,
-      note: 'No DNSFilter organization is mapped to this customer. Map it in the compliance Platform Mappings (DNSFilter → Organization) so it can be shown per-customer — an unmapped pull would be account-wide and mix customers.',
-    };
-  }
-
   try {
+    const localId = await resolveLocalCompanyId(ctx);
+    const { ids, markedNone } = await platformMappingIds(localId, 'dnsfilter');
+    if (markedNone) {
+      return { status: 'empty', source: DNSFILTER_SOURCE, note: 'This customer is marked as not using DNSFilter.' };
+    }
+    let orgIds = ids;
+    if (orgIds.length === 0) {
+      const orgs = await client.listOrganizations();
+      const matched = orgs.find((o) => o.name && matchesCompanyName(ctx.company.name, o.name));
+      if (matched) orgIds = [matched.id];
+    }
+    if (orgIds.length === 0) {
+      return {
+        status: 'pending',
+        source: DNSFILTER_SOURCE,
+        note: `No DNSFilter organization mapped or name-matched for "${ctx.company.name}". Map it in compliance Platform Mappings (DNSFilter → Organization) — DNSFilter is never queried account-wide.`,
+      };
+    }
+
     let totalRequests = 0;
     let blocked = 0;
     const catCounts = new Map<string, number>();
