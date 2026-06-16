@@ -21,6 +21,7 @@ import type {
   ContentFilteringData,
   CountShare,
   DevicesAlertsData,
+  M365Data,
   SecurityAlertsData,
   SectionState,
   TbrContext,
@@ -30,6 +31,7 @@ import type {
 const SAAS_SOURCE = 'Cloud backup & SaaS protection (Datto SaaS)';
 const DNSFILTER_SOURCE = 'DNS content filtering (DNSFilter)';
 const EDR_SOURCE = 'Managed endpoint detection (Datto EDR)';
+const M365_SOURCE = 'Microsoft 365 (Graph)';
 
 /** Friendly workload labels for Datto SaaS seat types. */
 const SAAS_WORKLOAD_LABELS: Record<string, string> = {
@@ -541,6 +543,76 @@ export async function contentFilteringSource(ctx: TbrContext): Promise<SectionSt
     };
   } catch (err) {
     return { status: 'error', source: DNSFILTER_SOURCE, note: errMsg(err) };
+  }
+}
+
+/**
+ * Microsoft 365 (Graph). Tenant-scoped via the customer's connected M365
+ * credentials (Company.m365* / `getTenantCredentials`) — the same path used by
+ * the onboarding provisioning flow, so no cross-customer risk. Built from the
+ * production Graph client's counts (users / devices / sites / groups / license
+ * SKUs), not the Reports usage-CSV API. Not connected → `pending`.
+ */
+export async function m365Source(ctx: TbrContext): Promise<SectionState<M365Data>> {
+  try {
+    const localId = await resolveLocalCompanyId(ctx);
+    if (!localId) {
+      return {
+        status: 'pending',
+        source: M365_SOURCE,
+        note: `No local company record for "${ctx.company.name}" — M365 is read from the connected tenant. Sync/connect the customer first.`,
+      };
+    }
+    const { getTenantCredentials, createGraphClient } = await import('@/lib/graph');
+    const creds = await getTenantCredentials(localId);
+    if (!creds) {
+      return {
+        status: 'pending',
+        source: M365_SOURCE,
+        note: 'Microsoft 365 is not connected for this customer (no tenant credentials). Connect it via the onboarding M365 setup.',
+      };
+    }
+
+    const client = createGraphClient(creds);
+    const [usersR, devicesR, sitesR, groupsR, skusR] = await Promise.allSettled([
+      client.getUsers(),
+      client.getManagedDevices(),
+      client.getSharePointSites(),
+      client.getM365Groups(),
+      client.getLicenseSkus(),
+    ]);
+    // If every probe failed, the credentials/consent are broken — surface it.
+    if ([usersR, devicesR, sitesR, groupsR, skusR].every((r) => r.status === 'rejected')) {
+      const reason = (usersR as PromiseRejectedResult).reason;
+      return { status: 'error', source: M365_SOURCE, note: errMsg(reason) };
+    }
+    const arr = <T>(r: PromiseSettledResult<T[]>): T[] => (r.status === 'fulfilled' ? r.value : []);
+    const users = arr(usersR);
+    const skus = arr(skusR);
+
+    const topLicenses: CountShare[] = skus
+      .filter((s) => s.consumedUnits > 0)
+      .sort((a, b) => b.consumedUnits - a.consumedUnits)
+      .slice(0, 6)
+      .map((s) => ({
+        label: s.displayName ?? s.skuPartNumber,
+        count: s.consumedUnits,
+        share: s.prepaidUnits.enabled > 0 ? Math.round((s.consumedUnits / s.prepaidUnits.enabled) * 1000) / 10 : 0,
+      }));
+
+    return {
+      status: 'success',
+      source: M365_SOURCE,
+      data: {
+        licensedUsers: users.length,
+        managedDevices: arr(devicesR).length,
+        sharePointSites: arr(sitesR).length,
+        teamsGroups: arr(groupsR).length,
+        topLicenses,
+      },
+    };
+  } catch (err) {
+    return { status: 'error', source: M365_SOURCE, note: errMsg(err) };
   }
 }
 

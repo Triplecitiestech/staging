@@ -15,8 +15,8 @@ import {
   contentFilteringSource,
   devicesAlertsSource,
   edrSecurityAlertsSource,
+  m365Source,
   manualSource,
-  pendingSource,
   ticketVolumeSource,
 } from './data-sources';
 import {
@@ -34,6 +34,7 @@ import type {
   BackupData,
   ContentFilteringData,
   DevicesAlertsData,
+  M365Data,
   RenderedSection,
   SecurityAlertsData,
   SectionState,
@@ -101,16 +102,13 @@ function defineSection<T>(cfg: SectionConfig<T>): AnySection {
 // Section definitions (deck order: slides 05–12)
 // ---------------------------------------------------------------------------
 
-const m365 = defineSection({
+const m365 = defineSection<M365Data>({
   id: 'm365',
   eyebrow: 'Your Users at a Glance',
   title: 'Microsoft 365',
-  load: pendingSource(
-    'Microsoft 365 usage analytics',
-    'Tenant-scoped (Company.m365TenantId) and Reports.Read.All is already consented, so no leak risk — but the Graph usage-report calls (CSV) still need adding to graph.ts and the parsed figures verified against the M365 admin center before showing customer-facing numbers.',
-  ),
-  ghost: ['Active users', 'Email activities', 'Teams activities', 'OneDrive files', 'SharePoint files', 'Active app users'],
-  render: () => '',
+  load: m365Source,
+  ghost: ['Licensed users', 'Managed devices', 'Teams / M365 groups', 'SharePoint sites', 'License assignment'],
+  render: (state, theme) => renderM365(state, theme),
 });
 
 const emailSecurity = defineSection({
@@ -276,6 +274,19 @@ function renderContentFiltering(state: SectionState<ContentFilteringData>, theme
       ? dataTable([{ header: 'Top blocked domain' }, { header: 'Hits', num: true }], domainRows)
       : '')
   );
+}
+
+function renderM365(state: SectionState<M365Data>, theme: TbrTheme): string {
+  const d = state.data;
+  if (!d) return stateBanner(state);
+
+  const tiles: StatTile[] = [
+    { value: fmtNum(d.licensedUsers), label: 'Licensed users', sub: 'enabled accounts', tone: 'accent' },
+    { value: fmtNum(d.managedDevices), label: 'Managed devices', sub: 'Intune / Entra' },
+    { value: fmtNum(d.teamsGroups), label: 'Teams / M365 groups' },
+    { value: fmtNum(d.sharePointSites), label: 'SharePoint sites' },
+  ];
+  return tileGrid(theme, tiles, 4) + shareTable('License assignment (used / available)', d.topLicenses);
 }
 
 function renderSecurityAlerts(state: SectionState<SecurityAlertsData>, theme: TbrTheme): string {

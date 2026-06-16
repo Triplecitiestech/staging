@@ -81,14 +81,17 @@ export interface DevicesAlertsData {
   alertsByPriority: CountShare[];
 }
 
-/** Slide 05 — Users at a Glance: Microsoft 365 (Graph Reports API). */
+/**
+ * Slide 05 — Users at a Glance: Microsoft 365. Built from the production Graph
+ * client (`createGraphClient`) counts — reliable and tenant-scoped — rather than
+ * the Reports usage-CSV API. `topLicenses` share = consumed/enabled utilization.
+ */
 export interface M365Data {
-  activeUsers: number;
-  emailActivities: number;
-  teamsActivities: number;
-  oneDriveFiles: number;
-  sharePointFiles: number;
-  activeAppUsers: number;
+  licensedUsers: number;
+  managedDevices: number;
+  sharePointSites: number;
+  teamsGroups: number;
+  topLicenses: CountShare[];
 }
 
 /** Slide 06 — Email Security (INKY). */
