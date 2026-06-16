@@ -12,6 +12,7 @@
 
 import {
   backupSource,
+  contentFilteringSource,
   devicesAlertsSource,
   manualSource,
   pendingSource,
@@ -30,6 +31,7 @@ import {
 import { type TbrTheme } from './theme';
 import type {
   BackupData,
+  ContentFilteringData,
   DevicesAlertsData,
   RenderedSection,
   SectionState,
@@ -121,16 +123,13 @@ const emailSecurity = defineSection({
   render: () => '',
 });
 
-const contentFiltering = defineSection({
+const contentFiltering = defineSection<ContentFilteringData>({
   id: 'content_filtering',
   eyebrow: 'Your Users at a Glance',
   title: 'Content Filtering',
-  load: pendingSource(
-    'DNS content filtering (DNSFilter)',
-    "DNSFilter's buildSummary is MSP-wide (it uses the account's first org). Wiring it customer-facing would mix customers' traffic — add a companyId→DNSFilter-org mapping (compliance_platform_mappings, platform 'dnsfilter') + an org-scoped query first.",
-  ),
+  load: contentFilteringSource,
   ghost: ['Total requests', 'Allowed', 'Blocked', 'Threats', 'Top categories', 'Top domains'],
-  render: () => '',
+  render: (state, theme) => renderContentFiltering(state, theme),
 });
 
 const ticketVolume = defineSection<TicketVolumeData>({
@@ -257,6 +256,27 @@ function renderDevicesAlerts(state: SectionState<DevicesAlertsData>, theme: TbrT
   ];
 
   return tileGrid(theme, tiles, 3) + shareTable('Alerts by priority', d.alertsByPriority);
+}
+
+function renderContentFiltering(state: SectionState<ContentFilteringData>, theme: TbrTheme): string {
+  const d = state.data;
+  if (!d) return stateBanner(state);
+
+  const blockRate = d.totalRequests > 0 ? Math.round((d.blocked / d.totalRequests) * 1000) / 10 : 0;
+  const tiles: StatTile[] = [
+    { value: fmtNum(d.totalRequests), label: 'DNS requests', tone: 'accent' },
+    { value: fmtNum(d.allowed), label: 'Allowed', tone: 'good' },
+    { value: fmtNum(d.blocked), label: 'Blocked', sub: d.totalRequests > 0 ? `${blockRate}% of requests` : undefined, tone: d.blocked > 0 ? 'warn' : 'default' },
+    { value: fmtNum(d.threats), label: 'Threats categorized', tone: d.threats > 0 ? 'danger' : 'default' },
+  ];
+  const domainRows = d.topDomains.map((t) => [esc(t.domain), fmtNum(t.count)]);
+  return (
+    tileGrid(theme, tiles, 4) +
+    shareTable('Top blocked categories', d.topCategories) +
+    (domainRows.length
+      ? dataTable([{ header: 'Top blocked domain' }, { header: 'Hits', num: true }], domainRows)
+      : '')
+  );
 }
 
 function renderBackup(state: SectionState<BackupData>, theme: TbrTheme): string {
