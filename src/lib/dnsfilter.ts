@@ -117,13 +117,13 @@ export class DnsFilterClient {
 
   /**
    * Fetch traffic/threat reports for a date range.
-   * Tries multiple endpoint patterns since DNSFilter API docs aren't fully public.
+   * Uses the `/traffic_reports/query_logs` endpoint (the same one the SOC
+   * enrichment uses) — `organization_id` is a query param and `data.page.total`
+   * is the match count, so we get accurate totals without fetching every row.
    *
-   * @param orgId  When provided, scopes the pull to exactly this organization and
-   *   DISABLES the account-wide `/traffic_reports` fallbacks — required for
-   *   per-customer reports so one customer's report can never include another's
-   *   (or the whole account's) traffic. When omitted, behaviour is unchanged:
-   *   the account's first org is used plus account-wide fallbacks (MSP-wide).
+   * @param orgId  When provided, scopes the pull to exactly this organization
+   *   via `organization_id`. When omitted the query is account-wide (MSP) — used
+   *   only by internal MSP roll-ups, never for a single customer's report.
    */
   async getTrafficReport(since: Date, until: Date, orgId?: string): Promise<{
     total_queries: number;
@@ -131,89 +131,49 @@ export class DnsFilterClient {
     threats: Array<{ category: string; count: number }>;
     top_blocked: Array<{ domain: string; count: number }>;
   }> {
-    // DNSFilter uses ISO datetime with from/to params on /traffic_reports/query_logs
-    const sinceStr = since.toISOString();
-    const untilStr = until.toISOString();
-    const sinceDateOnly = since.toISOString().split('T')[0];
-    const untilDateOnly = until.toISOString().split('T')[0];
+    // DNSFilter query logs use ISO datetime (seconds precision) on from/to.
+    const fmt = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, 'Z');
 
-    // An explicit orgId scopes to a single customer; otherwise fall back to the
-    // account's first org (MSP-wide — must never be used for customer reports).
-    const targetOrgId = orgId ?? (await this.getOrganizationId());
-    console.log(`[dnsfilter] Org ID: ${targetOrgId}${orgId ? ' (explicit/customer-scoped)' : ''}, date range: ${sinceDateOnly} to ${untilDateOnly}`);
+    const queryLogs = (params: Record<string, string>) => {
+      const qs = new URLSearchParams({ from: fmt(since), to: fmt(until), ...params });
+      if (orgId) qs.set('organization_id', orgId);
+      return this.request<{
+        data?: {
+          values?: Array<{ domain?: string; fqdn?: string; threat?: boolean; categories_names?: string[] }>;
+          page?: { total?: number };
+        };
+      }>(`/traffic_reports/query_logs?${qs.toString()}`);
+    };
 
-    // Build endpoints to try — org-scoped first (required for most accounts)
-    const endpoints: string[] = [];
-    if (targetOrgId) {
-      endpoints.push(
-        `/organizations/${targetOrgId}/filtering_report?start=${sinceDateOnly}&end=${untilDateOnly}`,
-        `/organizations/${targetOrgId}/total_queries?start=${sinceDateOnly}&end=${untilDateOnly}`,
-        `/organizations/${targetOrgId}/traffic_reports?from=${sinceStr}&to=${untilStr}`,
-        `/organizations/${targetOrgId}/traffic_reports?start_date=${sinceDateOnly}&end_date=${untilDateOnly}`,
-      );
-    }
-    // Account-wide fallbacks return data across ALL customers, so only use them
-    // when NOT scoped to a specific organization.
-    if (!orgId) {
-      endpoints.push(
-        `/traffic_reports?from=${sinceStr}&to=${untilStr}`,
-        `/traffic_reports?start_date=${sinceDateOnly}&end_date=${untilDateOnly}`,
-      );
-    }
+    console.log(`[dnsfilter] query_logs org=${orgId ?? '(account-wide)'} ${fmt(since)}..${fmt(until)}`);
 
-    let lastError: Error | null = null;
+    // Total queries — only the count is needed, so request the smallest page.
+    const totalRes = await queryLogs({ 'page[size]': '1' });
+    const total_queries = totalRes.data?.page?.total ?? 0;
 
-    for (const endpoint of endpoints) {
-      try {
-        const data = await this.request<{
-          data?: {
-            total_queries?: number;
-            blocked_queries?: number;
-            allowed_queries?: number;
-            categories?: Array<{ name?: string; count?: number }>;
-            top_blocked_domains?: Array<{ domain?: string; count?: number }>;
-          };
-          total_queries?: number;
-          blocked_queries?: number;
-          allowed_queries?: number;
-        }>(endpoint);
+    // Blocked queries — count plus a sample page for category/domain breakdown.
+    const blockedRes = await queryLogs({ result: 'blocked', 'page[size]': '100' });
+    const blockedVals = blockedRes.data?.values ?? [];
+    const blocked_queries = blockedRes.data?.page?.total ?? blockedVals.length;
 
-        const inner = data.data || data;
-        const totalQ = inner.total_queries || 0;
-        const blockedQ = inner.blocked_queries || 0;
-
-        // If we got data, return it
-        if (totalQ > 0 || blockedQ > 0) {
-          return {
-            total_queries: totalQ,
-            blocked_queries: blockedQ,
-            threats: ((data.data?.categories) || []).map((c) => ({
-              category: c.name || 'Unknown',
-              count: c.count || 0,
-            })),
-            top_blocked: ((data.data?.top_blocked_domains) || []).map((d) => ({
-              domain: d.domain || '',
-              count: d.count || 0,
-            })),
-          };
-        }
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error));
-        // Try next endpoint
-        continue;
-      }
+    const catCounts = new Map<string, number>();
+    const domCounts = new Map<string, number>();
+    for (const v of blockedVals) {
+      for (const c of v.categories_names ?? []) catCounts.set(c, (catCounts.get(c) ?? 0) + 1);
+      const d = v.domain || v.fqdn || '';
+      if (d) domCounts.set(d, (domCounts.get(d) ?? 0) + 1);
     }
 
-    // If all endpoints returned 0 but no error, return zeros
-    if (!lastError) {
-      return { total_queries: 0, blocked_queries: 0, threats: [], top_blocked: [] };
-    }
-
-    throw new Error(
-      `DNSFilter data fetch failed after trying ${endpoints.length} endpoints. ` +
-      `Last error: ${lastError.message}. ` +
-      `Base URL: ${this.baseUrl}. Verify DNSFILTER_API_TOKEN and DNSFILTER_API_URL are correct.`
-    );
+    return {
+      total_queries,
+      blocked_queries,
+      threats: Array.from(catCounts.entries())
+        .sort((a, b) => b[1] - a[1])
+        .map(([category, count]) => ({ category, count })),
+      top_blocked: Array.from(domCounts.entries())
+        .sort((a, b) => b[1] - a[1])
+        .map(([domain, count]) => ({ domain, count })),
+    };
   }
 
   /**

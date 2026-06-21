@@ -55,6 +55,7 @@ export async function generateTbrReport(opts: GenerateTbrOptions): Promise<TbrRe
     title: r.title,
     status: r.status,
     source: r.source,
+    note: r.note,
   }));
 
   return {
