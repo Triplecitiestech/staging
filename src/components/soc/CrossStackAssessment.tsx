@@ -370,7 +370,9 @@ export default function CrossStackAssessment({ assessment, enrichment }: { asses
             {assessment.recommendedTechnicianActions.map((step, i) => (
               <li key={i} className="flex items-start gap-3">
                 <span className="flex-shrink-0 w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-400 text-xs font-medium flex items-center justify-center mt-0.5">{i + 1}</span>
-                <span className="text-sm text-slate-300">{step}</span>
+                {/* Strip any leading "N." / "N)" the model baked into the text —
+                    the circle already numbers the step (was rendering "1. 11."). */}
+                <span className="text-sm text-slate-300">{step.replace(/^\s*\d+[.)]\s*/, '')}</span>
               </li>
             ))}
           </ol>
