@@ -4,7 +4,8 @@
  */
 
 import { prisma } from '@/lib/prisma';
-import { AutotaskClient } from '@/lib/autotask';
+import { AutotaskClient, type AutotaskCompany } from '@/lib/autotask';
+import { structuredLog } from '@/lib/resilience';
 import { createJobTracker, getLastSuccessfulRun, getLastRunTime } from './job-status';
 import { JOB_NAMES, isResolvedStatus, updateStatusClassification } from './types';
 import { ensureReportingTables } from './ensure-tables';
@@ -159,6 +160,70 @@ export async function syncTickets(defaultDays: number = 90, batchSize: number = 
 }
 
 /**
+ * Find the local company for an Autotask account, creating a minimal record
+ * on demand if we don't have it yet. Single source for "company from Autotask
+ * id" — the company import route and the SOC ingest path both use it, so SOC
+ * visibility never depends on a customer having been pre-synced.
+ *
+ * The created record mirrors the company import: real display name, unique
+ * slug, autotaskCompanyId set (so the 2-hour batch sync then keeps it current),
+ * and a random password hash. Create is race-safe.
+ */
+export async function findOrCreateCompanyFromAutotask(
+  atCompany: AutotaskCompany,
+): Promise<{ id: string; displayName: string; slug: string; autotaskCompanyId: string | null; created: boolean }> {
+  const existing = await prisma.company.findFirst({
+    where: { autotaskCompanyId: String(atCompany.id) },
+    select: { id: true, displayName: true, slug: true, autotaskCompanyId: true },
+  });
+  if (existing) return { ...existing, created: false };
+
+  // URL-safe slug, falling back to the AT id for names with no alphanumerics.
+  const baseSlug = (atCompany.companyName || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '') || `company-${atCompany.id}`;
+
+  let slug = baseSlug;
+  let attempt = 0;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const owns = await prisma.company.findUnique({ where: { slug }, select: { id: true } });
+    if (!owns) break;
+    attempt++;
+    slug = `${baseSlug}-${attempt + 1}`;
+    if (attempt > 50) {
+      throw new Error(`Could not find a unique slug based on "${baseSlug}" after 50 attempts`);
+    }
+  }
+
+  const bcrypt = await import('bcryptjs');
+  const crypto = await import('crypto');
+  const passwordHash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10);
+
+  try {
+    const created = await prisma.company.create({
+      data: {
+        displayName: atCompany.companyName,
+        slug,
+        autotaskCompanyId: String(atCompany.id),
+        passwordHash,
+      },
+      select: { id: true, displayName: true, slug: true, autotaskCompanyId: true },
+    });
+    return { ...created, created: true };
+  } catch (createErr) {
+    // Race: a concurrent request may have created the same AT-linked company.
+    const fallback = await prisma.company.findFirst({
+      where: { autotaskCompanyId: String(atCompany.id) },
+      select: { id: true, displayName: true, slug: true, autotaskCompanyId: true },
+    });
+    if (!fallback) throw createErr;
+    return { ...fallback, created: false };
+  }
+}
+
+/**
  * Sync a SINGLE ticket from Autotask into the local `tickets` table by its
  * Autotask ID. Used by the SOC real-time ingest webhook so a ticket can be
  * analyzed the moment it's created, instead of waiting for the 2-hour batch.
@@ -172,12 +237,36 @@ export async function syncSingleTicket(
   const atTicket = await client.getTicket(parseInt(autotaskTicketId, 10));
   if (!atTicket) return { synced: false, companyId: null, reason: 'Ticket not found in Autotask' };
 
-  const company = await prisma.company.findFirst({
+  // SOC alerts must be visible and triaged even for customers we haven't synced
+  // from Autotask yet. Rather than drop the ticket when there's no local company
+  // (which silently hid an entire customer's security alerts), create the company
+  // on demand from Autotask, then carry on.
+  let company: { id: string };
+  const existingCompany = await prisma.company.findFirst({
     where: { autotaskCompanyId: String(atTicket.companyID) },
     select: { id: true },
   });
-  if (!company) {
-    return { synced: false, companyId: null, reason: `No local company mapped for Autotask company ${atTicket.companyID}` };
+  if (existingCompany) {
+    company = existingCompany;
+  } else {
+    const atCompany = await client.getCompany(Number(atTicket.companyID));
+    if (!atCompany || !atCompany.companyName) {
+      return { synced: false, companyId: null, reason: `Autotask company ${atTicket.companyID} not found` };
+    }
+    const ensured = await findOrCreateCompanyFromAutotask(atCompany);
+    company = { id: ensured.id };
+    if (ensured.created) {
+      structuredLog.info(
+        {
+          correlationId: autotaskTicketId,
+          operation: 'soc.ingest.auto-create-company',
+          autotaskCompanyId: String(atTicket.companyID),
+          companyId: ensured.id,
+          displayName: ensured.displayName,
+        },
+        `Auto-created local company "${ensured.displayName}" (Autotask ${atTicket.companyID}) for a SOC ticket from a not-yet-synced customer`,
+      );
+    }
   }
 
   const picklistCache = await resolvePicklists(client);
