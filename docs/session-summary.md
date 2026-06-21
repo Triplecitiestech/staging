@@ -1,8 +1,33 @@
 # Session Summary
 
-> **Last updated**: 2026-06-11. SOC dashboard alert history + search/filters.
-> **Branch**: `claude/wonderful-lamport-ngzbi5`.
+> **Last updated**: 2026-06-16. TBR / Customer History live Autotask export.
+> **Branch**: `claude/pensive-cannon-sc50gx` (merged to `main`).
 > **Detailed handoff**: see `docs/SESSION_HANDOFF.md` first — this file is the quick state-of-the-world reference.
+
+## TBR / Customer History export — live multi-year Autotask pull (2026-06-16) — PRs #92–#95 (all merged to production)
+
+**Context**: Owner prepping a Technology Business Review for **Tri-Bros Transportation** needed every Autotask ticket for ~3 years with queue/type breakdowns + Datto RMM data. The reporting sync only caches a rolling ~30-day window, and all three existing report engines (Business Review, Annual Service Report, Executive Summary) read that cache — none could produce multi-year history.
+
+**Shipped**:
+- **`GET /api/reports/tbr-export`** (`src/app/api/reports/tbr-export/route.ts`, NEW) — read-only; auth = staff NextAuth session **OR** `MIGRATION_SECRET`. Pulls a company's full ticket history **directly from Autotask** (not the DB cache), resolves queue/priority/status/issue-type/sub-issue/source picklist labels, and aggregates: totals, by year, by month, by queue/priority/status/issue-type/source, reactive-vs-proactive, **human-support vs proactive-monitoring**, resolution times, open backlog, optional labor hours, plus Datto RMM devices + alerts. Returns JSON or `&format=html` printable report. Params: `company` (fuzzy) **or** `companyId` (exact Autotask id), `years` (default 3), `hours` (default off via API; ON in the UI), `datto` (default on), `alertPages`, `format`.
+- **`/admin/reporting/customer-history`** (`src/app/admin/reporting/customer-history/page.tsx` + `src/components/reporting/CustomerHistoryGenerator.tsx`, NEW) — staff-gated; live Autotask customer typeahead (reuses `/api/autotask/companies/search`), 1/2/3/5-year selector, Datto + hours toggles, opens the report, copyable shareable link (no secret in URL). Linked from `ReportingDashboard`.
+- **`AutotaskClient`** (`src/lib/autotask.ts`): new `getCompanyTicketsCreatedSince()` (recursive createDate-window pull), `getTimeEntriesByTicketIds()` (batched, adaptive-split), private `queryOnePage()` (single POST, no nextPageUrl follow).
+
+**Bugs found & fixed (now gotchas → Autotask)**:
+- Autotask `nextPageUrl` GET → **HTTP 405** on `includeFields` queries; the multi-year pull failed after 500 records. Fixed with window-split pagination via `queryOnePage`.
+- Autotask filters `createDate` at **day granularity** → sub-day window splits duplicated tickets. Fixed with de-dupe by ticket id + 1-day split floor + a `duplicatesRemoved` diagnostic.
+
+**Accuracy verified against ground truth**: owner provided a raw Autotask CSV export (1,111 tickets all-time; 1,023 in the 3-yr window). Endpoint per-year counts matched within 2 tickets (start-date boundary). **There was NO counting bug** — the "2026 half-year ≈ full prior years" anomaly is REAL data: a new **Security Monitoring Alert** feed (M365 SaaS + Datto EDR) produced **133 automated tickets in H1 2026 vs 3 in all 2025**; human-support volume is flat (~200 → 179 → 154 → 130). **35% of 3-yr volume is automated monitoring.** Final change split the report's counts into Human support vs Proactive monitoring (by queue, `isMonitoringQueue`) — headline cards + by-year table.
+
+**Process / access notes**:
+- PRs #92 (endpoint), #93 (typeahead + hours-default), #94 (dedupe fix), #95 (human/monitoring split) were **promoted to production by expediting past the e2e gate at owner request** — the `quality`/build gate passed each time; e2e ran post-merge. (Owner explicitly said "promote to production".)
+- The `triple-cities-tech` MCP `api_call` reaches production but its `MIGRATION_SECRET` does NOT match prod (always 401 on gated routes), and its DB tools (`db_query`/`ticket_check`/`company_lookup`) fail with **"ENOTFOUND base"** (misconfigured host) — so **live prod data could not be pulled from the session**; the owner ran the report and provided exports. No Autotask/Datto creds in the dev sandbox.
+
+**Known limitations / tech debt**:
+- e2e expedited on the prod promotes of #92/#94/#95 (build gate passed; e2e not confirmed pre-merge).
+- Large/dense companies: the pull does many window-split queries (+ batched time-entry queries when `hours=true`); could approach the 60s function limit — drop `hours` if slow.
+- Datto RMM device/patch/AV = current snapshot only; Datto alert history is retention-limited.
+- The live pull is NOT wired into the Annual Report / Business Review engines (still DB-cache-based) → reporting remains somewhat scattered (owner flagged; consolidation is a roadmap item).
 
 ## SOC dashboard: searchable alert history (2026-06-11) — PR #89
 

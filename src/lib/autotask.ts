@@ -400,6 +400,38 @@ export class AutotaskClient {
     return results;
   }
 
+  /**
+   * Execute a SINGLE query page (POST) WITHOUT following pagination.
+   * Returns the page's items plus whether Autotask reports more pages.
+   *
+   * Callers that expect large result sets should paginate by narrowing the
+   * filter (e.g. splitting a date range or an id batch) rather than following
+   * pageDetails.nextPageUrl: some Autotask zones reject the nextPageUrl GET
+   * with HTTP 405 ("does not support http method 'GET'") when the original
+   * query used includeFields.
+   */
+  private async queryOnePage<T>(
+    entityPath: string,
+    filter: object | object[],
+    includeFields?: string[],
+  ): Promise<{ items: T[]; hasMore: boolean }> {
+    const filterArray = Array.isArray(filter) ? filter : [filter];
+    const url = `${this.baseUrl}/v1.0/${entityPath}/query`;
+    const body: Record<string, unknown> = { filter: filterArray };
+    if (includeFields?.length) {
+      body.includeFields = includeFields;
+    }
+    const data = await this.withRetries(`query ${entityPath} (single page)`, () =>
+      this.requestJson<AutotaskApiResponse<T>>(url, {
+        method: 'POST',
+        body: JSON.stringify(body),
+        timeoutMs: 30_000,
+        label: `query ${entityPath} single page`,
+      })
+    );
+    return { items: data.items ?? [], hasMore: !!data.pageDetails?.nextPageUrl };
+  }
+
   // ============================================
   // ENTITY QUERIES
   // ============================================
@@ -839,6 +871,55 @@ export class AutotaskClient {
   }
 
   /**
+   * Get ALL tickets for a company created on/after a given date.
+   *
+   * Unlike getCompanyTickets() — which caps at a rolling N-day window and ORs in
+   * lastActivityDate for incremental sync — this pulls the complete created-in-window
+   * history for long-range reporting (e.g. a multi-year Technology Business Review).
+   *
+   * Paginates by recursively splitting the createDate window whenever a single
+   * 500-record page fills, which avoids the nextPageUrl GET that some Autotask
+   * zones reject with HTTP 405 for includeFields queries.
+   */
+  async getCompanyTicketsCreatedSince(companyId: number, since: Date): Promise<AutotaskTicket[]> {
+    const acc: AutotaskTicket[] = [];
+    await this.collectCompanyTickets(companyId, since, new Date(), acc, 0);
+    return acc;
+  }
+
+  private async collectCompanyTickets(
+    companyId: number,
+    from: Date,
+    to: Date,
+    acc: AutotaskTicket[],
+    depth: number,
+  ): Promise<void> {
+    const { items, hasMore } = await this.queryOnePage<AutotaskTicket>('Tickets', [
+      { op: 'eq', field: 'companyID', value: companyId },
+      { op: 'gte', field: 'createDate', value: from.toISOString() },
+      { op: 'lt', field: 'createDate', value: to.toISOString() },
+    ], TICKET_QUERY_FIELDS);
+
+    const spanMs = to.getTime() - from.getTime();
+    // Stop splitting at a 1-DAY floor (or excessive depth). Autotask appears to
+    // filter createDate at day granularity, so sub-day windows return the same
+    // day's tickets repeatedly — splitting below a day causes duplicate fetches
+    // (de-duplicated downstream by ticket id) without finding new records. A
+    // single day with >500 tickets for one company is implausible.
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    if (!hasMore || spanMs <= DAY_MS || depth > 24) {
+      if (hasMore && (spanMs <= DAY_MS || depth > 24)) {
+        console.warn(`[AutotaskClient] collectCompanyTickets: window ${from.toISOString()}–${to.toISOString()} still reports >500 tickets at the split floor; result may be truncated.`);
+      }
+      acc.push(...items);
+      return;
+    }
+    const mid = new Date(from.getTime() + Math.floor(spanMs / 2));
+    await this.collectCompanyTickets(companyId, from, mid, acc, depth + 1);
+    await this.collectCompanyTickets(companyId, mid, to, acc, depth + 1);
+  }
+
+  /**
    * Fetch a single ticket by its Autotask ID. Used by the SOC real-time
    * ingest webhook to pull a ticket the moment it lands.
    */
@@ -975,6 +1056,51 @@ export class AutotaskClient {
       console.error(`[autotask] Failed to get time entries for range ${fromStr} to ${toStr}: ${err instanceof Error ? err.message : String(err)}`);
       return [];
     }
+  }
+
+  /**
+   * Get time entries for a set of tickets, batched with the `in` operator.
+   * Used by long-range reporting to total labor hours without a per-ticket
+   * round trip. Batches stay modest to respect Autotask query limits, and an
+   * optional deadline lets the caller bound total time and accept a partial
+   * (best-effort) result rather than risk a serverless timeout.
+   */
+  async getTimeEntriesByTicketIds(
+    ticketIds: number[],
+    opts: { batchSize?: number; deadlineMs?: number } = {},
+  ): Promise<{ entries: AutotaskTimeEntry[]; completed: boolean }> {
+    const initialBatch = opts.batchSize ?? 100;
+    const entries: AutotaskTimeEntry[] = [];
+    // Work queue of ticket-id batches; a batch that fills a 500-record page is
+    // split in half and retried (avoids the nextPageUrl GET that can 405).
+    const queue: number[][] = [];
+    for (let i = 0; i < ticketIds.length; i += initialBatch) {
+      queue.push(ticketIds.slice(i, i + initialBatch));
+    }
+
+    while (queue.length > 0) {
+      if (opts.deadlineMs && Date.now() > opts.deadlineMs) {
+        return { entries, completed: false };
+      }
+      const batch = queue.shift();
+      if (!batch || batch.length === 0) continue;
+      const filter = batch.length === 1
+        ? { op: 'eq', field: 'ticketID', value: batch[0] }
+        : { op: 'in', field: 'ticketID', value: batch };
+      try {
+        const { items, hasMore } = await this.queryOnePage<AutotaskTimeEntry>('TimeEntries', filter);
+        if (hasMore && batch.length > 1) {
+          const mid = Math.ceil(batch.length / 2);
+          queue.unshift(batch.slice(0, mid), batch.slice(mid));
+        } else {
+          entries.push(...items);
+        }
+      } catch (err) {
+        console.error(`[AutotaskClient] getTimeEntriesByTicketIds batch failed: ${err instanceof Error ? err.message : String(err)}`);
+        return { entries, completed: false };
+      }
+    }
+    return { entries, completed: true };
   }
 
   /**

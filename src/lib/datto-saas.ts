@@ -176,7 +176,7 @@ export class DattoSaasClient {
    * Build a summary for the annual report.
    * Optionally filter by company name.
    */
-  async buildSummary(companyName?: string): Promise<DattoSaasSummary> {
+  async buildSummary(companyName?: string, opts?: { customerIds?: number[] }): Promise<DattoSaasSummary> {
     if (!this.isConfigured()) {
       return {
         available: false,
@@ -211,16 +211,20 @@ export class DattoSaasClient {
         }
       }
 
-      // Filter by company name if provided
+      // Scope to this customer: explicit SaaS customer IDs (from a datto_saas
+      // platform mapping) take priority over fuzzy name matching.
       let customerIds = Array.from(customerMap.keys());
-      if (companyName) {
+      if (opts?.customerIds && opts.customerIds.length > 0) {
+        const wanted = new Set(opts.customerIds);
+        customerIds = customerIds.filter((id) => wanted.has(id));
+      } else if (companyName) {
         customerIds = customerIds.filter((id) => {
           const c = customerMap.get(id)!;
           return matchesCompanyName(companyName, c.name);
         });
       }
 
-      if (customerIds.length === 0 && companyName) {
+      if (customerIds.length === 0 && (companyName || opts?.customerIds)) {
         return {
           available: true,
           totalCustomers: 0,

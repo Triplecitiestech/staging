@@ -102,10 +102,30 @@ export class DnsFilterClient {
   }
 
   /**
+   * List the organizations visible to this API token (MSP sub-orgs). Used to
+   * resolve a customer's org by name when there is no explicit mapping — the
+   * same approach the SOC enrichment and compliance collectors use.
+   */
+  async listOrganizations(): Promise<Array<{ id: string; name: string }>> {
+    const orgData = await this.request<{
+      data?: Array<{ id?: string; attributes?: { name?: string } }>;
+    }>('/organizations');
+    return (orgData.data ?? [])
+      .filter((o): o is { id: string; attributes?: { name?: string } } => !!o.id)
+      .map((o) => ({ id: o.id, name: o.attributes?.name ?? '' }));
+  }
+
+  /**
    * Fetch traffic/threat reports for a date range.
    * Tries multiple endpoint patterns since DNSFilter API docs aren't fully public.
+   *
+   * @param orgId  When provided, scopes the pull to exactly this organization and
+   *   DISABLES the account-wide `/traffic_reports` fallbacks — required for
+   *   per-customer reports so one customer's report can never include another's
+   *   (or the whole account's) traffic. When omitted, behaviour is unchanged:
+   *   the account's first org is used plus account-wide fallbacks (MSP-wide).
    */
-  async getTrafficReport(since: Date, until: Date): Promise<{
+  async getTrafficReport(since: Date, until: Date, orgId?: string): Promise<{
     total_queries: number;
     blocked_queries: number;
     threats: Array<{ category: string; count: number }>;
@@ -117,24 +137,29 @@ export class DnsFilterClient {
     const sinceDateOnly = since.toISOString().split('T')[0];
     const untilDateOnly = until.toISOString().split('T')[0];
 
-    const orgId = await this.getOrganizationId();
-    console.log(`[dnsfilter] Org ID: ${orgId}, date range: ${sinceDateOnly} to ${untilDateOnly}`);
+    // An explicit orgId scopes to a single customer; otherwise fall back to the
+    // account's first org (MSP-wide — must never be used for customer reports).
+    const targetOrgId = orgId ?? (await this.getOrganizationId());
+    console.log(`[dnsfilter] Org ID: ${targetOrgId}${orgId ? ' (explicit/customer-scoped)' : ''}, date range: ${sinceDateOnly} to ${untilDateOnly}`);
 
     // Build endpoints to try — org-scoped first (required for most accounts)
     const endpoints: string[] = [];
-    if (orgId) {
+    if (targetOrgId) {
       endpoints.push(
-        `/organizations/${orgId}/filtering_report?start=${sinceDateOnly}&end=${untilDateOnly}`,
-        `/organizations/${orgId}/total_queries?start=${sinceDateOnly}&end=${untilDateOnly}`,
-        `/organizations/${orgId}/traffic_reports?from=${sinceStr}&to=${untilStr}`,
-        `/organizations/${orgId}/traffic_reports?start_date=${sinceDateOnly}&end_date=${untilDateOnly}`,
+        `/organizations/${targetOrgId}/filtering_report?start=${sinceDateOnly}&end=${untilDateOnly}`,
+        `/organizations/${targetOrgId}/total_queries?start=${sinceDateOnly}&end=${untilDateOnly}`,
+        `/organizations/${targetOrgId}/traffic_reports?from=${sinceStr}&to=${untilStr}`,
+        `/organizations/${targetOrgId}/traffic_reports?start_date=${sinceDateOnly}&end_date=${untilDateOnly}`,
       );
     }
-    // Global fallbacks
-    endpoints.push(
-      `/traffic_reports?from=${sinceStr}&to=${untilStr}`,
-      `/traffic_reports?start_date=${sinceDateOnly}&end_date=${untilDateOnly}`,
-    );
+    // Account-wide fallbacks return data across ALL customers, so only use them
+    // when NOT scoped to a specific organization.
+    if (!orgId) {
+      endpoints.push(
+        `/traffic_reports?from=${sinceStr}&to=${untilStr}`,
+        `/traffic_reports?start_date=${sinceDateOnly}&end_date=${untilDateOnly}`,
+      );
+    }
 
     let lastError: Error | null = null;
 
@@ -193,8 +218,12 @@ export class DnsFilterClient {
 
   /**
    * Build a summary for reporting.
+   *
+   * @param orgId  When provided, scopes the whole summary (totals + monthly
+   *   trends) to that single organization with no account-wide fallback — use
+   *   this for per-customer reports. See {@link getTrafficReport}.
    */
-  async buildSummary(periodStart: Date, periodEnd: Date): Promise<DnsFilterSummary> {
+  async buildSummary(periodStart: Date, periodEnd: Date, orgId?: string): Promise<DnsFilterSummary> {
     if (!this.isConfigured()) {
       return {
         available: false,
@@ -208,7 +237,7 @@ export class DnsFilterClient {
     }
 
     try {
-      const report = await this.getTrafficReport(periodStart, periodEnd);
+      const report = await this.getTrafficReport(periodStart, periodEnd, orgId);
 
       // Build monthly trends by querying month by month
       const monthlyTrends: Array<{ month: string; label: string; blocked: number; total: number }> = [];
@@ -220,7 +249,7 @@ export class DnsFilterClient {
         const effectiveEnd = monthEnd > periodEnd ? periodEnd : monthEnd;
 
         try {
-          const monthReport = await this.getTrafficReport(monthStart, effectiveEnd);
+          const monthReport = await this.getTrafficReport(monthStart, effectiveEnd, orgId);
           const m = cursor.getMonth() + 1;
           monthlyTrends.push({
             month: `${cursor.getFullYear()}-${m < 10 ? '0' + m : m}`,

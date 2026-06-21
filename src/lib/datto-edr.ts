@@ -57,6 +57,18 @@ export class DattoEdrClient {
   }
 
   /**
+   * List EDR organizations (Infocyte). Used to resolve a customer's org by name
+   * when there is no explicit `datto_edr` platform mapping — mirrors the SOC
+   * enrichment's org resolution so per-customer scoping is consistent.
+   */
+  async listOrganizations(): Promise<Array<{ id: string; name: string }>> {
+    const orgs = await this.request<Array<{ id?: string | number; name?: string }>>('/Organizations');
+    return (Array.isArray(orgs) ? orgs : [])
+      .filter((o) => o.id != null)
+      .map((o) => ({ id: String(o.id), name: o.name ?? '' }));
+  }
+
+  /**
    * LoopBack APIs use access_token as a query parameter for auth.
    * Some instances also accept Authorization header — we send both for compatibility.
    */
@@ -86,7 +98,7 @@ export class DattoEdrClient {
    * Fetch alerts from the Infocyte /Alerts endpoint.
    * LoopBack filter syntax: ?filter[where][createdOn][gte]=<ISO date>
    */
-  async getEvents(since: Date, until: Date): Promise<DattoEdrEvent[]> {
+  async getEvents(since: Date, until: Date, organizationId?: string): Promise<DattoEdrEvent[]> {
     const sinceStr = since.toISOString();
     const untilStr = until.toISOString();
 
@@ -97,10 +109,14 @@ export class DattoEdrClient {
       let skip = 0;
 
       for (let page = 0; page < 20; page++) { // Safety cap at 10,000 events
+        // organizationId scopes to one customer's org — the same LoopBack filter
+        // the SOC enrichment uses. Without it the query is MSP-wide.
+        const where: Record<string, unknown> = {
+          createdOn: { gte: sinceStr, lte: untilStr },
+        };
+        if (organizationId) where.organizationId = organizationId;
         const filter = JSON.stringify({
-          where: {
-            createdOn: { gte: sinceStr, lte: untilStr },
-          },
+          where,
           limit: PAGE_SIZE,
           skip,
           order: 'createdOn DESC',
@@ -161,7 +177,7 @@ export class DattoEdrClient {
    * Build a summary of EDR data for reporting.
    * Filters events by date range and aggregates.
    */
-  async buildSummary(periodStart: Date, periodEnd: Date): Promise<DattoEdrSummary> {
+  async buildSummary(periodStart: Date, periodEnd: Date, organizationId?: string): Promise<DattoEdrSummary> {
     if (!this.isConfigured()) {
       return {
         available: false,
@@ -175,7 +191,7 @@ export class DattoEdrClient {
     }
 
     try {
-      const events = await this.getEvents(periodStart, periodEnd);
+      const events = await this.getEvents(periodStart, periodEnd, organizationId);
 
       // Aggregate by severity
       const sevCounts = new Map<string, number>();
