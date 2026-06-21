@@ -123,8 +123,8 @@ export async function enrichTicket(
 
   // 6. Known benign catalogue (informational only).
   const knownBenignMatches = await matchKnownBenign({
-    text,
     path: rocketCyber?.path || null,
+    processName: rocketCyber?.process || null,
     hash: rocketCyber?.hash || null,
     companyId,
     hostname,
@@ -784,8 +784,8 @@ async function fetchSaasAlerts(companyId: string | null, companyName: string | n
 // ── Known Benign matching (informational only — never auto-suppresses) ──
 
 export async function matchKnownBenign(params: {
-  text: string;
   path: string | null;
+  processName: string | null;
   hash: string | null;
   companyId: string | null;
   hostname: string | null;
@@ -812,18 +812,25 @@ export async function matchKnownBenign(params: {
   }
 
   const matches: KnownBenignMatch[] = [];
-  const lowerText = params.text.toLowerCase();
-  const lowerPath = (params.path || '').toLowerCase();
+  // Match ONLY against the flagged artifact — the process/file the alert is
+  // actually about (its path, name, hash) — never the alert narrative. The
+  // narrative names the DETECTING tools (Windows Defender, Datto EDR Agent),
+  // so matching it made benign-catalogue entries for those tools match the
+  // very alerts they raised, nudging real detections toward false-positive.
+  const artifact = [params.path, params.processName]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
 
   for (const r of rows) {
     let matchedOn: string | null = null;
-    if (r.executablePath) {
+    if (r.executablePath && artifact) {
       const ep = r.executablePath.toLowerCase();
-      if ((lowerPath && lowerPath.includes(ep)) || lowerText.includes(ep)) matchedOn = 'path';
+      if (artifact.includes(ep)) matchedOn = 'path';
     }
     if (!matchedOn && r.hashValue && params.hash && r.hashValue.toLowerCase() === params.hash.toLowerCase()) matchedOn = 'hash';
-    if (!matchedOn && r.certificateSigner && lowerText.includes(r.certificateSigner.toLowerCase())) matchedOn = 'signer';
-    if (!matchedOn && r.vendor && r.product && lowerText.includes(r.vendor.toLowerCase()) && lowerText.includes(r.product.toLowerCase())) matchedOn = 'vendor_product';
+    if (!matchedOn && r.certificateSigner && artifact && artifact.includes(r.certificateSigner.toLowerCase())) matchedOn = 'signer';
+    if (!matchedOn && r.vendor && r.product && artifact && artifact.includes(r.vendor.toLowerCase()) && artifact.includes(r.product.toLowerCase())) matchedOn = 'vendor_product';
 
     if (matchedOn) {
       matches.push({

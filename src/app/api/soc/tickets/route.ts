@@ -39,11 +39,20 @@ export async function GET(request: NextRequest) {
 
     const filter = request.nextUrl.searchParams.get('filter') || 'actionable';
 
+    // Hard cap the working set. A 365-day range over a high-volume security
+    // queue can return many thousands of tickets; feeding that many ids into
+    // the downstream `IN (...)` / `ANY(...)` queries blows past Postgres's
+    // bind-parameter ceiling (Prisma throws "Invalid ... too many bind
+    // variables"). The dashboard is newest-first + paginated, so the most
+    // recent N is what's actually shown; `capped` tells the client we trimmed.
+    const MAX_TICKETS = 2500;
+
     // Fetch tickets from local DB
     const allTickets = await prisma.ticket.findMany({
       where: {
         createDate: { gte: fromDate },
       },
+      take: MAX_TICKETS,
       select: {
         autotaskTicketId: true,
         ticketNumber: true,
@@ -184,6 +193,9 @@ export async function GET(request: NextRequest) {
       resolvedCount: resolved.length,
       suspiciousCount: suspicious.length,
       autotaskWebUrl,
+      // True when the window held more than MAX_TICKETS and we trimmed to the
+      // most recent — counts above reflect the trimmed set, not the full window.
+      capped: allTickets.length >= MAX_TICKETS,
     }, reqId);
   } catch (err) {
     console.error('[soc/tickets]', err);
