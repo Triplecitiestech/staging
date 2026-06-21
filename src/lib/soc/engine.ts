@@ -13,6 +13,7 @@ import { buildScreeningPrompt, buildCrossStackAssessmentPrompt, formatTicketNote
 import { matchRules, isSecurityTicket, detectAlertSource } from './rules';
 import { verifyTechnicianByIp, verifyTechnicianLive } from './technician-verifier';
 import { enrichTicket } from './enrichment';
+import { isResolvedStatus } from '@/lib/tickets/utils';
 import type {
   SecurityTicket,
   SocConfig,
@@ -443,7 +444,12 @@ async function processIncidentGroup(
   // Auto-post the self-contained internal note to Autotask (Internal Only) when
   // enabled and not a dry run. Closure and customer replies stay technician-approved.
   let noteAutoPosted = false;
-  if (finalConfidence >= config.confidence_floor) {
+  // Never create side-effecting actions on an already-resolved/closed ticket.
+  // Re-running analysis on a closed ticket (or one a tech closed mid-batch) must
+  // not auto-post notes or queue customer messages for a handled incident — the
+  // assessment is still persisted and shown, only the outbound actions are held.
+  const ticketResolved = isResolvedStatus(primary.status, primary.statusLabel);
+  if (finalConfidence >= config.confidence_floor && !ticketResolved) {
     if (!config.dry_run && config.auto_post_internal_note) {
       await addAutotaskNote(primary.autotaskTicketId, finalNote, incidentId);
       noteAutoPosted = true;
