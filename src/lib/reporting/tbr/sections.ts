@@ -92,6 +92,7 @@ function defineSection<T>(cfg: SectionConfig<T>): AnySection {
         eyebrow: cfg.eyebrow,
         status: state.status,
         source: state.source,
+        note: state.note,
         html: slide({ eyebrow: cfg.eyebrow, title: cfg.title, source: state.source, body }),
       };
     },

@@ -173,6 +173,8 @@ export interface RenderedSection {
   status: SectionStatus;
   /** Human-readable data source label resolved at load time. */
   source: string;
+  /** Operator-facing note for non-`success` states (also surfaced in coverage). */
+  note?: string;
   /** Fully rendered HTML for this slide/section. */
   html: string;
 }
