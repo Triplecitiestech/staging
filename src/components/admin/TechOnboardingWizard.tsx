@@ -152,6 +152,11 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
     ok: boolean
     message: string
   } | null>(null)
+  const [syncingTickets, setSyncingTickets] = useState(false)
+  const [ticketSyncResult, setTicketSyncResult] = useState<{
+    ok: boolean
+    message: string
+  } | null>(null)
 
   // Step 1 — link an existing local company to its Autotask counterpart.
   // Used when the company was created via the manual form on /admin/companies/new
@@ -245,6 +250,33 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
       })
     } finally {
       setSyncingContacts(false)
+    }
+  }
+
+  async function handleSyncCompanyTickets() {
+    setSyncingTickets(true)
+    setTicketSyncResult(null)
+    try {
+      const res = await fetch(`/api/admin/companies/${company.id}/sync-tickets`, {
+        method: 'POST',
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setTicketSyncResult({ ok: false, message: data.error || `HTTP ${res.status}` })
+        return
+      }
+      const created = data.created ?? 0
+      const updated = data.updated ?? 0
+      const errs = data.errors as string[] | undefined
+      const summary = `${created} new, ${updated} updated (last 30 days)${errs?.length ? ` — ${errs.length} error(s)` : ''}`
+      setTicketSyncResult({ ok: !errs || errs.length === 0, message: summary })
+    } catch (err) {
+      setTicketSyncResult({
+        ok: false,
+        message: err instanceof Error ? err.message : 'Network error',
+      })
+    } finally {
+      setSyncingTickets(false)
     }
   }
 
@@ -648,6 +680,43 @@ export default function TechOnboardingWizard({ company, hasManager }: TechOnboar
                     }`}
                   >
                     {contactSyncResult.ok ? '✓ ' : '✗ '}{contactSyncResult.message}
+                  </div>
+                )}
+              </div>
+
+              {/*
+                Per-company ticket sync — calls /api/admin/companies/[id]/sync-tickets
+                (forced, single company, last 30 days). The routine global sync is
+                incremental (~2-day look-back) and won't backfill a newly-linked
+                customer's older tickets; this does, so their SOC alerts show up.
+              */}
+              <div className="bg-slate-900/40 border border-white/10 rounded-lg p-4 space-y-3">
+                <p className="text-sm text-white font-semibold">
+                  Sync this company&rsquo;s tickets from Autotask
+                </p>
+                <p className="text-xs text-slate-400">
+                  Pulls {company.displayName}&rsquo;s tickets from the last 30 days
+                  ({company.autotaskCompanyId ? 'one-time backfill' : 'requires Autotask Company ID first'}).
+                  Run this once after linking a company &mdash; the routine sync only looks back ~2 days and
+                  won&rsquo;t backfill older tickets. SOC alerts appear once their tickets are synced.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleSyncCompanyTickets}
+                  disabled={syncingTickets || !company.autotaskCompanyId}
+                  className="px-4 py-2 text-sm bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white rounded-lg transition-colors font-medium"
+                >
+                  {syncingTickets ? 'Syncing…' : `Sync ${company.displayName} Tickets`}
+                </button>
+                {ticketSyncResult && (
+                  <div
+                    className={`text-xs px-3 py-2 rounded ${
+                      ticketSyncResult.ok
+                        ? 'bg-green-950/40 border border-green-500/30 text-green-300'
+                        : 'bg-red-950/40 border border-red-500/30 text-red-300'
+                    }`}
+                  >
+                    {ticketSyncResult.ok ? '✓ ' : '✗ '}{ticketSyncResult.message}
                   </div>
                 )}
               </div>
