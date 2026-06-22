@@ -40,6 +40,20 @@ const documents: DocCard[] = [
   {
     category: 'AI Strategy',
     categoryClass: 'text-cyan-400',
+    icon: <Sparkles className="h-5 w-5 text-cyan-400" />,
+    title: 'AI Enablement Services Playbook (v2)',
+    description:
+      'Version 2, rebuilt from the June 22 Jim King meeting: renamed offering, Claude as the standard, the $1,500 / included assessment, flat-fee pricing, webinar cut, and token economics de-emphasized. Opens with a v1→v2 change-log; the assessment section is written for Jim to review.',
+    href: '/admin/documents/ai-playbook/v2',
+    chips: [
+      { label: 'Live', tone: 'live' },
+      { label: 'v2.0' },
+      { label: 'For review', tone: 'priority' },
+    ],
+  },
+  {
+    category: 'AI Strategy',
+    categoryClass: 'text-cyan-400',
     icon: <ClipboardList className="h-5 w-5 text-cyan-400" />,
     title: 'AI Discovery & Readiness Form',
     description:
