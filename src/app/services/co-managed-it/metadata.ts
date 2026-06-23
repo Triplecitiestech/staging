@@ -9,7 +9,6 @@ export const metadata: Metadata = {
     'enterprise IT tools',
     'IT staff augmentation',
     'managed security services',
-    'compliance automation',
     'IT consulting Central NY',
     'hybrid IT support',
     'shared IT services',
