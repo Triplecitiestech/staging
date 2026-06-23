@@ -137,6 +137,26 @@ export default function PortalRootPage() {
           <p className="mt-6 text-xs text-slate-500">
             We&apos;ll find your company and redirect you to your organization&apos;s Microsoft sign-in.
           </p>
+
+          <p className="mt-4 text-xs text-slate-500 leading-relaxed">
+            Don&apos;t have access to the new portal yet? Use our{' '}
+            <a
+              href="https://triplecitiestech.itclientportal.com/ClientPortal/Login.aspx"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-cyan-400 hover:text-cyan-300 underline"
+            >
+              legacy portal
+            </a>{' '}
+            or email{' '}
+            <a
+              href="mailto:support@triplecitiestech.com"
+              className="text-cyan-400 hover:text-cyan-300 underline"
+            >
+              support@triplecitiestech.com
+            </a>
+            .
+          </p>
         </div>
       </main>
 

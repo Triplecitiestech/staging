@@ -456,39 +456,18 @@ export default function Contact() {
               <h3 className="text-2xl font-bold text-white mb-6">Client Portals</h3>
 
               <div className="space-y-6">
-                <div>
-                  <Link
-                    href="/portal"
-                    className="flex items-start justify-start space-x-4 group"
-                  >
-                    <div className="w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform duration-300">
-                      <GlobeIcon size={24} className="text-white" />
-                    </div>
-                    <div>
-                      <h4 className="text-lg font-bold text-white mb-1 group-hover:text-indigo-300 transition-colors duration-300">Support Portal</h4>
-                      <p className="text-white/90 text-sm group-hover:text-white transition-colors duration-300">Create and review tickets, documentation, training resources, and more.</p>
-                    </div>
-                  </Link>
-                  <p className="mt-3 text-white/60 text-xs leading-relaxed">
-                    Don&apos;t have access to the new portal yet? Use our{' '}
-                    <a
-                      href="https://triplecitiestech.itclientportal.com/ClientPortal/Login.aspx"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-indigo-300 hover:text-indigo-200 underline transition-colors"
-                    >
-                      legacy portal
-                    </a>{' '}
-                    or email{' '}
-                    <a
-                      href="mailto:support@triplecitiestech.com"
-                      className="text-indigo-300 hover:text-indigo-200 underline transition-colors"
-                    >
-                      support@triplecitiestech.com
-                    </a>
-                    .
-                  </p>
-                </div>
+                <Link
+                  href="/portal"
+                  className="flex items-start justify-start space-x-4 group"
+                >
+                  <div className="w-14 h-14 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg group-hover:scale-110 transition-transform duration-300">
+                    <GlobeIcon size={24} className="text-white" />
+                  </div>
+                  <div>
+                    <h4 className="text-lg font-bold text-white mb-1 group-hover:text-indigo-300 transition-colors duration-300">Support Portal</h4>
+                    <p className="text-white/90 text-sm group-hover:text-white transition-colors duration-300">Create and review tickets, documentation, training resources, and more.</p>
+                  </div>
+                </Link>
 
                 <a
                   href="https://triplecitiestech.connectboosterportal.com/"
