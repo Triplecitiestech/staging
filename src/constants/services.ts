@@ -71,7 +71,7 @@ export const SERVICES: Service[] = [
     subtitle: 'Enterprise-grade tools and capabilities for your existing IT team.',
     features: [
       'Advanced security tools and monitoring platforms',
-      'Automated compliance tracking and reporting',
+      'Best-in-class tools, configured to industry best practices and reviewed weekly',
       'Streamlined onboarding and offboarding workflows',
       'Enterprise backup and disaster recovery solutions',
       'Access to our full technology stack and best practices'

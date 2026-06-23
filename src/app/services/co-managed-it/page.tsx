@@ -291,7 +291,9 @@ export default function CoManagedIT() {
           </h2>
           <p className="mt-6 max-w-2xl text-lg leading-relaxed text-slate-300">
             Concrete capabilities your team can lean on from day one — the support, security, and continuity that
-            are hard to build and maintain in-house.
+            are hard to build and maintain in-house. Every tool in the stack is best-in-class and configured to
+            industry best practices, then reviewed and updated every week to keep your environment current,
+            consistent, and reliable.
           </p>
 
           <div className="mt-14 space-y-12">
