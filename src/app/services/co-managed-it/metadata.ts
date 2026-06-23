@@ -1,8 +1,8 @@
 import { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Co-Managed IT Services | Enterprise Tools for IT Teams | Central NY',
-  description: 'Co-managed IT services for companies with existing IT teams in Central New York. Enterprise security tools, compliance automation, and expert support from Triple Cities Tech.',
+  title: 'Co-Managed IT Services | Support for Your IT Team | Central NY',
+  description: 'Co-managed IT for businesses with their own IT person or team in Central New York. We extend your staff with a shared help desk, a full security stack, backups, patching, and monitoring — without replacing anyone.',
   keywords: [
     'co-managed IT services',
     'IT team support',
@@ -16,8 +16,8 @@ export const metadata: Metadata = {
     'IT partnership'
   ],
   openGraph: {
-    title: 'Co-Managed IT Services | Empower Your IT Team | Triple Cities Tech',
-    description: 'Enterprise-grade tools and expertise for your existing IT team. Co-managed IT services in Central New York.',
+    title: 'Co-Managed IT Services | Support for Your IT Team | Triple Cities Tech',
+    description: 'We extend your in-house IT team with a shared help desk, a full security stack, backups, patching, and 24/7 monitoring. Co-managed IT services in Central New York.',
     type: 'website',
     locale: 'en_US',
     siteName: 'Triple Cities Tech',

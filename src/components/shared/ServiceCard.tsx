@@ -13,6 +13,7 @@ interface ServiceCardProps {
   index: number
   image?: string
   darkBackground?: boolean
+  detailHref?: string
 }
 
 export default function ServiceCard({
@@ -20,7 +21,8 @@ export default function ServiceCard({
   subtitle,
   features,
   description,
-  gradient
+  gradient,
+  detailHref
 }: ServiceCardProps) {
   return (
     <div className="relative h-full">
@@ -60,8 +62,26 @@ export default function ServiceCard({
           {/* Description */}
           <p className="text-lg text-white/80 leading-relaxed text-center">{description}</p>
 
-          {/* CTA Button */}
-          <div className="pt-4 text-center mt-auto">
+          {/* CTA Buttons */}
+          <div className="pt-4 mt-auto flex flex-wrap items-center justify-center gap-3">
+            {detailHref && (
+              <Link
+                href={detailHref}
+                className="group relative inline-flex items-center justify-center px-5 py-2 rounded-full font-semibold text-sm transition-all duration-300 hover:scale-105 transform-gpu border border-white/40 text-white hover:bg-white/10"
+              >
+                <span className="relative z-10 flex items-center whitespace-nowrap">
+                  Learn More
+                  <svg
+                    className="ml-1.5 w-4 h-4 transition-transform duration-300 group-hover:translate-x-1"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                  </svg>
+                </span>
+              </Link>
+            )}
             <Link
               href="/contact"
               className={`group relative inline-flex items-center justify-center px-5 py-2 rounded-full font-semibold text-sm transition-all duration-300 hover:scale-105 transform-gpu bg-gradient-to-r ${gradient} hover:opacity-90 text-white shadow-lg`}

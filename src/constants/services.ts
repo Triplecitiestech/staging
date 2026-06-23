@@ -79,7 +79,8 @@ export const SERVICES: Service[] = [
     description: 'Empower your internal IT team with the same enterprise-grade tools, security platforms, and automated processes we use for our fully managed clients.',
     gradient: 'from-red-500 to-rose-500',
     icon: '/icon/bg.webp',
-    image: '/iws.webp'
+    image: '/iws.webp',
+    detailHref: '/services/co-managed-it'
   },
   {
     title: 'Cybersecurity & Compliance',
