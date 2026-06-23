@@ -157,6 +157,19 @@ export default function PortalRootPage() {
             </a>
             .
           </p>
+
+          <p className="mt-3 text-xs text-slate-500 leading-relaxed">
+            Using Google Workspace? You&apos;ll need to continue using the{' '}
+            <a
+              href="https://triplecitiestech.itclientportal.com/ClientPortal/Login.aspx"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-cyan-400 hover:text-cyan-300 underline"
+            >
+              legacy portal
+            </a>
+            .
+          </p>
         </div>
       </main>
 
