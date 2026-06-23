@@ -15,6 +15,7 @@ export interface Service {
   gradient: string
   icon: string
   image?: string
+  detailHref?: string
 }
 
 export interface ServiceCardProps {
@@ -27,4 +28,5 @@ export interface ServiceCardProps {
   index: number
   image?: string
   darkBackground?: boolean
+  detailHref?: string
 }

@@ -55,6 +55,7 @@ export default function Services() {
                         index={index}
                         image={service.image}
                         darkBackground={true}
+                        detailHref={service.detailHref}
                       />
                     </div>
                   )
