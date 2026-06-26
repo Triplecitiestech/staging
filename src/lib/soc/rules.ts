@@ -82,6 +82,26 @@ export function detectAlertSource(ticket: SecurityTicket): string {
   return 'unknown';
 }
 
+/**
+ * Identity / MFA / authentication-configuration-change alerts.
+ *
+ * These get a stricter default: without positive evidence of benign intent they
+ * are treated as "confirm with the user before closing", because a removed MFA
+ * method, a new authenticator, or an IAM config change is exactly what account
+ * takeover looks like — and a clean IP reputation does not rule that out.
+ */
+const IDENTITY_CHANGE_KEYWORDS = [
+  'mfa', 'multi-factor', 'multi factor', 'multifactor', 'two-factor', '2fa',
+  'authenticator', 'authentication method', 'iam event', 'security info',
+  'conditional access', 'security defaults', 'sspr', 'self-service password',
+  'self service password', 'password reset', 'registered security', 'register security',
+];
+
+export function isIdentityChangeAlert(ticket: SecurityTicket): boolean {
+  const text = `${ticket.title} ${ticket.description || ''}`.toLowerCase();
+  return IDENTITY_CHANGE_KEYWORDS.some(kw => text.includes(kw));
+}
+
 /** Queue names that are dedicated security alert queues in Autotask */
 const SECURITY_QUEUE_NAMES = [
   'security monitoring alert',

@@ -29,6 +29,9 @@ import type {
   Verdict,
   AlertSource,
   AlertCategory,
+  AssessmentSignals,
+  RecurrenceSignal,
+  RiskLevel,
 } from './types';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY || '' });
@@ -54,6 +57,8 @@ export async function loadSocConfig(): Promise<SocConfig> {
     deep_analysis_model: get('deep_analysis_model', 'claude-sonnet-4-6'),
     internal_site_ids: JSON.parse(get('internal_site_ids', '[]')),
     auto_post_internal_note: get('auto_post_internal_note', 'true') === 'true',
+    confidence_uncorroborated_cap: parseFloat(get('confidence_uncorroborated_cap', '0.5')),
+    recurring_pattern_threshold: parseInt(get('recurring_pattern_threshold', '3'), 10),
   };
 }
 
@@ -195,6 +200,11 @@ export async function runTriagePipeline(
           knownBenignMatched: (result.enrichment?.knownBenignMatches?.length || 0) > 0,
           noteAutoPosted: result.noteAutoPosted || false,
           riskLevel: result.assessment?.riskLevel || null,
+          afterHours: result.enrichment?.signals?.timing?.afterHours ?? null,
+          geoBaseline: result.enrichment?.signals?.geo?.baseline ?? null,
+          identityChange: result.enrichment?.signals?.identityChange ?? null,
+          recurringPattern: result.enrichment?.signals?.recurrence?.recurringPattern ?? null,
+          confidenceCapped: result.enrichment?.signals?.corroboration?.confidenceCeiling != null,
           ticketNumbers: group.tickets.map(t => t.ticketNumber),
         },
       });
@@ -233,11 +243,26 @@ export async function runTriagePipeline(
 
 // ── Context Enrichment ──
 
-async function getHistoricalFpRate(companyId: string | null, alertSource: string): Promise<{ fpRate: number | null; similarFpCount: number }> {
-  if (!companyId) return { fpRate: null, similarFpCount: 0 };
+/**
+ * Recurrence signal for this company + alert source.
+ *
+ * IMPORTANT: this counts the SOC agent's OWN prior analyses, so `priorBenignCount`
+ * is NOT independent corroboration — it reflects how the agent disposed of similar
+ * alerts before. A high count means LOW NOVELTY (and a recurring pattern worth a
+ * root-cause), never "therefore benign". The old code returned an FP *rate* that
+ * the prompt then used as reassurance; we deliberately no longer surface a rate.
+ */
+async function getRecurrenceSignal(
+  companyId: string | null,
+  alertSource: string,
+  windowDays: number,
+  threshold: number,
+): Promise<RecurrenceSignal> {
+  const base: RecurrenceSignal = { similarAlertCount: 0, windowDays, priorBenignCount: 0, recurringPattern: false };
+  if (!companyId) return base;
   try {
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const since = new Date();
+    since.setDate(since.getDate() - windowDays);
 
     const [stats] = await prisma.$queryRaw<[{ total: bigint; fps: bigint }]>`
       SELECT
@@ -246,16 +271,17 @@ async function getHistoricalFpRate(companyId: string | null, alertSource: string
       FROM soc_ticket_analysis
       WHERE "companyId" = ${companyId}
         AND "alertSource" = ${alertSource}
-        AND "processedAt" >= ${thirtyDaysAgo}
+        AND "processedAt" >= ${since}
     `;
     const total = Number(stats.total);
-    const fps = Number(stats.fps);
     return {
-      fpRate: total > 0 ? Math.round((fps / total) * 100) : null,
-      similarFpCount: fps,
+      similarAlertCount: total,
+      windowDays,
+      priorBenignCount: Number(stats.fps),
+      recurringPattern: total >= threshold,
     };
   } catch {
-    return { fpRate: null, similarFpCount: 0 };
+    return base;
   }
 }
 
@@ -389,14 +415,19 @@ async function processIncidentGroup(
 
   // Step 3: Authoritative cross-stack assessment over the correlated evidence.
   const alertSource = detectAlertSource(primary);
-  const historicalData = await getHistoricalFpRate(primary.companyId, alertSource);
+  // Recurrence (novelty) signal — fills the placeholder enrichment left for us.
+  const signals = enrichment.signals ?? null;
+  const recurrence = await getRecurrenceSignal(
+    primary.companyId, alertSource, 30, config.recurring_pattern_threshold,
+  );
+  if (signals) signals.recurrence = recurrence;
 
   let assessment: SocAssessment | null = null;
   try {
     onAiCall();
     assessment = await generateCrossStackAssessment(
       primary, recentTickets, enrichment, deviceVerification,
-      config.deep_analysis_model, historicalData.fpRate, historicalData.similarFpCount,
+      config.deep_analysis_model, signals,
     );
     totalTokens += (assessment as AssessmentWithTokens).tokensUsed || 0;
     // The enrichment bundle is authoritative for which sources contributed + gaps.
@@ -416,6 +447,14 @@ async function processIncidentGroup(
     assessment = buildFallbackAssessment(primary, screening, enrichment, detail);
     assessment.correlatedSources = enrichment.dataSources;
     assessment.dataGaps = Array.from(new Set([...enrichment.dataGaps, ...assessment.dataGaps]));
+  }
+
+  // Deterministic guardrails — applied in CODE, independent of the AI narrative,
+  // so overconfidence/under-action can't slip through regardless of what the model
+  // wrote. Runs on both the real and fallback assessment, BEFORE we derive the
+  // verdict/action/note so all of them reflect the adjusted result.
+  if (assessment && signals) {
+    assessment = applyGuardrails(assessment, signals, config);
   }
 
   // Derive verdict/action from the assessment (fall back to screening).
@@ -561,11 +600,10 @@ async function generateCrossStackAssessment(
   enrichment: EnrichmentBundle,
   deviceVerification: DeviceVerification | null,
   model: string,
-  historicalFpRate: number | null,
-  similarFpCount: number,
+  signals: AssessmentSignals | null,
 ): Promise<AssessmentWithTokens> {
   const prompt = buildCrossStackAssessmentPrompt(
-    ticket, recentTickets, enrichment, deviceVerification, historicalFpRate, similarFpCount,
+    ticket, recentTickets, enrichment, deviceVerification, signals,
   );
 
   const response = await trackAnthropicCall('soc_assessment', model, () =>
@@ -617,6 +655,156 @@ function classificationToAction(
   if (confidence < config.confidence_floor) return 'investigate';
   if (classification === 'likely_false_positive' || classification === 'confirmed_false_positive') return 'close';
   return 'investigate';
+}
+
+// ── Deterministic Guardrails ──
+// These run in code, independent of the AI narrative, so the failure modes the
+// assessment must never produce (overconfidence with no corroboration, frequency
+// used as reassurance, closing identity changes without confirmation) can't slip
+// through regardless of what the model wrote.
+
+const CLASSIFICATION_LABELS: Record<SocClassification, string> = {
+  confirmed_malicious: 'CONFIRMED MALICIOUS',
+  suspicious_review: 'SUSPICIOUS — NEEDS REVIEW',
+  likely_false_positive: 'LIKELY FALSE POSITIVE',
+  confirmed_false_positive: 'CONFIRMED FALSE POSITIVE',
+  insufficient_data: 'INDETERMINATE — INSUFFICIENT DATA',
+};
+
+const RISK_ORDER: RiskLevel[] = ['none', 'low', 'medium', 'high', 'critical'];
+/** Raise a risk level to at least `floor` — never lowers it. */
+function riskAtLeast(level: RiskLevel, floor: RiskLevel): RiskLevel {
+  return RISK_ORDER.indexOf(level) >= RISK_ORDER.indexOf(floor) ? level : floor;
+}
+
+/** Tenant-actionable root-cause checklist when a recurring pattern is detected. */
+function defaultTenantRootCause(signals: AssessmentSignals): string {
+  const { similarAlertCount, windowDays } = signals.recurrence;
+  if (signals.identityChange) {
+    return [
+      `This tenant generated ${similarAlertCount} similar identity/MFA alerts in ${windowDays} days. Repetition usually points to a fixable misconfiguration, not noise. Check:`,
+      '- Are users legitimately re-enrolling MFA (new phones, device swaps)?',
+      '- Is an Entra ID Conditional Access policy or a security-info registration campaign forcing repeated re-registration?',
+      '- Are legacy per-user MFA and Security Defaults (or Conditional Access) conflicting?',
+      '- Does one user or a small group account for most of these events? (Review the SaaS Alerts per-user breakdown.)',
+    ].join('\n');
+  }
+  return `This tenant generated ${similarAlertCount} similar alerts in ${windowDays} days. Investigate why this alert type keeps recurring for this tenant (misconfiguration, noisy rule, or a single repeat offender) rather than closing each instance individually.`;
+}
+
+/**
+ * Reconcile the AI-written internal note with the final (guardrail-adjusted)
+ * values: rewrite the header line and append a transparent adjustments + tenant
+ * root-cause block, so the note posted to Autotask never contradicts the verdict.
+ */
+function reconcileInternalNote(assessment: SocAssessment, adjustments: string[]): string {
+  let note = assessment.internalNote || '';
+  const pct = Math.round((assessment.confidence || 0) * 100);
+  const header = `Classification: ${CLASSIFICATION_LABELS[assessment.classification]} (Confidence ${pct}%)  |  Risk: ${assessment.riskLevel}`;
+  note = /^Classification:.*$/m.test(note)
+    ? note.replace(/^Classification:.*$/m, header)
+    : `${header}\n\n${note}`;
+
+  const blocks: string[] = [];
+  if (assessment.tenantRootCause && !note.includes(assessment.tenantRootCause)) {
+    blocks.push(`TENANT ROOT CAUSE\n${assessment.tenantRootCause}`);
+  }
+  if (adjustments.length > 0) {
+    blocks.push([
+      '─── AUTOMATED GUARDRAIL ADJUSTMENTS ───',
+      ...adjustments.map(a => `- ${a}`),
+      'Applied deterministically in code (independent of the AI narrative) to prevent overconfidence when corroboration is missing.',
+    ].join('\n'));
+  }
+  if (blocks.length === 0) return note;
+
+  const block = blocks.join('\n\n');
+  const endMarker = '═══ END SOC ASSESSMENT ═══';
+  return note.includes(endMarker)
+    ? note.replace(endMarker, `${block}\n${endMarker}`)
+    : `${note}\n\n${block}`;
+}
+
+/**
+ * Apply the deterministic guardrails the assessment must always obey. Mutates and
+ * returns the assessment so verdict/action/confidence/note all reflect the result.
+ */
+function applyGuardrails(
+  assessment: SocAssessment,
+  signals: AssessmentSignals,
+  config: SocConfig,
+): SocAssessment {
+  const adjustments: string[] = [];
+  const corroborated = signals.corroboration.corroboratingTelemetry;
+  const cap = config.confidence_uncorroborated_cap;
+  const positiveBenign =
+    !!assessment.knownBenignMatch?.matched || signals.geo.onKnownCompanyNetwork || corroborated;
+
+  // 1. Confidence cap on missing corroboration — confidence is a function of how
+  //    much was actually verified, not the model's optimism.
+  if (!corroborated) {
+    signals.corroboration.confidenceCeiling = cap;
+    if (assessment.confidence > cap) {
+      adjustments.push(
+        `Confidence lowered to ${Math.round(cap * 100)}% — no independent telemetry corroborated this alert (RocketCyber / Datto RMM / Datto EDR / known-network all absent or unrelated).`,
+      );
+      assessment.confidence = cap;
+    }
+  }
+
+  // 2. Identity/MFA change → "confirm with user" unless positive benign evidence.
+  const benignClass =
+    assessment.classification === 'likely_false_positive' ||
+    assessment.classification === 'confirmed_false_positive';
+  if (signals.identityChange && benignClass && !positiveBenign) {
+    adjustments.push(
+      `Reclassified from "${assessment.classification.replace(/_/g, ' ')}" to "suspicious — needs review": identity/MFA-change alert with no positive evidence of benign intent (not on a known device/network, no corroborating telemetry). Identity changes require user confirmation before closing.`,
+    );
+    assessment.classification = 'suspicious_review';
+    assessment.riskLevel = riskAtLeast(assessment.riskLevel, 'low');
+    if (assessment.confidence > cap) assessment.confidence = cap;
+  }
+
+  // 3. Recurring pattern → tenant root-cause section. Never lowers risk or raises
+  //    benign confidence — it only reduces novelty and flags a pattern to fix.
+  if (signals.recurrence.recurringPattern && !assessment.tenantRootCause) {
+    assessment.tenantRootCause = defaultTenantRootCause(signals);
+    adjustments.push(
+      `Recurring pattern detected (${signals.recurrence.similarAlertCount} similar alerts in ${signals.recurrence.windowDays} days) — added a tenant root-cause checklist. Repetition reduces novelty only; it does not make this instance benign and does not lower risk.`,
+    );
+  }
+
+  // 4. Always end with a concrete next action when corroboration is missing (or an
+  //    identity change lacks positive benign evidence) — never "no action needed".
+  if (!corroborated || (signals.identityChange && !positiveBenign)) {
+    const verifyStep = signals.identityChange
+      ? 'Confirm directly with the user that they made this change, and verify which MFA methods remain registered (Microsoft Entra admin center → Users → select the user → Authentication methods). Removing one method does not necessarily leave the account without MFA. Do not close until confirmed.'
+      : 'Confirm the activity with the affected user/customer and review the source device before closing — no independent telemetry corroborated this alert.';
+    const actions = assessment.recommendedTechnicianActions || [];
+    if (!actions.some(a => /\b(confirm|verify)\b/i.test(a))) {
+      assessment.recommendedTechnicianActions = [...actions, verifyStep];
+    }
+    if (!/\b(confirm|verify)\b/i.test(assessment.finalRecommendation || '')) {
+      const tail = signals.identityChange
+        ? 'Confirm the change with the user and verify remaining registered MFA methods before closing.'
+        : 'Confirm the activity with the customer before closing.';
+      assessment.finalRecommendation = `${(assessment.finalRecommendation || '').trim()} ${tail}`.trim();
+    }
+  }
+
+  // 5. A downgraded item must not carry a "close as false positive" closure note.
+  if (
+    assessment.classification === 'suspicious_review' &&
+    /false positive|no (further )?action|clos(e|ing)/i.test(assessment.closureNote || '')
+  ) {
+    assessment.closureNote =
+      'Do not close yet — pending user confirmation. This change could not be corroborated from available telemetry; confirm with the user and verify remaining MFA methods, then document the outcome before closing.';
+    adjustments.push('Closure note reset — not eligible for close-as-false-positive until confirmed with the user.');
+  }
+
+  // 6. Reconcile the posted note with the final values.
+  assessment.internalNote = reconcileInternalNote(assessment, adjustments);
+  return assessment;
 }
 
 async function createIncident(

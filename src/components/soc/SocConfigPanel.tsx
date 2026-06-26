@@ -20,6 +20,8 @@ const CONFIG_SCHEMA: Omit<ConfigEntry, 'value'>[] = [
   { key: 'confidence_auto_close', label: 'Auto-Close Threshold', type: 'number', description: 'Minimum confidence to recommend automatic closure (0-1)' },
   { key: 'confidence_flag_review', label: 'Flag Review Threshold', type: 'number', description: 'Minimum confidence to flag for quick human review (0-1)' },
   { key: 'confidence_floor', label: 'Confidence Floor', type: 'number', description: 'Below this, only informational notes (0-1)' },
+  { key: 'confidence_uncorroborated_cap', label: 'Uncorroborated Confidence Cap', type: 'number', description: 'Confidence ceiling when no independent telemetry (EDR/RMM/RocketCyber/known-network) corroborated the alert (0-1)' },
+  { key: 'recurring_pattern_threshold', label: 'Recurring Pattern Threshold', type: 'number', description: 'Number of similar alerts (same company + source, 30 days) that flags a recurring pattern for root-cause review' },
   { key: 'correlation_window_minutes', label: 'Correlation Window (min)', type: 'number', description: 'Time window for grouping related alerts' },
   { key: 'max_ai_calls_per_run', label: 'Max AI Calls per Run', type: 'number', description: 'Maximum AI API calls per cron cycle' },
   { key: 'internal_site_ids', label: 'Internal Site IDs (JSON)', type: 'text', description: 'JSON array of Datto RMM site IDs for internal/technician devices' },

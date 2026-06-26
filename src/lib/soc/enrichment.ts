@@ -27,8 +27,9 @@ import { matchesCompanyName } from '@/utils';
 import { RocketCyberClient } from '@/lib/rocketcyber';
 import { DattoRmmClient } from '@/lib/datto-rmm';
 import { SaasAlertsClient } from '@/lib/saas-alerts';
-import { detectAlertSource } from './rules';
-import { extractIps } from './ip-extractor';
+import { detectAlertSource, isIdentityChangeAlert } from './rules';
+import { extractIps, extractIpv6 } from './ip-extractor';
+import { classifyEventTiming } from '@/lib/reporting/business-hours';
 import type {
   SecurityTicket,
   DeviceVerification,
@@ -41,6 +42,7 @@ import type {
   KnownBenignMatch,
   CompanyNetworkMatch,
   AlertSource,
+  AssessmentSignals,
 } from './types';
 import type { RocketCyberDetail } from '@/lib/rocketcyber';
 
@@ -132,6 +134,23 @@ export async function enrichTicket(
 
   if (!hostname) dataGaps.push('Could not determine the affected device hostname from the alert; device-level correlation skipped.');
 
+  // Assemble the independent signal axes (timing, geo, corroboration, identity-change).
+  // recurrence is a placeholder here — the engine fills it from the analysis history.
+  const signals = buildSignals({
+    ticket,
+    alertTime,
+    saasEvents: saas.result?.events || [],
+    ticketText: text,
+    ipv4: allIps,
+    onKnownNetwork: !!device.networkMatch || deviceVerification?.verified === true,
+    dataSources,
+    rocketCyber,
+    deviceHealth: device.result,
+    networkMatch: device.networkMatch || null,
+    edr: edr.result,
+    dns: dns.result,
+  });
+
   return {
     sourceSystem,
     externalIncidentId: incidentId,
@@ -145,6 +164,89 @@ export async function enrichTicket(
     knownBenignMatches,
     dataSources,
     dataGaps,
+    signals,
+  };
+}
+
+/** Format a SaaS Alerts location object as "City, Region, Country" (non-empty parts). */
+function formatSaasLocation(loc: { country?: string; region?: string; city?: string } | null | undefined): string | null {
+  if (!loc) return null;
+  const parts = [loc.city, loc.region, loc.country].map(p => (p || '').trim()).filter(Boolean);
+  return parts.length > 0 ? parts.join(', ') : null;
+}
+
+/**
+ * Build the independent signal axes from the correlated evidence. Each axis is
+ * evaluated on its own so they can never be collapsed into one "it's fine"
+ * verdict downstream. recurrence is zeroed here and filled by the engine.
+ */
+function buildSignals(params: {
+  ticket: SecurityTicket;
+  alertTime: string;
+  saasEvents: SaasCorrelation['events'];
+  ticketText: string;
+  ipv4: string[];
+  onKnownNetwork: boolean;
+  dataSources: DataSourceStatus[];
+  rocketCyber: import('@/lib/rocketcyber').RocketCyberDetail | null;
+  deviceHealth: DeviceHealth | null;
+  networkMatch: CompanyNetworkMatch | null;
+  edr: EdrCorrelation | null;
+  dns: DnsCorrelation | null;
+}): AssessmentSignals {
+  // ── Timing ──
+  const eventDate = new Date(params.alertTime);
+  const validTime = !Number.isNaN(eventDate.getTime());
+  const timing = validTime
+    ? (() => {
+        const t = classifyEventTiming(eventDate);
+        return {
+          eventTimeUtc: eventDate.toISOString(),
+          eventTimeLocal: t.localTime,
+          timezone: t.timezone,
+          afterHours: t.afterHours,
+          weekend: t.weekend,
+        };
+      })()
+    : { eventTimeUtc: null, eventTimeLocal: null, timezone: 'America/New_York', afterHours: null, weekend: null };
+
+  // ── Geolocation vs baseline ── (authoritative IP comes from the SaaS event)
+  const eventWithIp = params.saasEvents.find(e => e.ip);
+  const eventWithLoc = params.saasEvents.find(e => e.location);
+  const ipv6 = extractIpv6(params.ticketText);
+  const alertIp = eventWithIp?.ip || ipv6[0] || params.ipv4[0] || null;
+  const alertLocation = eventWithLoc?.location || null;
+  const locationsSeenNearby = Array.from(
+    new Set(params.saasEvents.map(e => e.location).filter((l): l is string => !!l)),
+  );
+  const geoBaseline: 'matched_known_network' | 'no_baseline_match' | 'unknown' = params.onKnownNetwork
+    ? 'matched_known_network'
+    : (alertIp || alertLocation) ? 'no_baseline_match' : 'unknown';
+
+  // ── Corroboration ── (independent telemetry — SaaS events are the alert itself, NOT corroboration)
+  const sourcesUsed = params.dataSources.filter(s => s.status === 'used').map(s => s.source);
+  const corroboratingTelemetry = Boolean(
+    (params.rocketCyber && (params.rocketCyber.process || params.rocketCyber.path || params.rocketCyber.hash)) ||
+    params.deviceHealth ||
+    params.networkMatch ||
+    (params.edr && params.edr.deviceScoped && params.edr.detectionCount > 0) ||
+    (params.dns && params.dns.deviceScoped),
+  );
+
+  return {
+    timing,
+    geo: {
+      ipReputationChecked: false, // no reputation provider wired in — do not assert a clean reputation
+      reputationVerdict: null,
+      alertIp,
+      alertLocation,
+      onKnownCompanyNetwork: params.onKnownNetwork,
+      locationsSeenNearby,
+      baseline: geoBaseline,
+    },
+    recurrence: { similarAlertCount: 0, windowDays: 30, priorBenignCount: 0, recurringPattern: false },
+    corroboration: { sourcesUsed, corroboratingTelemetry, confidenceCeiling: null },
+    identityChange: isIdentityChangeAlert(params.ticket),
   };
 }
 
@@ -761,6 +863,10 @@ async function fetchSaasAlerts(companyId: string | null, companyName: string | n
           description: e.jointDesc || e.description || '',
           time: e.time || e.timestamp || '',
           user: typeof e.user === 'string' ? e.user : (e.user?.email || e.user?.name || null),
+          // Surface the source IP + geolocation — separate axes the analyst must
+          // weigh independently. Previously dropped here, so geo never reached the AI.
+          ip: e.ip || null,
+          location: formatSaasLocation(e.location),
         });
       }
     }

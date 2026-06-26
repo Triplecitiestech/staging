@@ -269,6 +269,8 @@ export async function POST(request: Request) {
       ['deep_analysis_model', 'claude-sonnet-4-6'],
       ['internal_site_ids', '["177027"]'],
       ['auto_post_internal_note', 'true'],
+      ['confidence_uncorroborated_cap', '0.5'],
+      ['recurring_pattern_threshold', '3'],
     ];
     for (const [key, value] of defaults) {
       await prisma.$executeRawUnsafe(`

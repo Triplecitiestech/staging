@@ -2,7 +2,7 @@
  * SOC Analyst Agent — AI Prompt Templates
  */
 
-import type { SecurityTicket, DeviceVerification, SocRule, EnrichmentBundle } from './types';
+import type { SecurityTicket, DeviceVerification, SocRule, EnrichmentBundle, AssessmentSignals } from './types';
 
 /**
  * Build the Tier 1 screening prompt (Haiku — fast, cheap).
@@ -517,8 +517,7 @@ export function buildCrossStackAssessmentPrompt(
   recentTickets: SecurityTicket[],
   enrichment: EnrichmentBundle,
   deviceVerification: DeviceVerification | null,
-  historicalFpRate: number | null,
-  similarFpCount: number,
+  signals: AssessmentSignals | null,
 ): string {
   const recentSummary = recentTickets.length > 0
     ? recentTickets.map(t => `  - [${t.ticketNumber}] ${t.title} (${t.createDate})`).join('\n')
@@ -529,10 +528,6 @@ export function buildCrossStackAssessmentPrompt(
       ? `VERIFIED as TCT technician device "${deviceVerification.device?.hostname}" (tech: ${deviceVerification.technician})`
       : `NOT verified as a technician device: ${deviceVerification.reason || 'no match'}`
     : 'No IP extracted for technician verification.';
-
-  const historicalSummary = historicalFpRate !== null
-    ? `This company's historical false-positive rate for this source: ${historicalFpRate}% (${similarFpCount} similar FPs in 30 days)`
-    : 'No historical FP data for this company/source.';
 
   return `You are a senior SOC Analyst for Triple Cities Tech (TCT), a managed IT services provider.
 You triage RocketCyber / SaaS Alerts / Datto EDR security alerts that land in Autotask.
@@ -553,7 +548,10 @@ RECENT TICKETS (same company):
 ${recentSummary}
 
 TECHNICIAN DEVICE CHECK: ${deviceSummary}
-HISTORICAL: ${historicalSummary}
+
+═══ INDEPENDENT SIGNAL AXES (evaluate EACH separately — NEVER merge into one conclusion) ═══
+${formatSignalsForPrompt(signals)}
+═══ END SIGNAL AXES ═══
 
 ═══ CORRELATED EVIDENCE FROM THE SECURITY STACK ═══
 ${formatEnrichmentForPrompt(enrichment)}
@@ -561,31 +559,52 @@ ${formatEnrichmentForPrompt(enrichment)}
 
 CLASSIFICATION (choose exactly one):
 - "confirmed_malicious": Evidence confirms a real malicious/compromise event. Immediate human response.
-- "suspicious_review": Cannot be confirmed benign from available data; a technician must review/investigate.
-- "likely_false_positive": Evidence strongly suggests benign (e.g. matches a trusted tool's behavior, no corroborating detections, device healthy) but is not 100% certain.
+- "suspicious_review": Cannot be confirmed benign from available data; a technician must review/investigate or confirm with the user. This is the correct call for "indeterminate — requires user confirmation".
+- "likely_false_positive": Evidence strongly suggests benign (matches a trusted tool's behavior, on a known device/network, corroborating telemetry agrees) but is not 100% certain. Requires POSITIVE benign evidence — not merely the absence of a detection.
 - "confirmed_false_positive": Confirmed benign — matches a Known Benign entry or is unambiguously a trusted process/tool (e.g. Datto Rollback Driver, RMM/EDR/backup agent) with no other suspicious signals.
-- "insufficient_data": Not enough correlated data to make a call (e.g. RocketCyber/Datto not reachable, device not found). Say what is missing.
+- "insufficient_data": Not enough correlated data to make a call (e.g. RocketCyber/Datto not reachable, device not found, identity event with no corroboration). Say what is missing.
 
-TRUSTED-TOOL RECOGNITION: Datto Rollback Driver, Datto RMM components, Datto EDR components, backup
-agents, security tools, approved scripts, and other known Kaseya/Datto tooling commonly trip Defender
-ASR / LSASS-access rules. When the correlated evidence shows the triggering process is one of these
-(e.g. path under "C:\\Program Files\\Datto\\..."), and there are no corroborating detections elsewhere
-in the stack and the device is healthy, classify as likely/confirmed false positive and explain why.
+HOW TO REASON OVER THE SIGNAL AXES — these are INDEPENDENT; a clean reading on one does NOT cover another:
+1. IP REPUTATION and GEOLOCATION are different questions. "Clean reputation" means the IP is not a known-bad
+   host; it says NOTHING about whether the location is normal for this user. Report each separately. If
+   reputation was NOT checked (no provider), say so — do NOT assert a clean reputation you did not verify.
+2. GEOLOCATION vs BASELINE: weigh whether the source location/IP matches a known company network/device or a
+   location this customer normally operates from. An unfamiliar location is a concern signal EVEN IF the IP
+   reputation is clean and EVEN IF nothing else fired.
+3. TIMING: off-hours / weekend identity changes deserve weight. Factor it in explicitly; do not ignore it.
+4. RECURRENCE reduces NOVELTY ONLY. A high count of similar prior alerts does NOT make this instance benign
+   and must NOT raise your confidence in a benign verdict or lower the risk level. Prior "benign" closes were
+   THIS agent's own dispositions — they are not independent corroboration. If a recurring pattern is flagged,
+   treat the repetition itself as something to root-cause (see TENANT ROOT CAUSE below), not as reassurance.
+5. CORROBORATION drives CONFIDENCE. Your confidence must be a function of how much independent telemetry
+   actually confirmed the picture. If "Corroborating telemetry retrieved: NONE", you MUST keep confidence at
+   or below ${signals?.corroboration ? Math.round((signals.corroboration.confidenceCeiling ?? 0.5) * 100) : 50}% and list what could not be checked in Data Gaps. Missing corroboration is NOT neutral.
+
+IDENTITY / MFA CHANGE RULE: ${signals?.identityChange ? 'THIS ALERT IS an identity/MFA/authentication-configuration change.' : 'If this alert is an identity/MFA/authentication-configuration change (MFA method removed/added, authenticator deleted, IAM/security-info change),'} for these you must DEFAULT to "suspicious_review" (confirm with the user before closing) UNLESS there is POSITIVE evidence of benign intent (e.g. the user is on a verified known device/network AND corroborating telemetry agrees, or a known-benign match). A removed MFA method with a clean IP reputation and a high repeat rate is NOT enough to call benign — that is exactly what account takeover looks like. Recommend confirming the change with the user and checking which MFA methods remain registered (deleting one method does not necessarily leave the account without MFA).
+
+TRUSTED-TOOL RECOGNITION: Datto Rollback Driver, Datto RMM/EDR components, backup agents, approved scripts and
+other known Kaseya/Datto tooling commonly trip Defender ASR / LSASS-access rules. When the correlated evidence
+shows the triggering process is one of these (e.g. path under "C:\\Program Files\\Datto\\...") and there are no
+corroborating detections elsewhere and the device is healthy, classify as likely/confirmed false positive and explain why.
 
 CORRELATION DISCIPLINE — DO NOT OVER-ESCALATE ON NOISE:
-- Datto EDR detection COUNT is not a threat signal. Most "Unknown"/"Good" threatName detections are
-  routine background scan results, not active threats. Weight only Bad/Suspicious detections, and only
-  when they are tied to the SAME device/timeframe as this alert.
-- If the EDR data is labeled "org-wide (NOT confirmed related)", it was NOT tied to this alert's
-  device/user — treat it as low-confidence context, not corroboration. Do not claim "138 active
-  detections on this device" when the detections are org-wide and unclassified. Say what is actually
-  known and put the rest in Data Gaps.
-- DATTO RMM NETWORK MATCH: if the alert's source IP belongs to the company's known managed network,
-  the activity originated from a known company location — this REDUCES suspicion for identity/SaaS
-  alerts (logins, file operations). Treat it as a benign-leaning signal unless other evidence contradicts.
-- For SaaS Alerts identity/file-activity alerts (bulk delete, login location), the user operating from a
-  known company device/network with a clean IP and a high historical FP rate points to false positive
-  unless there is device-scoped Bad/Suspicious EDR detail or confirmed compromise.
+- Datto EDR detection COUNT is not a threat signal. Most "Unknown"/"Good" threatName detections are routine
+  background scan results. Weight only Bad/Suspicious detections tied to the SAME device/timeframe as this alert.
+- If EDR data is "org-wide (NOT confirmed related)", treat it as low-confidence context, not corroboration.
+- DATTO RMM NETWORK MATCH: if the source IP belongs to the company's known managed network, the activity came
+  from a known company location — a benign-LEANING signal for identity/SaaS alerts, but it does not by itself
+  override an off-hours or unfamiliar-location concern.
+
+THE RECOMMENDATION MUST ALWAYS END WITH A SPECIFIC NEXT ACTION. When corroboration is missing, never write
+"no action needed" — give the technician a concrete, low-effort verification step (e.g. confirm with the user).
+
+${signals?.recurrence?.recurringPattern ? `TENANT ROOT CAUSE (REQUIRED — a recurring pattern was detected):
+Populate the tenantRootCause field with a short, tenant-actionable checklist of what to investigate, because
+the repetition usually signals a fixable misconfiguration. For repeated MFA/identity events, prompt checks like:
+whether users are legitimately re-enrolling MFA (new devices, phone swaps); whether an Entra ID Conditional
+Access policy or a security-info registration campaign is forcing repeated re-registration; whether legacy
+per-user MFA and Security Defaults or Conditional Access are conflicting; and whether one user or a small group
+accounts for most events. Keep it brief and actionable — point the tech at root cause, do not write an essay.` : 'If no recurring pattern applies, set tenantRootCause to null.'}
 
 INTERNAL NOTE — THE PRIMARY DELIVERABLE:
 Technicians act inside Autotask, NOT on this website. The internalNote you write IS the product. It must
@@ -597,25 +616,35 @@ Classification: <LABEL> (Confidence <X>%)  |  Risk: <level>
 EXECUTIVE SUMMARY
 <2-4 plain sentences: what fired, what the real detection was, and the bottom line.>
 
+SIGNAL ASSESSMENT (each on its own line — do not merge)
+- IP Reputation: <verdict, or "not checked — no reputation provider">
+- Geolocation vs Baseline: <location + whether it matches a known company network/usual location, or "unknown">
+- Event Timing: <local time + business-hours/off-hours/weekend>
+- Recurrence/Novelty: <count in window + whether a recurring pattern; state it is novelty only, not reassurance>
+- Corroborating Telemetry: <which independent sources confirmed anything, or "none retrieved">
+
 EVIDENCE & CORRELATION
 - RocketCyber: <real process/path/hash/threat/action, or "no detail retrieved">
 - Datto RMM: <device health summary, or "n/a">
 - Datto EDR: <related detections or "none in window">
 - DNSFilter: <blocked-domain context or "n/a">
-- SaaS Alerts: <identity events or "none">
+- SaaS Alerts: <identity events, including source IP/location, or "none">
 - Known Benign: <matched entry or "no match">
 
 WHY THIS CLASSIFICATION
-- <bullet reasons tied to the evidence, e.g. "Defender blocked the action", "path matched Datto Rollback Driver", "no other detections", "device health clean">
+- <bullet reasons tied to the evidence and the signal axes above>
 
 RECOMMENDED TECHNICIAN ACTION
-<Concrete, technical next steps if any are needed. For a clean false positive: "No remediation required; close after review." For real concerns: isolation, password reset, escalation, etc.>
-
+<Concrete next steps. MUST end with a specific action when corroboration is missing — never "no action needed".>
+${signals?.recurrence?.recurringPattern ? `
+TENANT ROOT CAUSE
+<the same tenant-actionable checklist as the tenantRootCause field below>
+` : ''}
 DATA GAPS
-- <what could not be determined and why, or "none">
+- <what could not be determined and why (include "IP reputation not checked" and any absent telemetry), or "none">
 
 CUSTOMER MESSAGE (copy/paste — only if this is a real concern, NOT for false positives)
-<If customerMessageRequired is true: a plain-language, non-technical message the tech can paste to inform the customer. If false: write exactly "Not required — <reason>. No customer notification recommended.">
+<If customerMessageRequired is true: a plain-language, non-technical message. If false: write exactly "Not required — <reason>. No customer notification recommended.">
 
 SUGGESTED TICKET CLOSURE NOTE (copy/paste to resolve the ticket)
 <the same 2-4 sentence resolution note as the closureNote field below>
@@ -624,20 +653,62 @@ SUGGESTED TICKET CLOSURE NOTE (copy/paste to resolve the ticket)
 Respond ONLY with valid JSON (no markdown, no backticks):
 {
   "executiveSummary": "2-4 plain sentences, no jargon",
-  "finalRecommendation": "One clear sentence: what to do with this ticket",
+  "finalRecommendation": "One clear sentence ending in a specific next action",
   "classification": "confirmed_malicious|suspicious_review|likely_false_positive|confirmed_false_positive|insufficient_data",
   "confidence": 0.0,
   "riskLevel": "none|low|medium|high|critical",
-  "evidence": [ { "label": "Triggering Process", "value": "updater.exe", "type": "neutral|positive|negative|info" } ],
+  "evidence": [ { "label": "Geolocation vs Baseline", "value": "Brooklyn, NY — not a known company location", "type": "neutral|positive|negative|info" } ],
   "knownBenignMatch": { "matched": true, "reason": "Path matches Datto Rollback Driver catalogue entry" } or null,
   "customerImpact": "Plain-language statement of impact to the customer, or 'None — no customer-visible impact.'",
-  "recommendedTechnicianActions": [ "step 1", "step 2" ],
-  "dataGaps": [ "what was missing" ],
+  "recommendedTechnicianActions": [ "step 1", "step 2 (ends with a concrete verification step when corroboration is missing)" ],
+  "dataGaps": [ "what was missing, e.g. 'IP reputation not checked', 'no EDR/RMM correlation retrieved'" ],
+  "tenantRootCause": "Tenant-actionable root-cause checklist when a recurring pattern was detected, else null",
   "internalNote": "The full self-contained note following the structure above, ready to post to Autotask",
-  "closureNote": "A short (2-4 sentence) copy/paste resolution note the technician pastes when closing/updating the ticket. State the verdict, the triggering binary and why it's benign or a concern, that Defender blocked it (if applicable), and the disposition (e.g. 'Closing as false positive — no action required.'). For a real concern, summarize what was done / escalated instead.",
+  "closureNote": "A short (2-4 sentence) copy/paste resolution note. For a benign verdict state the disposition. For suspicious_review / unconfirmed identity changes, state that the ticket should NOT be closed until confirmed with the user.",
   "customerMessageRequired": false,
   "customerMessageDraft": "plain-language message or null"
 }`;
+}
+
+/**
+ * Render the independent signal axes (timing, geo, recurrence, corroboration,
+ * identity-change) for the prompt. Kept SEPARATE from the evidence block so the
+ * model sees them as distinct axes, not one merged "it's fine" reading.
+ */
+export function formatSignalsForPrompt(signals: AssessmentSignals | null): string {
+  if (!signals) return '(signal axes not computed for this alert)';
+  const lines: string[] = [];
+
+  // Reputation + geolocation — explicitly separated.
+  lines.push('IP REPUTATION:');
+  lines.push(`  - ${signals.geo.ipReputationChecked ? (signals.geo.reputationVerdict || 'checked (no verdict returned)') : 'NOT CHECKED — no reputation provider is wired in. Do NOT assert a clean reputation you did not verify.'}`);
+
+  lines.push('GEOLOCATION vs BASELINE (independent of reputation):');
+  lines.push(`  - Source IP: ${signals.geo.alertIp || 'unknown'}`);
+  lines.push(`  - Geolocation: ${signals.geo.alertLocation || 'unknown'}`);
+  lines.push(`  - On a known company network/device: ${signals.geo.onKnownCompanyNetwork ? 'yes' : 'no'}`);
+  lines.push(`  - Baseline: ${signals.geo.baseline === 'matched_known_network' ? 'matches a known company location' : signals.geo.baseline === 'no_baseline_match' ? 'NO baseline match — not a known company network/device' : 'unknown'}`);
+  if (signals.geo.locationsSeenNearby.length > 0) {
+    lines.push(`  - Other locations seen for this customer near the alert: ${signals.geo.locationsSeenNearby.join('; ')}`);
+  }
+
+  lines.push('EVENT TIMING:');
+  lines.push(`  - ${signals.timing.eventTimeLocal || 'time unknown'}${signals.timing.afterHours === null ? '' : signals.timing.afterHours ? ' — OUTSIDE business hours' : ' — within business hours'}${signals.timing.weekend ? ' (weekend)' : ''}`);
+
+  lines.push('RECURRENCE / NOVELTY (reduces novelty ONLY — never reassurance):');
+  lines.push(`  - ${signals.recurrence.similarAlertCount} similar alert(s) for this company+source in ${signals.recurrence.windowDays} days${signals.recurrence.recurringPattern ? ' — RECURRING PATTERN flagged; root-cause it.' : '.'}`);
+  lines.push(`  - ${signals.recurrence.priorBenignCount} previously closed benign by THIS agent (its own prior disposition — NOT independent corroboration).`);
+
+  lines.push('CORROBORATION (drives confidence):');
+  lines.push(`  - Independent corroborating telemetry: ${signals.corroboration.corroboratingTelemetry ? 'YES' : 'NONE'}.`);
+  lines.push(`  - Sources with data: ${signals.corroboration.sourcesUsed.join(', ') || 'none'}.`);
+  if (signals.corroboration.confidenceCeiling != null) {
+    lines.push(`  - Confidence ceiling in force: ${Math.round(signals.corroboration.confidenceCeiling * 100)}% (no corroboration).`);
+  }
+
+  lines.push(`IDENTITY/MFA CHANGE: ${signals.identityChange ? 'YES — default to confirm-with-user unless positive benign evidence.' : 'no'}`);
+
+  return lines.join('\n');
 }
 
 /**

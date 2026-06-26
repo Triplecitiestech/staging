@@ -369,6 +369,10 @@ export interface SocConfig {
   internal_site_ids: string[];
   /** Auto-post the self-contained internal note to Autotask (Internal Only). Close/customer-reply stay approval-gated. */
   auto_post_internal_note: boolean;
+  /** Confidence ceiling applied when no independent telemetry corroborated the alert (0-1). */
+  confidence_uncorroborated_cap: number;
+  /** Number of similar alerts (same company + source, 30d) that flags a recurring pattern for root-cause review. */
+  recurring_pattern_threshold: number;
 }
 
 // ── Cross-Stack Enrichment ──
@@ -454,7 +458,17 @@ export interface DnsCorrelation {
 /** SaaS Alerts events correlated by customer/timeframe. */
 export interface SaasCorrelation {
   eventCount: number;
-  events: Array<{ type: string; severity: string; description: string; time: string; user: string | null }>;
+  events: Array<{
+    type: string;
+    severity: string;
+    description: string;
+    time: string;
+    user: string | null;
+    /** Source IP on the SaaS Alerts event — authoritative (may be IPv6); the ticket body often omits it. */
+    ip: string | null;
+    /** Geolocation of the source IP as reported by SaaS Alerts. NOT a reputation signal — a separate axis. */
+    location: string | null;
+  }>;
 }
 
 /** Match against the Known Benign Security Events table (informational only). */
@@ -468,6 +482,87 @@ export interface KnownBenignMatch {
   scope: 'global' | 'tenant' | 'device';
   /** How we matched: 'path' | 'hash' | 'signer' | 'vendor_product' */
   matchedOn: string;
+}
+
+/**
+ * Independently-evaluated signal axes, computed deterministically in code (NOT
+ * by the LLM) so they can never be silently merged into one "it's fine" verdict.
+ * Each axis is reported on its own: reputation, geolocation-vs-baseline, timing,
+ * recurrence, and how much corroborating telemetry was actually retrieved.
+ */
+
+/** Event timing relative to the customer's business hours (Eastern by default). */
+export interface TimingSignal {
+  /** ISO timestamp the analysis used as the event time. */
+  eventTimeUtc: string | null;
+  /** Human-readable local time incl. tz abbreviation, e.g. "Wed, Jun 25, 8:37 PM EDT". */
+  eventTimeLocal: string | null;
+  /** IANA tz the local time was computed in. */
+  timezone: string;
+  /** True when outside Mon–Fri business hours (or on a weekend). null when unknown. */
+  afterHours: boolean | null;
+  /** True when the event fell on a non-working day. */
+  weekend: boolean | null;
+}
+
+/**
+ * Geolocation vs the customer's baseline. Deliberately SEPARATE from reputation:
+ * a clean threat-reputation says nothing about whether the location is normal.
+ */
+export interface GeoSignal {
+  /**
+   * Whether an IP threat-reputation source actually ran. We have no reputation
+   * provider wired in, so this is false today — the model must NOT assert a clean
+   * reputation it did not verify.
+   */
+  ipReputationChecked: boolean;
+  /** Reputation verdict if (and only if) a source ran; null = not checked. */
+  reputationVerdict: string | null;
+  /** Source IP tied to the alert (from the SaaS Alerts event; may be IPv6). */
+  alertIp: string | null;
+  /** Human-readable geolocation of the alert IP, e.g. "Brooklyn, New York, US". */
+  alertLocation: string | null;
+  /** True when the source IP belongs to the company's known managed network or a verified device. */
+  onKnownCompanyNetwork: boolean;
+  /** Distinct other locations seen for this customer's events near the alert (context for "usual" locations). */
+  locationsSeenNearby: string[];
+  /** Baseline comparison outcome. */
+  baseline: 'matched_known_network' | 'no_baseline_match' | 'unknown';
+}
+
+/**
+ * How often this company has generated this kind of alert recently. CRITICAL:
+ * recurrence reduces NOVELTY only. It must never raise confidence in a benign
+ * verdict nor lower risk. `priorBenignCount` reflects the SOC agent's OWN prior
+ * dispositions, so it is NOT independent corroboration.
+ */
+export interface RecurrenceSignal {
+  /** Prior analyses for the same company + alert source within the window. */
+  similarAlertCount: number;
+  windowDays: number;
+  /** How many of those the agent itself previously closed as benign (self-reported, not corroboration). */
+  priorBenignCount: number;
+  /** True when similarAlertCount meets the configured recurring-pattern threshold. */
+  recurringPattern: boolean;
+}
+
+/** How much independent telemetry actually corroborated the alert. Drives the confidence cap. */
+export interface CorroborationSignal {
+  /** Sources that returned substantive data (status 'used'). */
+  sourcesUsed: string[];
+  /** True when independent telemetry (RocketCyber detail, device health, device-scoped EDR/DNS, known-network match) confirmed context. */
+  corroboratingTelemetry: boolean;
+  /** Confidence ceiling applied because corroboration was thin (null = no cap applied). */
+  confidenceCeiling: number | null;
+}
+
+export interface AssessmentSignals {
+  timing: TimingSignal;
+  geo: GeoSignal;
+  recurrence: RecurrenceSignal;
+  corroboration: CorroborationSignal;
+  /** True for IAM / MFA / identity-configuration-change alerts (default to confirm-with-user). */
+  identityChange: boolean;
 }
 
 export interface EnrichmentBundle {
@@ -484,6 +579,13 @@ export interface EnrichmentBundle {
   knownBenignMatches: KnownBenignMatch[];
   dataSources: DataSourceStatus[];
   dataGaps: string[];
+  /**
+   * Independently-evaluated signal axes (timing, geo, recurrence, corroboration,
+   * identity-change). Computed in code; consumed by the prompt and the UI so the
+   * axes are never collapsed into a single conclusion. Optional for back-compat
+   * with incidents persisted before this layer existed.
+   */
+  signals?: AssessmentSignals | null;
 }
 
 // ── Known Benign Security Events ──
@@ -546,6 +648,13 @@ export interface SocAssessment {
   recommendedTechnicianActions: string[];
   /** What we could NOT determine, and why. */
   dataGaps: string[];
+  /**
+   * Tenant-actionable root-cause section. Populated when a recurring pattern is
+   * detected (e.g. repeated MFA-removal alerts) — points the technician at the
+   * likely fixable misconfiguration rather than treating repetition as noise.
+   * null when there is no recurring pattern to investigate.
+   */
+  tenantRootCause?: string | null;
   /** The full self-contained note posted to Autotask (Internal Only). */
   internalNote: string;
   /** Short copy/paste resolution note the technician uses to close the ticket. */
