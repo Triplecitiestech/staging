@@ -4,6 +4,20 @@
 > **Branch**: `claude/pensive-cannon-sc50gx` (merged to `main`).
 > **Detailed handoff**: see `docs/SESSION_HANDOFF.md` first — this file is the quick state-of-the-world reference.
 
+## SOC assessment logic audit — fix overconfident "false positive" verdicts (2026-06-26) — branch `claude/soc-assessment-logic-audit-ugmlc2`
+
+**Context**: Reference ticket **T20260625.0011** ("IAM Event – MFA Disabled", C4ISR Cables) was classified `likely_false_positive` at **87% confidence, Low risk, no action** — wrong reasoning even if benign. The assessment used a high historical FP rate as *reassurance*, conflated clean IP reputation with location (Brooklyn, ~150mi from the customer site), ignored the 8:37 PM off-hours timing, and claimed 87% with EDR/RMM/correlation all "n/a".
+
+**Root cause (mapped)**: classification/confidence/risk are produced by the **LLM** (`buildCrossStackAssessmentPrompt`), not code — nothing constrained it. The prompt literally told it a high FP rate "points to false positive". The "10 prior alerts" baseline is **ours** (`getHistoricalFpRate` reading `soc_ticket_analysis` — the agent's own prior closes = self-reinforcing loop), not upstream. Geo/timing data existed (SaaS Alerts event `ip`/`location`) but enrichment **dropped** it; there was no reputation lookup, no timing logic, and IPv4-only IP extraction missed the IPv6 source.
+
+**Shipped (all in `src/lib/soc` + UI/config)**:
+- **Deterministic guardrail layer** (`applyGuardrails` in `engine.ts`) runs after the LLM: caps confidence at `confidence_uncorroborated_cap` (0.5) when no independent telemetry corroborated; downgrades benign identity/MFA verdicts lacking positive benign evidence to `suspicious_review`; forces a concrete verification step; reconciles the internal-note header + appends a transparent "AUTOMATED GUARDRAIL ADJUSTMENTS" block.
+- **Independent signal axes** (`AssessmentSignals` on `EnrichmentBundle`): IP reputation (reported "not checked" — no provider), geolocation-vs-baseline (SaaS `ip`/`location` now surfaced; known-network match), event timing (`classifyEventTiming` in `reporting/business-hours.ts`), recurrence, corroboration. Rendered by new `SignalBreakdown` in `CrossStackAssessment.tsx`.
+- **Recurrence ≠ reassurance**: `getRecurrenceSignal` replaces the FP-rate framing; high count reduces novelty only, flags a recurring pattern (`recurring_pattern_threshold`, default 3) → **tenant root-cause** section (MFA re-enrollment / Conditional Access / Security Defaults conflict / single-user concentration).
+- IPv6 extraction (`extractIpv6`); prompt rewritten to evaluate each axis separately and tie confidence to corroboration; new config keys seeded in `/api/soc/migrate` + the config panel.
+
+**Verified**: `tsc --noEmit` 0 errors, `next lint` clean, 117 unit tests green. **Operator action after deploy**: POST `https://www.triplecitiestech.com/api/soc/migrate` (Bearer `MIGRATION_SECRET`) to seed the two new config keys, then re-run T20260625.0011 to validate.
+
 ## TBR / Customer History export — live multi-year Autotask pull (2026-06-16) — PRs #92–#95 (all merged to production)
 
 **Context**: Owner prepping a Technology Business Review for **Tri-Bros Transportation** needed every Autotask ticket for ~3 years with queue/type breakdowns + Datto RMM data. The reporting sync only caches a rolling ~30-day window, and all three existing report engines (Business Review, Annual Service Report, Executive Summary) read that cache — none could produce multi-year history.

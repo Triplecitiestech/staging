@@ -105,6 +105,33 @@ export function computeBusinessMinutes(
 }
 
 /**
+ * Classify a single timestamp relative to business hours.
+ *
+ * Unlike computeBusinessMinutes (which measures elapsed time), this answers
+ * "did this happen during business hours?" — used by the SOC analyst to weigh
+ * off-hours identity events as an independent signal. DST is handled by Intl,
+ * so the tz abbreviation (EDT/EST) is always correct for the date.
+ */
+export function classifyEventTiming(
+  date: Date,
+  config: BusinessHoursConfig = DEFAULT_CONFIG,
+): { localTime: string; afterHours: boolean; weekend: boolean; timezone: string } {
+  const local = toLocalTime(date, config.timezone);
+  const day = local.getDay();
+  const hour = local.getHours();
+  const weekend = !config.workDays.includes(day);
+  const afterHours = weekend || hour < config.startHour || hour >= config.endHour;
+
+  const localTime = new Intl.DateTimeFormat('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric',
+    hour: 'numeric', minute: '2-digit', hour12: true,
+    timeZone: config.timezone, timeZoneName: 'short',
+  }).format(date);
+
+  return { localTime, afterHours, weekend, timezone: config.timezone };
+}
+
+/**
  * Convert a UTC Date to a local Date object in the specified timezone.
  * Uses Intl.DateTimeFormat for timezone conversion.
  */

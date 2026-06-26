@@ -37,10 +37,24 @@ export interface SocAssessment {
   customerImpact: string
   recommendedTechnicianActions: string[]
   dataGaps: string[]
+  tenantRootCause?: string | null
   internalNote: string
   closureNote?: string
   customerMessageRequired: boolean
   customerMessageDraft: string | null
+}
+
+export interface AssessmentSignals {
+  timing: { eventTimeUtc: string | null; eventTimeLocal: string | null; timezone: string; afterHours: boolean | null; weekend: boolean | null }
+  geo: {
+    ipReputationChecked: boolean; reputationVerdict: string | null
+    alertIp: string | null; alertLocation: string | null
+    onKnownCompanyNetwork: boolean; locationsSeenNearby: string[]
+    baseline: 'matched_known_network' | 'no_baseline_match' | 'unknown'
+  }
+  recurrence: { similarAlertCount: number; windowDays: number; priorBenignCount: number; recurringPattern: boolean }
+  corroboration: { sourcesUsed: string[]; corroboratingTelemetry: boolean; confidenceCeiling: number | null }
+  identityChange: boolean
 }
 
 export interface RocketCyberDetail {
@@ -108,10 +122,11 @@ export interface EnrichmentBundle {
     topBlockedDomains: Array<{ domain: string; count: number }>
     samples: Array<{ time: string; fqdn: string; result: string; threat: boolean; categories: string; device: string | null; requesterIp: string | null }>
   } | null
-  saasAlerts: { eventCount: number; events: Array<{ type: string; severity: string; description: string; time: string; user: string | null }> } | null
+  saasAlerts: { eventCount: number; events: Array<{ type: string; severity: string; description: string; time: string; user: string | null; ip?: string | null; location?: string | null }> } | null
   knownBenignMatches: KnownBenignMatch[]
   dataSources: DataSourceStatus[]
   dataGaps: string[]
+  signals?: AssessmentSignals | null
 }
 
 /** True when a parsed reasoning blob is the new cross-stack assessment shape. */
@@ -173,6 +188,9 @@ export default function CrossStackAssessment({ assessment, enrichment }: { asses
           <p className="text-sm text-green-300 mt-2">No customer notification recommended. Add internal note and close after technician review.</p>
         )}
       </div>
+
+      {/* Signal Breakdown — the independent axes, never collapsed into one verdict */}
+      {enrichment?.signals && <SignalBreakdown signals={enrichment.signals} />}
 
       {/* Known Benign Match */}
       {(assessment.knownBenignMatch?.matched || (enrichment?.knownBenignMatches?.length ?? 0) > 0) && (
@@ -379,6 +397,15 @@ export default function CrossStackAssessment({ assessment, enrichment }: { asses
         </Section>
       )}
 
+      {/* Tenant Root Cause — why this keeps recurring, what to check in the tenant */}
+      {assessment.tenantRootCause && (
+        <Section title="Tenant Root Cause" subtitle="Recurring pattern detected — what to investigate in this tenant">
+          <div className="p-4">
+            <p className="text-sm text-slate-200 whitespace-pre-wrap">{assessment.tenantRootCause}</p>
+          </div>
+        </Section>
+      )}
+
       {/* Data Gaps */}
       {assessment.dataGaps?.length > 0 && (
         <Section title="Data Gaps" subtitle="What the analyst could not determine, and why">
@@ -465,5 +492,68 @@ function DetailField({ label, value, mono, wide }: { label: string; value: strin
       <p className="text-xs text-slate-500">{label}</p>
       <p className={`text-sm text-slate-200 break-words ${mono ? 'font-mono text-xs' : ''}`}>{value}</p>
     </div>
+  )
+}
+
+type SignalTone = 'positive' | 'negative' | 'neutral' | 'info'
+
+/**
+ * Renders the independent signal axes so a technician sees reputation,
+ * geolocation, timing, recurrence, and corroboration as SEPARATE readings —
+ * never collapsed into a single "it's fine". Mirrors the AssessmentSignals the
+ * engine computes deterministically.
+ */
+function SignalBreakdown({ signals }: { signals: AssessmentSignals }) {
+  const { timing, geo, recurrence, corroboration, identityChange } = signals
+
+  const reputation: { value: string; tone: SignalTone } = geo.ipReputationChecked
+    ? { value: geo.reputationVerdict || 'Checked', tone: 'neutral' }
+    : { value: 'Not checked — no reputation provider wired in', tone: 'info' }
+
+  const source = geo.alertLocation || geo.alertIp || 'Source'
+  const geoRow: { value: string; tone: SignalTone } = geo.baseline === 'matched_known_network'
+    ? { value: `${source} — matches a known company location`, tone: 'positive' }
+    : geo.baseline === 'no_baseline_match'
+      ? { value: `${source} — not a known company location/network`, tone: 'negative' }
+      : { value: geo.alertLocation || geo.alertIp || 'Unknown', tone: 'neutral' }
+
+  const timingRow: { value: string; tone: SignalTone } = timing.afterHours === null
+    ? { value: 'Unknown', tone: 'neutral' }
+    : timing.afterHours
+      ? { value: `${timing.eventTimeLocal} — outside business hours${timing.weekend ? ' (weekend)' : ''}`, tone: 'negative' }
+      : { value: `${timing.eventTimeLocal} — within business hours`, tone: 'neutral' }
+
+  const recurrenceRow: { value: string; tone: SignalTone } = recurrence.recurringPattern
+    ? { value: `${recurrence.similarAlertCount} similar in ${recurrence.windowDays}d — recurring pattern (reduces novelty only; not a benign signal)`, tone: 'info' }
+    : { value: `${recurrence.similarAlertCount} similar in ${recurrence.windowDays}d`, tone: 'neutral' }
+
+  const corroborationRow: { value: string; tone: SignalTone } = corroboration.corroboratingTelemetry
+    ? { value: `Corroborated by: ${corroboration.sourcesUsed.join(', ') || 'independent telemetry'}`, tone: 'positive' }
+    : { value: `None retrieved${corroboration.confidenceCeiling != null ? ` — confidence capped at ${Math.round(corroboration.confidenceCeiling * 100)}%` : ''}`, tone: 'negative' }
+
+  const rows: Array<{ label: string; value: string; tone: SignalTone }> = [
+    { label: 'IP Reputation', ...reputation },
+    { label: 'Geolocation vs Baseline', ...geoRow },
+    { label: 'Event Timing', ...timingRow },
+    { label: 'Recurrence / Novelty', ...recurrenceRow },
+    { label: 'Corroborating Telemetry', ...corroborationRow },
+  ]
+
+  return (
+    <Section title="Signal Breakdown" subtitle="Each axis evaluated independently — reputation, location, timing, recurrence, and corroboration are different questions">
+      <div className="p-4 space-y-2">
+        {identityChange && (
+          <div className="text-xs text-violet-300 bg-violet-500/10 border border-violet-500/20 rounded px-3 py-2 mb-1">
+            Identity / MFA change — default is to confirm with the user before closing unless there is positive benign evidence.
+          </div>
+        )}
+        {rows.map((r, i) => (
+          <div key={i} className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-3 bg-black/30 rounded-lg p-3">
+            <p className="text-xs text-slate-500 sm:col-span-1">{r.label}</p>
+            <p className={`text-sm break-words sm:col-span-2 ${EVIDENCE_COLORS[r.tone] || 'text-slate-300'}`}>{r.value}</p>
+          </div>
+        ))}
+      </div>
+    </Section>
   )
 }

@@ -1,5 +1,5 @@
 # Triple Cities Tech — CLAUDE.md
-*Last updated: 2026-06-16 · Owner: Kurtis (kurtis@triplecitiestech.com)*
+*Last updated: 2026-06-26 · Owner: Kurtis (kurtis@triplecitiestech.com)*
 
 > **The operating manual for every AI session in this repo.** Read this file first, then the bootstrap docs below. This file holds the rules you must never break plus an index to everything else; deep detail lives in `/docs`. If a section here grows, push the detail into `/docs` and link it — keep this file lean so nothing gets skimmed. When you touch this file, bump the date above.
 
@@ -140,6 +140,7 @@ Plan → Implement → Verify (build + lint + e2e) → Review (git diff) → Com
 - `2026-06-09` — Gated the auto-merge: claude/** pushes now require secret-scan + lint + schema-drift + build + unit tests + e2e-vs-preview before merging to main. Schema-drift check wired into Vercel builds. `_prisma_migrations` retrofit planned (`docs/runbooks/MIGRATIONS_RETROFIT.md`).
 - `2026-06-16` — Added a live, multi-year **TBR / Customer History export**: `GET /api/reports/tbr-export` (read-only; auth = staff session OR `MIGRATION_SECRET`) pulls a company's full ticket history straight from Autotask — bypassing the reporting sync's ~30-day DB cache — plus Datto RMM, with a `/admin/reporting/customer-history` admin UI (live Autotask customer typeahead). Ticket counts are split **human-support vs proactive-monitoring** by queue. Full reference: `docs/reference/TBR_DATA_CAPABILITIES.md`.
 - `2026-06-16` — Autotask `nextPageUrl` GET 405s on `includeFields` queries and filters `createDate` at day granularity; large pulls now paginate by recursively splitting the createDate window (`queryOnePage`) and de-dupe by ticket id. Lesson: raw Autotask "ticket" counts include automated monitoring/alert queues — split human vs monitoring for customer-facing reports. See `docs/gotchas.md` → Autotask.
+- `2026-06-26` — SOC assessment hardened with a deterministic guardrail layer over the LLM verdict (`applyGuardrails` in `src/lib/soc/engine.ts`): historical recurrence reduces novelty only (never raises benign confidence or lowers risk; it's the agent's own prior closes, not corroboration), IP reputation / geolocation / timing / corroboration are evaluated as separate axes, confidence is capped when uncorroborated (`confidence_uncorroborated_cap`), and IAM/MFA changes default to "confirm with the user before closing". Full detail: `docs/gotchas.md` → SOC.
 
 ## Critical Gotchas — digest
 
