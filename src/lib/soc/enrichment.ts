@@ -30,6 +30,7 @@ import { SaasAlertsClient } from '@/lib/saas-alerts';
 import { detectAlertSource, isIdentityChangeAlert } from './rules';
 import { extractIps, extractIpv6 } from './ip-extractor';
 import { classifyEventTiming } from '@/lib/reporting/business-hours';
+import { fetchM365Identity } from './m365-identity';
 import type {
   SecurityTicket,
   DeviceVerification,
@@ -43,6 +44,7 @@ import type {
   CompanyNetworkMatch,
   AlertSource,
   AssessmentSignals,
+  M365IdentityCorrelation,
 } from './types';
 import type { RocketCyberDetail } from '@/lib/rocketcyber';
 
@@ -134,6 +136,18 @@ export async function enrichTicket(
 
   if (!hostname) dataGaps.push('Could not determine the affected device hostname from the alert; device-level correlation skipped.');
 
+  // 7. M365 tenant correlation — ONLY for identity/MFA-change alerts. Scoped to
+  //    the customer's own tenant (getTenantCredentials), so it is authoritative
+  //    for what actually happened and can never reach another customer.
+  let m365Identity: M365IdentityCorrelation | null = null;
+  if (isIdentityChangeAlert(ticket)) {
+    const upn = resolveUserPrincipalName(ticket, saas.result?.events || []);
+    const m365 = await fetchM365Identity({ companyId, userPrincipalName: upn, alertTime });
+    m365Identity = m365.result;
+    dataSources.push(m365.status);
+    if (m365.gap) dataGaps.push(m365.gap);
+  }
+
   // Assemble the independent signal axes (timing, geo, corroboration, identity-change).
   // recurrence is a placeholder here — the engine fills it from the analysis history.
   const signals = buildSignals({
@@ -149,6 +163,7 @@ export async function enrichTicket(
     networkMatch: device.networkMatch || null,
     edr: edr.result,
     dns: dns.result,
+    m365: m365Identity,
   });
 
   return {
@@ -161,11 +176,24 @@ export async function enrichTicket(
     edr: edr.result,
     dns: dns.result,
     saasAlerts: saas.result,
+    m365Identity,
     knownBenignMatches,
     dataSources,
     dataGaps,
     signals,
   };
+}
+
+/**
+ * Resolve the affected user's UPN/email for M365 correlation: prefer a SaaS
+ * Alerts event user, else the first email address in the ticket title/body
+ * (SaaS Alerts identity tickets carry it, e.g. "markk@c4isrcables.com/IAM Event…").
+ */
+function resolveUserPrincipalName(ticket: SecurityTicket, saasEvents: SaasCorrelation['events']): string | null {
+  const fromEvent = saasEvents.map(e => e.user).find(u => u && u.includes('@'));
+  if (fromEvent) return fromEvent;
+  const m = `${ticket.title}\n${ticket.description || ''}`.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/);
+  return m ? m[0] : null;
 }
 
 /** Format a SaaS Alerts location object as "City, Region, Country" (non-empty parts). */
@@ -193,6 +221,7 @@ function buildSignals(params: {
   networkMatch: CompanyNetworkMatch | null;
   edr: EdrCorrelation | null;
   dns: DnsCorrelation | null;
+  m365: M365IdentityCorrelation | null;
 }): AssessmentSignals {
   // ── Timing ──
   const eventDate = new Date(params.alertTime);
@@ -224,13 +253,22 @@ function buildSignals(params: {
     : (alertIp || alertLocation) ? 'no_baseline_match' : 'unknown';
 
   // ── Corroboration ── (independent telemetry — SaaS events are the alert itself, NOT corroboration)
+  // For identity alerts, an M365 audit confirmation of a benign RE-ENROLLMENT
+  // (the method was removed AND a strong method re-registered, with a strong
+  // method still present) is positive, authoritative corroboration from the
+  // tenant — the source of truth. A removal with no re-registration, or only a
+  // weak factor left, is NOT treated as corroborating (stays cautious).
+  const m365BenignReenrollment = Boolean(
+    params.m365 && params.m365.removeThenReregister && params.m365.hasStrongMethodRemaining,
+  );
   const sourcesUsed = params.dataSources.filter(s => s.status === 'used').map(s => s.source);
   const corroboratingTelemetry = Boolean(
     (params.rocketCyber && (params.rocketCyber.process || params.rocketCyber.path || params.rocketCyber.hash)) ||
     params.deviceHealth ||
     params.networkMatch ||
     (params.edr && params.edr.deviceScoped && params.edr.detectionCount > 0) ||
-    (params.dns && params.dns.deviceScoped),
+    (params.dns && params.dns.deviceScoped) ||
+    m365BenignReenrollment,
   );
 
   return {
@@ -872,7 +910,21 @@ async function fetchSaasAlerts(companyId: string | null, companyName: string | n
     }
 
     if (events.length === 0) {
-      return { result: { eventCount: 0, events: [] }, status: { source: 'SaaS Alerts', status: 'no_data', detail: `No SaaS Alerts events for the ${matchedBy}-resolved customer(s) in window.` } };
+      const idList = customerIds.join(', ');
+      return {
+        result: { eventCount: 0, events: [] },
+        status: {
+          source: 'SaaS Alerts',
+          status: 'no_data',
+          detail: `No SaaS Alerts events for ${matchedBy}-resolved customer id(s) [${idList}] in the ±6h window (${since} – ${until}).`,
+        },
+        // If the alert itself came from SaaS Alerts but the events query is empty,
+        // the customer→id resolution is the likely culprit (especially on a fuzzy
+        // name-match). Point the tech at the durable fix.
+        gap: matchedBy === 'name'
+          ? `SaaS Alerts returned no events for the name-matched customer id(s) [${idList}]. If this alert originated from SaaS Alerts, add an explicit SaaS Alerts customer mapping for ${companyName || 'this company'} at Compliance > Connect Tools — fuzzy name-matching may have resolved the wrong customer id.`
+          : `SaaS Alerts returned no events for mapped customer id(s) [${idList}] in the window; verify the mapping is current.`,
+      };
     }
     return {
       result: { eventCount: events.length, events: events.slice(0, 10) },

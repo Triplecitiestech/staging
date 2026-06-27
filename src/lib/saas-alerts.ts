@@ -493,7 +493,23 @@ export class SaasAlertsClient {
         must.push({ range: { time: range } })
       }
       if (params?.severity) must.push({ term: { 'alertStatus.keyword': params.severity } })
-      if (params?.customerId) must.push({ term: { 'customerId.keyword': params.customerId } })
+      // Match the id against EITHER customerId or organizationId. The customer
+      // list's `id` maps to different fields across the events index depending on
+      // tenant setup, so a bare `customerId.keyword` term silently returned zero
+      // events for alerts that genuinely originated from that customer (e.g. the
+      // SOC's identity/MFA correlation). OR-matching both fields fixes that while
+      // staying strictly scoped to this one customer (never MSP-wide).
+      if (params?.customerId) {
+        must.push({
+          bool: {
+            should: [
+              { term: { 'customerId.keyword': params.customerId } },
+              { term: { 'organizationId.keyword': params.customerId } },
+            ],
+            minimum_should_match: 1,
+          },
+        })
+      }
 
       // The External Partner API validates a request envelope: the ES-style
       // search must be nested under a top-level `body` key. A 422 at path

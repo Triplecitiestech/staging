@@ -471,6 +471,52 @@ export interface SaasCorrelation {
   }>;
 }
 
+/**
+ * Microsoft Entra (M365) tenant correlation for identity/MFA-change alerts.
+ * Pulled from the CUSTOMER'S OWN tenant via getTenantCredentials(companyId), so
+ * it is the authoritative source for what actually happened — and is inherently
+ * customer-scoped (never cross-tenant).
+ */
+export interface M365AuthMethod {
+  /** Friendly method type, e.g. "Microsoft Authenticator", "Phone", "Password". */
+  type: string;
+  detail: string | null;
+}
+
+export interface M365AuditEvent {
+  activity: string;
+  time: string;
+  initiatedBy: string;
+  result: string;
+  targetUser: string | null;
+}
+
+export interface M365SignIn {
+  time: string;
+  ip: string | null;
+  location: string | null;
+  device: string | null;
+  status: string;
+  conditionalAccess: string | null;
+}
+
+export interface M365IdentityCorrelation {
+  /** UPN/email the correlation was scoped to. */
+  userPrincipalName: string | null;
+  /** Entra audit-log entries — the authoritative record of the security-info/MFA change. */
+  auditEvents: M365AuditEvent[];
+  /** True when a method was removed AND (re)registered in the window — re-enrollment signature (e.g. device swap). */
+  removeThenReregister: boolean;
+  /** Sign-ins for the user in the window (device / IP / Conditional Access context). */
+  signIns: M365SignIn[];
+  /** Current registered authentication methods — answers "is the account left weakly protected?". */
+  remainingMethods: M365AuthMethod[];
+  /** True when at least one strong (non-password) method remains registered. */
+  hasStrongMethodRemaining: boolean;
+  /** Graph permission/scope or license gaps encountered (e.g. AuditLog.Read.All not consented, no Entra ID P1). */
+  permissionGaps: string[];
+}
+
 /** Match against the Known Benign Security Events table (informational only). */
 export interface KnownBenignMatch {
   id: string;
@@ -576,6 +622,8 @@ export interface EnrichmentBundle {
   edr: EdrCorrelation | null;
   dns: DnsCorrelation | null;
   saasAlerts: SaasCorrelation | null;
+  /** Microsoft Entra tenant correlation — only populated for identity/MFA-change alerts when the tenant is connected. */
+  m365Identity?: M365IdentityCorrelation | null;
   knownBenignMatches: KnownBenignMatch[];
   dataSources: DataSourceStatus[];
   dataGaps: string[];
