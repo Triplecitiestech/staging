@@ -4,6 +4,17 @@
 > **Branch**: `claude/pensive-cannon-sc50gx` (merged to `main`).
 > **Detailed handoff**: see `docs/SESSION_HANDOFF.md` first — this file is the quick state-of-the-world reference.
 
+## SOC M365 tenant confirmation + SaaS Alerts correlation fix (2026-06-27) — branch `claude/soc-m365-identity-correlation-ugmlc2`
+
+Follow-up to the assessment-logic audit (PR #109, merged). After re-running ticket T20260625.0011, the owner flagged: (a) the alert came FROM SaaS Alerts yet enrichment said "no SaaS Alerts correlation"; (b) for an M365 identity event the SOC should confirm against the customer's 365 tenant (the compliance/onboarding flow already has tenant hooks); (c) techs were still in the dark. Owner approved building M365 tenant confirmation + the SaaS fix; **no change to Autotask auto-posting** (left as-is — held on resolved tickets), and the manual push-to-Autotask button was declined.
+
+**Shipped (new branch, new draft PR)**:
+- **`src/lib/soc/m365-identity.ts`** (NEW) — `fetchM365Identity({companyId, userPrincipalName, alertTime})`. Reuses `getTenantCredentials` + `graphRequest` (graph.ts), so it's scoped to the customer's OWN tenant. Pulls Entra directory audit log (confirms the MFA/security-info change + initiator + remove-then-reregister), sign-in logs (device/IP/Conditional Access), and current registered auth methods (`hasStrongMethodRemaining`). Permission/tenant gaps → Data Gap, never silence. Perms: `AuditLog.Read.All` + `UserAuthenticationMethod.Read.All` + `Directory.Read.All` (sign-in logs need Entra ID P1).
+- Wired into `enrichTicket` (only for `isIdentityChangeAlert`), `m365Identity` on the bundle, fed the assessment prompt (authoritative-source instruction) and a new **M365 Tenant (Entra ID)** UI section. A tenant-confirmed benign re-enrollment lifts the confidence cap + counts as positive benign evidence; a removal with no re-register / weak-only stays cautious.
+- **SaaS fix**: `getEvents` now matches `customerId` OR `organizationId` (the list `id` maps to `organizationId` on the events index in some tenants → the bare `customerId` term returned 0 events for a SaaS-sourced ticket). Stays single-customer scoped. "No events" now states the queried id(s)+window and recommends an explicit mapping.
+
+**Verified**: `tsc --noEmit` 0 errors, `next lint` clean, 117 unit tests green, `next build` ✓. **Could NOT live-test** (no M365/SaaS creds in sandbox) — validation requires a connected tenant. **Owner validation**: re-run T20260625.0011 with C4ISR's tenant connected + the three Graph perms consented; confirm the M365 Tenant section populates and SaaS correlation now finds the originating event.
+
 ## SOC assessment logic audit — fix overconfident "false positive" verdicts (2026-06-26) — branch `claude/soc-assessment-logic-audit-ugmlc2`
 
 **Context**: Reference ticket **T20260625.0011** ("IAM Event – MFA Disabled", C4ISR Cables) was classified `likely_false_positive` at **87% confidence, Low risk, no action** — wrong reasoning even if benign. The assessment used a high historical FP rate as *reassurance*, conflated clean IP reputation with location (Brooklyn, ~150mi from the customer site), ignored the 8:37 PM off-hours timing, and claimed 87% with EDR/RMM/correlation all "n/a".

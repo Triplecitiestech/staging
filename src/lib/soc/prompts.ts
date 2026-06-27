@@ -483,6 +483,35 @@ export function formatEnrichmentForPrompt(bundle: EnrichmentBundle): string {
     lines.push('\nSAAS ALERTS: no correlated identity/SaaS events found.');
   }
 
+  // M365 / Entra tenant correlation — authoritative for identity/MFA-change alerts.
+  if (bundle.m365Identity) {
+    const m = bundle.m365Identity;
+    lines.push(`\nM365 TENANT (Entra ID) — authoritative source, scoped to this customer's tenant${m.userPrincipalName ? ` for ${m.userPrincipalName}` : ''}:`);
+    if (m.auditEvents.length > 0) {
+      lines.push(`  Audit log (${m.auditEvents.length} matching event(s)) — CONFIRMS the security-info/MFA change:`);
+      for (const e of m.auditEvents.slice(0, 8)) {
+        lines.push(`    - ${e.time}: ${e.activity} (initiated by ${e.initiatedBy}, result ${e.result}${e.targetUser ? `, target ${e.targetUser}` : ''})`);
+      }
+      lines.push(`  Remove-then-reregister in window: ${m.removeThenReregister ? 'YES — re-enrollment signature (e.g. new phone/device swap)' : 'NO — a method was removed without a re-registration'}`);
+    } else {
+      lines.push('  Audit log: no matching security-info/MFA change found in the window (could not confirm the event from the tenant).');
+    }
+    if (m.signIns.length > 0) {
+      lines.push(`  Sign-ins (${m.signIns.length}) around the event:`);
+      for (const s of m.signIns.slice(0, 6)) {
+        lines.push(`    - ${s.time}: ${s.status}, ${s.ip || 'no IP'}${s.location ? ` (${s.location})` : ''}${s.device ? `, ${s.device}` : ''}, Conditional Access: ${s.conditionalAccess || 'n/a'}`);
+      }
+    }
+    lines.push(m.remainingMethods.length > 0
+      ? `  Currently registered MFA methods: ${m.remainingMethods.map(x => x.type).join(', ')} — strong factor still present: ${m.hasStrongMethodRemaining ? 'yes' : 'NO (account may be left weakly protected)'}`
+      : '  Currently registered MFA methods: none retrieved.');
+    if (m.permissionGaps.length > 0) {
+      lines.push(`  PARTIAL — could not read: ${m.permissionGaps.join('; ')} (grant these Graph permissions in the customer's app registration).`);
+    }
+  } else {
+    lines.push('\nM365 TENANT: not correlated (not an identity alert, or the customer tenant is not connected — see Data Sources).');
+  }
+
   // Known benign catalogue matches.
   if (bundle.knownBenignMatches.length > 0) {
     lines.push('\nKNOWN BENIGN MATCHES (informational — trusted-tool catalogue):');
@@ -581,6 +610,8 @@ HOW TO REASON OVER THE SIGNAL AXES — these are INDEPENDENT; a clean reading on
    or below ${signals?.corroboration ? Math.round((signals.corroboration.confidenceCeiling ?? 0.5) * 100) : 50}% and list what could not be checked in Data Gaps. Missing corroboration is NOT neutral.
 
 IDENTITY / MFA CHANGE RULE: ${signals?.identityChange ? 'THIS ALERT IS an identity/MFA/authentication-configuration change.' : 'If this alert is an identity/MFA/authentication-configuration change (MFA method removed/added, authenticator deleted, IAM/security-info change),'} for these you must DEFAULT to "suspicious_review" (confirm with the user before closing) UNLESS there is POSITIVE evidence of benign intent (e.g. the user is on a verified known device/network AND corroborating telemetry agrees, or a known-benign match). A removed MFA method with a clean IP reputation and a high repeat rate is NOT enough to call benign — that is exactly what account takeover looks like. Recommend confirming the change with the user and checking which MFA methods remain registered (deleting one method does not necessarily leave the account without MFA).
+
+When M365 TENANT (Entra ID) evidence is present below, treat it as the AUTHORITATIVE record and lead with it: use the audit log to confirm whether the change actually happened and who initiated it; use the remove-then-reregister flag plus the remaining registered methods to distinguish a benign re-enrollment (method removed AND a strong method re-registered, strong factor still present — e.g. a phone/device swap) from an account left weakly protected (removed with no re-registration, or only a weak factor left); and use the sign-in context (device / IP / Conditional Access result) to judge whether the actor is the legitimate user. A benign re-enrollment confirmed by the tenant can justify likely_false_positive; a removal from an unfamiliar session, or one leaving no strong factor, should be suspicious_review or escalated. If the tenant was not connected or a permission was missing, state that as a data gap — do NOT assume benign.
 
 TRUSTED-TOOL RECOGNITION: Datto Rollback Driver, Datto RMM/EDR components, backup agents, approved scripts and
 other known Kaseya/Datto tooling commonly trip Defender ASR / LSASS-access rules. When the correlated evidence

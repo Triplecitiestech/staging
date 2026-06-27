@@ -123,10 +123,21 @@ export interface EnrichmentBundle {
     samples: Array<{ time: string; fqdn: string; result: string; threat: boolean; categories: string; device: string | null; requesterIp: string | null }>
   } | null
   saasAlerts: { eventCount: number; events: Array<{ type: string; severity: string; description: string; time: string; user: string | null; ip?: string | null; location?: string | null }> } | null
+  m365Identity?: M365IdentityCorrelation | null
   knownBenignMatches: KnownBenignMatch[]
   dataSources: DataSourceStatus[]
   dataGaps: string[]
   signals?: AssessmentSignals | null
+}
+
+export interface M365IdentityCorrelation {
+  userPrincipalName: string | null
+  auditEvents: Array<{ activity: string; time: string; initiatedBy: string; result: string; targetUser: string | null }>
+  removeThenReregister: boolean
+  signIns: Array<{ time: string; ip: string | null; location: string | null; device: string | null; status: string; conditionalAccess: string | null }>
+  remainingMethods: Array<{ type: string; detail: string | null }>
+  hasStrongMethodRemaining: boolean
+  permissionGaps: string[]
 }
 
 /** True when a parsed reasoning blob is the new cross-stack assessment shape. */
@@ -354,6 +365,77 @@ export default function CrossStackAssessment({ assessment, enrichment }: { asses
                 </div>
               ))}
             </div>
+          </div>
+        </Section>
+      )}
+
+      {/* M365 Tenant (Entra ID) — authoritative for identity/MFA-change alerts */}
+      {enrichment?.m365Identity && (
+        <Section title="M365 Tenant (Entra ID)" subtitle={`Authoritative — pulled from the customer's Microsoft 365 tenant${enrichment.m365Identity.userPrincipalName ? ` for ${enrichment.m365Identity.userPrincipalName}` : ''}`}>
+          <div className="p-4 space-y-4 text-sm">
+            {/* Audit log — confirms the change */}
+            <div>
+              <p className="text-xs text-slate-500 mb-1">Audit Log</p>
+              {enrichment.m365Identity.auditEvents.length > 0 ? (
+                <div className="space-y-1.5">
+                  {enrichment.m365Identity.auditEvents.slice(0, 8).map((e, i) => (
+                    <div key={i} className="bg-black/30 rounded p-2 text-xs">
+                      <span className="text-white">{e.activity}</span>
+                      <span className="text-slate-500 ml-2">{e.time ? new Date(e.time).toLocaleString() : ''}</span>
+                      <div className="text-slate-500 mt-0.5">by {e.initiatedBy} · result {e.result}{e.targetUser ? ` · target ${e.targetUser}` : ''}</div>
+                    </div>
+                  ))}
+                  <p className={`text-xs ${enrichment.m365Identity.removeThenReregister ? 'text-cyan-400' : 'text-rose-400'}`}>
+                    {enrichment.m365Identity.removeThenReregister
+                      ? 'Remove-then-reregister detected — re-enrollment signature (e.g. new phone / device swap).'
+                      : 'A method was removed without a re-registration in the window.'}
+                  </p>
+                </div>
+              ) : (
+                <p className="text-slate-400 text-xs">No matching security-info/MFA change found in the tenant audit log for this window.</p>
+              )}
+            </div>
+
+            {/* Sign-ins */}
+            {enrichment.m365Identity.signIns.length > 0 && (
+              <div>
+                <p className="text-xs text-slate-500 mb-1">Sign-ins around the event</p>
+                <div className="space-y-1.5">
+                  {enrichment.m365Identity.signIns.slice(0, 6).map((s, i) => (
+                    <div key={i} className="bg-black/30 rounded p-2 text-xs">
+                      <span className={s.status.startsWith('success') ? 'text-green-400' : 'text-rose-400'}>{s.status}</span>
+                      <span className="text-slate-400 ml-2 font-mono break-all">{s.ip || 'no IP'}</span>
+                      {s.location && <span className="text-slate-500 ml-2">{s.location}</span>}
+                      {s.device && <div className="text-slate-500 mt-0.5">{s.device}</div>}
+                      <div className="text-slate-500 mt-0.5">Conditional Access: {s.conditionalAccess || 'n/a'}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Remaining MFA methods */}
+            <div>
+              <p className="text-xs text-slate-500 mb-1">Currently Registered MFA Methods</p>
+              {enrichment.m365Identity.remainingMethods.length > 0 ? (
+                <>
+                  <p className="text-slate-200">{enrichment.m365Identity.remainingMethods.map(m => m.type).join(', ')}</p>
+                  <p className={`text-xs mt-1 ${enrichment.m365Identity.hasStrongMethodRemaining ? 'text-green-400' : 'text-rose-400'}`}>
+                    {enrichment.m365Identity.hasStrongMethodRemaining
+                      ? 'A strong (non-password) factor is still registered.'
+                      : 'No strong factor remaining — account may be left weakly protected.'}
+                  </p>
+                </>
+              ) : (
+                <p className="text-slate-400 text-xs">Not retrieved.</p>
+              )}
+            </div>
+
+            {enrichment.m365Identity.permissionGaps.length > 0 && (
+              <p className="text-xs text-rose-400">
+                Partial read — could not access: {enrichment.m365Identity.permissionGaps.join('; ')}. Grant these Graph permissions in the customer&apos;s app registration.
+              </p>
+            )}
           </div>
         </Section>
       )}
