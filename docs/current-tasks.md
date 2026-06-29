@@ -1,8 +1,23 @@
 # Current Tasks
 
-> **Last updated**: 2026-06-16. TBR / Customer History live Autotask export shipped to production.
-> **Branch**: `claude/pensive-cannon-sc50gx` (merged to `main`).
-> **Detailed context**: `docs/session-summary.md` (2026-06-16 section) + `docs/reference/TBR_DATA_CAPABILITIES.md`.
+> **Last updated**: 2026-06-29. WAN Reliability (ISP/SLA) report on the Domotz integration (draft PR).
+> **Branch**: `claude/wan-reliability-reporting-ecd380`.
+> **Detailed context**: `docs/session-summary.md` (2026-06-29 section) + `docs/reference/WAN_RELIABILITY_REPORT.md`.
+
+## WAN Reliability (ISP/SLA) report — Domotz (2026-06-29) — 🟡 code complete, awaiting CI + live validation
+
+Reusable WAN/circuit reliability & SLA report built on the existing Domotz client. Module `src/lib/reporting/wan-reliability/`, API `GET /api/reports/wan-reliability` (+ `…/sites`), UI `/admin/reporting/wan-reliability`. 28 unit tests green; scoped typecheck + lint clean. Full detail in `docs/session-summary.md` (2026-06-29) and `docs/reference/WAN_RELIABILITY_REPORT.md`.
+
+**Validation / follow-ups:**
+- [ ] **[REQUIRED — owner]** Run the live XNG report: `/admin/reporting/wan-reliability` → pick the Montrose collector + MX68CW → 90 days → Generate. Confirm outage table, SLA verdict and latency/packet-loss populate. (Sandbox had no Domotz creds, so only synthetic-data samples were produced — `docs/reference/samples/`.)
+- [ ] **[CI]** Confirm the auto-merge gate goes green (`next build` + `test:e2e` run against the Vercel preview — they could not run in the sandbox: Prisma engine download is blocked by egress, and there are no Domotz creds).
+- [ ] **[LOW]** PDF export (currently print-to-PDF from the HTML report); add a Playwright e2e for the page once a preview-reachable Domotz fixture/mapping exists.
+- [ ] **[LOW]** Optional: persist generated reports / schedule them (reuse the reporting scheduler) and/or map customers→collectors via `compliance_platform_mappings` for a customer-first picker.
+
+### Next Session Starting Point
+- **Current objective**: WAN reliability report is code-complete on `claude/wan-reliability-reporting-ecd380` (draft PR). No open blocker beyond live validation + CI.
+- **Most relevant files**: `src/lib/domotz.ts` (extended client), `src/lib/reporting/wan-reliability/*` (analyzer/service/format + tests), `src/app/api/reports/wan-reliability/{route,sites/route}.ts`, `src/components/reporting/WanReliabilityGenerator.tsx`, `docs/reference/WAN_RELIABILITY_REPORT.md`.
+- **Access constraints**: NO Domotz creds and NO Prisma engine download in the dev sandbox — cannot run `next build`/`test:e2e`/live data locally. Owner runs the report in production or supplies data.
 
 ## TBR / Customer History export (2026-06-16) — ✅ shipped & in production (PRs #92–#95)
 

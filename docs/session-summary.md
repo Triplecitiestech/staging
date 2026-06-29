@@ -1,8 +1,21 @@
 # Session Summary
 
-> **Last updated**: 2026-06-16. TBR / Customer History live Autotask export.
-> **Branch**: `claude/pensive-cannon-sc50gx` (merged to `main`).
+> **Last updated**: 2026-06-29. WAN Reliability (ISP/SLA) report on the Domotz integration.
+> **Branch**: `claude/wan-reliability-reporting-ecd380`.
 > **Detailed handoff**: see `docs/SESSION_HANDOFF.md` first — this file is the quick state-of-the-world reference.
+
+## WAN Reliability (ISP/SLA) report — Domotz (2026-06-29) — branch `claude/wan-reliability-reporting-ecd380`
+
+Built a reusable historical **WAN/circuit reliability & SLA report** for any monitored customer site, by **extending the existing Domotz integration** (no new client, no duplicated auth). First test case: Xpress Natural Gas — XNG - Montrose (Cisco Meraki MX68CW, Frontier DIA, public IP 50.107.49.134).
+
+**Shipped:**
+- **`src/lib/domotz.ts`** (extended) — added `getAllAgents()` (paginated — bare `/agent` returns only 10), `getAgent`, `getDevice`, and history methods `getDeviceUptime`/`getAgentUptime`/`getDeviceEventHistory`/`getAgentEventHistory`/`getDeviceRtdHistory`/`getNetworkSpeedHistory`. All wrapped in `withRetry`; history calls time-chunk the window (Domotz default window is 1 week) and merge. New typed interfaces for events/uptime/RTD/speed; `wan_info` added to `DomotzAgent`.
+- **`src/lib/reporting/wan-reliability/`** (NEW) — `types.ts`, `analyzer.ts` (pure: outage detection, uptime%, MTBF/MTTR, median/avg, trend, daily instability, SLA, latency/packet-loss/speed + sustained-degradation detection, ET timezone via `Intl`), `executive-summary.ts` (pure narrative), `service.ts` (live fetch + `assembleReport`), `format.ts` (JSON/Markdown/text/HTML). Barrel `index.ts`.
+- **API**: `GET /api/reports/wan-reliability` (staff session OR `MIGRATION_SECRET`; params `agentId`/`deviceId`/`days`|`from`/`to`/`source`/`format`/SLA + site overrides) and `GET /api/reports/wan-reliability/sites` (collector list + per-agent device list, likely gateway flagged).
+- **UI**: `/admin/reporting/wan-reliability` + `WanReliabilityGenerator.tsx` (site typeahead → device → window; Generate/Export MD-JSON-TXT/Copy; PDF stubbed) + `loading.tsx` + Reporting dashboard nav link.
+- **Outage signal**: collector connectivity is the truest WAN-down signal; device reachability used when a device is chosen; both cross-reported (`meta.outageSource`). Outages from authoritative `downtime_intervals`, falling back to `DOWN→UP` event pairing.
+
+**Verified**: 28 unit tests green (`src/lib/reporting/wan-reliability/analyzer.test.ts`), scoped `tsc --noEmit` clean on all new files, `eslint` clean. Produced the XNG report in JSON/Markdown/text from representative synthetic telemetry through the real pipeline (`docs/reference/samples/`), clearly labelled sample data. **Could NOT run `next build` or `test:e2e` locally** — the sandbox can't download Prisma engines (egress reset) and has no Domotz creds; the CI auto-merge gate runs build + e2e against the Vercel preview. **Owner validation**: open `/admin/reporting/wan-reliability`, pick the XNG Montrose collector + MX68CW, 90 days, Generate. Full detail: `docs/reference/WAN_RELIABILITY_REPORT.md`.
 
 ## SOC M365 tenant confirmation + SaaS Alerts correlation fix (2026-06-27) — branch `claude/soc-m365-identity-correlation-ugmlc2`
 
