@@ -394,6 +394,7 @@ export default function ReportingDashboard() {
               { href: '/admin/reporting/business-review', label: 'Business Reviews', desc: 'Monthly & quarterly QBRs' },
               { href: '/admin/reporting/annual-report', label: 'Annual Service Reports', desc: 'Full-year client reports with security data' },
               { href: '/admin/reporting/customer-history', label: 'Customer History (TBR)', desc: 'Live multi-year pull for any customer — TBR prep' },
+              { href: '/admin/reporting/wan-reliability', label: 'WAN Reliability (ISP/SLA)', desc: 'Circuit outage history, uptime & SLA — live from Domotz' },
               { href: '/admin/reporting/status', label: 'Pipeline Status', desc: 'Data pipeline & jobs' },
             ].map((link) => (
               <Link

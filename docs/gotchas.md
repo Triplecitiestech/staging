@@ -192,6 +192,21 @@ See `docs/SOC_CROSSSTACK_HANDOFF.md` for the full handoff. The SOC Analyst corre
 
 ---
 
+## Domotz Integration — Key Knowledge
+
+Single client: `src/lib/domotz.ts` (`DomotzClient`, `x-api-key` auth, `DOMOTZ_API_KEY` + `DOMOTZ_API_URL`). OpenAPI spec is fetchable: `GET {DOMOTZ_API_URL}/meta/open-api-definition`. The WAN reliability reporting module (`src/lib/reporting/wan-reliability/`, see `docs/reference/WAN_RELIABILITY_REPORT.md`) consumes it.
+
+- **`getAgents()` / bare `GET /agent` returns only 10 results** — `page_size` defaults to 10, so a single call silently truncates large accounts. The compliance collector's `buildSummary()` already slices to 10; for anything that must see every collector use **`getAllAgents()`** (paginates `page_size`/`page_number`). `GET /agent?display_name=<text>` filters server-side — used for the site typeahead.
+- **Outage signal: collector vs device.** For *WAN/ISP* reliability the **collector's** own connectivity is the truest "site internet went down" signal (the collector sits behind the same circuit): `GET /agent/{id}/uptime` (% + `downtime_intervals`) and `GET /agent/{id}/history/network/event` (`CONNECTION_LOST`/`CONNECTION_RECOVERED`). A monitored **device's** `…/device/{id}/uptime` + `DOWN`/`UP` events is LAN-side reachability of that device — useful, but a powered gateway with a dead WAN can still read "UP". The report uses the device signal when a device is chosen, the collector otherwise, and cross-reports both.
+- **Uptime endpoints are the authoritative outage source**: `…/uptime` returns `{ uptime (string %), online_seconds, total_seconds, agent_uptime, downtime_intervals:[{start,end}] }`. Prefer `downtime_intervals` over hand-pairing events; fall back to pairing `history/network/event` `DOWN→UP` only when uptime is unavailable (handle open boundaries: leading recovery ⇒ down since window start; trailing failure ⇒ ongoing).
+- **History endpoints (`/uptime`, `/history/network/event`, `/history/rtd`, `/history/network/speed`) default to a ONE-WEEK window** (`from`/`to` are ISO-8601). Long ranges (e.g. 90 days) must be **time-chunked and merged** — `requestChunked` (arrays) and `aggregateUptime` (sum online/total, concat intervals) handle this. Don't assume one call returns the whole range.
+- **RTD = latency + packet loss in one place**: `DeviceRTDHistorySample` is `{ timestamp, min, median, max (latency ms as strings), lost_packet_count, sent_packet_count }`. Packet-loss % = `lost/sent*100` for samples where `sent>0`. Speed samples are `{ timestamp, values:[downloadBps, uploadBps] }`.
+- **Domotz does NOT expose street address or ISP.** `agent.location` is lat/long only; `agent.wan_info` is `{ ip, hostname }` — the public IP and its reverse-DNS hostname. ISP is *inferred* from the hostname (`inferIspFromHostname`) and can be wrong; always allow an override (the report takes customer/site/address/ISP/publicIP as editable inputs).
+- **Device event `type` enum**: `IP_CHANGE | CREATED | UP | DOWN`. Collector event `type` enum: `CONNECTION_RECOVERED | CONNECTION_LOST | UP | DOWN`. Device `status` enum: `ONLINE | OFFLINE | DOWN | HIDDEN`.
+- All Domotz calls go through `withRetry` (`src/lib/resilience.ts`) — 429/transient back off; never add an ad-hoc retry loop.
+
+---
+
 ## Customer Portal Architecture
 
 The customer portal is at `/onboarding/[companyName]`. Key components:

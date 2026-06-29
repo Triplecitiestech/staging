@@ -1,0 +1,313 @@
+{
+  "meta": {
+    "generatedAtUtc": "2026-06-29T17:29:08.791Z",
+    "timezone": "America/New_York",
+    "outageSource": "device",
+    "outageSourceLabel": "Monitored device reachability",
+    "dataNotes": [
+      "SAMPLE DATA — generated from representative synthetic telemetry to demonstrate the report format; these are NOT live XNG measurements. Generate the live report at /admin/reporting/wan-reliability once Domotz credentials are configured.",
+      "Outage timeline reflects reachability of the monitored device from the on-site Domotz collector.",
+      "Cross-check — collector (WAN) uptime 99.7222%, monitored device uptime 99.7222% (Domotz-reported)."
+    ]
+  },
+  "site": {
+    "customer": "Xpress Natural Gas",
+    "site": "XNG - Montrose",
+    "address": "3814 North Rd, Montrose, PA",
+    "gateway": "Cisco Meraki MX68CW",
+    "isp": "Frontier Communications",
+    "publicIp": "50.107.49.134",
+    "deviceMonitored": "XNG-Montrose-MX68CW (Meraki WAN1 / Frontier DIA)",
+    "agentId": 90210,
+    "deviceId": 5577,
+    "reportingPeriod": {
+      "fromUtc": "2026-03-31T13:00:00.000Z",
+      "toUtc": "2026-06-29T13:00:00.000Z",
+      "days": 90,
+      "label": "Mar 31, 2026 – Jun 29, 2026 (90 days)"
+    },
+    "reportGeneratedEastern": "Jun 29, 2026, 1:29 PM EDT"
+  },
+  "outages": [
+    {
+      "startUtc": "2026-04-05T03:00:00.000Z",
+      "endUtc": "2026-04-05T03:09:00.000Z",
+      "dateEastern": "2026-04-04",
+      "startEastern": "11:00:00 PM EDT",
+      "endEastern": "11:09:00 PM EDT",
+      "durationSeconds": 540,
+      "durationLabel": "9m",
+      "ongoing": false
+    },
+    {
+      "startUtc": "2026-04-22T19:30:00.000Z",
+      "endUtc": "2026-04-22T19:34:00.000Z",
+      "dateEastern": "2026-04-22",
+      "startEastern": "3:30:00 PM EDT",
+      "endEastern": "3:34:00 PM EDT",
+      "durationSeconds": 240,
+      "durationLabel": "4m",
+      "ongoing": false
+    },
+    {
+      "startUtc": "2026-05-11T13:05:00.000Z",
+      "endUtc": "2026-05-11T13:12:00.000Z",
+      "dateEastern": "2026-05-11",
+      "startEastern": "9:05:00 AM EDT",
+      "endEastern": "9:12:00 AM EDT",
+      "durationSeconds": 420,
+      "durationLabel": "7m",
+      "ongoing": false
+    },
+    {
+      "startUtc": "2026-05-11T15:40:00.000Z",
+      "endUtc": "2026-05-11T15:46:00.000Z",
+      "dateEastern": "2026-05-11",
+      "startEastern": "11:40:00 AM EDT",
+      "endEastern": "11:46:00 AM EDT",
+      "durationSeconds": 360,
+      "durationLabel": "6m",
+      "ongoing": false
+    },
+    {
+      "startUtc": "2026-05-11T18:20:00.000Z",
+      "endUtc": "2026-05-11T18:23:00.000Z",
+      "dateEastern": "2026-05-11",
+      "startEastern": "2:20:00 PM EDT",
+      "endEastern": "2:23:00 PM EDT",
+      "durationSeconds": 180,
+      "durationLabel": "3m",
+      "ongoing": false
+    },
+    {
+      "startUtc": "2026-05-11T21:10:00.000Z",
+      "endUtc": "2026-05-11T21:25:00.000Z",
+      "dateEastern": "2026-05-11",
+      "startEastern": "5:10:00 PM EDT",
+      "endEastern": "5:25:00 PM EDT",
+      "durationSeconds": 900,
+      "durationLabel": "15m",
+      "ongoing": false
+    },
+    {
+      "startUtc": "2026-05-20T14:00:00.000Z",
+      "endUtc": "2026-05-20T18:32:00.000Z",
+      "dateEastern": "2026-05-20",
+      "startEastern": "10:00:00 AM EDT",
+      "endEastern": "2:32:00 PM EDT",
+      "durationSeconds": 16320,
+      "durationLabel": "4h 32m",
+      "ongoing": false
+    },
+    {
+      "startUtc": "2026-06-02T22:15:00.000Z",
+      "endUtc": "2026-06-02T22:21:00.000Z",
+      "dateEastern": "2026-06-02",
+      "startEastern": "6:15:00 PM EDT",
+      "endEastern": "6:21:00 PM EDT",
+      "durationSeconds": 360,
+      "durationLabel": "6m",
+      "ongoing": false
+    },
+    {
+      "startUtc": "2026-06-15T11:00:00.000Z",
+      "endUtc": "2026-06-15T11:02:00.000Z",
+      "dateEastern": "2026-06-15",
+      "startEastern": "7:00:00 AM EDT",
+      "endEastern": "7:02:00 AM EDT",
+      "durationSeconds": 120,
+      "durationLabel": "2m",
+      "ongoing": false
+    },
+    {
+      "startUtc": "2026-06-29T06:00:00.000Z",
+      "endUtc": "2026-06-29T06:04:00.000Z",
+      "dateEastern": "2026-06-29",
+      "startEastern": "2:00:00 AM EDT",
+      "endEastern": "2:04:00 AM EDT",
+      "durationSeconds": 240,
+      "durationLabel": "4m",
+      "ongoing": false
+    },
+    {
+      "startUtc": "2026-06-29T06:30:00.000Z",
+      "endUtc": "2026-06-29T06:33:00.000Z",
+      "dateEastern": "2026-06-29",
+      "startEastern": "2:30:00 AM EDT",
+      "endEastern": "2:33:00 AM EDT",
+      "durationSeconds": 180,
+      "durationLabel": "3m",
+      "ongoing": false
+    },
+    {
+      "startUtc": "2026-06-29T07:10:00.000Z",
+      "endUtc": "2026-06-29T07:14:00.000Z",
+      "dateEastern": "2026-06-29",
+      "startEastern": "3:10:00 AM EDT",
+      "endEastern": "3:14:00 AM EDT",
+      "durationSeconds": 240,
+      "durationLabel": "4m",
+      "ongoing": false
+    },
+    {
+      "startUtc": "2026-06-29T07:50:00.000Z",
+      "endUtc": "2026-06-29T07:52:00.000Z",
+      "dateEastern": "2026-06-29",
+      "startEastern": "3:50:00 AM EDT",
+      "endEastern": "3:52:00 AM EDT",
+      "durationSeconds": 120,
+      "durationLabel": "2m",
+      "ongoing": false
+    },
+    {
+      "startUtc": "2026-06-29T08:25:00.000Z",
+      "endUtc": "2026-06-29T08:31:00.000Z",
+      "dateEastern": "2026-06-29",
+      "startEastern": "4:25:00 AM EDT",
+      "endEastern": "4:31:00 AM EDT",
+      "durationSeconds": 360,
+      "durationLabel": "6m",
+      "ongoing": false
+    },
+    {
+      "startUtc": "2026-06-29T09:05:00.000Z",
+      "endUtc": "2026-06-29T09:09:00.000Z",
+      "dateEastern": "2026-06-29",
+      "startEastern": "5:05:00 AM EDT",
+      "endEastern": "5:09:00 AM EDT",
+      "durationSeconds": 240,
+      "durationLabel": "4m",
+      "ongoing": false
+    },
+    {
+      "startUtc": "2026-06-29T10:15:00.000Z",
+      "endUtc": "2026-06-29T10:18:00.000Z",
+      "dateEastern": "2026-06-29",
+      "startEastern": "6:15:00 AM EDT",
+      "endEastern": "6:18:00 AM EDT",
+      "durationSeconds": 180,
+      "durationLabel": "3m",
+      "ongoing": false
+    },
+    {
+      "startUtc": "2026-06-29T11:30:00.000Z",
+      "endUtc": "2026-06-29T11:36:00.000Z",
+      "dateEastern": "2026-06-29",
+      "startEastern": "7:30:00 AM EDT",
+      "endEastern": "7:36:00 AM EDT",
+      "durationSeconds": 360,
+      "durationLabel": "6m",
+      "ongoing": false
+    },
+    {
+      "startUtc": "2026-06-29T12:20:00.000Z",
+      "endUtc": "2026-06-29T12:24:00.000Z",
+      "dateEastern": "2026-06-29",
+      "startEastern": "8:20:00 AM EDT",
+      "endEastern": "8:24:00 AM EDT",
+      "durationSeconds": 240,
+      "durationLabel": "4m",
+      "ongoing": false
+    }
+  ],
+  "summary": {
+    "totalOutages": 18,
+    "totalDowntimeSeconds": 21600,
+    "totalDowntimeLabel": "6h",
+    "uptimePercent": 99.7222,
+    "uptimePercentLabel": "99.7222%",
+    "domotzReportedUptimePercent": 99.7222,
+    "longestOutageSeconds": 16320,
+    "longestOutageLabel": "4h 32m",
+    "longestOutageDateEastern": "2026-05-20",
+    "averageOutageSeconds": 1200,
+    "averageOutageLabel": "20m",
+    "medianOutageSeconds": 240,
+    "medianOutageLabel": "4m",
+    "mtbfSeconds": 430800,
+    "mtbfLabel": "4d 23h 40m",
+    "mttrSeconds": 1200,
+    "mttrLabel": "20m",
+    "outagesLast30Days": 11,
+    "outagesPrevious60Days": 7,
+    "trend": "increasing",
+    "trendDetail": "11 outage(s) in the last 30 days vs 7 in the prior 60 days (≈3.5/30d)."
+  },
+  "dailyInstability": [
+    {
+      "dateEastern": "2026-06-29",
+      "outageCount": 9,
+      "totalDowntimeSeconds": 2160,
+      "totalDowntimeLabel": "36m"
+    },
+    {
+      "dateEastern": "2026-05-11",
+      "outageCount": 4,
+      "totalDowntimeSeconds": 1860,
+      "totalDowntimeLabel": "31m"
+    }
+  ],
+  "sla": {
+    "availabilitySlaPercent": 99.99,
+    "repairSlaHours": 4,
+    "actualUptimePercent": 99.7222,
+    "differenceFromSla": -0.2678,
+    "availabilityPassed": false,
+    "allowedDowntimeSeconds": 778,
+    "allowedDowntimeLabel": "12m 58s",
+    "actualDowntimeSeconds": 21600,
+    "slaImpactSeconds": 20822,
+    "slaImpactLabel": "5h 47m",
+    "mttrSeconds": 1200,
+    "repairPassed": true,
+    "outagesExceedingRepairSla": 1
+  },
+  "performance": {
+    "available": true,
+    "note": null,
+    "latency": {
+      "averageMs": 29.1,
+      "medianMs": 20,
+      "maxMs": 320,
+      "sampleCount": 97
+    },
+    "packetLoss": {
+      "averagePercent": 0.4,
+      "maxPercent": 7.5,
+      "sampleCount": 97
+    },
+    "speed": {
+      "averageDownloadMbps": 480.8,
+      "averageUploadMbps": 500,
+      "minDownloadMbps": 250,
+      "sampleCount": 13
+    },
+    "degradationPeriods": [
+      {
+        "startUtc": "2026-05-21T01:00:00.000Z",
+        "endUtc": "2026-05-21T13:00:00.000Z",
+        "startEastern": "May 20, 2026, 9:00 PM EDT",
+        "endEastern": "May 21, 2026, 9:00 AM EDT",
+        "metric": "Packet loss",
+        "detail": "avg 7.5% loss over 3 samples"
+      },
+      {
+        "startUtc": "2026-05-21T01:00:00.000Z",
+        "endUtc": "2026-05-21T13:00:00.000Z",
+        "startEastern": "May 20, 2026, 9:00 PM EDT",
+        "endEastern": "May 21, 2026, 9:00 AM EDT",
+        "metric": "Latency",
+        "detail": "avg 185ms over 3 samples (baseline ≈20ms)"
+      },
+      {
+        "startUtc": "2026-06-28T14:00:00.000Z",
+        "endUtc": "2026-06-28T16:00:00.000Z",
+        "startEastern": "Jun 28, 2026, 10:00 AM EDT",
+        "endEastern": "Jun 28, 2026, 12:00 PM EDT",
+        "metric": "Packet loss",
+        "detail": "avg 3% loss over 3 samples"
+      }
+    ]
+  },
+  "executiveSummary": "Over the 90-day reporting period, XNG - Montrose experienced 18 WAN outages totaling 6h of downtime, for 99.7222% uptime. Availability fell 0.2678 points short of the 99.99% target, so Frontier Communications did not meet its service-level agreement for this window. Reliability is getting worse: outages in the last 30 days are up versus the prior 60 days. Notable findings: the longest single outage was 4h 32m on 2026-05-20; 1 outage ran longer than the 4-hour repair target; 2 days saw repeated flapping (worst: 9 outages on 2026-06-29); packet loss peaked at 7.5%. Recommendation: open a circuit-quality case with Frontier Communications, citing the outage history and SLA shortfall above, and request a root-cause review for the circuit on 50.107.49.134."
+}
