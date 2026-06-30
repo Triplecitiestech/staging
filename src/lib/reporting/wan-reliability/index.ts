@@ -38,6 +38,7 @@ export {
   computeDailyInstability,
   computeDataCoverage,
   detectCadenceArtifact,
+  pairFailoverEpisodes,
   computeSla,
   computePerformance,
   formatDuration,

@@ -23,6 +23,8 @@ import {
   type DailyInstability,
   type DataCoverage,
   type DegradationPeriod,
+  type FailoverEpisode,
+  type FailoverEventRecord,
   type Outage,
   type PerformanceTrends,
   type SlaComparison,
@@ -580,6 +582,119 @@ function makePeriod(startMs: number, endMs: number, metric: string, detail: stri
 function clampPercent(p: number): number {
   if (!Number.isFinite(p)) return 0
   return Math.min(100, Math.max(0, p))
+}
+
+// ---------------------------------------------------------------------------
+// Failover episodes — estimate primary-circuit downtime by pairing out→back
+// ---------------------------------------------------------------------------
+
+export interface FailoverEpisodeResult {
+  episodes: FailoverEpisode[]
+  estimatedPrimaryDownSeconds: number
+  longestEpisodeSeconds: number | null
+  approximate: boolean
+}
+
+/**
+ * Pair `agent_wan_change` events into failover episodes (time the site was OFF
+ * its primary uplink). Each episode's duration is the best estimate of how long
+ * the primary circuit was down.
+ *
+ * Classification: an event whose NEW uplink matches the site's primary (by public
+ * IP, else by ISP/provider name) is a failback; anything else is a failover-out.
+ * Boundaries: if the first event's OLD uplink wasn't the primary, the site was
+ * already on backup at the window start (down-since-start); a trailing out with
+ * no failback is ongoing at the window end.
+ *
+ * When the primary can't be identified (no IP/ISP), falls back to pairing
+ * consecutive events (out, back, out, back, …) and flags the result approximate.
+ *
+ * Assumes the site is normally on its primary uplink — documented as a caveat.
+ */
+export function pairFailoverEpisodes(
+  events: FailoverEventRecord[],
+  opts: { primaryProvider: string | null; primaryIp: string | null; windowStart: Date; windowEnd: Date; ingestionSinceMs?: number | null },
+): FailoverEpisodeResult {
+  const sorted = [...(events ?? [])]
+    .filter((e) => !Number.isNaN(Date.parse(e.timestampUtc)))
+    .sort((a, b) => Date.parse(a.timestampUtc) - Date.parse(b.timestampUtc))
+  const ws = opts.windowStart.getTime()
+  const we = opts.windowEnd.getTime()
+  const floor = Math.max(ws, opts.ingestionSinceMs ?? ws)
+
+  const canClassify = !!((opts.primaryProvider && opts.primaryProvider.trim()) || (opts.primaryIp && opts.primaryIp.trim()))
+  const raw: Array<{ start: number; end: number | null; backup: string | null }> = []
+
+  if (!canClassify) {
+    // Fallback: alternate out/back across consecutive events.
+    for (let i = 0; i < sorted.length; i += 2) {
+      const out = sorted[i]
+      const back = sorted[i + 1]
+      raw.push({ start: Date.parse(out.timestampUtc), end: back ? Date.parse(back.timestampUtc) : null, backup: out.newProvider })
+    }
+  } else {
+    const onPrimary = (provider: string | null, ip: string | null): boolean => matchesPrimary(provider, ip, opts.primaryProvider, opts.primaryIp)
+    const startedOnPrimary = sorted.length === 0 ? true : onPrimary(sorted[0].oldProvider, sorted[0].oldIp)
+    let openOut: number | null = startedOnPrimary ? null : floor
+    let openBackup: string | null = startedOnPrimary ? null : sorted[0].oldProvider
+    for (const e of sorted) {
+      const toPrimary = onPrimary(e.newProvider, e.newIp)
+      if (!toPrimary && openOut === null) {
+        openOut = Date.parse(e.timestampUtc)
+        openBackup = e.newProvider
+      } else if (toPrimary && openOut !== null) {
+        raw.push({ start: openOut, end: Date.parse(e.timestampUtc), backup: openBackup })
+        openOut = null
+        openBackup = null
+      }
+      // else: backup→backup or primary→primary change — no episode boundary
+    }
+    if (openOut !== null) raw.push({ start: openOut, end: null, backup: openBackup })
+  }
+
+  const episodes: FailoverEpisode[] = raw
+    .map(({ start, end, backup }) => {
+      const s = Math.max(ws, start)
+      const ongoing = end == null
+      const e = ongoing ? we : Math.min(we, end as number)
+      const durationSeconds = Math.max(0, (e - s) / 1000)
+      return {
+        startUtc: new Date(s).toISOString(),
+        endUtc: ongoing ? null : new Date(e).toISOString(),
+        startEastern: formatEasternDateTime(new Date(s)),
+        endEastern: ongoing ? null : formatEasternDateTime(new Date(e)),
+        durationSeconds,
+        durationLabel: formatDuration(durationSeconds),
+        ongoing,
+        backupProvider: backup,
+      }
+    })
+    .filter((ep) => ep.durationSeconds > 0 || ep.ongoing)
+    .sort((a, b) => Date.parse(a.startUtc) - Date.parse(b.startUtc))
+
+  const durations = episodes.map((e) => e.durationSeconds)
+  return {
+    episodes,
+    estimatedPrimaryDownSeconds: round(durations.reduce((a, b) => a + b, 0), 0),
+    longestEpisodeSeconds: durations.length ? round(Math.max(...durations), 0) : null,
+    approximate: !canClassify,
+  }
+}
+
+function matchesPrimary(provider: string | null, ip: string | null, primaryProvider: string | null, primaryIp: string | null): boolean {
+  if (primaryIp && ip && ip.trim() === primaryIp.trim()) return true
+  if (primaryProvider && provider && providersMatch(provider, primaryProvider)) return true
+  return false
+}
+
+function providersMatch(a: string, b: string): boolean {
+  const na = a.toLowerCase().replace(/[^a-z0-9]/g, '')
+  const nb = b.toLowerCase().replace(/[^a-z0-9]/g, '')
+  if (!na || !nb) return false
+  if (na.includes(nb) || nb.includes(na)) return true
+  const tokensA = a.toLowerCase().match(/[a-z]{4,}/g) ?? []
+  const tokensB = new Set(b.toLowerCase().match(/[a-z]{4,}/g) ?? [])
+  return tokensA.some((t) => tokensB.has(t))
 }
 
 // ---------------------------------------------------------------------------

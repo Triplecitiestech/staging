@@ -29,12 +29,14 @@ import {
   computeSla,
   computeSummary,
   detectCadenceArtifact,
+  formatDuration,
   formatEasternDateTime,
   formatEasternDay,
+  pairFailoverEpisodes,
 } from './analyzer'
 import { assessFailoverCapability, type WanModeOverride } from './failover'
 import { buildExecutiveSummary } from './executive-summary'
-import { buildFailoverActivity, getSiteWanMode } from '@/lib/domotz-events'
+import { buildFailoverActivity, getSiteWanMode, EMPTY_FAILOVER_EPISODES } from '@/lib/domotz-events'
 import {
   DAILY_INSTABILITY_THRESHOLD,
   type DeviceReachability,
@@ -122,6 +124,7 @@ export async function fetchWanTelemetry(
         ingestionSinceUtc: null,
         eventCount: 0,
         events: [],
+        ...EMPTY_FAILOVER_EPISODES,
         note: 'Failover event store was unavailable for this request.',
       } as FailoverActivity),
     ])
@@ -277,6 +280,25 @@ export function assembleReport(telemetry: WanTelemetry, opts: GenerateReportOpti
 
   const site = resolveSiteInfo(telemetry, opts, days)
 
+  // Pair failover events into episodes to estimate primary-circuit downtime.
+  // Needs the resolved primary uplink (site IP/ISP), hence computed after site.
+  const paired = pairFailoverEpisodes(telemetry.failoverActivity.events, {
+    primaryProvider: site.isp,
+    primaryIp: site.publicIp,
+    windowStart: from,
+    windowEnd: to,
+    ingestionSinceMs: telemetry.failoverActivity.ingestionSinceUtc ? Date.parse(telemetry.failoverActivity.ingestionSinceUtc) : null,
+  })
+  const failoverActivity: FailoverActivity = {
+    ...telemetry.failoverActivity,
+    episodes: paired.episodes,
+    estimatedPrimaryDownSeconds: paired.estimatedPrimaryDownSeconds,
+    estimatedPrimaryDownLabel: formatDuration(paired.estimatedPrimaryDownSeconds),
+    longestEpisodeSeconds: paired.longestEpisodeSeconds,
+    longestEpisodeLabel: paired.longestEpisodeSeconds != null ? formatDuration(paired.longestEpisodeSeconds) : null,
+    episodePairingApproximate: paired.approximate,
+  }
+
   const report: WanReliabilityReport = {
     meta: {
       generatedAtUtc: new Date().toISOString(),
@@ -291,7 +313,7 @@ export function assembleReport(telemetry: WanTelemetry, opts: GenerateReportOpti
     outages,
     summary,
     deviceReachability,
-    failoverActivity: telemetry.failoverActivity,
+    failoverActivity,
     dailyInstability,
     cadence,
     dataCoverage,
@@ -305,7 +327,7 @@ export function assembleReport(telemetry: WanTelemetry, opts: GenerateReportOpti
     failover,
     summary,
     deviceReachability,
-    failoverActivity: telemetry.failoverActivity,
+    failoverActivity,
     dataCoverage,
     sla,
     performance,

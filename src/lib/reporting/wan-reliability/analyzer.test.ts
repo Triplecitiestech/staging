@@ -21,8 +21,10 @@ import {
   median,
 } from './analyzer'
 import { assessFailoverCapability } from './failover'
+import { pairFailoverEpisodes } from './analyzer'
 import { assembleReport, inferIspFromHostname, type WanTelemetry } from './service'
-import { normalizeDomotzWebhook, SAMPLE_DOMOTZ_WEBHOOK } from '@/lib/domotz-events'
+import { normalizeDomotzWebhook, SAMPLE_DOMOTZ_WEBHOOK, EMPTY_FAILOVER_EPISODES } from '@/lib/domotz-events'
+import type { FailoverEventRecord } from './types'
 
 const ISO = (s: string) => new Date(s)
 
@@ -48,11 +50,22 @@ function telemetry(over: Partial<WanTelemetry> = {}): WanTelemetry {
     rtd: [],
     speed: [],
     wanModeOverride: null,
-    failoverActivity: { available: false, ingestionSinceUtc: null, eventCount: 0, events: [], note: 'not enabled' },
+    failoverActivity: { available: false, ingestionSinceUtc: null, eventCount: 0, events: [], ...EMPTY_FAILOVER_EPISODES, note: 'not enabled' },
     fetchErrors: [],
     ...over,
   }
 }
+
+// A failover event record for episode-pairing tests.
+const fev = (ts: string, oldP: string, newP: string, oldIp = '', newIp = ''): FailoverEventRecord => ({
+  timestampUtc: ts,
+  dateEastern: '',
+  timeEastern: '',
+  oldIp: oldIp || null,
+  newIp: newIp || null,
+  oldProvider: oldP || null,
+  newProvider: newP || null,
+})
 
 describe('formatDuration', () => {
   it('formats sub-minute, sub-hour, and multi-day durations', () => {
@@ -293,6 +306,65 @@ describe('assessFailoverCapability', () => {
   })
 })
 
+describe('pairFailoverEpisodes', () => {
+  const ws = ISO('2026-06-01T00:00:00Z')
+  const we = ISO('2026-06-30T00:00:00Z')
+  const opts = (over: Partial<{ primaryProvider: string | null; primaryIp: string | null }> = {}) => ({
+    primaryProvider: 'Frontier Communications' as string | null,
+    primaryIp: '50.107.49.134' as string | null,
+    windowStart: ws,
+    windowEnd: we,
+    ...over,
+  })
+
+  it('pairs a clean out→back into one episode with the right duration', () => {
+    const r = pairFailoverEpisodes(
+      [fev('2026-06-10T08:00:00Z', 'Frontier', 'Starlink', '50.107.49.134', '100.64.0.1'), fev('2026-06-10T08:30:00Z', 'Starlink', 'Frontier', '100.64.0.1', '50.107.49.134')],
+      opts(),
+    )
+    expect(r.episodes).toHaveLength(1)
+    expect(r.episodes[0].durationSeconds).toBe(1800)
+    expect(r.episodes[0].backupProvider).toBe('Starlink')
+    expect(r.approximate).toBe(false)
+  })
+
+  it('treats a trailing failover-out as ongoing to the window end', () => {
+    const r = pairFailoverEpisodes([fev('2026-06-29T00:00:00Z', 'Frontier', 'Starlink', '50.107.49.134', '100.64.0.1')], opts())
+    expect(r.episodes[0].ongoing).toBe(true)
+    expect(r.episodes[0].durationSeconds).toBe(86400)
+  })
+
+  it('treats a leading failback as down-since-window-start', () => {
+    const r = pairFailoverEpisodes([fev('2026-06-02T00:00:00Z', 'Starlink', 'Frontier', '100.64.0.1', '50.107.49.134')], opts())
+    expect(r.episodes).toHaveLength(1)
+    expect(r.episodes[0].durationSeconds).toBe(86400)
+  })
+
+  it('matches the primary by ISP name when IPs vary', () => {
+    const r = pairFailoverEpisodes(
+      [fev('2026-06-10T08:00:00Z', 'FRONTIER-FTTP', 'SPACEX-STARLINK'), fev('2026-06-10T08:10:00Z', 'SPACEX-STARLINK', 'FRONTIER-FTTP')],
+      opts({ primaryIp: null }),
+    )
+    expect(r.episodes).toHaveLength(1)
+    expect(r.episodes[0].durationSeconds).toBe(600)
+  })
+
+  it('falls back to approximate consecutive pairing when the primary is unknown', () => {
+    const r = pairFailoverEpisodes(
+      [
+        fev('2026-06-10T08:00:00Z', 'A', 'B'),
+        fev('2026-06-10T08:05:00Z', 'B', 'A'),
+        fev('2026-06-12T08:00:00Z', 'A', 'B'),
+        fev('2026-06-12T08:05:00Z', 'B', 'A'),
+      ],
+      opts({ primaryProvider: null, primaryIp: null }),
+    )
+    expect(r.approximate).toBe(true)
+    expect(r.episodes).toHaveLength(2)
+    expect(r.episodes[0].durationSeconds).toBe(300)
+  })
+})
+
 describe('median', () => {
   it('handles even and odd lengths', () => {
     expect(median([1, 2, 3])).toBe(2)
@@ -377,7 +449,7 @@ describe('assembleReport — failover-capable site (the Montrose case)', () => {
     expect(report.deviceReachability).not.toBeNull()
   })
 
-  it('surfaces failover events when webhook ingestion is available', () => {
+  it('pairs failover events into episodes and estimates primary downtime (the 17-min drop)', () => {
     const withFailovers = telemetry({
       ...base,
       failoverActivity: {
@@ -385,15 +457,19 @@ describe('assembleReport — failover-capable site (the Montrose case)', () => {
         ingestionSinceUtc: '2026-03-31T00:00:00Z',
         eventCount: 2,
         events: [
-          { timestampUtc: '2026-05-20T14:00:00Z', dateEastern: '2026-05-20', timeEastern: '10:00:00 AM EDT', oldIp: '50.107.49.134', newIp: '100.64.12.7', oldProvider: 'Frontier', newProvider: 'Starlink' },
-          { timestampUtc: '2026-05-20T14:17:00Z', dateEastern: '2026-05-20', timeEastern: '10:17:00 AM EDT', oldIp: '100.64.12.7', newIp: '50.107.49.134', oldProvider: 'Starlink', newProvider: 'Frontier' },
+          fev('2026-05-20T14:00:00Z', 'Frontier', 'Starlink', '50.107.49.134', '100.64.12.7'),
+          fev('2026-05-20T14:17:00Z', 'Starlink', 'Frontier', '100.64.12.7', '50.107.49.134'),
         ],
+        ...EMPTY_FAILOVER_EPISODES,
         note: 'Failover detection active across the full window. 2 failover event(s) detected.',
       },
     })
     const report = assembleReport(withFailovers, { agentId: 90210, deviceId: 5577, from, to, site: { customer: 'Xpress Natural Gas', site: 'XNG - Montrose' } })
     expect(report.failoverActivity.eventCount).toBe(2)
-    expect(report.executiveSummary).toMatch(/2 failover event/i)
+    expect(report.failoverActivity.episodes).toHaveLength(1)
+    expect(report.failoverActivity.episodes[0].durationSeconds).toBe(1020) // 17 minutes
+    expect(report.failoverActivity.estimatedPrimaryDownSeconds).toBe(1020)
+    expect(report.executiveSummary).toMatch(/failover episode/i)
   })
 })
 

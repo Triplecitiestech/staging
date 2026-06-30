@@ -20,24 +20,26 @@ _XNG - Montrose · Mar 31, 2026 – Jun 29, 2026 (90 days)_
 | Device monitored | XNG-Montrose-MX68CW |
 | Measured signal | On-site collector connectivity (whole-site reachability) |
 | Data coverage | 90 of 90 days |
-| Report generated | Jun 30, 2026, 10:37 AM EDT |
+| Report generated | Jun 30, 2026, 11:20 AM EDT |
 
-## Failover Activity (primary-circuit drop evidence)
+## Failover Activity (estimated primary-circuit drops)
 
-_Failover detection active across the full window. 10 failover event(s) detected._
+_Failover detection active across the full window. 20 WAN-change event(s) ingested._
 
-| # | Date | Time (ET) | From ISP/IP | To ISP/IP |
+**10 failover episode(s)** · estimated primary-circuit downtime **1h 4m** · longest **17m**
+
+| # | Start (ET) | End (ET) | Duration | Failed over to |
 | ---: | --- | --- | --- | --- |
-| 1 | 2026-04-04 | 11:00:00 PM EDT | Frontier Communications (50.107.49.134) | SpaceX Starlink (100.64.12.7) |
-| 2 | 2026-04-22 | 3:30:00 PM EDT | SpaceX Starlink (100.64.12.7) | Frontier Communications (50.107.49.134) |
-| 3 | 2026-05-11 | 9:05:00 AM EDT | Frontier Communications (50.107.49.134) | SpaceX Starlink (100.64.12.7) |
-| 4 | 2026-05-11 | 2:20:00 PM EDT | SpaceX Starlink (100.64.12.7) | Frontier Communications (50.107.49.134) |
-| 5 | 2026-05-20 | 10:00:00 AM EDT | Frontier Communications (50.107.49.134) | SpaceX Starlink (100.64.12.7) |
-| 6 | 2026-05-20 | 10:17:00 AM EDT | SpaceX Starlink (100.64.12.7) | Frontier Communications (50.107.49.134) |
-| 7 | 2026-06-02 | 6:15:00 PM EDT | Frontier Communications (50.107.49.134) | SpaceX Starlink (100.64.12.7) |
-| 8 | 2026-06-15 | 7:00:00 AM EDT | SpaceX Starlink (100.64.12.7) | Frontier Communications (50.107.49.134) |
-| 9 | 2026-06-29 | 2:00:00 AM EDT | Frontier Communications (50.107.49.134) | SpaceX Starlink (100.64.12.7) |
-| 10 | 2026-06-29 | 4:25:00 AM EDT | SpaceX Starlink (100.64.12.7) | Frontier Communications (50.107.49.134) |
+| 1 | Apr 4, 2026, 11:00 PM EDT | Apr 4, 2026, 11:09 PM EDT | 9m | SpaceX Starlink |
+| 2 | Apr 22, 2026, 3:30 PM EDT | Apr 22, 2026, 3:34 PM EDT | 4m | SpaceX Starlink |
+| 3 | May 11, 2026, 9:05 AM EDT | May 11, 2026, 9:12 AM EDT | 7m | SpaceX Starlink |
+| 4 | May 11, 2026, 2:20 PM EDT | May 11, 2026, 2:23 PM EDT | 3m | SpaceX Starlink |
+| 5 | May 20, 2026, 10:00 AM EDT | May 20, 2026, 10:17 AM EDT | 17m | SpaceX Starlink |
+| 6 | Jun 2, 2026, 6:15 PM EDT | Jun 2, 2026, 6:21 PM EDT | 6m | SpaceX Starlink |
+| 7 | Jun 15, 2026, 7:00 AM EDT | Jun 15, 2026, 7:02 AM EDT | 2m | SpaceX Starlink |
+| 8 | Jun 29, 2026, 2:00 AM EDT | Jun 29, 2026, 2:04 AM EDT | 4m | SpaceX Starlink |
+| 9 | Jun 29, 2026, 4:25 AM EDT | Jun 29, 2026, 4:31 AM EDT | 6m | SpaceX Starlink |
+| 10 | Jun 29, 2026, 7:30 AM EDT | Jun 29, 2026, 7:36 AM EDT | 6m | SpaceX Starlink |
 
 ## Full-Site Outages (collector lost all connectivity)
 
@@ -83,7 +85,7 @@ _No ISP-circuit SLA verdict: this site has WAN failover, so reachability does no
 
 ## Executive Summary
 
-Over the 90-day period, XNG - Montrose stayed continuously reachable to our on-site monitoring (100% connectivity), with no full-site outages recorded. This site has WAN failover (Cisco Meraki MX (WAN2 / integrated cellular failover)), so this connectivity figure does NOT measure the primary Frontier Communications circuit — a primary outage that failed over keeps the site reachable and is invisible here. Domotz did detect 10 failover event(s) (public-IP/ISP changes) in the covered period — direct evidence the primary circuit dropped at least that many times. Notable: packet loss peaked at 7.5%. Recommendation: if Frontier Communications is the primary uplink, open a circuit-quality case citing the 10 failover event timestamps below; reachability alone understates the impact.
+Over the 90-day period, XNG - Montrose stayed continuously reachable to our on-site monitoring (100% connectivity), with no full-site outages recorded. This site has WAN failover (Cisco Meraki MX (WAN2 / integrated cellular failover)), so this connectivity figure does NOT measure the primary Frontier Communications circuit — a primary outage that failed over keeps the site reachable and is invisible here. Domotz detected 10 failover episode(s) — an estimated 1h 4m of primary-circuit downtime (longest 17m) — direct evidence the primary circuit dropped. Notable: packet loss peaked at 7.5%. Recommendation: if Frontier Communications is the primary uplink, open a circuit-quality case citing the 10 failover episode(s) and ~1h 4m of estimated primary downtime below; reachability alone understates the impact.
 
 ---
 
@@ -92,4 +94,4 @@ Over the 90-day period, XNG - Montrose stayed continuously reachable to our on-s
 - Headline reflects the on-site collector’s connectivity (the whole site being unreachable). Device reachability, where shown, is a LAN-side signal — neither measures a single ISP circuit at a failover site.
 - Cross-check — collector connectivity 100%, monitored device reachability 100% (Domotz-reported).
 
-_Generated 2026-06-30T14:37:12.201Z · times in America/New_York · data source: Domotz (reachability + ingested failover webhooks)._
+_Generated 2026-06-30T15:20:56.476Z · times in America/New_York · data source: Domotz (reachability + ingested failover webhooks)._

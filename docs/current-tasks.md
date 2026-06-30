@@ -1,7 +1,7 @@
 # Current Tasks
 
-> **Last updated**: 2026-06-30. Site Connectivity reframe + Domotz failover-webhook ingestion (draft PR).
-> **Branch**: `claude/site-connectivity-honest-reframe-ecd380`.
+> **Last updated**: 2026-06-30. Site Connectivity reframe + Domotz failover-webhook ingestion (merged); failover-episode duration follow-up (draft PR).
+> **Branch**: `claude/failover-duration-ecd380` (follow-up); reframe merged via #114.
 > **Detailed context**: `docs/session-summary.md` (2026-06-30 section) + `docs/reference/WAN_RELIABILITY_REPORT.md`.
 
 ## Site Connectivity reframe + failover detection (2026-06-30) — 🟡 code complete, awaiting CI + operator webhook setup
@@ -12,7 +12,7 @@ Reframed the WAN report so it can't report a false "100% / SLA-compliant" at WAN
 - [ ] **[CI]** Confirm the auto-merge gate goes green (`next build` + `test:e2e` vs preview — couldn't run in sandbox: no Prisma engine download, no Domotz creds).
 - [ ] **[OPERATOR — enables failover detection]** In Domotz Portal → Webhooks, add a channel to `https://www.triplecitiestech.com/api/webhooks/domotz?token=<token>`, bind an Alert Profile covering WAN/Public-IP-change + collector up/down, and set `DOMOTZ_WEBHOOK_TOKEN` in Vercel. Until then the report says failover detection is unavailable.
 - [ ] **[VALIDATION]** Re-run the live Montrose report after webhook setup: confirm the failover caveat shows, SLA is suppressed, and detected failovers appear once events flow in.
-- [ ] **[FUTURE]** Pair `agent_wan_change` out→back events to estimate primary-circuit down *duration* (currently we list change events, not per-circuit downtime). The true per-uplink picture still needs the Meraki Dashboard API (not available).
+- [x] **[DONE 2026-06-30]** Failover **episode** pairing — `pairFailoverEpisodes()` pairs out→back `agent_wan_change` events into episodes with an **estimated primary-circuit downtime** + longest-episode figure (the 17-min Montrose drop now shows as a 17m episode). Estimate caveats are stated in-report; true per-uplink data still needs the Meraki API (not available).
 - [ ] **[LOW]** Add a Playwright e2e once a preview-reachable Domotz fixture exists; PDF export (print-to-PDF for now).
 
 ## TBR / Customer History export (2026-06-16) — ✅ shipped & in production (PRs #92–#95)

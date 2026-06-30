@@ -15,7 +15,7 @@ We do **not** have Meraki Dashboard API access, and Domotz is our only source. D
 | Section | Signal | Source | Honest meaning |
 |---|---|---|---|
 | **Headline: full-site outages** | Collector connectivity loss | `GET /agent/{id}/uptime` + `…/history/network/event` (`CONNECTION_LOST/RECOVERED`) | The whole site was unreachable (every uplink down at once / power / collector). NOT per-circuit. |
-| **Failover Activity** | `agent_wan_change` (public-IP / ISP change) | Ingested Domotz **webhooks** (`/api/webhooks/domotz`) | The closest thing to "the primary circuit dropped" — surfaced as first-class "N failover events". |
+| **Failover Activity** | `agent_wan_change` (public-IP / ISP change) | Ingested Domotz **webhooks** (`/api/webhooks/domotz`) | The closest thing to "the primary circuit dropped" — paired into **failover episodes** (out→back) with an **estimated primary-circuit downtime**. |
 | **Device reachability** (secondary) | Monitored device LAN reachability | `…/device/{id}/uptime` | LAN-side reachability of the gateway — explicitly secondary. |
 | **Performance** | Latency / packet loss / speed | `…/device/{id}/history/rtd`, `…/history/network/speed` | Path quality (collector→device, or →external host if monitored). |
 | **Data coverage** | Monitored seconds in-window | `uptime.total_seconds` | How much of the requested window we actually have data for. |
@@ -69,9 +69,15 @@ Until enabled, the report states failover detection is unavailable for the site 
 - **Collector down vs site down:** device reachability during collector-down spans is marked a blind spot, not "up".
 - **Multi-tenant:** all logic keys off the per-agent detected config + override; nothing is hardcoded per customer.
 
+## Failover episodes (estimated primary-circuit downtime)
+
+`pairFailoverEpisodes()` (pure, in `analyzer.ts`) pairs each failover-**out** `agent_wan_change` with the next **failback** into an episode; the episode duration is the **estimated** time the primary circuit was down, summed into "estimated primary-circuit downtime" with a longest-episode figure. Classification uses the site's primary uplink (public IP, else ISP name); a leading failback ⇒ down-since-window-start, a trailing out ⇒ ongoing. If the primary can't be identified it falls back to alternating pairing and flags the result **approximate**.
+
+**Caveats (stated in-report):** it's an *estimate* — it measures time-on-backup between change events, not a per-circuit down timer, and assumes the site is normally on its primary uplink. It won't capture a primary brownout that never triggered a failover.
+
 ## The ceiling — what this report CANNOT answer (without Meraki/per-uplink data)
 - Per-uplink / per-circuit uptime, or true ISP-circuit SLA at a failover site.
-- The **duration** a primary circuit was down (we see the failover *change events*, not a per-circuit down timer — pairing out→back is a future enhancement).
+- Exact per-circuit downtime — failover-episode duration is an *estimate* (time on backup between `agent_wan_change` events), not a circuit-level timer.
 - Bandwidth/utilization per uplink, or brownout-vs-hard-drop on a specific WAN.
 
 Closing the gap requires the Meraki Dashboard API (ruled out) or richer per-uplink telemetry.

@@ -210,6 +210,26 @@ export interface FailoverEventRecord {
 }
 
 /**
+ * A failover episode — the span the site was OFF its primary uplink, derived by
+ * pairing a failover-out `agent_wan_change` with the next failback. The duration
+ * is the best estimate of how long the primary circuit was down. (It's an
+ * estimate: it measures time-on-backup between change events, not a per-circuit
+ * down timer, and assumes the site is normally on its primary uplink.)
+ */
+export interface FailoverEpisode {
+  startUtc: string
+  endUtc: string | null
+  startEastern: string
+  endEastern: string | null
+  durationSeconds: number
+  durationLabel: string
+  /** True when the site was still on backup at the window end (primary not yet restored). */
+  ongoing: boolean
+  /** The uplink it failed over TO (ISP/provider), if known. */
+  backupProvider: string | null
+}
+
+/**
  * Failover activity from ingested `agent_wan_change` webhooks — the closest
  * signal to "the primary circuit dropped" at a failover site. Only meaningful
  * when webhook ingestion was active during the window.
@@ -221,6 +241,15 @@ export interface FailoverActivity {
   ingestionSinceUtc: string | null
   eventCount: number
   events: FailoverEventRecord[]
+  /** Failover episodes (paired out→back), with estimated primary-circuit downtime. */
+  episodes: FailoverEpisode[]
+  /** Sum of episode durations = estimated total primary-circuit downtime. */
+  estimatedPrimaryDownSeconds: number
+  estimatedPrimaryDownLabel: string
+  longestEpisodeSeconds: number | null
+  longestEpisodeLabel: string | null
+  /** True when episodes were paired by alternation because the primary uplink couldn't be identified. */
+  episodePairingApproximate: boolean
   /** Always-present explanation of availability and how to enable it. */
   note: string
 }

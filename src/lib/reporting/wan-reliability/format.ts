@@ -65,16 +65,23 @@ export function renderMarkdown(report: WanReliabilityReport): string {
   L.push('')
 
   // Failover activity (the closest signal to primary-circuit drops)
-  L.push('## Failover Activity (primary-circuit drop evidence)')
+  L.push('## Failover Activity (estimated primary-circuit drops)')
   L.push('')
   L.push(`_${failoverActivity.note}_`)
   L.push('')
-  if (failoverActivity.available && failoverActivity.events.length > 0) {
-    L.push('| # | Date | Time (ET) | From ISP/IP | To ISP/IP |')
+  if (failoverActivity.available && failoverActivity.episodes.length > 0) {
+    L.push(
+      `**${failoverActivity.episodes.length} failover episode(s)** · estimated primary-circuit downtime **${failoverActivity.estimatedPrimaryDownLabel}** · longest **${failoverActivity.longestEpisodeLabel ?? '—'}**${failoverActivity.episodePairingApproximate ? ' · _pairing approximate — primary uplink not identified_' : ''}`,
+    )
+    L.push('')
+    L.push('| # | Start (ET) | End (ET) | Duration | Failed over to |')
     L.push('| ---: | --- | --- | --- | --- |')
-    failoverActivity.events.forEach((e, i) => {
-      L.push(`| ${i + 1} | ${e.dateEastern} | ${e.timeEastern} | ${fmtEndpoint(e.oldProvider, e.oldIp)} | ${fmtEndpoint(e.newProvider, e.newIp)} |`)
+    failoverActivity.episodes.forEach((ep, i) => {
+      L.push(`| ${i + 1} | ${ep.startEastern} | ${ep.endEastern ?? '(ongoing)'} | ${ep.durationLabel} | ${ep.backupProvider ?? '—'} |`)
     })
+    L.push('')
+  } else if (failoverActivity.available && failoverActivity.eventCount > 0) {
+    L.push(`_${failoverActivity.eventCount} WAN-change event(s) recorded, but no complete failover episode could be paired in this window._`)
     L.push('')
   }
 
@@ -221,14 +228,20 @@ export function renderPlainText(report: WanReliabilityReport): string {
   L.push(kv('Report generated', site.reportGeneratedEastern))
   L.push('')
 
-  L.push('FAILOVER ACTIVITY (primary-circuit drop evidence)')
+  L.push('FAILOVER ACTIVITY (estimated primary-circuit drops)')
   L.push(thin)
   L.push(wrap(failoverActivity.note, 66))
-  if (failoverActivity.available && failoverActivity.events.length > 0) {
+  if (failoverActivity.available && failoverActivity.episodes.length > 0) {
+    L.push(kv('Failover episodes', String(failoverActivity.episodes.length)))
+    L.push(kv('Est. primary downtime', failoverActivity.estimatedPrimaryDownLabel))
+    L.push(kv('Longest episode', failoverActivity.longestEpisodeLabel ?? '—'))
+    if (failoverActivity.episodePairingApproximate) L.push('(pairing approximate — primary uplink not identified)')
     L.push('')
-    failoverActivity.events.forEach((e, i) => {
-      L.push(`${String(i + 1).padEnd(3)}${e.dateEastern} ${stripZone(e.timeEastern).padEnd(12)} ${fmtEndpoint(e.oldProvider, e.oldIp)} -> ${fmtEndpoint(e.newProvider, e.newIp)}`)
+    failoverActivity.episodes.forEach((ep, i) => {
+      L.push(`${String(i + 1).padEnd(3)}${stripZone(ep.startEastern)} -> ${stripZone(ep.endEastern ?? '(ongoing)')}   ${ep.durationLabel}${ep.backupProvider ? `  (to ${ep.backupProvider})` : ''}`)
     })
+  } else if (failoverActivity.available && failoverActivity.eventCount > 0) {
+    L.push(`${failoverActivity.eventCount} WAN-change event(s) recorded, but no complete failover episode could be paired.`)
   }
   L.push('')
 
@@ -329,10 +342,10 @@ export function renderHtml(report: WanReliabilityReport): string {
     ? `<div class="warn"><div class="warn-h">⚠ Read first — what this report can and cannot tell you</div><ul>${meta.caveats.map((c) => `<li>${esc(c)}</li>`).join('')}</ul></div>`
     : ''
 
-  const failoverRows =
-    failoverActivity.available && failoverActivity.events.length
-      ? failoverActivity.events
-          .map((e, i) => `<tr><td>${i + 1}</td><td>${esc(e.dateEastern)}</td><td>${esc(e.timeEastern)}</td><td>${esc(fmtEndpoint(e.oldProvider, e.oldIp))}</td><td>${esc(fmtEndpoint(e.newProvider, e.newIp))}</td></tr>`)
+  const episodeRows =
+    failoverActivity.available && failoverActivity.episodes.length
+      ? failoverActivity.episodes
+          .map((ep, i) => `<tr><td>${i + 1}</td><td>${esc(ep.startEastern)}</td><td>${esc(ep.endEastern ?? '(ongoing)')}</td><td>${esc(ep.durationLabel)}</td><td>${esc(ep.backupProvider ?? '—')}</td></tr>`)
           .join('')
       : ''
 
@@ -396,7 +409,7 @@ export function renderHtml(report: WanReliabilityReport): string {
   <div class="cards">
     ${card('Site connectivity', summary.uptimePercentLabel, `${dataCoverage.coveredDays}/${dataCoverage.requestedDays} days covered`)}
     ${card('Full-site outages', String(summary.totalOutages))}
-    ${card('Failovers detected', failoverActivity.available ? String(failoverActivity.eventCount) : 'n/a', failoverActivity.available ? 'primary-circuit drops' : 'webhook not enabled')}
+    ${card('Failover episodes', failoverActivity.available ? String(failoverActivity.episodes.length) : 'n/a', failoverActivity.available ? `~${failoverActivity.estimatedPrimaryDownLabel} primary down` : 'webhook not enabled')}
     ${card('Time unreachable', summary.totalDowntimeLabel)}
     ${card('MTTR', summary.mttrLabel ?? '—')}
   </div>
@@ -417,12 +430,15 @@ export function renderHtml(report: WanReliabilityReport): string {
     <tr><td>Measured signal</td><td>${esc(meta.outageSourceLabel)}</td></tr>
   </table>
 
-  <h2>Failover Activity <span class="muted" style="font-size:12px">(primary-circuit drop evidence)</span></h2>
+  <h2>Failover Activity <span class="muted" style="font-size:12px">(estimated primary-circuit drops)</span></h2>
   <p class="note">${esc(failoverActivity.note)}</p>
   ${
-    failoverRows
-      ? `<table><thead><tr><th>#</th><th>Date</th><th>Time (ET)</th><th>From ISP/IP</th><th>To ISP/IP</th></tr></thead><tbody>${failoverRows}</tbody></table>`
-      : ''
+    episodeRows
+      ? `<p>${failoverActivity.episodes.length} failover episode(s) · estimated primary-circuit downtime <strong>${esc(failoverActivity.estimatedPrimaryDownLabel)}</strong> · longest <strong>${esc(failoverActivity.longestEpisodeLabel ?? '—')}</strong>${failoverActivity.episodePairingApproximate ? ' <span class="muted">(pairing approximate — primary uplink not identified)</span>' : ''}</p>
+      <table><thead><tr><th>#</th><th>Start (ET)</th><th>End (ET)</th><th>Duration</th><th>Failed over to</th></tr></thead><tbody>${episodeRows}</tbody></table>`
+      : failoverActivity.available && failoverActivity.eventCount > 0
+        ? `<p class="muted">${failoverActivity.eventCount} WAN-change event(s) recorded, but no complete failover episode could be paired in this window.</p>`
+        : ''
   }
 
   <h2>Full-Site Outages <span class="muted" style="font-size:12px">(collector lost all connectivity)</span></h2>
@@ -517,11 +533,6 @@ export function contentTypeFor(format: ReportFormat): string {
     default:
       return 'text/plain; charset=utf-8'
   }
-}
-
-function fmtEndpoint(provider: string | null, ip: string | null): string {
-  if (provider && ip) return `${provider} (${ip})`
-  return provider || ip || '—'
 }
 
 function capitalize(s: string): string {
