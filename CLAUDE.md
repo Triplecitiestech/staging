@@ -1,5 +1,5 @@
 # Triple Cities Tech — CLAUDE.md
-*Last updated: 2026-06-29 · Owner: Kurtis (kurtis@triplecitiestech.com)*
+*Last updated: 2026-06-30 · Owner: Kurtis (kurtis@triplecitiestech.com)*
 
 > **The operating manual for every AI session in this repo.** Read this file first, then the bootstrap docs below. This file holds the rules you must never break plus an index to everything else; deep detail lives in `/docs`. If a section here grows, push the detail into `/docs` and link it — keep this file lean so nothing gets skimmed. When you touch this file, bump the date above.
 
