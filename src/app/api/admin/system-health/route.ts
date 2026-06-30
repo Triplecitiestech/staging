@@ -66,10 +66,14 @@ export async function GET() {
   // Retry the lookup a few times: a real signed-out caller returns null on
   // every attempt (→ 401), while a flaky lookup clears once the dashboard's
   // concurrent query burst drains and a connection frees up.
-  let session: Awaited<ReturnType<typeof auth>> = null;
+  // NB: don't annotate with `Awaited<ReturnType<typeof auth>>` — NextAuth v5's
+  // `auth` is overloaded (it's also the middleware wrapper), so ReturnType picks
+  // the NextMiddleware signature, not the session promise. Calling auth() with
+  // no args infers the session correctly, so just rely on inference below.
+  let sessionVerified = false;
   let sessionLookupErrored = false;
   try {
-    session = await withRetry(
+    await withRetry(
       async () => {
         const s = await auth();
         if (!s?.user) throw new NoSessionError();
@@ -77,6 +81,7 @@ export async function GET() {
       },
       { maxRetries: 2, baseDelayMs: 200, maxDelayMs: 1000, shouldRetry: () => true },
     );
+    sessionVerified = true;
   } catch (err) {
     // Retries exhausted. A clean "no session" on every attempt means the caller
     // is unauthenticated. A DB-level error means we couldn't verify the session
@@ -85,7 +90,7 @@ export async function GET() {
     // mask a real outage behind a misleading 401.
     sessionLookupErrored = !(err instanceof NoSessionError);
   }
-  if (!session?.user && !sessionLookupErrored) {
+  if (!sessionVerified && !sessionLookupErrored) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   const now = new Date().toISOString();
