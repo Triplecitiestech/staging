@@ -1,8 +1,19 @@
 import { prisma } from '@/lib/prisma';
 import { auth } from '@/auth';
+import { withRetry } from '@/lib/resilience';
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
+
+// Sentinel for "auth() resolved but returned no session". The app uses the
+// NextAuth *database* session strategy, so every auth() call does a DB
+// round-trip. This dashboard fans ~20 concurrent queries out against a small
+// (max 5) connection pool AND hits this endpoint twice per page load (here and
+// in DashboardStatusCards' AI card), so the session lookup can lose the
+// connection race. When it does, Auth.js swallows the adapter error and auth()
+// resolves to null rather than throwing — which previously surfaced as a
+// spurious "HTTP 401 — Failed to load system health" on the dashboard.
+class NoSessionError extends Error {}
 
 interface ServiceStatus {
   name: string;
@@ -50,17 +61,37 @@ interface SystemHealthResponse {
 }
 
 export async function GET() {
-  // Lightweight auth check — reject unauthenticated requests but don't block
-  // health checks if DB-backed session lookup is slow (returns 401 vs hanging).
+  // Reject genuinely unauthenticated callers, but don't let a transient,
+  // contention-induced session-lookup failure masquerade as "logged out".
+  // Retry the lookup a few times: a real signed-out caller returns null on
+  // every attempt (→ 401), while a flaky lookup clears once the dashboard's
+  // concurrent query burst drains and a connection frees up.
+  // NB: don't annotate with `Awaited<ReturnType<typeof auth>>` — NextAuth v5's
+  // `auth` is overloaded (it's also the middleware wrapper), so ReturnType picks
+  // the NextMiddleware signature, not the session promise. Calling auth() with
+  // no args infers the session correctly, so just rely on inference below.
+  let sessionVerified = false;
+  let sessionLookupErrored = false;
   try {
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-  } catch {
-    // If session check itself fails (e.g., DB down), allow the health check
-    // to proceed — the whole point of this endpoint is to diagnose DB issues.
-    // The admin page server component also gates access via session.
+    await withRetry(
+      async () => {
+        const s = await auth();
+        if (!s?.user) throw new NoSessionError();
+        return s;
+      },
+      { maxRetries: 2, baseDelayMs: 200, maxDelayMs: 1000, shouldRetry: () => true },
+    );
+    sessionVerified = true;
+  } catch (err) {
+    // Retries exhausted. A clean "no session" on every attempt means the caller
+    // is unauthenticated. A DB-level error means we couldn't verify the session
+    // at all — and since this endpoint exists to diagnose DB problems (and the
+    // admin page is already session-gated server-side), we proceed rather than
+    // mask a real outage behind a misleading 401.
+    sessionLookupErrored = !(err instanceof NoSessionError);
+  }
+  if (!sessionVerified && !sessionLookupErrored) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   const now = new Date().toISOString();
 
