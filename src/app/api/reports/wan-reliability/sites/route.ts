@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { DomotzClient, type DomotzDevice } from '@/lib/domotz'
 import { inferIspFromHostname } from '@/lib/reporting/wan-reliability'
+import { getSiteWanMode, setSiteWanMode } from '@/lib/domotz-events'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -41,7 +42,7 @@ export async function GET(request: NextRequest) {
       if (!Number.isFinite(agentId)) {
         return NextResponse.json({ error: 'Invalid agentId.' }, { status: 400 })
       }
-      const devices = await client.getDevices(agentId)
+      const [devices, wanMode] = await Promise.all([client.getDevices(agentId), getSiteWanMode(agentId)])
       const mapped = devices
         .map((d) => ({
           id: d.id,
@@ -61,7 +62,8 @@ export async function GET(request: NextRequest) {
             Number(b.importance === 'VITAL') - Number(a.importance === 'VITAL') ||
             a.name.localeCompare(b.name),
         )
-      return NextResponse.json({ success: true, agentId, devices: mapped })
+      // wanMode: stored admin override (or null = auto-detect from gateway model).
+      return NextResponse.json({ success: true, agentId, devices: mapped, wanMode: wanMode ?? 'auto' })
     }
 
     // --- Sites (collectors) --------------------------------------------------
@@ -82,6 +84,41 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       { error: `Domotz request failed: ${err instanceof Error ? err.message : String(err)}` },
       { status: 502 },
+    )
+  }
+}
+
+/**
+ * POST — set the per-site WAN-mode override (admin).
+ * Body: { agentId: number, wanMode: 'single_wan' | 'failover_capable' | 'auto' }.
+ * 'auto' clears the override and reverts to gateway-model detection.
+ */
+export async function POST(request: NextRequest) {
+  const session = await auth()
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  let body: { agentId?: number; wanMode?: string }
+  try {
+    body = (await request.json()) as { agentId?: number; wanMode?: string }
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
+  const agentId = Number(body.agentId)
+  if (!Number.isFinite(agentId)) {
+    return NextResponse.json({ error: 'agentId is required' }, { status: 400 })
+  }
+  const wanMode = body.wanMode
+  if (wanMode !== 'single_wan' && wanMode !== 'failover_capable' && wanMode !== 'auto') {
+    return NextResponse.json({ error: "wanMode must be 'single_wan', 'failover_capable', or 'auto'" }, { status: 400 })
+  }
+  try {
+    await setSiteWanMode(agentId, wanMode, session.user.email)
+    return NextResponse.json({ success: true, agentId, wanMode })
+  } catch (err) {
+    return NextResponse.json(
+      { error: `Failed to save WAN mode: ${err instanceof Error ? err.message : String(err)}` },
+      { status: 500 },
     )
   }
 }

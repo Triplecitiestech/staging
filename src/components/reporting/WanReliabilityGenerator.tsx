@@ -56,6 +56,10 @@ export default function WanReliabilityGenerator() {
   const [loadingDevices, setLoadingDevices] = useState(false)
   const [deviceId, setDeviceId] = useState<number | null>(null)
 
+  // Per-site WAN configuration override (auto = infer from gateway model)
+  const [wanMode, setWanMode] = useState<'auto' | 'single_wan' | 'failover_capable'>('auto')
+  const [savingMode, setSavingMode] = useState(false)
+
   // Window + overrides
   const [days, setDays] = useState(90)
   const [customer, setCustomer] = useState('')
@@ -131,6 +135,7 @@ export default function WanReliabilityGenerator() {
         const data = await res.json()
         const list: DeviceResult[] = Array.isArray(data.devices) ? data.devices : []
         setDevices(list)
+        setWanMode(data.wanMode === 'single_wan' || data.wanMode === 'failover_capable' ? data.wanMode : 'auto')
         // Auto-select the likely WAN gateway and prefill the gateway/device fields.
         const gw = list.find((d) => d.likelyGateway) ?? null
         if (gw) {
@@ -164,6 +169,30 @@ export default function WanReliabilityGenerator() {
     setSiteQuery('')
     setDevices([])
     setDeviceId(null)
+    setWanMode('auto')
+  }
+
+  // Persist the per-site WAN configuration override (drives the failover caveat).
+  const saveWanMode = async (mode: 'auto' | 'single_wan' | 'failover_capable') => {
+    if (!selectedSite) return
+    setWanMode(mode)
+    setSavingMode(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/reports/wan-reliability/sites', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId: selectedSite.id, wanMode: mode }),
+      })
+      if (!res.ok) {
+        const msg = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
+        throw new Error(msg.error || `HTTP ${res.status}`)
+      }
+    } catch (err) {
+      setError(`Could not save WAN configuration: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setSavingMode(false)
+    }
   }
 
   const buildUrl = useCallback(
@@ -241,10 +270,14 @@ export default function WanReliabilityGenerator() {
   return (
     <div className="space-y-8">
       <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
-        <h2 className="text-xl font-bold text-white mb-1">Generate WAN Reliability Report</h2>
+        <h2 className="text-xl font-bold text-white mb-1">Generate Site Connectivity &amp; Stability Report</h2>
         <p className="text-sm text-slate-400 mb-4">
-          Pulls outage history, uptime, latency and packet loss live from Domotz for a monitored site, then computes
-          SLA compliance against a {`99.99%`} availability / 4-hour repair target. Times are shown in US Eastern.
+          Pulls full-site connectivity, uptime, latency and packet loss live from Domotz, plus failover events from
+          ingested Domotz webhooks. Times are shown in US Eastern.{' '}
+          <span className="text-slate-300">
+            At a site with WAN failover, primary-circuit outages can be masked — the report says so rather than implying
+            the ISP circuit is healthy. Set the WAN configuration below so it knows.
+          </span>
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -336,6 +369,51 @@ export default function WanReliabilityGenerator() {
             </select>
           </div>
         </div>
+
+        {/* WAN configuration (drives the failover-masking caveat) */}
+        {selectedSite && (
+          <div className="mt-4 bg-slate-900/40 border border-slate-700 rounded-lg p-4">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+              <label className="text-sm font-medium text-slate-300 whitespace-nowrap">WAN configuration</label>
+              <select
+                className="bg-slate-900 border border-slate-600 text-white rounded-lg px-3 py-2 text-sm"
+                value={wanMode}
+                disabled={savingMode}
+                onChange={(e) => saveWanMode(e.target.value as 'auto' | 'single_wan' | 'failover_capable')}
+              >
+                <option value="auto">Auto-detect from gateway model</option>
+                <option value="single_wan">Single-WAN (no failover) — enable ISP SLA verdict</option>
+                <option value="failover_capable">Has WAN failover (dual-WAN / cellular)</option>
+              </select>
+              <p className="text-xs text-slate-500">
+                {wanMode === 'single_wan'
+                  ? 'Connectivity is treated as a valid ISP-circuit proxy; SLA pass/fail is shown.'
+                  : wanMode === 'failover_capable'
+                    ? 'Report will warn that primary-circuit outages may be masked by failover.'
+                    : 'Inferred from the gateway; defaults to showing the failover caveat unless confirmed single-WAN.'}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Failover detection setup */}
+        <details className="mt-3 group">
+          <summary className="cursor-pointer text-sm text-cyan-400 hover:text-cyan-300">
+            Enable failover detection (Domotz webhook setup)
+          </summary>
+          <div className="mt-2 text-xs text-slate-400 space-y-1 bg-slate-900/40 border border-slate-700 rounded-lg p-4">
+            <p>
+              Failover events (primary-circuit drops) are detected from Domotz <code className="text-slate-300">agent_wan_change</code>{' '}
+              webhooks, which Domotz only pushes — they can&apos;t be pulled historically. To turn this on, one-time per Domotz account:
+            </p>
+            <ol className="list-decimal ml-5 space-y-1">
+              <li>Domotz Portal → Account → Webhooks: add a webhook channel to <code className="text-slate-300">https://www.triplecitiestech.com/api/webhooks/domotz?token=&lt;DOMOTZ_WEBHOOK_TOKEN&gt;</code></li>
+              <li>Bind an Alert Profile to your collectors covering &quot;WAN/Public IP changed&quot; and &quot;Collector up/down&quot;.</li>
+              <li>Set <code className="text-slate-300">DOMOTZ_WEBHOOK_TOKEN</code> in Vercel to the same token value.</li>
+            </ol>
+            <p>Until enabled, the report clearly states failover detection is unavailable for the site.</p>
+          </div>
+        </details>
 
         {/* Site-info overrides */}
         <details className="mt-4 group">

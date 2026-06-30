@@ -1,26 +1,32 @@
 /**
  * GET /api/reports/wan-reliability
  *
- * Historical WAN/ISP reliability & SLA report for a monitored customer site,
- * pulled live from the existing Domotz integration. Read-only.
+ * Site Connectivity & Stability report for a monitored customer site, pulled
+ * live from the existing Domotz integration (+ ingested failover webhooks).
+ * Read-only.
+ *
+ * IMPORTANT: this measures SITE CONNECTIVITY (collector reachability), not
+ * per-ISP-circuit reliability. At a failover site, primary-circuit outages can
+ * be masked — the report says so rather than implying the circuit is healthy.
  *
  * Auth: a logged-in staff session OR the MIGRATION_SECRET
- * (Authorization: Bearer <secret>, or ?secret=) — same pattern as tbr-export,
- * so internal links work without a secret and scripts/PowerShell can use one.
+ * (Authorization: Bearer <secret>, or ?secret=) — same pattern as tbr-export.
  *
  * Query params:
  *   agentId       (required) Domotz collector/agent id (the "site").
- *   deviceId      (optional) Monitored device id (the WAN gateway). When set,
- *                 the device reachability signal + latency/packet-loss are used.
+ *   deviceId      (optional) Monitored device (the gateway) — adds secondary LAN
+ *                 reachability, latency/packet-loss, and failover-capability detection.
  *   days          Lookback window in days (default 90, clamped 1–365). Ignored if from/to given.
  *   from, to      Explicit ISO-8601 window bounds (override `days`).
- *   source        'auto' (default) | 'agent' | 'device' — which signal drives the outage timeline.
  *   format        'json' (default) | 'markdown' | 'text' | 'html'.
  *   download      '1' to return as a file attachment.
- *   availability  Availability SLA percent (default 99.99).
+ *   availability  Availability SLA percent (default 99.99) — only applied for single-WAN sites.
  *   repairHours   Repair-time SLA in hours (default 4).
  *   instabilityThreshold  Min outages/day to flag (default 3).
  *   customer, site, address, gateway, isp, publicIp, device  Site-info overrides.
+ *
+ * WAN-mode override (single/dual) is persisted per-site via
+ * POST /api/reports/wan-reliability/sites, not a query param.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -93,13 +99,11 @@ export async function GET(request: NextRequest) {
   }
 
   // --- Options ---------------------------------------------------------------
-  const sourceParam = sp.get('source')
   const opts: GenerateReportOptions = {
     agentId,
     deviceId: deviceId ?? null,
     from,
     to,
-    source: sourceParam === 'agent' || sourceParam === 'device' ? sourceParam : 'auto',
     site: pruneUndefined({
       customer: sp.get('customer') ?? undefined,
       site: sp.get('site') ?? undefined,

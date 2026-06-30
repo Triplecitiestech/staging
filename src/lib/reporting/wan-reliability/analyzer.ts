@@ -19,7 +19,9 @@ import {
   DEFAULT_AVAILABILITY_SLA_PERCENT,
   DEFAULT_REPAIR_SLA_HOURS,
   REPORT_TIMEZONE,
+  type CadenceArtifact,
   type DailyInstability,
+  type DataCoverage,
   type DegradationPeriod,
   type Outage,
   type PerformanceTrends,
@@ -578,4 +580,105 @@ function makePeriod(startMs: number, endMs: number, metric: string, detail: stri
 function clampPercent(p: number): number {
   if (!Number.isFinite(p)) return 0
   return Math.min(100, Math.max(0, p))
+}
+
+// ---------------------------------------------------------------------------
+// Data coverage (never report 100% over a span we have no data for)
+// ---------------------------------------------------------------------------
+
+/**
+ * Measure how much of the requested window we actually have data for. Domotz
+ * doesn't document retention, so this is empirical. Preferred signal is the
+ * uptime endpoint's `total_seconds` (the monitored duration in-window — reliable
+ * even for a quiet site with no events); falls back to the observed
+ * earliest/latest data-point span when uptime totals are unavailable.
+ */
+export function computeDataCoverage(
+  observed: { coveredSeconds: number | null; earliestDataMs: number | null; latestDataMs: number | null },
+  windowStart: Date,
+  windowEnd: Date,
+): DataCoverage {
+  const ws = windowStart.getTime()
+  const we = windowEnd.getTime()
+  const requestedDays = Math.max(1, Math.round((we - ws) / MS_PER_DAY))
+  const requestedSeconds = (we - ws) / 1000
+
+  let coveredSeconds: number | null = null
+  if (observed.coveredSeconds != null && observed.coveredSeconds > 0) {
+    coveredSeconds = Math.min(observed.coveredSeconds, requestedSeconds)
+  } else if (observed.earliestDataMs != null) {
+    const obsStart = Math.max(ws, observed.earliestDataMs)
+    const obsEnd = Math.min(we, observed.latestDataMs ?? we)
+    coveredSeconds = Math.max(0, (obsEnd - obsStart) / 1000)
+  }
+
+  if (coveredSeconds == null) {
+    return {
+      requestedFromUtc: windowStart.toISOString(),
+      requestedToUtc: windowEnd.toISOString(),
+      requestedDays,
+      actualFromUtc: null,
+      actualToUtc: null,
+      coveredDays: 0,
+      complete: false,
+      note: 'Domotz returned no uptime totals or data points for this window — coverage could not be confirmed, so figures below may be incomplete.',
+    }
+  }
+
+  const coveredDays = Math.round(coveredSeconds / 86_400)
+  const complete = coveredSeconds >= requestedSeconds * 0.98
+  // Imply the covered span's start: prefer an observed earliest point, else back-fill from the covered duration.
+  const actualFromMs = observed.earliestDataMs != null ? Math.max(ws, observed.earliestDataMs) : we - coveredSeconds * 1000
+  const actualToMs = observed.latestDataMs != null ? Math.min(we, observed.latestDataMs) : we
+
+  return {
+    requestedFromUtc: windowStart.toISOString(),
+    requestedToUtc: windowEnd.toISOString(),
+    requestedDays,
+    actualFromUtc: new Date(actualFromMs).toISOString(),
+    actualToUtc: new Date(actualToMs).toISOString(),
+    coveredDays,
+    complete,
+    note: complete
+      ? null
+      : `History covers about ${coveredDays} of the ${requestedDays} requested days (data begins ~${formatEasternDay(new Date(actualFromMs))}). Domotz retention or collector age limits how far back we can see; all figures reflect only the covered span — they are NOT a clean record over the full ${requestedDays} days.`,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Cadence-artifact detection (don't present the poll interval as outage length)
+// ---------------------------------------------------------------------------
+
+/**
+ * Detect when outage durations are dominated by a single near-identical value —
+ * the signature of a fixed monitoring/poll interval rather than true outage
+ * lengths. When suspected, the report says durations are "at least one missed
+ * poll", not precise.
+ */
+export function detectCadenceArtifact(outages: Outage[]): CadenceArtifact {
+  const durations = outages.filter((o) => !o.ongoing).map((o) => o.durationSeconds)
+  if (durations.length < 4) return { suspected: false, note: null }
+
+  // Bucket to the nearest 60s and find the modal bucket.
+  const buckets = new Map<number, number>()
+  for (const d of durations) {
+    const b = Math.max(60, Math.round(d / 60) * 60)
+    buckets.set(b, (buckets.get(b) ?? 0) + 1)
+  }
+  let modalBucket = 0
+  let modalCount = 0
+  for (const [b, c] of Array.from(buckets.entries())) {
+    if (c > modalCount) {
+      modalCount = c
+      modalBucket = b
+    }
+  }
+  const fraction = modalCount / durations.length
+  if (fraction >= 0.6) {
+    return {
+      suspected: true,
+      note: `${modalCount} of ${durations.length} outages cluster around ${formatDuration(modalBucket)} — this usually reflects the monitoring poll interval, not true outage length. Treat short durations as "at least one missed poll", not precise downtime.`,
+    }
+  }
+  return { suspected: false, note: null }
 }

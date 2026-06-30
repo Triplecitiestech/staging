@@ -1,89 +1,89 @@
-# WAN Reliability Report (ISP / SLA)
+# Site Connectivity & Stability Report (formerly "WAN Reliability")
 
-*Added 2026-06-29. Owner: Engineering. Source of truth for the WAN/circuit reliability reporting feature.*
+*Added 2026-06-29. Reframed 2026-06-30. Owner: Engineering. Source of truth for the Site Connectivity & Stability report.*
 
-Historical WAN reliability & SLA report for any monitored customer site, generated **live from the existing Domotz integration**. Produces outage history, uptime, MTBF/MTTR, daily instability, SLA compliance (default 99.99% availability / 4‑hour repair), and latency/packet‑loss/speed trends, in JSON, Markdown, plain text, and printable HTML.
+A historical **site connectivity & stability** report for any monitored customer site, generated from the existing Domotz integration. Route/path is still `/admin/reporting/wan-reliability` and `GET /api/reports/wan-reliability` (stable URLs), but the report now honestly represents **what Domotz can actually measure**.
 
-It is fully reusable — driven by a Domotz `agentId` (the on‑site collector = the "site") plus an optional `deviceId` (the WAN gateway). Nothing is hardcoded to a specific customer.
+## Why it was reframed (read this first)
+
+The original report claimed "WAN/ISP reliability" with a 99.99% SLA verdict, derived from Domotz **reachability**. That is wrong at any site with **WAN failover** (e.g. a Meraki MX with a Starlink/LTE secondary): when the primary circuit drops, the firewall fails over and the monitored device — and the collector — stay reachable, so Domotz records **no outage**. A confirmed case (XNG – Montrose) logged **10 primary-circuit drops including a 17-minute outage** while this report showed **100% uptime, SLA-compliant**. That is a confident lie.
+
+We do **not** have Meraki Dashboard API access, and Domotz is our only source. Domotz cannot see *which uplink* is carrying traffic, so this report **cannot** truthfully measure per-ISP-circuit reliability at a failover site. The fix was to reframe what it claims and extract every signal Domotz genuinely provides.
+
+## What it measures now
+
+| Section | Signal | Source | Honest meaning |
+|---|---|---|---|
+| **Headline: full-site outages** | Collector connectivity loss | `GET /agent/{id}/uptime` + `…/history/network/event` (`CONNECTION_LOST/RECOVERED`) | The whole site was unreachable (every uplink down at once / power / collector). NOT per-circuit. |
+| **Failover Activity** | `agent_wan_change` (public-IP / ISP change) | Ingested Domotz **webhooks** (`/api/webhooks/domotz`) | The closest thing to "the primary circuit dropped" — surfaced as first-class "N failover events". |
+| **Device reachability** (secondary) | Monitored device LAN reachability | `…/device/{id}/uptime` | LAN-side reachability of the gateway — explicitly secondary. |
+| **Performance** | Latency / packet loss / speed | `…/device/{id}/history/rtd`, `…/history/network/speed` | Path quality (collector→device, or →external host if monitored). |
+| **Data coverage** | Monitored seconds in-window | `uptime.total_seconds` | How much of the requested window we actually have data for. |
+
+**No false negatives:** unless a site is *confirmed single-WAN* (admin override), the report shows a prominent caveat that primary-circuit outages may be masked by failover, and it **never** prints an ISP-SLA pass or "no escalation required" from reachability alone. An SLA verdict is shown **only** for confirmed single-WAN sites (where reachability is a reasonable circuit proxy).
 
 ## Architecture
 
-Clean separation between API access, business logic, and presentation:
+Clean separation (API access → business logic → presentation):
 
-| Layer | File | Responsibility |
-|---|---|---|
-| API client | `src/lib/domotz.ts` (**extended**, not duplicated) | All Domotz REST calls, auth (`x-api-key`), retry, pagination, time‑chunking |
-| Types | `src/lib/reporting/wan-reliability/types.ts` | Report shapes + SLA defaults |
-| Business logic (pure) | `src/lib/reporting/wan-reliability/analyzer.ts` | Outage detection, stats, SLA, trend, performance — no I/O |
-| Narrative (pure) | `src/lib/reporting/wan-reliability/executive-summary.ts` | Management summary |
-| Orchestration (I/O) | `src/lib/reporting/wan-reliability/service.ts` | Live fetch + assembly |
-| Presentation | `src/lib/reporting/wan-reliability/format.ts` | JSON / Markdown / text / HTML renderers |
-| API routes | `src/app/api/reports/wan-reliability/route.ts` + `…/sites/route.ts` | HTTP surface |
-| UI | `src/app/admin/reporting/wan-reliability/` + `src/components/reporting/WanReliabilityGenerator.tsx` | Admin generator |
+| Layer | File |
+|---|---|
+| API client (extended, not duplicated) | `src/lib/domotz.ts` |
+| Failover-capability detection (pure) | `src/lib/reporting/wan-reliability/failover.ts` |
+| Pure analyzer (outages, stats, SLA, coverage, cadence, perf) | `…/analyzer.ts` |
+| Pure narrative | `…/executive-summary.ts` |
+| Orchestration (live fetch + assembly) | `…/service.ts` |
+| Formatters (JSON / Markdown / text / HTML) | `…/format.ts` |
+| Webhook ingestion + queries + per-site override | `src/lib/domotz-events.ts` |
+| Report API + sites/override API | `src/app/api/reports/wan-reliability/{route,sites/route}.ts` |
+| Webhook receiver | `src/app/api/webhooks/domotz/route.ts` |
+| UI | `src/app/admin/reporting/wan-reliability/` + `src/components/reporting/WanReliabilityGenerator.tsx` |
 
-Unit tests: `src/lib/reporting/wan-reliability/analyzer.test.ts` (`npm test`).
+Unit tests: `…/analyzer.test.ts` (`npm test`).
 
-## Domotz endpoints used (added to `src/lib/domotz.ts`)
+## Failover-capability detection (per-site, config-driven)
 
-The existing client only had `getAgents()`, `getDevices()`, `buildSummary()`. These methods were **added** (same `DomotzClient`, same auth, no new client):
+`assessFailoverCapability()` decides whether to show the masking caveat:
+1. **Admin override** (persisted in `domotz_site_settings`, set via the UI / `POST /api/reports/wan-reliability/sites`) wins: `single_wan` (caveat off, SLA on) or `failover_capable`.
+2. Otherwise **infer from the gateway model/vendor** — Meraki MX, SonicWall, FortiGate, Palo Alto, WatchGuard, Peplink, Cradlepoint, Ubiquiti UDM/USG/EdgeRouter, pfSense/OPNsense, DrayTek, SD-WAN → `failover_capable`.
+3. Otherwise `unknown` — still caveated. Caveat is OFF only for admin-confirmed `single_wan`.
 
-| Method | Endpoint | Used for |
-|---|---|---|
-| `getAllAgents({displayName?})` | `GET /agent?page_size&page_number&display_name` | Site list/typeahead (paginated — the bare `/agent` defaults to **10** results) |
-| `getAgent(id)` | `GET /agent/{id}` | Timezone, `wan_info` (public IP + reverse‑DNS hostname) |
-| `getDevice(a,d)` | `GET /agent/{a}/device/{d}` | Gateway vendor/model/IP |
-| `getDeviceUptime(a,d,from,to)` | `GET /agent/{a}/device/{d}/uptime` | Device uptime % + `downtime_intervals` (primary outage source) |
-| `getAgentUptime(a,from,to)` | `GET /agent/{a}/uptime` | Collector (WAN) uptime % + intervals |
-| `getDeviceEventHistory(a,d,from,to)` | `GET /agent/{a}/device/{d}/history/network/event` | Device `UP/DOWN/IP_CHANGE/CREATED` events (fallback + IP changes) |
-| `getAgentEventHistory(a,from,to)` | `GET /agent/{a}/history/network/event` | Collector `CONNECTION_LOST/CONNECTION_RECOVERED` events |
-| `getDeviceRtdHistory(a,d,from,to)` | `GET /agent/{a}/device/{d}/history/rtd` | Latency (`min/median/max` ms) + packet loss (`lost/sent_packet_count`) |
-| `getNetworkSpeedHistory(a,from,to)` | `GET /agent/{a}/history/network/speed` | Download/upload speed (`values:[downBps, upBps]`) |
+## Failover detection requires webhook ingestion (Phase 2)
 
-All requests go through `withRetry` (`src/lib/resilience.ts`) so 429s/transient errors back off. History calls are **time‑chunked** (30‑day windows merged) because the Domotz default window is one week and large ranges can be capped server‑side. `from`/`to` are ISO‑8601; default window is 90 days.
+`agent_wan_change` (and `agent_status`, etc.) are **webhook-only** in the Domotz API — verified against the OpenAPI spec, they are `callbacks`, not retrievable from any GET history endpoint. So failover detection needs ingestion:
 
-OpenAPI reference: `GET {DOMOTZ_API_URL}/meta/open-api-definition`.
+- **Receiver:** `POST /api/webhooks/domotz` (token via `DOMOTZ_WEBHOOK_TOKEN`; always-200 so Domotz doesn't disable the channel; 401 only on token mismatch). Mirrors the SaaS-Alerts receiver.
+- **Storage:** reuses the existing `compliance_webhook_events` sink (`source='domotz'`) — no new event table, no migration.
+- **Per-site override:** raw-pg `domotz_site_settings` table, created lazily by `ensureDomotzSiteSettings()` (raw-pg subsystem pattern — NOT the Prisma migration route).
 
-## Which signal = "the WAN was down"?
+**Operator setup (one-time per Domotz account):**
+1. Domotz Portal → Account → Webhooks: add a webhook channel to `https://www.triplecitiestech.com/api/webhooks/domotz?token=<DOMOTZ_WEBHOOK_TOKEN>`.
+2. Bind an Alert Profile to the collectors covering "WAN/Public IP changed" and "Collector up/down".
+3. Set `DOMOTZ_WEBHOOK_TOKEN` in Vercel to the same value.
 
-A subtlety that matters for ISP reporting:
+Until enabled, the report states failover detection is unavailable for the site (it does not silently imply health).
 
-- The **collector’s** internet connectivity (`/agent/{id}/uptime` + `CONNECTION_LOST/RECOVERED`) is the most direct "the site lost internet" signal — the collector sits behind the same circuit.
-- The **gateway device’s** reachability (`/device/{id}/uptime` + `DOWN/UP`) is LAN‑side reachability of that device.
+## Edge cases handled
+- **Window > retained data:** coverage is measured from `uptime.total_seconds`; the report states "covers X of Y days" and never implies a clean record over a span with no data.
+- **Cadence artifacts:** if outage durations cluster at one value, it's flagged as the poll interval, not real duration.
+- **Collector down vs site down:** device reachability during collector-down spans is marked a blind spot, not "up".
+- **Multi-tenant:** all logic keys off the per-agent detected config + override; nothing is hardcoded per customer.
 
-The report uses the **device** signal when a device is selected (the operator explicitly chose the WAN gateway) and the **collector** signal otherwise. It always cross‑reports both uptime numbers, and `meta.outageSource`/`outageSourceLabel` state which signal drove the headline. Override with `?source=agent|device|auto`.
+## The ceiling — what this report CANNOT answer (without Meraki/per-uplink data)
+- Per-uplink / per-circuit uptime, or true ISP-circuit SLA at a failover site.
+- The **duration** a primary circuit was down (we see the failover *change events*, not a per-circuit down timer — pairing out→back is a future enhancement).
+- Bandwidth/utilization per uplink, or brownout-vs-hard-drop on a specific WAN.
 
-Outages come primarily from the authoritative `downtime_intervals`; if uptime is unavailable, the report falls back to pairing `DOWN→UP` events (handling open boundaries: a leading recovery ⇒ down since window start; a trailing failure ⇒ ongoing).
+Closing the gap requires the Meraki Dashboard API (ruled out) or richer per-uplink telemetry.
 
-## API
+## Running it
+`/admin/reporting/wan-reliability` → pick the **Site** (collector) → optional **Device** (gateway; drives failover detection + performance) → set **WAN configuration** (auto / single-WAN / has-failover) → window (default 90 days) → **Generate** / Export (MD/JSON/TXT) / Copy.
 
-`GET /api/reports/wan-reliability` — read‑only. Auth: **staff session OR `MIGRATION_SECRET`** (`Authorization: Bearer <secret>` or `?secret=`), same as `tbr-export`.
-
-Params: `agentId` (required), `deviceId`, `days` (default 90, 1–365) or `from`/`to` (ISO), `source` (`auto|agent|device`), `format` (`json|markdown|text|html`), `download=1`, `availability` (default 99.99), `repairHours` (default 4), `instabilityThreshold` (default 3), and site overrides `customer|site|address|gateway|isp|publicIp|device`.
-
-`GET /api/reports/wan-reliability/sites` — staff session. No params ⇒ list collectors (sites); `?q=` filters by name; `?agentId=` ⇒ that site’s devices (likely WAN gateway flagged first).
-
-## UI
-
-`/admin/reporting/wan-reliability` (linked from the Reporting dashboard). Pick a **Site** (typeahead), optional **Device** (auto‑selects the likely gateway), and a **window** (default last 90 days); site details (customer/address/ISP/public IP) are prefilled from Domotz and editable. Buttons: **Generate Report** (printable HTML), **Export Markdown / JSON / TXT**, **Copy to Clipboard**. PDF export is stubbed for later (print the HTML to PDF meanwhile).
-
-## Generating the first live report (XNG – Montrose)
-
-1. Confirm `DOMOTZ_API_KEY` and `DOMOTZ_API_URL` are set in Vercel.
-2. Open `https://www.triplecitiestech.com/admin/reporting/wan-reliability`.
-3. **Site** → search `Montrose` (or `XNG`) and pick the XNG collector.
-4. **Device** → pick the Meraki MX68CW (it should be flagged ★). Leave it on "Circuit (collector connectivity)" to report the raw WAN signal instead.
-5. Period → **Last 90 days**. Fill Site details (Customer `Xpress Natural Gas`, Address `3814 North Rd, Montrose, PA`) if not auto‑filled.
-6. **Generate Report**, or **Export**/**Copy** for JSON/Markdown/TXT.
-
-PowerShell (using the migration secret), e.g. the plain‑text format:
-
+PowerShell (text format, via the migration secret):
 ```powershell
 $h = @{ Authorization = "Bearer $env:MIGRATION_SECRET" }
-Invoke-RestMethod -Headers $h -Uri "https://www.triplecitiestech.com/api/reports/wan-reliability?agentId=<AGENT_ID>&deviceId=<DEVICE_ID>&days=90&format=text&customer=Xpress%20Natural%20Gas"
+Invoke-RestMethod -Headers $h -Uri "https://www.triplecitiestech.com/api/reports/wan-reliability?agentId=<AGENT_ID>&deviceId=<DEVICE_ID>&days=90&format=text"
 ```
 
-(Find `<AGENT_ID>`/`<DEVICE_ID>` from `/api/reports/wan-reliability/sites` and `…/sites?agentId=<AGENT_ID>`.)
-
 ## Sample output
-
-`docs/reference/samples/xng-montrose-wan-reliability.{json,md,txt}` are **representative synthetic** examples (the build environment has no Domotz credentials) showing the exact report shape — clearly marked as sample data in their Notes. Replace them by running the live report above.
+`docs/reference/samples/xng-montrose-wan-reliability.{json,md,txt}` are **representative synthetic** examples (no Domotz creds in the build sandbox), modelling the honest Montrose case — failover-capable, collector reachable, 10 detected failovers, SLA suppressed. Clearly labelled as sample data.

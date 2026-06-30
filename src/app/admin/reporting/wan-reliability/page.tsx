@@ -14,11 +14,12 @@ export default async function WanReliabilityPage() {
       <AdminHeader />
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-white">WAN Reliability (ISP / SLA)</h1>
+          <h1 className="text-3xl font-bold text-white">Site Connectivity &amp; Stability</h1>
           <p className="text-slate-400 mt-2">
-            Historical WAN/circuit reliability for any monitored site, live from Domotz: outage history, uptime, MTBF/MTTR,
-            daily instability, SLA compliance (99.99% availability / 4-hour repair), and latency &amp; packet-loss trends.
-            Export as Markdown, JSON or text, or open the printable report.
+            Connectivity &amp; stability for any monitored site, live from Domotz: full-site outage history, uptime,
+            MTBF/MTTR, daily instability, latency &amp; packet-loss trends, and failover events (from ingested Domotz
+            webhooks). Honest about its limits — at a site with WAN failover it states that primary-circuit outages may be
+            masked rather than implying the ISP circuit is healthy. Export as Markdown, JSON or text, or open the printable report.
           </p>
         </div>
         <WanReliabilityGenerator />

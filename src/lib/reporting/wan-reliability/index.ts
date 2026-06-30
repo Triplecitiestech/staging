@@ -17,6 +17,12 @@
 
 export * from './types'
 export {
+  assessFailoverCapability,
+  type WanModeOverride,
+  type FailoverCapability,
+  type FailoverAssessment,
+} from './failover'
+export {
   generateWanReliabilityReport,
   fetchWanTelemetry,
   assembleReport,
@@ -30,6 +36,8 @@ export {
   computeSummary,
   computeTrend,
   computeDailyInstability,
+  computeDataCoverage,
+  detectCadenceArtifact,
   computeSla,
   computePerformance,
   formatDuration,
