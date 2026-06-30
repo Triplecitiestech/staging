@@ -44,7 +44,10 @@ export function getPool(): Pool {
     ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
     connectionTimeoutMillis: 15_000,  // 15s — generous for cold starts
     idleTimeoutMillis: 20_000,        // 20s — close before DB drops (Neon ~30s)
-    max: 5,
+    // Max 2 per isolate: total connections = instances × max, all on the direct
+    // `prisma_migration` role whose limit is shared across instances. Kept low
+    // to avoid "too many connections for role prisma_migration". See prisma.ts.
+    max: 2,
     allowExitOnIdle: true,
     keepAlive: true,
     keepAliveInitialDelayMillis: 10_000,

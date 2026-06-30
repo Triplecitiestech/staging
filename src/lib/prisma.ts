@@ -42,9 +42,13 @@ function createPool(): Pool {
     // connection timeout" when the pool hands out a dead connection. Closing
     // client-side first (20s < 30s) prevents stale connection reuse.
     idleTimeoutMillis: 20_000,
-    // Max 5 connections per isolate. Vercel serverless functions share isolates
-    // across invocations, so this limits total connections per function instance.
-    max: 5,
+    // Max 2 connections per isolate. The app connects on the DIRECT Prisma
+    // Postgres role (`prisma_migration`), whose connection limit is shared
+    // across ALL serverless instances — total connections = instances × max.
+    // Kept low to avoid exhausting that limit ("too many connections for role
+    // prisma_migration"), which takes down auth + the portal. Durable fix is to
+    // move runtime onto the pooled PRISMA_DATABASE_URL (Accelerate) connection.
+    max: 2,
     // Let the process exit when all connections are idle (serverless-friendly)
     allowExitOnIdle: true,
     // TCP keepalive detects broken connections (e.g., DB failover, network blip)
