@@ -1,6 +1,6 @@
 {
   "meta": {
-    "generatedAtUtc": "2026-06-30T14:37:12.201Z",
+    "generatedAtUtc": "2026-06-30T15:20:56.476Z",
     "timezone": "America/New_York",
     "outageSource": "agent",
     "outageSourceLabel": "On-site collector connectivity (whole-site reachability)",
@@ -35,7 +35,7 @@
       "days": 90,
       "label": "Mar 31, 2026 – Jun 29, 2026 (90 days)"
     },
-    "reportGeneratedEastern": "Jun 30, 2026, 10:37 AM EDT"
+    "reportGeneratedEastern": "Jun 30, 2026, 11:20 AM EDT"
   },
   "outages": [],
   "summary": {
@@ -92,7 +92,7 @@
   "failoverActivity": {
     "available": true,
     "ingestionSinceUtc": "2026-03-31T13:00:00.000Z",
-    "eventCount": 10,
+    "eventCount": 20,
     "events": [
       {
         "timestampUtc": "2026-04-05T03:00:00.000Z",
@@ -104,9 +104,27 @@
         "newProvider": "SpaceX Starlink"
       },
       {
+        "timestampUtc": "2026-04-05T03:09:00.000Z",
+        "dateEastern": "2026-04-04",
+        "timeEastern": "11:09:00 PM EDT",
+        "oldIp": "100.64.12.7",
+        "newIp": "50.107.49.134",
+        "oldProvider": "SpaceX Starlink",
+        "newProvider": "Frontier Communications"
+      },
+      {
         "timestampUtc": "2026-04-22T19:30:00.000Z",
         "dateEastern": "2026-04-22",
         "timeEastern": "3:30:00 PM EDT",
+        "oldIp": "50.107.49.134",
+        "newIp": "100.64.12.7",
+        "oldProvider": "Frontier Communications",
+        "newProvider": "SpaceX Starlink"
+      },
+      {
+        "timestampUtc": "2026-04-22T19:34:00.000Z",
+        "dateEastern": "2026-04-22",
+        "timeEastern": "3:34:00 PM EDT",
         "oldIp": "100.64.12.7",
         "newIp": "50.107.49.134",
         "oldProvider": "SpaceX Starlink",
@@ -122,9 +140,27 @@
         "newProvider": "SpaceX Starlink"
       },
       {
+        "timestampUtc": "2026-05-11T13:12:00.000Z",
+        "dateEastern": "2026-05-11",
+        "timeEastern": "9:12:00 AM EDT",
+        "oldIp": "100.64.12.7",
+        "newIp": "50.107.49.134",
+        "oldProvider": "SpaceX Starlink",
+        "newProvider": "Frontier Communications"
+      },
+      {
         "timestampUtc": "2026-05-11T18:20:00.000Z",
         "dateEastern": "2026-05-11",
         "timeEastern": "2:20:00 PM EDT",
+        "oldIp": "50.107.49.134",
+        "newIp": "100.64.12.7",
+        "oldProvider": "Frontier Communications",
+        "newProvider": "SpaceX Starlink"
+      },
+      {
+        "timestampUtc": "2026-05-11T18:23:00.000Z",
+        "dateEastern": "2026-05-11",
+        "timeEastern": "2:23:00 PM EDT",
         "oldIp": "100.64.12.7",
         "newIp": "50.107.49.134",
         "oldProvider": "SpaceX Starlink",
@@ -158,9 +194,27 @@
         "newProvider": "SpaceX Starlink"
       },
       {
+        "timestampUtc": "2026-06-02T22:21:00.000Z",
+        "dateEastern": "2026-06-02",
+        "timeEastern": "6:21:00 PM EDT",
+        "oldIp": "100.64.12.7",
+        "newIp": "50.107.49.134",
+        "oldProvider": "SpaceX Starlink",
+        "newProvider": "Frontier Communications"
+      },
+      {
         "timestampUtc": "2026-06-15T11:00:00.000Z",
         "dateEastern": "2026-06-15",
         "timeEastern": "7:00:00 AM EDT",
+        "oldIp": "50.107.49.134",
+        "newIp": "100.64.12.7",
+        "oldProvider": "Frontier Communications",
+        "newProvider": "SpaceX Starlink"
+      },
+      {
+        "timestampUtc": "2026-06-15T11:02:00.000Z",
+        "dateEastern": "2026-06-15",
+        "timeEastern": "7:02:00 AM EDT",
         "oldIp": "100.64.12.7",
         "newIp": "50.107.49.134",
         "oldProvider": "SpaceX Starlink",
@@ -176,16 +230,159 @@
         "newProvider": "SpaceX Starlink"
       },
       {
+        "timestampUtc": "2026-06-29T06:04:00.000Z",
+        "dateEastern": "2026-06-29",
+        "timeEastern": "2:04:00 AM EDT",
+        "oldIp": "100.64.12.7",
+        "newIp": "50.107.49.134",
+        "oldProvider": "SpaceX Starlink",
+        "newProvider": "Frontier Communications"
+      },
+      {
         "timestampUtc": "2026-06-29T08:25:00.000Z",
         "dateEastern": "2026-06-29",
         "timeEastern": "4:25:00 AM EDT",
+        "oldIp": "50.107.49.134",
+        "newIp": "100.64.12.7",
+        "oldProvider": "Frontier Communications",
+        "newProvider": "SpaceX Starlink"
+      },
+      {
+        "timestampUtc": "2026-06-29T08:31:00.000Z",
+        "dateEastern": "2026-06-29",
+        "timeEastern": "4:31:00 AM EDT",
+        "oldIp": "100.64.12.7",
+        "newIp": "50.107.49.134",
+        "oldProvider": "SpaceX Starlink",
+        "newProvider": "Frontier Communications"
+      },
+      {
+        "timestampUtc": "2026-06-29T11:30:00.000Z",
+        "dateEastern": "2026-06-29",
+        "timeEastern": "7:30:00 AM EDT",
+        "oldIp": "50.107.49.134",
+        "newIp": "100.64.12.7",
+        "oldProvider": "Frontier Communications",
+        "newProvider": "SpaceX Starlink"
+      },
+      {
+        "timestampUtc": "2026-06-29T11:36:00.000Z",
+        "dateEastern": "2026-06-29",
+        "timeEastern": "7:36:00 AM EDT",
         "oldIp": "100.64.12.7",
         "newIp": "50.107.49.134",
         "oldProvider": "SpaceX Starlink",
         "newProvider": "Frontier Communications"
       }
     ],
-    "note": "Failover detection active across the full window. 10 failover event(s) detected."
+    "episodes": [
+      {
+        "startUtc": "2026-04-05T03:00:00.000Z",
+        "endUtc": "2026-04-05T03:09:00.000Z",
+        "startEastern": "Apr 4, 2026, 11:00 PM EDT",
+        "endEastern": "Apr 4, 2026, 11:09 PM EDT",
+        "durationSeconds": 540,
+        "durationLabel": "9m",
+        "ongoing": false,
+        "backupProvider": "SpaceX Starlink"
+      },
+      {
+        "startUtc": "2026-04-22T19:30:00.000Z",
+        "endUtc": "2026-04-22T19:34:00.000Z",
+        "startEastern": "Apr 22, 2026, 3:30 PM EDT",
+        "endEastern": "Apr 22, 2026, 3:34 PM EDT",
+        "durationSeconds": 240,
+        "durationLabel": "4m",
+        "ongoing": false,
+        "backupProvider": "SpaceX Starlink"
+      },
+      {
+        "startUtc": "2026-05-11T13:05:00.000Z",
+        "endUtc": "2026-05-11T13:12:00.000Z",
+        "startEastern": "May 11, 2026, 9:05 AM EDT",
+        "endEastern": "May 11, 2026, 9:12 AM EDT",
+        "durationSeconds": 420,
+        "durationLabel": "7m",
+        "ongoing": false,
+        "backupProvider": "SpaceX Starlink"
+      },
+      {
+        "startUtc": "2026-05-11T18:20:00.000Z",
+        "endUtc": "2026-05-11T18:23:00.000Z",
+        "startEastern": "May 11, 2026, 2:20 PM EDT",
+        "endEastern": "May 11, 2026, 2:23 PM EDT",
+        "durationSeconds": 180,
+        "durationLabel": "3m",
+        "ongoing": false,
+        "backupProvider": "SpaceX Starlink"
+      },
+      {
+        "startUtc": "2026-05-20T14:00:00.000Z",
+        "endUtc": "2026-05-20T14:17:00.000Z",
+        "startEastern": "May 20, 2026, 10:00 AM EDT",
+        "endEastern": "May 20, 2026, 10:17 AM EDT",
+        "durationSeconds": 1020,
+        "durationLabel": "17m",
+        "ongoing": false,
+        "backupProvider": "SpaceX Starlink"
+      },
+      {
+        "startUtc": "2026-06-02T22:15:00.000Z",
+        "endUtc": "2026-06-02T22:21:00.000Z",
+        "startEastern": "Jun 2, 2026, 6:15 PM EDT",
+        "endEastern": "Jun 2, 2026, 6:21 PM EDT",
+        "durationSeconds": 360,
+        "durationLabel": "6m",
+        "ongoing": false,
+        "backupProvider": "SpaceX Starlink"
+      },
+      {
+        "startUtc": "2026-06-15T11:00:00.000Z",
+        "endUtc": "2026-06-15T11:02:00.000Z",
+        "startEastern": "Jun 15, 2026, 7:00 AM EDT",
+        "endEastern": "Jun 15, 2026, 7:02 AM EDT",
+        "durationSeconds": 120,
+        "durationLabel": "2m",
+        "ongoing": false,
+        "backupProvider": "SpaceX Starlink"
+      },
+      {
+        "startUtc": "2026-06-29T06:00:00.000Z",
+        "endUtc": "2026-06-29T06:04:00.000Z",
+        "startEastern": "Jun 29, 2026, 2:00 AM EDT",
+        "endEastern": "Jun 29, 2026, 2:04 AM EDT",
+        "durationSeconds": 240,
+        "durationLabel": "4m",
+        "ongoing": false,
+        "backupProvider": "SpaceX Starlink"
+      },
+      {
+        "startUtc": "2026-06-29T08:25:00.000Z",
+        "endUtc": "2026-06-29T08:31:00.000Z",
+        "startEastern": "Jun 29, 2026, 4:25 AM EDT",
+        "endEastern": "Jun 29, 2026, 4:31 AM EDT",
+        "durationSeconds": 360,
+        "durationLabel": "6m",
+        "ongoing": false,
+        "backupProvider": "SpaceX Starlink"
+      },
+      {
+        "startUtc": "2026-06-29T11:30:00.000Z",
+        "endUtc": "2026-06-29T11:36:00.000Z",
+        "startEastern": "Jun 29, 2026, 7:30 AM EDT",
+        "endEastern": "Jun 29, 2026, 7:36 AM EDT",
+        "durationSeconds": 360,
+        "durationLabel": "6m",
+        "ongoing": false,
+        "backupProvider": "SpaceX Starlink"
+      }
+    ],
+    "estimatedPrimaryDownSeconds": 3840,
+    "estimatedPrimaryDownLabel": "1h 4m",
+    "longestEpisodeSeconds": 1020,
+    "longestEpisodeLabel": "17m",
+    "episodePairingApproximate": false,
+    "note": "Failover detection active across the full window. 20 WAN-change event(s) ingested."
   },
   "dailyInstability": [],
   "cadence": {
@@ -243,5 +440,5 @@
       }
     ]
   },
-  "executiveSummary": "Over the 90-day period, XNG - Montrose stayed continuously reachable to our on-site monitoring (100% connectivity), with no full-site outages recorded. This site has WAN failover (Cisco Meraki MX (WAN2 / integrated cellular failover)), so this connectivity figure does NOT measure the primary Frontier Communications circuit — a primary outage that failed over keeps the site reachable and is invisible here. Domotz did detect 10 failover event(s) (public-IP/ISP changes) in the covered period — direct evidence the primary circuit dropped at least that many times. Notable: packet loss peaked at 7.5%. Recommendation: if Frontier Communications is the primary uplink, open a circuit-quality case citing the 10 failover event timestamps below; reachability alone understates the impact."
+  "executiveSummary": "Over the 90-day period, XNG - Montrose stayed continuously reachable to our on-site monitoring (100% connectivity), with no full-site outages recorded. This site has WAN failover (Cisco Meraki MX (WAN2 / integrated cellular failover)), so this connectivity figure does NOT measure the primary Frontier Communications circuit — a primary outage that failed over keeps the site reachable and is invisible here. Domotz detected 10 failover episode(s) — an estimated 1h 4m of primary-circuit downtime (longest 17m) — direct evidence the primary circuit dropped. Notable: packet loss peaked at 7.5%. Recommendation: if Frontier Communications is the primary uplink, open a circuit-quality case citing the 10 failover episode(s) and ~1h 4m of estimated primary downtime below; reachability alone understates the impact."
 }

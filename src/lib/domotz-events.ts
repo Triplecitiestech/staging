@@ -24,6 +24,23 @@ import { formatEasternDay, easternDateKey, formatEasternTime } from '@/lib/repor
 
 const SOURCE = 'domotz'
 
+/**
+ * Default (empty) episode fields for a FailoverActivity. Episodes are computed
+ * later in assembleReport (which knows the site's primary uplink), so the
+ * fetch-time objects just carry these placeholders.
+ */
+export const EMPTY_FAILOVER_EPISODES: Pick<
+  FailoverActivity,
+  'episodes' | 'estimatedPrimaryDownSeconds' | 'estimatedPrimaryDownLabel' | 'longestEpisodeSeconds' | 'longestEpisodeLabel' | 'episodePairingApproximate'
+> = {
+  episodes: [],
+  estimatedPrimaryDownSeconds: 0,
+  estimatedPrimaryDownLabel: '0s',
+  longestEpisodeSeconds: null,
+  longestEpisodeLabel: null,
+  episodePairingApproximate: false,
+}
+
 /** Canonical sample `agent_wan_change` payload — safe to POST for smoke tests. */
 export const SAMPLE_DOMOTZ_WEBHOOK = {
   name: 'agent_wan_change',
@@ -299,6 +316,7 @@ export async function buildFailoverActivity(agentId: number, from: Date, to: Dat
       ingestionSinceUtc: null,
       eventCount: 0,
       events: [],
+      ...EMPTY_FAILOVER_EPISODES,
       note: `Failover event store unavailable: ${err instanceof Error ? err.message : String(err)}.`,
     }
   }
@@ -309,6 +327,7 @@ export async function buildFailoverActivity(agentId: number, from: Date, to: Dat
       ingestionSinceUtc: null,
       eventCount: 0,
       events: [],
+      ...EMPTY_FAILOVER_EPISODES,
       note: 'No Domotz failover webhooks have been received for this site. Until the Domotz webhook is enabled (Settings → see report setup notes), primary-circuit failovers cannot be detected and a failed-over outage will be invisible to this report.',
     }
   }
@@ -323,6 +342,7 @@ export async function buildFailoverActivity(agentId: number, from: Date, to: Dat
     ingestionSinceUtc: ingestionSince.toISOString(),
     eventCount: events.length,
     events,
+    ...EMPTY_FAILOVER_EPISODES,
     note,
   }
 }

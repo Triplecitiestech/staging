@@ -51,8 +51,10 @@ export function buildExecutiveSummary(parts: {
   // 2. Failover framing — the central honesty point.
   if (failover.capability === 'failover_capable') {
     sentences.push(`This site has WAN failover (${failover.matchedReason}), so this connectivity figure does NOT measure the primary ${isp} circuit — a primary outage that failed over keeps the site reachable and is invisible here.`)
-    if (failoverActivity.available && failoverActivity.eventCount > 0) {
-      sentences.push(`Domotz did detect ${failoverActivity.eventCount} failover event(s) (public-IP/ISP changes) in the covered period — direct evidence the primary circuit dropped at least that many times.`)
+    if (failoverActivity.available && failoverActivity.episodes.length > 0) {
+      sentences.push(`Domotz detected ${failoverActivity.episodes.length} failover episode(s) — an estimated ${failoverActivity.estimatedPrimaryDownLabel} of primary-circuit downtime (longest ${failoverActivity.longestEpisodeLabel ?? '—'}) — direct evidence the primary circuit dropped.`)
+    } else if (failoverActivity.available && failoverActivity.eventCount > 0) {
+      sentences.push(`Domotz recorded ${failoverActivity.eventCount} WAN-change event(s) but could not pair them into complete failover episodes in this window.`)
     } else if (failoverActivity.available) {
       sentences.push('No failover events were detected in the covered period, but absence of detection is not proof the circuit was clean.')
     } else {
@@ -104,8 +106,8 @@ function buildRecommendation(p: {
     return `Recommendation: open a circuit-quality case with ${isp} citing the outage history above.`
   }
   if (failover.capability === 'failover_capable') {
-    if (failoverActivity.available && failoverActivity.eventCount > 0) {
-      return `Recommendation: if ${isp} is the primary uplink, open a circuit-quality case citing the ${failoverActivity.eventCount} failover event timestamps below; reachability alone understates the impact.`
+    if (failoverActivity.available && failoverActivity.episodes.length > 0) {
+      return `Recommendation: if ${isp} is the primary uplink, open a circuit-quality case citing the ${failoverActivity.episodes.length} failover episode(s) and ~${failoverActivity.estimatedPrimaryDownLabel} of estimated primary downtime below; reachability alone understates the impact.`
     }
     if (!failoverActivity.available) {
       return 'Recommendation: enable the Domotz failover webhook for this site (see setup notes) so primary-circuit drops can be measured; until then this report cannot confirm ISP-circuit health.'

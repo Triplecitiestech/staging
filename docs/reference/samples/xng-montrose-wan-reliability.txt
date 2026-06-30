@@ -28,23 +28,26 @@ Public IP (current):           50.107.49.134
 Device monitored:              XNG-Montrose-MX68CW
 Measured signal:               On-site collector connectivity (whole-site reachability)
 Data coverage:                 90 of 90 days
-Report generated:              Jun 30, 2026, 10:37 AM EDT
+Report generated:              Jun 30, 2026, 11:20 AM EDT
 
-FAILOVER ACTIVITY (primary-circuit drop evidence)
+FAILOVER ACTIVITY (estimated primary-circuit drops)
 ------------------------------------------------------------------
-Failover detection active across the full window. 10 failover
-event(s) detected.
+Failover detection active across the full window. 20 WAN-change
+event(s) ingested.
+Failover episodes:             10
+Est. primary downtime:         1h 4m
+Longest episode:               17m
 
-1  2026-04-04 11:00:00 PM  Frontier Communications (50.107.49.134) -> SpaceX Starlink (100.64.12.7)
-2  2026-04-22 3:30:00 PM   SpaceX Starlink (100.64.12.7) -> Frontier Communications (50.107.49.134)
-3  2026-05-11 9:05:00 AM   Frontier Communications (50.107.49.134) -> SpaceX Starlink (100.64.12.7)
-4  2026-05-11 2:20:00 PM   SpaceX Starlink (100.64.12.7) -> Frontier Communications (50.107.49.134)
-5  2026-05-20 10:00:00 AM  Frontier Communications (50.107.49.134) -> SpaceX Starlink (100.64.12.7)
-6  2026-05-20 10:17:00 AM  SpaceX Starlink (100.64.12.7) -> Frontier Communications (50.107.49.134)
-7  2026-06-02 6:15:00 PM   Frontier Communications (50.107.49.134) -> SpaceX Starlink (100.64.12.7)
-8  2026-06-15 7:00:00 AM   SpaceX Starlink (100.64.12.7) -> Frontier Communications (50.107.49.134)
-9  2026-06-29 2:00:00 AM   Frontier Communications (50.107.49.134) -> SpaceX Starlink (100.64.12.7)
-10 2026-06-29 4:25:00 AM   SpaceX Starlink (100.64.12.7) -> Frontier Communications (50.107.49.134)
+1  Apr 4, 2026, 11:00 PM -> Apr 4, 2026, 11:09 PM   9m  (to SpaceX Starlink)
+2  Apr 22, 2026, 3:30 PM -> Apr 22, 2026, 3:34 PM   4m  (to SpaceX Starlink)
+3  May 11, 2026, 9:05 AM -> May 11, 2026, 9:12 AM   7m  (to SpaceX Starlink)
+4  May 11, 2026, 2:20 PM -> May 11, 2026, 2:23 PM   3m  (to SpaceX Starlink)
+5  May 20, 2026, 10:00 AM -> May 20, 2026, 10:17 AM   17m  (to SpaceX Starlink)
+6  Jun 2, 2026, 6:15 PM -> Jun 2, 2026, 6:21 PM   6m  (to SpaceX Starlink)
+7  Jun 15, 2026, 7:00 AM -> Jun 15, 2026, 7:02 AM   2m  (to SpaceX Starlink)
+8  Jun 29, 2026, 2:00 AM -> Jun 29, 2026, 2:04 AM   4m  (to SpaceX Starlink)
+9  Jun 29, 2026, 4:25 AM -> Jun 29, 2026, 4:31 AM   6m  (to SpaceX Starlink)
+10 Jun 29, 2026, 7:30 AM -> Jun 29, 2026, 7:36 AM   6m  (to SpaceX Starlink)
 
 FULL-SITE OUTAGES (collector lost all connectivity)
 ------------------------------------------------------------------
@@ -94,13 +97,14 @@ full-site outages recorded. This site has WAN failover (Cisco
 Meraki MX (WAN2 / integrated cellular failover)), so this
 connectivity figure does NOT measure the primary Frontier
 Communications circuit — a primary outage that failed over keeps
-the site reachable and is invisible here. Domotz did detect 10
-failover event(s) (public-IP/ISP changes) in the covered period —
-direct evidence the primary circuit dropped at least that many
-times. Notable: packet loss peaked at 7.5%. Recommendation: if
+the site reachable and is invisible here. Domotz detected 10
+failover episode(s) — an estimated 1h 4m of primary-circuit
+downtime (longest 17m) — direct evidence the primary circuit
+dropped. Notable: packet loss peaked at 7.5%. Recommendation: if
 Frontier Communications is the primary uplink, open a
-circuit-quality case citing the 10 failover event timestamps
-below; reachability alone understates the impact.
+circuit-quality case citing the 10 failover episode(s) and ~1h 4m
+of estimated primary downtime below; reachability alone
+understates the impact.
 
 NOTES
 ------------------------------------------------------------------
@@ -111,4 +115,4 @@ failover site.
 - Cross-check — collector connectivity 100%, monitored device
 reachability 100% (Domotz-reported).
 
-Generated 2026-06-30T14:37:12.201Z | times in America/New_York | source: Domotz
+Generated 2026-06-30T15:20:56.476Z | times in America/New_York | source: Domotz
