@@ -1,8 +1,26 @@
 # Session Summary
 
-> **Last updated**: 2026-06-29. WAN Reliability (ISP/SLA) report on the Domotz integration.
-> **Branch**: `claude/wan-reliability-reporting-ecd380`.
+> **Last updated**: 2026-06-30. Reframed the WAN report to "Site Connectivity & Stability" (failover-aware) + Domotz webhook ingestion.
+> **Branch**: `claude/site-connectivity-honest-reframe-ecd380`.
 > **Detailed handoff**: see `docs/SESSION_HANDOFF.md` first — this file is the quick state-of-the-world reference.
+
+## Site Connectivity reframe + failover detection (2026-06-30) — branch `claude/site-connectivity-honest-reframe-ecd380`
+
+**Problem:** the WAN report (shipped 2026-06-29) confidently reported the wrong thing at WAN-failover sites. At XNG – Montrose the Meraki MX failed over to a secondary uplink when Frontier dropped, so Domotz reachability stayed green — the report showed **100% uptime / SLA-compliant** for a period the Meraki logged **10 primary-circuit drops incl a 17-min outage**. We have **no Meraki Dashboard API**; Domotz is the only source and can't see which uplink carries traffic. So the fix was to reframe what the report claims and extract every real Domotz signal — not to find better ISP data.
+
+**Shipped (Phase 1 — honest reframe, stateless):**
+- Renamed to **Site Connectivity & Stability**. Headline is now **collector connectivity** (whole-site dark), not "ISP uptime". SLA pass/fail shown **only** for admin-confirmed single-WAN sites; failover-capable/unknown sites get a prominent masking caveat and **no** SLA verdict. Exec summary never says "SLA-compliant"/"no escalation" from reachability.
+- **Failover-capability detection** (`failover.ts`, pure): infer from gateway model/vendor (Meraki MX, SonicWall, FortiGate, Peplink, Ubiquiti, pfSense, …) + per-site admin override; default to caveat-on unless confirmed single-WAN.
+- **Data coverage** measured from `uptime.total_seconds` (never 100% over a span with no data); **cadence-artifact** flagging; collector-down marked a device blind-spot. Gateway "Meraki Meraki" de-dup fixed.
+
+**Shipped (Phase 2 — failover detection, stateful):**
+- `agent_wan_change` (public-IP/ISP flip = failover fingerprint) is **webhook-only** in Domotz (verified: it's a `callbacks` payload, no GET history). New receiver **`POST /api/webhooks/domotz`** (token `DOMOTZ_WEBHOOK_TOKEN`, always-200) stores events in the existing **`compliance_webhook_events`** sink (`source='domotz'`, no new event table). Surfaced as a first-class **"N failover events"** metric with old→new ISP/IP.
+- Per-site WAN-mode override in raw-pg **`domotz_site_settings`** (lazy `ensureDomotzSiteSettings()`; no Prisma migration). New helper module `src/lib/domotz-events.ts` (normalize/store/query/override). `GET/POST /api/reports/wan-reliability/sites` exposes + sets the override.
+- UI relabeled; WAN-configuration selector + Domotz webhook setup instructions added.
+
+**Verified:** 30 unit tests green (incl the Montrose false-negative scenario, single-WAN SLA path, partial-coverage, cadence, failover detection, webhook normalizer); scoped `tsc --noEmit` clean on all new files; `eslint` clean. Regenerated the XNG sample (`docs/reference/samples/`) through the real pipeline — now shows failover caveat + 10 detected failovers + suppressed SLA. **Could NOT run `next build`/`test:e2e` locally** (no Prisma engine download in sandbox, no Domotz creds) — CI runs them vs the Vercel preview. **Operator action to enable failover detection:** configure the Domotz webhook (Portal → Webhooks → `/api/webhooks/domotz?token=…`) + set `DOMOTZ_WEBHOOK_TOKEN` in Vercel. Full detail: `docs/reference/WAN_RELIABILITY_REPORT.md`.
+
+## WAN Reliability (ISP/SLA) report — Domotz (2026-06-29) — branch `claude/wan-reliability-reporting-ecd380`
 
 ## WAN Reliability (ISP/SLA) report — Domotz (2026-06-29) — branch `claude/wan-reliability-reporting-ecd380`
 

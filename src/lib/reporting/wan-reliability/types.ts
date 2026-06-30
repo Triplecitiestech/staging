@@ -1,21 +1,35 @@
 /**
- * WAN Reliability Report — shared types and SLA defaults.
+ * Site Connectivity & Stability Report — shared types and SLA defaults.
  *
- * These types describe the structured report produced by the analyzer/service
- * and consumed by the formatters (JSON / Markdown / plain text / HTML) and the
- * admin UI. Telemetry comes live from Domotz (`src/lib/domotz.ts`); the analyzer
- * (`analyzer.ts`) turns it into these shapes with no I/O.
+ * IMPORTANT framing: this report measures SITE CONNECTIVITY as seen by the
+ * on-site Domotz collector — NOT per-ISP-circuit reliability. At a site with WAN
+ * failover, a primary-circuit outage that failed over is invisible to Domotz
+ * (the firewall keeps routing), so the report must caveat that rather than imply
+ * the circuit is healthy. See `failover.ts` and `docs/reference/WAN_RELIABILITY_REPORT.md`.
+ *
+ * Telemetry comes live from Domotz (`src/lib/domotz.ts`); failover events come
+ * from ingested Domotz `agent_wan_change` webhooks (`src/lib/domotz-events.ts`).
+ * The analyzer (`analyzer.ts`) turns it into these shapes with no I/O.
  */
 
-/** Default SLA targets for an ISP/WAN circuit. Overridable per report. */
+import type { FailoverAssessment } from './failover'
+
+/**
+ * SLA targets. Only applied as a pass/fail when a site is confirmed single-WAN
+ * (otherwise reachability is not a valid proxy for circuit availability).
+ */
 export const DEFAULT_AVAILABILITY_SLA_PERCENT = 99.99
 export const DEFAULT_REPAIR_SLA_HOURS = 4
-/** A day with this many outages or more is flagged as "instability". */
+/** A day with this many connectivity-loss events or more is flagged as "instability". */
 export const DAILY_INSTABILITY_THRESHOLD = 3
 /** IANA timezone all customer-facing times are rendered in. */
 export const REPORT_TIMEZONE = 'America/New_York'
 
-/** Which Domotz signal the outage timeline was derived from. */
+/**
+ * Which Domotz signal a timeline was derived from:
+ *  - 'agent'  = on-site collector connectivity (site fully dark) — the headline.
+ *  - 'device' = a monitored device's LAN reachability — secondary detail.
+ */
 export type OutageSource = 'agent' | 'device'
 
 /** Caller-supplied site metadata. Anything omitted is resolved from Domotz where possible. */
@@ -166,20 +180,95 @@ export interface PerformanceTrends {
   degradationPeriods: DegradationPeriod[]
 }
 
+/**
+ * How much of the requested window we actually have data for. Domotz does not
+ * document a retention period, so coverage is measured empirically from the
+ * earliest data point — we never imply 100% over a span with no data.
+ */
+export interface DataCoverage {
+  requestedFromUtc: string
+  requestedToUtc: string
+  requestedDays: number
+  /** Earliest data point observed across the pulled signals (null = no data). */
+  actualFromUtc: string | null
+  actualToUtc: string | null
+  coveredDays: number
+  /** True when observed coverage ≈ the requested window. */
+  complete: boolean
+  note: string | null
+}
+
+/** A failover event derived from a Domotz `agent_wan_change` webhook. */
+export interface FailoverEventRecord {
+  timestampUtc: string
+  dateEastern: string
+  timeEastern: string
+  oldIp: string | null
+  newIp: string | null
+  oldProvider: string | null
+  newProvider: string | null
+}
+
+/**
+ * Failover activity from ingested `agent_wan_change` webhooks — the closest
+ * signal to "the primary circuit dropped" at a failover site. Only meaningful
+ * when webhook ingestion was active during the window.
+ */
+export interface FailoverActivity {
+  /** True when ingestion was active for at least part of the window. */
+  available: boolean
+  /** When we first started receiving Domotz events for this site (coverage floor). */
+  ingestionSinceUtc: string | null
+  eventCount: number
+  events: FailoverEventRecord[]
+  /** Always-present explanation of availability and how to enable it. */
+  note: string
+}
+
+/** Flags when outage durations look like a polling-cadence artifact, not real lengths. */
+export interface CadenceArtifact {
+  suspected: boolean
+  note: string | null
+}
+
+/** Secondary signal: LAN reachability of a monitored device (e.g. the gateway). */
+export interface DeviceReachability {
+  deviceName: string | null
+  summary: SummaryStatistics
+  outages: Outage[]
+  /** Set when collector downtime overlapped, making some device state unknowable. */
+  note: string | null
+}
+
 export interface WanReliabilityReport {
   meta: {
     generatedAtUtc: string
     timezone: string
+    /** The headline signal. Defaults to collector connectivity (site fully dark). */
     outageSource: OutageSource
     outageSourceLabel: string
-    /** Caveats / provenance shown to the reader (e.g. cross-check uptime, sample-data warnings). */
+    /** Failover-capability assessment that governs caveats and SLA applicability. */
+    failover: FailoverAssessment
+    /** Prominent, must-read caveats (failover masking, coverage gaps, sample data). */
+    caveats: string[]
+    /** Lower-priority provenance/cross-check notes. */
     dataNotes: string[]
   }
   site: SiteInformation
+  /** Headline: site connectivity-loss events (collector went fully dark). */
   outages: Outage[]
   summary: SummaryStatistics
+  /** Secondary: monitored-device LAN reachability (null when no device selected). */
+  deviceReachability: DeviceReachability | null
+  /** Primary-circuit failover evidence from ingested webhooks. */
+  failoverActivity: FailoverActivity
   dailyInstability: DailyInstability[]
-  sla: SlaComparison
+  cadence: CadenceArtifact
+  dataCoverage: DataCoverage
+  /** SLA verdict — only populated for confirmed single-WAN sites; null otherwise. */
+  sla: SlaComparison | null
+  /** Why the SLA verdict is or isn't shown. */
+  slaNote: string
   performance: PerformanceTrends
   executiveSummary: string
 }

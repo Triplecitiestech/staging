@@ -1,6 +1,10 @@
-# WAN Reliability Report — Xpress Natural Gas
+# Site Connectivity & Stability — Xpress Natural Gas
 
 _XNG - Montrose · Mar 31, 2026 – Jun 29, 2026 (90 days)_
+
+> ⚠️ **Read first**
+> - SAMPLE DATA — synthetic telemetry through the real pipeline to demonstrate the report; NOT live XNG measurements. Generate the live report at /admin/reporting/wan-reliability.
+> - This site has WAN failover (Cisco Meraki MX (WAN2 / integrated cellular failover)). When the primary ISP circuit drops and the firewall fails over to a secondary uplink, the site stays reachable — so primary-circuit outages are NOT visible to this monitoring and will NOT appear in the connectivity history below. A clean connectivity record here does NOT mean the ISP circuit was healthy. See "Failover Activity" below for failovers detected from public-IP/ISP changes.
 
 ## Site Information
 
@@ -10,103 +14,82 @@ _XNG - Montrose · Mar 31, 2026 – Jun 29, 2026 (90 days)_
 | Site | XNG - Montrose |
 | Address | 3814 North Rd, Montrose, PA |
 | Gateway | Cisco Meraki MX68CW |
-| ISP | Frontier Communications |
-| Public IP | 50.107.49.134 |
-| Device monitored | XNG-Montrose-MX68CW (Meraki WAN1 / Frontier DIA) |
-| Reporting period | Mar 31, 2026 – Jun 29, 2026 (90 days) |
-| Outage signal | Monitored device reachability |
-| Report generated | Jun 29, 2026, 1:29 PM EDT |
+| WAN configuration | Failover-capable — Cisco Meraki MX (WAN2 / integrated cellular failover) |
+| ISP (current) | Frontier Communications |
+| Public IP (current) | 50.107.49.134 |
+| Device monitored | XNG-Montrose-MX68CW |
+| Measured signal | On-site collector connectivity (whole-site reachability) |
+| Data coverage | 90 of 90 days |
+| Report generated | Jun 30, 2026, 10:37 AM EDT |
 
-## WAN Outage History
+## Failover Activity (primary-circuit drop evidence)
 
-| # | Date | Start (ET) | End (ET) | Duration |
+_Failover detection active across the full window. 10 failover event(s) detected._
+
+| # | Date | Time (ET) | From ISP/IP | To ISP/IP |
 | ---: | --- | --- | --- | --- |
-| 1 | 2026-04-04 | 11:00:00 PM EDT | 11:09:00 PM EDT | 9m |
-| 2 | 2026-04-22 | 3:30:00 PM EDT | 3:34:00 PM EDT | 4m |
-| 3 | 2026-05-11 | 9:05:00 AM EDT | 9:12:00 AM EDT | 7m |
-| 4 | 2026-05-11 | 11:40:00 AM EDT | 11:46:00 AM EDT | 6m |
-| 5 | 2026-05-11 | 2:20:00 PM EDT | 2:23:00 PM EDT | 3m |
-| 6 | 2026-05-11 | 5:10:00 PM EDT | 5:25:00 PM EDT | 15m |
-| 7 | 2026-05-20 | 10:00:00 AM EDT | 2:32:00 PM EDT | 4h 32m |
-| 8 | 2026-06-02 | 6:15:00 PM EDT | 6:21:00 PM EDT | 6m |
-| 9 | 2026-06-15 | 7:00:00 AM EDT | 7:02:00 AM EDT | 2m |
-| 10 | 2026-06-29 | 2:00:00 AM EDT | 2:04:00 AM EDT | 4m |
-| 11 | 2026-06-29 | 2:30:00 AM EDT | 2:33:00 AM EDT | 3m |
-| 12 | 2026-06-29 | 3:10:00 AM EDT | 3:14:00 AM EDT | 4m |
-| 13 | 2026-06-29 | 3:50:00 AM EDT | 3:52:00 AM EDT | 2m |
-| 14 | 2026-06-29 | 4:25:00 AM EDT | 4:31:00 AM EDT | 6m |
-| 15 | 2026-06-29 | 5:05:00 AM EDT | 5:09:00 AM EDT | 4m |
-| 16 | 2026-06-29 | 6:15:00 AM EDT | 6:18:00 AM EDT | 3m |
-| 17 | 2026-06-29 | 7:30:00 AM EDT | 7:36:00 AM EDT | 6m |
-| 18 | 2026-06-29 | 8:20:00 AM EDT | 8:24:00 AM EDT | 4m |
+| 1 | 2026-04-04 | 11:00:00 PM EDT | Frontier Communications (50.107.49.134) | SpaceX Starlink (100.64.12.7) |
+| 2 | 2026-04-22 | 3:30:00 PM EDT | SpaceX Starlink (100.64.12.7) | Frontier Communications (50.107.49.134) |
+| 3 | 2026-05-11 | 9:05:00 AM EDT | Frontier Communications (50.107.49.134) | SpaceX Starlink (100.64.12.7) |
+| 4 | 2026-05-11 | 2:20:00 PM EDT | SpaceX Starlink (100.64.12.7) | Frontier Communications (50.107.49.134) |
+| 5 | 2026-05-20 | 10:00:00 AM EDT | Frontier Communications (50.107.49.134) | SpaceX Starlink (100.64.12.7) |
+| 6 | 2026-05-20 | 10:17:00 AM EDT | SpaceX Starlink (100.64.12.7) | Frontier Communications (50.107.49.134) |
+| 7 | 2026-06-02 | 6:15:00 PM EDT | Frontier Communications (50.107.49.134) | SpaceX Starlink (100.64.12.7) |
+| 8 | 2026-06-15 | 7:00:00 AM EDT | SpaceX Starlink (100.64.12.7) | Frontier Communications (50.107.49.134) |
+| 9 | 2026-06-29 | 2:00:00 AM EDT | Frontier Communications (50.107.49.134) | SpaceX Starlink (100.64.12.7) |
+| 10 | 2026-06-29 | 4:25:00 AM EDT | SpaceX Starlink (100.64.12.7) | Frontier Communications (50.107.49.134) |
 
-## Summary Statistics
+## Full-Site Outages (collector lost all connectivity)
+
+_No full-site connectivity loss recorded in the covered window._
+
+## Connectivity Summary
 
 | Metric | Value |
 | --- | --- |
-| Total outages | 18 |
-| Total downtime | 6h |
-| Overall uptime | 99.7222% |
-| Longest outage | 4h 32m (2026-05-20) |
-| Average outage duration | 20m |
-| Median outage duration | 4m |
-| Mean Time Between Failures (MTBF) | 4d 23h 40m |
-| Mean Time To Repair (MTTR) | 20m |
-| Outages in last 30 days | 11 |
-| Outages in previous 60 days | 7 |
-| Trend | Increasing |
+| Full-site outages | 0 |
+| Total time unreachable | 0s |
+| Site connectivity uptime | 100% |
+| Longest outage | — |
+| Average / median outage | — / — |
+| MTBF / MTTR | — / — |
+| Outages last 30 / prev 60 days | 0 / 0 |
+| Trend | Stable |
 
-_11 outage(s) in the last 30 days vs 7 in the prior 60 days (≈3.5/30d)._
+## Monitored Device Reachability (secondary, LAN-side)
 
-## Daily Instability
+Device: **XNG-Montrose-MX68CW** · reachability uptime **100%** · 0 reachability drop(s).
 
-| Date (ET) | Outages | Downtime |
-| --- | ---: | --- |
-| 2026-06-29 | 9 | 36m |
-| 2026-05-11 | 4 | 31m |
+## Days With Repeated Drops
+
+_No day had 3 or more full-site outages._
 
 ## SLA Comparison
 
-| Metric | Value |
-| --- | --- |
-| Availability SLA | 99.99% |
-| Actual uptime | 99.7222% |
-| Difference from SLA | -0.2678 pts |
-| Availability SLA | ❌ FAIL |
-| Repair SLA (MTTR) | 4h target → 20m ✅ PASS |
-| Allowed downtime (budget) | 12m 58s |
-| Actual downtime | 6h |
-| Outages exceeding 4h | 1 |
-| Total SLA impact (over budget) | 5h 47m |
+_No ISP-circuit SLA verdict: this site has WAN failover, so reachability does not measure the primary circuit. Use Failover Activity below and the ISP’s own reporting for circuit compliance._
 
 ## Performance Trends
 
 | Metric | Value |
 | --- | --- |
-| Average latency | 29.1 ms |
-| Median latency | 20 ms |
-| Maximum latency | 320 ms |
-| Average packet loss | 0.4% |
-| Maximum packet loss | 7.5% |
-| Average download | 480.8 Mbps |
-| Average upload | 500 Mbps |
+| Average / median / max latency | 27 ms / 20 ms / 320 ms |
+| Average / max packet loss | 0.32% / 7.5% |
+| Average download / upload | 500 / 500 Mbps |
 
-**Sustained degradation periods:**
+**Sustained degradation:**
 
 - Packet loss: May 20, 2026, 9:00 PM EDT → May 21, 2026, 9:00 AM EDT — avg 7.5% loss over 3 samples
 - Latency: May 20, 2026, 9:00 PM EDT → May 21, 2026, 9:00 AM EDT — avg 185ms over 3 samples (baseline ≈20ms)
-- Packet loss: Jun 28, 2026, 10:00 AM EDT → Jun 28, 2026, 12:00 PM EDT — avg 3% loss over 3 samples
 
 ## Executive Summary
 
-Over the 90-day reporting period, XNG - Montrose experienced 18 WAN outages totaling 6h of downtime, for 99.7222% uptime. Availability fell 0.2678 points short of the 99.99% target, so Frontier Communications did not meet its service-level agreement for this window. Reliability is getting worse: outages in the last 30 days are up versus the prior 60 days. Notable findings: the longest single outage was 4h 32m on 2026-05-20; 1 outage ran longer than the 4-hour repair target; 2 days saw repeated flapping (worst: 9 outages on 2026-06-29); packet loss peaked at 7.5%. Recommendation: open a circuit-quality case with Frontier Communications, citing the outage history and SLA shortfall above, and request a root-cause review for the circuit on 50.107.49.134.
+Over the 90-day period, XNG - Montrose stayed continuously reachable to our on-site monitoring (100% connectivity), with no full-site outages recorded. This site has WAN failover (Cisco Meraki MX (WAN2 / integrated cellular failover)), so this connectivity figure does NOT measure the primary Frontier Communications circuit — a primary outage that failed over keeps the site reachable and is invisible here. Domotz did detect 10 failover event(s) (public-IP/ISP changes) in the covered period — direct evidence the primary circuit dropped at least that many times. Notable: packet loss peaked at 7.5%. Recommendation: if Frontier Communications is the primary uplink, open a circuit-quality case citing the 10 failover event timestamps below; reachability alone understates the impact.
 
 ---
 
 **Notes**
 
-- SAMPLE DATA — generated from representative synthetic telemetry to demonstrate the report format; these are NOT live XNG measurements. Generate the live report at /admin/reporting/wan-reliability once Domotz credentials are configured.
-- Outage timeline reflects reachability of the monitored device from the on-site Domotz collector.
-- Cross-check — collector (WAN) uptime 99.7222%, monitored device uptime 99.7222% (Domotz-reported).
+- Headline reflects the on-site collector’s connectivity (the whole site being unreachable). Device reachability, where shown, is a LAN-side signal — neither measures a single ISP circuit at a failover site.
+- Cross-check — collector connectivity 100%, monitored device reachability 100% (Domotz-reported).
 
-_Generated 2026-06-29T17:29:08.791Z · times shown in America/New_York · data source: Domotz._
+_Generated 2026-06-30T14:37:12.201Z · times in America/New_York · data source: Domotz (reachability + ingested failover webhooks)._

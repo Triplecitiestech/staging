@@ -1,23 +1,19 @@
 # Current Tasks
 
-> **Last updated**: 2026-06-29. WAN Reliability (ISP/SLA) report on the Domotz integration (draft PR).
-> **Branch**: `claude/wan-reliability-reporting-ecd380`.
-> **Detailed context**: `docs/session-summary.md` (2026-06-29 section) + `docs/reference/WAN_RELIABILITY_REPORT.md`.
+> **Last updated**: 2026-06-30. Site Connectivity reframe + Domotz failover-webhook ingestion (draft PR).
+> **Branch**: `claude/site-connectivity-honest-reframe-ecd380`.
+> **Detailed context**: `docs/session-summary.md` (2026-06-30 section) + `docs/reference/WAN_RELIABILITY_REPORT.md`.
 
-## WAN Reliability (ISP/SLA) report — Domotz (2026-06-29) — 🟡 code complete, awaiting CI + live validation
+## Site Connectivity reframe + failover detection (2026-06-30) — 🟡 code complete, awaiting CI + operator webhook setup
 
-Reusable WAN/circuit reliability & SLA report built on the existing Domotz client. Module `src/lib/reporting/wan-reliability/`, API `GET /api/reports/wan-reliability` (+ `…/sites`), UI `/admin/reporting/wan-reliability`. 28 unit tests green; scoped typecheck + lint clean. Full detail in `docs/session-summary.md` (2026-06-29) and `docs/reference/WAN_RELIABILITY_REPORT.md`.
+Reframed the WAN report so it can't report a false "100% / SLA-compliant" at WAN-failover sites, and added Domotz `agent_wan_change` webhook ingestion for real failover detection. 30 unit tests green; scoped typecheck + lint clean. Detail in `docs/session-summary.md` (2026-06-30) + `docs/reference/WAN_RELIABILITY_REPORT.md`.
 
 **Validation / follow-ups:**
-- [ ] **[REQUIRED — owner]** Run the live XNG report: `/admin/reporting/wan-reliability` → pick the Montrose collector + MX68CW → 90 days → Generate. Confirm outage table, SLA verdict and latency/packet-loss populate. (Sandbox had no Domotz creds, so only synthetic-data samples were produced — `docs/reference/samples/`.)
-- [ ] **[CI]** Confirm the auto-merge gate goes green (`next build` + `test:e2e` run against the Vercel preview — they could not run in the sandbox: Prisma engine download is blocked by egress, and there are no Domotz creds).
-- [ ] **[LOW]** PDF export (currently print-to-PDF from the HTML report); add a Playwright e2e for the page once a preview-reachable Domotz fixture/mapping exists.
-- [ ] **[LOW]** Optional: persist generated reports / schedule them (reuse the reporting scheduler) and/or map customers→collectors via `compliance_platform_mappings` for a customer-first picker.
-
-### Next Session Starting Point
-- **Current objective**: WAN reliability report is code-complete on `claude/wan-reliability-reporting-ecd380` (draft PR). No open blocker beyond live validation + CI.
-- **Most relevant files**: `src/lib/domotz.ts` (extended client), `src/lib/reporting/wan-reliability/*` (analyzer/service/format + tests), `src/app/api/reports/wan-reliability/{route,sites/route}.ts`, `src/components/reporting/WanReliabilityGenerator.tsx`, `docs/reference/WAN_RELIABILITY_REPORT.md`.
-- **Access constraints**: NO Domotz creds and NO Prisma engine download in the dev sandbox — cannot run `next build`/`test:e2e`/live data locally. Owner runs the report in production or supplies data.
+- [ ] **[CI]** Confirm the auto-merge gate goes green (`next build` + `test:e2e` vs preview — couldn't run in sandbox: no Prisma engine download, no Domotz creds).
+- [ ] **[OPERATOR — enables failover detection]** In Domotz Portal → Webhooks, add a channel to `https://www.triplecitiestech.com/api/webhooks/domotz?token=<token>`, bind an Alert Profile covering WAN/Public-IP-change + collector up/down, and set `DOMOTZ_WEBHOOK_TOKEN` in Vercel. Until then the report says failover detection is unavailable.
+- [ ] **[VALIDATION]** Re-run the live Montrose report after webhook setup: confirm the failover caveat shows, SLA is suppressed, and detected failovers appear once events flow in.
+- [ ] **[FUTURE]** Pair `agent_wan_change` out→back events to estimate primary-circuit down *duration* (currently we list change events, not per-circuit downtime). The true per-uplink picture still needs the Meraki Dashboard API (not available).
+- [ ] **[LOW]** Add a Playwright e2e once a preview-reachable Domotz fixture exists; PDF export (print-to-PDF for now).
 
 ## TBR / Customer History export (2026-06-16) — ✅ shipped & in production (PRs #92–#95)
 
