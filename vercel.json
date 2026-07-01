@@ -90,6 +90,9 @@
     },
     "src/app/api/cron/verify-pending-changes/route.ts": {
       "maxDuration": 60
+    },
+    "src/app/api/cron/itglue-doc-sync/route.ts": {
+      "maxDuration": 60
     }
   },
   "crons": [
@@ -176,6 +179,10 @@
     {
       "path": "/api/cron/cfo-rebuild",
       "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/itglue-doc-sync",
+      "schedule": "0 * * * *"
     }
   ]
 }
