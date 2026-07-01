@@ -1,8 +1,15 @@
 # Session Summary
 
-> **Last updated**: 2026-06-30. Reframed the WAN report to "Site Connectivity & Stability" (failover-aware) + Domotz webhook ingestion.
-> **Branch**: `claude/site-connectivity-honest-reframe-ecd380`.
+> **Last updated**: 2026-07-01. MCP connector: verified ww14 ticket URLs, fixed red CI (stale lockfile, PR #118), added IT Glue tools (PR #119).
+> **Branch**: `claude/verify-ticket-url-deploy-aa0yug`.
 > **Detailed handoff**: see `docs/SESSION_HANDOFF.md` first — this file is the quick state-of-the-world reference.
+
+## MCP connector: ticket-URL verify + IT Glue tools (2026-07-01) — branch `claude/verify-ticket-url-deploy-aa0yug`
+
+- **Ticket-URL deploy verified.** The live production connector returns the correct ww14 deep link (`https://ww14.autotask.net/Mvc/ServiceDesk/TicketDetail.mvc?TicketId=…`, confirmed against a real ticket). The connector work had been committed straight to `main` via the GitHub web UI, which left **CI red on `main`**: `package-lock.json` was never regenerated after the connector deps (`mcp-handler`, `jose`, `zod`, MCP SDK) were added, so `npm ci` failed — also silently blocking auto-merge for every `claude/**` branch. Fixed by regenerating the lockfile (**PR #118, merged**). Vercel builds with `npm install`, which is why prod kept deploying while the gate was red.
+- **IT Glue connector tools added** (**PR #119**): extended the existing `ItGlueClient` (`src/lib/it-glue.ts`) **additively** — no parallel client, compliance's read usage unchanged — plus new `src/lib/mcp-itglue-tools.ts` registering read tools (orgs, configs, flexible assets + type fields, documents, sections) and **WRITE** tools (create/update documents via the Documents + Document-Sections API; create/update flexible assets via **GET-merge-PATCH**, because IT Glue PATCH is destructive — omitted traits are deleted). **Never calls `/passwords`.** Connector auth uses `IT_GLUE_CONNECTOR_API_KEY`, falling back to `IT_GLUE_API_KEY`. Write payloads verified against the **raw** IT Glue developer docs; adversarial review applied (dropped a no-op trait guard, added `Document::Step` duration). IT Glue has no per-user impersonation, so writes are attributed to the API-key identity, not the individual tech.
+- **`[skip-e2e]` used (2026-07-01)** on PR #119 at the owner's explicit request to expedite the merge. Justification: the change is additive (new connector tools only), touches no existing routes/UI/schema/auth, and secret-scan + quality (build + lint + unit tests) all passed green; only the whole-app Playwright regression net was skipped.
+- **Pilot still needed:** the IT Glue Documents write API is new (Feb 2026) — create one throwaway document on a test org to confirm the exact payloads before relying on it. `IT_GLUE_CONNECTOR_API_KEY` set for the Production environment by the owner.
 
 ## Site Connectivity reframe + failover detection (2026-06-30) — branch `claude/site-connectivity-honest-reframe-ecd380`
 
