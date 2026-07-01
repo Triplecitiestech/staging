@@ -51,6 +51,15 @@ function ok(data: unknown) { return { content: [{ type: 'text' as const, text: J
 function fail(err: unknown) { const m = err instanceof Error ? err.message : String(err); return { content: [{ type: 'text' as const, text: `Error: ${m}` }], isError: true } }
 function okTicket(ticketId: number, data: unknown) { return ok({ result: data, ticketUrl: getAutotaskTicketUrl(String(ticketId)) }) }
 
+// Append text to a ticket's Resolution field (GET current, concat, PATCH).
+// Resolution — not the time-entry summary — is what fills the customer
+// completion email, so this is used on close.
+async function appendResolution(ticketId: number, text: string, rid: number): Promise<void> {
+  const current = await new AutotaskClient().getTicketResolution(ticketId)
+  const merged = current && current.trim() ? `${current}\n\n${text}` : text
+  await write.updateTicket(ticketId, { resolution: merged }, rid)
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function registerWriteTools(server: any) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -107,13 +116,28 @@ export function registerWriteTools(server: any) {
 
   server.registerTool(
     'autotask_create_time_entry',
-    { title: 'Autotask: create time entry', description: 'WRITE, BILLABLE. Log time on a ticket, attributed to the signed-in technician. summaryNotes should follow TCT format: Actions Taken; Root Cause/Findings; Resolution; Next Steps/Escalation; Status - prose, no bullets, do not restate the issue. Only call after the user approves the hours and text.', inputSchema: { ticketId: z.number().int().describe('Autotask ticket ID'), hoursWorked: z.number().positive().describe('Hours worked'), summaryNotes: z.string().describe('Customer-visible work summary in TCT format'), internalNotes: z.string().optional().describe('Internal-only notes'), dateWorked: z.string().optional().describe('YYYY-MM-DD; defaults to today'), billingCodeId: z.number().int().optional().describe('Autotask billing code id, if required'), roleId: z.number().int().optional().describe('Autotask role id, if required') } },
+    { title: 'Autotask: create time entry', description: 'WRITE, BILLABLE. Log time on a ticket, attributed to the signed-in technician. roleId is REQUIRED (resolve a role name via autotask_list_roles). Autotask SERVICE tickets require a start and stop time — pass startDateTime + stopDateTime (ISO 8601); hoursWorked is then optional and derived from the interval. For non-service tickets you may instead pass hoursWorked. summaryNotes follows TCT format: Actions Taken; Root Cause/Findings; Resolution; Next Steps/Escalation; Status - prose, no bullets, do not restate the issue. NOTE: summaryNotes does NOT populate the ticket Resolution field (which drives the customer completion email) — set appendSummaryToResolution=true (or use autotask_set_ticket_resolution) to write it there. Only call after the user approves the hours and text.', inputSchema: { ticketId: z.number().int().describe('Autotask ticket ID'), roleId: z.number().int().describe('Autotask role id (REQUIRED) — from autotask_list_roles'), summaryNotes: z.string().describe('Customer-visible work summary in TCT format'), startDateTime: z.string().optional().describe('Work start, ISO 8601 — REQUIRED for Service tickets'), stopDateTime: z.string().optional().describe('Work stop, ISO 8601 — REQUIRED for Service tickets'), hoursWorked: z.number().positive().optional().describe('Hours worked; optional if start/stop given (derived from the interval)'), internalNotes: z.string().optional().describe('Internal-only notes'), dateWorked: z.string().optional().describe('YYYY-MM-DD; defaults to the start date or today'), billingCodeId: z.number().int().optional().describe('Autotask billing code id (work type), if required'), appendSummaryToResolution: z.boolean().optional().describe('Also append summaryNotes to the ticket Resolution field (mirrors Autotask\'s checkbox) so the customer completion email has content') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    async ({ ticketId, hoursWorked, summaryNotes, internalNotes, dateWorked, billingCodeId, roleId }: any, extra: any) => {
+    async ({ ticketId, roleId, summaryNotes, startDateTime, stopDateTime, hoursWorked, internalNotes, dateWorked, billingCodeId, appendSummaryToResolution }: any, extra: any) => {
       try {
         const rid = await resolveResourceId(emailOf(extra))
-        const dw = dateWorked ?? new Date().toISOString().slice(0, 10)
-        return okTicket(ticketId, await write.createTicketTimeEntry({ ticketID: ticketId, resourceID: rid, dateWorked: dw, hoursWorked, summaryNotes, internalNotes, billingCodeID: billingCodeId, roleID: roleId }, rid))
+        const result = await write.createTicketTimeEntry({ ticketID: ticketId, resourceID: rid, roleID: roleId, hoursWorked, dateWorked, startDateTime, stopDateTime, summaryNotes, internalNotes, billingCodeID: billingCodeId }, rid)
+        if (appendSummaryToResolution && summaryNotes) await appendResolution(ticketId, summaryNotes, rid)
+        return okTicket(ticketId, result)
+      } catch (e) { return fail(e) }
+    }
+  )
+
+  server.registerTool(
+    'autotask_set_ticket_resolution',
+    { title: 'Autotask: set ticket resolution', description: 'WRITE. Set (or append to) the ticket Resolution field. IMPORTANT: Resolution — not the time-entry summary — is what fills the customer "ticket completed" notification email, so populate it BEFORE setting the ticket to Complete. append=true (default) preserves any existing resolution and adds this text below it; false overwrites. Confirm the wording with the user first.', inputSchema: { ticketId: z.number().int().describe('Autotask ticket ID'), resolution: z.string().describe('Resolution text (customer-facing; appears in the completion email)'), append: z.boolean().optional().describe('Append to existing resolution (default true); false replaces it') } },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async ({ ticketId, resolution, append }: any, extra: any) => {
+      try {
+        const rid = await resolveResourceId(emailOf(extra))
+        if (append === false) await write.updateTicket(ticketId, { resolution }, rid)
+        else await appendResolution(ticketId, resolution, rid)
+        return okTicket(ticketId, { resolutionUpdated: true })
       } catch (e) { return fail(e) }
     }
   )
