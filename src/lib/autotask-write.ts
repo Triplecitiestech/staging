@@ -79,3 +79,38 @@ export async function createTicketTimeEntry(
 export async function updateTicket(ticketID: number, fields: Record<string, unknown>, impersonationResourceId?: number): Promise<unknown> {
   return patch('Tickets', { id: ticketID, ...fields }, impersonationResourceId)
 }
+
+// Create a new ticket. Autotask enforces title + companyID + status + priority,
+// plus queueID (per the ticket category's queue setting) and dueDateTime (unless
+// the category supplies a default). We require the picklist fields explicitly and
+// default NOTHING — omitted optional fields are simply not sent. Autotask returns
+// { itemId } for the new ticket id.
+export async function createTicket(
+  data: {
+    companyID: number;
+    title: string;
+    queueID: number;
+    status: number;
+    priority: number;
+    description?: string;
+    dueDateTime?: string;
+    contactID?: number;
+    assignedResourceID?: number;
+    ticketType?: number;
+  },
+  impersonationResourceId?: number
+): Promise<{ itemId?: number }> {
+  const body: Record<string, unknown> = {
+    companyID: data.companyID,
+    title: data.title,
+    queueID: data.queueID,
+    status: data.status,
+    priority: data.priority,
+  }
+  if (data.description !== undefined) body.description = data.description
+  if (data.dueDateTime !== undefined) body.dueDateTime = data.dueDateTime
+  if (data.contactID !== undefined) body.contactID = data.contactID
+  if (data.assignedResourceID !== undefined) body.assignedResourceID = data.assignedResourceID
+  if (data.ticketType !== undefined) body.ticketType = data.ticketType
+  return post<{ itemId?: number }>('Tickets', body, impersonationResourceId)
+}

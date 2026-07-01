@@ -57,6 +57,37 @@ export function registerWriteTools(server: any) {
   const emailOf = (extra: any): string | undefined => extra?.authInfo?.extra?.email
 
   server.registerTool(
+    'autotask_create_ticket',
+    {
+      title: 'Autotask: create ticket',
+      description: 'WRITE. Create a NEW Autotask ticket, attributed to the signed-in tech. Required: companyID, title, queueID, status, priority (status/priority/queueID are numeric picklist ids — use autotask_ticket_statuses for status and autotask_search_companies for companyID). Optional: description, dueDateTime, contactID, assignedResourceID, ticketType. Note: Autotask requires dueDateTime unless the ticket category supplies a default, so include it if the create is rejected for a missing due date. Nothing is defaulted server-side. Confirm the details with the user before calling. Returns the new ticket id and ticketNumber.',
+      inputSchema: {
+        companyID: z.number().int().describe('Autotask company ID (required)'),
+        title: z.string().describe('Ticket title (required)'),
+        queueID: z.number().int().describe('Queue picklist id (required)'),
+        status: z.number().int().describe('Status picklist id (required) — from autotask_ticket_statuses'),
+        priority: z.number().int().describe('Priority picklist id (required)'),
+        description: z.string().optional().describe('Ticket description / details'),
+        dueDateTime: z.string().optional().describe('Due date-time, ISO 8601 (e.g. 2026-07-05T17:00:00Z)'),
+        contactID: z.number().int().optional().describe('Autotask contact id (from autotask_company_contacts)'),
+        assignedResourceID: z.number().int().optional().describe('Resource id to assign (from autotask_find_resource)'),
+        ticketType: z.number().int().optional().describe('Ticket type picklist id; Autotask defaults to Service Request if omitted'),
+      },
+    },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async ({ companyID, title, queueID, status, priority, description, dueDateTime, contactID, assignedResourceID, ticketType }: any, extra: any) => {
+      try {
+        const rid = await resolveResourceId(emailOf(extra))
+        const res = await write.createTicket({ companyID, title, queueID, status, priority, description, dueDateTime, contactID, assignedResourceID, ticketType }, rid)
+        const newId = res?.itemId
+        if (!newId) return ok({ result: res, note: 'Ticket create returned no itemId.' })
+        const ticket = await new AutotaskClient().getTicket(newId)
+        return ok({ id: newId, ticketNumber: ticket?.ticketNumber ?? null, ticketUrl: getAutotaskTicketUrl(String(newId)), ticket })
+      } catch (e) { return fail(e) }
+    }
+  )
+
+  server.registerTool(
     'autotask_add_internal_note',
     { title: 'Autotask: add internal note', description: 'WRITE. Add an INTERNAL-only note to a ticket, attributed to the signed-in tech. Only call after the user has reviewed and approved the exact text.', inputSchema: { ticketId: z.number().int().describe('Autotask ticket ID'), note: z.string().describe('Note body'), title: z.string().optional().describe('Optional note title') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
