@@ -900,6 +900,20 @@ export class AutotaskClient {
   }
 
   /**
+   * Active picklist options (numeric id + label) for a Tickets field — e.g.
+   * 'queueID', 'priority', 'ticketType', 'status'. Sourced from entity field
+   * info (instance-specific picklists), so callers never guess numeric values.
+   */
+  async getTicketPicklist(fieldName: string): Promise<Array<{ id: number; label: string }>> {
+    const info = await this.getFieldInfo('Tickets');
+    const field = info?.fields?.find((f) => f.name === fieldName);
+    if (!field?.picklistValues) return [];
+    return field.picklistValues
+      .filter((pv) => pv.isActive)
+      .map((pv) => ({ id: parseInt(pv.value, 10), label: pv.label }));
+  }
+
+  /**
    * Get tickets for a company from the last N days.
    * Fetches tickets created OR with activity in the window to capture status changes.
    */

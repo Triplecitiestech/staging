@@ -23,6 +23,8 @@ export interface ItGlueOrganization {
     'created-at': string
     'updated-at': string
     'short-name': string | null
+    'quick-notes'?: string | null
+    'quick-notes-updated-at'?: string | null
   }
 }
 
@@ -202,6 +204,17 @@ export interface ItGlueDocumentSection {
     duration?: number | null
     sort: number
   }
+}
+
+/** Pagination metadata surfaced alongside a page of results. */
+export interface ItGluePageMeta {
+  totalCount: number | null
+  totalPages: number | null
+  currentPage: number
+  pageSize: number
+  hasMore: boolean
+  /** Raw IT Glue `meta` object, for callers that want the exact keys. */
+  raw: Record<string, unknown> | null
 }
 
 export interface ItGlueClientOptions {
@@ -438,13 +451,81 @@ export class ItGlueClient {
     return data.data ?? null
   }
 
-  /** List documents for an organization. Never returns password records. */
-  async getDocuments(orgId: string, documentFolderId?: string): Promise<ItGlueDocument[]> {
-    const folder = documentFolderId ? `?filter[document_folder_id]=${documentFolderId}` : ''
-    const data = await this.request<{ data: ItGlueDocument[] }>(
-      `/organizations/${orgId}/relationships/documents${folder}`
+  /**
+   * List ONE page of an org's documents (never passwords), with pagination meta.
+   *
+   * IMPORTANT: IT Glue's documents index returns ONLY root-level documents when
+   * filter[document_folder_id] is omitted. To get the whole library (docs inside
+   * folders too) you must pass filter[document_folder_id]=null. We therefore
+   * default the folder filter to 'null' (= ALL documents); pass '0' for root-only
+   * or a specific folder id to scope. Page size is capped at IT Glue's max (1000).
+   */
+  async getDocumentsPage(
+    orgId: string,
+    opts?: { page?: number; pageSize?: number; documentFolderId?: string }
+  ): Promise<{ documents: ItGlueDocument[]; meta: ItGluePageMeta }> {
+    const page = opts?.page ?? 1
+    const pageSize = Math.min(Math.max(opts?.pageSize ?? 100, 1), 1000)
+    const folder = opts?.documentFolderId ?? 'null' // 'null' = ALL documents (root + in folders)
+    const body = await this.request<{ data: ItGlueDocument[]; meta?: Record<string, unknown> }>(
+      `/organizations/${orgId}/relationships/documents?filter[document_folder_id]=${encodeURIComponent(folder)}&page[size]=${pageSize}&page[number]=${page}`
     )
-    return data.data ?? []
+    const documents = body.data ?? []
+    const raw = body.meta ?? null
+    const num = (v: unknown): number | null =>
+      typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : null
+    const totalPages = raw ? num(raw['total-pages']) : null
+    return {
+      documents,
+      meta: {
+        totalCount: raw ? num(raw['total-count']) : null,
+        totalPages,
+        currentPage: (raw ? num(raw['current-page']) : null) ?? page,
+        pageSize,
+        // Prefer authoritative meta; fall back to a full-page heuristic.
+        hasMore: totalPages != null ? page < totalPages : documents.length === pageSize,
+        raw,
+      },
+    }
+  }
+
+  /** Page through ALL of an org's documents (folder=null). Capped for safety. */
+  async getAllDocuments(orgId: string, documentFolderId?: string): Promise<ItGlueDocument[]> {
+    const all: ItGlueDocument[] = []
+    for (let page = 1; page <= 50; page++) {
+      const { documents, meta } = await this.getDocumentsPage(orgId, { page, pageSize: 1000, documentFolderId })
+      all.push(...documents)
+      if (!meta.hasMore || documents.length === 0) break
+    }
+    return all
+  }
+
+  /**
+   * Search an org's documents by name. IT Glue has no documented server-side
+   * name filter for documents, so this pages the full library and matches by
+   * name (all whitespace-separated terms must appear, case-insensitive).
+   */
+  async searchDocuments(orgId: string, query: string): Promise<ItGlueDocument[]> {
+    const all = await this.getAllDocuments(orgId)
+    const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
+    if (terms.length === 0) return all
+    return all.filter((d) => {
+      const name = (d.attributes.name ?? '').toLowerCase()
+      return terms.every((t) => name.includes(t))
+    })
+  }
+
+  /** Full (untruncated) Quick Notes HTML for an org, from the Organization record. */
+  async getOrganizationQuickNotes(
+    orgId: string
+  ): Promise<{ organizationId: string; name: string | null; quickNotesHtml: string | null; updatedAt: string | null }> {
+    const org = await this.getOrganization(orgId)
+    return {
+      organizationId: orgId,
+      name: org?.attributes.name ?? null,
+      quickNotesHtml: org?.attributes['quick-notes'] ?? null,
+      updatedAt: org?.attributes['quick-notes-updated-at'] ?? null,
+    }
   }
 
   /** List the content sections of a document. */
