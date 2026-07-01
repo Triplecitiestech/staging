@@ -15,6 +15,7 @@ import { z } from 'zod'
 import { AutotaskClient, getAutotaskTicketUrl } from '@/lib/autotask'
 import * as unifi from '@/lib/ubiquiti'
 import { registerWriteTools, resolveUserEmail } from '@/lib/mcp-write-tools'
+import { registerItGlueTools } from '@/lib/mcp-itglue-tools'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -54,6 +55,10 @@ const handler = createMcpHandler(
 
     // ── Autotask writes (impersonated as the signed-in tech) ───────────────
     registerWriteTools(server)
+
+    // ── IT Glue (docs/CMDB): reads + document & flexible-asset writes ──────
+    // Never touches the /passwords resource.
+    registerItGlueTools(server)
   },
   {},
   { basePath: '/api/connector', maxDuration: 60, verboseLogs: false }

@@ -158,36 +158,98 @@ function fuzzyMatchOrganization(
   return null
 }
 
+/** Field (schema) of a flexible asset type — its name-key is the trait key. */
+export interface ItGlueFlexibleAssetField {
+  id: string
+  attributes: {
+    'flexible-asset-type-id': number
+    order: number
+    name: string
+    kind: string
+    'name-key': string
+    required: boolean
+    hint: string | null
+    'tag-type': string | null
+    'use-for-title': boolean
+    'show-in-list': boolean
+  }
+}
+
+export interface ItGlueDocument {
+  id: string
+  attributes: {
+    name: string
+    'organization-id': number
+    'organization-name': string | null
+    'resource-url': string | null
+    restricted: boolean
+    public: boolean
+    'document-folder-id': number | null
+    archived: boolean
+    'created-at': string
+    'updated-at': string
+  }
+}
+
+/** A content block within a document (Text/Heading/Step/Gallery). */
+export interface ItGlueDocumentSection {
+  id: string
+  attributes: {
+    'resource-type': string
+    content: string | null
+    'rendered-content'?: string | null
+    level?: number | null
+    duration?: number | null
+    sort: number
+  }
+}
+
+export interface ItGlueClientOptions {
+  apiKey?: string
+  baseUrl?: string
+}
+
 export class ItGlueClient {
   private apiKey: string
   private baseUrl: string
 
-  constructor() {
-    this.apiKey = process.env.IT_GLUE_API_KEY ?? ''
-    this.baseUrl = (process.env.IT_GLUE_API_URL ?? 'https://api.itglue.com').replace(/\/$/, '')
+  constructor(opts?: ItGlueClientOptions) {
+    this.apiKey = opts?.apiKey ?? process.env.IT_GLUE_API_KEY ?? ''
+    this.baseUrl = (opts?.baseUrl ?? process.env.IT_GLUE_API_URL ?? 'https://api.itglue.com').replace(/\/$/, '')
   }
 
   isConfigured(): boolean {
     return !!this.apiKey
   }
 
-  private async request<T>(path: string): Promise<T> {
+  /**
+   * Low-level JSON:API request. GET by default; `body` is JSON-encoded for
+   * POST/PATCH. Handles empty response bodies (e.g. publish).
+   */
+  private async send<T>(method: string, path: string, body?: unknown): Promise<T> {
     const url = `${this.baseUrl}${path}`
     const res = await fetch(url, {
+      method,
       headers: {
         'x-api-key': this.apiKey,
         'Content-Type': 'application/vnd.api+json',
         'Accept': 'application/vnd.api+json',
       },
+      body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(30_000),
     })
 
     if (!res.ok) {
       const text = await res.text().catch(() => '')
-      throw new Error(`IT Glue API ${path} failed (${res.status}): ${text.substring(0, 200)}`)
+      throw new Error(`IT Glue API ${method} ${path} failed (${res.status}): ${text.substring(0, 300)}`)
     }
 
-    return res.json() as Promise<T>
+    const text = await res.text()
+    return (text ? JSON.parse(text) : {}) as T
+  }
+
+  private request<T>(path: string): Promise<T> {
+    return this.send<T>('GET', path)
   }
 
   /** List organizations */
@@ -323,5 +385,192 @@ export class ItGlueClient {
         note: `IT Glue API error: ${err instanceof Error ? err.message : String(err)}`,
       }
     }
+  }
+
+  // ── Reads (extended for the connector) ──────────────────────────────────
+
+  /** Get one organization by id. */
+  async getOrganization(id: string): Promise<ItGlueOrganization | null> {
+    const data = await this.request<{ data: ItGlueOrganization }>(`/organizations/${id}`)
+    return data.data ?? null
+  }
+
+  /**
+   * Search organizations by (partial) name. Fetches up to two pages and
+   * returns those whose normalized name matches, best fuzzy match first.
+   */
+  async searchOrganizations(query: string): Promise<ItGlueOrganization[]> {
+    let orgs = await this.getOrganizations(1, 250)
+    if (orgs.length === 250) {
+      const page2 = await this.getOrganizations(2, 250)
+      orgs = [...orgs, ...page2]
+    }
+    const q = normalizeCompanyName(query)
+    const words = q.split(' ').filter(Boolean)
+    const matches = orgs.filter((o) => {
+      const n = normalizeCompanyName(o.attributes.name)
+      return n.includes(q) || q.includes(n) || (words.length > 0 && words.every((w) => n.includes(w)))
+    })
+    const best = fuzzyMatchOrganization(query, orgs)
+    if (best && !matches.some((m) => m.id === best.id)) matches.unshift(best)
+    return matches.slice(0, 25)
+  }
+
+  /** Fields (schema) for a flexible asset type — the name-keys are the trait keys. */
+  async getFlexibleAssetTypeFields(typeId: string): Promise<ItGlueFlexibleAssetField[]> {
+    const data = await this.request<{ data: ItGlueFlexibleAssetType; included?: ItGlueFlexibleAssetField[] }>(
+      `/flexible_asset_types/${typeId}?include=flexible_asset_fields`
+    )
+    return data.included ?? []
+  }
+
+  /** Flexible assets for an org, filtered by type (IT Glue requires the type id). */
+  async getFlexibleAssetsByType(orgId: string, flexibleAssetTypeId: string, page = 1, pageSize = 50): Promise<ItGlueFlexibleAsset[]> {
+    const data = await this.request<{ data: ItGlueFlexibleAsset[] }>(
+      `/flexible_assets?filter[flexible-asset-type-id]=${flexibleAssetTypeId}&filter[organization-id]=${orgId}&page[size]=${pageSize}&page[number]=${page}`
+    )
+    return data.data ?? []
+  }
+
+  /** Get one flexible asset by id (includes current traits). */
+  async getFlexibleAsset(id: string): Promise<ItGlueFlexibleAsset | null> {
+    const data = await this.request<{ data: ItGlueFlexibleAsset }>(`/flexible_assets/${id}`)
+    return data.data ?? null
+  }
+
+  /** List documents for an organization. Never returns password records. */
+  async getDocuments(orgId: string, documentFolderId?: string): Promise<ItGlueDocument[]> {
+    const folder = documentFolderId ? `?filter[document_folder_id]=${documentFolderId}` : ''
+    const data = await this.request<{ data: ItGlueDocument[] }>(
+      `/organizations/${orgId}/relationships/documents${folder}`
+    )
+    return data.data ?? []
+  }
+
+  /** List the content sections of a document. */
+  async getDocumentSections(documentId: string): Promise<ItGlueDocumentSection[]> {
+    const data = await this.request<{ data: ItGlueDocumentSection[] }>(
+      `/documents/${documentId}/relationships/sections`
+    )
+    return data.data ?? []
+  }
+
+  // ── Writes (documents + flexible assets; NEVER /passwords) ───────────────
+
+  /**
+   * Convert response-shaped traits (tag fields as `{ type, values: [{ id }] }`)
+   * into write-shaped traits (tag fields as arrays of ids). Scalars pass through.
+   * The response-only `type` discriminator is dropped.
+   */
+  private traitsForWrite(traits: Record<string, unknown>): Record<string, unknown> {
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(traits ?? {})) {
+      if (k === 'type') continue
+      if (v && typeof v === 'object' && Array.isArray((v as { values?: unknown }).values)) {
+        out[k] = (v as { values: Array<{ id: number | string }> }).values.map((x) => x.id)
+      } else {
+        out[k] = v
+      }
+    }
+    return out
+  }
+
+  /** Create a flexible asset. */
+  async createFlexibleAsset(input: { organizationId: string | number; flexibleAssetTypeId: string | number; traits: Record<string, unknown> }): Promise<ItGlueFlexibleAsset> {
+    const body = {
+      data: {
+        type: 'flexible-assets',
+        attributes: {
+          'organization-id': Number(input.organizationId),
+          'flexible-asset-type-id': Number(input.flexibleAssetTypeId),
+          traits: input.traits,
+        },
+      },
+    }
+    const data = await this.send<{ data: ItGlueFlexibleAsset }>('POST', '/flexible_assets', body)
+    return data.data
+  }
+
+  /**
+   * Update a flexible asset's traits. IT Glue PATCH is DESTRUCTIVE — any trait
+   * omitted from the payload is deleted — so this GETs the current asset,
+   * merges the caller's changed traits over the full existing set (converted to
+   * write shape), and PATCHes the complete object.
+   */
+  async updateFlexibleAsset(id: string, traitChanges: Record<string, unknown>): Promise<ItGlueFlexibleAsset> {
+    const current = await this.getFlexibleAsset(id)
+    if (!current) throw new Error(`Flexible asset ${id} not found`)
+    const merged = { ...this.traitsForWrite(current.attributes.traits as Record<string, unknown>), ...traitChanges }
+    const body = {
+      data: {
+        type: 'flexible-assets',
+        attributes: {
+          'flexible-asset-type-id': current.attributes['flexible-asset-type-id'],
+          traits: merged,
+        },
+      },
+    }
+    const data = await this.send<{ data: ItGlueFlexibleAsset }>('PATCH', `/flexible_assets/${id}`, body)
+    return data.data
+  }
+
+  /** Create a native document shell under an organization. */
+  async createDocument(input: { organizationId: string | number; name: string; public?: boolean; documentFolderId?: string | number | null }): Promise<ItGlueDocument> {
+    const attributes: Record<string, unknown> = {
+      organization_id: Number(input.organizationId),
+      name: input.name,
+      is_uploaded: false,
+    }
+    if (input.public !== undefined) attributes.public = input.public
+    if (input.documentFolderId != null) attributes.document_folder_id = Number(input.documentFolderId)
+    const data = await this.send<{ data: ItGlueDocument }>('POST', '/documents', { data: { type: 'documents', attributes } })
+    return data.data
+  }
+
+  /** Append a content section to a document. resourceType defaults to Text. */
+  async addDocumentSection(documentId: string, input: { content: string; resourceType?: 'Document::Text' | 'Document::Heading' | 'Document::Step'; level?: number; sort?: number }): Promise<ItGlueDocumentSection> {
+    const attributes: Record<string, unknown> = {
+      'resource-type': input.resourceType ?? 'Document::Text',
+      content: input.content,
+    }
+    if (input.level !== undefined) attributes.level = input.level
+    if (input.sort !== undefined) attributes.sort = input.sort
+    const data = await this.send<{ data: ItGlueDocumentSection }>('POST', `/documents/${documentId}/relationships/sections`, { data: { type: 'document-sections', attributes } })
+    return data.data
+  }
+
+  /** Replace the content of an existing document section. */
+  async updateDocumentSection(documentId: string, sectionId: string, input: { content: string; resourceType?: string; level?: number }): Promise<ItGlueDocumentSection> {
+    const attributes: Record<string, unknown> = { content: input.content }
+    if (input.resourceType) attributes['resource-type'] = input.resourceType
+    if (input.level !== undefined) attributes.level = input.level
+    const data = await this.send<{ data: ItGlueDocumentSection }>('PATCH', `/documents/${documentId}/relationships/sections/${sectionId}`, { data: { type: 'document-sections', attributes } })
+    return data.data
+  }
+
+  /** Update a document's metadata (name / public / folder). */
+  async updateDocument(id: string, input: { name?: string; public?: boolean; documentFolderId?: string | number | null }): Promise<ItGlueDocument> {
+    const attributes: Record<string, unknown> = {}
+    if (input.name !== undefined) attributes.name = input.name
+    if (input.public !== undefined) attributes.public = input.public
+    if (input.documentFolderId !== undefined) attributes.document_folder_id = input.documentFolderId == null ? null : Number(input.documentFolderId)
+    const data = await this.send<{ data: ItGlueDocument }>('PATCH', `/documents/${id}`, { data: { type: 'documents', attributes } })
+    return data.data
+  }
+
+  /** Publish a document. */
+  async publishDocument(id: string): Promise<unknown> {
+    return this.send('PATCH', `/documents/${id}/publish`, { data: { type: 'documents', attributes: {} } })
+  }
+
+  /**
+   * Convenience: create a document with a single rich-text (Text) body section
+   * and optionally publish it.
+   */
+  async createDocumentWithBody(input: { organizationId: string | number; name: string; html: string; public?: boolean; documentFolderId?: string | number | null; publish?: boolean }): Promise<{ document: ItGlueDocument; section: ItGlueDocumentSection }> {
+    const document = await this.createDocument({ organizationId: input.organizationId, name: input.name, public: input.public, documentFolderId: input.documentFolderId })
+    const section = await this.addDocumentSection(document.id, { content: input.html, resourceType: 'Document::Text' })
+    if (input.publish) await this.publishDocument(document.id)
+    return { document, section }
   }
 }
