@@ -1202,7 +1202,7 @@ export class AutotaskClient {
   /** id -> Resource (name/email), batched with the `in` operator. */
   private async resourceMap(ids: number[]): Promise<Map<number, AutotaskResource>> {
     const map = new Map<number, AutotaskResource>();
-    const distinct = [...new Set(ids)];
+    const distinct = Array.from(new Set(ids));
     for (let i = 0; i < distinct.length; i += 200) {
       const chunk = distinct.slice(i, i + 200);
       if (chunk.length === 0) continue;
@@ -1217,7 +1217,7 @@ export class AutotaskClient {
   /** ticketId -> { ticketNumber, companyID }, batched with the `in` operator. */
   private async ticketRefMap(ids: number[]): Promise<Map<number, { ticketNumber?: string; companyID?: number }>> {
     const map = new Map<number, { ticketNumber?: string; companyID?: number }>();
-    const distinct = [...new Set(ids)];
+    const distinct = Array.from(new Set(ids));
     for (let i = 0; i < distinct.length; i += 200) {
       const chunk = distinct.slice(i, i + 200);
       if (chunk.length === 0) continue;
