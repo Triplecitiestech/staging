@@ -12,7 +12,7 @@ import { createMcpHandler, withMcpAuth } from 'mcp-handler'
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js'
 import { createRemoteJWKSet, jwtVerify } from 'jose'
 import { z } from 'zod'
-import { AutotaskClient } from '@/lib/autotask'
+import { AutotaskClient, getAutotaskTicketUrl } from '@/lib/autotask'
 import * as unifi from '@/lib/ubiquiti'
 import { registerWriteTools, resolveUserEmail } from '@/lib/mcp-write-tools'
 
@@ -47,8 +47,8 @@ const handler = createMcpHandler(
     server.registerTool('autotask_get_company', { title: 'Autotask: get company', description: 'Get a single Autotask company by numeric ID.', inputSchema: { companyId: z.number().int().describe('Autotask company ID') } }, async ({ companyId }) => { try { return ok(await autotask().getCompany(companyId)) } catch (e) { return fail(e) } })
     server.registerTool('autotask_company_projects', { title: 'Autotask: company projects', description: 'List projects for an Autotask company by numeric ID.', inputSchema: { companyId: z.number().int().describe('Autotask company ID') } }, async ({ companyId }) => { try { return ok(await autotask().getProjectsByCompany(companyId)) } catch (e) { return fail(e) } })
     server.registerTool('autotask_company_tickets', { title: 'Autotask: company tickets', description: 'List recent tickets for an Autotask company. days defaults to 30.', inputSchema: { companyId: z.number().int().describe('Autotask company ID'), days: z.number().int().min(1).max(365).optional().describe('Look-back window in days (default 30)') } }, async ({ companyId, days }) => { try { return ok(await autotask().getCompanyTickets(companyId, days ?? 30)) } catch (e) { return fail(e) } })
-    server.registerTool('autotask_get_ticket', { title: 'Autotask: get ticket', description: 'Get a single Autotask ticket by numeric ID.', inputSchema: { ticketId: z.number().int().describe('Autotask ticket ID') } }, async ({ ticketId }) => { try { return ok(await autotask().getTicket(ticketId)) } catch (e) { return fail(e) } })
-    server.registerTool('autotask_get_ticket_by_number', { title: 'Autotask: get ticket by number', description: 'Get an Autotask ticket by its ticket number (e.g. T20240101.0001).', inputSchema: { ticketNumber: z.string().describe('Autotask ticket number') } }, async ({ ticketNumber }) => { try { return ok(await autotask().getTicketByNumber(ticketNumber)) } catch (e) { return fail(e) } })
+    server.registerTool('autotask_get_ticket', { title: 'Autotask: get ticket', description: 'Get a single Autotask ticket by numeric ID.', inputSchema: { ticketId: z.number().int().describe('Autotask ticket ID') } }, async ({ ticketId }) => { try { const t = await autotask().getTicket(ticketId); return ok(t ? { ...t, ticketUrl: getAutotaskTicketUrl(String(ticketId)) } : null) } catch (e) { return fail(e) } })
+    server.registerTool('autotask_get_ticket_by_number', { title: 'Autotask: get ticket by number', description: 'Get an Autotask ticket by its ticket number (e.g. T20240101.0001).', inputSchema: { ticketNumber: z.string().describe('Autotask ticket number') } }, async ({ ticketNumber }) => { try { const t = await autotask().getTicketByNumber(ticketNumber); return ok(t ? { ...t, ticketUrl: getAutotaskTicketUrl(String(t.id)) } : null) } catch (e) { return fail(e) } })
     server.registerTool('autotask_ticket_notes', { title: 'Autotask: ticket notes', description: 'List notes on an Autotask ticket by numeric ID.', inputSchema: { ticketId: z.number().int().describe('Autotask ticket ID') } }, async ({ ticketId }) => { try { return ok(await autotask().getTicketNotes(ticketId)) } catch (e) { return fail(e) } })
     server.registerTool('autotask_active_projects', { title: 'Autotask: active projects', description: 'List all active Autotask projects.', inputSchema: {} }, async () => { try { return ok(await autotask().getActiveProjects()) } catch (e) { return fail(e) } })
 
