@@ -41,6 +41,26 @@ export interface AutotaskContact {
   isActive: boolean;
 }
 
+export interface AutotaskBillingCode {
+  id: number;
+  name: string;
+  description?: string;
+  /** 1 = Tickets (Labor) — the work-type codes valid on time entries. */
+  useType?: number;
+  billingCodeType?: number;
+  isActive: boolean;
+}
+
+export interface AutotaskRole {
+  id: number;
+  name: string;
+  description?: string;
+  isActive: boolean;
+  hourlyFactor?: number;
+  hourlyRate?: number;
+  roleType?: number;
+}
+
 export interface AutotaskProject {
   id: number;
   companyID: number;
@@ -494,6 +514,19 @@ export class AutotaskClient {
     });
   }
 
+  /** Resolve a single contact by id to name/email/title/phone. */
+  async getContactById(id: number): Promise<AutotaskContact | null> {
+    try {
+      const results = await this.queryAll<AutotaskContact>('Contacts', {
+        op: 'eq', field: 'id', value: id,
+      });
+      return results[0] || null;
+    } catch (err) {
+      console.error(`[AutotaskClient] getContactById failed for ${id}:`, err instanceof Error ? err.message : String(err));
+      throw err;
+    }
+  }
+
   /**
    * Get all active Client Access Portal users (legacy Autotask-hosted portal).
    * Used by the portal-migration tool to build the outreach list of customers
@@ -841,28 +874,53 @@ export class AutotaskClient {
     return data.item;
   }
 
+  // ============================================
+  // LOOKUPS (billing codes, roles) — for time entries
+  // ============================================
+
+  /**
+   * Active work-type (labor) billing codes — useType 1 = Tickets (Labor).
+   * These are the codes valid as billingCodeID on a ticket time entry.
+   */
+  async getBillingCodes(): Promise<AutotaskBillingCode[]> {
+    return this.queryAll<AutotaskBillingCode>('BillingCodes', {
+      op: 'and',
+      items: [
+        { op: 'eq', field: 'useType', value: 1 },
+        { op: 'eq', field: 'isActive', value: true },
+      ],
+    });
+  }
+
+  /** Active Autotask roles — valid as roleID on a time entry. */
+  async getRoles(): Promise<AutotaskRole[]> {
+    return this.queryAll<AutotaskRole>('Roles', {
+      op: 'eq', field: 'isActive', value: true,
+    });
+  }
+
   /**
    * Get tickets for a company from the last N days.
    * Fetches tickets created OR with activity in the window to capture status changes.
    */
-  async getCompanyTickets(companyId: number, days: number = 30): Promise<AutotaskTicket[]> {
+  async getCompanyTickets(companyId: number, days: number = 30, openOnly: boolean = false): Promise<AutotaskTicket[]> {
     const since = new Date();
     since.setDate(since.getDate() - days);
     try {
       // Query tickets created OR modified in the window — captures status changes
-      return await this.queryAll('Tickets', {
-        op: 'and',
-        items: [
-          { op: 'eq', field: 'companyID', value: companyId },
-          {
-            op: 'or',
-            items: [
-              { op: 'gte', field: 'createDate', value: since.toISOString() },
-              { op: 'gte', field: 'lastActivityDate', value: since.toISOString() },
-            ],
-          },
-        ],
-      }, TICKET_QUERY_FIELDS);
+      const items: object[] = [
+        { op: 'eq', field: 'companyID', value: companyId },
+        {
+          op: 'or',
+          items: [
+            { op: 'gte', field: 'createDate', value: since.toISOString() },
+            { op: 'gte', field: 'lastActivityDate', value: since.toISOString() },
+          ],
+        },
+      ];
+      // "Open" = no completedDate (Autotask stamps completedDate on completion).
+      if (openOnly) items.push({ op: 'notExist', field: 'completedDate' });
+      return await this.queryAll('Tickets', { op: 'and', items }, TICKET_QUERY_FIELDS);
     } catch (err) {
       // Never silently swallow — surface the error so sync can report it
       console.error(`[AutotaskClient] getCompanyTickets failed for company ${companyId}:`, err instanceof Error ? err.message : String(err));
