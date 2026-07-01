@@ -192,11 +192,43 @@ export interface AutotaskTimeEntry {
   startDateTime?: string;
   endDateTime?: string;
   hoursWorked: number;
+  hoursToBill?: number;      // billable hours (read-only in Autotask)
+  billingCodeID?: number;
+  roleID?: number;
+  timeEntryType?: number;
   summaryNotes?: string;
   internalNotes?: string;
   isNonBillable?: boolean;
   createDateTime?: string;
   lastModifiedDateTime?: string;
+}
+
+/**
+ * Assistant-facing view of a time entry — hours, billable status, who logged it,
+ * and the entry notes. Deliberately excludes any internal cost/rate basis (the
+ * Autotask TimeEntries entity carries none, and role/resource rates are never
+ * joined in here).
+ */
+export interface TimeEntryView {
+  id: number;
+  resourceID: number;
+  resourceName: string | null;
+  resourceEmail: string | null;
+  dateWorked: string;
+  startDateTime: string | null;
+  endDateTime: string | null;
+  hoursWorked: number;
+  hoursToBill: number | null;
+  isNonBillable: boolean;
+  billable: boolean;
+  billingCodeID: number | null;
+  roleID: number | null;
+  summaryNotes: string | null;
+  internalNotes: string | null;
+  ticketID: number | null;
+  taskID: number | null;
+  ticketNumber?: string | null;
+  companyID?: number | null;
 }
 
 export interface AutotaskResource {
@@ -1140,6 +1172,94 @@ export class AutotaskClient {
       console.error(`[autotask] Failed to get time entries for range ${fromStr} to ${toStr}: ${err instanceof Error ? err.message : String(err)}`);
       return [];
     }
+  }
+
+  // ── Time-entry reads for the connector (whitelisted, resource-resolved) ────
+
+  private toTimeEntryView(e: AutotaskTimeEntry, resMap: Map<number, AutotaskResource>): TimeEntryView {
+    const r = resMap.get(e.resourceID);
+    return {
+      id: e.id,
+      resourceID: e.resourceID,
+      resourceName: r ? `${r.firstName} ${r.lastName}`.trim() : null,
+      resourceEmail: r?.email ?? null,
+      dateWorked: e.dateWorked,
+      startDateTime: e.startDateTime ?? null,
+      endDateTime: e.endDateTime ?? null,
+      hoursWorked: e.hoursWorked,
+      hoursToBill: e.hoursToBill ?? null,
+      isNonBillable: !!e.isNonBillable,
+      billable: !e.isNonBillable,
+      billingCodeID: e.billingCodeID ?? null,
+      roleID: e.roleID ?? null,
+      summaryNotes: e.summaryNotes ?? null,
+      internalNotes: e.internalNotes ?? null,
+      ticketID: e.ticketID ?? null,
+      taskID: e.taskID ?? null,
+    };
+  }
+
+  /** id -> Resource (name/email), batched with the `in` operator. */
+  private async resourceMap(ids: number[]): Promise<Map<number, AutotaskResource>> {
+    const map = new Map<number, AutotaskResource>();
+    const distinct = [...new Set(ids)];
+    for (let i = 0; i < distinct.length; i += 200) {
+      const chunk = distinct.slice(i, i + 200);
+      if (chunk.length === 0) continue;
+      const rows = await this.queryAll<AutotaskResource>('Resources',
+        { op: 'in', field: 'id', value: chunk },
+        ['id', 'firstName', 'lastName', 'email', 'isActive']);
+      for (const r of rows) map.set(r.id, r);
+    }
+    return map;
+  }
+
+  /** ticketId -> { ticketNumber, companyID }, batched with the `in` operator. */
+  private async ticketRefMap(ids: number[]): Promise<Map<number, { ticketNumber?: string; companyID?: number }>> {
+    const map = new Map<number, { ticketNumber?: string; companyID?: number }>();
+    const distinct = [...new Set(ids)];
+    for (let i = 0; i < distinct.length; i += 200) {
+      const chunk = distinct.slice(i, i + 200);
+      if (chunk.length === 0) continue;
+      const rows = await this.queryAll<AutotaskTicket>('Tickets',
+        { op: 'in', field: 'id', value: chunk },
+        ['id', 'ticketNumber', 'companyID']);
+      for (const t of rows) map.set(t.id, { ticketNumber: t.ticketNumber, companyID: t.companyID });
+    }
+    return map;
+  }
+
+  /** All time entries on a ticket, resource-resolved and whitelisted. */
+  async getTicketTimeEntriesDetailed(ticketId: number): Promise<TimeEntryView[]> {
+    const entries = await this.getTicketTimeEntries(ticketId);
+    const resMap = await this.resourceMap(entries.map((e) => e.resourceID).filter(Boolean));
+    return entries.map((e) => this.toTimeEntryView(e, resMap));
+  }
+
+  /**
+   * All time entries a resource logged in a dateWorked range (across tickets),
+   * each with the ticket number + company id. dateWorked filters at day
+   * granularity (YYYY-MM-DD), inclusive.
+   */
+  async searchTimeEntriesByResource(resourceId: number, from: Date, to: Date): Promise<TimeEntryView[]> {
+    const fromStr = from.toISOString().split('T')[0];
+    const toStr = to.toISOString().split('T')[0];
+    const entries = await this.queryAll<AutotaskTimeEntry>('TimeEntries', [
+      { op: 'eq', field: 'resourceID', value: resourceId },
+      { op: 'gte', field: 'dateWorked', value: fromStr },
+      { op: 'lte', field: 'dateWorked', value: toStr },
+    ]);
+    const resMap = await this.resourceMap([resourceId]);
+    const ticketMap = await this.ticketRefMap(
+      entries.map((e) => e.ticketID).filter((v): v is number => typeof v === 'number')
+    );
+    return entries.map((e) => {
+      const v = this.toTimeEntryView(e, resMap);
+      const ref = e.ticketID != null ? ticketMap.get(e.ticketID) : undefined;
+      v.ticketNumber = ref?.ticketNumber ?? null;
+      v.companyID = ref?.companyID ?? null;
+      return v;
+    });
   }
 
   /**
