@@ -465,7 +465,6 @@ export class ItGlueClient {
   private traitsForWrite(traits: Record<string, unknown>): Record<string, unknown> {
     const out: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(traits ?? {})) {
-      if (k === 'type') continue
       if (v && typeof v === 'object' && Array.isArray((v as { values?: unknown }).values)) {
         out[k] = (v as { values: Array<{ id: number | string }> }).values.map((x) => x.id)
       } else {
@@ -500,6 +499,8 @@ export class ItGlueClient {
   async updateFlexibleAsset(id: string, traitChanges: Record<string, unknown>): Promise<ItGlueFlexibleAsset> {
     const current = await this.getFlexibleAsset(id)
     if (!current) throw new Error(`Flexible asset ${id} not found`)
+    // Existing traits are converted to write shape; caller-supplied changes are
+    // trusted as already write-shaped (tag traits as arrays of ids) per the tool docs.
     const merged = { ...this.traitsForWrite(current.attributes.traits as Record<string, unknown>), ...traitChanges }
     const body = {
       data: {
@@ -528,13 +529,13 @@ export class ItGlueClient {
   }
 
   /** Append a content section to a document. resourceType defaults to Text. */
-  async addDocumentSection(documentId: string, input: { content: string; resourceType?: 'Document::Text' | 'Document::Heading' | 'Document::Step'; level?: number; sort?: number }): Promise<ItGlueDocumentSection> {
+  async addDocumentSection(documentId: string, input: { content: string; resourceType?: 'Document::Text' | 'Document::Heading' | 'Document::Step'; level?: number; duration?: number }): Promise<ItGlueDocumentSection> {
     const attributes: Record<string, unknown> = {
       'resource-type': input.resourceType ?? 'Document::Text',
       content: input.content,
     }
     if (input.level !== undefined) attributes.level = input.level
-    if (input.sort !== undefined) attributes.sort = input.sort
+    if (input.duration !== undefined) attributes.duration = input.duration
     const data = await this.send<{ data: ItGlueDocumentSection }>('POST', `/documents/${documentId}/relationships/sections`, { data: { type: 'document-sections', attributes } })
     return data.data
   }
