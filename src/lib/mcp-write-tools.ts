@@ -6,7 +6,7 @@
 // resource id -> ImpersonationResourceId header.
 
 import { z } from 'zod'
-import { AutotaskClient } from '@/lib/autotask'
+import { AutotaskClient, getAutotaskTicketUrl } from '@/lib/autotask'
 import * as write from '@/lib/autotask-write'
 
 // WorkOS user id -> email. Uses the email claim if the token carries one,
@@ -49,6 +49,7 @@ async function resolveResourceId(email?: string): Promise<number> {
 
 function ok(data: unknown) { return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] } }
 function fail(err: unknown) { const m = err instanceof Error ? err.message : String(err); return { content: [{ type: 'text' as const, text: `Error: ${m}` }], isError: true } }
+function okTicket(ticketId: number, data: unknown) { return ok({ result: data, ticketUrl: getAutotaskTicketUrl(String(ticketId)) }) }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function registerWriteTools(server: any) {
@@ -60,7 +61,7 @@ export function registerWriteTools(server: any) {
     { title: 'Autotask: add internal note', description: 'WRITE. Add an INTERNAL-only note to a ticket, attributed to the signed-in tech. Only call after the user has reviewed and approved the exact text.', inputSchema: { ticketId: z.number().int().describe('Autotask ticket ID'), note: z.string().describe('Note body'), title: z.string().optional().describe('Optional note title') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async ({ ticketId, note, title }: any, extra: any) => {
-      try { const rid = await resolveResourceId(emailOf(extra)); return ok(await write.createTicketNote(ticketId, { title: title ?? 'Internal note', description: note, publish: 2 }, rid)) } catch (e) { return fail(e) }
+      try { const rid = await resolveResourceId(emailOf(extra)); return okTicket(ticketId, await write.createTicketNote(ticketId, { title: title ?? 'Internal note', description: note, publish: 2 }, rid)) } catch (e) { return fail(e) }
     }
   )
 
@@ -69,7 +70,7 @@ export function registerWriteTools(server: any) {
     { title: 'Autotask: add customer-facing note', description: 'WRITE, CUSTOMER-FACING. Posts an externally-visible note that notifies the ticket contact(s), attributed to the signed-in tech. Confirm the exact wording with the user before calling.', inputSchema: { ticketId: z.number().int().describe('Autotask ticket ID'), message: z.string().describe('Message to the customer'), title: z.string().optional().describe('Optional note title') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async ({ ticketId, message, title }: any, extra: any) => {
-      try { const rid = await resolveResourceId(emailOf(extra)); return ok(await write.createTicketNote(ticketId, { title: title ?? 'Update', description: message, publish: 1 }, rid)) } catch (e) { return fail(e) }
+      try { const rid = await resolveResourceId(emailOf(extra)); return okTicket(ticketId, await write.createTicketNote(ticketId, { title: title ?? 'Update', description: message, publish: 1 }, rid)) } catch (e) { return fail(e) }
     }
   )
 
@@ -81,7 +82,7 @@ export function registerWriteTools(server: any) {
       try {
         const rid = await resolveResourceId(emailOf(extra))
         const dw = dateWorked ?? new Date().toISOString().slice(0, 10)
-        return ok(await write.createTicketTimeEntry({ ticketID: ticketId, resourceID: rid, dateWorked: dw, hoursWorked, summaryNotes, internalNotes, billingCodeID: billingCodeId, roleID: roleId }, rid))
+        return okTicket(ticketId, await write.createTicketTimeEntry({ ticketID: ticketId, resourceID: rid, dateWorked: dw, hoursWorked, summaryNotes, internalNotes, billingCodeID: billingCodeId, roleID: roleId }, rid))
       } catch (e) { return fail(e) }
     }
   )
@@ -91,7 +92,7 @@ export function registerWriteTools(server: any) {
     { title: 'Autotask: assign ticket', description: 'WRITE. Set a ticket\'s assigned resource. Use autotask_find_resource to resolve a name/email to a resourceId. Confirm with the user first.', inputSchema: { ticketId: z.number().int().describe('Autotask ticket ID'), resourceId: z.number().int().describe('Autotask resource ID to assign the ticket to') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async ({ ticketId, resourceId }: any, extra: any) => {
-      try { const rid = await resolveResourceId(emailOf(extra)); return ok(await write.updateTicket(ticketId, { assignedResourceID: resourceId }, rid)) } catch (e) { return fail(e) }
+      try { const rid = await resolveResourceId(emailOf(extra)); return okTicket(ticketId, await write.updateTicket(ticketId, { assignedResourceID: resourceId }, rid)) } catch (e) { return fail(e) }
     }
   )
 
@@ -100,7 +101,7 @@ export function registerWriteTools(server: any) {
     { title: 'Autotask: set ticket status', description: 'WRITE. Set a ticket\'s status (numeric picklist value). Confirm with the user first.', inputSchema: { ticketId: z.number().int().describe('Autotask ticket ID'), status: z.number().int().describe('Autotask ticket status picklist value') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async ({ ticketId, status }: any, extra: any) => {
-      try { const rid = await resolveResourceId(emailOf(extra)); return ok(await write.updateTicket(ticketId, { status }, rid)) } catch (e) { return fail(e) }
+      try { const rid = await resolveResourceId(emailOf(extra)); return okTicket(ticketId, await write.updateTicket(ticketId, { status }, rid)) } catch (e) { return fail(e) }
     }
   )
 
