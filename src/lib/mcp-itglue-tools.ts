@@ -17,6 +17,7 @@
 
 import { z } from 'zod'
 import { ItGlueClient, type ItGlueDocument } from '@/lib/it-glue'
+import { searchDocIndex, TCT_ORG_ID } from '@/lib/itglue-doc-index'
 
 function itglue(): ItGlueClient {
   return new ItGlueClient({ apiKey: process.env.IT_GLUE_CONNECTOR_API_KEY || process.env.IT_GLUE_API_KEY })
@@ -28,9 +29,6 @@ function fail(err: unknown) { const m = err instanceof Error ? err.message : Str
 function ensureConfigured(c: ItGlueClient) {
   if (!c.isConfigured()) throw new Error('IT Glue is not configured: set IT_GLUE_CONNECTOR_API_KEY (or IT_GLUE_API_KEY) in the environment.')
 }
-
-// TCT's own IT Glue org, which holds internal SOPs. Overridable via env.
-const TCT_ORG_ID = process.env.IT_GLUE_TCT_ORG_ID || '6942365'
 
 // Compact document shape for search results (keeps responses small).
 function slimDoc(d: ItGlueDocument) {
@@ -75,7 +73,13 @@ export function registerItGlueTools(server: any) {
 
   server.registerTool('itglue_search_documents', { title: 'IT Glue: search documents', description: 'Find documents in ONE organization by name (e.g. "SonicWall VPN SOP") without pulling the whole library. Pages the full document list and matches ALL query words against the document name (case-insensitive). Returns compact { id, name, documentFolderId, url, updatedAt }.', inputSchema: { organizationId: z.string().describe('IT Glue organization id'), query: z.string().describe('Words to match against document names') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    async ({ organizationId, query }: any) => { try { const c = itglue(); ensureConfigured(c); const docs = await c.searchDocuments(organizationId, query); return ok({ organizationId, query, matchCount: docs.length, documents: docs.map(slimDoc) }) } catch (e) { return fail(e) } })
+    async ({ organizationId, query }: any) => { try {
+      const c = itglue(); ensureConfigured(c)
+      const idx = await searchDocIndex(organizationId, query)
+      if (idx) return ok({ source: 'index', organizationId, query, matchCount: idx.length, documents: idx })
+      const docs = await c.searchDocuments(organizationId, query)
+      return ok({ source: 'live-name', note: 'This org is not in the content index yet — matched on document NAME only. Content search becomes available once the org is indexed.', organizationId, query, matchCount: docs.length, documents: docs.map(slimDoc) })
+    } catch (e) { return fail(e) } })
 
   server.registerTool('itglue_global_search', { title: 'IT Glue: global document search', description: 'Search documents by name across TCT\'s internal SOP org AND, optionally, a specific customer org — built for triage like "SonicWall VPN down at Client X": pass the customer\'s organizationId to get BOTH TCT\'s SOP and the customer\'s own docs in one call. IT Glue has no account-wide search endpoint, so this scopes to the TCT org plus the passed org. Returns matches grouped by org.', inputSchema: { query: z.string().describe('Words to match against document names'), organizationId: z.string().optional().describe('Optional customer org id to include alongside the TCT SOP org') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -84,8 +88,13 @@ export function registerItGlueTools(server: any) {
       const orgIds = Array.from(new Set([TCT_ORG_ID, organizationId].filter((v): v is string => !!v)))
       const results = []
       for (const orgId of orgIds) {
-        const docs = await c.searchDocuments(orgId, query)
-        results.push({ organizationId: orgId, isTctSopOrg: orgId === TCT_ORG_ID, matchCount: docs.length, documents: docs.map(slimDoc) })
+        const idx = await searchDocIndex(orgId, query)
+        if (idx) {
+          results.push({ organizationId: orgId, isTctSopOrg: orgId === TCT_ORG_ID, source: 'index', matchCount: idx.length, documents: idx })
+        } else {
+          const docs = await c.searchDocuments(orgId, query)
+          results.push({ organizationId: orgId, isTctSopOrg: orgId === TCT_ORG_ID, source: 'live-name', matchCount: docs.length, documents: docs.map(slimDoc) })
+        }
       }
       return ok({ query, orgsSearched: orgIds, results })
     } catch (e) { return fail(e) } })
