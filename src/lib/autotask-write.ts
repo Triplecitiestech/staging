@@ -59,20 +59,45 @@ export async function createTicketNote(
   }
 }
 
+// Create a ticket time entry. Autotask requires roleID for ticket time entries,
+// and SERVICE tickets additionally require a start AND stop time — so when
+// startDateTime/stopDateTime are supplied they are sent as startDateTime/
+// endDateTime and hoursWorked is derived from the interval if not given.
 export async function createTicketTimeEntry(
-  data: { ticketID: number; resourceID: number; dateWorked: string; hoursWorked: number; summaryNotes?: string; internalNotes?: string; billingCodeID?: number; roleID?: number },
+  data: {
+    ticketID: number;
+    resourceID: number;
+    roleID: number;
+    hoursWorked?: number;
+    dateWorked?: string;
+    startDateTime?: string;
+    stopDateTime?: string;
+    summaryNotes?: string;
+    internalNotes?: string;
+    billingCodeID?: number;
+  },
   impersonationResourceId?: number
 ): Promise<unknown> {
   const body: Record<string, unknown> = {
     ticketID: data.ticketID,
     resourceID: data.resourceID,
-    dateWorked: data.dateWorked,
-    hoursWorked: data.hoursWorked,
+    roleID: data.roleID,
     summaryNotes: data.summaryNotes ?? '',
     internalNotes: data.internalNotes ?? '',
   }
+  if (data.startDateTime && data.stopDateTime) {
+    // Service-ticket path: Autotask requires start + stop.
+    body.startDateTime = data.startDateTime
+    body.endDateTime = data.stopDateTime
+    body.dateWorked = data.dateWorked ?? data.startDateTime.slice(0, 10)
+    const derived = (new Date(data.stopDateTime).getTime() - new Date(data.startDateTime).getTime()) / 3_600_000
+    body.hoursWorked = data.hoursWorked ?? Math.round(derived * 100) / 100
+  } else {
+    // Non-service / task path: hours-based.
+    body.dateWorked = data.dateWorked ?? new Date().toISOString().slice(0, 10)
+    if (data.hoursWorked != null) body.hoursWorked = data.hoursWorked
+  }
   if (data.billingCodeID) body.billingCodeID = data.billingCodeID
-  if (data.roleID) body.roleID = data.roleID
   return post('TimeEntries', body, impersonationResourceId)
 }
 

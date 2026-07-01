@@ -1008,6 +1008,18 @@ export class AutotaskClient {
   }
 
   /**
+   * Fetch a ticket's current Resolution text. `resolution` is NOT in
+   * TICKET_QUERY_FIELDS (it's large and unused by the reporting sync), so this
+   * queries it explicitly — used to append to the Resolution field on close.
+   */
+  async getTicketResolution(ticketId: number): Promise<string | null> {
+    const results = await this.queryAll<{ id: number; resolution?: string | null }>('Tickets', {
+      op: 'eq', field: 'id', value: ticketId,
+    }, ['id', 'resolution']);
+    return results[0]?.resolution ?? null;
+  }
+
+  /**
    * Fetch a single ticket by its human ticket number (e.g. "T20260527.0006").
    * Autotask Extension Callouts send the ticket number, not the numeric id.
    */
