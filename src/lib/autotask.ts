@@ -23,6 +23,7 @@ export interface AutotaskCompany {
   companyType: number;
   classification?: number;     // Autotask classification picklist ID
   classificationName?: string; // Resolved label (e.g., "Platinum Managed Service")
+  companyCategoryID?: number;  // References the CompanyCategories entity
   isActive: boolean;
   phone?: string;
   webAddress?: string;
@@ -154,6 +155,19 @@ export interface AutotaskTicket {
   dueDateTime?: string | null;
   estimatedHours?: number | null;
   lastActivityDate?: string | null;
+  // SLA tracking (read-only; all confirmed present on the Tickets entity).
+  // Actual vs due datetimes drive both "did we meet SLA" and "about to breach"
+  // (breach countdown = dueDateTime − now, computed by the caller).
+  serviceLevelAgreementHasBeenMet?: boolean | null;
+  firstResponseDateTime?: string | null;       // actual first response
+  firstResponseDueDateTime?: string | null;    // target
+  firstResponseInitiatingResourceID?: number | null;
+  firstResponseAssignedResourceID?: number | null;
+  resolutionPlanDateTime?: string | null;      // actual
+  resolutionPlanDueDateTime?: string | null;   // target
+  resolvedDateTime?: string | null;            // actual
+  resolvedDueDateTime?: string | null;         // target
+  serviceLevelAgreementPausedNextEventHours?: number | null; // paused-clock value
 }
 
 /**
@@ -168,6 +182,27 @@ const TICKET_QUERY_FIELDS = [
   'issueType', 'subIssueType', 'assignedResourceID', 'creatorResourceID',
   'contactID', 'contractID', 'serviceLevelAgreementID', 'dueDateTime',
   'estimatedHours', 'lastActivityDate',
+];
+
+/**
+ * Ticket fields for Service-Delivery-Manager reporting — the base reporting
+ * fields plus every SLA tracking field (all confirmed on the Tickets entity).
+ * Used by searchTickets so business-wide SLA reports ("did we meet", "about to
+ * breach") come back in one query. `description` is dropped to keep large
+ * all-company pulls lean; no cost/rate fields are requested.
+ */
+const TICKET_SDM_FIELDS = [
+  'id', 'companyID', 'ticketNumber', 'title', 'status',
+  'createDate', 'completedDate', 'priority', 'queueID', 'source',
+  'issueType', 'subIssueType', 'assignedResourceID', 'creatorResourceID',
+  'contactID', 'contractID', 'serviceLevelAgreementID', 'dueDateTime',
+  'estimatedHours', 'lastActivityDate',
+  'serviceLevelAgreementHasBeenMet',
+  'firstResponseDateTime', 'firstResponseDueDateTime',
+  'firstResponseInitiatingResourceID', 'firstResponseAssignedResourceID',
+  'resolutionPlanDateTime', 'resolutionPlanDueDateTime',
+  'resolvedDateTime', 'resolvedDueDateTime',
+  'serviceLevelAgreementPausedNextEventHours',
 ];
 
 export interface AutotaskTicketNote {
@@ -199,6 +234,9 @@ export interface AutotaskTimeEntry {
   summaryNotes?: string;
   internalNotes?: string;
   isNonBillable?: boolean;
+  contractID?: number;
+  showOnInvoice?: boolean;
+  billingApprovalLevelMostRecent?: number;
   createDateTime?: string;
   lastModifiedDateTime?: string;
 }
@@ -209,6 +247,22 @@ export interface AutotaskTimeEntry {
  * Autotask TimeEntries entity carries none, and role/resource rates are never
  * joined in here).
  */
+/**
+ * Invoice state of a billable time entry, derived from BillingItems (Autotask
+ * exposes NO billed/invoiced flag on TimeEntries themselves):
+ *   non_billable         — isNonBillable = true
+ *   invoiced             — a BillingItem for this entry has a non-null invoiceID
+ *   approved_not_invoiced— a BillingItem exists but invoiceID is null (posted, not yet on an invoice)
+ *   unposted             — no BillingItem yet (not approved/posted for billing)
+ *   unknown              — billing status could not be resolved (lookup skipped/failed)
+ */
+export type TimeEntryBillingStatus =
+  | 'non_billable'
+  | 'invoiced'
+  | 'approved_not_invoiced'
+  | 'unposted'
+  | 'unknown';
+
 export interface TimeEntryView {
   id: number;
   resourceID: number;
@@ -223,12 +277,106 @@ export interface TimeEntryView {
   billable: boolean;
   billingCodeID: number | null;
   roleID: number | null;
+  contractID: number | null;
+  showOnInvoice: boolean | null;
+  billingStatus?: TimeEntryBillingStatus;
   summaryNotes: string | null;
   internalNotes: string | null;
   ticketID: number | null;
   taskID: number | null;
   ticketNumber?: string | null;
   companyID?: number | null;
+}
+
+// ── Service-Delivery-Manager reporting types (read-only) ────────────────────
+
+export interface TicketSearchFilters {
+  companyId?: number;
+  status?: number | number[];
+  priority?: number;
+  queueId?: number;
+  assignedResourceId?: number;
+  openOnly?: boolean;
+  /** Date field the from/to window applies to. */
+  dateField?: 'createDate' | 'lastActivityDate' | 'completedDate';
+  from?: Date;
+  to?: Date;
+  /** Hard cap on returned rows (safety valve for all-company pulls). */
+  max?: number;
+}
+
+export interface TicketSearchResult {
+  count: number;
+  truncated: boolean;
+  tickets: Array<AutotaskTicket & { ticketUrl: string }>;
+}
+
+export interface CompanyListItem {
+  id: number;
+  companyName: string;
+  isActive: boolean;
+  classification: number | null;
+  classificationName: string | null;
+  companyType: number | null;
+  companyTypeName: string | null;
+  companyCategoryID: number | null;
+}
+
+export interface AutotaskContract {
+  id: number;
+  companyID: number;
+  contractName: string;
+  contractCategory?: number | null;
+  contractType?: number | null;
+  status?: number | null;
+  serviceLevelAgreementID?: number | null;
+  startDate?: string | null;
+  endDate?: string | null;
+}
+
+export interface ContractListItem extends AutotaskContract {
+  contractCategoryName: string | null;
+  contractTypeName: string | null;
+  statusName: string | null;
+  slaName: string | null;
+}
+
+export interface ResourceListItem {
+  id: number;
+  firstName: string;
+  lastName: string;
+  email: string;
+  isActive: boolean;
+  resourceType: string | null;
+}
+
+/** Autotask ServiceLevelAgreementResults — per-ticket SLA met/elapsed detail. */
+export interface AutotaskSlaResult {
+  id: number;
+  ticketID: number | null;
+  serviceLevelAgreementName: string | null;
+  firstResponseElapsedHours: number | null;
+  isFirstResponseMet: boolean | null;
+  resolutionPlanElapsedHours: number | null;
+  isResolutionPlanMet: boolean | null;
+  resolutionElapsedHours: number | null;
+  isResolutionMet: boolean | null;
+}
+
+/** Autotask SurveyResults — native survey ratings (NO free-text comment field). */
+export interface AutotaskSurveyResult {
+  id: number;
+  surveyID: number;
+  surveyName?: string | null;
+  ticketID: number | null;
+  companyID: number | null;
+  contactID: number | null;
+  surveyRating: number | null;
+  companyRating: number | null;
+  contactRating: number | null;
+  resourceRating: number | null;
+  sendDate: string | null;
+  completeDate: string | null;
 }
 
 export interface AutotaskResource {
@@ -238,6 +386,8 @@ export interface AutotaskResource {
   email: string;
   isActive: boolean;
   userName?: string;
+  resourceType?: string;
+  licenseType?: number;
 }
 
 export interface AutotaskClientPortalUser {
@@ -937,12 +1087,35 @@ export class AutotaskClient {
    * info (instance-specific picklists), so callers never guess numeric values.
    */
   async getTicketPicklist(fieldName: string): Promise<Array<{ id: number; label: string }>> {
-    const info = await this.getFieldInfo('Tickets');
+    return this.getEntityPicklist('Tickets', fieldName);
+  }
+
+  /**
+   * Active picklist options (numeric id + label) for ANY entity field — sourced
+   * from entityInformation (instance-specific), so callers never guess numeric
+   * values. Returns [] if the field is not a picklist on this instance.
+   */
+  async getEntityPicklist(entity: string, fieldName: string): Promise<Array<{ id: number; label: string }>> {
+    const info = await this.getFieldInfo(entity);
     const field = info?.fields?.find((f) => f.name === fieldName);
     if (!field?.picklistValues) return [];
     return field.picklistValues
       .filter((pv) => pv.isActive)
       .map((pv) => ({ id: parseInt(pv.value, 10), label: pv.label }));
+  }
+
+  /** id -> label map for an entity picklist field (includes inactive values so
+   *  historical ids still resolve). Returns an empty map if not a picklist. */
+  private async picklistLabelMap(entity: string, fieldName: string): Promise<Map<number, string>> {
+    const info = await this.getFieldInfo(entity);
+    const field = info?.fields?.find((f) => f.name === fieldName);
+    const map = new Map<number, string>();
+    if (!field?.picklistValues) return map;
+    for (const pv of field.picklistValues) {
+      const id = parseInt(pv.value, 10);
+      if (!Number.isNaN(id)) map.set(id, pv.label);
+    }
+    return map;
   }
 
   /**
@@ -1192,6 +1365,8 @@ export class AutotaskClient {
       billable: !e.isNonBillable,
       billingCodeID: e.billingCodeID ?? null,
       roleID: e.roleID ?? null,
+      contractID: e.contractID ?? null,
+      showOnInvoice: e.showOnInvoice ?? null,
       summaryNotes: e.summaryNotes ?? null,
       internalNotes: e.internalNotes ?? null,
       ticketID: e.ticketID ?? null,
@@ -1242,24 +1417,308 @@ export class AutotaskClient {
    * granularity (YYYY-MM-DD), inclusive.
    */
   async searchTimeEntriesByResource(resourceId: number, from: Date, to: Date): Promise<TimeEntryView[]> {
-    const fromStr = from.toISOString().split('T')[0];
-    const toStr = to.toISOString().split('T')[0];
-    const entries = await this.queryAll<AutotaskTimeEntry>('TimeEntries', [
-      { op: 'eq', field: 'resourceID', value: resourceId },
+    return this.searchTimeEntries({ resourceId, from, to, withBillingStatus: false });
+  }
+
+  /**
+   * General labor/billing read for SDM reporting. Filter by resource and/or
+   * company and a dateWorked range. TimeEntries carry no companyID, so the
+   * company filter is applied via the ticket→company join (task-only entries
+   * are dropped when a company filter is set). When withBillingStatus is on
+   * (default), each entry is tagged invoiced / approved_not_invoiced / unposted
+   * / non_billable via BillingItems. NO cost/rate fields are ever requested.
+   */
+  async searchTimeEntries(opts: {
+    resourceId?: number;
+    companyId?: number;
+    from: Date;
+    to: Date;
+    withBillingStatus?: boolean;
+  }): Promise<TimeEntryView[]> {
+    const fromStr = opts.from.toISOString().split('T')[0];
+    const toStr = opts.to.toISOString().split('T')[0];
+    const filter: object[] = [
       { op: 'gte', field: 'dateWorked', value: fromStr },
       { op: 'lte', field: 'dateWorked', value: toStr },
-    ]);
-    const resMap = await this.resourceMap([resourceId]);
+    ];
+    if (opts.resourceId != null) filter.push({ op: 'eq', field: 'resourceID', value: opts.resourceId });
+    const entries = await this.queryAll<AutotaskTimeEntry>('TimeEntries', filter);
+
+    const resMap = await this.resourceMap(entries.map((e) => e.resourceID).filter(Boolean));
     const ticketMap = await this.ticketRefMap(
       entries.map((e) => e.ticketID).filter((v): v is number => typeof v === 'number')
     );
-    return entries.map((e) => {
+    let views = entries.map((e) => {
       const v = this.toTimeEntryView(e, resMap);
       const ref = e.ticketID != null ? ticketMap.get(e.ticketID) : undefined;
       v.ticketNumber = ref?.ticketNumber ?? null;
       v.companyID = ref?.companyID ?? null;
       return v;
     });
+    if (opts.companyId != null) {
+      views = views.filter((v) => v.companyID === opts.companyId);
+    }
+    if (opts.withBillingStatus !== false) {
+      await this.attachBillingStatus(views);
+    }
+    return views;
+  }
+
+  /**
+   * Resolve invoice status per time entry via BillingItems — Autotask exposes NO
+   * billed/invoiced flag on TimeEntries. Best-effort: on lookup failure billable
+   * entries are left 'unknown'. Only whitelisted keys are requested (id,
+   * timeEntryID, invoiceID) — never a rate/amount field.
+   */
+  private async attachBillingStatus(views: TimeEntryView[]): Promise<void> {
+    for (const v of views) v.billingStatus = v.isNonBillable ? 'non_billable' : 'unposted';
+    const billableIds = views.filter((v) => !v.isNonBillable).map((v) => v.id);
+    if (billableIds.length === 0) return;
+
+    const byTimeEntry = new Map<number, number | null>(); // timeEntryID -> invoiceID
+    try {
+      const distinct = Array.from(new Set(billableIds));
+      for (let i = 0; i < distinct.length; i += 200) {
+        const chunk = distinct.slice(i, i + 200);
+        if (chunk.length === 0) continue;
+        const rows = await this.queryAll<{ timeEntryID?: number; invoiceID?: number | null }>(
+          'BillingItems',
+          { op: 'in', field: 'timeEntryID', value: chunk },
+          ['id', 'timeEntryID', 'invoiceID'],
+        );
+        for (const r of rows) {
+          if (r.timeEntryID != null) byTimeEntry.set(r.timeEntryID, r.invoiceID ?? null);
+        }
+      }
+    } catch (err) {
+      console.warn(`[AutotaskClient] attachBillingStatus: BillingItems lookup failed, marking unknown: ${err instanceof Error ? err.message : String(err)}`);
+      for (const v of views) if (!v.isNonBillable) v.billingStatus = 'unknown';
+      return;
+    }
+    for (const v of views) {
+      if (v.isNonBillable) continue;
+      if (!byTimeEntry.has(v.id)) { v.billingStatus = 'unposted'; continue; }
+      v.billingStatus = byTimeEntry.get(v.id) != null ? 'invoiced' : 'approved_not_invoiced';
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // SERVICE DELIVERY MANAGER (SDM) — read-only reporting reads
+  // Business-wide tickets/SLA/companies/contracts/resources/surveys. No
+  // cost/rate fields are requested anywhere in this section.
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Business-wide ticket search with server-side filters + all SLA fields.
+   * Omit companyId to query across ALL companies. Paginates by recursively
+   * splitting the chosen date window (Autotask 405s the includeFields
+   * nextPageUrl GET), de-dupes by id, and stops at a safety cap.
+   */
+  async searchTickets(filters: TicketSearchFilters): Promise<TicketSearchResult> {
+    const dateField = filters.dateField ?? 'createDate';
+    const to = filters.to ?? new Date();
+    const from = filters.from ?? new Date(to.getTime() - 90 * 24 * 60 * 60 * 1000);
+    const cap = Math.min(Math.max(filters.max ?? 2000, 1), 5000);
+
+    const base: object[] = [];
+    if (filters.companyId != null) base.push({ op: 'eq', field: 'companyID', value: filters.companyId });
+    if (filters.priority != null) base.push({ op: 'eq', field: 'priority', value: filters.priority });
+    if (filters.queueId != null) base.push({ op: 'eq', field: 'queueID', value: filters.queueId });
+    if (filters.assignedResourceId != null) base.push({ op: 'eq', field: 'assignedResourceID', value: filters.assignedResourceId });
+    if (Array.isArray(filters.status)) {
+      if (filters.status.length) base.push({ op: 'in', field: 'status', value: filters.status });
+    } else if (filters.status != null) {
+      base.push({ op: 'eq', field: 'status', value: filters.status });
+    }
+    if (filters.openOnly) base.push({ op: 'notExist', field: 'completedDate' });
+
+    const acc = new Map<number, AutotaskTicket>();
+    const state = { truncated: false };
+    await this.collectTickets(base, dateField, from, to, acc, 0, cap, state);
+
+    const tickets = Array.from(acc.values()).map((t) => ({
+      ...t,
+      ticketUrl: getAutotaskTicketUrl(String(t.id)),
+    }));
+    return { count: tickets.length, truncated: state.truncated, tickets };
+  }
+
+  private async collectTickets(
+    base: object[],
+    dateField: string,
+    from: Date,
+    to: Date,
+    acc: Map<number, AutotaskTicket>,
+    depth: number,
+    cap: number,
+    state: { truncated: boolean },
+  ): Promise<void> {
+    if (acc.size >= cap) { state.truncated = true; return; }
+    const items = [
+      ...base,
+      { op: 'gte', field: dateField, value: from.toISOString() },
+      { op: 'lt', field: dateField, value: to.toISOString() },
+    ];
+    const { items: page, hasMore } = await this.queryOnePage<AutotaskTicket>('Tickets', items, TICKET_SDM_FIELDS);
+    const spanMs = to.getTime() - from.getTime();
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    if (!hasMore || spanMs <= DAY_MS || depth > 24) {
+      if (hasMore && (spanMs <= DAY_MS || depth > 24)) {
+        state.truncated = true;
+        console.warn(`[AutotaskClient] searchTickets: window ${from.toISOString()}–${to.toISOString()} still >500 at the split floor; result may be truncated.`);
+      }
+      for (const t of page) {
+        if (acc.size >= cap) { state.truncated = true; break; }
+        acc.set(t.id, t);
+      }
+      return;
+    }
+    const mid = new Date(from.getTime() + Math.floor(spanMs / 2));
+    await this.collectTickets(base, dateField, from, mid, acc, depth + 1, cap, state);
+    await this.collectTickets(base, dateField, mid, to, acc, depth + 1, cap, state);
+  }
+
+  /** SLA id -> name (from the serviceLevelAgreementID picklist on Tickets). */
+  async getSlaList(): Promise<Array<{ id: number; label: string }>> {
+    return this.getEntityPicklist('Tickets', 'serviceLevelAgreementID');
+  }
+
+  /**
+   * Per-ticket SLA met/elapsed detail from the ServiceLevelAgreementResults
+   * entity (query-only). Answers "did we meet SLA" with the actual met flags and
+   * elapsed hours for first-response, resolution-plan, and resolution.
+   */
+  async getTicketSlaResults(ticketId: number): Promise<AutotaskSlaResult[]> {
+    const rows = await this.queryAll<Record<string, unknown>>('ServiceLevelAgreementResults', {
+      op: 'eq', field: 'ticketID', value: ticketId,
+    });
+    return rows.map((r) => ({
+      id: Number(r.id),
+      ticketID: (r.ticketID as number) ?? null,
+      serviceLevelAgreementName: (r.serviceLevelAgreementName as string) ?? null,
+      firstResponseElapsedHours: (r.firstResponseElapsedHours as number) ?? null,
+      isFirstResponseMet: (r.isFirstResponseMet as boolean) ?? null,
+      resolutionPlanElapsedHours: (r.resolutionPlanElapsedHours as number) ?? null,
+      isResolutionPlanMet: (r.isResolutionPlanMet as boolean) ?? null,
+      resolutionElapsedHours: (r.resolutionElapsedHours as number) ?? null,
+      isResolutionMet: (r.isResolutionMet as boolean) ?? null,
+    }));
+  }
+
+  /** Active managed companies with resolved classification + type labels. */
+  async getManagedCompanies(activeOnly = true): Promise<CompanyListItem[]> {
+    const companies = activeOnly
+      ? await this.getActiveCompanies()
+      : await this.queryAll<AutotaskCompany>('Companies', { op: 'exist', field: 'id' });
+    const [classMap, typeMap] = await Promise.all([
+      this.picklistLabelMap('Companies', 'classification'),
+      this.picklistLabelMap('Companies', 'companyType'),
+    ]);
+    return companies.map((c) => ({
+      id: c.id,
+      companyName: c.companyName,
+      isActive: c.isActive,
+      classification: c.classification ?? null,
+      classificationName: c.classification != null ? (classMap.get(c.classification) ?? null) : null,
+      companyType: c.companyType ?? null,
+      companyTypeName: c.companyType != null ? (typeMap.get(c.companyType) ?? null) : null,
+      companyCategoryID: c.companyCategoryID ?? null,
+    }));
+  }
+
+  /**
+   * Contracts across companies (top-level queryable), with resolved
+   * category/type/status/SLA labels — the likely home of a named service tier
+   * (e.g. "Platinum Managed Service"). activeOnly keeps contracts with no
+   * endDate or an endDate in the future (status ints are instance-specific, so
+   * we filter on dates rather than a guessed status value).
+   */
+  async listContracts(opts: { companyId?: number; activeOnly?: boolean } = {}): Promise<ContractListItem[]> {
+    const items: object[] = [];
+    if (opts.companyId != null) items.push({ op: 'eq', field: 'companyID', value: opts.companyId });
+    const filter = items.length === 0
+      ? { op: 'exist', field: 'id' }
+      : items.length === 1 ? items[0] : { op: 'and', items };
+    const rows = await this.queryAll<AutotaskContract>('Contracts', filter,
+      ['id', 'companyID', 'contractName', 'contractCategory', 'contractType', 'status', 'serviceLevelAgreementID', 'startDate', 'endDate']);
+    const [catMap, typeMap, statusMap, slaMap] = await Promise.all([
+      this.picklistLabelMap('Contracts', 'contractCategory'),
+      this.picklistLabelMap('Contracts', 'contractType'),
+      this.picklistLabelMap('Contracts', 'status'),
+      this.picklistLabelMap('Tickets', 'serviceLevelAgreementID'),
+    ]);
+    let list: ContractListItem[] = rows.map((c) => ({
+      ...c,
+      contractCategoryName: c.contractCategory != null ? (catMap.get(c.contractCategory) ?? null) : null,
+      contractTypeName: c.contractType != null ? (typeMap.get(c.contractType) ?? null) : null,
+      statusName: c.status != null ? (statusMap.get(c.status) ?? null) : null,
+      slaName: c.serviceLevelAgreementID != null ? (slaMap.get(c.serviceLevelAgreementID) ?? null) : null,
+    }));
+    if (opts.activeOnly !== false) {
+      const now = new Date();
+      list = list.filter((c) => !c.endDate || new Date(c.endDate) >= now);
+    }
+    return list;
+  }
+
+  /** Active resources (technicians) with resourceType, for team reporting. */
+  async getResourcesList(activeOnly = true): Promise<ResourceListItem[]> {
+    const resources = activeOnly
+      ? await this.getActiveResources()
+      : await this.queryAll<AutotaskResource>('Resources', { op: 'exist', field: 'id' });
+    return resources.map((r) => ({
+      id: r.id,
+      firstName: r.firstName,
+      lastName: r.lastName,
+      email: r.email,
+      isActive: r.isActive,
+      resourceType: r.resourceType ?? null,
+    }));
+  }
+
+  /**
+   * Native Autotask customer-satisfaction survey responses (SurveyResults,
+   * query-only). Ratings + ticket/company/contact + send/complete dates.
+   * NOTE: the entity carries NO free-text comment field, and only NATIVE
+   * Autotask surveys populate it — a custom completion-email survey is not here.
+   */
+  async getSurveyResults(opts: { from?: Date; to?: Date; companyId?: number; completedOnly?: boolean } = {}): Promise<AutotaskSurveyResult[]> {
+    const items: object[] = [];
+    if (opts.completedOnly !== false) items.push({ op: 'exist', field: 'completeDate' });
+    if (opts.from) items.push({ op: 'gte', field: 'completeDate', value: opts.from.toISOString() });
+    if (opts.to) items.push({ op: 'lte', field: 'completeDate', value: opts.to.toISOString() });
+    if (opts.companyId != null) items.push({ op: 'eq', field: 'companyID', value: opts.companyId });
+    const filter = items.length === 0
+      ? { op: 'exist', field: 'id' }
+      : items.length === 1 ? items[0] : { op: 'and', items };
+    const rows = await this.queryAll<Record<string, unknown>>('SurveyResults', filter);
+    const surveyNames = await this.getSurveyNameMap().catch(() => new Map<number, string>());
+    return rows.map((r) => {
+      const surveyID = Number(r.surveyID);
+      return {
+        id: Number(r.id),
+        surveyID,
+        surveyName: surveyNames.get(surveyID) ?? null,
+        ticketID: (r.ticketID as number) ?? null,
+        companyID: (r.companyID as number) ?? null,
+        contactID: (r.contactID as number) ?? null,
+        surveyRating: (r.surveyRating as number) ?? null,
+        companyRating: (r.companyRating as number) ?? null,
+        contactRating: (r.contactRating as number) ?? null,
+        resourceRating: (r.resourceRating as number) ?? null,
+        sendDate: (r.sendDate as string) ?? null,
+        completeDate: (r.completeDate as string) ?? null,
+      };
+    });
+  }
+
+  /** surveyID -> display name, for labelling survey results. */
+  private async getSurveyNameMap(): Promise<Map<number, string>> {
+    const rows = await this.queryAll<{ id: number; name?: string; displayName?: string }>(
+      'Surveys', { op: 'exist', field: 'id' }, ['id', 'name', 'displayName']);
+    const map = new Map<number, string>();
+    for (const s of rows) map.set(s.id, s.displayName || s.name || `Survey ${s.id}`);
+    return map;
   }
 
   /**
