@@ -139,3 +139,36 @@ export async function createTicket(
   if (data.ticketType !== undefined) body.ticketType = data.ticketType
   return post<{ itemId?: number }>('Tickets', body, impersonationResourceId)
 }
+
+// ============================================
+// CONFIG WRITES (staged-write engine only)
+// ============================================
+// Admin-configuration writes (categories, holidays, business hours, catalog
+// pricing, UDF list items, …). These are ONLY called by the staged-write
+// engine (src/lib/connector/staged-writes.ts) AFTER a human approved the
+// change on /admin/connector/staged-writes — never directly by an MCP tool.
+// No ImpersonationResourceId: Autotask impersonation covers tickets/notes/
+// time entries, not admin config; the approver is recorded in the
+// connector_staged_writes audit row instead.
+
+async function del(path: string): Promise<unknown> {
+  const res = await fetch(`${baseUrl()}/v1.0/${path}`, { method: 'DELETE', headers: writeHeaders() })
+  const text = await res.text()
+  if (!res.ok) throw new Error(`Autotask DELETE ${path} failed (${res.status}): ${text.slice(0, 500)}`)
+  return text ? JSON.parse(text) : {}
+}
+
+/** PATCH an entity (root or parent/child path). Body must include id. */
+export async function patchConfigEntity(entityPath: string, body: Record<string, unknown>): Promise<unknown> {
+  return patch(entityPath, body)
+}
+
+/** POST (create) an entity at a root or parent/child path. */
+export async function createConfigEntity(entityPath: string, body: Record<string, unknown>): Promise<unknown> {
+  return post(entityPath, body)
+}
+
+/** DELETE an entity by full path, e.g. HolidaySets/3/Holidays/17 */
+export async function deleteConfigEntity(entityPathWithId: string): Promise<unknown> {
+  return del(entityPathWithId)
+}

@@ -412,16 +412,47 @@ interface AutotaskFieldInfo {
   name: string;
   dataType: string;
   isPickList: boolean;
+  length?: number;
+  isRequired?: boolean;
+  isReadOnly?: boolean;
+  isQueryable?: boolean;
+  isReference?: boolean;
+  referenceEntityType?: string;
+  picklistParentValueField?: string;
   picklistValues?: Array<{
     value: string;
     label: string;
     isActive: boolean;
     isDefaultValue: boolean;
+    isSystem?: boolean;
+    sortOrder?: number;
+    parentValue?: string;
   }>;
 }
 
 interface AutotaskEntityInfo {
   fields: AutotaskFieldInfo[];
+}
+
+/** One picklist option with the FULL metadata the REST field-info endpoint
+ *  returns (the basic getEntityPicklist keeps only id + label). */
+export interface PicklistOptionDetailed {
+  id: number;
+  label: string;
+  isActive: boolean;
+  isSystem: boolean;
+  isDefaultValue: boolean;
+  sortOrder: number;
+  parentId: number | null;
+  parentLabel: string | null;
+}
+
+export interface PicklistDetailed {
+  entity: string;
+  field: string;
+  /** Field whose values parent this picklist (e.g. subIssueType → issueType) */
+  parentField: string | null;
+  options: PicklistOptionDetailed[];
 }
 
 // Autotask project status picklist mappings (common defaults)
@@ -1838,6 +1869,525 @@ export class AutotaskClient {
     } catch {
       return null;
     }
+  }
+
+  // ============================================
+  // INSTANCE CONFIGURATION READS (MCP connector)
+  // ============================================
+  // Everything below reads ADMIN CONFIGURATION (picklists, categories,
+  // catalog, UDFs, business hours) LIVE from the REST API — no caching.
+  // Verified boundaries (swagger, all zones): the REST API exposes NO
+  // workflow rules, notification templates, dashboards/widgets, SLA
+  // definitions, or status→SLA-event mapping. Tools must state those
+  // boundaries instead of deriving or guessing values.
+
+  /** Filter that matches every row — Autotask's query endpoint requires a filter. */
+  private static readonly ALL_ROWS = { op: 'gte', field: 'id', value: 0 };
+
+  /**
+   * Full-metadata picklist for any entity field: isSystem/isDefaultValue/
+   * sortOrder plus parent linkage (e.g. each subIssueType carries the
+   * issueType it belongs to, resolved to a label). Throws (rather than
+   * returning []) when the field is missing or not a picklist, so callers
+   * can't mistake a typo for an empty picklist.
+   */
+  async getEntityPicklistDetailed(
+    entity: string,
+    fieldName: string,
+    includeInactive = false,
+  ): Promise<PicklistDetailed> {
+    const info = await this.getFieldInfo(entity);
+    const field = info?.fields?.find((f) => f.name === fieldName);
+    if (!field) {
+      const picklistFields = (info?.fields ?? []).filter((f) => f.isPickList).map((f) => f.name);
+      throw new Error(`Field '${fieldName}' not found on ${entity}. Picklist fields on this entity: ${picklistFields.join(', ') || '(none)'}`);
+    }
+    if (!field.isPickList || !field.picklistValues) {
+      throw new Error(`Field '${fieldName}' on ${entity} is not a picklist (dataType ${field.dataType}).`);
+    }
+    const parentField = field.picklistParentValueField || null;
+    const parentLabels = new Map<string, string>();
+    if (parentField) {
+      const parent = info.fields.find((f) => f.name === parentField);
+      for (const pv of parent?.picklistValues ?? []) parentLabels.set(pv.value, pv.label);
+    }
+    const options = field.picklistValues
+      .filter((pv) => includeInactive || pv.isActive)
+      .map((pv) => ({
+        id: parseInt(pv.value, 10),
+        label: pv.label,
+        isActive: pv.isActive,
+        isSystem: pv.isSystem ?? false,
+        isDefaultValue: pv.isDefaultValue,
+        sortOrder: pv.sortOrder ?? 0,
+        parentId: pv.parentValue ? parseInt(pv.parentValue, 10) : null,
+        parentLabel: pv.parentValue ? parentLabels.get(pv.parentValue) ?? null : null,
+      }))
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+    return { entity, field: fieldName, parentField, options };
+  }
+
+  /** ONE field-info call turned into id→label maps for several Tickets picklists. */
+  private async ticketLabelMaps(fieldNames: string[]): Promise<Map<string, Map<number, string>>> {
+    const info = await this.getFieldInfo('Tickets');
+    const out = new Map<string, Map<number, string>>();
+    for (const name of fieldNames) {
+      const field = info?.fields?.find((f) => f.name === name);
+      const map = new Map<number, string>();
+      for (const pv of field?.picklistValues ?? []) {
+        const id = parseInt(pv.value, 10);
+        if (!Number.isNaN(id)) map.set(id, pv.label);
+      }
+      out.set(name, map);
+    }
+    return out;
+  }
+
+  /**
+   * Ticket categories with their field defaults (TicketCategoryFieldDefaults),
+   * picklist ids resolved to labels — including the DEFAULT SLA, status, queue,
+   * priority and work type each category applies.
+   */
+  async getTicketCategoriesWithDefaults(
+    includeDefaults = true,
+    includeInactive = false,
+  ): Promise<Array<Record<string, unknown>>> {
+    const filter = includeInactive
+      ? AutotaskClient.ALL_ROWS
+      : { op: 'eq', field: 'isActive', value: true };
+    const categories = await this.queryAll<Record<string, unknown>>('TicketCategories', filter);
+    const base = categories.map((c) => ({
+      id: c.id,
+      name: c.name,
+      nickname: c.nickname ?? null,
+      isActive: c.isActive,
+      isGlobalDefault: c.isGlobalDefault,
+      isApiOnly: c.isApiOnly,
+      displayColorRGB: c.displayColorRGB ?? null,
+    }));
+    if (!includeDefaults) return base;
+
+    const [defaults, maps, billingCodes] = await Promise.all([
+      this.queryAll<Record<string, unknown>>('TicketCategoryFieldDefaults', AutotaskClient.ALL_ROWS),
+      this.ticketLabelMaps(['status', 'queueID', 'priority', 'sourceID', 'issueType', 'subIssueType', 'ticketType', 'serviceLevelAgreementID']),
+      this.queryAll<{ id: number; name: string }>('BillingCodes', AutotaskClient.ALL_ROWS, ['id', 'name']),
+    ]);
+    const codeNames = new Map(billingCodes.map((b) => [b.id, b.name]));
+    const label = (field: string, v: unknown) =>
+      v == null ? null : { id: v, label: maps.get(field)?.get(Number(v)) ?? null };
+    const byCategory = new Map<number, Record<string, unknown>>();
+    for (const d of defaults) {
+      byCategory.set(Number(d.ticketCategoryID), {
+        status: label('status', d.status),
+        queue: label('queueID', d.queueID),
+        priority: label('priority', d.priority),
+        source: label('sourceID', d.sourceID),
+        issueType: label('issueType', d.issueTypeID),
+        subIssueType: label('subIssueType', d.subIssueTypeID),
+        ticketType: label('ticketType', d.ticketTypeID),
+        serviceLevelAgreement: label('serviceLevelAgreementID', d.serviceLevelAgreementID),
+        workType: d.workTypeID == null ? null : { id: d.workTypeID, label: codeNames.get(Number(d.workTypeID)) ?? null },
+        title: d.title ?? null,
+        description: d.description ?? null,
+        estimatedHours: d.estimatedHours ?? null,
+        resolution: d.resolution ?? null,
+        purchaseOrderNumber: d.purchaseOrderNumber ?? null,
+      });
+    }
+    return base.map((c) => ({ ...c, fieldDefaults: byCategory.get(Number(c.id)) ?? null }));
+  }
+
+  /**
+   * Queues as configured on this instance: full picklist metadata plus queue
+   * MEMBERSHIP from ResourceRoleQueues (which technicians work each queue).
+   * Queue routing/email settings are NOT exposed by the REST API.
+   */
+  async getQueuesDetailed(includeMembers = true): Promise<{
+    queues: Array<Record<string, unknown>>;
+    membershipNote: string;
+  }> {
+    const picklist = await this.getEntityPicklistDetailed('Tickets', 'queueID');
+    let membersByQueue = new Map<number, Array<{ resourceId: number; name: string; email: string | null }>>();
+    if (includeMembers) {
+      const [associations, resources] = await Promise.all([
+        this.queryAll<{ id: number; queueID: number; resourceID: number }>('ResourceRoleQueues', AutotaskClient.ALL_ROWS),
+        this.getResourcesList(true),
+      ]);
+      const resourceById = new Map(resources.map((r) => [r.id, r]));
+      membersByQueue = new Map();
+      for (const a of associations) {
+        const res = resourceById.get(a.resourceID);
+        if (!res) continue; // inactive resource
+        const list = membersByQueue.get(a.queueID) ?? [];
+        if (!list.some((m) => m.resourceId === a.resourceID)) {
+          list.push({ resourceId: res.id, name: `${res.firstName} ${res.lastName}`.trim(), email: res.email ?? null });
+        }
+        membersByQueue.set(a.queueID, list);
+      }
+    }
+    return {
+      queues: picklist.options.map((q) => ({
+        ...q,
+        members: includeMembers ? membersByQueue.get(q.id) ?? [] : undefined,
+      })),
+      membershipNote:
+        'Members come from ResourceRoleQueues (active resources only). Queue routing, email processing, and notification settings are UI-only — not exposed by the Autotask REST API.',
+    };
+  }
+
+  /**
+   * Billing codes as CONFIGURATION: every use type (labor, material, milestone,
+   * service, …) with type labels, pricing/GL fields, and the instance's work
+   * type modifiers. Read-only — the REST API has no write surface for
+   * BillingCodes at all.
+   */
+  async getBillingCodesDetailed(opts: { useType?: number; includeInactive?: boolean } = {}): Promise<{
+    billingCodes: Array<Record<string, unknown>>;
+    workTypeModifiers: Array<Record<string, unknown>>;
+    modifierNote: string;
+  }> {
+    const filters: object[] = [];
+    if (!opts.includeInactive) filters.push({ op: 'eq', field: 'isActive', value: true });
+    if (opts.useType != null) filters.push({ op: 'eq', field: 'useType', value: opts.useType });
+    if (!filters.length) filters.push(AutotaskClient.ALL_ROWS);
+
+    const [codes, info, modifiers, modInfo] = await Promise.all([
+      this.queryAll<Record<string, unknown>>('BillingCodes', filters),
+      this.getFieldInfo('BillingCodes'),
+      this.queryAll<Record<string, unknown>>('WorkTypeModifiers', AutotaskClient.ALL_ROWS),
+      this.getFieldInfo('WorkTypeModifiers'),
+    ]);
+    const pick = (entityInfo: AutotaskEntityInfo | undefined, field: string) => {
+      const map = new Map<number, string>();
+      for (const pv of entityInfo?.fields?.find((f) => f.name === field)?.picklistValues ?? []) {
+        map.set(parseInt(pv.value, 10), pv.label);
+      }
+      return map;
+    };
+    const useTypes = pick(info, 'useType');
+    const codeTypes = pick(info, 'billingCodeType');
+    const modTypes = pick(modInfo, 'modifierType');
+    return {
+      billingCodes: codes.map((c) => ({
+        id: c.id,
+        name: c.name,
+        description: c.description ?? null,
+        isActive: c.isActive,
+        useType: { id: c.useType, label: useTypes.get(Number(c.useType)) ?? null },
+        billingCodeType: { id: c.billingCodeType, label: codeTypes.get(Number(c.billingCodeType)) ?? null },
+        unitCost: c.unitCost ?? null,
+        unitPrice: c.unitPrice ?? null,
+        markupRate: c.markupRate ?? null,
+        generalLedgerAccount: c.generalLedgerAccount ?? null,
+        externalNumber: c.externalNumber ?? null,
+        taxCategoryID: c.taxCategoryID ?? null,
+        isExcludedFromNewContracts: c.isExcludedFromNewContracts ?? null,
+        afterHoursWorkType: c.afterHoursWorkType ?? null,
+        department: c.department ?? null,
+      })),
+      workTypeModifiers: modifiers.map((m) => ({
+        id: m.id,
+        modifierType: { id: m.modifierType, label: modTypes.get(Number(m.modifierType)) ?? null },
+        modifierValue: m.modifierValue,
+      })),
+      modifierNote:
+        'WorkTypeModifiers carry no billing-code reference field in the REST API (verified against the API schema), so they are returned unjoined rather than guessed.',
+    };
+  }
+
+  /** Product catalog as configuration (pricing, categories, procurement flags). */
+  async getProductsList(opts: { activeOnly?: boolean; search?: string } = {}): Promise<{
+    count: number;
+    hasMore: boolean;
+    products: Array<Record<string, unknown>>;
+  }> {
+    const filters: object[] = [];
+    if (opts.activeOnly !== false) filters.push({ op: 'eq', field: 'isActive', value: true });
+    if (opts.search) filters.push({ op: 'contains', field: 'name', value: opts.search });
+    if (!filters.length) filters.push(AutotaskClient.ALL_ROWS);
+    const fields = [
+      'id', 'name', 'description', 'isActive', 'sku', 'manufacturerName', 'manufacturerProductName',
+      'unitCost', 'unitPrice', 'msrp', 'markupRate', 'periodType', 'billingType', 'priceCostMethod',
+      'productCategory', 'productBillingCodeID', 'chargeBillingCodeID', 'doesNotRequireProcurement', 'isSerialized',
+    ];
+    const [{ items, hasMore }, info] = await Promise.all([
+      this.queryOnePage<Record<string, unknown>>('Products', filters, fields),
+      this.getFieldInfo('Products'),
+    ]);
+    const pick = (field: string) => {
+      const map = new Map<number, string>();
+      for (const pv of info?.fields?.find((f) => f.name === field)?.picklistValues ?? []) map.set(parseInt(pv.value, 10), pv.label);
+      return map;
+    };
+    const periodTypes = pick('periodType');
+    const billingTypes = pick('billingType');
+    const priceCostMethods = pick('priceCostMethod');
+    const categories = pick('productCategory');
+    return {
+      count: items.length,
+      hasMore,
+      products: items.map((p) => ({
+        ...p,
+        periodType: p.periodType == null ? null : { id: p.periodType, label: periodTypes.get(Number(p.periodType)) ?? null },
+        billingType: p.billingType == null ? null : { id: p.billingType, label: billingTypes.get(Number(p.billingType)) ?? null },
+        priceCostMethod: p.priceCostMethod == null ? null : { id: p.priceCostMethod, label: priceCostMethods.get(Number(p.priceCostMethod)) ?? null },
+        productCategory: p.productCategory == null ? null : { id: p.productCategory, label: categories.get(Number(p.productCategory)) ?? null },
+      })),
+    };
+  }
+
+  /** Service catalog + service bundles as configuration. Services carry the SLA they apply. */
+  async getServicesList(opts: { activeOnly?: boolean } = {}): Promise<{
+    services: Array<Record<string, unknown>>;
+    serviceBundles: Array<Record<string, unknown>>;
+  }> {
+    const filter = opts.activeOnly === false
+      ? AutotaskClient.ALL_ROWS
+      : { op: 'eq', field: 'isActive', value: true };
+    const [services, bundles, info, slaMaps] = await Promise.all([
+      this.queryAll<Record<string, unknown>>('Services', filter, [
+        'id', 'name', 'description', 'invoiceDescription', 'isActive', 'unitCost', 'unitPrice',
+        'markupRate', 'periodType', 'billingCodeID', 'serviceLevelAgreementID', 'sku', 'catalogNumberPartNumber',
+      ]),
+      this.queryAll<Record<string, unknown>>('ServiceBundles', filter),
+      this.getFieldInfo('Services'),
+      this.ticketLabelMaps(['serviceLevelAgreementID']),
+    ]);
+    const periodTypes = new Map<number, string>();
+    for (const pv of info?.fields?.find((f) => f.name === 'periodType')?.picklistValues ?? []) {
+      periodTypes.set(parseInt(pv.value, 10), pv.label);
+    }
+    const slaNames = slaMaps.get('serviceLevelAgreementID') ?? new Map<number, string>();
+    const withLabels = (s: Record<string, unknown>) => ({
+      ...s,
+      periodType: s.periodType == null ? null : { id: s.periodType, label: periodTypes.get(Number(s.periodType)) ?? null },
+      serviceLevelAgreement: s.serviceLevelAgreementID == null
+        ? null
+        : { id: s.serviceLevelAgreementID, label: slaNames.get(Number(s.serviceLevelAgreementID)) ?? null },
+    });
+    return { services: services.map(withLabels), serviceBundles: bundles.map(withLabels) };
+  }
+
+  /**
+   * User-defined field DEFINITIONS (name, type, required, default, list
+   * options) across the instance, with udfType/dataType/displayFormat resolved.
+   */
+  async getUdfDefinitions(opts: { udfType?: string } = {}): Promise<Array<Record<string, unknown>>> {
+    const [defs, info, listItems] = await Promise.all([
+      this.queryAll<Record<string, unknown>>('UserDefinedFieldDefinitions', AutotaskClient.ALL_ROWS),
+      this.getFieldInfo('UserDefinedFieldDefinitions'),
+      this.queryAll<Record<string, unknown>>('UserDefinedFieldListItems', AutotaskClient.ALL_ROWS),
+    ]);
+    const pick = (field: string) => {
+      const map = new Map<number, string>();
+      for (const pv of info?.fields?.find((f) => f.name === field)?.picklistValues ?? []) map.set(parseInt(pv.value, 10), pv.label);
+      return map;
+    };
+    const udfTypes = pick('udfType');
+    const dataTypes = pick('dataType');
+    const displayFormats = pick('displayFormat');
+    const itemsByField = new Map<number, Array<Record<string, unknown>>>();
+    for (const it of listItems) {
+      const key = Number(it.udfFieldId);
+      const list = itemsByField.get(key) ?? [];
+      list.push({ id: it.id, valueForDisplay: it.valueForDisplay, valueForExport: it.valueForExport, isActive: it.isActive });
+      itemsByField.set(key, list);
+    }
+    const rows = defs.map((d) => ({
+      id: d.id,
+      name: d.name,
+      description: d.description ?? null,
+      udfType: { id: d.udfType, label: udfTypes.get(Number(d.udfType)) ?? null },
+      dataType: { id: d.dataType, label: dataTypes.get(Number(d.dataType)) ?? null },
+      displayFormat: d.displayFormat == null ? null : { id: d.displayFormat, label: displayFormats.get(Number(d.displayFormat)) ?? null },
+      isActive: d.isActive,
+      isRequired: d.isRequired,
+      isPrivate: d.isPrivate,
+      isProtected: d.isProtected,
+      isVisibleToClientPortal: d.isVisibleToClientPortal,
+      defaultValue: d.defaultValue ?? null,
+      sortOrder: d.sortOrder ?? null,
+      numberOfDecimalPlaces: d.numberOfDecimalPlaces ?? null,
+      mergeVariableName: d.mergeVariableName ?? null,
+      createDate: d.createDate ?? null,
+      listItems: itemsByField.get(Number(d.id)) ?? [],
+    }));
+    if (!opts.udfType) return rows;
+    const want = opts.udfType.toLowerCase();
+    return rows.filter((r) => String((r.udfType as { label?: string }).label ?? '').toLowerCase().includes(want));
+  }
+
+  /**
+   * SLA clock inputs: internal locations with weekly business hours, plus
+   * holiday sets and their holidays. (The SLA definitions themselves — event
+   * targets per SLA — are NOT exposed by the REST API.)
+   */
+  async getBusinessHoursAndHolidays(): Promise<{
+    locations: Array<Record<string, unknown>>;
+    holidaySets: Array<Record<string, unknown>>;
+  }> {
+    const [locations, sets, holidays, info] = await Promise.all([
+      this.queryAll<Record<string, unknown>>('InternalLocationWithBusinessHours', AutotaskClient.ALL_ROWS),
+      this.queryAll<Record<string, unknown>>('HolidaySets', AutotaskClient.ALL_ROWS),
+      this.queryAll<Record<string, unknown>>('Holidays', AutotaskClient.ALL_ROWS),
+      this.getFieldInfo('InternalLocationWithBusinessHours'),
+    ]);
+    const tzMap = new Map<number, string>();
+    for (const pv of info?.fields?.find((f) => f.name === 'timeZoneID')?.picklistValues ?? []) {
+      tzMap.set(parseInt(pv.value, 10), pv.label);
+    }
+    const holidayHoursTypes = new Map<number, string>();
+    for (const pv of info?.fields?.find((f) => f.name === 'holidayHoursType')?.picklistValues ?? []) {
+      holidayHoursTypes.set(parseInt(pv.value, 10), pv.label);
+    }
+    const setNames = new Map(sets.map((s) => [Number(s.id), String(s.holidaySetName)]));
+    const holidaysBySet = new Map<number, Array<Record<string, unknown>>>();
+    for (const h of holidays) {
+      const key = Number(h.holidaySetID);
+      const list = holidaysBySet.get(key) ?? [];
+      list.push({ id: h.id, holidayName: h.holidayName, holidayDate: h.holidayDate });
+      holidaysBySet.set(key, list);
+    }
+    const day = (loc: Record<string, unknown>, prefix: string) => ({
+      start: loc[`${prefix}BusinessHoursStartTime`] ?? null,
+      end: loc[`${prefix}BusinessHoursEndTime`] ?? null,
+      extendedStart: loc[`${prefix}ExtendedHoursStartTime`] ?? null,
+      extendedEnd: loc[`${prefix}ExtendedHoursEndTime`] ?? null,
+    });
+    return {
+      locations: locations.map((loc) => ({
+        id: loc.id,
+        name: loc.name,
+        isDefault: loc.isDefault,
+        timeZone: loc.timeZoneID == null ? null : { id: loc.timeZoneID, label: tzMap.get(Number(loc.timeZoneID)) ?? null },
+        businessHours: {
+          monday: day(loc, 'monday'),
+          tuesday: day(loc, 'tuesday'),
+          wednesday: day(loc, 'wednesday'),
+          thursday: day(loc, 'thursday'),
+          friday: day(loc, 'friday'),
+          saturday: day(loc, 'saturday'),
+          sunday: day(loc, 'sunday'),
+        },
+        holidaySet: loc.holidaySetID == null
+          ? null
+          : { id: loc.holidaySetID, name: setNames.get(Number(loc.holidaySetID)) ?? null },
+        holidayHoursType: loc.holidayHoursType == null
+          ? null
+          : { id: loc.holidayHoursType, label: holidayHoursTypes.get(Number(loc.holidayHoursType)) ?? null },
+        noHoursOnHolidays: loc.noHoursOnHolidays ?? null,
+      })),
+      holidaySets: sets.map((s) => ({
+        id: s.id,
+        name: s.holidaySetName,
+        description: s.holidaySetDescription ?? null,
+        holidays: (holidaysBySet.get(Number(s.id)) ?? []).sort((a, b) => String(a.holidayDate).localeCompare(String(b.holidayDate))),
+      })),
+    };
+  }
+
+  /**
+   * Sent-notification log (NotificationHistory): which template fired, to whom,
+   * when, from which entity. This is the closest the REST API gets to
+   * notification/workflow visibility — rule and template DEFINITIONS are not
+   * exposed. Returns whatever history the instance retains.
+   */
+  async getNotificationHistory(opts: {
+    from?: Date; to?: Date; ticketId?: number; companyId?: number; templateName?: string; max?: number;
+  } = {}): Promise<{ count: number; hasMore: boolean; notifications: Array<Record<string, unknown>> }> {
+    const to = opts.to ?? new Date();
+    const from = opts.from ?? new Date(to.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const filters: object[] = [
+      { op: 'gte', field: 'notificationSentTime', value: from.toISOString() },
+      { op: 'lte', field: 'notificationSentTime', value: to.toISOString() },
+    ];
+    if (opts.ticketId != null) filters.push({ op: 'eq', field: 'ticketID', value: opts.ticketId });
+    if (opts.companyId != null) filters.push({ op: 'eq', field: 'companyID', value: opts.companyId });
+    if (opts.templateName) filters.push({ op: 'contains', field: 'templateName', value: opts.templateName });
+    const { items, hasMore } = await this.queryOnePage<Record<string, unknown>>('NotificationHistory', filters, [
+      'id', 'notificationSentTime', 'templateName', 'notificationHistoryTypeID', 'recipientEmailAddress',
+      'recipientDisplayName', 'entityTitle', 'entityNumber', 'ticketID', 'companyID', 'projectID', 'taskID',
+      'timeEntryID', 'quoteID', 'opportunityID', 'initiatingResourceID', 'initiatingContactID', 'isDeleted', 'isTemplateJob',
+    ]);
+    const typeMap = await this.picklistLabelMap('NotificationHistory', 'notificationHistoryTypeID');
+    const max = Math.min(opts.max ?? 200, 500);
+    return {
+      count: Math.min(items.length, max),
+      hasMore: hasMore || items.length > max,
+      notifications: items.slice(0, max).map((n) => ({
+        ...n,
+        notificationHistoryType: n.notificationHistoryTypeID == null
+          ? null
+          : { id: n.notificationHistoryTypeID, label: typeMap.get(Number(n.notificationHistoryTypeID)) ?? null },
+      })),
+    };
+  }
+
+  /**
+   * Generic single-page query for a CONFIG entity. The allowlist of entities
+   * lives at the tool layer; this method just executes. Returns at most one
+   * API page (500 rows) with a hasMore flag.
+   */
+  async queryConfigEntity(
+    entity: string,
+    filters: Array<{ field: string; op: string; value?: unknown }> = [],
+    includeFields?: string[],
+    max = 500,
+  ): Promise<{ entity: string; count: number; hasMore: boolean; items: Array<Record<string, unknown>> }> {
+    const filterArray: object[] = filters.length
+      ? filters.map((f) => (f.value === undefined ? { op: f.op, field: f.field } : { op: f.op, field: f.field, value: f.value }))
+      : [AutotaskClient.ALL_ROWS];
+    const { items, hasMore } = await this.queryOnePage<Record<string, unknown>>(entity, filterArray, includeFields);
+    const capped = Math.min(max, 500);
+    return { entity, count: Math.min(items.length, capped), hasMore: hasMore || items.length > capped, items: items.slice(0, capped) };
+  }
+
+  /**
+   * Live entity capabilities from the REST API's own metadata: can this
+   * entity be queried/created/updated/deleted, does it have UDFs, and what
+   * fields does it expose (type, required, read-only, picklist, reference).
+   */
+  async getEntityCapabilities(entity: string): Promise<Record<string, unknown>> {
+    if (!/^[A-Za-z]+$/.test(entity)) throw new Error('Entity must be a bare REST entity name, e.g. "TicketCategories".');
+    const [rawInfo, fieldInfo, udfInfo] = await Promise.all([
+      this.get<Record<string, unknown>>(`/v1.0/${entity}/entityInformation`),
+      this.getFieldInfo(entity),
+      this.get<{ fields?: Array<Record<string, unknown>> }>(`/v1.0/${entity}/entityInformation/userDefinedFields`).catch(() => null),
+    ]);
+    const info = (rawInfo?.info ?? rawInfo) as Record<string, unknown>;
+    return {
+      entity,
+      capabilities: {
+        canQuery: info?.canQuery ?? null,
+        canCreate: info?.canCreate ?? null,
+        canUpdate: info?.canUpdate ?? null,
+        canDelete: info?.canDelete ?? null,
+        hasUserDefinedFields: info?.hasUserDefinedFields ?? null,
+        supportsWebhookCallouts: info?.supportsWebhookCallouts ?? null,
+      },
+      fields: (fieldInfo?.fields ?? []).map((f) => ({
+        name: f.name,
+        dataType: f.dataType,
+        isRequired: f.isRequired ?? false,
+        isReadOnly: f.isReadOnly ?? false,
+        isQueryable: f.isQueryable ?? true,
+        isPickList: f.isPickList,
+        picklistValueCount: f.picklistValues?.length ?? 0,
+        picklistParentValueField: f.picklistParentValueField || null,
+        isReference: f.isReference ?? false,
+        referenceEntityType: f.referenceEntityType || null,
+      })),
+      userDefinedFields: (udfInfo?.fields ?? []).map((f) => ({ name: f.name, dataType: f.dataType })),
+    };
+  }
+
+  /**
+   * Current values of one config row, for staged-write before-snapshots.
+   * Uses the same query-by-id pattern as the rest of this client.
+   */
+  async getConfigRow(entity: string, id: number): Promise<Record<string, unknown> | null> {
+    const rows = await this.queryAll<Record<string, unknown>>(entity, { op: 'eq', field: 'id', value: id });
+    return rows[0] ?? null;
   }
 }
 

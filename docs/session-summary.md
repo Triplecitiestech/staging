@@ -1,8 +1,17 @@
 # Session Summary
 
-> **Last updated**: 2026-07-01. MCP connector: verified ww14 ticket URLs, fixed red CI (stale lockfile, PR #118), added IT Glue tools (PR #119).
-> **Branch**: `claude/verify-ticket-url-deploy-aa0yug`.
+> **Last updated**: 2026-07-03. MCP connector: Autotask CONFIG visibility (11 read tools + generic config query/capabilities) + structurally gated config-write tier (stage → human approval on /admin/connector/staged-writes → drift-checked execute).
+> **Branch**: `claude/autotask-config-visibility-gonrlg`.
 > **Detailed handoff**: see `docs/SESSION_HANDOFF.md` first — this file is the quick state-of-the-world reference.
+
+## MCP connector: Autotask config visibility + gated config writes (2026-07-03) — branch `claude/autotask-config-visibility-gonrlg`
+
+- **Goal**: answer "how is X configured in our Autotask instance" live (statuses, categories, queues, billing codes, catalog, UDFs, hours/holidays, notification activity) and manage writable config behind a structural human gate.
+- **API surface verified first** (owner-approved gap report): pulled the REST swagger from 4 zones (byte-identical, 242 entities) + Kaseya docs. **Hard boundaries** (do not fake): no workflow rules, notification templates, dashboards/widgets, SLA definitions, or status→SLA-event mapping in the REST API; BillingCodes read-only. Full notes in `docs/gotchas.md` → Autotask.
+- **Read tools** (`src/lib/mcp-config-read-tools.ts`, all live, boundaries stated in descriptions): upgraded `autotask_ticket_statuses` (full picklist metadata + owner-maintained SLA-event overlay clearly labelled `manual_overlay`), `autotask_list_queues` (+membership via ResourceRoleQueues), `autotask_list_billing_codes` (all use types + WorkTypeModifiers, unjoined — API has no link field); new `autotask_entity_picklist` (any entity/field, parent linkage e.g. sub-issue→issue), `autotask_list_ticket_categories` (+field defaults incl. default SLA), `autotask_list_products` / `autotask_list_services` (services carry their SLA), `autotask_list_udf_definitions` (+list options), `autotask_business_hours_holidays`, `autotask_notification_history` (what fired; definitions not exposed), `autotask_config_query` (allowlisted config entities), `autotask_entity_capabilities` (live entityInformation).
+- **Gated write tier** (`src/lib/connector/staged-writes{,-core}.ts`, `src/lib/mcp-config-write-tools.ts`): `autotask_stage_config_write` NEVER writes — snapshots current values, stores before→after diff in new `connector_staged_writes` table (permanent audit), returns diff + approval URL. Human approves at `/admin/connector/staged-writes` (staff session + `system_settings`; MCP token can't reach it). `autotask_execute_staged_write` runs only on approved+unexpired rows, single-use, aborts on drift, re-reads after write. Kill switch `CONNECTOR_CONFIG_WRITES_ENABLED` (+ TTL env). Areas: ticket_category, holiday(+set), business_hours, checklist_library(+items), udf_list_item, role_rate, product/service_pricing, work_type_modifier, payment_term, status_sla_overlay (owner-maintained mapping in `connector_config_overlays`, provenance-labelled).
+- **DB**: 2 additive Prisma models + CREATE TABLEs in `/api/migrations/run` (POST after deploy required). Unit tests for the gate core (validation/diff/drift/overlay). Admin page has loading.tsx, mobile-checked.
+- **Deploy note**: full e2e gate (no `[skip-e2e]`) — change touches schema + admin UI.
 
 ## MCP connector: ticket-URL verify + IT Glue tools (2026-07-01) — branch `claude/verify-ticket-url-deploy-aa0yug`
 
