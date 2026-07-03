@@ -16,7 +16,8 @@ import { AutotaskClient, getAutotaskTicketUrl } from '@/lib/autotask'
 import * as unifi from '@/lib/ubiquiti'
 import { registerWriteTools, resolveUserEmail } from '@/lib/mcp-write-tools'
 import { registerItGlueTools } from '@/lib/mcp-itglue-tools'
-import { getTicketStatusPicklist } from '@/lib/tickets/utils'
+import { registerConfigReadTools } from '@/lib/mcp-config-read-tools'
+import { registerConfigWriteTools } from '@/lib/mcp-config-write-tools'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -57,12 +58,11 @@ const handler = createMcpHandler(
     server.registerTool('autotask_active_projects', { title: 'Autotask: active projects', description: 'List all active Autotask projects.', inputSchema: {} }, async () => { try { return ok(await autotask().getActiveProjects()) } catch (e) { return fail(e) } })
 
     // ── Autotask lookups (map names/ids for time entries, statuses, contacts) ─
-    server.registerTool('autotask_list_billing_codes', { title: 'Autotask: list billing codes', description: 'List active work-type (labor) billing codes. Use to map a name like "Help Desk" to its billingCodeId for a time entry.', inputSchema: {} }, async () => { try { return ok(await autotask().getBillingCodes()) } catch (e) { return fail(e) } })
+    // autotask_ticket_statuses / autotask_list_queues / autotask_list_billing_codes
+    // moved to mcp-config-read-tools.ts (upgraded to full config metadata).
     server.registerTool('autotask_list_roles', { title: 'Autotask: list roles', description: 'List active Autotask roles. Use to map a name like "Network Engineer" to its roleId for a time entry.', inputSchema: {} }, async () => { try { return ok(await autotask().getRoles()) } catch (e) { return fail(e) } })
-    server.registerTool('autotask_ticket_statuses', { title: 'Autotask: ticket statuses', description: 'List this Autotask instance\'s active ticket status values (label + numeric id) for use with autotask_set_ticket_status.', inputSchema: {} }, async () => { try { const m = await getTicketStatusPicklist(); return ok(m ? Object.entries(m).map(([id, label]) => ({ id: Number(id), label })) : []) } catch (e) { return fail(e) } })
     server.registerTool('autotask_company_contacts', { title: 'Autotask: company contacts', description: 'List active contacts for an Autotask company by numeric ID.', inputSchema: { companyId: z.number().int().describe('Autotask company ID') } }, async ({ companyId }) => { try { return ok(await autotask().getContactsByCompany(companyId)) } catch (e) { return fail(e) } })
     server.registerTool('autotask_get_contact', { title: 'Autotask: get contact', description: 'Resolve an Autotask contact ID to name, email, title, and phone.', inputSchema: { contactId: z.number().int().describe('Autotask contact ID') } }, async ({ contactId }) => { try { return ok(await autotask().getContactById(contactId)) } catch (e) { return fail(e) } })
-    server.registerTool('autotask_list_queues', { title: 'Autotask: list queues', description: 'List this instance\'s active ticket queues (label + numeric id) — resolve a queue name to the queueID required by autotask_create_ticket.', inputSchema: {} }, async () => { try { return ok(await autotask().getTicketPicklist('queueID')) } catch (e) { return fail(e) } })
     server.registerTool('autotask_list_priorities', { title: 'Autotask: list priorities', description: 'List this instance\'s active ticket priorities (label + numeric id) for the priority field on autotask_create_ticket.', inputSchema: {} }, async () => { try { return ok(await autotask().getTicketPicklist('priority')) } catch (e) { return fail(e) } })
     server.registerTool('autotask_list_ticket_types', { title: 'Autotask: list ticket types', description: 'List this instance\'s active ticket types (label + numeric id) for the optional ticketType field on autotask_create_ticket.', inputSchema: {} }, async () => { try { return ok(await autotask().getTicketPicklist('ticketType')) } catch (e) { return fail(e) } })
 
@@ -76,8 +76,15 @@ const handler = createMcpHandler(
     server.registerTool('autotask_search_time_entries', { title: 'Autotask: search time entries (labor/billing)', description: 'Labor read over a dateWorked range, filterable by resourceId and/or companyId (company is matched via each entry\'s ticket). Returns hours worked, billable hours (hoursToBill), billable vs non-billable, billing code, role, contract, the resource, ticket id/number + company, and a billingStatus of invoiced / approved_not_invoiced / unposted / non_billable — derived from BillingItems.invoiceID because Autotask has NO billed flag on time entries. Use billingStatus to flag billable work not yet invoiced. NO cost/rate data is exposed. Broader companion to autotask_time_entries_search. Read-only.', inputSchema: { resourceId: z.number().int().optional().describe('One technician (from autotask_find_resource)'), companyId: z.number().int().optional().describe('One company (matched via the ticket)'), from: z.string().describe('dateWorked start YYYY-MM-DD (inclusive)'), to: z.string().describe('dateWorked end YYYY-MM-DD (inclusive)'), withBillingStatus: z.boolean().optional().describe('Resolve invoiced/unbilled via BillingItems (default true)') } }, async ({ resourceId, companyId, from, to, withBillingStatus }) => { try { return ok(await autotask().searchTimeEntries({ resourceId, companyId, from: new Date(from), to: new Date(to), withBillingStatus })) } catch (e) { return fail(e) } })
     server.registerTool('autotask_survey_results', { title: 'Autotask: survey results (CSAT)', description: 'Native Autotask customer-satisfaction survey responses (SurveyResults): numeric ratings (surveyRating / companyRating / contactRating / resourceRating), ticket/company/contact ids, and send/complete dates. Filter by completeDate window and/or companyId. IMPORTANT: Autotask\'s native survey carries NO free-text comment field, and only NATIVE Autotask surveys populate this — a custom completion-email survey will NOT appear here (returns empty). Read-only.', inputSchema: { from: z.string().optional().describe('completeDate start YYYY-MM-DD'), to: z.string().optional().describe('completeDate end YYYY-MM-DD'), companyId: z.number().int().optional().describe('Limit to one company id'), completedOnly: z.boolean().optional().describe('Only completed responses (default true)') } }, async ({ from, to, companyId, completedOnly }) => { try { return ok(await autotask().getSurveyResults({ from: from ? new Date(from) : undefined, to: to ? new Date(to) : undefined, companyId, completedOnly })) } catch (e) { return fail(e) } })
 
+    // ── Autotask instance configuration (live reads; verified API boundaries) ─
+    registerConfigReadTools(server)
+
     // ── Autotask writes (impersonated as the signed-in tech) ───────────────
     registerWriteTools(server)
+
+    // ── Autotask CONFIG writes (structural human-approval gate) ────────────
+    // stage → human approves on /admin/connector/staged-writes → execute.
+    registerConfigWriteTools(server)
 
     // ── IT Glue (docs/CMDB): reads + document & flexible-asset writes ──────
     // Never touches the /passwords resource.

@@ -1870,3 +1870,49 @@ enum ReferralStatus {
   LOST
   NOT_A_FIT
 }
+
+// ── MCP connector: gated config writes ─────────────────────────────────────
+// Staged Autotask-config changes awaiting human approval (permanent audit
+// trail), plus owner-maintained config overlays for settings Autotask's REST
+// API does not expose (e.g. status→SLA-event mapping). Tables are created by
+// /api/migrations/run — see docs/gotchas.md (prod migrations).
+
+model ConnectorStagedWrite {
+  id           String    @id @default(uuid())
+  area         String // allowlisted config area (staged-writes-core.ts)
+  operation    String // create | update | delete
+  targetSystem String // autotask | overlay
+  entityPath   String // REST write path, e.g. HolidaySets/3/Holidays
+  entityId     Int?
+  parentId     Int?
+  targetLabel  String
+  before       Json?
+  proposed     Json
+  diff         String    @db.Text
+  reason       String?   @db.Text
+  risk         String    @default("low") // low | billing
+  status       String    @default("pending_approval") // pending_approval | approved | rejected | executing | executed | failed | drifted | cancelled | expired
+  stagedBy     String
+  stagedAt     DateTime  @default(now())
+  approvedBy   String?
+  approvedAt   DateTime?
+  executedAt   DateTime?
+  expiresAt    DateTime
+  result       Json?
+  error        String?   @db.Text
+
+  @@index([status, stagedAt])
+  @@map("connector_staged_writes")
+}
+
+model ConnectorConfigOverlay {
+  id             String    @id @default(uuid())
+  key            String    @unique // e.g. 'status_sla_events'
+  value          Json
+  note           String?   @db.Text
+  updatedBy      String
+  updatedAt      DateTime  @updatedAt
+  lastVerifiedAt DateTime?
+
+  @@map("connector_config_overlays")
+}

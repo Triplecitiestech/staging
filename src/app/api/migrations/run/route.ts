@@ -594,6 +594,61 @@ export async function POST(request: Request) {
       }
     }
 
+    // MCP connector: staged config writes (human-approval gate) + overlays
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS "connector_staged_writes" (
+          "id" TEXT PRIMARY KEY,
+          "area" TEXT NOT NULL,
+          "operation" TEXT NOT NULL,
+          "targetSystem" TEXT NOT NULL,
+          "entityPath" TEXT NOT NULL,
+          "entityId" INTEGER,
+          "parentId" INTEGER,
+          "targetLabel" TEXT NOT NULL,
+          "before" JSONB,
+          "proposed" JSONB NOT NULL,
+          "diff" TEXT NOT NULL,
+          "reason" TEXT,
+          "risk" TEXT NOT NULL DEFAULT 'low',
+          "status" TEXT NOT NULL DEFAULT 'pending_approval',
+          "stagedBy" TEXT NOT NULL,
+          "stagedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "approvedBy" TEXT,
+          "approvedAt" TIMESTAMP(3),
+          "executedAt" TIMESTAMP(3),
+          "expiresAt" TIMESTAMP(3) NOT NULL,
+          "result" JSONB,
+          "error" TEXT
+        )
+      `)
+      await client.query(
+        'CREATE INDEX IF NOT EXISTS "connector_staged_writes_status_stagedAt_idx" ON "connector_staged_writes" ("status", "stagedAt")'
+      )
+      results.push('✅ connector_staged_writes table')
+    } catch (error) {
+      const err = error as Error
+      results.push(`⚠️ connector_staged_writes: ${err.message}`)
+    }
+
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS "connector_config_overlays" (
+          "id" TEXT PRIMARY KEY,
+          "key" TEXT NOT NULL UNIQUE,
+          "value" JSONB NOT NULL,
+          "note" TEXT,
+          "updatedBy" TEXT NOT NULL,
+          "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          "lastVerifiedAt" TIMESTAMP(3)
+        )
+      `)
+      results.push('✅ connector_config_overlays table')
+    } catch (error) {
+      const err = error as Error
+      results.push(`⚠️ connector_config_overlays: ${err.message}`)
+    }
+
     await client.end()
 
     return NextResponse.json({
