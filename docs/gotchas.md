@@ -215,6 +215,24 @@ Single client: `src/lib/domotz.ts` (`DomotzClient`, `x-api-key` auth, `DOMOTZ_AP
 
 ---
 
+## UniFi / Ubiquiti Integration — Key Knowledge
+
+Two API surfaces, two clients — do not merge them:
+- **`src/lib/ubiquiti.ts`** — cloud Site Manager aggregate reads (`/ea/*`). Known flaw kept for its existing consumers: it swallows errors and returns `null`/`[]`. Do NOT copy that pattern.
+- **`src/lib/ubiquiti-proxy.ts`** — per-console **local Network Integration API** through the **Cloud Connector Proxy** (`https://api.ui.com/v1/connector/consoles/{consoleId}/proxy/network/integration/v1/...`, same `UBIQUITI_API_KEY`). Throws typed `UnifiProxyError` (`AUTH_FAILED` / `CONSOLE_OFFLINE` / `FIRMWARE_UNSUPPORTED` / `NOT_FOUND` / `RATE_LIMITED` / `TIMEOUT` / `BAD_REQUEST` / `UPSTREAM_ERROR`) — empty and failed must stay distinguishable, or an offline console reads as "zero clients" and a tech closes a ticket on false data.
+
+Key facts (verified against the official OpenAPI spec, v10.1.84, July 2026):
+- **Feature availability is firmware-gated**: devices/clients/actions/vouchers since Network app 9.1; networks/WLANs/zones/ACL/traffic-lists since 10.0.162; **firewall policies, DNS policies, adopt/forget, orderings since 10.1.84**; switching reads (LAG/stacks) 10.3.58. Many TCT consoles are behind — per-console `FIRMWARE_UNSUPPORTED` is an expected common case, and `unifi_probe_consoles` / `scripts/probe-unifi-consoles.ts` produce the remediation list.
+- **NOT in the official Integration API — do not fake or fall back to the internal `/api/s/{site}` API**: locate/LED, client block/unblock/reconnect, port forwards, static routes, site health/ISP metrics, events/alarms, port profiles, gateway settings, firmware triggers. (ISP metrics exist in the separate cloud Site Manager API.) Full omitted-with-reason list: `docs/unifi-site-tools.md`.
+- **Cloud Connector Proxy limits (documented)**: 100 requests/min PER CONSOLE (429 + `Retry-After` — the client honors short waits once, surfaces the rest), 25 s proxied-request timeout (408 → typed `TIMEOUT`), 10 MB response cap, ~800 ms added latency. List endpoints paginate `offset`/`limit` (max 200) with the `{offset,limit,count,totalCount,data}` envelope.
+- **Integration API PUT replaces the whole object** — updates must GET→merge→PUT (same reason IT Glue writes are GET-merge-PATCH). `unifi-staged-writes.ts` does this; never PUT only the changed fields.
+- **WLAN objects carry secrets** (`passphrase`, PPSK `presharedKeys`, RADIUS secrets). Every read and every stored snapshot goes through `redactSecrets()`. WLAN **create** and passphrase changes are deliberately not exposed — the API requires `securityConfiguration` on create and the staged-write audit row must never persist a secret.
+- **UniFi writes are structurally gated**: single console/site/target per schema (no arrays — unit-tested), kill switch `CONNECTOR_UNIFI_WRITES_ENABLED` (independent of the Autotask one), tier 1 attributed via structured logs, tier 2 through the same `ConnectorStagedWrite` human-approval gate (UniFi rows use `targetSystem='unifi'`, string targets encoded in `entityPath` as `consoles/{consoleId}/sites/...` because `entityId` is Int; `unifi_execute_staged_write` / `autotask_execute_staged_write` each refuse the other's rows BEFORE the single-use claim so an approval is never burned by the wrong tool).
+- **Network deletes**: stage WITHOUT the API's `force` flag; staging auto-reads `/networks/{id}/references` and stamps a warning on the approval card when the network is still referenced.
+- **Reading the official spec**: developer.ui.com is a JS app, but every docs page embeds the complete OpenAPI document in its RSC payload (`"fullSpec"`), version-pinned per Network release — extract that instead of scraping rendered pages.
+
+---
+
 ## Customer Portal Architecture
 
 The customer portal is at `/onboarding/[companyName]`. Key components:
