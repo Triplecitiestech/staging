@@ -1,12 +1,16 @@
 import { describe, it, expect } from 'vitest'
 import {
   CONFIG_WRITE_AREAS,
+  UNIFI_WRITE_AREAS,
   buildDiff,
   buildTargetLabel,
+  buildUnifiEntityPath,
   detectDrift,
+  parseUnifiEntityPath,
   snapshotFields,
   validateSlaOverlayMappings,
   validateStagedChange,
+  validateUnifiStagedChange,
 } from './staged-writes-core'
 
 describe('validateStagedChange', () => {
@@ -82,6 +86,72 @@ describe('snapshot + label helpers', () => {
   it('builds readable target labels', () => {
     const spec = CONFIG_WRITE_AREAS.ticket_category
     expect(buildTargetLabel(spec, { name: 'Standard' }, 3)).toBe('Ticket category: Standard (id 3)')
+  })
+})
+
+describe('validateUnifiStagedChange', () => {
+  const base = { consoleId: 'F4E2C6:1815664374', siteId: 'site-a' }
+
+  it('rejects unknown areas with the allowlist in the message', () => {
+    expect(() => validateUnifiStagedChange({ area: 'unifi_port_forward', operation: 'update', ...base, targetId: 'x', changes: { enabled: false } }))
+      .toThrow(/Unknown UniFi write area/)
+  })
+
+  it('rejects operations an area does not support — WLAN create is deliberately absent (passphrase secret)', () => {
+    expect(() => validateUnifiStagedChange({ area: 'unifi_wlan', operation: 'create', ...base, changes: { name: 'Guest' } }))
+      .toThrow(/not supported/)
+  })
+
+  it('requires exactly one consoleId, one siteId, one targetId', () => {
+    expect(() => validateUnifiStagedChange({ area: 'unifi_firewall_policy', operation: 'update', consoleId: '', siteId: 'site-a', targetId: 'x', changes: { enabled: false } }))
+      .toThrow(/consoleId is required/)
+    expect(() => validateUnifiStagedChange({ area: 'unifi_firewall_policy', operation: 'update', consoleId: 'c1', siteId: ' ', targetId: 'x', changes: { enabled: false } }))
+      .toThrow(/siteId is required/)
+    expect(() => validateUnifiStagedChange({ area: 'unifi_firewall_policy', operation: 'delete', ...base, changes: {} }))
+      .toThrow(/requires targetId/)
+  })
+
+  it('rejects non-allowlisted fields — securityConfiguration (passphrase) is not writable', () => {
+    expect(() => validateUnifiStagedChange({ area: 'unifi_wlan', operation: 'update', ...base, targetId: 'w1', changes: { securityConfiguration: { type: 'OPEN' } } }))
+      .toThrow(/not writable/)
+  })
+
+  it('requires the create-required fields', () => {
+    expect(() => validateUnifiStagedChange({ area: 'unifi_firewall_policy', operation: 'create', ...base, changes: { name: 'Block guest' } }))
+      .toThrow(/requires:/)
+  })
+
+  it('accepts a valid firewall policy update and returns the spec', () => {
+    const spec = validateUnifiStagedChange({ area: 'unifi_firewall_policy', operation: 'update', ...base, targetId: 'fp-1', changes: { enabled: false } })
+    expect(spec.risk).toBe('high')
+    expect(spec.collectionPath('site-a')).toBe('/sites/site-a/firewall/policies')
+  })
+
+  it('has no write area for anything outside the official Integration API', () => {
+    const areas = Object.keys(UNIFI_WRITE_AREAS).join(' ')
+    expect(areas).not.toMatch(/port_forward|route|port_profile|gateway_setting|firmware|locate|block/i)
+  })
+
+  it('labels every area with a risk tier and a per-site collection path', () => {
+    for (const spec of Object.values(UNIFI_WRITE_AREAS)) {
+      expect(['low', 'medium', 'high']).toContain(spec.risk)
+      expect(spec.collectionPath('SITE')).toMatch(/^\/sites\/SITE\//)
+    }
+  })
+})
+
+describe('UniFi entityPath round-trip', () => {
+  it('encodes and parses console + resource path, including colon console ids', () => {
+    const entityPath = buildUnifiEntityPath('F4E2C6C798B9:1815664374', '/sites/site-a/firewall/policies/fp-1')
+    expect(parseUnifiEntityPath(entityPath)).toEqual({
+      consoleId: 'F4E2C6C798B9:1815664374',
+      resourcePath: '/sites/site-a/firewall/policies/fp-1',
+    })
+  })
+
+  it('returns null for unparseable paths instead of guessing', () => {
+    expect(parseUnifiEntityPath('HolidaySets/3/Holidays')).toBeNull()
+    expect(parseUnifiEntityPath('consoles/only-console-no-path')).toBeNull()
   })
 })
 

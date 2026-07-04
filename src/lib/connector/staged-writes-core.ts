@@ -276,15 +276,18 @@ export function validateSlaOverlayMappings(
 
 const show = (v: unknown): string => (v === undefined ? '(unset)' : JSON.stringify(v))
 
+/** The subset of an area spec the snapshot/label helpers need (shared by Autotask + UniFi specs). */
+type SnapshotSpec = Pick<ConfigWriteAreaSpec, 'label' | 'allowedFields' | 'labelFields'> & { parentIdFromField?: string }
+
 /** Keep only the fields the gate cares about (allowlist + label + id + parent link). */
-export function snapshotFields(spec: ConfigWriteAreaSpec, row: Record<string, unknown>): Record<string, unknown> {
+export function snapshotFields(spec: SnapshotSpec, row: Record<string, unknown>): Record<string, unknown> {
   const keep = new Set(['id', ...spec.allowedFields, ...spec.labelFields, ...(spec.parentIdFromField ? [spec.parentIdFromField] : [])])
   const out: Record<string, unknown> = {}
   for (const k of Array.from(keep)) if (k in row) out[k] = row[k]
   return out
 }
 
-export function buildTargetLabel(spec: ConfigWriteAreaSpec, row: Record<string, unknown> | null, entityId?: number): string {
+export function buildTargetLabel(spec: SnapshotSpec, row: Record<string, unknown> | null, entityId?: number | string): string {
   const parts = spec.labelFields.map((f) => row?.[f]).filter((v) => v != null && v !== '')
   const label = parts.length ? parts.map(String).join(' · ') : null
   return `${spec.label}${label ? `: ${label}` : ''}${entityId != null ? ` (id ${entityId})` : ''}`
@@ -311,6 +314,183 @@ export function buildDiff(
         : `~ ${k}: ${show(prev)} → ${show(v)}`
     })
     .join('\n')
+}
+
+// ---------------------------------------------------------------------------
+// UniFi tier-2 write areas (Cloud Connector Proxy → local Integration API)
+// ---------------------------------------------------------------------------
+//
+// Same allowlist idea as CONFIG_WRITE_AREAS, adapted to UniFi: string ids,
+// per-site collection paths, and risk labels. Every area below maps to a
+// write path documented in the OFFICIAL UniFi Network Integration API —
+// anything the official API cannot write (see docs/unifi-site-tools.md →
+// "Omitted") is deliberately absent. Single-target is structural: one
+// consoleId, one siteId, one targetId per staged change — no arrays.
+
+export type UnifiWriteRisk = 'low' | 'medium' | 'high'
+
+export interface UnifiWriteAreaSpec {
+  area: string
+  label: string
+  /** Integration-API collection path relative to /v1 (item path = collection + /{targetId}). */
+  collectionPath: (siteId: string) => string
+  operations: ConfigWriteOperation[]
+  allowedFields: string[]
+  requiredOnCreate?: string[]
+  labelFields: string[]
+  risk: UnifiWriteRisk
+}
+
+// Field lists below were extracted from the official UniFi Network API
+// OpenAPI spec, version 10.1.84 (developer.ui.com — the version that
+// introduced firewall policies and adopt/forget). NOT writable through the
+// official API and therefore absent here: port forwards, static routes,
+// port profiles, site/gateway settings, firmware triggers, WLAN passphrases
+// (securityConfiguration — a secret; the audit row must never store one),
+// and policy/rule reordering (an ordered id ARRAY — multi-target by
+// construction). Full omission list: docs/unifi-site-tools.md.
+export const UNIFI_WRITE_AREAS: Record<string, UnifiWriteAreaSpec> = {
+  unifi_firewall_policy: {
+    area: 'unifi_firewall_policy',
+    label: 'UniFi firewall policy',
+    collectionPath: (siteId) => `/sites/${encodeURIComponent(siteId)}/firewall/policies`,
+    operations: ['create', 'update', 'delete'],
+    allowedFields: ['enabled', 'name', 'description', 'action', 'source', 'destination', 'ipProtocolScope', 'connectionStateFilter', 'ipsecFilter', 'loggingEnabled', 'schedule'],
+    requiredOnCreate: ['enabled', 'name', 'action', 'source', 'destination', 'ipProtocolScope', 'loggingEnabled'],
+    labelFields: ['name'],
+    risk: 'high',
+  },
+  unifi_firewall_zone: {
+    area: 'unifi_firewall_zone',
+    label: 'UniFi firewall zone',
+    collectionPath: (siteId) => `/sites/${encodeURIComponent(siteId)}/firewall/zones`,
+    operations: ['create', 'update', 'delete'], // API allows deleting custom zones only
+    allowedFields: ['name', 'networkIds'],
+    requiredOnCreate: ['name', 'networkIds'],
+    labelFields: ['name'],
+    risk: 'high',
+  },
+  unifi_network: {
+    area: 'unifi_network',
+    label: 'UniFi network/VLAN',
+    collectionPath: (siteId) => `/sites/${encodeURIComponent(siteId)}/networks`,
+    operations: ['create', 'update', 'delete'],
+    allowedFields: ['management', 'name', 'enabled', 'vlanId', 'dhcpGuarding', 'isolationEnabled'],
+    requiredOnCreate: ['management', 'name', 'enabled', 'vlanId'],
+    labelFields: ['name'],
+    risk: 'high',
+  },
+  unifi_wlan: {
+    area: 'unifi_wlan',
+    label: 'UniFi WLAN (WiFi broadcast)',
+    collectionPath: (siteId) => `/sites/${encodeURIComponent(siteId)}/wifi/broadcasts`,
+    // No create: the API requires securityConfiguration on create, which
+    // carries the passphrase — a secret this gate must never persist.
+    operations: ['update', 'delete'],
+    allowedFields: ['name', 'enabled', 'hideName', 'clientIsolationEnabled', 'uapsdEnabled', 'multicastToUnicastConversionEnabled'],
+    labelFields: ['name'],
+    risk: 'high',
+  },
+  unifi_acl_rule: {
+    area: 'unifi_acl_rule',
+    label: 'UniFi ACL rule',
+    collectionPath: (siteId) => `/sites/${encodeURIComponent(siteId)}/acl-rules`,
+    operations: ['create', 'update', 'delete'],
+    allowedFields: ['type', 'enabled', 'name', 'description', 'action', 'enforcingDeviceFilter', 'index', 'sourceFilter', 'destinationFilter'],
+    requiredOnCreate: ['type', 'enabled', 'name', 'action'],
+    labelFields: ['name'],
+    risk: 'high',
+  },
+  unifi_dns_policy: {
+    area: 'unifi_dns_policy',
+    label: 'UniFi DNS policy',
+    collectionPath: (siteId) => `/sites/${encodeURIComponent(siteId)}/dns/policies`,
+    operations: ['create', 'update', 'delete'],
+    // Union of the record-type variants (A/AAAA/CNAME/MX/TXT/SRV/FORWARD_DOMAIN).
+    allowedFields: ['type', 'enabled', 'domain', 'ipv4Address', 'ipv6Address', 'targetDomain', 'mailServerDomain', 'priority', 'text', 'serverDomain', 'service', 'protocol', 'port', 'weight', 'ipAddress', 'ttlSeconds'],
+    requiredOnCreate: ['type', 'enabled'],
+    labelFields: ['domain', 'type'],
+    risk: 'medium',
+  },
+  unifi_traffic_matching_list: {
+    area: 'unifi_traffic_matching_list',
+    label: 'UniFi traffic matching list',
+    collectionPath: (siteId) => `/sites/${encodeURIComponent(siteId)}/traffic-matching-lists`,
+    operations: ['create', 'update', 'delete'],
+    allowedFields: ['type', 'name', 'items'],
+    requiredOnCreate: ['type', 'name'],
+    labelFields: ['name'],
+    risk: 'medium',
+  },
+  unifi_device_adoption: {
+    area: 'unifi_device_adoption',
+    label: 'UniFi device adoption',
+    collectionPath: (siteId) => `/sites/${encodeURIComponent(siteId)}/devices`,
+    operations: ['create', 'delete'], // create = adopt, delete = forget/unadopt
+    allowedFields: ['macAddress', 'ignoreDeviceLimit'],
+    requiredOnCreate: ['macAddress', 'ignoreDeviceLimit'],
+    labelFields: ['name', 'macAddress'],
+    risk: 'high',
+  },
+}
+
+export interface UnifiStagedChangeInput {
+  area: string
+  operation: ConfigWriteOperation
+  consoleId: string
+  siteId: string
+  targetId?: string
+  changes: Record<string, unknown>
+}
+
+/** Throws a caller-actionable error if the staged UniFi change is not allowed. */
+export function validateUnifiStagedChange(input: UnifiStagedChangeInput): UnifiWriteAreaSpec {
+  const spec = UNIFI_WRITE_AREAS[input.area]
+  if (!spec) {
+    throw new Error(`Unknown UniFi write area '${input.area}'. Writable areas: ${Object.keys(UNIFI_WRITE_AREAS).join(', ') || '(none)'}`)
+  }
+  if (!spec.operations.includes(input.operation)) {
+    throw new Error(`Operation '${input.operation}' is not supported for ${spec.area} (allowed: ${spec.operations.join(', ')}).`)
+  }
+  // Structural single-target rule: exactly one console, one site, one target.
+  if (typeof input.consoleId !== 'string' || !input.consoleId.trim()) {
+    throw new Error('consoleId is required (one console — resolve it with unifi_resolve_site).')
+  }
+  if (typeof input.siteId !== 'string' || !input.siteId.trim()) {
+    throw new Error('siteId is required (one site — resolve it with unifi_resolve_site).')
+  }
+  if (input.operation === 'update' || input.operation === 'delete') {
+    if (typeof input.targetId !== 'string' || !input.targetId.trim()) {
+      throw new Error(`${input.operation} requires targetId (the ${spec.label} id).`)
+    }
+  }
+  if (input.operation !== 'delete') {
+    const keys = Object.keys(input.changes ?? {})
+    if (!keys.length) throw new Error('changes must contain at least one field.')
+    const bad = keys.filter((k) => !spec.allowedFields.includes(k))
+    if (bad.length) {
+      throw new Error(`Field(s) not writable in ${spec.area}: ${bad.join(', ')}. Allowed: ${spec.allowedFields.join(', ')}`)
+    }
+  }
+  if (input.operation === 'create') {
+    const missing = (spec.requiredOnCreate ?? []).filter((k) => input.changes?.[k] == null)
+    if (missing.length) throw new Error(`create in ${spec.area} requires: ${missing.join(', ')}`)
+  }
+  return spec
+}
+
+/**
+ * The ConnectorStagedWrite row has no UniFi-shaped columns (entityId is Int),
+ * so the console + resource path are encoded into the entityPath string and
+ * parsed back on execute. Round-trip is unit-tested.
+ */
+export function buildUnifiEntityPath(consoleId: string, resourcePath: string): string {
+  return `consoles/${consoleId}${resourcePath}`
+}
+
+export function parseUnifiEntityPath(entityPath: string): { consoleId: string; resourcePath: string } | null {
+  const m = /^consoles\/([^/]+)(\/.+)$/.exec(entityPath)
+  return m ? { consoleId: m[1], resourcePath: m[2] } : null
 }
 
 /** Fields whose live value no longer matches the staged before-snapshot. */

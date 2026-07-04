@@ -148,10 +148,10 @@ export async function stageConfigWrite(
   }
 }
 
-export async function listStagedWrites(status?: string): Promise<Array<Record<string, unknown>>> {
+export async function listStagedWrites(status?: string, targetSystem?: string): Promise<Array<Record<string, unknown>>> {
   await expireOverdue()
   const rows = await prisma.connectorStagedWrite.findMany({
-    where: status ? { status } : undefined,
+    where: { ...(status ? { status } : {}), ...(targetSystem ? { targetSystem } : {}) },
     orderBy: { stagedAt: 'desc' },
     take: 50,
   })
@@ -215,6 +215,10 @@ export async function executeStagedWrite(id: string): Promise<ExecuteResult> {
   await expireOverdue()
   const row = await prisma.connectorStagedWrite.findUnique({ where: { id } })
   if (!row) throw new Error('Staged write not found.')
+  if (row.targetSystem === 'unifi') {
+    // Refuse BEFORE the single-use claim so the approved row isn't burned.
+    throw new Error('This staged write targets UniFi — execute it with unifi_execute_staged_write.')
+  }
   if (row.status !== 'approved') {
     throw new Error(
       row.status === 'pending_approval'
