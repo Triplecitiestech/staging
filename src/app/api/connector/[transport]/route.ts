@@ -18,6 +18,7 @@ import { registerWriteTools, resolveUserEmail } from '@/lib/mcp-write-tools'
 import { registerItGlueTools } from '@/lib/mcp-itglue-tools'
 import { registerConfigReadTools } from '@/lib/mcp-config-read-tools'
 import { registerConfigWriteTools } from '@/lib/mcp-config-write-tools'
+import { registerUnifiSiteTools } from '@/lib/mcp-unifi-site-tools'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -89,6 +90,12 @@ const handler = createMcpHandler(
     // ── IT Glue (docs/CMDB): reads + document & flexible-asset writes ──────
     // Never touches the /passwords resource.
     registerItGlueTools(server)
+
+    // ── UniFi per-site tools (Cloud Connector Proxy → local Integration API) ─
+    // Reads unrestricted (secret-redacted, typed errors); tier-1 actions and
+    // tier-2 staged config writes gated by CONNECTOR_UNIFI_WRITES_ENABLED.
+    // Single console / single site / single target by schema construction.
+    registerUnifiSiteTools(server)
   },
   {},
   { basePath: '/api/connector', maxDuration: 60, verboseLogs: false }
