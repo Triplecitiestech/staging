@@ -142,6 +142,14 @@ Primary external data source for companies, projects, phases, and tasks. The own
 
 ---
 
+## IT Glue Integration — Key Knowledge
+
+- **Document section writes land on the DRAFT, not the published version (2026-07-05)**: `POST/PATCH document-sections` (and therefore `itglue_add_document_section` / `itglue_update_document_section`) update the document's draft revision only. The published snapshot — what techs see in IT Glue and MyGlue — is untouched until the document is published (`PATCH /documents/{id}/publish`, exposed as `itglue_publish_document`). An "updated" SOP that skips the publish step still shows the old content to everyone. Learned the hard way updating the client offboarding SOPs: the API echoed the new content while the live page kept the 2024 version. Also note: the sections API reads the draft, so a read-back "verification" cannot detect the unpublished state — and publishing pushes the ENTIRE current draft live, including anyone's earlier unpublished edits.
+- **Archived documents still appear in our content index**: `itglue_doc_index` (and name search) can return documents that are archived in IT Glue, where techs won't find them in normal browsing. If an SOP update matters, confirm the target document isn't archived.
+- **IT Glue PATCH is destructive for flexible assets** — omitted traits are deleted; writes go GET-merge-PATCH (`updateFlexibleAsset`). Same class of quirk as the UniFi Integration API's full-object PUT.
+
+---
+
 ## M365 Multi-Tenant Onboarding
 
 Customer M365 integration supports two modes that coexist on the `companies` table:

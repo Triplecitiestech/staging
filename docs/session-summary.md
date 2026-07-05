@@ -69,6 +69,12 @@ A second session built a lighter variant of the same feature concurrently (env-a
 - **Tests**: 66 unit tests green (proxy error mapping/pagination/redaction, resolver never-guess matrix, no-array schema constraint, staged validation, entityPath round-trip, stage/execute lifecycle incl. drift + kill switch + burn-protection guard).
 - **Operator follow-ups**: set `CONNECTOR_UNIFI_WRITES_ENABLED=true` in Vercel when ready to enable writes; run the console probe for the firmware remediation list.
 
+## Connector follow-up: itglue_publish_document (2026-07-05) — same branch, second PR
+
+- **Bug class discovered in the field**: updated the client onboarding/offboarding SOPs in IT Glue via the connector (portal-first intake, Graphus→INKY) and the changes silently landed on the documents' DRAFT revisions — IT Glue's section-write API never touches the published version techs see, and the sections API reads the draft, so read-back verification can't detect it. Operator saw the old SOP live.
+- **Fix**: exposed the existing `ItGlueClient.publishDocument()` as a new `itglue_publish_document` MCP tool (with a caution that publishing pushes the whole current draft live), and the two section-edit tools now say so in their descriptions AND return an explicit "saved to DRAFT — publish required" note. Full lesson: `docs/gotchas.md` → IT Glue (new section; also covers archived-docs-in-index and the destructive-PATCH note).
+- **Docs affected this session** (operator publishing manually in the UI meanwhile): 15498871 (Client Employee Offboarding/Termination — also ARCHIVED in IT Glue, needs unarchive), 20377379 (Technician Tasks), 20377583 (Billing & License Reconciliation), 24206261 (new Client Employee Onboarding draft replacing the uneditable .docx).
+
 ## MCP connector: Autotask config visibility + gated config writes (2026-07-03) — branch `claude/autotask-config-visibility-gonrlg`
 
 - **Goal**: answer "how is X configured in our Autotask instance" live (statuses, categories, queues, billing codes, catalog, UDFs, hours/holidays, notification activity) and manage writable config behind a structural human gate.
