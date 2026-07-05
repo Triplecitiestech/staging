@@ -80,6 +80,8 @@ export interface ExchangeFinalizeContext {
   recipients: string[]
   /** Callback removes licenses after a confirmed conversion (keep_accessible) */
   deferLicenseRemoval: boolean
+  /** Manual fallback instruction computed at dispatch time (used on failure/timeout) */
+  manualInstruction?: string
 }
 
 /** Body the runbook POSTs back to /api/hr/exchange-callback */
@@ -361,6 +363,19 @@ export async function claimExchangeJob(jobId: string): Promise<ExchangeJobRow | 
   return (res.rows[0] as ExchangeJobRow | undefined) ?? null
 }
 
+/**
+ * Revert a claim after a processing crash so the runner's callback retry (or
+ * the reconcile cron) can pick the job up again instead of seeing a phantom
+ * in-flight state.
+ */
+export async function releaseExchangeJobClaim(jobId: string): Promise<void> {
+  const pool = getPool()
+  await pool.query(
+    `UPDATE hr_exchange_jobs SET status = 'dispatched', updated_at = NOW() WHERE id = $1 AND status = 'processing'`,
+    [jobId],
+  )
+}
+
 export async function completeExchangeJob(
   jobId: string,
   status: 'succeeded' | 'failed' | 'timed_out',
@@ -368,10 +383,12 @@ export async function completeExchangeJob(
   error?: string,
 ): Promise<void> {
   const pool = getPool()
+  // First terminal state wins — a racing cron timeout can never overwrite a
+  // completed result (or vice versa).
   await pool.query(
     `UPDATE hr_exchange_jobs
      SET status = $2, result = $3::jsonb, error = $4, completed_at = NOW(), updated_at = NOW()
-     WHERE id = $1`,
+     WHERE id = $1 AND status NOT IN ('succeeded', 'failed', 'timed_out')`,
     [jobId, status, result ? JSON.stringify(result) : null, error ?? null],
   )
 }
