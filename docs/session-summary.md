@@ -1,8 +1,20 @@
 # Session Summary
 
-> **Last updated**: 2026-07-03. MCP connector: Autotask CONFIG visibility (11 read tools + generic config query/capabilities) + structurally gated config-write tier (stage → human approval on /admin/connector/staged-writes → drift-checked execute).
-> **Branch**: `claude/autotask-config-visibility-gonrlg`.
+> **Last updated**: 2026-07-04. MCP connector: per-site UniFi tools via the Cloud Connector Proxy — resolver, ~18 reads, tier-1 attributed actions, tier-2 staged config writes through the existing human-approval gate.
+> **Branch**: `claude/unifi-mcp-connector-vrrzl4`.
 > **Detailed handoff**: see `docs/SESSION_HANDOFF.md` first — this file is the quick state-of-the-world reference.
+
+## MCP connector: per-site UniFi tools via Cloud Connector Proxy (2026-07-04) — branch `claude/unifi-mcp-connector-vrrzl4`
+
+- **Goal**: expose each site's LOCAL Network Integration API through the connector (validated live by the owner: `api.ui.com/v1/hosts` → per-console `/proxy/network/integration/v1/...`), one site at a time, with structural guardrails. Full reference: `docs/unifi-site-tools.md`.
+- **API surface verified first**: extracted Ubiquiti's official OpenAPI specs (developer.ui.com embeds `fullSpec` per Network version) and diffed 9.1.120 → 10.3.58. Hard boundaries (do not fake): no port forwards, static routes, locate/LED, client block/unblock/reconnect, events/alarms, site-health/ISP metrics, port profiles, gateway settings, or firmware triggers in the official API. Firewall policies / DNS policies / adopt-forget need Network app ≥ 10.1.84; networks/WLANs/zones/ACL ≥ 10.0.162. Field notes: `docs/gotchas.md` → UniFi.
+- **New typed proxy client** `src/lib/ubiquiti-proxy.ts` (`ubiquiti.ts` untouched): throws `UnifiProxyError` with codes (AUTH_FAILED / CONSOLE_OFFLINE / FIRMWARE_UNSUPPORTED / NOT_FOUND / RATE_LIMITED honoring Retry-After / TIMEOUT / BAD_REQUEST / UPSTREAM_ERROR) so offline ≠ empty; offset/limit pagination with explicit `truncated`; deep `redactSecrets()` (passphrases/PPSK/RADIUS).
+- **Tools** (`src/lib/mcp-unifi-site-tools.ts`, registered in the connector route): `unifi_resolve_site` (fuzzy console match + local site list; returns candidates on ambiguity — never guesses), `unifi_console_capabilities`, `unifi_probe_consoles` (fleet firmware-remediation buckets; script twin `scripts/probe-unifi-consoles.ts`), ~18 per-site reads (devices/detail/stats, pending devices, clients/detail, networks + references, WLANs, firewall zones/policies/detail/ordering-read, ACL, DNS, traffic lists, vouchers, WAN/VPN/RADIUS). Tier-1 writes (restart device, PoE port power-cycle, guest authorize/unauthorize, voucher create ≤10/delete-one) execute immediately, attributed to the signed-in tech via structured logs. Tier-2 config writes (areas: firewall policy/zone, network, WLAN edit/delete, ACL, DNS, traffic list, adopt/forget — risk-labelled) go through the SAME `ConnectorStagedWrite` gate: `unifi_stage_config_write` (never writes; redacted snapshot + diff + `/references` warning on network deletes) → human approves at `/admin/connector/staged-writes` → `unifi_execute_staged_write` (drift-checked, single-use, GET→merge→PUT because the API replaces objects on PUT). WLAN create/passphrase deliberately omitted (secret would persist in the audit row).
+- **Guardrails structural**: every write schema = one consoleId + one siteId + one target (no arrays — unit-tested); kill switch `CONNECTOR_UNIFI_WRITES_ENABLED` gates BOTH tiers (reads unaffected); each execute tool refuses the other system's staged rows BEFORE the single-use claim.
+- **No DB migration needed**: UniFi rows reuse `connector_staged_writes` (`targetSystem='unifi'`, string target encoded in `entityPath`). Admin approval UI: risk badges generalized (high/medium), copy now says Autotask + UniFi.
+- **vercel.json**: explicit `maxDuration: 60` for the connector route (was ambiguous vs the 30s `api/**` wildcard).
+- **Tests**: 66 unit tests green (proxy error mapping/pagination/redaction, resolver never-guess matrix, no-array schema constraint, staged validation, entityPath round-trip, stage/execute lifecycle incl. drift + kill switch + burn-protection guard).
+- **Operator follow-ups**: set `CONNECTOR_UNIFI_WRITES_ENABLED=true` in Vercel when ready to enable writes; run the console probe for the firmware remediation list.
 
 ## MCP connector: Autotask config visibility + gated config writes (2026-07-03) — branch `claude/autotask-config-visibility-gonrlg`
 

@@ -24,6 +24,18 @@ interface StagedWrite {
   error: string | null
 }
 
+const RISK_STYLES: Record<string, string> = {
+  billing: 'bg-rose-500/15 text-rose-300 border-rose-500/40',
+  medium: 'bg-violet-500/15 text-violet-300 border-violet-500/40',
+  high: 'bg-red-500/15 text-red-300 border-red-500/40',
+}
+
+const RISK_LABELS: Record<string, string> = {
+  billing: 'billing-sensitive',
+  medium: 'medium risk',
+  high: 'high risk',
+}
+
 const STATUS_STYLES: Record<string, string> = {
   pending_approval: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/40',
   approved: 'bg-violet-500/15 text-violet-300 border-violet-500/40',
@@ -92,8 +104,8 @@ export default function StagedWritesPage() {
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-white">Connector Config Writes</h1>
           <p className="text-slate-400 mt-2 text-sm md:text-base">
-            Autotask configuration changes staged by the AI connector. Nothing is written until a staff
-            member approves it here; execution then re-checks the live record and aborts on drift.
+            Autotask and UniFi configuration changes staged by the AI connector. Nothing is written until a
+            staff member approves it here; execution then re-checks the live record and aborts on drift.
           </p>
         </div>
 
@@ -160,9 +172,9 @@ function WriteCard({ write, children }: { write: StagedWrite; children?: React.R
         <span className="text-xs px-2 py-0.5 rounded-full border bg-slate-500/15 text-slate-300 border-slate-500/40">
           {write.operation} · {write.area}
         </span>
-        {write.risk === 'billing' && (
-          <span className="text-xs px-2 py-0.5 rounded-full border bg-rose-500/15 text-rose-300 border-rose-500/40">
-            billing-sensitive
+        {write.risk !== 'low' && (
+          <span className={`text-xs px-2 py-0.5 rounded-full border ${RISK_STYLES[write.risk] ?? RISK_STYLES.high}`}>
+            {RISK_LABELS[write.risk] ?? `${write.risk} risk`}
           </span>
         )}
       </div>

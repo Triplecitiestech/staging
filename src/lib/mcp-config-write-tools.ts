@@ -61,7 +61,8 @@ export function registerConfigWriteTools(server: any) {
       inputSchema: { status: z.string().optional().describe('Filter by status, e.g. pending_approval or approved') },
     },
     async ({ status }: { status?: string }) => {
-      try { return ok(await listStagedWrites(status)) } catch (e) { return fail(e) }
+      // Scoped to Autotask+overlay rows — UniFi rows have their own tools.
+      try { return ok(await listStagedWrites(status, ['autotask', 'overlay'])) } catch (e) { return fail(e) }
     }
   )
 
@@ -86,7 +87,7 @@ export function registerConfigWriteTools(server: any) {
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async ({ stagedWriteId }: any, extra: any) => {
-      try { return ok(await cancelStagedWrite(stagedWriteId, emailOf(extra) ?? 'unknown')) } catch (e) { return fail(e) }
+      try { return ok(await cancelStagedWrite(stagedWriteId, emailOf(extra) ?? 'unknown', ['autotask', 'overlay'])) } catch (e) { return fail(e) }
     }
   )
 }
