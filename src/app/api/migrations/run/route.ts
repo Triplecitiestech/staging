@@ -649,6 +649,94 @@ export async function POST(request: Request) {
       results.push(`⚠️ connector_config_overlays: ${err.message}`)
     }
 
+    // Exchange Online automation: per-tenant enablement + async runner jobs.
+    // snake_case like all HR/M365 tables (docs/gotchas.md -> Database rules).
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS exo_tenant_config (
+          company_id TEXT PRIMARY KEY,
+          company_slug TEXT UNIQUE NOT NULL,
+          tenant_id TEXT NOT NULL,
+          organization_domain TEXT NOT NULL,
+          enabled BOOLEAN NOT NULL DEFAULT FALSE,
+          enabled_at TIMESTAMPTZ,
+          enabled_by TEXT,
+          last_probe_at TIMESTAMPTZ,
+          last_probe_result JSONB,
+          notes TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `)
+      results.push('✅ exo_tenant_config table')
+    } catch (error) {
+      const err = error as Error
+      results.push(`⚠️ exo_tenant_config: ${err.message}`)
+    }
+
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hr_exchange_jobs (
+          id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+          hr_request_id TEXT,
+          company_id TEXT,
+          company_slug TEXT NOT NULL,
+          job_type TEXT NOT NULL,
+          step_key TEXT,
+          status TEXT NOT NULL DEFAULT 'pending',
+          payload JSONB,
+          finalize_context JSONB,
+          azure_job_ids JSONB,
+          result JSONB,
+          error TEXT,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          dispatched_at TIMESTAMPTZ,
+          completed_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `)
+      await client.query(
+        'CREATE INDEX IF NOT EXISTS hr_exchange_jobs_status_idx ON hr_exchange_jobs (status, dispatched_at)'
+      )
+      await client.query(
+        'CREATE INDEX IF NOT EXISTS hr_exchange_jobs_request_idx ON hr_exchange_jobs (hr_request_id)'
+      )
+      results.push('✅ hr_exchange_jobs table')
+    } catch (error) {
+      const err = error as Error
+      results.push(`⚠️ hr_exchange_jobs: ${err.message}`)
+    }
+
+    // hr_request_steps previously had NO ensure-path anywhere (it exists in
+    // prod but only the Prisma model described it) — mirror the Prisma model
+    // so fresh environments and preview DBs self-heal.
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hr_request_steps (
+          id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+          request_id TEXT NOT NULL,
+          step_key TEXT NOT NULL,
+          step_name TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending',
+          attempt INTEGER NOT NULL DEFAULT 1,
+          input JSONB,
+          output JSONB,
+          error JSONB,
+          started_at TIMESTAMPTZ,
+          completed_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `)
+      await client.query(
+        'CREATE INDEX IF NOT EXISTS hr_request_steps_request_idx ON hr_request_steps (request_id)'
+      )
+      results.push('✅ hr_request_steps table (ensure-path)')
+    } catch (error) {
+      const err = error as Error
+      results.push(`⚠️ hr_request_steps: ${err.message}`)
+    }
+
     await client.end()
 
     return NextResponse.json({
