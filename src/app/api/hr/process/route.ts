@@ -9,6 +9,12 @@ import {
 } from '@/lib/graph'
 import { pax8, type Pax8Subscription, type Pax8Company, SKU_TO_PAX8_PRODUCT } from '@/lib/pax8'
 import type { GraphLicenseSku } from '@/lib/graph'
+import {
+  deriveRequestedOffboardingActions,
+  reconcileOffboardingActions,
+  parseSharedMailboxRecipients,
+  DELETE_AFTER_HOLD_VALUES,
+} from '@/lib/hr/offboarding-actions'
 
 // Pax8 license procurement can poll for up to 5 minutes
 export const maxDuration = 300
@@ -93,18 +99,27 @@ const VALUE_LABELS: Record<string, Record<string, string>> = {
     end_of_day: 'End of Business Day',
     scheduled: 'Scheduled Date (see Last Day field)',
     already_gone: 'Employee Has Already Left',
+    standard: 'Standard — process on last working day',
+    planned_departure: 'Planned Departure — process on last working day',
   },
   data_handling: {
     keep_accessible: 'Convert to Shared Mailbox — Keep Accessible',
     forward_to_manager: 'Forward Email to Manager',
     forward_to_specific: 'Forward Email to Specific Person',
     delete_after_backup: 'Delete After Backup',
+    delete_after_30: 'Delete Account After 30-Day Hold',
+    delete_after_30_days: 'Delete After 30-Day Retention',
+    transfer_to_manager: 'Transfer All Data to Manager',
     no_action: 'No Action Needed',
   },
   device_handling: {
     return_to_office: 'Return Device to Office',
     ship_to_office: 'Ship Device to Office',
     wipe_remote: 'Remote Wipe',
+    remote_wipe: 'Remote Wipe',
+    wipe: 'Remote Wipe All Managed Devices',
+    return: 'Return Device to Office',
+    keep: 'Employee Keeps Device (remove company data only)',
     keep_device: 'Employee Keeps Device (BYOD)',
     no_device: 'No Company Device',
   },
@@ -259,7 +274,7 @@ async function tryPax8AutoProcure(
           subscriptionId: subscription.id,
           previousQuantity,
           newQuantity,
-          error: `Pax8 seat added (${previousQuantity} → ${newQuantity}) but Microsoft license not available after 5 min polling. License assignment may still succeed if retried later.`,
+          error: `Pax8 seat added (${previousQuantity} -> ${newQuantity}) but Microsoft license not available after 5 min polling. License assignment may still succeed if retried later.`,
         }
       }
     } else {
@@ -1436,7 +1451,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                 })
               stepsCompleted.push('clone_permissions')
               const skippedNoteLines = skippedClonedGroupNames.length > 0
-                ? ['', 'Skipped (dynamic/protected/error):', ...skippedClonedGroupNames.map(s => `  ⊘ ${s.name} — ${s.reason}`)]
+                ? ['', 'Skipped (dynamic/protected/error):', ...skippedClonedGroupNames.map(s => `  [SKIPPED] ${s.name} — ${s.reason}`)]
                 : []
               await addTicketNote('Permissions Cloned',
                 [`Source: ${a.clone_from_user}`, `Groups cloned: ${cloneSuccessCount}/${addableGroups.length}`, ...skippedNoteLines].join('\n'))
@@ -1620,7 +1635,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             }
             if (failedClonedLicenses.length > 0) {
               resultLines.push(`Cloned Licenses — FAILED (${failedClonedLicenses.length}):`)
-              for (const f of failedClonedLicenses) resultLines.push(`  ⚠ ${f.name} — ${f.reason}`)
+              for (const f of failedClonedLicenses) resultLines.push(`  [FAILED] ${f.name} — ${f.reason}`)
             }
 
             // Groups added — use display names
@@ -1933,6 +1948,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                   id: ticketId,
                   Title: `[OFFBOARDING] Employee Termination: ${fullName}`,
                 }),
+                signal: AbortSignal.timeout(15_000),
               })
             } catch {
               // Non-fatal — title was already set with UPN fallback
@@ -2103,8 +2119,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
             const groupNoteLines = [
               `Removed from ${removedGroupCount}/${removableGroups.length} groups:`,
-              ...removedGroupNames.map(n => `  ✓ ${n}`),
-              ...(skippedGroupNames.length > 0 ? ['Skipped (dynamic/protected):', ...skippedGroupNames.map(n => `  ⊘ ${n}`)] : []),
+              ...removedGroupNames.map(n => `  [OK] ${n}`),
+              ...(skippedGroupNames.length > 0 ? ['Skipped (dynamic/protected):', ...skippedGroupNames.map(n => `  [SKIPPED] ${n}`)] : []),
             ]
             await addTicketNote('Removed from Groups', groupNoteLines.join('\n'))
           } catch (err) {
@@ -2137,7 +2153,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             stepsCompleted.push('remove_licenses')
 
             const licNoteLines = removedLicenseCount > 0
-              ? [`Removed ${removedLicenseCount} license(s):`, ...removedLicenseNames.map(n => `  ✓ ${n}`)]
+              ? [`Removed ${removedLicenseCount} license(s):`, ...removedLicenseNames.map(n => `  [OK] ${n}`)]
               : ['No licenses were assigned to this user.']
             await addTicketNote('Licenses Removed', licNoteLines.join('\n'))
           } catch (err) {
@@ -2148,33 +2164,32 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             await addTicketNote('License Removal Failed', `Error: ${msg}`)
           }
 
-          // Build provisioning results for ticket
-          if (primaryActionSucceeded) {
-            // Determine manual steps for TCT staff
-            // Shared mailbox access requires manual configuration via Exchange Admin
-            const sharedMailboxUsers = Array.isArray(answers.shared_mailbox_access)
-              ? (answers.shared_mailbox_access as string[])
-              : []
-            if (a.data_handling === 'keep_accessible' && sharedMailboxUsers.length > 0) {
-              manualSteps.push(
-                `Grant shared mailbox access for ${targetUpn} to: ${sharedMailboxUsers.join(', ')} (Exchange Admin Center → Shared Mailboxes)`
-              )
-            }
-            if (a.data_handling === 'forward_to_manager' || a.data_handling === 'forward_to_specific') {
-              if (a.forward_email_to) {
-                manualSteps.push(`Verify email forwarding is active: ${targetUpn} → ${a.forward_email_to}`)
-              }
-            }
+          // Build provisioning results for ticket. Runs even when the primary
+          // action (account disable) failed, so partial failures still get a
+          // complete outcome record instead of ending with scattered notes.
+          if (ticketId) {
+            // Reconcile EVERY action requested on the form against what
+            // actually executed. Actions the pipeline cannot automate
+            // (shared-mailbox conversion, email forwarding, device handling —
+            // Exchange admin operations with no Graph API) become explicit
+            // [MANUAL] result lines + NEXT STEPS items; an automated step that
+            // neither completed nor failed is flagged [NOT RUN]. This is the
+            // structural guarantee that a requested action can never again be
+            // silently omitted from the ticket record (ticket T20260704.0004:
+            // "convert to shared mailbox" was neither executed nor mentioned).
+            const requestedActions = deriveRequestedOffboardingActions(answers, targetUpn ?? workEmail)
+            const reconciliation = reconcileOffboardingActions(requestedActions, stepsCompleted, failedSteps)
+            manualSteps.push(...reconciliation.manualInstructions)
             if (a.additional_notes && a.additional_notes.trim()) {
               manualSteps.push(`Review additional notes/other systems access — see "ADDITIONAL NOTES" section above`)
             }
             // Map failed step keys to clear manual action descriptions
             const failedStepDescriptions: Record<string, string> = {
               find_user: `Manually locate user account for ${workEmail} in Azure AD`,
-              revoke_sessions: `Manually revoke active sessions for ${targetUpn || workEmail} via Azure AD → Users → Revoke Sessions`,
-              disable_account: `Manually disable account ${targetUpn || workEmail} in Azure AD → Users → Block Sign-in`,
+              revoke_sessions: `Manually revoke active sessions for ${targetUpn || workEmail} via Azure AD -> Users -> Revoke Sessions`,
+              disable_account: `Manually disable account ${targetUpn || workEmail} in Azure AD -> Users -> Block Sign-in`,
               remove_groups: `Manually remove ${targetUpn || workEmail} from all groups/distribution lists in Azure AD`,
-              remove_licenses: `Manually remove all licenses from ${targetUpn || workEmail} in Microsoft 365 Admin Center → Licenses`,
+              remove_licenses: `Manually remove all licenses from ${targetUpn || workEmail} in Microsoft 365 Admin Center -> Licenses`,
               transfer_onedrive: `Manually share OneDrive files from ${targetUpn || workEmail} to ${a.transfer_files_to || a.transfer_onedrive_to || 'designated recipient'} via OneDrive Admin`,
               archive_onedrive: `Manually archive OneDrive files from ${targetUpn || workEmail} to HR SharePoint site`,
               load_m365_creds: 'Configure M365 credentials for this company in the admin portal before retrying',
@@ -2187,8 +2202,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             const resultLines = [
               '',
               '=== PROVISIONING RESULTS ===',
-              `Account: ${targetUpn}`,
-              'Action: Account disabled',
+              `Account: ${targetUpn ?? workEmail}`,
+              '',
+              'Requested actions — outcome of each:',
+              ...reconciliation.statusLines.map(l => `  ${l}`),
+              reconciliation.unaccountedKeys.length > 0
+                ? `\nATTENTION: ${reconciliation.unaccountedKeys.length} requested action(s) did not execute (marked NOT RUN above) — complete them manually and investigate the automation run.`
+                : null,
               '',
               `Groups Removed (${removedGroupCount}):`,
               ...(removedGroupNames.length > 0 ? removedGroupNames.map(n => `  - ${n}`) : ['  (none)']),
@@ -2200,19 +2220,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               oneDriveTransferredTo ? `OneDrive Shared With: ${oneDriveTransferredTo}` : null,
               archiveFolderUrl ? `OneDrive Archived: ${archivedFileCount} items copied to HR SharePoint` : null,
               archiveFolderUrl ? `Archive Folder: ${archiveFolderUrl}` : null,
-              failedSteps.length > 0 ? `\nFailed Steps:\n${failedSteps.map(s => {
-                const humanNames: Record<string, string> = {
-                  find_user: 'Find User',
-                  revoke_sessions: 'Revoke Sessions',
-                  disable_account: 'Disable Account',
-                  remove_groups: 'Remove from Groups',
-                  remove_licenses: 'Remove Licenses',
-                  transfer_onedrive: 'Transfer OneDrive Files',
-                  archive_onedrive: 'Archive OneDrive to SharePoint',
-                  load_m365_creds: 'Load M365 Credentials',
-                }
-                return `  - ${humanNames[s] ?? s}`
-              }).join('\n')}` : null,
               failedSteps.length > 0
                 ? 'Status: Completed with errors — manual steps required'
                 : manualSteps.length > 0
@@ -2225,18 +2232,30 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                 : ['  None — all steps completed automatically.']),
             ].filter(Boolean).join('\n')
 
-            // PATCH ticket description
+            // PATCH ticket description — if it fails, fall back to an internal
+            // note so the full outcome record is always somewhere on the ticket.
+            let descriptionPatchOk = false
             try {
-              await fetch(`${baseUrl}/V1.0/Tickets`, {
+              const patchRes = await fetch(`${baseUrl}/V1.0/Tickets`, {
                 method: 'PATCH',
                 headers: autotaskHeaders,
                 body: JSON.stringify({
                   id: ticketId,
                   description: originalDescription + '\n\n' + resultLines,
                 }),
+                signal: AbortSignal.timeout(15_000),
               })
+              if (patchRes.ok) {
+                descriptionPatchOk = true
+              } else {
+                const errText = await patchRes.text().catch(() => '')
+                console.warn(`[hr/process] Ticket description PATCH returned ${patchRes.status}: ${errText}`)
+              }
             } catch (err) {
               console.warn('[hr/process] Failed to update ticket description:', err instanceof Error ? err.message : err)
+            }
+            if (!descriptionPatchOk) {
+              await addTicketNote('Provisioning Results (description update failed)', resultLines, 2)
             }
 
             // Internal note for manual steps
@@ -2246,11 +2265,35 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                 manualSteps.map(s => `• ${s}`).join('\n'), 2)
             }
 
+            // Customer-facing status of requested-but-not-yet-done work, so the
+            // requester is never left believing a pending step already happened.
+            const customerPendingLines: string[] = []
+            if (requestedActions.some(s => s.key === 'convert_shared_mailbox')) {
+              const mailboxRecipients = parseSharedMailboxRecipients(answers)
+              customerPendingLines.push(
+                mailboxRecipients.length > 0
+                  ? `Mailbox conversion to a shared mailbox (with access for ${mailboxRecipients.join(', ')}) is PENDING — our team completes this step manually and will confirm when done.`
+                  : 'Mailbox conversion to a shared mailbox is PENDING — our team will confirm who should receive access before completing it.'
+              )
+            }
+            if (requestedActions.some(s => s.key === 'setup_forwarding')) {
+              const fwdTo = a.forward_email_to || a.forward_email
+              customerPendingLines.push(
+                fwdTo
+                  ? `Email forwarding to ${fwdTo} is PENDING — our team sets this up manually and will confirm when done.`
+                  : 'Email forwarding is PENDING — our team will confirm the forwarding recipient before setting it up.'
+              )
+            }
+
             // Final customer-visible note — list specifics
             const noteLines: (string | null)[] = [
-              `Employee ${fullName} has been offboarded:`,
+              primaryActionSucceeded
+                ? `Employee ${fullName} has been offboarded:`
+                : `Offboarding for ${fullName || targetUpn} ran with errors — our team has been alerted and will complete the remaining steps:`,
               '',
-              `Account ${targetUpn} has been disabled.`,
+              primaryActionSucceeded
+                ? `Account ${targetUpn} has been disabled.`
+                : `Account ${targetUpn}: automatic disable FAILED — our team will disable it manually as a priority.`,
             ]
             // List removed groups by name
             if (removedGroupNames.length > 0) {
@@ -2276,6 +2319,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             noteLines.push(
               oneDriveTransferredTo ? `\nOneDrive files shared with ${oneDriveTransferredTo}.` : null,
               archiveFolderUrl ? `OneDrive files copied to HR SharePoint (${archivedFileCount} items).` : null,
+            )
+            if (customerPendingLines.length > 0) {
+              noteLines.push('', 'Still in progress:')
+              for (const pl of customerPendingLines) noteLines.push(`  - ${pl}`)
+            }
+            noteLines.push(
               '',
               manualSteps.length > 0
                 ? 'Some steps require manual action by our team. We will follow up shortly.'
@@ -2301,7 +2350,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                     '',
                     `The offboarding for ${employeeName} at ${companyName} has been ${manualSteps.length > 0 ? 'partially completed' : 'completed'}.`,
                     '',
-                    `Account ${targetUpn} has been disabled.`,
+                    primaryActionSucceeded
+                      ? `Account ${targetUpn} has been disabled.`
+                      : `Account ${targetUpn}: automatic disable FAILED — our team will disable it manually as a priority.`,
                   ]
                   // List removed groups by name
                   if (removedGroupNames.length > 0) {
@@ -2321,6 +2372,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                     archiveFolderUrl ? `OneDrive files copied to HR SharePoint (${archivedFileCount} items).` : null,
                     archiveFolderUrl ? `Archive location: ${archiveFolderUrl}` : null,
                   )
+                  if (customerPendingLines.length > 0) {
+                    emailLines.push('', 'Still in progress:')
+                    for (const pl of customerPendingLines) emailLines.push(`  - ${pl}`)
+                  }
                   // List manual steps that are still pending
                   if (manualSteps.length > 0) {
                     emailLines.push('', 'The following steps still require action by our team:')
@@ -2348,13 +2403,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               console.warn('[hr/process] RESEND_API_KEY not set — skipping email notification')
             }
 
-            // Close ticket if all automated, escalate if manual steps remain
-            if (manualSteps.length === 0) {
+            // Close ticket only when everything succeeded and nothing manual
+            // remains; escalate whenever a human still has work to do
+            if (manualSteps.length === 0 && failedSteps.length === 0 && primaryActionSucceeded) {
               try {
                 await fetch(`${baseUrl}/V1.0/Tickets`, {
                   method: 'PATCH',
                   headers: autotaskHeaders,
                   body: JSON.stringify({ id: ticketId, status: 5 }),
+                  signal: AbortSignal.timeout(15_000),
                 })
               } catch (err) {
                 console.warn('[hr/process] Failed to close ticket:', err instanceof Error ? err.message : err)
@@ -2366,22 +2423,50 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                   method: 'PATCH',
                   headers: autotaskHeaders,
                   body: JSON.stringify({ id: ticketId, priority: 3 }), // High priority
+                  signal: AbortSignal.timeout(15_000),
                 })
               } catch (err) {
                 console.warn('[hr/process] Failed to escalate ticket:', err instanceof Error ? err.message : err)
               }
             }
           }
+        } else if (ticketId) {
+          // User lookup failed — NO automated offboarding actions could run.
+          // Post the full requested-action reconciliation so the ticket still
+          // carries a complete manual checklist, not just a lookup error.
+          const requestedActions = deriveRequestedOffboardingActions(answers, workEmail)
+          const reconciliation = reconcileOffboardingActions(requestedActions, stepsCompleted, failedSteps)
+          await addTicketNote('Offboarding NOT Executed — Manual Completion Required',
+            [
+              `The user account for ${workEmail} could not be located, so no automated offboarding actions ran.`,
+              '',
+              'Requested actions — every item below must be completed manually:',
+              ...reconciliation.statusLines.map(l => `  ${l}`),
+              '',
+              'See the "User Lookup Failed" note for the lookup error. Verify the address and re-submit the request, or complete the actions manually.',
+            ].join('\n'), 2)
+          try {
+            await fetch(`${baseUrl}/V1.0/Tickets`, {
+              method: 'PATCH',
+              headers: autotaskHeaders,
+              body: JSON.stringify({ id: ticketId, priority: 3 }), // High priority
+              signal: AbortSignal.timeout(15_000),
+            })
+          } catch (err) {
+            console.warn('[hr/process] Failed to escalate ticket:', err instanceof Error ? err.message : err)
+          }
         }
       }
     }
 
     // -----------------------------------------------------------------
-    // Schedule account deletion if data_handling === 'delete_after_backup'
+    // Schedule account deletion if the form requested delete-after-hold
     // -----------------------------------------------------------------
     if (hrRequest.type === 'offboarding' && primaryActionSucceeded) {
       const a = answers as Record<string, string>
-      if (a.data_handling === 'delete_after_backup') {
+      // Match every schema generation's "delete after 30-day hold" value —
+      // the live form submits 'delete_after_30', not 'delete_after_backup'
+      if (a.data_handling && DELETE_AFTER_HOLD_VALUES.includes(a.data_handling)) {
         // Read target info from the DB (set during offboarding processing above)
         const targetRes = await client.query<{ target_user_id: string | null; target_upn: string | null; autotask_ticket_id: number | null }>(
           `SELECT target_user_id, target_upn, autotask_ticket_id FROM hr_requests WHERE id = $1`,
@@ -2415,6 +2500,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             }
           } catch (err) {
             console.warn('[hr/process] Failed to set scheduled deletion date:', err instanceof Error ? err.message : err)
+            // The results record reported this as QUEUED — post the failure so
+            // the ticket never silently drops the requested deletion
+            await addTicketNote('Account Deletion Scheduling FAILED',
+              `Could not schedule the 30-day account deletion for ${reqData.target_upn}: ${err instanceof Error ? err.message : String(err)}\n` +
+              'Schedule the deletion manually or re-run this request.', 2)
           }
         }
       }
@@ -2441,7 +2531,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         hrRequest.id,
         finalStatus,
         errorMsg,
-        stepsCompleted.length > 0 ? JSON.stringify({ completedActions: stepsCompleted, failedActions: failedSteps }) : null,
+        stepsCompleted.length > 0
+          ? JSON.stringify({ completedActions: stepsCompleted, failedActions: failedSteps, manualActions: manualSteps })
+          : null,
       ]
     )
 
