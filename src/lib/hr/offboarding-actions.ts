@@ -131,9 +131,10 @@ export function deriveRequestedOffboardingActions(
           : 'Convert mailbox to shared (no access recipients specified on the form)',
       automated: false,
       manualInstruction:
-        recipients.length > 0
+        (recipients.length > 0
           ? `Convert the mailbox for ${target} to a SHARED mailbox (Microsoft 365 admin center -> Active users -> ${target} -> Mail -> Convert to shared mailbox), then grant Read and manage + Send as access to: ${recipients.join(', ')} (Exchange admin center -> Recipients -> Mailboxes -> mailbox delegation). This cannot be automated via the Microsoft Graph API.`
-          : `Convert the mailbox for ${target} to a SHARED mailbox (Microsoft 365 admin center -> Active users -> ${target} -> Mail -> Convert to shared mailbox). The form did not specify who should receive access — confirm with the requester before granting delegation.`,
+          : `Convert the mailbox for ${target} to a SHARED mailbox (Microsoft 365 admin center -> Active users -> ${target} -> Mail -> Convert to shared mailbox). The form did not specify who should receive access — confirm with the requester before granting delegation.`) +
+        ' Do this promptly: the license has already been removed, so if the conversion is blocked, temporarily re-assign a license, convert, then remove the license again.',
     })
   }
 

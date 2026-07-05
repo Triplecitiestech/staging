@@ -238,6 +238,17 @@ The customer portal is at `/onboarding/[companyName]`. Key components:
 
 ---
 
+## HR Onboarding/Offboarding Automation (`/api/hr/process`)
+
+- **Every requested action must appear in the ticket record — reconcile, don't accumulate.** The 2026-07-05 incident (ticket T20260704.0004): "convert to shared mailbox" was requested, but the pipeline had no automated step for it and the only logging path was gated on `shared_mailbox_access` being a non-empty array — the action was neither executed nor mentioned anywhere. Fix: `src/lib/hr/offboarding-actions.ts` derives the full requested-action list from the answers and reconciles it against executed/failed step keys; every action renders in PROVISIONING RESULTS as `[DONE]/[FAILED]/[MANUAL]/[QUEUED]/[NOT RUN]`, and un-run automated steps force a manual step + escalation. **When adding a new offboarding capability or form field, add it to `deriveRequestedOffboardingActions()` — never only to the pipeline.**
+- **Microsoft Graph cannot convert a mailbox to shared, set mailbox forwarding (`Set-Mailbox`-style), or grant mailbox Full Access** — those are Exchange admin center / Exchange Online PowerShell operations. Anything the form offers that needs them MUST surface as an explicit `[MANUAL]` outcome + NEXT STEPS instruction. Techs must convert promptly after offboarding (license is already removed; if conversion is blocked, temporarily re-assign a license, convert, remove again).
+- **Form schema values drift across generations** — three schema generations exist (seed SQL, question-engine seed, `/api/forms/config` migrations): e.g. delete-after-hold is `delete_after_backup` vs `delete_after_30` vs `delete_after_30_days`; devices are `wipe_remote`/`remote_wipe`/`wipe`. The processor matched only one value and 30-day deletion scheduling silently never fired for the live schema. Match ALL generations (see `DELETE_AFTER_HOLD_VALUES`) and keep `VALUE_LABELS` in sync when adding options.
+- **Autotask notes/descriptions mangle non-Windows-1252 glyphs** — `✓`, `⊘`, `→`, `⚠` render as `?` in ticket notes (confirmed live). Use ASCII markers (`[OK]`, `[SKIPPED]`, `->`); `—` and `•` are CP1252-safe and fine.
+- **`automation_mappings` (question-engine) is seed-only** — nothing reads it at execution time; the process route is a hardcoded pipeline. Its `convert_to_shared`/`setMailForwarding` graph methods were never implemented (and can't be, per the Graph limitation above). Don't treat those mappings as evidence a capability exists.
+- The old Microsoft Forms onboarding/offboarding forms are retired; IT Glue SOPs (docs 16573760, 14639952, 20377379 in org 6942365) were rewritten 2026-07-05 to portal-first intake + the PROVISIONING RESULTS checklist workflow.
+
+---
+
 ## CFO Dashboard (Financial) — `/admin/cfo`
 
 Internal staff-only financial dashboard. Combines **Sequence** (banking — pods, transfers, rules) + **QuickBooks Online** (accrual — Balance Sheet, P&L, AR aging). Pages: `/admin/cfo` (dashboard), `/admin/cfo/settings` (QB connect, debts, scheduled outflows, QB/AR snapshots, category overrides), `/admin/cfo/hiring` (loaded-cost hiring calculator). All `src/lib/cfo/` + `src/components/cfo/` + `src/app/api/admin/cfo/*` + `/api/cron/cfo-rebuild`.
