@@ -86,6 +86,22 @@ export const DELETE_AFTER_HOLD_VALUES = ['delete_after_backup', 'delete_after_30
 const WIPE_DEVICE_VALUES = ['wipe_remote', 'remote_wipe', 'wipe']
 const RETURN_DEVICE_VALUES = ['return_to_office', 'ship_to_office', 'return']
 
+export interface DeriveOffboardingOptions {
+  /**
+   * True when Exchange Online automation is enabled for this tenant — the
+   * shared-mailbox conversion becomes an automated step (key
+   * `convert_shared_mailbox`, executed via the Azure Automation runner)
+   * instead of a permanent [MANUAL] outcome.
+   */
+  conversionAutomated?: boolean
+  /**
+   * True when license removal was intentionally NOT run because the mailbox
+   * must still be licensed to convert it to shared (Microsoft requirement).
+   * Renders remove_licenses as a [MANUAL] follow-up instead of [NOT RUN].
+   */
+  licenseRemovalDeferred?: boolean
+}
+
 /**
  * Derive the complete set of actions the submitted answers request.
  * `target` is the employee's UPN (or the raw work email before user lookup).
@@ -93,6 +109,7 @@ const RETURN_DEVICE_VALUES = ['return_to_office', 'ship_to_office', 'return']
 export function deriveRequestedOffboardingActions(
   answers: Record<string, unknown>,
   target: string,
+  opts: DeriveOffboardingOptions = {},
 ): RequestedOffboardingAction[] {
   const a = answers as Record<string, string | undefined>
   const actions: RequestedOffboardingAction[] = []
@@ -118,23 +135,35 @@ export function deriveRequestedOffboardingActions(
   actions.push(
     { key: 'disable_account', label: 'Disable account (block sign-in)', automated: true },
     { key: 'remove_groups', label: 'Remove from all groups and distribution lists', automated: true },
-    { key: 'remove_licenses', label: 'Remove Microsoft 365 licenses', automated: true },
   )
+
+  if (opts.licenseRemovalDeferred) {
+    actions.push({
+      key: 'remove_licenses',
+      label: 'Remove Microsoft 365 licenses (deferred until the mailbox conversion completes)',
+      automated: false,
+      manualInstruction: `Remove all licenses from ${target} in the Microsoft 365 admin center AFTER the shared-mailbox conversion is confirmed — a mailbox must still be licensed to convert it to shared, so the automation intentionally left the license in place. (Shared mailboxes under 50 GB need no license.)`,
+    })
+  } else {
+    actions.push({ key: 'remove_licenses', label: 'Remove Microsoft 365 licenses', automated: true })
+  }
 
   if (a.data_handling === 'keep_accessible') {
     const recipients = parseSharedMailboxRecipients(answers)
+    const label =
+      recipients.length > 0
+        ? `Convert mailbox to shared + grant access to: ${recipients.join(', ')}`
+        : 'Convert mailbox to shared (no access recipients specified on the form)'
+    const manualInstruction =
+      (recipients.length > 0
+        ? `Convert the mailbox for ${target} to a SHARED mailbox (Microsoft 365 admin center -> Active users -> ${target} -> Mail -> Convert to shared mailbox), then grant Read and manage + Send as access to: ${recipients.join(', ')} (Exchange admin center -> Recipients -> Mailboxes -> mailbox delegation).`
+        : `Convert the mailbox for ${target} to a SHARED mailbox (Microsoft 365 admin center -> Active users -> ${target} -> Mail -> Convert to shared mailbox). The form did not specify who should receive access — confirm with the requester before granting delegation.`) +
+      ' The mailbox must still be licensed to convert (if it was already unlicensed, temporarily re-assign a license, convert, then remove it). Remove the license once conversion is confirmed.'
     actions.push({
       key: 'convert_shared_mailbox',
-      label:
-        recipients.length > 0
-          ? `Convert mailbox to shared + grant access to: ${recipients.join(', ')}`
-          : 'Convert mailbox to shared (no access recipients specified on the form)',
-      automated: false,
-      manualInstruction:
-        (recipients.length > 0
-          ? `Convert the mailbox for ${target} to a SHARED mailbox (Microsoft 365 admin center -> Active users -> ${target} -> Mail -> Convert to shared mailbox), then grant Read and manage + Send as access to: ${recipients.join(', ')} (Exchange admin center -> Recipients -> Mailboxes -> mailbox delegation). This cannot be automated via the Microsoft Graph API.`
-          : `Convert the mailbox for ${target} to a SHARED mailbox (Microsoft 365 admin center -> Active users -> ${target} -> Mail -> Convert to shared mailbox). The form did not specify who should receive access — confirm with the requester before granting delegation.`) +
-        ' Do this promptly: the license has already been removed, so if the conversion is blocked, temporarily re-assign a license, convert, then remove the license again.',
+      label,
+      automated: opts.conversionAutomated === true,
+      manualInstruction,
     })
   }
 
@@ -193,6 +222,8 @@ export function reconcileOffboardingActions(
   requested: RequestedOffboardingAction[],
   stepsCompleted: string[],
   failedSteps: string[],
+  /** Automated actions dispatched to an external runner, still awaiting confirmation */
+  pendingKeys: string[] = [],
 ): OffboardingReconciliation {
   const statusLines: string[] = []
   const manualInstructions: string[] = []
@@ -203,6 +234,8 @@ export function reconcileOffboardingActions(
       statusLines.push(`[DONE] ${action.label}`)
     } else if (failedSteps.includes(action.key)) {
       statusLines.push(`[FAILED] ${action.label} — automated attempt failed; manual remediation listed under NEXT STEPS`)
+    } else if (pendingKeys.includes(action.key)) {
+      statusLines.push(`[QUEUED] ${action.label} — dispatched to the Exchange automation; a confirmation note will follow`)
     } else if (action.deferred) {
       statusLines.push(`[QUEUED] ${action.label} — a confirmation note will be added when scheduled`)
     } else if (!action.automated) {

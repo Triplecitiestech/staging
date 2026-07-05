@@ -15,6 +15,12 @@ import {
   parseSharedMailboxRecipients,
   DELETE_AFTER_HOLD_VALUES,
 } from '@/lib/hr/offboarding-actions'
+import {
+  isExoAutomationEnabled,
+  dispatchConvertToShared,
+  waitForExoJobCompletion,
+  markExoJobNotifyOnCallback,
+} from '@/lib/exchange-online'
 
 // Pax8 license procurement can poll for up to 5 minutes
 export const maxDuration = 300
@@ -2091,6 +2097,62 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             await addTicketNote('Account Disable Failed', `Error: ${msg}`)
           }
 
+          // Convert mailbox to shared via the Exchange automation runner
+          // (when enabled for this tenant). This runs BEFORE license removal:
+          // a mailbox must still be licensed to convert it to shared.
+          const wantsSharedMailbox = a.data_handling === 'keep_accessible'
+          const exoEnabled = wantsSharedMailbox && isExoAutomationEnabled(hrRequest.company_slug ?? '')
+          // null = not attempted (manual path when the tenant isn't enabled)
+          let conversionOutcome: 'done' | 'pending' | 'failed' | null = null
+          if (exoEnabled) {
+            const convStart = new Date()
+            const mailboxTarget = targetUpn ?? workEmail
+            const delegates = parseSharedMailboxRecipients(answers)
+            try {
+              const { jobId } = await dispatchConvertToShared({
+                pgClient: client,
+                requestId: hrRequest.id,
+                companySlug: hrRequest.company_slug,
+                ticketId,
+                mailbox: mailboxTarget,
+                delegates,
+              })
+              const final = await waitForExoJobCompletion(client, jobId, 120_000)
+              if (final?.status === 'succeeded') {
+                conversionOutcome = 'done'
+                provisioningResults.push(`Mailbox Converted to Shared: ${mailboxTarget}`)
+                await logStep(client, hrRequest.id, 'convert_shared_mailbox', 'Convert Mailbox to Shared (Exchange automation)', 'completed', convStart,
+                  { jobId, mailbox: mailboxTarget, delegates }, { result: final.result })
+                stepsCompleted.push('convert_shared_mailbox')
+                await addTicketNote('Mailbox Converted to Shared',
+                  `Confirmed by Exchange automation:\nMailbox ${mailboxTarget} is now a SHARED mailbox.` +
+                  (delegates.length > 0 ? `\nAccess granted to: ${delegates.join(', ')}` : ''))
+              } else if (final?.status === 'failed') {
+                conversionOutcome = 'failed'
+                await logStep(client, hrRequest.id, 'convert_shared_mailbox', 'Convert Mailbox to Shared (Exchange automation)', 'failed', convStart,
+                  { jobId, mailbox: mailboxTarget, delegates }, undefined, final.error ?? 'Runbook reported failure')
+                failedSteps.push('convert_shared_mailbox')
+                await addTicketNote('Mailbox Conversion Failed', `Mailbox: ${mailboxTarget}\nError: ${final.error ?? 'Runbook reported failure'}`)
+              } else {
+                conversionOutcome = 'pending'
+                await markExoJobNotifyOnCallback(client, jobId)
+                await addTicketNote('Mailbox Conversion Dispatched — Awaiting Confirmation',
+                  `The shared-mailbox conversion for ${mailboxTarget} was dispatched to the Exchange automation but had not confirmed within the wait window. ` +
+                  'A confirmation (or failure) note will be posted automatically when it completes. License removal is deferred until the conversion is confirmed.')
+              }
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err)
+              conversionOutcome = 'failed'
+              await logStep(client, hrRequest.id, 'convert_shared_mailbox', 'Convert Mailbox to Shared (Exchange automation)', 'failed', convStart,
+                { mailbox: mailboxTarget }, undefined, msg)
+              failedSteps.push('convert_shared_mailbox')
+              await addTicketNote('Mailbox Conversion Dispatch Failed', `Mailbox: ${mailboxTarget}\nError: ${msg}`)
+            }
+          }
+          // A mailbox must be licensed to convert — defer license removal
+          // whenever a conversion was requested and isn't confirmed done.
+          const deferLicenseRemoval = wantsSharedMailbox && conversionOutcome !== 'done'
+
           // Remove from all groups
           const removeGrpStart = new Date()
           let removedGroupCount = 0
@@ -2131,37 +2193,45 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             await addTicketNote('Group Removal Failed', `Error: ${msg}`)
           }
 
-          // Remove licenses
-          const removeLicStart = new Date()
+          // Remove licenses — skipped while a shared-mailbox conversion is
+          // outstanding (the mailbox must still be licensed to convert); the
+          // reconciliation renders the deferral as an explicit [MANUAL] item.
           let removedLicenseCount = 0
           const removedLicenseNames: string[] = []
-          try {
-            const skus = await graph.getLicenseSkus()
-            for (const sku of skus) {
-              try {
-                await graph.removeLicense(targetUserId, sku.skuId)
-                removedLicenseCount++
-                removedLicenseNames.push(sku.displayName ?? sku.skuPartNumber)
-              } catch {
-                // License wasn't assigned to this user — ignore
+          if (deferLicenseRemoval) {
+            await addTicketNote('License Removal Deferred',
+              `License removal for ${targetUpn} is intentionally deferred: the mailbox must still be licensed to convert it to a shared mailbox. ` +
+              'Remove the license after the conversion is confirmed (shared mailboxes under 50 GB need no license).')
+          } else {
+            const removeLicStart = new Date()
+            try {
+              const skus = await graph.getLicenseSkus()
+              for (const sku of skus) {
+                try {
+                  await graph.removeLicense(targetUserId, sku.skuId)
+                  removedLicenseCount++
+                  removedLicenseNames.push(sku.displayName ?? sku.skuPartNumber)
+                } catch {
+                  // License wasn't assigned to this user — ignore
+                }
               }
+
+              provisioningResults.push(`Licenses Removed: ${removedLicenseCount}`)
+              await logStep(client, hrRequest.id, 'remove_licenses', 'Remove Licenses', 'completed', removeLicStart,
+                { userId: targetUserId }, { removed: removedLicenseCount, names: removedLicenseNames })
+              stepsCompleted.push('remove_licenses')
+
+              const licNoteLines = removedLicenseCount > 0
+                ? [`Removed ${removedLicenseCount} license(s):`, ...removedLicenseNames.map(n => `  [OK] ${n}`)]
+                : ['No licenses were assigned to this user.']
+              await addTicketNote('Licenses Removed', licNoteLines.join('\n'))
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err)
+              await logStep(client, hrRequest.id, 'remove_licenses', 'Remove Licenses', 'failed', removeLicStart,
+                { userId: targetUserId }, undefined, msg)
+              failedSteps.push('remove_licenses')
+              await addTicketNote('License Removal Failed', `Error: ${msg}`)
             }
-
-            provisioningResults.push(`Licenses Removed: ${removedLicenseCount}`)
-            await logStep(client, hrRequest.id, 'remove_licenses', 'Remove Licenses', 'completed', removeLicStart,
-              { userId: targetUserId }, { removed: removedLicenseCount, names: removedLicenseNames })
-            stepsCompleted.push('remove_licenses')
-
-            const licNoteLines = removedLicenseCount > 0
-              ? [`Removed ${removedLicenseCount} license(s):`, ...removedLicenseNames.map(n => `  [OK] ${n}`)]
-              : ['No licenses were assigned to this user.']
-            await addTicketNote('Licenses Removed', licNoteLines.join('\n'))
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err)
-            await logStep(client, hrRequest.id, 'remove_licenses', 'Remove Licenses', 'failed', removeLicStart,
-              { userId: targetUserId }, undefined, msg)
-            failedSteps.push('remove_licenses')
-            await addTicketNote('License Removal Failed', `Error: ${msg}`)
           }
 
           // Build provisioning results for ticket. Runs even when the primary
@@ -2177,8 +2247,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             // structural guarantee that a requested action can never again be
             // silently omitted from the ticket record (ticket T20260704.0004:
             // "convert to shared mailbox" was neither executed nor mentioned).
-            const requestedActions = deriveRequestedOffboardingActions(answers, targetUpn ?? workEmail)
-            const reconciliation = reconcileOffboardingActions(requestedActions, stepsCompleted, failedSteps)
+            const requestedActions = deriveRequestedOffboardingActions(answers, targetUpn ?? workEmail, {
+              conversionAutomated: exoEnabled,
+              licenseRemovalDeferred: deferLicenseRemoval,
+            })
+            const reconciliation = reconcileOffboardingActions(
+              requestedActions, stepsCompleted, failedSteps,
+              conversionOutcome === 'pending' ? ['convert_shared_mailbox'] : [])
             manualSteps.push(...reconciliation.manualInstructions)
             if (a.additional_notes && a.additional_notes.trim()) {
               manualSteps.push(`Review additional notes/other systems access — see "ADDITIONAL NOTES" section above`)
@@ -2193,6 +2268,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               transfer_onedrive: `Manually share OneDrive files from ${targetUpn || workEmail} to ${a.transfer_files_to || a.transfer_onedrive_to || 'designated recipient'} via OneDrive Admin`,
               archive_onedrive: `Manually archive OneDrive files from ${targetUpn || workEmail} to HR SharePoint site`,
               load_m365_creds: 'Configure M365 credentials for this company in the admin portal before retrying',
+              convert_shared_mailbox:
+                requestedActions.find(s => s.key === 'convert_shared_mailbox')?.manualInstruction ??
+                `Manually convert the mailbox for ${targetUpn || workEmail} to a shared mailbox and grant the requested access`,
             }
             for (const step of failedSteps) {
               const desc = failedStepDescriptions[step] ?? `Retry failed step: ${step}`
@@ -2268,12 +2346,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             // Customer-facing status of requested-but-not-yet-done work, so the
             // requester is never left believing a pending step already happened.
             const customerPendingLines: string[] = []
-            if (requestedActions.some(s => s.key === 'convert_shared_mailbox')) {
+            if (requestedActions.some(s => s.key === 'convert_shared_mailbox') && conversionOutcome !== 'done') {
               const mailboxRecipients = parseSharedMailboxRecipients(answers)
+              const accessSuffix = mailboxRecipients.length > 0 ? ` (with access for ${mailboxRecipients.join(', ')})` : ''
               customerPendingLines.push(
-                mailboxRecipients.length > 0
-                  ? `Mailbox conversion to a shared mailbox (with access for ${mailboxRecipients.join(', ')}) is PENDING — our team completes this step manually and will confirm when done.`
-                  : 'Mailbox conversion to a shared mailbox is PENDING — our team will confirm who should receive access before completing it.'
+                conversionOutcome === 'pending'
+                  ? `Mailbox conversion to a shared mailbox${accessSuffix} is processing — you will receive confirmation shortly.`
+                  : mailboxRecipients.length > 0
+                    ? `Mailbox conversion to a shared mailbox${accessSuffix} is PENDING — our team completes this step manually and will confirm when done.`
+                    : 'Mailbox conversion to a shared mailbox is PENDING — our team will confirm who should receive access before completing it.'
               )
             }
             if (requestedActions.some(s => s.key === 'setup_forwarding')) {
@@ -2319,6 +2400,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             noteLines.push(
               oneDriveTransferredTo ? `\nOneDrive files shared with ${oneDriveTransferredTo}.` : null,
               archiveFolderUrl ? `OneDrive files copied to HR SharePoint (${archivedFileCount} items).` : null,
+              conversionOutcome === 'done'
+                ? `Mailbox converted to a shared mailbox${parseSharedMailboxRecipients(answers).length > 0 ? ` with access for ${parseSharedMailboxRecipients(answers).join(', ')}` : ''}.`
+                : null,
             )
             if (customerPendingLines.length > 0) {
               noteLines.push('', 'Still in progress:')

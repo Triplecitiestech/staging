@@ -112,6 +112,33 @@ describe('deriveRequestedOffboardingActions', () => {
     expect(none.find((s) => s.key === 'wipe_devices' || s.key === 'device_return')).toBeUndefined()
   })
 
+  it('marks the conversion automated when EXO automation is enabled for the tenant', () => {
+    const actions = deriveRequestedOffboardingActions(
+      { data_handling: 'keep_accessible', shared_mailbox_access: ['a@x.com'] },
+      target,
+      { conversionAutomated: true }
+    )
+    const convert = actions.find((s) => s.key === 'convert_shared_mailbox')
+    expect(convert!.automated).toBe(true)
+    // Manual instruction is retained for the failure-remediation path
+    expect(convert!.manualInstruction).toContain('Convert the mailbox')
+  })
+
+  it('defers license removal as a manual follow-up when requested', () => {
+    const actions = deriveRequestedOffboardingActions(
+      { data_handling: 'keep_accessible', shared_mailbox_access: ['a@x.com'] },
+      target,
+      { licenseRemovalDeferred: true }
+    )
+    const lic = actions.find((s) => s.key === 'remove_licenses')
+    expect(lic!.automated).toBe(false)
+    expect(lic!.manualInstruction).toContain('AFTER the shared-mailbox conversion')
+    // Reconciliation renders it [MANUAL], never [NOT RUN]
+    const result = reconcileOffboardingActions(actions, ['find_user', 'disable_account', 'remove_groups'], [])
+    expect(result.statusLines.find((l) => l.includes('Remove Microsoft 365 licenses'))).toContain('[MANUAL]')
+    expect(result.unaccountedKeys).toEqual([])
+  })
+
   it('only includes revoke_sessions for immediate terminations (any schema key)', () => {
     expect(
       deriveRequestedOffboardingActions({ urgency_type: 'standard' }, target).map((s) => s.key)

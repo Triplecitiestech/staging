@@ -649,6 +649,36 @@ export async function POST(request: Request) {
       results.push(`⚠️ connector_config_overlays: ${err.message}`)
     }
 
+    // Exchange Online automation jobs (Azure Automation runbook bridge) —
+    // raw-pg like the rest of the HR subsystem
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS exo_jobs (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          request_id UUID,
+          company_slug TEXT,
+          ticket_id INTEGER,
+          action TEXT NOT NULL,
+          payload JSONB NOT NULL,
+          status TEXT NOT NULL DEFAULT 'queued',
+          result JSONB,
+          error TEXT,
+          callback_token TEXT NOT NULL,
+          notify_on_callback BOOLEAN NOT NULL DEFAULT false,
+          dispatched_at TIMESTAMPTZ,
+          completed_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `)
+      await client.query('CREATE INDEX IF NOT EXISTS idx_exo_jobs_request ON exo_jobs(request_id)')
+      await client.query('CREATE INDEX IF NOT EXISTS idx_exo_jobs_status ON exo_jobs(status)')
+      results.push('✅ exo_jobs table')
+    } catch (error) {
+      const err = error as Error
+      results.push(`⚠️ exo_jobs: ${err.message}`)
+    }
+
     await client.end()
 
     return NextResponse.json({
