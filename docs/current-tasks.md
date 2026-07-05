@@ -1,8 +1,20 @@
 # Current Tasks
 
-> **Last updated**: 2026-07-04. UniFi per-site MCP tools (Cloud Connector Proxy) — code complete, awaiting CI + operator enablement.
-> **Branch**: `claude/unifi-mcp-connector-vrrzl4`.
-> **Detailed context**: `docs/session-summary.md` (2026-07-04 section) + `docs/unifi-site-tools.md`.
+> **Last updated**: 2026-07-05. Offboarding requested-action reconciliation (code) + IT Glue SOP rewrites (done directly in IT Glue).
+> **Branch**: `claude/offboarding-automation-issues-hfrje4`.
+> **Detailed context**: `docs/session-summary.md` (2026-07-05 section) + `docs/gotchas.md` → "HR Onboarding/Offboarding Automation".
+
+## Offboarding automation: requested-action reconciliation (2026-07-05) — 🟡 code complete, awaiting CI gate
+
+Every action requested on the offboarding form now appears in the ticket's PROVISIONING RESULTS as `[DONE]/[FAILED]/[MANUAL]/[QUEUED]/[NOT RUN]` (see session summary). IT Glue SOPs 16573760 / 14639952 / 20377379 already updated live.
+
+**Validation / follow-ups:**
+- [ ] **[CI]** Confirm the auto-merge gate goes green (full e2e vs preview — sandbox had no DB, so e2e could not run locally; build + lint + 183 unit tests green).
+- [ ] **[OPERATOR — Michael Beach ticket T20260704.0004]** The pending manual work from the incident is still open: convert `MBeach@danbrownconstruction.com` to a shared mailbox and grant access to `Jking@danbrownconstruction.com` (license was already removed — if conversion is blocked, temporarily re-assign a license, convert, remove again), then close out the NEXT STEPS checklist on the ticket.
+- [ ] **[VALIDATION]** Run one test offboarding with `data_handling = keep_accessible` after deploy and confirm the PROVISIONING RESULTS reconciliation + "Still in progress" customer note render as designed.
+- [ ] **[MED — product decision]** Wire Thread to `/api/integrations/thread/webhook` (exists, HMAC-authed, generates pre-filled portal form links) OR add an admin UI button for `POST /api/forms/links` so techs can send a form link from a ticket without the API.
+- [ ] **[MED — product decision]** Consider deferring license removal when `keep_accessible` is chosen (conversion currently races the post-license-removal grace period), or an Exchange Online integration (cert + `Exchange.ManageAsApp` + PowerShell-capable runner, e.g. Azure Automation) to automate conversion/forwarding/delegation for real.
+- [ ] **[LOW]** Onboarding pipeline could get the same requested-vs-executed reconciliation (its results builder is still accumulation-style, though every branch does log today).
 
 ## UniFi per-site MCP connector tools (2026-07-04) — 🟡 code complete, awaiting CI + operator steps
 
