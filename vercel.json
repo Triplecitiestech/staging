@@ -10,6 +10,9 @@
     "src/app/api/**/*.ts": {
       "maxDuration": 30
     },
+    "src/app/api/connector/**/*.ts": {
+      "maxDuration": 60
+    },
     "src/app/api/blog/generate-now/route.ts": {
       "maxDuration": 60
     },

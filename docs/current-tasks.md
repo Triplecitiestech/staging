@@ -16,6 +16,17 @@ Every action requested on the offboarding form now appears in the ticket's PROVI
 - [ ] **[MED — product decision]** Consider deferring license removal when `keep_accessible` is chosen (conversion currently races the post-license-removal grace period), or an Exchange Online integration (cert + `Exchange.ManageAsApp` + PowerShell-capable runner, e.g. Azure Automation) to automate conversion/forwarding/delegation for real.
 - [ ] **[LOW]** Onboarding pipeline could get the same requested-vs-executed reconciliation (its results builder is still accumulation-style, though every branch does log today).
 
+## UniFi per-site MCP connector tools (2026-07-04) — 🟡 code complete, awaiting CI + operator steps
+
+Per-site UniFi surface through the Cloud Connector Proxy: resolver (never guesses), ~18 secret-redacted reads with typed errors, tier-1 attributed actions, tier-2 staged config writes through the existing human-approval gate. 66 unit tests green; single-target rule pinned by test. Detail in `docs/session-summary.md` (2026-07-04) + `docs/unifi-site-tools.md`.
+
+**Validation / follow-ups:**
+- [ ] **[CI]** Confirm the auto-merge gate goes green (full e2e vs preview — this change touches the shared staged-writes runtime + admin UI copy, so no `[skip-e2e]`).
+- [ ] **[OPERATOR — enables writes]** In Vercel → Project → Settings → Environment Variables (Production), add `CONNECTOR_UNIFI_WRITES_ENABLED` = `true`, then redeploy. Until then all UniFi write tools refuse with a clear message; reads work regardless.
+- [ ] **[OPERATOR — firmware remediation list]** From a Claude chat run `unifi_probe_consoles`, or in PowerShell: `$env:UBIQUITI_API_KEY = "<key>"; npx tsx scripts/probe-unifi-consoles.ts -- --out unifi-probe-report.md`. Consoles bucketed `FIRMWARE_UNSUPPORTED` need their Network app updated to >= 10.1.84 in Site Manager; `CONSOLE_OFFLINE` need connectivity fixed.
+- [ ] **[VALIDATION]** After enablement: resolve one known site, list its clients, restart one lab device (tier 1), and stage+approve+execute one low-stakes tier-2 change (e.g. a DNS record toggle) end-to-end.
+- [ ] **[LOW]** Consider a Site Manager ISP-metrics read tool (separate cloud API — the local Integration API has no health/ISP metrics).
+
 ## Site Connectivity reframe + failover detection (2026-06-30) — 🟡 code complete, awaiting CI + operator webhook setup
 
 Reframed the WAN report so it can't report a false "100% / SLA-compliant" at WAN-failover sites, and added Domotz `agent_wan_change` webhook ingestion for real failover detection. 30 unit tests green; scoped typecheck + lint clean. Detail in `docs/session-summary.md` (2026-06-30) + `docs/reference/WAN_RELIABILITY_REPORT.md`.
