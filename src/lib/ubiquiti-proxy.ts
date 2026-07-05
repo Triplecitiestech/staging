@@ -80,14 +80,23 @@ function getProxyConfig(): { apiKey: string; baseUrl: string } {
 // Core fetch — one place maps HTTP status → typed error
 // ---------------------------------------------------------------------------
 
+// Error bodies can echo request payloads — scrub anything that looks like a
+// credential before the text reaches error messages / the audit trail.
+function scrubSecretsFromText(text: string): string {
+  return text.replace(
+    /("?(?:pass(?:word|phrase)?|psk|presharedKey|sharedSecret|secret|privateKey|authKey)"?\s*[:=]\s*")[^"]*(")/gi,
+    `$1${'[REDACTED]'}$2`,
+  )
+}
+
 async function readErrorBody(res: Response): Promise<string> {
   const text = await res.text().catch(() => '')
   if (!text) return ''
   try {
     const parsed = JSON.parse(text) as { message?: string; error?: string }
-    return parsed.message || parsed.error || text.substring(0, 300)
+    return scrubSecretsFromText(parsed.message || parsed.error || text.substring(0, 300))
   } catch {
-    return text.substring(0, 300)
+    return scrubSecretsFromText(text.substring(0, 300))
   }
 }
 
@@ -327,10 +336,18 @@ export async function proxyGetAll<T = Record<string, unknown>>(
     }
 
     items.push(...page.data)
-    totalCount = page.totalCount ?? items.length
     offset = items.length
-    if (items.length >= totalCount || page.data.length === 0) {
-      return { items, totalCount, truncated: false }
+    if (typeof page.totalCount === 'number') {
+      totalCount = page.totalCount
+      if (items.length >= totalCount || page.data.length === 0) {
+        return { items, totalCount, truncated: false }
+      }
+    } else {
+      // Envelope without totalCount: keep paging until a short page.
+      totalCount = items.length
+      if (page.data.length < PAGE_LIMIT) {
+        return { items, totalCount, truncated: false }
+      }
     }
     if (items.length >= maxItems) {
       return { items, totalCount, truncated: true }
@@ -432,8 +449,18 @@ export function redactSecrets<T>(value: T): T {
   if (value !== null && typeof value === 'object') {
     const out: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (SECRET_KEY_PATTERN.test(k) && typeof v === 'string' && v.length > 0) {
-        out[k] = REDACTED
+      if (SECRET_KEY_PATTERN.test(k)) {
+        if (typeof v === 'string' && v.length > 0) {
+          out[k] = REDACTED
+        } else if (Array.isArray(v)) {
+          // e.g. a key list under a secret-named field: mask scalar entries,
+          // recurse into structured ones (PPSK objects redact their own keys).
+          out[k] = v.map((item) => (item !== null && typeof item === 'object' ? redactSecrets(item) : REDACTED))
+        } else if (typeof v === 'number' || typeof v === 'bigint') {
+          out[k] = REDACTED
+        } else {
+          out[k] = redactSecrets(v)
+        }
       } else {
         out[k] = redactSecrets(v)
       }

@@ -111,6 +111,15 @@ describe('validateUnifiStagedChange', () => {
       .toThrow(/requires targetId/)
   })
 
+  it('rejects ids containing "/" — they cannot round-trip through entityPath', () => {
+    expect(() => validateUnifiStagedChange({ area: 'unifi_firewall_policy', operation: 'update', consoleId: 'a/b', siteId: 'site-a', targetId: 'x', changes: { enabled: false } }))
+      .toThrow(/must not contain/)
+    expect(() => validateUnifiStagedChange({ area: 'unifi_firewall_policy', operation: 'update', consoleId: 'c1', siteId: 's/1', targetId: 'x', changes: { enabled: false } }))
+      .toThrow(/must not contain/)
+    expect(() => validateUnifiStagedChange({ area: 'unifi_firewall_policy', operation: 'update', ...base, targetId: 'x/y', changes: { enabled: false } }))
+      .toThrow(/no "\/"/)
+  })
+
   it('rejects non-allowlisted fields — securityConfiguration (passphrase) is not writable', () => {
     expect(() => validateUnifiStagedChange({ area: 'unifi_wlan', operation: 'update', ...base, targetId: 'w1', changes: { securityConfiguration: { type: 'OPEN' } } }))
       .toThrow(/not writable/)

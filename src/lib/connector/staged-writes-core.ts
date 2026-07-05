@@ -453,15 +453,17 @@ export function validateUnifiStagedChange(input: UnifiStagedChangeInput): UnifiW
     throw new Error(`Operation '${input.operation}' is not supported for ${spec.area} (allowed: ${spec.operations.join(', ')}).`)
   }
   // Structural single-target rule: exactly one console, one site, one target.
-  if (typeof input.consoleId !== 'string' || !input.consoleId.trim()) {
-    throw new Error('consoleId is required (one console — resolve it with unifi_resolve_site).')
+  // '/' is rejected because ids are embedded in entityPath / resource paths —
+  // real UniFi ids (hex:number consoles, uuid sites/objects) never contain it.
+  if (typeof input.consoleId !== 'string' || !input.consoleId.trim() || input.consoleId.includes('/')) {
+    throw new Error('consoleId is required and must not contain "/" (one console — resolve it with unifi_resolve_site).')
   }
-  if (typeof input.siteId !== 'string' || !input.siteId.trim()) {
-    throw new Error('siteId is required (one site — resolve it with unifi_resolve_site).')
+  if (typeof input.siteId !== 'string' || !input.siteId.trim() || input.siteId.includes('/')) {
+    throw new Error('siteId is required and must not contain "/" (one site — resolve it with unifi_resolve_site).')
   }
   if (input.operation === 'update' || input.operation === 'delete') {
-    if (typeof input.targetId !== 'string' || !input.targetId.trim()) {
-      throw new Error(`${input.operation} requires targetId (the ${spec.label} id).`)
+    if (typeof input.targetId !== 'string' || !input.targetId.trim() || input.targetId.includes('/')) {
+      throw new Error(`${input.operation} requires targetId (the ${spec.label} id, no "/").`)
     }
   }
   if (input.operation !== 'delete') {

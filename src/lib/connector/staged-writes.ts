@@ -148,10 +148,10 @@ export async function stageConfigWrite(
   }
 }
 
-export async function listStagedWrites(status?: string, targetSystem?: string): Promise<Array<Record<string, unknown>>> {
+export async function listStagedWrites(status?: string, targetSystems?: string[]): Promise<Array<Record<string, unknown>>> {
   await expireOverdue()
   const rows = await prisma.connectorStagedWrite.findMany({
-    where: { ...(status ? { status } : {}), ...(targetSystem ? { targetSystem } : {}) },
+    where: { ...(status ? { status } : {}), ...(targetSystems?.length ? { targetSystem: { in: targetSystems } } : {}) },
     orderBy: { stagedAt: 'desc' },
     take: 50,
   })
@@ -193,12 +193,32 @@ export async function resolveStagedWrite(
   return { id, status: next }
 }
 
-export async function cancelStagedWrite(id: string, byEmail: string): Promise<{ id: string; status: string }> {
+export async function cancelStagedWrite(
+  id: string,
+  byEmail: string,
+  // Scopes the cancel to the calling connector's system so the UniFi cancel
+  // tool cannot void a pending Autotask change (or vice versa).
+  allowedTargetSystems?: string[],
+): Promise<{ id: string; status: string }> {
   const updated = await prisma.connectorStagedWrite.updateMany({
-    where: { id, status: { in: ['pending_approval', 'approved'] } },
+    where: {
+      id,
+      status: { in: ['pending_approval', 'approved'] },
+      ...(allowedTargetSystems?.length ? { targetSystem: { in: allowedTargetSystems } } : {}),
+    },
     data: { status: 'cancelled', error: `Cancelled by ${byEmail}` },
   })
-  if (updated.count !== 1) throw new Error('Staged write not found or not cancellable.')
+  if (updated.count !== 1) {
+    const row = await prisma.connectorStagedWrite.findUnique({ where: { id } })
+    if (row && allowedTargetSystems?.length && !allowedTargetSystems.includes(row.targetSystem)) {
+      throw new Error(
+        row.targetSystem === 'unifi'
+          ? 'This staged write targets UniFi — cancel it with unifi_cancel_staged_write.'
+          : 'This staged write targets Autotask — cancel it with autotask_cancel_staged_write.'
+      )
+    }
+    throw new Error('Staged write not found or not cancellable.')
+  }
   return { id, status: 'cancelled' }
 }
 

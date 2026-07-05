@@ -53,7 +53,7 @@ describe('ubiquiti-proxy error mapping', () => {
 
   it('maps 404 on the capability probe to FIRMWARE_UNSUPPORTED with the fix in the message', async () => {
     mockFetchOnce(404, 'not found')
-    const err = await proxyGet('c1', '/sites', { isCapabilityProbe: true }).catch((e) => e)
+    const err = (await proxyGet('c1', '/sites', { isCapabilityProbe: true }).catch((e: unknown) => e)) as UnifiProxyError
     expect(err).toBeInstanceOf(UnifiProxyError)
     expect(err.code).toBe('FIRMWARE_UNSUPPORTED')
     expect(err.message).toMatch(/10\.1\.84/)
@@ -62,7 +62,7 @@ describe('ubiquiti-proxy error mapping', () => {
 
   it('maps 404 on a deep resource to NOT_FOUND (could be missing resource OR missing endpoint)', async () => {
     mockFetchOnce(404, { message: 'no such policy' })
-    const err = await proxyGet('c1', '/sites/s1/firewall-policies/x').catch((e) => e)
+    const err = (await proxyGet('c1', '/sites/s1/firewall-policies/x').catch((e: unknown) => e)) as UnifiProxyError
     expect(err.code).toBe('NOT_FOUND')
     expect(err.message).toMatch(/does not exist|does not expose/)
   })
@@ -76,7 +76,7 @@ describe('ubiquiti-proxy error mapping', () => {
 
   it('maps 429 to RATE_LIMITED carrying Retry-After when too long to wait inline', async () => {
     mockFetchOnce(429, '', { 'Retry-After': '120' })
-    const err = await proxyGet('c1', '/sites').catch((e) => e)
+    const err = (await proxyGet('c1', '/sites').catch((e: unknown) => e)) as UnifiProxyError
     expect(err.code).toBe('RATE_LIMITED')
     expect(err.retryAfterSeconds).toBe(120)
   })
@@ -97,7 +97,7 @@ describe('ubiquiti-proxy error mapping', () => {
 
   it('maps 400 to BAD_REQUEST surfacing the API message', async () => {
     mockFetchOnce(400, { message: 'portIdx out of range' })
-    const err = await proxyGet('c1', '/sites/s1/devices/d1').catch((e) => e)
+    const err = (await proxyGet('c1', '/sites/s1/devices/d1').catch((e: unknown) => e)) as UnifiProxyError
     expect(err.code).toBe('BAD_REQUEST')
     expect(err.message).toContain('portIdx out of range')
   })
@@ -139,6 +139,15 @@ describe('proxyGetAll pagination', () => {
     const res = await proxyGetAll('c1', '/sites/s1/clients', { maxItems: 2 })
     expect(res.truncated).toBe(true)
     expect(res.totalCount).toBe(100)
+  })
+
+  it('keeps paging on envelopes without totalCount until a short page', async () => {
+    const full = Array.from({ length: 200 }, (_, i) => ({ id: i }))
+    mockFetchOnce(200, { offset: 0, limit: 200, count: 200, data: full })
+    mockFetchOnce(200, { offset: 200, limit: 200, count: 1, data: [{ id: 200 }] })
+    const res = await proxyGetAll('c1', '/sites/s1/clients')
+    expect(res.items).toHaveLength(201)
+    expect(res.truncated).toBe(false)
   })
 
   it('accepts endpoints that return a bare array', async () => {
@@ -204,6 +213,14 @@ describe('redactSecrets', () => {
       vlanId: 20,
       enabled: true,
       note: null,
+    })
+  })
+
+  it('redacts non-string scalars and string arrays under secret-named keys', () => {
+    expect(redactSecrets({ authKeys: ['k1', 'k2'], pinSecret: 123456, presharedKeys: [{ passphrase: 'x', network: 'n1' }] })).toEqual({
+      authKeys: [REDACTED, REDACTED],
+      pinSecret: REDACTED,
+      presharedKeys: [{ passphrase: REDACTED, network: 'n1' }],
     })
   })
 })

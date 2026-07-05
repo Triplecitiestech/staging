@@ -98,11 +98,16 @@ export async function stageUnifiWrite(
     entityPath = buildUnifiEntityPath(input.consoleId, path)
     if (spec.area === 'unifi_network' && input.operation === 'delete') {
       // Deleting a network that WLANs/zones/policies still reference can take
-      // clients down site-wide — surface the reference count to the approver.
-      const refs = await proxyGet<{ data?: unknown[] } | unknown[]>(input.consoleId, `${path}/references`).catch(() => null)
-      const count = Array.isArray(refs) ? refs.length : (refs?.data?.length ?? null)
-      if (count) {
-        targetLabel += ` — WARNING: referenced by ${count} other object(s); deletion may be rejected or break them`
+      // clients down site-wide — surface the reference state to the approver,
+      // including when the check itself failed ("unknown" ≠ "none").
+      try {
+        const refs = await proxyGet<{ data?: unknown[] } | unknown[]>(input.consoleId, `${path}/references`)
+        const count = Array.isArray(refs) ? refs.length : (refs?.data?.length ?? 0)
+        if (count > 0) {
+          targetLabel += ` — WARNING: referenced by ${count} other object(s); deletion may be rejected or break them`
+        }
+      } catch {
+        targetLabel += ' — WARNING: reference check unavailable; could not confirm nothing depends on this network'
       }
     }
   } else {
@@ -208,8 +213,12 @@ export async function executeUnifiStagedWrite(id: string): Promise<ExecuteResult
       // response echoes the full object (passphrases included) — redact
       // before it lands in the audit row.
       apiResult = redactSecrets((await proxyPut<Record<string, unknown>>(consoleId, resourcePath, { ...liveFull, ...proposed })) ?? { updated: true })
-      const after = await proxyGet<Record<string, unknown>>(consoleId, resourcePath)
-      verification = unifiSnapshot(spec, after)
+      // The write has APPLIED — a failed read-back must not mark the row
+      // 'failed' (audit dishonesty); record that verification was unavailable.
+      verification = await proxyGet<Record<string, unknown>>(consoleId, resourcePath).then(
+        (after) => unifiSnapshot(spec, after),
+        (err) => ({ verified: false, verifyError: err instanceof Error ? err.message : String(err) }),
+      )
     } else if (row.operation === 'create') {
       const created = await proxyPost<Record<string, unknown>>(consoleId, resourcePath, proposed)
       apiResult = redactSecrets(created ?? { note: 'create returned no body' })
@@ -226,11 +235,15 @@ export async function executeUnifiStagedWrite(id: string): Promise<ExecuteResult
         )
       }
       apiResult = redactSecrets((await proxyDelete<Record<string, unknown>>(consoleId, resourcePath)) ?? { deleted: true })
-      const gone = await proxyGet<Record<string, unknown>>(consoleId, resourcePath).then(
-        () => false,
-        (err) => err instanceof UnifiProxyError && err.code === 'NOT_FOUND',
+      // Tri-state read-back: NOT_FOUND confirms the delete; any other read
+      // failure means UNVERIFIED, not "still exists".
+      verification = await proxyGet<Record<string, unknown>>(consoleId, resourcePath).then(
+        () => ({ deleted: false, note: 'object still readable after delete — check in unifi.ui.com' }),
+        (err) =>
+          err instanceof UnifiProxyError && err.code === 'NOT_FOUND'
+            ? { deleted: true }
+            : { deleted: 'unverified', verifyError: err instanceof Error ? err.message : String(err) },
       )
-      verification = { deleted: gone }
     }
 
     await prisma.connectorStagedWrite.update({

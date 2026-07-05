@@ -52,7 +52,9 @@ import {
 } from '@/lib/connector/unifi-staged-writes'
 import { UNIFI_WRITE_AREAS } from '@/lib/connector/staged-writes-core'
 
-function ok(data: unknown) { return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] } }
+// `?? null`: a 204/empty proxy response must serialize as "null", not the
+// invalid content block JSON.stringify(undefined) would produce.
+function ok(data: unknown) { return { content: [{ type: 'text' as const, text: JSON.stringify(data ?? null, null, 2) }] } }
 function fail(err: unknown) {
   // Typed proxy errors carry the failure class so the tech can tell
   // "firmware too old" from "console offline" from "bad key" in-chat.
@@ -224,6 +226,13 @@ export function registerUnifiSiteTools(server: any) {
           }
           throw err
         }
+        if (sites.length === 0) {
+          return ok({
+            resolved: false,
+            console: { consoleId: best.consoleId, name: best.name },
+            reason: `Matched console '${best.name}' and its Integration API is reachable, but it reports no local sites — check the console in unifi.ui.com.`,
+          })
+        }
         if (sites.length === 1) {
           return ok({ resolved: true, consoleId: best.consoleId, consoleName: best.name, ...siteSummary(sites[0]) })
         }
@@ -353,7 +362,7 @@ export function registerUnifiSiteTools(server: any) {
       inputSchema: { consoleId: consoleIdParam, siteId: siteIdParam, deviceId: z.string().describe('Device ID from unifi_site_devices') },
     },
     async ({ consoleId, siteId, deviceId }: { consoleId: string; siteId: string; deviceId: string }) => {
-      try { return ok(await proxyGet(consoleId, `/sites/${encodeURIComponent(siteId)}/devices/${encodeURIComponent(deviceId)}/statistics/latest`)) } catch (e) { return fail(e) }
+      try { return ok(redactSecrets(await proxyGet(consoleId, `/sites/${encodeURIComponent(siteId)}/devices/${encodeURIComponent(deviceId)}/statistics/latest`))) } catch (e) { return fail(e) }
     }
   )
 
@@ -367,7 +376,7 @@ export function registerUnifiSiteTools(server: any) {
     async ({ consoleId }: { consoleId: string }) => {
       try {
         const res = await proxyGetAll(consoleId, '/pending-devices')
-        return ok({ totalCount: res.totalCount, truncated: res.truncated, items: res.items })
+        return ok({ totalCount: res.totalCount, truncated: res.truncated, items: redactSecrets(res.items) })
       } catch (e) { return fail(e) }
     }
   )
@@ -400,7 +409,7 @@ export function registerUnifiSiteTools(server: any) {
       inputSchema: { consoleId: consoleIdParam, siteId: siteIdParam, networkId: z.string().describe('Network ID from unifi_site_networks_config') },
     },
     async ({ consoleId, siteId, networkId }: { consoleId: string; siteId: string; networkId: string }) => {
-      try { return ok(await proxyGet(consoleId, `/sites/${encodeURIComponent(siteId)}/networks/${encodeURIComponent(networkId)}/references`)) } catch (e) { return fail(e) }
+      try { return ok(redactSecrets(await proxyGet(consoleId, `/sites/${encodeURIComponent(siteId)}/networks/${encodeURIComponent(networkId)}/references`))) } catch (e) { return fail(e) }
     }
   )
 
@@ -424,7 +433,7 @@ export function registerUnifiSiteTools(server: any) {
       inputSchema: { consoleId: consoleIdParam, siteId: siteIdParam, policyId: z.string().describe('Policy ID from unifi_site_firewall_policies') },
     },
     async ({ consoleId, siteId, policyId }: { consoleId: string; siteId: string; policyId: string }) => {
-      try { return ok(await proxyGet(consoleId, `/sites/${encodeURIComponent(siteId)}/firewall/policies/${encodeURIComponent(policyId)}`)) } catch (e) { return fail(e) }
+      try { return ok(redactSecrets(await proxyGet(consoleId, `/sites/${encodeURIComponent(siteId)}/firewall/policies/${encodeURIComponent(policyId)}`))) } catch (e) { return fail(e) }
     }
   )
 
@@ -443,7 +452,7 @@ export function registerUnifiSiteTools(server: any) {
     async ({ consoleId, siteId, sourceFirewallZoneId, destinationFirewallZoneId }: { consoleId: string; siteId: string; sourceFirewallZoneId: string; destinationFirewallZoneId: string }) => {
       try {
         const qs = new URLSearchParams({ sourceFirewallZoneId, destinationFirewallZoneId })
-        return ok(await proxyGet(consoleId, `/sites/${encodeURIComponent(siteId)}/firewall/policies/ordering?${qs}`))
+        return ok(redactSecrets(await proxyGet(consoleId, `/sites/${encodeURIComponent(siteId)}/firewall/policies/ordering?${qs}`)))
       } catch (e) { return fail(e) }
     }
   )
@@ -679,7 +688,7 @@ export function registerUnifiSiteTools(server: any) {
       inputSchema: { status: z.string().optional().describe('Filter by status, e.g. pending_approval or approved') },
     },
     async ({ status }: { status?: string }) => {
-      try { return ok(await listStagedWrites(status, 'unifi')) } catch (e) { return fail(e) }
+      try { return ok(await listStagedWrites(status, ['unifi'])) } catch (e) { return fail(e) }
     }
   )
 
@@ -692,7 +701,7 @@ export function registerUnifiSiteTools(server: any) {
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async ({ stagedWriteId }: any, extra: any) => {
-      try { return ok(await cancelStagedWrite(stagedWriteId, emailOf(extra) ?? 'unknown')) } catch (e) { return fail(e) }
+      try { return ok(await cancelStagedWrite(stagedWriteId, emailOf(extra) ?? 'unknown', ['unifi'])) } catch (e) { return fail(e) }
     }
   )
 }

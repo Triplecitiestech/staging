@@ -18,6 +18,11 @@ function whereMatches(row: Row, where: any): boolean {
     } else if (row.status !== where.status) return false
   }
   if (where.expiresAt?.lt && !(row.expiresAt < where.expiresAt.lt)) return false
+  if (where.targetSystem) {
+    if (typeof where.targetSystem === 'object' && 'in' in where.targetSystem) {
+      if (!where.targetSystem.in.includes(row.targetSystem)) return false
+    } else if (row.targetSystem !== where.targetSystem) return false
+  }
   return true
 }
 
@@ -223,16 +228,34 @@ describe('executeUnifiStagedWrite', () => {
   })
 })
 
-describe('executeStagedWrite (Autotask path) guards UniFi rows', () => {
-  it('refuses a UniFi row BEFORE the single-use claim so the approval is not burned', async () => {
+describe('cross-system guards on the shared staged-write table', () => {
+  async function stagedWritesModule() {
     vi.doMock('@/lib/autotask', () => ({ AutotaskClient: class {} }))
     vi.doMock('@/lib/autotask-write', () => ({ patchConfigEntity: vi.fn(), createConfigEntity: vi.fn(), deleteConfigEntity: vi.fn() }))
-    const { executeStagedWrite } = await import('./staged-writes')
+    return import('./staged-writes')
+  }
 
+  it('executeStagedWrite refuses a UniFi row BEFORE the single-use claim so the approval is not burned', async () => {
+    const { executeStagedWrite } = await stagedWritesModule()
     vi.stubEnv('CONNECTOR_CONFIG_WRITES_ENABLED', 'true')
     db.set('sw-uf', { id: 'sw-uf', targetSystem: 'unifi', status: 'approved', area: 'unifi_wlan', expiresAt: new Date(Date.now() + 60_000) })
 
     await expect(executeStagedWrite('sw-uf')).rejects.toThrow(/unifi_execute_staged_write/)
     expect(db.get('sw-uf')!.status).toBe('approved')
+  })
+
+  it('cancelStagedWrite scoped to unifi cannot void an Autotask row (and vice versa)', async () => {
+    const { cancelStagedWrite } = await stagedWritesModule()
+    db.set('sw-at2', { id: 'sw-at2', targetSystem: 'autotask', status: 'approved', area: 'role_rate', expiresAt: new Date(Date.now() + 60_000) })
+    db.set('sw-uf2', { id: 'sw-uf2', targetSystem: 'unifi', status: 'pending_approval', area: 'unifi_wlan', expiresAt: new Date(Date.now() + 60_000) })
+
+    await expect(cancelStagedWrite('sw-at2', 'tech@tct.com', ['unifi'])).rejects.toThrow(/autotask_cancel_staged_write/)
+    expect(db.get('sw-at2')!.status).toBe('approved')
+
+    await expect(cancelStagedWrite('sw-uf2', 'tech@tct.com', ['autotask', 'overlay'])).rejects.toThrow(/unifi_cancel_staged_write/)
+    expect(db.get('sw-uf2')!.status).toBe('pending_approval')
+
+    // Correctly-scoped cancels still work.
+    await expect(cancelStagedWrite('sw-uf2', 'tech@tct.com', ['unifi'])).resolves.toMatchObject({ status: 'cancelled' })
   })
 })
