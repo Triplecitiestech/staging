@@ -117,6 +117,7 @@ export interface PackageQuote {
   m365MonthlyCost: number;
   m365MonthlyPrice: number;
   m365Resold: boolean;
+  m365LineItems: LineItem[];   // per-license M365 lines (license, seats, MSRP/seat, total)
   // One-time
   oneTimeCost: number;
   oneTimePrice: number;

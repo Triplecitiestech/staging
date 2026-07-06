@@ -38,7 +38,10 @@ export function exportCSV(input: DiscoveryInput, quotes: PackageQuote[]) {
       rows.push([q.packageName, l.label, l.unit, String(l.quantity), l.unitCost.toFixed(2), l.unitPrice.toFixed(2), l.cost.toFixed(2), l.price.toFixed(2), l.margin.toFixed(2), (l.marginPct * 100).toFixed(1) + "%"]);
     }
     rows.push([q.packageName, "TOTAL (Managed, monthly)", "", "", "", "", q.monthlyCost.toFixed(2), q.monthlyPrice.toFixed(2), q.monthlyMargin.toFixed(2), (q.marginPct * 100).toFixed(1) + "%"]);
-    rows.push([q.packageName, "Microsoft 365 (separate)", "", "", "", "", q.m365MonthlyCost.toFixed(2), q.m365MonthlyPrice.toFixed(2), "", ""]);
+    for (const l of q.m365LineItems) {
+      rows.push([q.packageName, l.label, l.unit, String(l.quantity), l.unitCost.toFixed(2), l.unitPrice.toFixed(2), l.cost.toFixed(2), l.price.toFixed(2), "", ""]);
+    }
+    rows.push([q.packageName, "Microsoft 365 (separate, total)", "", "", "", "", q.m365MonthlyCost.toFixed(2), q.m365MonthlyPrice.toFixed(2), "", ""]);
     rows.push([]);
   }
   const csv = rows.map((r) => r.map((c) => `"${(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
@@ -67,7 +70,9 @@ export async function exportExcel(input: DiscoveryInput, quotes: PackageQuote[],
     for (const l of q.lineItems) aoa.push([l.label, l.unit, l.quantity, l.unitCost, l.unitPrice, l.cost, l.price, l.margin, l.marginPct]);
     aoa.push([]);
     aoa.push(["TOTAL (Managed)", "", "", "", "", q.monthlyCost, q.monthlyPrice, q.monthlyMargin, q.marginPct]);
-    aoa.push(["Microsoft 365 (separate)", "", "", "", "", q.m365MonthlyCost, q.m365MonthlyPrice, "", ""]);
+    aoa.push([]);
+    for (const l of q.m365LineItems) aoa.push([l.label, l.unit, l.quantity, l.unitCost, l.unitPrice, l.cost, l.price, "", ""]);
+    aoa.push(["Microsoft 365 (separate, total)", "", "", "", "", q.m365MonthlyCost, q.m365MonthlyPrice, "", ""]);
     const sheetName = q.packageName.replace("TCT ", "").slice(0, 28);
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), sheetName);
   }
@@ -179,7 +184,17 @@ export async function exportPDF(
     });
     y = (doc as any).lastAutoTable.finalY + 16;
     doc.setTextColor("#111111"); doc.setFontSize(10); doc.setFont("helvetica", "normal");
-    doc.text(`Microsoft 365 licensing (billed separately): ${currency(sel.m365MonthlyPrice)} / mo`, 40, y); y += 14;
+    if (sel.m365LineItems.length > 0) {
+      doc.text("Microsoft 365 licensing (billed separately):", 40, y); y += 14;
+      for (const l of sel.m365LineItems) {
+        doc.text(`    ${l.label} — ${l.quantity} x ${currency(l.unitPrice, { cents: true })} = ${currency(l.price)} / mo`, 50, y); y += 13;
+      }
+      doc.setFont("helvetica", "bold");
+      doc.text(`    Total: ${currency(sel.m365MonthlyPrice)} / mo`, 50, y); y += 14;
+      doc.setFont("helvetica", "normal");
+    } else {
+      doc.text(`Microsoft 365 licensing (billed separately): ${currency(sel.m365MonthlyPrice)} / mo`, 40, y); y += 14;
+    }
     if (sel.licenseGapMessage) {
       doc.setTextColor(theme.brand.danger);
       const lines = doc.splitTextToSize(sel.licenseGapMessage, W - 80);
