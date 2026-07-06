@@ -26,11 +26,28 @@ export interface RequestedOffboardingAction {
   automated: boolean
   /**
    * Action runs after the results record is built (e.g. 30-day deletion
-   * scheduling) — reported as QUEUED instead of NOT RUN.
+   * scheduling, async Exchange Online jobs) — reported as QUEUED instead of
+   * NOT RUN, provided the pipeline confirms it actually queued (see the
+   * `queuedSteps` parameter of reconcileOffboardingActions).
    */
   deferred?: boolean
+  /** Suffix for the [QUEUED] status line explaining what happens next */
+  deferredDetail?: string
   /** Instruction added to the manual-steps checklist when not automated (or not run) */
   manualInstruction?: string
+}
+
+/**
+ * What the pipeline knows about the external Exchange Online runner before
+ * deriving actions. When the runner is available, mailbox conversion becomes
+ * an automated (async) action; when it is not, the action stays [MANUAL] with
+ * the reason appended so the technician knows why the automation didn't run.
+ */
+export interface OffboardingAutomationContext {
+  /** Kill switch on + tenant enabled + platform env configured */
+  exchangeAutomationAvailable?: boolean
+  /** Why Exchange automation is unavailable (appended to manual instructions) */
+  exchangeUnavailableReason?: string
 }
 
 export interface OffboardingReconciliation {
@@ -86,22 +103,6 @@ export const DELETE_AFTER_HOLD_VALUES = ['delete_after_backup', 'delete_after_30
 const WIPE_DEVICE_VALUES = ['wipe_remote', 'remote_wipe', 'wipe']
 const RETURN_DEVICE_VALUES = ['return_to_office', 'ship_to_office', 'return']
 
-export interface DeriveOffboardingOptions {
-  /**
-   * True when Exchange Online automation is enabled for this tenant — the
-   * shared-mailbox conversion becomes an automated step (key
-   * `convert_shared_mailbox`, executed via the Azure Automation runner)
-   * instead of a permanent [MANUAL] outcome.
-   */
-  conversionAutomated?: boolean
-  /**
-   * True when license removal was intentionally NOT run because the mailbox
-   * must still be licensed to convert it to shared (Microsoft requirement).
-   * Renders remove_licenses as a [MANUAL] follow-up instead of [NOT RUN].
-   */
-  licenseRemovalDeferred?: boolean
-}
-
 /**
  * Derive the complete set of actions the submitted answers request.
  * `target` is the employee's UPN (or the raw work email before user lookup).
@@ -109,10 +110,12 @@ export interface DeriveOffboardingOptions {
 export function deriveRequestedOffboardingActions(
   answers: Record<string, unknown>,
   target: string,
-  opts: DeriveOffboardingOptions = {},
+  automation: OffboardingAutomationContext = {},
 ): RequestedOffboardingAction[] {
   const a = answers as Record<string, string | undefined>
   const actions: RequestedOffboardingAction[] = []
+  const keepAccessible = a.data_handling === 'keep_accessible'
+  const exchangeAvailable = automation.exchangeAutomationAvailable === true
 
   actions.push({ key: 'find_user', label: `Locate user account (${target})`, automated: true })
 
@@ -137,34 +140,71 @@ export function deriveRequestedOffboardingActions(
     { key: 'remove_groups', label: 'Remove from all groups and distribution lists', automated: true },
   )
 
-  if (opts.licenseRemovalDeferred) {
+  // License removal: for keep_accessible offboardings the mailbox MUST still
+  // be licensed when it is converted to shared (Microsoft requirement), so
+  // removal is deferred — to the Exchange callback when the runner is
+  // available, to a manual step after conversion when it is not. All other
+  // data-handling choices remove licenses inline as before.
+  if (!keepAccessible) {
+    actions.push({ key: 'remove_licenses', label: 'Remove Microsoft 365 licenses', automated: true })
+  } else if (exchangeAvailable) {
     actions.push({
       key: 'remove_licenses',
-      label: 'Remove Microsoft 365 licenses (deferred until the mailbox conversion completes)',
-      automated: false,
-      manualInstruction: `Remove all licenses from ${target} in the Microsoft 365 admin center AFTER the shared-mailbox conversion is confirmed — a mailbox must still be licensed to convert it to shared, so the automation intentionally left the license in place. (Shared mailboxes under 50 GB need no license.)`,
+      label: 'Remove Microsoft 365 licenses (after mailbox conversion is confirmed)',
+      automated: true,
+      deferred: true,
+      deferredDetail: 'runs automatically once the Exchange job confirms the mailbox conversion',
+      manualInstruction:
+        `Remove all Microsoft 365 licenses from ${target} AFTER the mailbox conversion completes ` +
+        `(Microsoft 365 admin center -> Active users -> ${target} -> Licenses and apps). ` +
+        'Licenses were intentionally left assigned: the mailbox must be licensed at conversion time.',
     })
   } else {
-    actions.push({ key: 'remove_licenses', label: 'Remove Microsoft 365 licenses', automated: true })
+    actions.push({
+      key: 'remove_licenses',
+      label: 'Remove Microsoft 365 licenses (after manual mailbox conversion)',
+      automated: false,
+      manualInstruction:
+        `Remove all Microsoft 365 licenses from ${target} AFTER converting the mailbox to shared ` +
+        `(Microsoft 365 admin center -> Active users -> ${target} -> Licenses and apps). ` +
+        'Licenses were intentionally left assigned: the mailbox must be licensed at conversion time.',
+    })
   }
 
-  if (a.data_handling === 'keep_accessible') {
+  if (keepAccessible) {
     const recipients = parseSharedMailboxRecipients(answers)
     const label =
       recipients.length > 0
         ? `Convert mailbox to shared + grant access to: ${recipients.join(', ')}`
         : 'Convert mailbox to shared (no access recipients specified on the form)'
-    const manualInstruction =
-      (recipients.length > 0
-        ? `Convert the mailbox for ${target} to a SHARED mailbox (Microsoft 365 admin center -> Active users -> ${target} -> Mail -> Convert to shared mailbox), then grant Read and manage + Send as access to: ${recipients.join(', ')} (Exchange admin center -> Recipients -> Mailboxes -> mailbox delegation).`
-        : `Convert the mailbox for ${target} to a SHARED mailbox (Microsoft 365 admin center -> Active users -> ${target} -> Mail -> Convert to shared mailbox). The form did not specify who should receive access — confirm with the requester before granting delegation.`) +
-      ' The mailbox must still be licensed to convert (if it was already unlicensed, temporarily re-assign a license, convert, then remove it). Remove the license once conversion is confirmed.'
-    actions.push({
-      key: 'convert_shared_mailbox',
-      label,
-      automated: opts.conversionAutomated === true,
-      manualInstruction,
-    })
+    if (exchangeAvailable) {
+      actions.push({
+        key: 'convert_shared_mailbox',
+        label,
+        automated: true,
+        deferred: true,
+        deferredDetail: 'dispatched to the Exchange Online automation; a confirmation note will follow',
+        manualInstruction:
+          recipients.length > 0
+            ? `Convert the mailbox for ${target} to a SHARED mailbox (Microsoft 365 admin center -> Active users -> ${target} -> Mail -> Convert to shared mailbox), then grant Read and manage + Send as access to: ${recipients.join(', ')} (Exchange admin center -> Recipients -> Mailboxes -> mailbox delegation). The license is still assigned — remove it after converting.`
+            : `Convert the mailbox for ${target} to a SHARED mailbox (Microsoft 365 admin center -> Active users -> ${target} -> Mail -> Convert to shared mailbox). The form did not specify who should receive access — confirm with the requester before granting delegation. The license is still assigned — remove it after converting.`,
+      })
+    } else {
+      const reason = automation.exchangeUnavailableReason
+        ? ` Automated conversion was unavailable: ${automation.exchangeUnavailableReason}.`
+        : ''
+      actions.push({
+        key: 'convert_shared_mailbox',
+        label,
+        automated: false,
+        manualInstruction:
+          (recipients.length > 0
+            ? `Convert the mailbox for ${target} to a SHARED mailbox (Microsoft 365 admin center -> Active users -> ${target} -> Mail -> Convert to shared mailbox), then grant Read and manage + Send as access to: ${recipients.join(', ')} (Exchange admin center -> Recipients -> Mailboxes -> mailbox delegation).`
+            : `Convert the mailbox for ${target} to a SHARED mailbox (Microsoft 365 admin center -> Active users -> ${target} -> Mail -> Convert to shared mailbox). The form did not specify who should receive access — confirm with the requester before granting delegation.`) +
+          ' The license is intentionally still assigned (the mailbox must be licensed to convert) — remove it after converting.' +
+          reason,
+      })
+    }
   }
 
   if (a.data_handling === 'forward_to_manager' || a.data_handling === 'forward_to_specific' || a.forward_email) {
@@ -217,27 +257,31 @@ export function deriveRequestedOffboardingActions(
  * Every requested action produces exactly one status line; automated actions
  * that neither completed nor failed are flagged NOT RUN and force a manual
  * step, so a skipped action can never disappear from the record again.
+ *
+ * `queuedSteps` (optional): keys of deferred actions the pipeline actually
+ * queued (e.g. a dispatched Exchange job). When provided, a deferred action
+ * NOT in the list falls through to the NOT RUN handling instead of claiming
+ * [QUEUED] — so a failed dispatch can never masquerade as pending work.
+ * Omitting the parameter keeps the legacy behavior (deferred == queued).
  */
 export function reconcileOffboardingActions(
   requested: RequestedOffboardingAction[],
   stepsCompleted: string[],
   failedSteps: string[],
-  /** Automated actions dispatched to an external runner, still awaiting confirmation */
-  pendingKeys: string[] = [],
+  queuedSteps?: string[],
 ): OffboardingReconciliation {
   const statusLines: string[] = []
   const manualInstructions: string[] = []
   const unaccountedKeys: string[] = []
 
   for (const action of requested) {
+    const actuallyQueued = action.deferred && (queuedSteps === undefined || queuedSteps.includes(action.key))
     if (stepsCompleted.includes(action.key)) {
       statusLines.push(`[DONE] ${action.label}`)
     } else if (failedSteps.includes(action.key)) {
       statusLines.push(`[FAILED] ${action.label} — automated attempt failed; manual remediation listed under NEXT STEPS`)
-    } else if (pendingKeys.includes(action.key)) {
-      statusLines.push(`[QUEUED] ${action.label} — dispatched to the Exchange automation; a confirmation note will follow`)
-    } else if (action.deferred) {
-      statusLines.push(`[QUEUED] ${action.label} — a confirmation note will be added when scheduled`)
+    } else if (actuallyQueued) {
+      statusLines.push(`[QUEUED] ${action.label} — ${action.deferredDetail ?? 'a confirmation note will be added when scheduled'}`)
     } else if (!action.automated) {
       statusLines.push(`[MANUAL] ${action.label} — not automated; assigned to TCT staff under NEXT STEPS`)
       if (action.manualInstruction) manualInstructions.push(action.manualInstruction)

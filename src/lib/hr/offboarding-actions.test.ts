@@ -112,31 +112,51 @@ describe('deriveRequestedOffboardingActions', () => {
     expect(none.find((s) => s.key === 'wipe_devices' || s.key === 'device_return')).toBeUndefined()
   })
 
-  it('marks the conversion automated when EXO automation is enabled for the tenant', () => {
+  it('makes conversion an automated deferred action when Exchange automation is available', () => {
     const actions = deriveRequestedOffboardingActions(
-      { data_handling: 'keep_accessible', shared_mailbox_access: ['a@x.com'] },
+      { data_handling: 'keep_accessible', shared_mailbox_access: ['Jking@x.com'] },
       target,
-      { conversionAutomated: true }
+      { exchangeAutomationAvailable: true }
     )
     const convert = actions.find((s) => s.key === 'convert_shared_mailbox')
+    expect(convert).toBeDefined()
     expect(convert!.automated).toBe(true)
-    // Manual instruction is retained for the failure-remediation path
-    expect(convert!.manualInstruction).toContain('Convert the mailbox')
+    expect(convert!.deferred).toBe(true)
+    expect(convert!.deferredDetail).toContain('Exchange Online automation')
+    // License removal is deferred behind the conversion, never inline
+    const licenses = actions.find((s) => s.key === 'remove_licenses')
+    expect(licenses!.automated).toBe(true)
+    expect(licenses!.deferred).toBe(true)
+    expect(licenses!.manualInstruction).toContain('intentionally left assigned')
   })
 
-  it('defers license removal as a manual follow-up when requested', () => {
+  it('keeps conversion MANUAL with the reason when Exchange automation is unavailable', () => {
     const actions = deriveRequestedOffboardingActions(
-      { data_handling: 'keep_accessible', shared_mailbox_access: ['a@x.com'] },
+      { data_handling: 'keep_accessible', shared_mailbox_access: ['Jking@x.com'] },
       target,
-      { licenseRemovalDeferred: true }
+      { exchangeAutomationAvailable: false, exchangeUnavailableReason: 'tenant not enabled for Exchange automation — see the enablement runbook' }
     )
-    const lic = actions.find((s) => s.key === 'remove_licenses')
-    expect(lic!.automated).toBe(false)
-    expect(lic!.manualInstruction).toContain('AFTER the shared-mailbox conversion')
-    // Reconciliation renders it [MANUAL], never [NOT RUN]
-    const result = reconcileOffboardingActions(actions, ['find_user', 'disable_account', 'remove_groups'], [])
-    expect(result.statusLines.find((l) => l.includes('Remove Microsoft 365 licenses'))).toContain('[MANUAL]')
-    expect(result.unaccountedKeys).toEqual([])
+    const convert = actions.find((s) => s.key === 'convert_shared_mailbox')
+    expect(convert!.automated).toBe(false)
+    expect(convert!.manualInstruction).toContain('tenant not enabled for Exchange automation')
+    // License stays assigned in the manual path too — instruction says remove AFTER converting
+    expect(convert!.manualInstruction).toContain('still assigned')
+    const licenses = actions.find((s) => s.key === 'remove_licenses')
+    expect(licenses!.automated).toBe(false)
+    expect(licenses!.manualInstruction).toContain('AFTER converting')
+  })
+
+  it('keeps inline license removal for non-keep_accessible offboardings', () => {
+    for (const value of ['forward_to_manager', 'delete_after_30', 'no_action', undefined]) {
+      const actions = deriveRequestedOffboardingActions(
+        value ? { data_handling: value } : {},
+        target,
+        { exchangeAutomationAvailable: true }
+      )
+      const licenses = actions.find((s) => s.key === 'remove_licenses')
+      expect(licenses!.automated).toBe(true)
+      expect(licenses!.deferred).toBeUndefined()
+    }
   })
 
   it('only includes revoke_sessions for immediate terminations (any schema key)', () => {
@@ -215,6 +235,55 @@ describe('reconcileOffboardingActions', () => {
     )
     expect(result.statusLines.find((l) => l.includes('deletion'))).toContain('[QUEUED]')
     expect(result.unaccountedKeys).toEqual([])
+  })
+
+  it('renders dispatched Exchange work as QUEUED with its detail text', () => {
+    const requested = deriveRequestedOffboardingActions(
+      { data_handling: 'keep_accessible', shared_mailbox_access: ['Jking@x.com'] },
+      target,
+      { exchangeAutomationAvailable: true }
+    )
+    const result = reconcileOffboardingActions(
+      requested,
+      ['find_user', 'disable_account', 'remove_groups'],
+      [],
+      ['convert_shared_mailbox', 'remove_licenses']
+    )
+    const convertLine = result.statusLines.find((l) => l.includes('Convert mailbox'))
+    expect(convertLine).toContain('[QUEUED]')
+    expect(convertLine).toContain('confirmation note will follow')
+    const licenseLine = result.statusLines.find((l) => l.includes('licenses'))
+    expect(licenseLine).toContain('[QUEUED]')
+    expect(result.unaccountedKeys).toEqual([])
+  })
+
+  it('never claims QUEUED when the dispatch failed (deferred but not queued)', () => {
+    const requested = deriveRequestedOffboardingActions(
+      { data_handling: 'keep_accessible', shared_mailbox_access: ['Jking@x.com'] },
+      target,
+      { exchangeAutomationAvailable: true }
+    )
+    // Dispatch failed: conversion recorded as failed, nothing was queued
+    const result = reconcileOffboardingActions(
+      requested,
+      ['find_user', 'disable_account', 'remove_groups'],
+      ['convert_shared_mailbox'],
+      []
+    )
+    const convertLine = result.statusLines.find((l) => l.includes('Convert mailbox'))
+    expect(convertLine).toContain('[FAILED]')
+    // remove_licenses was deferred behind the conversion — with no job queued it
+    // must surface as NOT RUN + manual step, not silently pend forever
+    const licenseLine = result.statusLines.find((l) => l.includes('licenses'))
+    expect(licenseLine).toContain('[NOT RUN]')
+    expect(result.unaccountedKeys).toContain('remove_licenses')
+    expect(result.manualInstructions.some((m) => m.includes('intentionally left assigned'))).toBe(true)
+  })
+
+  it('keeps legacy deferred==queued behavior when queuedSteps is omitted', () => {
+    const requested = deriveRequestedOffboardingActions({ data_handling: 'delete_after_30' }, target)
+    const result = reconcileOffboardingActions(requested, ['find_user', 'disable_account', 'remove_groups', 'remove_licenses'], [])
+    expect(result.statusLines.find((l) => l.includes('deletion'))).toContain('[QUEUED]')
   })
 
   it('emits only Windows-1252-safe ASCII markers (Autotask mangles ✓ / → to ?)', () => {

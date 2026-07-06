@@ -15,12 +15,7 @@ import {
   parseSharedMailboxRecipients,
   DELETE_AFTER_HOLD_VALUES,
 } from '@/lib/hr/offboarding-actions'
-import {
-  isExoAutomationEnabled,
-  dispatchConvertToShared,
-  waitForExoJobCompletion,
-  markExoJobNotifyOnCallback,
-} from '@/lib/exchange-online'
+import { checkExchangeAutomationAvailability, dispatchExchangeJob } from '@/lib/exchange-online'
 
 // Pax8 license procurement can poll for up to 5 minutes
 export const maxDuration = 300
@@ -1055,6 +1050,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const stepsCompleted: string[] = ['create_ticket']
     if (!timeStepError) stepsCompleted.push('add_time_entry')
+
+    // Set when a keep_accessible offboarding dispatches an async Exchange
+    // conversion job — recorded in resolved_action_plan so the callback/cron
+    // can reconcile the pending work.
+    let exchangeJobId: string | null = null
 
     // Track overall provisioning outcome
     let primaryActionSucceeded = false
@@ -2097,62 +2097,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             await addTicketNote('Account Disable Failed', `Error: ${msg}`)
           }
 
-          // Convert mailbox to shared via the Exchange automation runner
-          // (when enabled for this tenant). This runs BEFORE license removal:
-          // a mailbox must still be licensed to convert it to shared.
-          const wantsSharedMailbox = a.data_handling === 'keep_accessible'
-          const exoEnabled = wantsSharedMailbox && isExoAutomationEnabled(hrRequest.company_slug ?? '')
-          // null = not attempted (manual path when the tenant isn't enabled)
-          let conversionOutcome: 'done' | 'pending' | 'failed' | null = null
-          if (exoEnabled) {
-            const convStart = new Date()
-            const mailboxTarget = targetUpn ?? workEmail
-            const delegates = parseSharedMailboxRecipients(answers)
-            try {
-              const { jobId } = await dispatchConvertToShared({
-                pgClient: client,
-                requestId: hrRequest.id,
-                companySlug: hrRequest.company_slug,
-                ticketId,
-                mailbox: mailboxTarget,
-                delegates,
-              })
-              const final = await waitForExoJobCompletion(client, jobId, 120_000)
-              if (final?.status === 'succeeded') {
-                conversionOutcome = 'done'
-                provisioningResults.push(`Mailbox Converted to Shared: ${mailboxTarget}`)
-                await logStep(client, hrRequest.id, 'convert_shared_mailbox', 'Convert Mailbox to Shared (Exchange automation)', 'completed', convStart,
-                  { jobId, mailbox: mailboxTarget, delegates }, { result: final.result })
-                stepsCompleted.push('convert_shared_mailbox')
-                await addTicketNote('Mailbox Converted to Shared',
-                  `Confirmed by Exchange automation:\nMailbox ${mailboxTarget} is now a SHARED mailbox.` +
-                  (delegates.length > 0 ? `\nAccess granted to: ${delegates.join(', ')}` : ''))
-              } else if (final?.status === 'failed') {
-                conversionOutcome = 'failed'
-                await logStep(client, hrRequest.id, 'convert_shared_mailbox', 'Convert Mailbox to Shared (Exchange automation)', 'failed', convStart,
-                  { jobId, mailbox: mailboxTarget, delegates }, undefined, final.error ?? 'Runbook reported failure')
-                failedSteps.push('convert_shared_mailbox')
-                await addTicketNote('Mailbox Conversion Failed', `Mailbox: ${mailboxTarget}\nError: ${final.error ?? 'Runbook reported failure'}`)
-              } else {
-                conversionOutcome = 'pending'
-                await markExoJobNotifyOnCallback(client, jobId)
-                await addTicketNote('Mailbox Conversion Dispatched — Awaiting Confirmation',
-                  `The shared-mailbox conversion for ${mailboxTarget} was dispatched to the Exchange automation but had not confirmed within the wait window. ` +
-                  'A confirmation (or failure) note will be posted automatically when it completes. License removal is deferred until the conversion is confirmed.')
-              }
-            } catch (err) {
-              const msg = err instanceof Error ? err.message : String(err)
-              conversionOutcome = 'failed'
-              await logStep(client, hrRequest.id, 'convert_shared_mailbox', 'Convert Mailbox to Shared (Exchange automation)', 'failed', convStart,
-                { mailbox: mailboxTarget }, undefined, msg)
-              failedSteps.push('convert_shared_mailbox')
-              await addTicketNote('Mailbox Conversion Dispatch Failed', `Mailbox: ${mailboxTarget}\nError: ${msg}`)
-            }
-          }
-          // A mailbox must be licensed to convert — defer license removal
-          // whenever a conversion was requested and isn't confirmed done.
-          const deferLicenseRemoval = wantsSharedMailbox && conversionOutcome !== 'done'
-
           // Remove from all groups
           const removeGrpStart = new Date()
           let removedGroupCount = 0
@@ -2193,16 +2137,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             await addTicketNote('Group Removal Failed', `Error: ${msg}`)
           }
 
-          // Remove licenses — skipped while a shared-mailbox conversion is
-          // outstanding (the mailbox must still be licensed to convert); the
-          // reconciliation renders the deferral as an explicit [MANUAL] item.
+          // Remove licenses — EXCEPT for keep_accessible offboardings: the
+          // mailbox must still be licensed when it is converted to shared
+          // (Microsoft requirement), so removal is deferred to the Exchange
+          // callback (automated path) or a manual step after conversion
+          // (fallback path). See the Exchange dispatch block below.
+          const keepAccessible = a.data_handling === 'keep_accessible'
           let removedLicenseCount = 0
           const removedLicenseNames: string[] = []
-          if (deferLicenseRemoval) {
-            await addTicketNote('License Removal Deferred',
-              `License removal for ${targetUpn} is intentionally deferred: the mailbox must still be licensed to convert it to a shared mailbox. ` +
-              'Remove the license after the conversion is confirmed (shared mailboxes under 50 GB need no license).')
-          } else {
+          if (!keepAccessible) {
             const removeLicStart = new Date()
             try {
               const skus = await graph.getLicenseSkus()
@@ -2232,6 +2175,76 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               failedSteps.push('remove_licenses')
               await addTicketNote('License Removal Failed', `Error: ${msg}`)
             }
+          } else {
+            await addTicketNote('License Removal Deferred',
+              `Licenses for ${targetUpn} were intentionally NOT removed yet: the mailbox must be licensed at the moment it is converted to shared. ` +
+              'They are removed automatically after a confirmed conversion (Exchange automation) or manually after converting (see NEXT STEPS).')
+          }
+
+          // Dispatch the mailbox conversion to the Exchange Online runner
+          // (keep_accessible only). A 202 from Azure Automation means QUEUED —
+          // the reconciliation below renders [QUEUED] and the callback
+          // (/api/hr/exchange-callback) writes the verified outcome. When the
+          // tenant is not enabled, this stays a [MANUAL] outcome exactly like
+          // before, with the reason attached.
+          let exchangeAvailability: Awaited<ReturnType<typeof checkExchangeAutomationAvailability>> | null = null
+          if (keepAccessible) {
+            const mailboxRecipients = parseSharedMailboxRecipients(answers)
+            try {
+              exchangeAvailability = await checkExchangeAutomationAvailability(hrRequest.company_slug)
+            } catch (err) {
+              exchangeAvailability = {
+                available: false,
+                code: 'platform_not_configured',
+                reason: `availability check failed: ${err instanceof Error ? err.message : String(err)}`,
+              }
+            }
+            if (exchangeAvailability.available) {
+              const dispatchStart = new Date()
+              // Manual fallback text used if the job later fails or times out
+              const fallbackInstruction =
+                `Convert the mailbox for ${targetUpn} to a SHARED mailbox (Microsoft 365 admin center -> Active users -> ${targetUpn} -> Mail -> Convert to shared mailbox)` +
+                (mailboxRecipients.length > 0
+                  ? `, then grant Read and manage + Send as access to: ${mailboxRecipients.join(', ')} (Exchange admin center -> Recipients -> Mailboxes -> mailbox delegation).`
+                  : '. The form did not specify who should receive access — confirm with the requester before granting delegation.') +
+                ' The license is still assigned — remove it after converting.'
+              const dispatch = await dispatchExchangeJob({
+                jobType: 'convert_to_shared',
+                companySlug: hrRequest.company_slug,
+                tenantConfig: exchangeAvailability.config,
+                hrRequestId: hrRequest.id,
+                stepKey: 'convert_shared_mailbox',
+                targetUpn: targetUpn ?? undefined,
+                delegates: mailboxRecipients.map((upn) => ({ upn, fullAccess: true, sendAs: true })),
+                finalizeContext: {
+                  ticketId,
+                  ticketNumber: ticketNumber ?? null,
+                  submitterEmail: hrRequest.submitted_by_email ?? null,
+                  submitterName: hrRequest.submitted_by_name ?? null,
+                  employeeName: fullName || targetUpn || workEmail,
+                  targetUserId,
+                  targetUpn,
+                  companyName: hrRequest.displayName ?? null,
+                  recipients: mailboxRecipients,
+                  deferLicenseRemoval: true,
+                  manualInstruction: fallbackInstruction,
+                },
+              })
+              if (dispatch.ok) {
+                exchangeJobId = dispatch.jobId
+                await logStep(client, hrRequest.id, 'dispatch_exchange_job', 'Dispatch Exchange Conversion Job', 'completed', dispatchStart,
+                  { targetUpn, recipients: mailboxRecipients }, { jobId: dispatch.jobId, azureJobIds: dispatch.azureJobIds })
+                await addTicketNote('Mailbox Conversion Queued (automated)',
+                  `The shared-mailbox conversion for ${targetUpn} was dispatched to the Exchange Online automation (job ${dispatch.jobId}).\n` +
+                  'A note with the VERIFIED result will follow — the conversion is NOT done yet. If no result note appears within an hour, the job timed out and a manual-completion note will be posted instead.')
+              } else {
+                failedSteps.push('convert_shared_mailbox')
+                await logStep(client, hrRequest.id, 'convert_shared_mailbox', 'Convert Mailbox to Shared + Delegate Access', 'failed', dispatchStart,
+                  { targetUpn, recipients: mailboxRecipients }, undefined, `dispatch failed: ${dispatch.error}`)
+                await addTicketNote('Mailbox Conversion Dispatch FAILED',
+                  `Could not hand the conversion for ${targetUpn} to the Exchange automation: ${dispatch.error}\nComplete it manually — see NEXT STEPS.`)
+              }
+            }
           }
 
           // Build provisioning results for ticket. Runs even when the primary
@@ -2248,12 +2261,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             // silently omitted from the ticket record (ticket T20260704.0004:
             // "convert to shared mailbox" was neither executed nor mentioned).
             const requestedActions = deriveRequestedOffboardingActions(answers, targetUpn ?? workEmail, {
-              conversionAutomated: exoEnabled,
-              licenseRemovalDeferred: deferLicenseRemoval,
+              exchangeAutomationAvailable: exchangeAvailability?.available === true,
+              exchangeUnavailableReason:
+                exchangeAvailability && !exchangeAvailability.available ? exchangeAvailability.reason : undefined,
             })
-            const reconciliation = reconcileOffboardingActions(
-              requestedActions, stepsCompleted, failedSteps,
-              conversionOutcome === 'pending' ? ['convert_shared_mailbox'] : [])
+            // Deferred actions render [QUEUED] only when actually queued:
+            // deletion scheduling runs later in this request by construction;
+            // the Exchange conversion + deferred license removal only count
+            // when the job was really dispatched.
+            const queuedStepKeys = [
+              'schedule_deletion',
+              ...(exchangeJobId ? ['convert_shared_mailbox', 'remove_licenses'] : []),
+            ]
+            const reconciliation = reconcileOffboardingActions(requestedActions, stepsCompleted, failedSteps, queuedStepKeys)
             manualSteps.push(...reconciliation.manualInstructions)
             if (a.additional_notes && a.additional_notes.trim()) {
               manualSteps.push(`Review additional notes/other systems access — see "ADDITIONAL NOTES" section above`)
@@ -2269,8 +2289,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               archive_onedrive: `Manually archive OneDrive files from ${targetUpn || workEmail} to HR SharePoint site`,
               load_m365_creds: 'Configure M365 credentials for this company in the admin portal before retrying',
               convert_shared_mailbox:
-                requestedActions.find(s => s.key === 'convert_shared_mailbox')?.manualInstruction ??
-                `Manually convert the mailbox for ${targetUpn || workEmail} to a shared mailbox and grant the requested access`,
+                `Convert the mailbox for ${targetUpn || workEmail} to a SHARED mailbox (Microsoft 365 admin center -> Active users -> ${targetUpn || workEmail} -> Mail -> Convert to shared mailbox)` +
+                `${parseSharedMailboxRecipients(answers).length > 0 ? `, then grant Read and manage + Send as access to: ${parseSharedMailboxRecipients(answers).join(', ')} (Exchange admin center -> Recipients -> Mailboxes -> mailbox delegation)` : ''}. ` +
+                'The license is still assigned — remove it after converting. (The automated Exchange job did not complete — see the failure note.)',
             }
             for (const step of failedSteps) {
               const desc = failedStepDescriptions[step] ?? `Retry failed step: ${step}`
@@ -2302,7 +2323,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                 ? 'Status: Completed with errors — manual steps required'
                 : manualSteps.length > 0
                   ? 'Status: Automated steps complete — manual steps required'
-                  : 'Status: All actions completed successfully',
+                  : exchangeJobId
+                    ? 'Status: Automated steps complete — Exchange mailbox job still pending (see QUEUED above)'
+                    : 'Status: All actions completed successfully',
               '',
               '=== NEXT STEPS FOR TCT STAFF ===',
               ...(manualSteps.length > 0
@@ -2346,14 +2369,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             // Customer-facing status of requested-but-not-yet-done work, so the
             // requester is never left believing a pending step already happened.
             const customerPendingLines: string[] = []
-            if (requestedActions.some(s => s.key === 'convert_shared_mailbox') && conversionOutcome !== 'done') {
+            if (requestedActions.some(s => s.key === 'convert_shared_mailbox')) {
               const mailboxRecipients = parseSharedMailboxRecipients(answers)
-              const accessSuffix = mailboxRecipients.length > 0 ? ` (with access for ${mailboxRecipients.join(', ')})` : ''
+              const accessPhrase = mailboxRecipients.length > 0 ? ` (with access for ${mailboxRecipients.join(', ')})` : ''
               customerPendingLines.push(
-                conversionOutcome === 'pending'
-                  ? `Mailbox conversion to a shared mailbox${accessSuffix} is processing — you will receive confirmation shortly.`
+                exchangeJobId
+                  ? `Mailbox conversion to a shared mailbox${accessPhrase} is IN PROGRESS — it runs automatically and we will confirm when it completes.`
                   : mailboxRecipients.length > 0
-                    ? `Mailbox conversion to a shared mailbox${accessSuffix} is PENDING — our team completes this step manually and will confirm when done.`
+                    ? `Mailbox conversion to a shared mailbox${accessPhrase} is PENDING — our team completes this step manually and will confirm when done.`
                     : 'Mailbox conversion to a shared mailbox is PENDING — our team will confirm who should receive access before completing it.'
               )
             }
@@ -2400,9 +2423,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             noteLines.push(
               oneDriveTransferredTo ? `\nOneDrive files shared with ${oneDriveTransferredTo}.` : null,
               archiveFolderUrl ? `OneDrive files copied to HR SharePoint (${archivedFileCount} items).` : null,
-              conversionOutcome === 'done'
-                ? `Mailbox converted to a shared mailbox${parseSharedMailboxRecipients(answers).length > 0 ? ` with access for ${parseSharedMailboxRecipients(answers).join(', ')}` : ''}.`
-                : null,
             )
             if (customerPendingLines.length > 0) {
               noteLines.push('', 'Still in progress:')
@@ -2417,7 +2437,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             const completionNote = noteLines.filter(Boolean).join('\n')
 
             await addTicketNote(
-              manualSteps.length > 0 ? 'Offboarding In Progress' : 'Offboarding Complete',
+              manualSteps.length > 0 || exchangeJobId ? 'Offboarding In Progress' : 'Offboarding Complete',
               completionNote, 1)
 
             // Email notification to submitter
@@ -2432,7 +2452,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                   const emailLines: (string | null)[] = [
                     'Hello,',
                     '',
-                    `The offboarding for ${employeeName} at ${companyName} has been ${manualSteps.length > 0 ? 'partially completed' : 'completed'}.`,
+                    `The offboarding for ${employeeName} at ${companyName} has been ${manualSteps.length > 0 || exchangeJobId ? 'partially completed' : 'completed'}.`,
                     '',
                     primaryActionSucceeded
                       ? `Account ${targetUpn} has been disabled.`
@@ -2474,7 +2494,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                   await resend.emails.send({
                     from: FROM_EMAIL,
                     to: [recipientEmail],
-                    subject: manualSteps.length > 0
+                    subject: manualSteps.length > 0 || exchangeJobId
                       ? `Employee Offboarding In Progress — ${employeeName}`
                       : `Employee Offboarding Complete — ${employeeName}`,
                     text: emailLines.filter((l) => l !== null).join('\n'),
@@ -2488,8 +2508,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             }
 
             // Close ticket only when everything succeeded and nothing manual
-            // remains; escalate whenever a human still has work to do
-            if (manualSteps.length === 0 && failedSteps.length === 0 && primaryActionSucceeded) {
+            // remains; escalate whenever a human still has work to do. A
+            // pending Exchange job keeps the ticket OPEN at normal priority —
+            // the callback closes it after the verified result (or the
+            // reconcile cron escalates it on timeout).
+            if (manualSteps.length === 0 && failedSteps.length === 0 && primaryActionSucceeded && !exchangeJobId) {
               try {
                 await fetch(`${baseUrl}/V1.0/Tickets`, {
                   method: 'PATCH',
@@ -2500,7 +2523,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               } catch (err) {
                 console.warn('[hr/process] Failed to close ticket:', err instanceof Error ? err.message : err)
               }
-            } else {
+            } else if (manualSteps.length > 0 || failedSteps.length > 0 || !primaryActionSucceeded) {
               // Escalate ticket so a human reviews the manual steps
               try {
                 await fetch(`${baseUrl}/V1.0/Tickets`, {
@@ -2513,6 +2536,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                 console.warn('[hr/process] Failed to escalate ticket:', err instanceof Error ? err.message : err)
               }
             }
+            // else: only a queued Exchange job remains — leave the ticket open
+            // at normal priority; the callback/cron owns the next transition.
           }
         } else if (ticketId) {
           // User lookup failed — NO automated offboarding actions could run.
@@ -2616,7 +2641,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         finalStatus,
         errorMsg,
         stepsCompleted.length > 0
-          ? JSON.stringify({ completedActions: stepsCompleted, failedActions: failedSteps, manualActions: manualSteps })
+          ? JSON.stringify({
+              completedActions: stepsCompleted,
+              failedActions: failedSteps,
+              manualActions: manualSteps,
+              queuedActions: exchangeJobId ? ['convert_shared_mailbox', 'remove_licenses'] : [],
+              exchangeJobId,
+            })
           : null,
       ]
     )

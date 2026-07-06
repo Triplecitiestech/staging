@@ -1,82 +1,119 @@
 import { describe, it, expect } from 'vitest'
 import {
-  isExoAutomationEnabled,
-  signExoCallback,
-  verifyExoCallback,
-  resolveOnMicrosoftDomain,
+  signExchangePayload,
+  verifyExchangeSignature,
+  evaluateExchangeJobResult,
+  type ExchangeJobPayload,
 } from './exchange-online'
 
-describe('isExoAutomationEnabled', () => {
-  const base = {
-    EXO_AUTOMATION_ENABLED: 'true',
-    EXO_AUTOMATION_WEBHOOK_URL: 'https://example.azure-automation.net/webhooks?token=x',
+const SECRET = 'test-secret-value'
+
+function payload(overrides: Partial<ExchangeJobPayload> = {}): ExchangeJobPayload {
+  return {
+    jobId: 'job-1',
+    action: 'convert_to_shared',
+    tenantId: '00000000-0000-0000-0000-000000000001',
+    organization: 'contoso.onmicrosoft.com',
+    targetUpn: 'mbeach@contoso.com',
+    delegates: [{ upn: 'jking@contoso.com', fullAccess: true, sendAs: true }],
+    callbackUrl: 'https://www.triplecitiestech.com/api/hr/exchange-callback',
+    issuedAt: '2026-07-05T00:00:00.000Z',
+    companySlug: 'contoso',
+    ...overrides,
   }
+}
 
-  it('is off by default (kill switch)', () => {
-    expect(isExoAutomationEnabled('dan-brown-construction', {})).toBe(false)
-    expect(isExoAutomationEnabled('dan-brown-construction', { ...base, EXO_AUTOMATION_ENABLED: 'false' })).toBe(false)
+describe('HMAC signing / verification', () => {
+  it('round-trips a signed body', () => {
+    const body = JSON.stringify({ hello: 'world' })
+    const sig = signExchangePayload(body, SECRET)
+    expect(verifyExchangeSignature(body, sig, SECRET)).toBe(true)
   })
 
-  it('requires the webhook URL to be configured', () => {
-    expect(isExoAutomationEnabled('x', { EXO_AUTOMATION_ENABLED: 'true' })).toBe(false)
-  })
-
-  it('honors the per-tenant allowlist (case-insensitive)', () => {
-    const env = { ...base, EXO_ENABLED_TENANTS: 'Dan-Brown-Construction, other-co' }
-    expect(isExoAutomationEnabled('dan-brown-construction', env)).toBe(true)
-    expect(isExoAutomationEnabled('OTHER-CO', env)).toBe(true)
-    expect(isExoAutomationEnabled('not-enabled', env)).toBe(false)
-  })
-
-  it('supports the wildcard allowlist', () => {
-    expect(isExoAutomationEnabled('anyone', { ...base, EXO_ENABLED_TENANTS: '*' })).toBe(true)
-  })
-
-  it('denies everything when the allowlist is empty', () => {
-    expect(isExoAutomationEnabled('anyone', base)).toBe(false)
+  it('rejects a tampered body, wrong secret, and malformed signatures', () => {
+    const body = JSON.stringify({ hello: 'world' })
+    const sig = signExchangePayload(body, SECRET)
+    expect(verifyExchangeSignature(body + ' ', sig, SECRET)).toBe(false)
+    expect(verifyExchangeSignature(body, sig, 'other-secret')).toBe(false)
+    expect(verifyExchangeSignature(body, 'zz-not-hex', SECRET)).toBe(false)
+    expect(verifyExchangeSignature(body, '', SECRET)).toBe(false)
+    expect(verifyExchangeSignature('', sig, SECRET)).toBe(false)
   })
 })
 
-describe('callback HMAC (per-job token)', () => {
-  it('round-trips sign -> verify', () => {
-    const body = JSON.stringify({ jobId: 'abc', ok: true })
-    const sig = signExoCallback(body, 'job-secret-token')
-    expect(verifyExoCallback(body, sig, 'job-secret-token')).toBe(true)
+describe('evaluateExchangeJobResult — observed state must satisfy the request', () => {
+  it('accepts a verified conversion with all requested grants observed', () => {
+    const result = evaluateExchangeJobResult(payload(), {
+      jobId: 'job-1',
+      status: 'succeeded',
+      observed: {
+        recipientTypeDetails: 'SharedMailbox',
+        grants: [{ upn: 'JKing@contoso.com', fullAccess: true, sendAs: true }],
+        licenseRemovalSafe: true,
+      },
+    })
+    expect(result.ok).toBe(true)
+    expect(result.mismatches).toEqual([])
   })
 
-  it('rejects a tampered body, wrong token, or malformed signature', () => {
-    const body = JSON.stringify({ jobId: 'abc', ok: true })
-    const sig = signExoCallback(body, 'job-secret-token')
-    expect(verifyExoCallback(body + ' ', sig, 'job-secret-token')).toBe(false)
-    expect(verifyExoCallback(body, sig, 'other-token')).toBe(false)
-    expect(verifyExoCallback(body, 'short', 'job-secret-token')).toBe(false)
-    expect(verifyExoCallback(body, '', 'job-secret-token')).toBe(false)
+  it('rejects runner-claimed success when the mailbox is not actually shared', () => {
+    const result = evaluateExchangeJobResult(payload(), {
+      jobId: 'job-1',
+      status: 'succeeded',
+      observed: {
+        recipientTypeDetails: 'UserMailbox',
+        grants: [{ upn: 'jking@contoso.com', fullAccess: true, sendAs: true }],
+      },
+    })
+    expect(result.ok).toBe(false)
+    expect(result.mismatches.some((m) => m.includes('SharedMailbox'))).toBe(true)
   })
-})
 
-describe('resolveOnMicrosoftDomain', () => {
-  it('prefers the initial domain', () => {
+  it('rejects when a requested grant was not observed (partial success is failure)', () => {
+    const result = evaluateExchangeJobResult(
+      payload({
+        delegates: [
+          { upn: 'jking@contoso.com', fullAccess: true, sendAs: true },
+          { upn: 'second@contoso.com', fullAccess: true, sendAs: false },
+        ],
+      }),
+      {
+        jobId: 'job-1',
+        status: 'succeeded',
+        observed: {
+          recipientTypeDetails: 'SharedMailbox',
+          grants: [{ upn: 'jking@contoso.com', fullAccess: true, sendAs: false }],
+        },
+      },
+    )
+    expect(result.ok).toBe(false)
+    expect(result.mismatches).toContain('Send As not observed for jking@contoso.com')
+    expect(result.mismatches).toContain('no access grant observed for second@contoso.com')
+  })
+
+  it('rejects success with no observed state at all', () => {
+    const result = evaluateExchangeJobResult(payload(), { jobId: 'job-1', status: 'succeeded' })
+    expect(result.ok).toBe(false)
+    expect(result.mismatches[0]).toContain('no observed state')
+  })
+
+  it('passes through runner-reported failure with its error', () => {
+    const result = evaluateExchangeJobResult(payload(), {
+      jobId: 'job-1',
+      status: 'failed',
+      error: 'mailbox_not_found',
+    })
+    expect(result.ok).toBe(false)
+    expect(result.mismatches).toEqual(['mailbox_not_found'])
+  })
+
+  it('validates probe jobs on probeOk', () => {
+    const probe = payload({ action: 'probe', delegates: undefined, targetUpn: undefined })
     expect(
-      resolveOnMicrosoftDomain([
-        { name: 'danbrownconstruction.com', isInitial: false },
-        { name: 'netorgft1991975.onmicrosoft.com', isInitial: true },
-      ])
-    ).toBe('netorgft1991975.onmicrosoft.com')
-  })
-
-  it('falls back to any .onmicrosoft.com domain, skipping .mail.onmicrosoft.com', () => {
+      evaluateExchangeJobResult(probe, { jobId: 'job-1', status: 'succeeded', observed: { probeOk: true } }).ok,
+    ).toBe(true)
     expect(
-      resolveOnMicrosoftDomain([
-        { name: 'contoso.com' },
-        { name: 'contoso.mail.onmicrosoft.com' },
-        { name: 'contoso.onmicrosoft.com' },
-      ])
-    ).toBe('contoso.onmicrosoft.com')
-  })
-
-  it('returns null when nothing usable exists', () => {
-    expect(resolveOnMicrosoftDomain(undefined)).toBeNull()
-    expect(resolveOnMicrosoftDomain([])).toBeNull()
-    expect(resolveOnMicrosoftDomain([{ name: 'contoso.com' }])).toBeNull()
+      evaluateExchangeJobResult(probe, { jobId: 'job-1', status: 'succeeded', observed: {} }).ok,
+    ).toBe(false)
   })
 })

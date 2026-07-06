@@ -1,8 +1,20 @@
 # Current Tasks
 
-> **Last updated**: 2026-07-05. Offboarding requested-action reconciliation (code) + IT Glue SOP rewrites (done directly in IT Glue).
-> **Branch**: `claude/offboarding-automation-issues-hfrje4`.
-> **Detailed context**: `docs/session-summary.md` (2026-07-05 section) + `docs/gotchas.md` → "HR Onboarding/Offboarding Automation".
+> **Last updated**: 2026-07-05 (later session). Exchange Online automation for keep_accessible offboardings (code complete; operator enablement pending).
+> **Branch**: `claude/mailbox-conversion-delegate-access-k5vmp3`.
+> **Detailed context**: `docs/session-summary.md` (2026-07-05 sections) + `docs/gotchas.md` → "HR Onboarding/Offboarding Automation" + `docs/runbooks/EXO_AUTOMATION_ENABLEMENT.md`.
+
+## Exchange Online automation: mailbox conversion + delegation (2026-07-05) — 🟡 code complete, operator enablement required
+
+keep_accessible offboardings now dispatch the conversion + Full Access/Send As grants to an Azure Automation Exchange runner and record ONLY verified outcomes; license removal is deferred behind the conversion in both paths. Nothing executes until the operator completes the enablement runbook — until then every tenant degrades to `[MANUAL]` with the reason attached (today's behavior).
+
+**Validation / follow-ups:**
+- [ ] **[CI]** Confirm the auto-merge gate goes green (full e2e vs preview — this touches the shared HR pipeline; no `[skip-e2e]`).
+- [ ] **[OPERATOR — Part A, one-time, ~45 min]** Follow `docs/runbooks/EXO_AUTOMATION_ENABLEMENT.md` Part A: run `scripts/exchange-automation/New-TctExchangeAutomationApp.ps1`, create the Automation account + PS 7.4 runtime env + runbook + webhook, set the 4 Vercel env vars (`EXO_AUTOMATION_ENABLED`, `EXO_AUTOMATION_WEBHOOK_URL`, `EXO_DISPATCH_SECRET`, `EXO_CALLBACK_SECRET`), redeploy, then `POST https://www.triplecitiestech.com/api/migrations/run` (creates `exo_tenant_config`, `hr_exchange_jobs`, `hr_request_steps` ensure).
+- [ ] **[OPERATOR — Part B, per tenant]** Enable a TEST tenant first with `Enable-TctExchangeTenant.ps1` (consent URL → `Mail Recipients` role group → verification → registration → probe).
+- [ ] **[OPERATOR — Part C]** Run the full pilot checklist (incl. the dispatch-failure and timeout drills) before enabling real customer tenants.
+- [ ] **[PHASE 2]** Email forwarding (`forward_to_manager`/`forward_to_specific`) via the same runner (`set_forwarding` job type is already modeled); also consider `transfer_to_manager` + `forward_email_to` (live schema pairs them, the pipeline currently ignores that combination).
+- [ ] **[LOW]** Admin UI for tenant enablement + job history (registry is secret-authed API only today).
 
 ## Offboarding automation: requested-action reconciliation (2026-07-05) — 🟡 code complete, awaiting CI gate
 
@@ -13,21 +25,8 @@ Every action requested on the offboarding form now appears in the ticket's PROVI
 - [ ] **[OPERATOR — Michael Beach ticket T20260704.0004]** The pending manual work from the incident is still open: convert `MBeach@danbrownconstruction.com` to a shared mailbox and grant access to `Jking@danbrownconstruction.com` (license was already removed — if conversion is blocked, temporarily re-assign a license, convert, remove again), then close out the NEXT STEPS checklist on the ticket.
 - [ ] **[VALIDATION]** Run one test offboarding with `data_handling = keep_accessible` after deploy and confirm the PROVISIONING RESULTS reconciliation + "Still in progress" customer note render as designed.
 - [ ] **[MED — product decision]** Wire Thread to `/api/integrations/thread/webhook` (exists, HMAC-authed, generates pre-filled portal form links) OR add an admin UI button for `POST /api/forms/links` so techs can send a form link from a ticket without the API.
-- [ ] **[MED — product decision]** Consider deferring license removal when `keep_accessible` is chosen (conversion currently races the post-license-removal grace period), or an Exchange Online integration (cert + `Exchange.ManageAsApp` + PowerShell-capable runner, e.g. Azure Automation) to automate conversion/forwarding/delegation for real.
+- [x] **[DONE 2026-07-05 — later session]** License removal deferral + real Exchange Online integration both shipped (see the Exchange Online automation section above).
 - [ ] **[LOW]** Onboarding pipeline could get the same requested-vs-executed reconciliation (its results builder is still accumulation-style, though every branch does log today).
-
-## Exchange Online automation: shared-mailbox conversion (2026-07-05) — 🟡 code complete, ships disabled, operator setup required
-
-Converts "convert to shared + grant access" from a permanent [MANUAL] outcome into a real automated step via an Azure Automation runbook (EXO PowerShell app-only cert auth). Pipeline now converts BEFORE license removal and defers license removal until conversion is confirmed (Microsoft requires a licensed mailbox to convert). Full detail: `docs/session-summary.md` (2026-07-05 EXO section) + `docs/reference/EXO_AUTOMATION.md`.
-
-**Validation / follow-ups:**
-- [ ] **[CI]** Confirm the auto-merge gate goes green (full e2e vs preview; sandbox has no DB).
-- [ ] **[OPERATOR — one-time Azure setup]** Follow `docs/reference/EXO_AUTOMATION.md`: create the `TCT Exchange Automation` multitenant app reg (+ `Exchange.ManageAsApp`, cert), Azure Automation account (PS 7.2 runtime + ExchangeOnlineManagement module, cert asset `TCT-EXO-Automation`, variable `TctExoAppId`), import + publish `scripts/exo/Invoke-TctExoOffboardingJob.ps1`, create its webhook.
-- [ ] **[OPERATOR — after deploy]** POST `https://www.triplecitiestech.com/api/migrations/run` (creates `exo_jobs`), then set Vercel env vars `EXO_AUTOMATION_ENABLED=true`, `EXO_AUTOMATION_WEBHOOK_URL`, `EXO_ENABLED_TENANTS=<one pilot slug>`.
-- [ ] **[OPERATOR — per tenant]** Run `scripts/exo/Enable-TenantExoAutomation.ps1` (consent URL + Exchange Recipient Administrator role for the SP), add slug to `EXO_ENABLED_TENANTS`.
-- [ ] **[VALIDATION — pilot]** Test offboarding with keep_accessible on the pilot tenant: expect `[DONE] Convert mailbox to shared…` (or `[QUEUED]` then confirmation note), mailbox Shared in M365, delegate has access, licenses removed AFTER conversion. Then the kill-switch drill (set flag false → clean `[MANUAL]` fallback).
-- [ ] **[MED — phase 2]** Email forwarding (`Set-Mailbox` forwarding) through the same runner.
-- [ ] **[LOW]** Reconciler cron for `exo_jobs` stuck in `dispatched` (runbook crashed before callback) — currently surfaced only via the QUEUED ticket note.
 
 ## UniFi per-site MCP connector tools (2026-07-04) — 🟡 code complete, awaiting CI + operator steps
 

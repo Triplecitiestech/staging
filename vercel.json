@@ -88,6 +88,12 @@
     "src/app/api/hr/submit/route.ts": {
       "maxDuration": 30
     },
+    "src/app/api/hr/exchange-callback/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/cron/exchange-jobs-reconcile/route.ts": {
+      "maxDuration": 60
+    },
     "src/app/api/cron/health-monitor/route.ts": {
       "maxDuration": 60
     },
@@ -186,6 +192,10 @@
     {
       "path": "/api/cron/itglue-doc-sync",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/exchange-jobs-reconcile",
+      "schedule": "*/15 * * * *"
     }
   ]
 }
