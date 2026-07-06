@@ -175,6 +175,15 @@ export default function AdminHeader() {
       ),
     },
     {
+      label: 'Sales Calculator',
+      href: '/admin/sales-calculator',
+      icon: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m-6 4h.01M12 11h.01M15 11h.01M9 15h.01M12 15h.01M15 15h.01M7 3h10a2 2 0 012 2v14a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2z" />
+        </svg>
+      ),
+    },
+    {
       label: 'Sales Agents',
       href: '/admin/sales-agents',
       icon: (
