@@ -1,0 +1,119 @@
+{
+  "appName": "TCT Managed Services Sales Calculator",
+  "internalOnlyBanner": "Contains vendor costs and margins \u2014 do not share raw screens with customers.",
+  "currency": "USD",
+  "annualMonths": 12,
+  "options": {
+    "industries": [
+      "Professional Services",
+      "Healthcare",
+      "Construction",
+      "Manufacturing",
+      "Finance / Insurance",
+      "Legal",
+      "Nonprofit",
+      "Retail",
+      "Logistics / Transportation",
+      "Education",
+      "Government / Municipal",
+      "Other"
+    ],
+    "compliance": [
+      "None",
+      "HIPAA",
+      "CMMC",
+      "NY SHIELD",
+      "DFS (23 NYCRR 500)",
+      "PCI-DSS",
+      "Other"
+    ],
+    "serverTypes": [
+      "Physical",
+      "Hyper-V Host",
+      "VMware Host",
+      "Azure VM",
+      "AWS VM",
+      "Other Cloud VM"
+    ],
+    "deviceTypes": [
+      "Workstations",
+      "Laptops",
+      "Macs",
+      "Shared Devices",
+      "Kiosks"
+    ],
+    "retentionOptions": [
+      "30 days",
+      "90 days",
+      "1 year",
+      "3 years",
+      "7 years",
+      "Custom"
+    ],
+    "osOptions": [
+      "Windows Server",
+      "Linux",
+      "Other"
+    ],
+    "licenseProviders": [
+      "Customer purchases directly",
+      "Triple Cities Tech resells licensing"
+    ],
+    "m365Licenses": [
+      "Business Basic",
+      "Business Standard",
+      "Business Premium",
+      "Frontline (F3)",
+      "E3",
+      "E5",
+      "Other / None"
+    ]
+  },
+  "frontlineServiceToggles": [
+    {
+      "id": "printix",
+      "label": "Require Printix?",
+      "default": false
+    }
+  ],
+  "internalIT": [
+    {
+      "id": "hasInternalIT",
+      "label": "Does customer have internal IT staff?"
+    },
+    {
+      "id": "comanagedAccess",
+      "label": "Need Co-Managed Access?"
+    },
+    {
+      "id": "autotaskAccess",
+      "label": "Need Autotask (PSA) Access?"
+    },
+    {
+      "id": "documentationAccess",
+      "label": "Need Documentation (IT Glue) Access?"
+    },
+    {
+      "id": "escalationSupport",
+      "label": "Need Escalation Support?"
+    },
+    {
+      "id": "afterHoursSupport",
+      "label": "Need After-Hours Support?"
+    }
+  ],
+  "serverQuestions": [
+    {
+      "id": "backupRequired",
+      "label": "Backup Required?"
+    },
+    {
+      "id": "drRequired",
+      "label": "Disaster Recovery Required?"
+    },
+    {
+      "id": "imageBackupRequired",
+      "label": "Image-Level Backup Required?"
+    }
+  ]
+}

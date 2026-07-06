@@ -1,0 +1,34 @@
+import { test, expect } from '@playwright/test'
+
+/**
+ * Sales Calculator access gate (unauthenticated).
+ *
+ * /admin/sales-calculator exposes vendor costs and margins, so an anonymous
+ * visitor must only ever see the sign-in card — never the calculator itself —
+ * and the route must be explicitly noindex.
+ */
+
+test.describe('Sales Calculator — access gate', () => {
+  test('anonymous visitor gets the sign-in card, not the calculator', async ({ page }) => {
+    const response = await page.goto('/admin/sales-calculator')
+    expect(response?.status()).toBeLessThan(500)
+
+    // Sign-in gate is shown…
+    await expect(
+      page.getByText('Internal tool — sign in with your Microsoft account to continue')
+    ).toBeVisible()
+
+    // …and nothing internal leaks
+    const content = (await page.textContent('body')) ?? ''
+    expect(content).not.toContain('INTERNAL ONLY')
+    expect(content).not.toContain('vendor costs and margins')
+    expect(content).not.toContain('Quote Comparison')
+    expect(content).not.toContain('Line-Item Cost')
+  })
+
+  test('route is noindex', async ({ page }) => {
+    await page.goto('/admin/sales-calculator')
+    const robots = page.locator('meta[name="robots"]')
+    await expect(robots).toHaveAttribute('content', /noindex/)
+  })
+})

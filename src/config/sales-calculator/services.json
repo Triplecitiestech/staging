@@ -1,0 +1,48 @@
+{
+  "_comment": "Service catalog. INTERNAL view shows 'internalName' + 'vendor'. EXTERNAL/customer view shows 'externalName' only. 'include' marks which packages include the capability (drives comparison + included/missing lists). Dollar amounts live ONLY in pricing.json (single source of truth for money).",
+  "categories": {
+    "user": "User Services",
+    "device": "Device Services",
+    "security": "Security Services",
+    "backup": "Backup Services",
+    "network": "Network & Infrastructure",
+    "strategy": "Strategy & Support",
+    "platform": "Platform / Operations"
+  },
+  "services": [
+    { "id": "rmm", "internalName": "Datto RMM", "externalName": "Remote Monitoring & Management", "vendor": "Datto/Kaseya", "category": "device", "unit": "perDevice", "include": {"basic": true, "standard": true, "comprehensive": true, "complete": true, "comanaged": true} },
+    { "id": "edr", "internalName": "Datto EDR", "externalName": "Endpoint Detection & Response", "vendor": "Datto/Kaseya", "category": "security", "unit": "perDevice", "include": {"basic": true, "standard": true, "comprehensive": true, "complete": true, "comanaged": true} },
+    { "id": "av", "internalName": "DattoAV", "externalName": "Managed Antivirus", "vendor": "Datto/Kaseya", "category": "security", "unit": "perDevice", "include": {"basic": true, "standard": true, "comprehensive": true, "complete": true, "comanaged": true} },
+    { "id": "patch", "internalName": "3rd-Party Application Patching", "externalName": "Patch Management (3rd-party apps)", "vendor": "Kaseya 365 Endpoint", "category": "device", "unit": "perDevice", "include": {"basic": true, "standard": true, "comprehensive": true, "complete": true, "comanaged": true} },
+    { "id": "winupdate", "internalName": "Windows Update Management", "externalName": "Windows Update Management", "vendor": "Kaseya 365 Endpoint", "category": "device", "unit": "perDevice", "include": {"basic": true, "standard": true, "comprehensive": true, "complete": true, "comanaged": true} },
+    { "id": "dns", "internalName": "DNS Filter Pro", "externalName": "Content Filtering", "vendor": "DNSFilter", "category": "security", "unit": "perDevice", "include": {"basic": true, "standard": true, "comprehensive": true, "complete": true, "comanaged": true} },
+    { "id": "endpointBackup", "internalName": "Endpoint Backup (K365 Endpoint)", "externalName": "Endpoint Backup", "vendor": "Datto/Kaseya", "category": "backup", "unit": "perDevice", "include": {"basic": false, "standard": false, "comprehensive": false, "complete": true, "comanaged": true} },
+    { "id": "ransomware", "internalName": "Ransomware Detection", "externalName": "Ransomware Detection", "vendor": "Datto/Kaseya", "category": "security", "unit": "perDevice", "include": {"basic": false, "standard": false, "comprehensive": true, "complete": true, "comanaged": true} },
+
+    { "id": "saasBackup", "internalName": "Datto SaaS Protection", "externalName": "Cloud (Microsoft 365) Backup", "vendor": "Datto/Kaseya", "category": "backup", "unit": "perUser", "include": {"basic": true, "standard": true, "comprehensive": true, "complete": true, "comanaged": true} },
+    { "id": "phishProtect", "internalName": "INKY", "externalName": "Email Phishing Protection", "vendor": "INKY", "category": "security", "unit": "perUser", "include": {"basic": true, "standard": true, "comprehensive": true, "complete": true, "comanaged": true} },
+    { "id": "printix", "internalName": "Printix", "externalName": "Centralized Print Management", "vendor": "Printix/Kaseya", "category": "user", "unit": "perUser", "include": {"basic": true, "standard": true, "comprehensive": true, "complete": true, "comanaged": true} },
+    { "id": "sat", "internalName": "BullPhish ID (Security Awareness)", "externalName": "Security Awareness Training", "vendor": "BullPhish ID", "category": "security", "unit": "perUser", "include": {"basic": false, "standard": false, "comprehensive": true, "complete": true, "comanaged": true} },
+    { "id": "phishSim", "internalName": "BullPhish ID (Susceptibility Testing)", "externalName": "Phishing Simulation", "vendor": "BullPhish ID", "category": "security", "unit": "perUser", "include": {"basic": false, "standard": false, "comprehensive": true, "complete": true, "comanaged": true} },
+    { "id": "passwordMgr", "internalName": "MyGlue", "externalName": "Password Management", "vendor": "IT Glue (MyGlue)", "category": "security", "unit": "perUser", "include": {"basic": true, "standard": true, "comprehensive": true, "complete": true, "comanaged": true} },
+    { "id": "saasAlerts", "internalName": "SaaS Alerts", "externalName": "SaaS Security Monitoring", "vendor": "SaaS Alerts", "category": "security", "unit": "perUser", "include": {"basic": false, "standard": false, "comprehensive": true, "complete": true, "comanaged": true} },
+
+    { "id": "soc", "internalName": "RocketCyber", "externalName": "Managed SOC Monitoring", "vendor": "Kaseya (in 365 Endpoint)", "category": "security", "unit": "perDevice", "include": {"basic": false, "standard": false, "comprehensive": true, "complete": true, "comanaged": true} },
+    { "id": "fortify", "internalName": "SaaS Alerts Fortify", "externalName": "Automated Threat Response", "vendor": "SaaS Alerts", "category": "security", "unit": "perUser", "include": {"basic": false, "standard": false, "comprehensive": false, "complete": true, "comanaged": true} },
+    { "id": "darkweb", "internalName": "Dark Web ID", "externalName": "Dark Web Monitoring", "vendor": "Kaseya (in 365 User)", "category": "security", "unit": "perDomain", "include": {"basic": false, "standard": false, "comprehensive": true, "complete": true, "comanaged": true} },
+    { "id": "easydmarc", "internalName": "EasyDMARC", "externalName": "Email Authentication (DMARC / SPF / DKIM)", "vendor": "Pax8 / EasyDMARC", "category": "security", "unit": "perDomain", "include": {"basic": false, "standard": false, "comprehensive": true, "complete": true, "comanaged": true} },
+
+    { "id": "domotz", "internalName": "Domotz", "externalName": "Network Monitoring", "vendor": "Domotz", "category": "network", "unit": "perSite", "include": {"basic": true, "standard": true, "comprehensive": true, "complete": true, "comanaged": true} },
+    { "id": "itglue", "internalName": "IT Glue", "externalName": "Documentation", "vendor": "IT Glue/Kaseya", "category": "platform", "unit": "perSite", "include": {"basic": true, "standard": true, "comprehensive": true, "complete": true, "comanaged": true} },
+    { "id": "psa", "internalName": "Autotask (PSA)", "externalName": "Support Portal", "vendor": "Datto/Kaseya", "category": "platform", "unit": "perSite", "include": {"basic": true, "standard": true, "comprehensive": true, "complete": true, "comanaged": true} },
+    { "id": "connectbooster", "internalName": "ConnectBooster", "externalName": "Billing & Payment Portal", "vendor": "ConnectBooster", "category": "platform", "unit": "perSite", "include": {"basic": true, "standard": true, "comprehensive": true, "complete": true, "comanaged": true} },
+    { "id": "vcio", "internalName": "MyITProcess", "externalName": "Strategic IT Planning (vCIO)", "vendor": "Kaseya (MyITProcess)", "category": "strategy", "unit": "perSite", "include": {"basic": false, "standard": false, "comprehensive": true, "complete": true, "comanaged": true} },
+
+    { "id": "bdr", "internalName": "BDR (Datto)", "externalName": "Image-Level Server Backup", "vendor": "Datto/Kaseya", "category": "backup", "unit": "perServer", "include": {"basic": false, "standard": false, "comprehensive": true, "complete": true, "comanaged": true} },
+
+    { "id": "monitoring247", "internalName": "24/7/365 Monitoring (TCT)", "externalName": "24/7/365 Monitoring", "vendor": "Triple Cities Tech", "category": "strategy", "unit": "service", "include": {"basic": true, "standard": true, "comprehensive": true, "complete": true, "comanaged": true} },
+    { "id": "helpdesk", "internalName": "Helpdesk / Call Center (TCT)", "externalName": "Helpdesk Support", "vendor": "Triple Cities Tech", "category": "strategy", "unit": "service", "include": {"basic": true, "standard": true, "comprehensive": true, "complete": true, "comanaged": true} },
+    { "id": "unlimitedSupport", "internalName": "Remote Support (TCT)", "externalName": "Remote Support", "vendor": "Triple Cities Tech", "category": "strategy", "unit": "service", "include": {"basic": false, "standard": false, "comprehensive": false, "complete": true, "comanaged": false} },
+    { "id": "vendorMgmt", "internalName": "Vendor Management (TCT)", "externalName": "Vendor Management", "vendor": "Triple Cities Tech", "category": "strategy", "unit": "service", "include": {"basic": false, "standard": false, "comprehensive": false, "complete": true, "comanaged": true} }
+  ]
+}

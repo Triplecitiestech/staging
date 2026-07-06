@@ -1,0 +1,64 @@
+{
+  "_comment": "Package display names are fully configurable here. Renaming a package requires NO code changes — edit name only. 'id' is the stable key used by pricing.json and services.json; do not change ids.",
+  "packages": [
+    {
+      "id": "basic",
+      "name": "TCT Basic Care",
+      "codename": "Watchtower (internal)",
+      "order": 1,
+      "shortDescription": "Essential monitoring, patching, AV/EDR, backup and helpdesk for cost-sensitive clients.",
+      "licenseRequirement": "Business Basic",
+      "frontlineEligible": true,
+      "comanaged": false
+    },
+    {
+      "id": "standard",
+      "name": "TCT Standard Care",
+      "codename": "Watchtower+ (internal)",
+      "order": 2,
+      "shortDescription": "Basic Care plus Business Standard productivity and stronger collaboration.",
+      "licenseRequirement": "Business Standard",
+      "frontlineEligible": true,
+      "comanaged": false
+    },
+    {
+      "id": "comprehensive",
+      "name": "TCT Comprehensive Care",
+      "codename": "Bastion (internal)",
+      "order": 3,
+      "shortDescription": "Adds managed SOC, security awareness training, advanced email security and strategic planning.",
+      "licenseRequirement": "Business Premium",
+      "frontlineEligible": true,
+      "comanaged": false
+    },
+    {
+      "id": "complete",
+      "name": "TCT Complete Care",
+      "codename": "Fortress (internal)",
+      "order": 4,
+      "shortDescription": "Full stack with unlimited support, vCIO, vendor management and complete security.",
+      "licenseRequirement": "Business Premium",
+      "frontlineEligible": true,
+      "comanaged": false
+    },
+    {
+      "id": "comanaged",
+      "name": "TCT Ally (Co-Managed)",
+      "codename": "Ally (internal)",
+      "order": 5,
+      "shortDescription": "Co-managed for clients with internal IT: TCT provides the full tool stack, security, backups, documentation, monitoring and an escalation/after-hours bench. Day-to-day helpdesk, moves/adds/changes and projects are billed at an hourly rate (not bundled).",
+      "licenseRequirement": "Business Premium",
+      "frontlineEligible": true,
+      "comanaged": true
+    }
+  ],
+  "licenseTierRank": {
+    "Business Basic": 1,
+    "Business Standard": 2,
+    "Business Premium": 3,
+    "Frontline (F3)": 1,
+    "E3": 3,
+    "E5": 4,
+    "Other / None": 0
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "_comment": "Premium-first recommendation. Start from a baseline lean toward higher tiers, add rule points, then enforce floors. Highest score wins (tie-break favors higher tiers). 'floor' rules guarantee a minimum tier regardless of score. Fully editable — no code changes.",
+  "baseline": { "comprehensive": 10, "complete": 12 },
+  "ladderRank": { "basic": 1, "standard": 2, "comprehensive": 3, "complete": 4, "comanaged": 4 },
+  "floors": { "comprehensive": 3, "complete": 4 },
+  "rules": [
+    { "id": "comanagedFit", "when": "internalIT.hasInternalIT == true && users.total > 50", "points": { "comanaged": 50 }, "reason": "50+ users with an internal IT team (co-managed fit)" },
+    { "id": "comanagedAccess", "when": "internalIT.comanagedAccess == true", "points": { "comanaged": 15 }, "reason": "Wants co-managed access / shared ownership" },
+    { "id": "escalationSupport", "when": "internalIT.escalationSupport == true", "points": { "comanaged": 10, "complete": 5 }, "reason": "Requires escalation support" },
+
+    { "id": "complianceAny", "when": "company.complianceNotNone == true", "points": { "comprehensive": 12, "complete": 15 }, "floor": "comprehensive", "reason": "Has compliance requirements (Comprehensive minimum)" },
+    { "id": "complianceHeavy", "when": "company.complianceHeavy == true", "points": { "complete": 25 }, "floor": "complete", "reason": "Heavy compliance — HIPAA / CMMC / DFS (Complete required)" },
+
+    { "id": "securityFocus", "when": "company.securityPriority == true", "points": { "comprehensive": 12, "complete": 20 }, "reason": "Security is a stated priority" },
+    { "id": "multiLocation", "when": "company.locations >= 2", "points": { "comprehensive": 8, "complete": 12 }, "reason": "Multiple locations" },
+    { "id": "serversPresent", "when": "servers.count >= 1", "points": { "comprehensive": 8, "complete": 10 }, "reason": "On-prem / cloud servers to protect" },
+    { "id": "premiumLicensed", "when": "licensing.meetsPremium == true", "points": { "comprehensive": 8, "complete": 12 }, "reason": "Business Premium licensing already in place" },
+
+    { "id": "largeOrg", "when": "users.total > 40", "points": { "complete": 18, "comprehensive": 10 }, "reason": "Larger organization" },
+    { "id": "midMarket", "when": "users.total > 10 && users.total <= 40", "points": { "comprehensive": 12, "standard": 6 }, "reason": "Mid-sized team" },
+    { "id": "smallSimple", "when": "users.total <= 10 && company.complianceNotNone == false && company.securityPriority == false", "points": { "basic": 25, "standard": 18 }, "reason": "Small, low-complexity environment" }
+  ],
+  "tieBreakerOrder": ["complete", "comanaged", "comprehensive", "standard", "basic"]
+}

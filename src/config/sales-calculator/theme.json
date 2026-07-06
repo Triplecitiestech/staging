@@ -1,0 +1,33 @@
+{
+  "company": {
+    "name": "Triple Cities Tech",
+    "shortName": "TCT",
+    "tagline": "Technology solutions built for business",
+    "phone": "(607) 341-7500",
+    "email": "info@triplecitiestech.com",
+    "website": "www.triplecitiestech.com",
+    "address": "1109 Monroe St, Endicott, NY 13760",
+    "logoPath": "/logo/tct-logo.webp"
+  },
+  "brand": {
+    "bg": "#0f172a",
+    "bgDeep": "#020617",
+    "surface": "#1e293b",
+    "surface2": "#243349",
+    "border": "rgba(255,255,255,0.10)",
+    "borderStrong": "rgba(255,255,255,0.18)",
+    "text": "#e2e8f0",
+    "textBody": "#cbd5e1",
+    "textMuted": "#94a3b8",
+    "textFaint": "#64748b",
+    "accent": "#06b6d4",
+    "accentHover": "#0891b2",
+    "accentDeep": "#0e7490",
+    "emerald": "#10b981",
+    "teal": "#14b8a6",
+    "success": "#10b981",
+    "warning": "#eab308",
+    "danger": "#ef4444"
+  },
+  "_note": "Aligned to the official Triple Cities Tech Design System (dark slate + single cyan accent, Inter). Emerald/teal are the 'Fortress' security accents — used sparingly. Drop the real shield logo at public/logo/tct-logo.webp."
+}

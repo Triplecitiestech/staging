@@ -1,0 +1,132 @@
+/*
+ * Scoped styles for the internal Sales Calculator (/admin/sales-calculator).
+ *
+ * Ported from the standalone app's src/app/globals.css with every rule scoped
+ * under .tct-calc-root so nothing leaks into the rest of the site (and the
+ * site's light/marketing styles don't restyle the calculator). The variable
+ * values below are the same static defaults the standalone app declared on
+ * :root; at runtime they are overridden by inline variables computed from
+ * src/config/sales-calculator/theme.json via applyThemeToRoot().
+ */
+
+.tct-calc-root {
+  --tct-bg: #0f172a;
+  --tct-bg-deep: #020617;
+  --tct-surface: #1e293b;
+  --tct-surface-2: #243349;
+  --tct-border: rgba(255, 255, 255, 0.1);
+  --tct-border-strong: rgba(255, 255, 255, 0.18);
+  --tct-text: #e2e8f0;
+  --tct-text-body: #cbd5e1;
+  --tct-text-muted: #94a3b8;
+  --tct-text-faint: #64748b;
+  --tct-accent: 6 182 212;
+  --tct-accent-hover: 8 145 178;
+  --tct-accent-deep: 14 116 144;
+  --tct-emerald: 16 185 129;
+  --tct-teal: 20 184 166;
+  --tct-success: 16 185 129;
+  --tct-warning: 234 179 8;
+  --tct-danger: 239 68 68;
+
+  /* body styles from the standalone app, moved onto the wrapper */
+  min-height: 100vh;
+  background: var(--tct-bg);
+  background-image: linear-gradient(180deg, #0f172a 0%, #020617 100%);
+  background-attachment: fixed;
+  color: var(--tct-text);
+  font-family: "Inter", ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica,
+    Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.005em;
+}
+
+.tct-calc-root .card {
+  background: var(--tct-surface);
+  border: 1px solid var(--tct-border);
+  border-radius: 16px;
+}
+.tct-calc-root .shadow-soft {
+  box-shadow: 0 1px 3px rgba(2, 6, 23, 0.4), 0 10px 30px rgba(2, 6, 23, 0.35);
+}
+
+/* eyebrow / section label treatment from the design system */
+.tct-calc-root .eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--tct-text-muted);
+}
+
+.tct-calc-root input,
+.tct-calc-root select,
+.tct-calc-root textarea {
+  color-scheme: dark;
+}
+
+.tct-calc-root .tct-scroll::-webkit-scrollbar {
+  height: 10px;
+  width: 10px;
+}
+.tct-calc-root .tct-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.tct-calc-root .tct-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+}
+.tct-calc-root .tct-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .tct-calc-root .anim-in {
+    animation: tct-calc-fadeup 0.28s cubic-bezier(0, 0, 0.2, 1) both;
+  }
+  /* keyframes are global — prefixed to avoid colliding with site animations */
+  @keyframes tct-calc-fadeup {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}
+
+/* The site's mobile accessibility rule (globals.css) forces 44px minimum
+   touch targets on ALL buttons/links under 640px, which distorts the
+   calculator's compact steppers and tab pills. Restore the calculator's own
+   geometry inside its scope only. */
+@media (max-width: 640px) {
+  .tct-calc-root button,
+  .tct-calc-root a {
+    min-height: 0;
+    min-width: 0;
+  }
+}
+
+@media print {
+  .tct-calc-root .no-print {
+    display: none !important;
+  }
+  .tct-calc-root {
+    background: #fff !important;
+    background-image: none !important;
+    color: #0f172a;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .tct-calc-root .card {
+    box-shadow: none;
+    border-color: #cbd5e1;
+    background: #fff;
+    color: #0f172a;
+  }
+  .tct-calc-root .print-break {
+    page-break-before: always;
+  }
+}
