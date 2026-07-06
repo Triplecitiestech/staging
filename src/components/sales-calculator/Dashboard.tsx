@@ -104,10 +104,45 @@ export function LineItemsTable({ quote, showInternal }: { quote: PackageQuote; s
           </tfoot>
         </table>
       </div>
-      <div className="mt-3 text-sm text-muted">
-        Microsoft 365 (separate, excluded from margin): <span className="font-medium text-ink">{currency(quote.m365MonthlyPrice)}/mo</span>
-        {quote.oneTimePrice > 0 && <> · One-time: <span className="font-medium text-ink">{currency(quote.oneTimePrice)}</span></>}
-      </div>
+      {quote.m365LineItems.length > 0 ? (
+        <div className="mt-4">
+          <div className="text-sm font-medium text-ink mb-1">Microsoft 365 licensing <span className="text-muted font-normal">— billed separately, excluded from managed margin</span></div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-muted border-b border-line">
+                <th className="py-1.5 pr-3 font-medium">License</th>
+                <th className="py-1.5 px-3 font-medium text-right">Seats</th>
+                <th className="py-1.5 px-3 font-medium text-right">MSRP / seat</th>
+                <th className="py-1.5 pl-3 font-medium text-right">Monthly</th>
+              </tr>
+            </thead>
+            <tbody>
+              {quote.m365LineItems.map((l) => (
+                <tr key={l.key} className="border-b border-line">
+                  <td className="py-1.5 pr-3 text-ink">{l.label}</td>
+                  <td className="py-1.5 px-3 text-right">{l.quantity}</td>
+                  <td className="py-1.5 px-3 text-right">{currency(l.unitPrice, { cents: true })}</td>
+                  <td className="py-1.5 pl-3 text-right font-medium">{currency(l.price)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="font-semibold text-ink">
+                <td className="py-1.5 pr-3">Microsoft 365 total</td>
+                <td></td>
+                <td></td>
+                <td className="py-1.5 pl-3 text-right">{currency(quote.m365MonthlyPrice)}/mo</td>
+              </tr>
+            </tfoot>
+          </table>
+          {quote.oneTimePrice > 0 && <div className="mt-2 text-sm text-muted">One-time: <span className="font-medium text-ink">{currency(quote.oneTimePrice)}</span></div>}
+        </div>
+      ) : (
+        <div className="mt-3 text-sm text-muted">
+          Microsoft 365: <span className="font-medium text-ink">{quote.m365Resold ? `${currency(quote.m365MonthlyPrice)}/mo` : "customer provides licensing directly"}</span>
+          {quote.oneTimePrice > 0 && <> · One-time: <span className="font-medium text-ink">{currency(quote.oneTimePrice)}</span></>}
+        </div>
+      )}
       {quote.warnings.length > 0 && (
         <div className="mt-3 space-y-1.5">
           {quote.warnings.map((w, i) => (

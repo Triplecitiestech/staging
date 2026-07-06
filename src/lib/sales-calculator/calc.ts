@@ -259,21 +259,26 @@ export function buildQuote(input: DiscoveryInput, packageId: string): PackageQuo
   const monthlyPrice = round2(managed.reduce((a, l) => a + l.price, 0));
   const monthlyMargin = round2(monthlyPrice - monthlyCost);
 
-  // ---- Microsoft 365 (separate, excluded from margin) ----
+  // ---- Microsoft 365 (separate line items, excluded from managed margin) ----
+  // Emitted as their own LineItems (isM365) so they can be shown itemized in the
+  // quote — license, seats, per-seat MSRP, monthly total — while staying OUT of the
+  // managed totals above (managed = lineItems.filter(!isM365)). unitPrice = MSRP.
   const resell = input.licensing.provider === "Triple Cities Tech resells licensing";
-  let m365Cost = 0, m365Price = 0;
   const reqLicense = pkgDef.licenseRequirement;
   const licDef = pricingConfig.m365Licenses[reqLicense] || pricingConfig.m365Licenses[input.licensing.currentLicense];
+  const m365LineItems: LineItem[] = [];
   if (resell && licDef) {
     // Resell the required license for standard users; frontline get F3 if toggled
-    m365Cost += stdUsers * (licDef.cost || 0);
-    m365Price += stdUsers * (licDef.price || 0);
+    if (stdUsers > 0) {
+      m365LineItems.push(makeLine("m365_standard", `Microsoft 365 — ${reqLicense}`, "perUser", stdUsers, licDef.cost || 0, licDef.price || 0, { category: "licensing", isM365: true }));
+    }
     if (flUsers > 0 && input.users.frontlineToggles.m365License) {
       const f3 = pricingConfig.m365Licenses["Frontline (F3)"];
-      m365Cost += flUsers * (f3?.cost || 0);
-      m365Price += flUsers * (f3?.price || 0);
+      m365LineItems.push(makeLine("m365_frontline", "Microsoft 365 — Frontline (F3)", "perUser", flUsers, f3?.cost || 0, f3?.price || 0, { category: "licensing", isM365: true }));
     }
   }
+  const m365Cost = round2(m365LineItems.reduce((a, l) => a + l.cost, 0));
+  const m365Price = round2(m365LineItems.reduce((a, l) => a + l.price, 0));
 
   // ---- One-time ----
   const oneTimeCost = round2((input.oneTime?.cost || 0) + backupHardwareCost);
@@ -331,9 +336,10 @@ export function buildQuote(input: DiscoveryInput, packageId: string): PackageQuo
     annualCost: round2(monthlyCost * MONTHS),
     annualPrice: round2(monthlyPrice * MONTHS),
     annualMargin: round2(monthlyMargin * MONTHS),
-    m365MonthlyCost: round2(m365Cost),
-    m365MonthlyPrice: round2(m365Price),
+    m365MonthlyCost: m365Cost,
+    m365MonthlyPrice: m365Price,
     m365Resold: resell,
+    m365LineItems,
     oneTimeCost, oneTimePrice,
     revenueByBucket,
     revenueByCategory,

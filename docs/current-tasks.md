@@ -10,8 +10,8 @@ Owner (Kurtis) asked to fix the header logo and wire discovery questions that we
 - [x] **Logo** → deterministic "TCT" cyan chip (no shield, no image dependency). `CalculatorApp.tsx`.
 - [x] **Autotask (PSA) / Documentation (IT Glue) access** → any of Co-Managed / Autotask / Documentation access now triggers the existing Co-Managed Tool Access line ($150 sell / $50 cost per admin). `calc.ts` (`wantsToolAccess`). No new pricing; default quotes unchanged (verified).
 - [x] **Escalation / After-hours support** → confirmed **no price change**; they keep influencing the recommended tier only (by design).
-- [ ] **M365 as an explicit line item (owner request "separate line item with MSRP and price")** — awaiting owner clarification on exactly what to show (itemize per-license with MSRP vs. our sell; presentation-only vs. a sell-basis change). M365 is currently an aggregate "separate, excluded from margin" figure.
-- [ ] **Microsoft 365 Tenants count** — still unresolved (owner redirected to the M365 line-item request); currently informational/unused.
+- [x] **M365 itemized as its own line** — owner chose itemize (presentation only; per-seat price = the MSRP already in `pricing.json`, no number changes). `calc.ts` emits `m365LineItems` (isM365, excluded from managed totals); `LineItemsTable` renders a License / Seats / MSRP-per-seat / Monthly block; CSV/Excel/PDF exporters itemize. Verified: managed totals + M365 aggregate unchanged.
+- [x] **Microsoft 365 Tenants count** — owner: keep informational (no price impact). No code change.
 
 ## Sales Calculator integration (2026-07-06) — ✅ shipped to production
 
