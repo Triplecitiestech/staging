@@ -25,7 +25,6 @@ export default function Page() {
   const [showInternal, setShowInternal] = useState(true);
   const [tab, setTab] = useState<Tab>("recommend");
   const [summaryMode, setSummaryMode] = useState<SummaryMode>("internal");
-  const [logoOk, setLogoOk] = useState(true);
 
   const quotes = useMemo(() => buildAllQuotes(input), [input]);
   const rec = useMemo(() => recommend(input), [input]);
@@ -48,9 +47,7 @@ export default function Page() {
       {/* Header */}
       <header className="no-print sticky top-0 z-20 border-b border-line" style={{ background: "linear-gradient(180deg,#0f172a,#020617)", backdropFilter: "blur(6px)" }}>
         <div className="max-w-[1500px] mx-auto px-5 py-3 flex items-center gap-4 text-ink">
-          {logoOk
-            ? <img src={theme.company.logoPath} alt={theme.company.name} className="h-9 w-auto" onError={() => setLogoOk(false)} />
-            : <div className="h-9 px-3 flex items-center rounded-[8px] bg-accent/15 text-accent font-extrabold tracking-[0.15em]">{theme.company.shortName}</div>}
+          <div className="h-9 px-3 flex items-center rounded-[8px] bg-accent/15 text-accent font-extrabold tracking-[0.15em]">{theme.company.shortName}</div>
           <div className="flex-1">
             <div className="font-bold leading-tight tracking-tight">{appConfig.appName}</div>
             <div className="text-xs text-muted">{theme.company.name}</div>

@@ -171,12 +171,16 @@ export function buildQuote(input: DiscoveryInput, packageId: string): PackageQuo
   // Fully-managed packages: an optional "Co-Managed Tool Access" line appears when the
   // client has internal IT that wants access to TCT's tools / PSA / documentation.
   // This is how "included-support co-managed" is expressed: a managed package + this line.
+  // The tool-access line applies when internal IT wants access to any of TCT's
+  // co-managed tooling — general Co-Managed access, the Autotask PSA, or IT Glue
+  // documentation. Any one of those toggles bills the same access line.
+  const wantsToolAccess = !!(input.internalIT.comanagedAccess || input.internalIT.autotaskAccess || input.internalIT.documentationAccess);
   const cmAccess = pkgDef.comanaged ? pp.perComanagedAdmin : pricingConfig.comanagedToolAccess;
   const accessWanted = pkgDef.comanaged
     ? !!pp.perComanagedAdmin
-    : !!(pricingConfig.comanagedToolAccess && input.internalIT.hasInternalIT && input.internalIT.comanagedAccess);
+    : !!(pricingConfig.comanagedToolAccess && input.internalIT.hasInternalIT && wantsToolAccess);
   if (cmAccess && accessWanted) {
-    const admins = Math.max(input.internalIT.itStaffCount || 0, input.internalIT.comanagedAccess ? 1 : 0);
+    const admins = Math.max(input.internalIT.itStaffCount || 0, wantsToolAccess ? 1 : 0);
     if (admins > 0) {
       const label = pkgDef.comanaged ? "Co-Managed Admin Access" : (cmAccess.label || "Co-Managed Tool Access (internal IT staff)");
       lineItems.push(makeLine("comanagedAccess", label, "perComanagedAdmin", admins, cmAccess.cost, cmAccess.price, { category: "platform" }));

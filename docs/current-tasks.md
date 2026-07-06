@@ -1,17 +1,23 @@
 # Current Tasks
 
-> **Last updated**: 2026-07-06. Sales Calculator integrated at `/admin/sales-calculator` (code complete; pricing confirmations pending with owner).
-> **Branch**: `claude/integrate-sales-calculator-xg87ic`.
+> **Last updated**: 2026-07-06 (later). Sales Calculator shipped to production; owner-requested post-launch fixes in progress.
+> **Branch**: `claude/integrate-sales-calculator-xg87ic` (PR #135 merged; follow-up work on a fresh branch off main).
 > **Detailed context**: `docs/session-summary.md` (2026-07-06 section) + `docs/reference/sales-calculator/OPEN_ITEMS.md`.
 
-## Sales Calculator integration (2026-07-06) — 🟡 code complete, awaiting CI gate + owner confirmations
+## Sales Calculator — post-launch fixes (2026-07-06, later) — 🟡 in progress
 
-The standalone sales calculator now lives at `/admin/sales-calculator` (staff-gated, noindex). Pricing and calculation logic copied VERBATIM — all open pricing questions belong to the owner, not the code.
+Owner (Kurtis) asked to fix the header logo and wire discovery questions that weren't affecting the quote. Owner decisions captured:
+- [x] **Logo** → deterministic "TCT" cyan chip (no shield, no image dependency). `CalculatorApp.tsx`.
+- [x] **Autotask (PSA) / Documentation (IT Glue) access** → any of Co-Managed / Autotask / Documentation access now triggers the existing Co-Managed Tool Access line ($150 sell / $50 cost per admin). `calc.ts` (`wantsToolAccess`). No new pricing; default quotes unchanged (verified).
+- [x] **Escalation / After-hours support** → confirmed **no price change**; they keep influencing the recommended tier only (by design).
+- [ ] **M365 as an explicit line item (owner request "separate line item with MSRP and price")** — awaiting owner clarification on exactly what to show (itemize per-license with MSRP vs. our sell; presentation-only vs. a sell-basis change). M365 is currently an aggregate "separate, excluded from margin" figure.
+- [ ] **Microsoft 365 Tenants count** — still unresolved (owner redirected to the M365 line-item request); currently informational/unused.
 
-**Validation / follow-ups:**
-- [ ] **[CI]** Confirm the auto-merge gate goes green (full e2e vs preview — sandbox had no DB; build + lint + tsc + 25 engine parity checks + 35 UI checks green locally).
-- [ ] **[OWNER — pricing confirmations, tracked in `docs/reference/sales-calculator/OPEN_ITEMS.md`]** DR/image-in-SIRIS reconciliation; workstation backup SKU ($10/$100 vs Datto $3/$6 sheet); TCT Ally per-server ($100) / per-site ($150) sells; M365 monthly-vs-annual commitment + E3/E5/F3 placeholders; Frontline bundle is PRELIMINARY; optional ALTO 5 + backup markup 2.5–3×.
-- [ ] **[OWNER — branding]** Header logo: `theme.json` points at `/logo/tct-logo.webp` (missing) and the "TCT" chip fallback is race-prone. Either drop a logo file at that path (no code change) or ask for a deterministic chip fallback (one-line header tweak).
+## Sales Calculator integration (2026-07-06) — ✅ shipped to production
+
+The standalone sales calculator is live at `/admin/sales-calculator` (staff-gated, noindex). Pricing and calculation logic copied VERBATIM. PR #135 merged; production verified serving the gated route.
+
+**Owner confirmations still open (tracked in `docs/reference/sales-calculator/OPEN_ITEMS.md`):** DR/image-in-SIRIS reconciliation; workstation backup SKU ($10/$100 vs Datto $3/$6 sheet); TCT Ally per-server ($100) / per-site ($150) sells; M365 monthly-vs-annual commitment + E3/E5/F3 placeholders; Frontline bundle is PRELIMINARY; optional ALTO 5 + backup markup 2.5–3×.
 - [ ] **[MARKETING — from the calculator's open items]** Add a "two ways to engage co-managed" section to `/services/co-managed-it`: (a) TCT Ally (tools + escalation, bill labor), (b) fully managed + Co-Managed Tool Access.
 - [ ] **[FUTURE PHASE — not started]** Narrative/prose proposal generator consuming a selected quote (the `exportJSON` payload `{input, recommendation, quotes}` is the intended input contract).
 
