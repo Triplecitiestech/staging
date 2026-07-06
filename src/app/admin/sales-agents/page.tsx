@@ -41,6 +41,14 @@ export default async function AdminSalesAgentsPage() {
           </div>
           <div className="flex items-center gap-2">
             <Link
+              href="/agents/training"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-4 py-2 border border-white/20 text-slate-200 hover:text-white hover:bg-white/5 rounded-lg text-sm"
+            >
+              View Training
+            </Link>
+            <Link
               href="/admin/sales-referrals"
               className="px-4 py-2 border border-white/20 text-slate-200 hover:text-white hover:bg-white/5 rounded-lg text-sm"
             >

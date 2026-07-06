@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { getCurrentAgent } from '@/lib/agent-auth'
-import AgentHeader from '@/components/agents/AgentHeader'
+import { resolveTrainingViewer } from '@/lib/agent-training-access'
+import TrainingChrome from '@/components/agents/TrainingChrome'
 import TrainingShell from '@/components/agents/TrainingShell'
 
 export const dynamic = 'force-dynamic'
@@ -16,12 +16,12 @@ const SECTIONS = [
 ]
 
 export default async function TrainingHomePage() {
-  const agent = await getCurrentAgent()
-  if (!agent) redirect('/agents/login')
+  const viewer = await resolveTrainingViewer()
+  if (!viewer) redirect('/agents/login')
 
   return (
     <>
-      <AgentHeader agentName={agent.firstName} />
+      <TrainingChrome viewer={viewer} />
       <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <h1 className="text-3xl font-bold text-white mb-2">Training & Resources</h1>
         <p className="text-slate-400 mb-8">
