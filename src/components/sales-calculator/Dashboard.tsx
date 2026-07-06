@@ -112,7 +112,7 @@ export function LineItemsTable({ quote, showInternal }: { quote: PackageQuote; s
               <tr className="text-left text-muted border-b border-line">
                 <th className="py-1.5 pr-3 font-medium">License</th>
                 <th className="py-1.5 px-3 font-medium text-right">Seats</th>
-                <th className="py-1.5 px-3 font-medium text-right">MSRP / seat</th>
+                <th className="py-1.5 px-3 font-medium text-right">Unit Price</th>
                 <th className="py-1.5 pl-3 font-medium text-right">Monthly</th>
               </tr>
             </thead>
