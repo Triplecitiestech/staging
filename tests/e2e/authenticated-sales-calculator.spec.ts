@@ -31,8 +31,11 @@ test.describe('Sales Calculator — authenticated', () => {
   })
 
   test('default recommendation matches the engine', async ({ page }) => {
+    // The recommendation card renders the name as `{name} Recommended`; matching
+    // that fuller string avoids the hidden <option> in the package <select>
+    // (Playwright treats <option>s as hidden), which bare-name .first() would grab.
     await expect(
-      page.getByText(expectedRec.recommendedPackageName).first()
+      page.getByText(`${expectedRec.recommendedPackageName} Recommended`).first()
     ).toBeVisible()
   })
 
@@ -52,8 +55,11 @@ test.describe('Sales Calculator — authenticated', () => {
       }
     }
     await page.getByRole('button', { name: 'View Recommendation' }).click()
+    // The recommendation card renders the name as `{name} Recommended`; matching
+    // that fuller string avoids the hidden <option> in the package <select>
+    // (Playwright treats <option>s as hidden), which bare-name .first() would grab.
     await expect(
-      page.getByText(expectedRec.recommendedPackageName).first()
+      page.getByText(`${expectedRec.recommendedPackageName} Recommended`).first()
     ).toBeVisible()
   })
 
@@ -61,7 +67,10 @@ test.describe('Sales Calculator — authenticated', () => {
     await page.getByRole('button', { name: 'Quote Comparison' }).click()
     await expect(page.getByText('All five packages priced against the same customer inputs.')).toBeVisible()
     for (const q of expectedQuotes) {
-      await expect(page.getByText(q.packageName).first()).toBeVisible()
+      // Comparison headers strip the "TCT " prefix; exact match excludes the
+      // hidden "TCT <name>" <option> in the always-present package <select>.
+      const shortName = q.packageName.replace('TCT ', '')
+      await expect(page.getByText(shortName, { exact: true }).first()).toBeVisible()
       // Each package's monthly managed total, exactly as the engine computes it
       await expect(page.getByText(currency(q.monthlyPrice)).first()).toBeVisible()
     }
