@@ -268,6 +268,7 @@ The customer portal is at `/onboarding/[companyName]`. Key components:
 - **Autotask notes/descriptions mangle non-Windows-1252 glyphs** — `✓`, `⊘`, `→`, `⚠` render as `?` in ticket notes (confirmed live). Use ASCII markers (`[OK]`, `[SKIPPED]`, `->`); `—` and `•` are CP1252-safe and fine.
 - **`automation_mappings` (question-engine) is seed-only** — nothing reads it at execution time; the process route is a hardcoded pipeline. Its `convert_to_shared`/`setMailForwarding` graph methods were never implemented (and can't be, per the Graph limitation above). Don't treat those mappings as evidence a capability exists.
 - The old Microsoft Forms onboarding/offboarding forms are retired; IT Glue SOPs (docs 16573760, 14639952, 20377379 in org 6942365) were rewritten 2026-07-05 to portal-first intake + the PROVISIONING RESULTS checklist workflow.
+- **Two sessions built the Exchange automation in parallel on 2026-07-05** — a lighter variant (`exo_jobs` table, `/api/webhooks/exo-jobs`, `EXO_ENABLED_TENANTS` env allowlist, `scripts/exo/`, PS 7.2 runbook, no lost-callback cron) briefly landed on main (commit `b8d5740a`) and was superseded by the fuller implementation described above (registry + probe, reconcile cron, automated post-verification license removal, PS 7.4, `Mail Recipients` scoping). If an empty `exo_jobs` table exists in prod from a migrations run during that window, it is orphaned and harmless — do not resurrect the variant's paths.
 
 ---
 
