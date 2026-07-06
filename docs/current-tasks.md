@@ -1,8 +1,19 @@
 # Current Tasks
 
-> **Last updated**: 2026-07-05 (later session). Exchange Online automation for keep_accessible offboardings (code complete; operator enablement pending).
-> **Branch**: `claude/mailbox-conversion-delegate-access-k5vmp3`.
-> **Detailed context**: `docs/session-summary.md` (2026-07-05 sections) + `docs/gotchas.md` → "HR Onboarding/Offboarding Automation" + `docs/runbooks/EXO_AUTOMATION_ENABLEMENT.md`.
+> **Last updated**: 2026-07-06. Sales Calculator integrated at `/admin/sales-calculator` (code complete; pricing confirmations pending with owner).
+> **Branch**: `claude/integrate-sales-calculator-xg87ic`.
+> **Detailed context**: `docs/session-summary.md` (2026-07-06 section) + `docs/reference/sales-calculator/OPEN_ITEMS.md`.
+
+## Sales Calculator integration (2026-07-06) — 🟡 code complete, awaiting CI gate + owner confirmations
+
+The standalone sales calculator now lives at `/admin/sales-calculator` (staff-gated, noindex). Pricing and calculation logic copied VERBATIM — all open pricing questions belong to the owner, not the code.
+
+**Validation / follow-ups:**
+- [ ] **[CI]** Confirm the auto-merge gate goes green (full e2e vs preview — sandbox had no DB; build + lint + tsc + 25 engine parity checks + 35 UI checks green locally).
+- [ ] **[OWNER — pricing confirmations, tracked in `docs/reference/sales-calculator/OPEN_ITEMS.md`]** DR/image-in-SIRIS reconciliation; workstation backup SKU ($10/$100 vs Datto $3/$6 sheet); TCT Ally per-server ($100) / per-site ($150) sells; M365 monthly-vs-annual commitment + E3/E5/F3 placeholders; Frontline bundle is PRELIMINARY; optional ALTO 5 + backup markup 2.5–3×.
+- [ ] **[OWNER — branding]** Header logo: `theme.json` points at `/logo/tct-logo.webp` (missing) and the "TCT" chip fallback is race-prone. Either drop a logo file at that path (no code change) or ask for a deterministic chip fallback (one-line header tweak).
+- [ ] **[MARKETING — from the calculator's open items]** Add a "two ways to engage co-managed" section to `/services/co-managed-it`: (a) TCT Ally (tools + escalation, bill labor), (b) fully managed + Co-Managed Tool Access.
+- [ ] **[FUTURE PHASE — not started]** Narrative/prose proposal generator consuming a selected quote (the `exportJSON` payload `{input, recommendation, quotes}` is the intended input contract).
 
 ## Exchange Online automation: mailbox conversion + delegation (2026-07-05) — 🟡 code complete, operator enablement required
 

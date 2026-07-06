@@ -5,5 +5,16 @@
   ],
   "rules": {
     "react/no-unescaped-entities": "off"
-  }
+  },
+  "overrides": [
+    {
+      "files": [
+        "src/lib/sales-calculator/**",
+        "src/components/sales-calculator/**"
+      ],
+      "rules": {
+        "@typescript-eslint/no-explicit-any": "off"
+      }
+    }
+  ]
 }

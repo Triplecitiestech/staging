@@ -1,0 +1,258 @@
+{
+  "_comment": "VENDOR COST LEDGER \u2014 what TCT actually pays per unit, verified against vendor invoices. Quote math uses pricing.json bundle totals; this confirms every cost is captured. status: confirmed = matched to an invoice; verify = needs confirmation.",
+  "unitLabels": {
+    "perDevice": "Per Device / Endpoint",
+    "perUser": "Per User",
+    "perSite": "Per Site / Location",
+    "perServer": "Per Server (on-prem)",
+    "perDomain": "Per Domain",
+    "perTenant": "Per Company (tenant)"
+  },
+  "lines": [
+    {
+      "id": "k365endpoint",
+      "product": "Kaseya 365 Endpoint",
+      "vendor": "Kaseya",
+      "unit": "perDevice",
+      "cost": 4.0,
+      "covers": "RMM, AV, EDR, Ransomware, RocketCyber SOC",
+      "source": "Kaseya CI_1864641 (~$3.99-$4.02; 2nd line is a billing quirk)"
+    },
+    {
+      "id": "dns",
+      "product": "DNS Filter Pro (Content Filtering)",
+      "vendor": "Pax8 / DNSFilter",
+      "unit": "perDevice",
+      "cost": 1.33,
+      "source": "Pax8 6-2026 ($1.3289) \u2014 confirmed"
+    },
+    {
+      "id": "endpointBackup",
+      "product": "Endpoint Backup for PCs (workstation backup)",
+      "vendor": "Kaseya / Datto",
+      "unit": "perDevice",
+      "cost": 10.0,
+      "note": "Per backed-up workstation. Sell $100.",
+      "source": "Kaseya CI_1864641 \u2014 confirmed"
+    },
+    {
+      "id": "rocketcyber",
+      "product": "RocketCyber (Managed SOC)",
+      "vendor": "Kaseya",
+      "unit": "perDevice",
+      "cost": 0,
+      "note": "Included in Kaseya 365 Endpoint",
+      "source": "Kaseya"
+    },
+    {
+      "id": "k365user",
+      "product": "Kaseya 365 User",
+      "vendor": "Kaseya",
+      "unit": "perUser",
+      "cost": 2.79,
+      "covers": "SaaS Protection, SaaS Alerts, INKY, BullPhish, MyGlue, Dark Web ID",
+      "source": "Kaseya CI_1864641 \u2014 confirmed"
+    },
+    {
+      "id": "printix",
+      "product": "Printix",
+      "vendor": "Pax8",
+      "unit": "perUser",
+      "cost": 1.67,
+      "note": "Only per-user item outside the Kaseya 365 User bundle.",
+      "source": "Pax8 6-2026 ($1.67) \u2014 confirmed"
+    },
+    {
+      "id": "sharedmailbox",
+      "product": "Shared Mailbox (SaaS Protection archive)",
+      "vendor": "Kaseya",
+      "unit": "perUser",
+      "cost": 1.5,
+      "note": "Per shared mailbox. Sell $5.",
+      "source": "Kaseya CI_1864641 ($1.50 archive) \u2014 confirmed"
+    },
+    {
+      "id": "inky",
+      "product": "INKY (Email Phishing Protection)",
+      "vendor": "Kaseya",
+      "unit": "perUser",
+      "cost": 0,
+      "note": "Included in Kaseya 365 User",
+      "source": "Kaseya"
+    },
+    {
+      "id": "bullphish",
+      "product": "BullPhish ID (Security Awareness + Phishing Sim)",
+      "vendor": "Kaseya",
+      "unit": "perUser",
+      "cost": 0,
+      "note": "Included in Kaseya 365 User",
+      "source": "Kaseya"
+    },
+    {
+      "id": "myglue",
+      "product": "MyGlue (Password Mgmt)",
+      "vendor": "Kaseya / IT Glue",
+      "unit": "perUser",
+      "cost": 0,
+      "note": "Included in Kaseya 365 User / Ops",
+      "source": "Kaseya"
+    },
+    {
+      "id": "domotz",
+      "product": "Domotz (Network Monitoring)",
+      "vendor": "Domotz",
+      "unit": "perSite",
+      "cost": 35,
+      "note": "Per agent installed at a site (9 agents = $315).",
+      "source": "Domotz 6-2026 ($35/agent) \u2014 confirmed"
+    },
+    {
+      "id": "myitprocess",
+      "product": "MyITProcess (vCIO)",
+      "vendor": "Kaseya",
+      "unit": "perSite",
+      "cost": 0,
+      "note": "Included in Kaseya 365 Ops (overhead) \u2014 not a per-site charge.",
+      "source": "\u2014",
+      "verify": false
+    },
+    {
+      "id": "s5x",
+      "product": "S5X Infinite Cloud (per agent) \u2014 on-prem server backup",
+      "vendor": "Kaseya / Datto",
+      "unit": "perServer",
+      "cost": 129,
+      "source": "Kaseya CI_1864641 \u2014 confirmed"
+    },
+    {
+      "id": "darkweb",
+      "product": "Dark Web ID",
+      "vendor": "Kaseya",
+      "unit": "perDomain",
+      "cost": 0,
+      "note": "Included in Kaseya 365 User (no separate per-domain charge)",
+      "source": "Kaseya"
+    },
+    {
+      "id": "easydmarc",
+      "product": "EasyDMARC (Email Authentication)",
+      "vendor": "Pax8 / EasyDMARC",
+      "unit": "perDomain",
+      "cost": 10.0,
+      "note": "Per domain. Recovered via the Business Line.",
+      "source": "Pax8 6-2026 ($10/domain) \u2014 confirmed"
+    },
+    {
+      "id": "azure01",
+      "product": "Azure VM Cloud Backup \u2014 0-1 TB band",
+      "vendor": "Datto",
+      "unit": "perTenant",
+      "cost": 174,
+      "note": "Banded by combined provisioned TB + retention (1yr/7yr/Infinite). Adds 4-6TB band ($610/685/733). Sell 2x.",
+      "source": "internal notes"
+    },
+    {
+      "id": "azure12",
+      "product": "Azure VM Cloud Backup \u2014 1-2 TB band",
+      "vendor": "Datto",
+      "unit": "perTenant",
+      "cost": 340,
+      "source": "internal notes"
+    },
+    {
+      "id": "azure24",
+      "product": "Azure VM Cloud Backup \u2014 2-4 TB band",
+      "vendor": "Datto",
+      "unit": "perTenant",
+      "cost": 480,
+      "source": "internal notes"
+    },
+    {
+      "id": "thread",
+      "product": "Thread AI Pro (per managed customer)",
+      "vendor": "Thread",
+      "unit": "perTenant",
+      "cost": 34,
+      "note": "AI Pro = $34/managed customer/mo (we only use AI Pro). $500/mo base = first 10 seats (overhead); $34 is the marginal cost per new customer.",
+      "source": "Thread pricing page \u2014 confirmed"
+    },
+    {
+      "id": "entra",
+      "product": "Datto Backup for Entra ID",
+      "vendor": "Datto",
+      "unit": "perUser",
+      "cost": 0.75,
+      "note": "Optional per-user Entra ID backup. 400-license min pool (TCT level). Sell 2x = $1.50.",
+      "source": "Entra ID Price Sheet USD \u2014 confirmed"
+    },
+    {
+      "id": "ebdr",
+      "product": "Endpoint Backup w/ DR (cloud server backup)",
+      "vendor": "Datto",
+      "unit": "perServer",
+      "cost": 79,
+      "note": "Per 500GB used data: 1yr $79 / 7yr $89 / Infinite $99. Cloud-only server BCDR option.",
+      "source": "Endpoint Backup w/ DR Pricesheet USD \u2014 confirmed"
+    },
+    {
+      "id": "siris",
+      "product": "Datto SIRIS BCDR (on-prem appliance/virtual)",
+      "vendor": "Datto",
+      "unit": "perServer",
+      "cost": null,
+      "note": "By TB capacity x term x retention + one-time hardware MSRP. Full table in dattoBackup config (3-yr).",
+      "source": "SIRIS 6 ALTO5 Pricing USD \u2014 confirmed"
+    }
+  ],
+  "m365Licenses": [
+    {
+      "product": "Microsoft 365 Business Basic",
+      "vendor": "Pax8 (NCE)",
+      "unit": "perUser",
+      "cost": 6.34,
+      "sell": 8.4,
+      "source": "Pax8 6-2026 \u2014 confirmed"
+    },
+    {
+      "product": "Microsoft 365 Business Standard",
+      "vendor": "Pax8 (NCE)",
+      "unit": "perUser",
+      "cost": 11.55,
+      "sell": 16.8,
+      "source": "Pax8 6-2026 \u2014 confirmed"
+    },
+    {
+      "product": "Microsoft 365 Business Premium",
+      "vendor": "Pax8 (NCE)",
+      "unit": "perUser",
+      "cost": 23.23,
+      "sell": 26.4,
+      "source": "Pax8 6-2026 \u2014 confirmed"
+    }
+  ],
+  "overhead": [
+    {
+      "product": "Kaseya 365 Ops (Autotask, IT Glue, MyGlue, MyITProcess, ConnectBooster, Quote Manager)",
+      "vendor": "Kaseya",
+      "monthly": 714.0,
+      "note": "6 seats x $119 \u2014 TCT tooling. Cost-to-serve.",
+      "source": "Kaseya CI_1864641"
+    },
+    {
+      "product": "MSP Success Pro (MSP Enablement)",
+      "vendor": "Kaseya",
+      "monthly": 804.3,
+      "note": "TCT enablement fee. Cost-to-serve.",
+      "source": "Kaseya CI_1864641"
+    },
+    {
+      "product": "Thread (chat support) \u2014 base",
+      "vendor": "Thread",
+      "monthly": 500.0,
+      "note": "Base for first ~10 seats. Each new managed customer adds $34/mo (AI Pro), recovered via the Business Line.",
+      "source": "Thread 6-2026 + pricing page"
+    }
+  ],
+  "_flag": "Backup costs reconciled to Datto 2026 USD sheets: SIRIS (TB x retention + hardware), Azure (banded + retention), Endpoint Backup w/ DR (per 500GB), Entra ($0.75/user). OPEN: workstation 'endpoint backup for PCs' $10 vs Datto Endpoint Backup $3/$6 SKU."
+}

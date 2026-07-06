@@ -1,0 +1,619 @@
+{
+  "_comment": "SINGLE SOURCE OF TRUTH FOR MONEY. All figures are MONTHLY unless noted. 'cost' = TCT internal/vendor cost. 'price' = customer selling price. Margin is computed (price - cost). Microsoft 365 licensing is tracked separately in 'm365Licenses' and is EXCLUDED from managed-services margin per company policy. Values flagged below need confirmation (see PRICING_REVIEW_NOTES.md).",
+  "packages": {
+    "basic": {
+      "perUser": {
+        "cost": 4.46,
+        "price": 35
+      },
+      "perDevice": {
+        "cost": 5.33,
+        "price": 35
+      },
+      "perServer": {
+        "cost": 5.33,
+        "price": 100
+      },
+      "perSite": {
+        "cost": 35,
+        "price": 100
+      }
+    },
+    "standard": {
+      "perUser": {
+        "cost": 4.46,
+        "price": 35
+      },
+      "perDevice": {
+        "cost": 5.33,
+        "price": 35
+      },
+      "perServer": {
+        "cost": 5.33,
+        "price": 100
+      },
+      "perSite": {
+        "cost": 35,
+        "price": 150
+      }
+    },
+    "comprehensive": {
+      "perUser": {
+        "cost": 4.46,
+        "price": 75
+      },
+      "perDevice": {
+        "cost": 5.33,
+        "price": 40
+      },
+      "perServer": {
+        "cost": 5.33,
+        "price": 115
+      },
+      "perSite": {
+        "cost": 35,
+        "price": 150
+      }
+    },
+    "complete": {
+      "perUser": {
+        "cost": 4.46,
+        "price": 100
+      },
+      "perDevice": {
+        "cost": 5.33,
+        "price": 50
+      },
+      "perServer": {
+        "cost": 5.33,
+        "price": 115
+      },
+      "perSite": {
+        "cost": 35,
+        "price": 250
+      }
+    },
+    "comanaged": {
+      "_label": "TCT Ally (Co-Managed) — bill-for-labor model.",
+      "perUser": {
+        "cost": 4.46,
+        "price": 40
+      },
+      "perDevice": {
+        "cost": 5.33,
+        "price": 40
+      },
+      "perServer": {
+        "cost": 5.33,
+        "price": 100
+      },
+      "perSite": {
+        "cost": 35,
+        "price": 150
+      },
+      "perComanagedAdmin": {
+        "cost": 50,
+        "price": 150
+      },
+      "hourlyLabor": {
+        "rate": 150,
+        "label": "Billable labor — helpdesk, moves/adds/changes & projects (not included in monthly)"
+      },
+      "_note": "TCT Ally = co-managed where TCT supplies the tools + escalation/after-hours bench and BILLS for labor at hourlyLabor.rate. Recurring = $40/user + $40/device + $100/server + $150/site + $150 per internal-IT admin seat; labor billed hourly. Confirmed with Kurtis 2026-06-23."
+    }
+  },
+  "frontline": {
+    "_comment": "Frontline = deskless / NO email (users who need email are Standard Users). Reduced stack: base endpoint management + optional Printix. M365 F1 (if any) is a separate license line. PRELIMINARY \u2014 TCT has no frontline customers yet; refine when needed.",
+    "components": {
+      "baseManaged": {
+        "label": "Base Frontline Management (Datto EDR)",
+        "cost": 1.5,
+        "price": 5,
+        "always": true
+      },
+      "printix": {
+        "label": "Printix",
+        "cost": 1.67,
+        "price": 5
+      }
+    }
+  },
+  "azureBackup": {
+    "_comment": "Datto Backup for Microsoft Azure (per-SIRIS, USD/mo). Cost by combined provisioned TB across all Azure VMs + retention tier; max 7 VMs / 6 TB per subscription. Sell = sellMultiplier x cost.",
+    "perDeviceCapacityTB": 6,
+    "perDeviceMaxVMs": 7,
+    "bands": [
+      {
+        "uptoTB": 1,
+        "label": "\u22641 TB",
+        "1-year": 174,
+        "7-year": 195,
+        "Infinite": 208
+      },
+      {
+        "uptoTB": 2,
+        "label": ">1\u20132 TB",
+        "1-year": 340,
+        "7-year": 380,
+        "Infinite": 408
+      },
+      {
+        "uptoTB": 4,
+        "label": ">2\u20134 TB",
+        "1-year": 480,
+        "7-year": 538,
+        "Infinite": 576
+      },
+      {
+        "uptoTB": 6,
+        "label": ">4\u20136 TB",
+        "1-year": 610,
+        "7-year": 685,
+        "Infinite": 733
+      }
+    ],
+    "sellMultiplier": 2,
+    "retentionDefault": "1-year"
+  },
+  "serverAddOns": {
+    "_comment": "Server backup / DR add-ons billed per server, separate from base server monitoring. NONE of these were priced in the source spreadsheet \u2014 all PLACEHOLDERS.",
+    "backup": {
+      "label": "Server Backup (S5X Infinite Cloud / agent)",
+      "cost": 129,
+      "price": 258,
+      "_src": "Kaseya CI_1864641 ($129 cost). Sell 258 (~2x) \u2014 confirm."
+    },
+    "dr": {
+      "label": "Disaster Recovery",
+      "cost": 40,
+      "price": 100
+    },
+    "imageBackup": {
+      "label": "Image-Level Backup (BDR)",
+      "cost": 60,
+      "price": 150
+    },
+    "retentionUpcharge": {
+      "_comment": "Optional monthly upcharge per server by retention tier.",
+      "30 days": 0,
+      "90 days": 10,
+      "1 year": 25,
+      "3 years": 50,
+      "7 years": 90,
+      "Custom": 0
+    },
+    "_flag": "Server backup, DR, image-level backup, and retention pricing are PLACEHOLDERS \u2014 not present in the source spreadsheet. Confirm all values."
+  },
+  "m365Licenses": {
+    "_comment": "Microsoft 365 licensing is a SEPARATE line item and is EXCLUDED from managed-services margin. 'cost' = TCT/CSP cost; 'price' = resale price when TCT resells. When customer buys direct, only the requirement check applies (no cost/price added).",
+    "Business Basic": {
+      "cost": 6.34,
+      "price": 8.4,
+      "rank": 1,
+      "_src": "Pax8 cost; sell = MSRP monthly list (annual $7 x1.2, eff 7/1/2026)"
+    },
+    "Business Standard": {
+      "cost": 11.55,
+      "price": 16.8,
+      "rank": 2,
+      "_src": "Pax8 cost; sell = MSRP monthly list (annual $14 x1.2)"
+    },
+    "Business Premium": {
+      "cost": 23.23,
+      "price": 26.4,
+      "rank": 3,
+      "_src": "Pax8 cost; sell = MSRP monthly list (annual $22 x1.2)"
+    },
+    "Frontline (F3)": {
+      "cost": 7.0,
+      "price": 12.0,
+      "rank": 1,
+      "_flag": "F3 cost/price PLACEHOLDER \u2014 confirm.",
+      "_src": "MSRP monthly list (annual $10 x1.2, eff 7/1/2026); cost = confirm on Pax8"
+    },
+    "E3": {
+      "cost": 33.75,
+      "price": 38,
+      "rank": 3,
+      "_flag": "E3 cost/price PLACEHOLDER \u2014 confirm."
+    },
+    "E5": {
+      "cost": 54.75,
+      "price": 60,
+      "rank": 4,
+      "_flag": "E5 cost/price PLACEHOLDER \u2014 confirm."
+    },
+    "Other / None": {
+      "cost": 0,
+      "price": 0,
+      "rank": 0
+    },
+    "Frontline (F1)": {
+      "cost": 2.7,
+      "price": 3.6,
+      "rank": 1,
+      "_src": "MSRP monthly list (annual $3 x1.2); cost ~ confirm on Pax8"
+    },
+    "_note": "Sell = Microsoft MSRP (monthly-commitment list = annual x1.2), reflecting the July 1 2026 increase. If TCT sells ANNUAL commitment, divide by 1.2 (cost too). Excluded from managed margin."
+  },
+  "endpointBackup": {
+    "_comment": "Optional per-workstation backup (e.g. a PC running QuickBooks Desktop). Billed per workstation backed up.",
+    "cost": 10,
+    "price": 100,
+    "label": "Workstation Backup (Endpoint Backup for PCs)",
+    "_flag": "Confirmed on Kaseya invoice CI_1864641: 'Endpoint Backup for PCs TBR - per license - $10.00'. Per Windows workstation (PC) license; servers use server backup. $10 cost / $100 sell."
+  },
+  "sharedMailbox": {
+    "_comment": "Shared mailboxes we are charged for (SaaS Protection archive). Billed per shared mailbox.",
+    "cost": 1.5,
+    "price": 5,
+    "label": "Shared Mailboxes"
+  },
+  "comanagedToolAccess": {
+    "_comment": "Co-Managed Tool Access for a fully-managed client's internal IT staff. Grants the client's IT person(s) access to TCT's PSA, documentation and tooling. Added per internal-IT admin to the fully-managed packages when the client has internal IT wanting co-managed access. Same seat economics as the TCT Ally admin seat. This is how 'included-support co-managed' is modeled: a managed package + this line item.",
+    "cost": 50,
+    "price": 150,
+    "label": "Co-Managed Tool Access (internal IT staff)"
+  },
+  "businessLine": {
+    "_comment": "Per-company 'cost to play' SKU (e.g. TCT Complete Business). PRICE = max(floor, multiplier x total monthly company cost). Applied to includeIn packages, added on top of per-user/device/site.",
+    "floor": 250,
+    "multiplier": 2,
+    "includeIn": [
+      "comprehensive",
+      "complete",
+      "comanaged"
+    ],
+    "perDomainComponents": [
+      {
+        "label": "EasyDMARC",
+        "cost": 10,
+        "vendor": "Pax8"
+      }
+    ],
+    "perCompanyComponents": [
+      {
+        "label": "Thread AI Pro (per managed customer)",
+        "cost": 34,
+        "vendor": "Thread",
+        "_note": "AI Pro = $34/managed customer/mo. ($500/mo base for the first 10 seats is overhead; $34 is the marginal cost per new customer.)"
+      }
+    ]
+  },
+  "dattoBackup": {
+    "_comment": "Datto BCDR on-prem backup (USD, 3-year term, effective Jan 2026). Cost = monthly service (by model TB + retention) + one-time hardware MSRP (appliance only). Sell = sellMultiplier x service cost; hardware at hardwareSellMultiplier. The calculator picks the smallest model whose TB >= protected data.",
+    "term": "3-year",
+    "sellMultiplier": 2,
+    "hardwareSellMultiplier": 1.0,
+    "retentionDefault": "1-year",
+    "retentions": [
+      "1-year",
+      "7-year",
+      "Infinite"
+    ],
+    "deployments": {
+      "virtual": {
+        "label": "SIRIS Virtual (software-only)",
+        "hardware": false,
+        "models": [
+          {
+            "model": "SV-1",
+            "tb": 1,
+            "hardwareMSRP": 0,
+            "svc": {
+              "1-year": 229,
+              "7-year": 259,
+              "Infinite": 269
+            }
+          },
+          {
+            "model": "SV-2",
+            "tb": 2,
+            "hardwareMSRP": 0,
+            "svc": {
+              "1-year": 373,
+              "7-year": 406,
+              "Infinite": 428
+            }
+          },
+          {
+            "model": "SV-3",
+            "tb": 3,
+            "hardwareMSRP": 0,
+            "svc": {
+              "1-year": 439,
+              "7-year": 516,
+              "Infinite": 538
+            }
+          },
+          {
+            "model": "SV-4",
+            "tb": 4,
+            "hardwareMSRP": 0,
+            "svc": {
+              "1-year": 516,
+              "7-year": 560,
+              "Infinite": 582
+            }
+          },
+          {
+            "model": "SV-6",
+            "tb": 6,
+            "hardwareMSRP": 0,
+            "svc": {
+              "1-year": 747,
+              "7-year": 791,
+              "Infinite": 824
+            }
+          },
+          {
+            "model": "SV-8",
+            "tb": 8,
+            "hardwareMSRP": 0,
+            "svc": {
+              "1-year": 890,
+              "7-year": 912,
+              "Infinite": 956
+            }
+          },
+          {
+            "model": "SV-12",
+            "tb": 12,
+            "hardwareMSRP": 0,
+            "svc": {
+              "1-year": 1044,
+              "7-year": 1132,
+              "Infinite": 1187
+            }
+          },
+          {
+            "model": "SV-18",
+            "tb": 18,
+            "hardwareMSRP": 0,
+            "svc": {
+              "1-year": 1396,
+              "7-year": 1473,
+              "Infinite": 1550
+            }
+          },
+          {
+            "model": "SV-24",
+            "tb": 24,
+            "hardwareMSRP": 0,
+            "svc": {
+              "1-year": 1627,
+              "7-year": 1814,
+              "Infinite": 1902
+            }
+          },
+          {
+            "model": "SV-36",
+            "tb": 36,
+            "hardwareMSRP": 0,
+            "svc": {
+              "1-year": 2122,
+              "7-year": 2287,
+              "Infinite": 2397
+            }
+          },
+          {
+            "model": "SV-48",
+            "tb": 48,
+            "hardwareMSRP": 0,
+            "svc": {
+              "1-year": 2595,
+              "7-year": 2738,
+              "Infinite": 2870
+            }
+          },
+          {
+            "model": "SV-60",
+            "tb": 60,
+            "hardwareMSRP": 0,
+            "svc": {
+              "1-year": 3057,
+              "7-year": 3233,
+              "Infinite": 3398
+            }
+          },
+          {
+            "model": "SV-80",
+            "tb": 80,
+            "hardwareMSRP": 0,
+            "svc": {
+              "1-year": 3579,
+              "7-year": 3807,
+              "Infinite": 4434
+            }
+          },
+          {
+            "model": "SV-100",
+            "tb": 100,
+            "hardwareMSRP": 0,
+            "svc": {
+              "1-year": 4153,
+              "7-year": 4418,
+              "Infinite": 5224
+            }
+          },
+          {
+            "model": "SV-120",
+            "tb": 120,
+            "hardwareMSRP": 0,
+            "svc": {
+              "1-year": 4772,
+              "7-year": 5076,
+              "Infinite": 5924
+            }
+          }
+        ]
+      },
+      "appliance": {
+        "label": "SIRIS Appliance",
+        "hardware": true,
+        "models": [
+          {
+            "model": "S6-2",
+            "tb": 2,
+            "hardwareMSRP": 3370,
+            "svc": {
+              "1-year": 373,
+              "7-year": 406,
+              "Infinite": 428
+            }
+          },
+          {
+            "model": "S6-3",
+            "tb": 3,
+            "hardwareMSRP": 3370,
+            "svc": {
+              "1-year": 439,
+              "7-year": 516,
+              "Infinite": 538
+            }
+          },
+          {
+            "model": "S6-4",
+            "tb": 4,
+            "hardwareMSRP": 3370,
+            "svc": {
+              "1-year": 516,
+              "7-year": 560,
+              "Infinite": 582
+            }
+          },
+          {
+            "model": "S6-6",
+            "tb": 6,
+            "hardwareMSRP": 3975,
+            "svc": {
+              "1-year": 747,
+              "7-year": 791,
+              "Infinite": 824
+            }
+          },
+          {
+            "model": "S6-8",
+            "tb": 8,
+            "hardwareMSRP": 3975,
+            "svc": {
+              "1-year": 890,
+              "7-year": 912,
+              "Infinite": 956
+            }
+          },
+          {
+            "model": "S6-12",
+            "tb": 12,
+            "hardwareMSRP": 8804,
+            "svc": {
+              "1-year": 1044,
+              "7-year": 1132,
+              "Infinite": 1187
+            }
+          },
+          {
+            "model": "S6-18",
+            "tb": 18,
+            "hardwareMSRP": 9243,
+            "svc": {
+              "1-year": 1396,
+              "7-year": 1473,
+              "Infinite": 1550
+            }
+          },
+          {
+            "model": "S6-24",
+            "tb": 24,
+            "hardwareMSRP": 9872,
+            "svc": {
+              "1-year": 1627,
+              "7-year": 1814,
+              "Infinite": 1902
+            }
+          },
+          {
+            "model": "S6-36",
+            "tb": 36,
+            "hardwareMSRP": 11606,
+            "svc": {
+              "1-year": 2122,
+              "7-year": 2287,
+              "Infinite": 2397
+            }
+          },
+          {
+            "model": "S6-48",
+            "tb": 48,
+            "hardwareMSRP": 15799,
+            "svc": {
+              "1-year": 2595,
+              "7-year": 2738,
+              "Infinite": 2870
+            }
+          },
+          {
+            "model": "S6-60",
+            "tb": 60,
+            "hardwareMSRP": 17129,
+            "svc": {
+              "1-year": 3057,
+              "7-year": 3233,
+              "Infinite": 3398
+            }
+          },
+          {
+            "model": "S6-80",
+            "tb": 80,
+            "hardwareMSRP": 18449,
+            "svc": {
+              "1-year": 3579,
+              "7-year": 3807,
+              "Infinite": 4434
+            }
+          },
+          {
+            "model": "S6-100",
+            "tb": 100,
+            "hardwareMSRP": 20729,
+            "svc": {
+              "1-year": 4153,
+              "7-year": 4418,
+              "Infinite": 5224
+            }
+          },
+          {
+            "model": "S6-120",
+            "tb": 120,
+            "hardwareMSRP": 22200,
+            "svc": {
+              "1-year": 4772,
+              "7-year": 5076,
+              "Infinite": 5924
+            }
+          }
+        ]
+      },
+      "cloudDR": {
+        "label": "Endpoint Backup w/ DR (cloud, per 500GB)",
+        "hardware": false,
+        "computeBy": "per500GB",
+        "rates": {
+          "1-year": 79,
+          "7-year": 89,
+          "Infinite": 99
+        },
+        "gbPerUnit": 500
+      }
+    },
+    "_flag": "SIRIS Private and NAS 6 sheets also captured (Datto Backup Pricing folder) - add as deployments if TCT sells them. Term is 3-year; other terms are in the source sheets if needed.",
+    "_markupNote": "Industry standard backup markup is 2-3x (50-70% gross margin); 2x is the conservative floor."
+  },
+  "entraBackup": {
+    "_comment": "Datto Backup for Microsoft Entra ID. $0.75/user cost (min 400-license pool at TCT level). Optional per standard user.",
+    "cost": 0.75,
+    "sellMultiplier": 2,
+    "label": "Entra ID Backup",
+    "_flag": "400-license minimum is a TCT-level pool, not per customer."
+  }
+}

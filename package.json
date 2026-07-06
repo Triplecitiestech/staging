@@ -38,6 +38,8 @@
     "docx": "^9.6.1",
     "dotenv": "^16.6.1",
     "html-to-text": "^9.0.5",
+    "jspdf": "2.5.1",
+    "jspdf-autotable": "3.8.2",
     "jszip": "^3.10.1",
     "lucide-react": "^0.562.0",
     "mammoth": "^1.12.0",
@@ -56,7 +58,8 @@
     "resend": "^6.0.1",
     "rss-parser": "^3.13.0",
     "slugify": "^1.6.6",
-    "tailwind-merge": "^3.3.1"
+    "tailwind-merge": "^3.3.1",
+    "xlsx": "0.18.5"
   },
   "devDependencies": {
     "@browserbasehq/sdk": "^2.7.0",
