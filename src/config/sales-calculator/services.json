@@ -1,5 +1,5 @@
 {
-  "_comment": "Service catalog. INTERNAL view shows 'internalName' + 'vendor'. EXTERNAL/customer view shows 'externalName' only. 'include' marks which packages include the capability (drives comparison + included/missing lists). Dollar amounts live ONLY in pricing.json (single source of truth for money).",
+  "_comment": "Service catalog. INTERNAL view shows 'internalName' + 'vendor'. EXTERNAL/customer view shows 'externalName' only. 'include' marks availability per package: true = included, \"billable\" = available but billed hourly (T&M), false = not available (drives comparison + included/billable/missing lists). Dollar amounts live ONLY in pricing.json (single source of truth for money).",
   "categories": {
     "user": "User Services",
     "device": "Device Services",
@@ -41,8 +41,8 @@
     { "id": "bdr", "internalName": "BDR (Datto)", "externalName": "Image-Level Server Backup", "vendor": "Datto/Kaseya", "category": "backup", "unit": "perServer", "include": {"basic": false, "standard": false, "comprehensive": true, "complete": true, "comanaged": true} },
 
     { "id": "monitoring247", "internalName": "24/7/365 Monitoring (TCT)", "externalName": "24/7/365 Monitoring", "vendor": "Triple Cities Tech", "category": "strategy", "unit": "service", "include": {"basic": true, "standard": true, "comprehensive": true, "complete": true, "comanaged": true} },
-    { "id": "helpdesk", "internalName": "Helpdesk / Call Center (TCT)", "externalName": "Helpdesk Support", "vendor": "Triple Cities Tech", "category": "strategy", "unit": "service", "include": {"basic": true, "standard": true, "comprehensive": true, "complete": true, "comanaged": true} },
-    { "id": "unlimitedSupport", "internalName": "Remote Support (TCT)", "externalName": "Remote Support", "vendor": "Triple Cities Tech", "category": "strategy", "unit": "service", "include": {"basic": false, "standard": false, "comprehensive": false, "complete": true, "comanaged": false} },
+    { "id": "helpdesk", "internalName": "Helpdesk / Call Center (TCT)", "externalName": "Helpdesk Support", "vendor": "Triple Cities Tech", "category": "strategy", "unit": "service", "include": {"basic": true, "standard": true, "comprehensive": "billable", "complete": true, "comanaged": "billable"} },
+    { "id": "unlimitedSupport", "internalName": "Remote Support (TCT)", "externalName": "Remote Support", "vendor": "Triple Cities Tech", "category": "strategy", "unit": "service", "include": {"basic": false, "standard": false, "comprehensive": "billable", "complete": true, "comanaged": "billable"} },
     { "id": "vendorMgmt", "internalName": "Vendor Management (TCT)", "externalName": "Vendor Management", "vendor": "Triple Cities Tech", "category": "strategy", "unit": "service", "include": {"basic": false, "standard": false, "comprehensive": false, "complete": true, "comanaged": true} }
   ]
 }

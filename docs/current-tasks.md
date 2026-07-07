@@ -1,8 +1,20 @@
 # Current Tasks
 
-> **Last updated**: 2026-07-06 (later). Sales Calculator shipped to production; owner-requested post-launch fixes in progress.
-> **Branch**: `claude/integrate-sales-calculator-xg87ic` (PR #135 merged; follow-up work on a fresh branch off main).
-> **Detailed context**: `docs/session-summary.md` (2026-07-06 section) + `docs/reference/sales-calculator/OPEN_ITEMS.md`.
+> **Last updated**: 2026-07-06 (third pass). Sales Calculator: live pricing editor + reactive/proactive support model shipped; **operator must POST /api/migrations/run once** after deploy.
+> **Branch**: `claude/integrate-sales-calculator-xg87ic` (PRs #135, #136 merged; pricing-editor work follows).
+> **Detailed context**: `docs/session-summary.md` (2026-07-06 sections) + `docs/gotchas.md` → Sales Calculator.
+
+## Sales Calculator: pricing editor + support-model chart (2026-07-06, third pass) — 🟡 code complete, migration POST required
+
+Owner asks: (1) clearly state on the charts that Comprehensive = reactive (remediation approved by customer, billed hourly T&M) vs Complete = proactive (support included); (2) an in-app way to edit cost & price for every line item.
+
+Built: tri-state service inclusion (`true`/`"billable"`/`false`) with a Support Model row + ⏱ hourly legend on Comparison/Catalog/Recommendation/Summaries/PDF (Comprehensive & Ally: Helpdesk + Remote Support = billable); pricing overrides layer (`sales_calc_pricing_overrides`, append-only audit) + `/admin/sales-calculator/pricing` editor (265 numeric values, search, per-field default/reset, overridden badges, change notes; saves need `system_settings`); calculator + authenticated e2e layer overrides before quoting; honest degradation banners.
+
+**Validation / follow-ups:**
+- [ ] **[OPERATOR — one-time, after this deploys]** `POST https://www.triplecitiestech.com/api/migrations/run` with the migration secret (creates `sales_calc_pricing_overrides`). Until then the editor shows a run-migrations banner and the calculator uses config defaults.
+- [ ] **[CI]** Auto-merge gate green (build + lint + unit + e2e vs preview).
+- [ ] **[OWNER — confirm]** Basic/Standard: Helpdesk currently stays *included* and Remote Support *not available* — should either be marked "billable hourly" like Comprehensive? One-line services.json change each.
+- [ ] **[OWNER — confirm]** "Comprehensive includes everything Complete has as far as tooling" — Endpoint Backup (K365) and Vendor Management are still ✗ for Comprehensive (Fortify correctly stays Complete-only per the no-auto-response model). Say the word to flip either.
 
 ## Sales Calculator — post-launch fixes (2026-07-06, later) — 🟡 in progress
 

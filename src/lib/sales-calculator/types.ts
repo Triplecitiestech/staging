@@ -130,6 +130,7 @@ export interface PackageQuote {
   licenseGapMessage: string | null;
   // Service inclusion (for comparison)
   includedServices: string[];   // externalNames
+  billableServices: string[];   // externalNames available but billed hourly (T&M)
   missingServices: string[];    // externalNames not in this package
   // Capacity / pricing warnings (e.g. Azure backup over a cloud-device limit)
   warnings: string[];

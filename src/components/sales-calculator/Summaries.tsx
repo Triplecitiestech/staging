@@ -75,6 +75,14 @@ export function Summaries({ input, quote, rec, mode }:
       <div className="grid sm:grid-cols-2 gap-x-6 gap-y-1">
         {quote.includedServices.map((s) => <div key={s} className="text-sm text-ink flex gap-2"><span className="text-ok">✓</span>{s}</div>)}
       </div>
+      {quote.billableServices.length > 0 && (
+        <>
+          <div className="text-sm font-medium text-ink mt-4 mb-2">Available on Request — billed hourly (T&amp;M)</div>
+          <div className="grid sm:grid-cols-2 gap-x-6 gap-y-1">
+            {quote.billableServices.map((s) => <div key={s} className="text-sm text-body2 flex gap-2"><span className="text-accent">⏱</span>{s}</div>)}
+          </div>
+        </>
+      )}
       {quote.licenseGapMessage && (
         <div className="mt-4 rounded-[12px] bg-danger/15 text-danger ring-1 ring-danger/30 text-sm p-3 font-semibold">{quote.licenseGapMessage}</div>
       )}

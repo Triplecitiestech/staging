@@ -1,6 +1,7 @@
 "use client";
-import React, { useMemo, useState } from "react";
-import { theme, appConfig, getPackages } from "@/lib/sales-calculator/config";
+import React, { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { theme, appConfig, getPackages, applyPricingOverrides } from "@/lib/sales-calculator/config";
 import { defaultInput } from "@/lib/sales-calculator/defaults";
 import { buildAllQuotes } from "@/lib/sales-calculator/calc";
 import { recommend } from "@/lib/sales-calculator/recommend";
@@ -15,7 +16,7 @@ import { Recommendation } from "@/components/sales-calculator/Recommendation";
 import { Summaries } from "@/components/sales-calculator/Summaries";
 import { ExportBar } from "@/components/sales-calculator/ExportBar";
 import { Button } from "@/components/sales-calculator/ui";
-import { Lock, Eye, EyeOff } from "lucide-react";
+import { Lock, Eye, EyeOff, SlidersHorizontal } from "lucide-react";
 
 type Tab = "recommend" | "dashboard" | "compare" | "vsspend" | "catalog" | "costs" | "summary";
 type SummaryMode = "internal" | "customer" | "executive";
@@ -26,8 +27,32 @@ export default function Page() {
   const [tab, setTab] = useState<Tab>("recommend");
   const [summaryMode, setSummaryMode] = useState<SummaryMode>("internal");
 
-  const quotes = useMemo(() => buildAllQuotes(input), [input]);
-  const rec = useMemo(() => recommend(input), [input]);
+  // Live pricing: layer saved overrides (edited at /admin/sales-calculator/pricing)
+  // over the pricing.json defaults BEFORE any quote is shown. On fetch failure the
+  // calculator still works on config defaults, with a visible warning.
+  const [pricingStatus, setPricingStatus] = useState<"loading" | "live" | "defaults">("loading");
+  const [pricingVersion, setPricingVersion] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/admin/sales-calculator/pricing", { signal: controller.signal })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        applyPricingOverrides((data?.overrides as Record<string, number>) || {});
+        setPricingVersion((v) => v + 1);
+        setPricingStatus("live");
+      })
+      .catch((err) => {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setPricingStatus("defaults");
+      });
+    return () => controller.abort();
+  }, []);
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const quotes = useMemo(() => buildAllQuotes(input), [input, pricingVersion]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const rec = useMemo(() => recommend(input), [input, pricingVersion]);
   const [selectedId, setSelectedId] = useState<string>("");
   const activeId = selectedId || rec.recommendedPackageId;
   const activeQuote = quotes.find((q) => q.packageId === activeId) || quotes[0];
@@ -42,6 +67,16 @@ export default function Page() {
     { id: "summary", label: "Summaries & Export" },
   ];
 
+  // Hold quoting until the live-pricing check resolves so nobody quotes off
+  // stale defaults without knowing it.
+  if (pricingStatus === "loading") {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-sm text-muted animate-pulse">Loading current pricing…</div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen">
       {/* Header */}
@@ -52,6 +87,12 @@ export default function Page() {
             <div className="font-bold leading-tight tracking-tight">{appConfig.appName}</div>
             <div className="text-xs text-muted">{theme.company.name}</div>
           </div>
+          {showInternal && (
+            <Link href="/admin/sales-calculator/pricing"
+              className="flex items-center gap-2 rounded-[12px] bg-white/8 ring-1 ring-white/10 hover:bg-white/15 px-3 py-1.5 text-sm text-body2">
+              <SlidersHorizontal size={15} className="text-accent" /> Edit Pricing
+            </Link>
+          )}
           <button onClick={() => setShowInternal((v) => !v)}
             className="flex items-center gap-2 rounded-[12px] bg-white/8 ring-1 ring-white/10 hover:bg-white/15 px-3 py-1.5 text-sm text-body2">
             {showInternal ? <Eye size={15} className="text-accent" /> : <EyeOff size={15} />}
@@ -66,6 +107,13 @@ export default function Page() {
             <span className="text-muted">{appConfig.internalOnlyBanner}</span>
           </div>
         </div>
+        {pricingStatus === "defaults" && (
+          <div className="bg-danger/15 border-t border-danger/30">
+            <div className="max-w-[1500px] mx-auto px-5 py-1.5 text-xs text-danger font-medium">
+              Live pricing overrides could not be loaded — quotes below use the config defaults. Refresh to retry.
+            </div>
+          </div>
+        )}
       </header>
 
       <main className="max-w-[1500px] mx-auto px-5 py-6 grid lg:grid-cols-[minmax(380px,440px)_1fr] gap-6">
