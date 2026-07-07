@@ -30,13 +30,16 @@ export function CostLedger() {
                 <div className="text-xs text-muted">subtotal (known): <span className="text-ink font-medium">{currency(subtotal, { cents: true })}</span></div>
               </div>
               <div className="overflow-x-auto tct-scroll">
-                <table className="w-full text-sm">
+                {/* table-fixed + pinned widths on the right columns keep every
+                    section's columns aligned with each other (auto layout sized
+                    each section table differently). Product takes the remainder. */}
+                <table className="w-full text-sm table-fixed min-w-[560px]">
                   <thead>
                     <tr className="text-left text-muted border-b border-line">
                       <th className="py-1.5 pr-3 font-medium">Product</th>
-                      <th className="py-1.5 px-3 font-medium">Vendor</th>
-                      <th className="py-1.5 px-3 font-medium text-right">Unit Cost</th>
-                      <th className="py-1.5 pl-3 font-medium">Status</th>
+                      <th className="py-1.5 px-3 font-medium w-44">Vendor</th>
+                      <th className="py-1.5 px-3 font-medium text-right w-28">Unit Cost</th>
+                      <th className="py-1.5 pl-3 font-medium w-32">Status</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -62,12 +65,12 @@ export function CostLedger() {
       </Card>
 
       <Card title="TCT Overhead (cost-to-serve)" subtitle="Vendor costs that are NOT billed per customer — TCT operational tooling. Useful for blended margin, not for the quote.">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm table-fixed min-w-[480px]">
           <thead>
             <tr className="text-left text-muted border-b border-line">
               <th className="py-1.5 pr-3 font-medium">Item</th>
-              <th className="py-1.5 px-3 font-medium">Vendor</th>
-              <th className="py-1.5 pl-3 font-medium text-right">Monthly</th>
+              <th className="py-1.5 px-3 font-medium w-44">Vendor</th>
+              <th className="py-1.5 pl-3 font-medium text-right w-28">Monthly</th>
             </tr>
           </thead>
           <tbody>
