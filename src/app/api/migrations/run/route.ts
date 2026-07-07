@@ -737,6 +737,29 @@ export async function POST(request: Request) {
       results.push(`⚠️ hr_request_steps: ${err.message}`)
     }
 
+    // Sales calculator: pricing overrides edited at /admin/sales-calculator/pricing.
+    // Append-only (latest row wins, history = audit trail); flat path→number map
+    // in `overrides` (e.g. {"packages.basic.perUser.price": 40}) layered over
+    // src/config/sales-calculator/pricing.json at calculator load time.
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS sales_calc_pricing_overrides (
+          id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+          overrides JSONB NOT NULL,
+          note TEXT,
+          updated_by TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `)
+      await client.query(
+        'CREATE INDEX IF NOT EXISTS sales_calc_pricing_overrides_created_idx ON sales_calc_pricing_overrides (created_at DESC)'
+      )
+      results.push('✅ sales_calc_pricing_overrides table')
+    } catch (error) {
+      const err = error as Error
+      results.push(`⚠️ sales_calc_pricing_overrides: ${err.message}`)
+    }
+
     await client.end()
 
     return NextResponse.json({

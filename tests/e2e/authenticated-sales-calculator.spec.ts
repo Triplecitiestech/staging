@@ -1,19 +1,53 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, request as pwRequest } from '@playwright/test'
 import { buildAllQuotes } from '../../src/lib/sales-calculator/calc'
 import { recommend } from '../../src/lib/sales-calculator/recommend'
 import { defaultInput } from '../../src/lib/sales-calculator/defaults'
 import { currency } from '../../src/lib/sales-calculator/format'
+import { applyPricingOverrides } from '../../src/lib/sales-calculator/config'
+import type { PackageQuote, RecommendationResult } from '../../src/lib/sales-calculator/types'
 
 /**
  * Sales Calculator — authenticated functional tests.
  *
  * Expected values are computed from the calculator's own library + config at
- * test time (not hardcoded), so pricing.json edits don't break the suite —
- * these tests verify the UI shows exactly what the calculation engine returns.
+ * test time (not hardcoded), and the SAME live pricing overrides the app
+ * loads are applied first — so neither pricing.json edits nor admin pricing
+ * overrides break the suite. These tests verify the UI shows exactly what
+ * the calculation engine returns for the effective pricing.
  */
 
-const expectedQuotes = buildAllQuotes(defaultInput())
-const expectedRec = recommend(defaultInput())
+let expectedQuotes: PackageQuote[]
+let expectedRec: RecommendationResult
+
+test.beforeAll(async () => {
+  // Mirror the app: layer saved pricing overrides over pricing.json before
+  // computing expectations. Uses the same authenticated storage state as the
+  // page tests; on any failure we fall back to config defaults, exactly like
+  // the app does.
+  try {
+    const ctx = await pwRequest.newContext({
+      baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3000',
+      storageState: 'tests/e2e/.auth/admin.json',
+      ...(process.env.VERCEL_AUTOMATION_BYPASS_SECRET
+        ? {
+            extraHTTPHeaders: {
+              'x-vercel-protection-bypass': process.env.VERCEL_AUTOMATION_BYPASS_SECRET,
+            },
+          }
+        : {}),
+    })
+    const res = await ctx.get('/api/admin/sales-calculator/pricing')
+    if (res.ok()) {
+      const data = await res.json()
+      applyPricingOverrides((data?.overrides as Record<string, number>) || {})
+    }
+    await ctx.dispose()
+  } catch {
+    // fall back to config defaults
+  }
+  expectedQuotes = buildAllQuotes(defaultInput())
+  expectedRec = recommend(defaultInput())
+})
 
 test.describe('Sales Calculator — authenticated', () => {
   test.beforeEach(async ({ page }) => {

@@ -212,6 +212,18 @@ export async function exportPDF(
         doc.text(`✓  ${s}`, x, yy);
       });
       y += half * 13 + 10;
+      if (sel.billableServices.length > 0) {
+        doc.setFont("helvetica", "bold");
+        doc.text("Available on Request — billed hourly (T&M)", 40, y); y += 14;
+        doc.setFont("helvetica", "normal"); doc.setFontSize(9);
+        const bHalf = Math.ceil(sel.billableServices.length / 2);
+        sel.billableServices.forEach((s, i) => {
+          const x = i < bHalf ? 50 : W / 2 + 10;
+          const yy = y + (i % bHalf) * 13;
+          doc.text(`•  ${s}`, x, yy);
+        });
+        y += bHalf * 13 + 10;
+      }
     }
   }
 

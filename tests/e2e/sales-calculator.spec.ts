@@ -31,4 +31,25 @@ test.describe('Sales Calculator — access gate', () => {
     const robots = page.locator('meta[name="robots"]')
     await expect(robots).toHaveAttribute('content', /noindex/)
   })
+
+  test('pricing editor is gated and noindex', async ({ page }) => {
+    const response = await page.goto('/admin/sales-calculator/pricing')
+    expect(response?.status()).toBeLessThan(500)
+    await expect(
+      page.getByText('Internal tool — sign in with your Microsoft account to continue')
+    ).toBeVisible()
+    const content = (await page.textContent('body')) ?? ''
+    expect(content).not.toContain('Pricing Editor')
+    expect(content).not.toContain('Default:')
+    await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', /noindex/)
+  })
+
+  test('pricing API rejects anonymous requests', async ({ request }) => {
+    const res = await request.get('/api/admin/sales-calculator/pricing')
+    expect(res.status()).toBe(401)
+    const put = await request.put('/api/admin/sales-calculator/pricing', {
+      data: { overrides: { 'packages.basic.perUser.price': 1 } },
+    })
+    expect(put.status()).toBe(401)
+  })
 })

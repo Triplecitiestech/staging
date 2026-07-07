@@ -291,6 +291,14 @@ Internal staff-only financial dashboard. Combines **Sequence** (banking — pods
 
 ---
 
+## Sales Calculator — `/admin/sales-calculator`
+
+- **Effective pricing = `src/config/sales-calculator/pricing.json` (defaults) + DB overrides.** Overrides live in raw-pg `sales_calc_pricing_overrides` as a flat path→number map (e.g. `{"packages.basic.perUser.price": 40}`), **append-only** — every save inserts a new row (history = audit trail); the latest row wins. Edited at `/admin/sales-calculator/pricing` (any staff can view; saving requires the `system_settings` permission). The overrides API validates every path against pricing.json — overrides can only change EXISTING numeric leaves, never add keys or change shape.
+- **New deploys of the overrides feature need the migration POSTed once** (`POST /api/migrations/run` with `MIGRATION_SECRET`) — until then the calculator runs on config defaults and the editor shows a run-migrations banner with saving disabled. The GET endpoint treats Postgres error `42P01` (undefined table) as "no overrides yet", NOT as a 500.
+- **The calculator and the authenticated e2e spec BOTH layer live overrides before computing quotes** (`applyPricingOverrides()` from `src/lib/sales-calculator/config.ts`). If you compute expected totals in a test from pricing.json alone, it will break as soon as an admin overrides a price — fetch `/api/admin/sales-calculator/pricing` and apply first (see `tests/e2e/authenticated-sales-calculator.spec.ts`).
+- **Service inclusion is tri-state**: `include` values in `services.json` are `true` (included), `"billable"` (available but billed hourly / T&M — the Comprehensive-vs-Complete support-model difference), or `false` (not available). NEVER test inclusion with truthiness — `"billable"` is truthy but is NOT included; use `serviceInclusionState()` from config.ts. Billable services are excluded from bundle revenue allocation and from `includedServices` (they get their own `billableServices` list on the quote).
+- **Per-package support model** (reactive vs proactive) lives in `packages.json` → `supportModel.{label,detail}` and renders on the Comparison "Support Model" row, the Catalog banner, and the Recommendation card. It is copy, not logic — edit the JSON.
+
 ## Temporary Development Shortcuts
 
 > **Intentionally kept to speed up active development. NOT production-ready; clean up before broader customer-facing rollout.**

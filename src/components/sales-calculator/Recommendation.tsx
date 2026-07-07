@@ -1,6 +1,7 @@
 "use client";
 import React from "react";
 import { PackageQuote, RecommendationResult } from "@/lib/sales-calculator/types";
+import { getPackages } from "@/lib/sales-calculator/config";
 import { currency, pct } from "@/lib/sales-calculator/format";
 import { Card, Pill, Button } from "./ui";
 import { Sparkles } from "lucide-react";
@@ -17,6 +18,10 @@ export function Recommendation({ rec, quotes, onSelect }:
           <div className="text-xs uppercase tracking-wide text-muted">Recommended Package</div>
           <div className="text-xl font-semibold text-ink">{rec.recommendedPackageName} <span className="text-brand-accent">Recommended</span></div>
           {recQuote && <div className="text-sm text-muted mt-0.5">{currency(recQuote.monthlyPrice)}/mo · {pct(recQuote.marginPct)} margin · {currency(recQuote.annualPrice)}/yr</div>}
+          {(() => {
+            const sm = getPackages().find((p) => p.id === rec.recommendedPackageId)?.supportModel;
+            return sm ? <div className="text-xs text-accent mt-1" title={sm.detail}>Support model: {sm.label}</div> : null;
+          })()}
           {rec.rationale.length > 0 && (
             <ul className="mt-3 space-y-1">
               {rec.rationale.map((r, i) => <li key={i} className="text-sm text-ink flex items-center gap-2"><span className="text-brand-accent">•</span>{r}</li>)}

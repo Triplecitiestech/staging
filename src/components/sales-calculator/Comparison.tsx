@@ -1,10 +1,10 @@
 "use client";
 import React from "react";
 import { PackageQuote } from "@/lib/sales-calculator/types";
-import { getServices } from "@/lib/sales-calculator/config";
+import { getServices, getPackages, serviceInclusionState } from "@/lib/sales-calculator/config";
 import { currency, pct } from "@/lib/sales-calculator/format";
 import { Card, Pill, Button } from "./ui";
-import { Check, X } from "lucide-react";
+import { Check, X, Clock } from "lucide-react";
 
 export function Comparison({ quotes, selectedId, onSelect, showInternal }:
   { quotes: PackageQuote[]; selectedId: string; onSelect: (id: string) => void; showInternal: boolean }) {
@@ -29,6 +29,14 @@ export function Comparison({ quotes, selectedId, onSelect, showInternal }:
           <tbody>
             <Row label="Monthly Price">{quotes.map((q) => <Cell key={q.packageId} sel={q.packageId === selectedId}><span className="font-semibold">{currency(q.monthlyPrice)}</span></Cell>)}</Row>
             <Row label="Annual Price">{quotes.map((q) => <Cell key={q.packageId} sel={q.packageId === selectedId}>{currency(q.annualPrice)}</Cell>)}</Row>
+            <Row label="Support Model">{quotes.map((q) => {
+              const sm = getPackages().find((p) => p.id === q.packageId)?.supportModel;
+              return (
+                <Cell key={q.packageId} sel={q.packageId === selectedId}>
+                  {sm ? <span className="text-xs text-body2" title={sm.detail}>{sm.label}</span> : <span className="text-faint">—</span>}
+                </Cell>
+              );
+            })}</Row>
             {showInternal && <Row label="Monthly Cost">{quotes.map((q) => <Cell key={q.packageId} sel={q.packageId === selectedId}><span className="text-muted">{currency(q.monthlyCost)}</span></Cell>)}</Row>}
             {showInternal && <Row label="Gross Profit (mo)">{quotes.map((q) => <Cell key={q.packageId} sel={q.packageId === selectedId}><span className="text-ok">{currency(q.monthlyMargin)}</span></Cell>)}</Row>}
             {showInternal && <Row label="Margin %">{quotes.map((q) => <Cell key={q.packageId} sel={q.packageId === selectedId}>{pct(q.marginPct)}</Cell>)}</Row>}
@@ -59,18 +67,26 @@ export function Comparison({ quotes, selectedId, onSelect, showInternal }:
                 <td className="py-1.5 pr-3 text-ink sticky left-0 bg-surface">
                   {showInternal ? <>{s.internalName} <span className="text-xs text-muted">({s.externalName})</span></> : s.externalName}
                 </td>
-                {quotes.map((q) => (
-                  <td key={q.packageId} className="py-1.5 px-2 text-center">
-                    {s.include?.[q.packageId]
-                      ? <Check className="inline text-ok" size={16} />
-                      : <X className="inline text-line" size={14} />}
-                  </td>
-                ))}
+                {quotes.map((q) => {
+                  const state = serviceInclusionState(s, q.packageId);
+                  return (
+                    <td key={q.packageId} className="py-1.5 px-2 text-center">
+                      {state === "included" && <Check className="inline text-ok" size={16} />}
+                      {state === "billable" && <Clock className="inline text-accent" size={14} aria-label="Billed hourly (T&M)" />}
+                      {state === "none" && <X className="inline text-line" size={14} />}
+                    </td>
+                  );
+                })}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      <p className="mt-3 text-xs text-muted flex flex-wrap items-center gap-x-4 gap-y-1">
+        <span className="inline-flex items-center gap-1"><Check size={12} className="text-ok" /> Included</span>
+        <span className="inline-flex items-center gap-1"><Clock size={12} className="text-accent" /> Available — billed hourly (T&amp;M)</span>
+        <span className="inline-flex items-center gap-1"><X size={12} className="text-line" /> Not available</span>
+      </p>
     </Card>
   );
 }

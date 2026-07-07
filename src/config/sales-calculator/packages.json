@@ -1,5 +1,5 @@
 {
-  "_comment": "Package display names are fully configurable here. Renaming a package requires NO code changes — edit name only. 'id' is the stable key used by pricing.json and services.json; do not change ids.",
+  "_comment": "Package display names are fully configurable here. Renaming a package requires NO code changes — edit name only. 'id' is the stable key used by pricing.json and services.json; do not change ids. 'supportModel' states the reactive-vs-proactive support difference on the charts (label = short, for table cells; detail = full sentence, for the catalog header).",
   "packages": [
     {
       "id": "basic",
@@ -9,7 +9,11 @@
       "shortDescription": "Essential monitoring, patching, AV/EDR, backup and helpdesk for cost-sensitive clients.",
       "licenseRequirement": "Business Basic",
       "frontlineEligible": true,
-      "comanaged": false
+      "comanaged": false,
+      "supportModel": {
+        "label": "Reactive",
+        "detail": "System-generated alerts open tickets; remediation is coordinated with you."
+      }
     },
     {
       "id": "standard",
@@ -19,7 +23,11 @@
       "shortDescription": "Basic Care plus Business Standard productivity and stronger collaboration.",
       "licenseRequirement": "Business Standard",
       "frontlineEligible": true,
-      "comanaged": false
+      "comanaged": false,
+      "supportModel": {
+        "label": "Reactive",
+        "detail": "System-generated alerts open tickets; remediation is coordinated with you."
+      }
     },
     {
       "id": "comprehensive",
@@ -29,7 +37,11 @@
       "shortDescription": "Adds managed SOC, security awareness training, advanced email security and strategic planning.",
       "licenseRequirement": "Business Premium",
       "frontlineEligible": true,
-      "comanaged": false
+      "comanaged": false,
+      "supportModel": {
+        "label": "Reactive — remediation billed hourly",
+        "detail": "TCT proactively maintains the monitoring, patching and security stack. System alerts open tickets, but remediation waits for your approval and is billed hourly (T&M)."
+      }
     },
     {
       "id": "complete",
@@ -39,7 +51,11 @@
       "shortDescription": "Full stack with unlimited support, vCIO, vendor management and complete security.",
       "licenseRequirement": "Business Premium",
       "frontlineEligible": true,
-      "comanaged": false
+      "comanaged": false,
+      "supportModel": {
+        "label": "Proactive — support included",
+        "detail": "TCT acts on system alerts automatically and proactively; remote support for covered items is included — no hourly billing."
+      }
     },
     {
       "id": "comanaged",
@@ -49,7 +65,11 @@
       "shortDescription": "Co-managed for clients with internal IT: TCT provides the full tool stack, security, backups, documentation, monitoring and an escalation/after-hours bench. Day-to-day helpdesk, moves/adds/changes and projects are billed at an hourly rate (not bundled).",
       "licenseRequirement": "Business Premium",
       "frontlineEligible": true,
-      "comanaged": true
+      "comanaged": true,
+      "supportModel": {
+        "label": "Co-managed — labor billed hourly",
+        "detail": "Your internal IT leads day-to-day; TCT provides the tool stack and an escalation/after-hours bench, with helpdesk and project labor billed hourly."
+      }
     }
   ],
   "licenseTierRank": {

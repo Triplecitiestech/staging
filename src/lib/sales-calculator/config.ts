@@ -26,7 +26,13 @@ export interface PackageDef {
   licenseRequirement: string;
   frontlineEligible: boolean;
   comanaged: boolean;
+  supportModel?: { label: string; detail: string };
 }
+
+// include values: true = included, "billable" = available but billed hourly
+// (T&M), false/absent = not available.
+export type ServiceInclusion = boolean | "billable";
+export type InclusionState = "included" | "billable" | "none";
 
 export interface ServiceDef {
   id: string;
@@ -35,7 +41,15 @@ export interface ServiceDef {
   vendor: string;
   category: string;
   unit: string;
-  include: Record<string, boolean>;
+  include: Record<string, ServiceInclusion>;
+}
+
+/** Single source of truth for interpreting a service's include value. */
+export function serviceInclusionState(service: ServiceDef, packageId: string): InclusionState {
+  const v = service.include?.[packageId];
+  if (v === true) return "included";
+  if (v === "billable") return "billable";
+  return "none";
 }
 
 export function getPackages(): PackageDef[] {
@@ -60,6 +74,78 @@ export function hexToChannels(hex: string): string {
   const g = parseInt(m.substring(2, 4), 16);
   const b = parseInt(m.substring(4, 6), 16);
   return `${r} ${g} ${b}`;
+}
+
+/**
+ * Apply pricing overrides (a flat path→number map from the admin pricing
+ * editor, e.g. { "packages.basic.perUser.price": 40 }) onto the in-memory
+ * pricingConfig singleton. calc.ts reads pricingConfig at call time, so
+ * quotes built after this call use the overridden numbers. Idempotent.
+ * Returns the number of overrides applied.
+ */
+export function applyPricingOverrides(overrides: Record<string, number>): number {
+  return applyOverridesToObject(pricingConfig, overrides);
+}
+
+export function applyOverridesToObject(target: any, overrides: Record<string, number>): number {
+  let applied = 0;
+  for (const [path, value] of Object.entries(overrides || {})) {
+    if (typeof value !== "number" || !isFinite(value)) continue;
+    const segments = path.split(".");
+    let node: any = target;
+    let ok = true;
+    for (let i = 0; i < segments.length - 1; i++) {
+      node = node?.[segments[i]];
+      if (node === undefined || node === null || typeof node !== "object") { ok = false; break; }
+    }
+    const leaf = segments[segments.length - 1];
+    // Only replace values that exist in the base config as numbers — never
+    // create new keys or change the shape of pricing data.
+    if (ok && node && typeof node[leaf] === "number") {
+      node[leaf] = value;
+      applied++;
+    }
+  }
+  return applied;
+}
+
+/**
+ * Validate a flat path→number overrides map against a base pricing object:
+ * every path must resolve to an EXISTING numeric leaf in the base (overrides
+ * can never add keys or change shape), and every value must be a finite
+ * number >= 0. Used server-side by the pricing API and client-side by the
+ * editor for pre-save feedback.
+ */
+export function validatePricingOverrides(
+  overrides: Record<string, unknown>,
+  base: any = pricingConfig
+): { ok: boolean; errors: string[]; count: number } {
+  const errors: string[] = [];
+  const entries = Object.entries(overrides || {});
+  if (entries.length > 1000) {
+    return { ok: false, errors: [`Too many overrides (${entries.length} > 1000)`], count: entries.length };
+  }
+  for (const [path, value] of entries) {
+    if (typeof value !== "number" || !isFinite(value)) {
+      errors.push(`${path}: value must be a finite number`);
+      continue;
+    }
+    if (value < 0) {
+      errors.push(`${path}: value must be >= 0`);
+      continue;
+    }
+    const segments = path.split(".");
+    let node: any = base;
+    for (let i = 0; i < segments.length - 1; i++) {
+      node = node?.[segments[i]];
+      if (node === undefined || node === null || typeof node !== "object") { node = undefined; break; }
+    }
+    const leafVal = node?.[segments[segments.length - 1]];
+    if (typeof leafVal !== "number") {
+      errors.push(`${path}: does not match a numeric value in pricing.json`);
+    }
+  }
+  return { ok: errors.length === 0, errors, count: entries.length };
 }
 
 export function applyThemeToRoot(): Record<string, string> {

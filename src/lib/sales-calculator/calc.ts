@@ -23,11 +23,13 @@ const serviceCategoryById: Record<string, string> = (() => {
   return map;
 })();
 
-// Services included for a package, grouped by billing unit.
+// Services included for a package, grouped by billing unit. Only fully
+// included services (=== true) participate in bundle revenue allocation —
+// "billable" (hourly T&M) services are not part of the recurring bundle.
 function includedServicesByUnit(packageId: string): Record<string, { id: string; category: string }[]> {
   const out: Record<string, { id: string; category: string }[]> = {};
   for (const s of getServices()) {
-    if (s.include?.[packageId]) {
+    if (s.include?.[packageId] === true) {
       (out[s.unit] = out[s.unit] || []).push({ id: s.id, category: s.category });
     }
   }
@@ -323,8 +325,10 @@ export function buildQuote(input: DiscoveryInput, packageId: string): PackageQuo
     : null;
 
   // ---- Service inclusion lists (external names) ----
+  // Tri-state: included (true) / billable hourly T&M ("billable") / missing (false)
   const allServices = getServices();
-  const includedServices = allServices.filter((s) => s.include?.[packageId]).map((s) => s.externalName);
+  const includedServices = allServices.filter((s) => s.include?.[packageId] === true).map((s) => s.externalName);
+  const billableServices = allServices.filter((s) => s.include?.[packageId] === "billable").map((s) => s.externalName);
   const missingServices = allServices.filter((s) => !s.include?.[packageId]).map((s) => s.externalName);
 
   return {
@@ -347,6 +351,7 @@ export function buildQuote(input: DiscoveryInput, packageId: string): PackageQuo
     meetsLicenseRequirement,
     licenseGapMessage,
     includedServices,
+    billableServices,
     missingServices,
     warnings,
   };
