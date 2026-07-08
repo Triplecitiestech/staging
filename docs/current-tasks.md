@@ -1,8 +1,15 @@
 # Current Tasks
 
-> **Last updated**: 2026-07-06 (third pass). Sales Calculator: live pricing editor + reactive/proactive support model shipped; **operator must POST /api/migrations/run once** after deploy.
-> **Branch**: `claude/integrate-sales-calculator-xg87ic` (PRs #135, #136 merged; pricing-editor work follows).
-> **Detailed context**: `docs/session-summary.md` (2026-07-06 sections) + `docs/gotchas.md` → Sales Calculator.
+> **Last updated**: 2026-07-08. New Hire Break-Even calculator shipped at `/admin/cfo/hiring` (no migration needed). Sales-calculator migration POST may still be pending — see below.
+> **Branch**: `claude/triple-cities-hiring-update-0srtic`.
+> **Detailed context**: `docs/session-summary.md` (2026-07-08 section) + `docs/gotchas.md` → CFO / Sales Calculator.
+
+## New Hire Break-Even calculator (2026-07-08) — 🟡 code complete, verify on preview/production
+
+`/admin/cfo/hiring` rebuilt from the owner's breakeven workbook: US W-2 vs US 1099 vs PH contractors, 3 tiers each, NY taxes with caps, itemized tooling/equipment/onboarding, required billing rate/revenue at target margin. Parity unit tests in `src/lib/cfo/hiring.test.ts`. No DB change (same `cfo_settings` key, `version: 2` guard; old saved assumptions fall back to the new defaults).
+
+- [ ] **[CI]** Auto-merge gate green (build + lint + unit + e2e vs preview).
+- [ ] **[OWNER — verify after deploy]** Open `https://www.triplecitiestech.com/admin/cfo/hiring`: check the three tabs, that W-2 Tier 1 shows $5,579/mo fully loaded and $74.39/hr required billing rate, edit a value, **Save as defaults**, reload. Check mobile — the build-up tables scroll sideways inside their cards.
 
 ## Sales Calculator: pricing editor + support-model chart (2026-07-06, third pass) — 🟡 code complete, migration POST required
 

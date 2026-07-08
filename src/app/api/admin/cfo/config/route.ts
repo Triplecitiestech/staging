@@ -3,7 +3,7 @@ import { auth } from '@/auth'
 import { canAccessCfoDashboard } from '@/lib/cfo/access'
 import { getDebts, saveDebts, getCategoryOverrides, saveCategoryOverrides, getQbSnapshot, saveQbSnapshot, getArSnapshot, saveArSnapshot, getScheduledOutflows, saveScheduledOutflows, getHiringAssumptions, saveHiringAssumptions } from '@/lib/cfo/store'
 import type { DebtsConfig, DebtInput, CategoryMap, QbSnapshot, ArSnapshot, ScheduledOutflowsConfig, ScheduledOutflow } from '@/lib/cfo/types'
-import type { HiringAssumptions } from '@/lib/cfo/hiring'
+import { isHiringAssumptions, type HiringAssumptions } from '@/lib/cfo/hiring'
 
 export const dynamic = 'force-dynamic'
 
@@ -78,11 +78,10 @@ export async function POST(request: NextRequest) {
   }
 
   if (body.hiringAssumptions) {
-    const h = body.hiringAssumptions
-    if (typeof h !== 'object' || typeof h.us !== 'object' || typeof h.ph !== 'object') {
-      return NextResponse.json({ error: 'hiringAssumptions must include us + ph input objects' }, { status: 400 })
+    if (!isHiringAssumptions(body.hiringAssumptions)) {
+      return NextResponse.json({ error: 'hiringAssumptions must be the v2 shape: version 2 + usW2/us1099/ph tier groups + shared cost items' }, { status: 400 })
     }
-    await saveHiringAssumptions(h)
+    await saveHiringAssumptions(body.hiringAssumptions)
   }
 
   return NextResponse.json({ ok: true })
