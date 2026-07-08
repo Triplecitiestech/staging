@@ -640,9 +640,86 @@ export class ItGlueClient {
     return data.data
   }
 
-  /** Publish a document. */
-  async publishDocument(id: string): Promise<unknown> {
-    return this.send('PATCH', `/documents/${id}/publish`, { data: { type: 'documents', attributes: {} } })
+  /** Fetch one document's metadata — includes draft / published-at state. */
+  async getDocument(id: string): Promise<ItGlueDocument> {
+    const data = await this.send<{ data: ItGlueDocument }>('GET', `/documents/${id}`)
+    return data.data
+  }
+
+  /**
+   * Publish a document and VERIFY it took effect. The developer docs list
+   * POST /documents/{id}/publish; this client historically used PATCH, so we
+   * try POST first and fall back to PATCH on 404/405 — then re-read the
+   * document and confirm published-at/draft actually flipped, because a
+   * publish that silently no-ops leaves techs reading the stale version.
+   */
+  async publishDocument(id: string): Promise<{ published: boolean; publishedAt: string | null; draft: boolean | null; methodUsed: string }> {
+    let methodUsed = 'POST'
+    try {
+      await this.send('POST', `/documents/${id}/publish`, { data: { type: 'documents', attributes: {} } })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (!/\((404|405)\)/.test(msg)) throw err
+      methodUsed = 'PATCH'
+      await this.send('PATCH', `/documents/${id}/publish`, { data: { type: 'documents', attributes: {} } })
+    }
+    const doc = await this.getDocument(id).catch(() => null)
+    const attrs = (doc?.attributes ?? {}) as Record<string, unknown>
+    const publishedAt = (attrs['published-at'] as string | null) ?? null
+    const draft = typeof attrs.draft === 'boolean' ? attrs.draft : null
+    // published-at set (or draft explicitly false) = verified live.
+    const published = publishedAt != null || draft === false
+    return { published, publishedAt, draft, methodUsed }
+  }
+
+  /**
+   * Relate two records in the native "Related Items" pane (directional:
+   * source in the URL, destination in the body). Document→Document works.
+   * The /passwords resource stays out of bounds on BOTH ends by policy.
+   */
+  async createRelatedItem(input: {
+    sourceType: string // URL form, e.g. 'documents', 'configurations', 'flexible_assets'
+    sourceId: string | number
+    destinationType: string // human-readable label, e.g. 'Document', 'Configuration'
+    destinationId: string | number
+    notes?: string
+  }): Promise<unknown> {
+    const attributes: Record<string, unknown> = {
+      destination_id: Number(input.destinationId),
+      destination_type: input.destinationType,
+    }
+    if (input.notes) attributes.notes = input.notes
+    const data = await this.send<{ data: unknown }>(
+      'POST',
+      `/${input.sourceType}/${input.sourceId}/relationships/related_items`,
+      { data: { type: 'related_items', attributes } },
+    )
+    return data.data
+  }
+
+  /** Decoded-size cap for attachment uploads (IT Glue/API Gateway limit). */
+  static readonly ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024
+
+  /**
+   * Attach a file (e.g. a screenshot) to a record. Content is base64 inside
+   * the JSON:API body per the developer docs; hard 10 MB decoded cap.
+   */
+  async uploadAttachment(input: {
+    resourceType: string // URL form, e.g. 'documents', 'flexible_assets'
+    resourceId: string | number
+    fileName: string
+    base64Content: string
+  }): Promise<unknown> {
+    const approxBytes = Math.floor(input.base64Content.length * 0.75)
+    if (approxBytes > ItGlueClient.ATTACHMENT_MAX_BYTES) {
+      throw new Error(`Attachment too large (~${Math.round(approxBytes / 1024 / 1024)} MB) — IT Glue caps uploads at 10 MB.`)
+    }
+    const data = await this.send<{ data: unknown }>(
+      'POST',
+      `/${input.resourceType}/${input.resourceId}/relationships/attachments`,
+      { data: { type: 'attachments', attributes: { attachment: { content: input.base64Content, file_name: input.fileName } } } },
+    )
+    return data.data
   }
 
   /**
