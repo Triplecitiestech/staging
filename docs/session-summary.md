@@ -1,8 +1,17 @@
 # Session Summary
 
-> **Last updated**: 2026-07-06 (third pass). Sales Calculator: live pricing editor (`/admin/sales-calculator/pricing`, DB overrides over pricing.json) + reactive-vs-proactive support model on the charts. **Operator: POST /api/migrations/run once after deploy.**
-> **Branch**: `claude/integrate-sales-calculator-xg87ic`.
+> **Last updated**: 2026-07-08. CFO hiring calculator rebuilt as the New Hire Break-Even calculator (workbook port, 3 hire types × 3 tiers, parity-tested). No migration needed.
+> **Branch**: `claude/triple-cities-hiring-update-0srtic`.
 > **Detailed handoff**: see `docs/SESSION_HANDOFF.md` first — this file is the quick state-of-the-world reference.
+
+## CFO hiring calculator → New Hire Break-Even calculator (2026-07-08) — branch `claude/triple-cities-hiring-update-0srtic`
+
+- **Owner ask**: update `/admin/cfo/hiring` using the "TCT New Hire Breakeven Calculator" workbook (xlsx) as the data source.
+- **Model (`src/lib/cfo/hiring.ts`, full rewrite)**: 1:1 port of the workbook. Three hire types — **US W-2**, **US 1099**, **PH contractor (W-8BEN)** — three tiers each (W-2/1099 default $25/$30/$40/hr; PH $6/$8/$10/hr, tier 3 at 4h/day). NY 2026 employer taxes with wage-base caps (FUTA 0.6% to $7k; SUTA 1.625% + RSF 0.075% to $17.6k; Medicare 1.45% uncapped; SS 6.2% to $184.5k), workers' comp class 5191 (1.22%), PPO health $600/mo with include-toggle, 13th-month accrual 8.33% + $22/mo Gusto/Wise fee (PH only), itemized shared costs (tooling $218.73/seat/mo; equipment $1,030 over 6 yrs W-2 only; onboarding $800 one-time W-2 month-1 only). Outputs per tier: monthly build-up, billable hrs/mo, cost per billable hour, month-1, required billing rate + monthly revenue at target margin (55% default) with 50/55/60% references, yearly/year-1/required-annual-revenue.
+- **Parity locked**: `src/lib/cfo/hiring.test.ts` (12 vitest tests) asserts the exact computed cells of the workbook (e.g. W-2 T1 $5,579.17/mo → $74.39/hr required; PH T1 $1,367.36/mo → $18.99/hr required). Don't change the math without reconciling against the workbook.
+- **UI (`HiringCalculator.tsx`, rewrite)**: type tabs → tier/schedule input table + type-specific policy card; spreadsheet-style monthly build-up table (tiers as columns); affordability vs trailing 30-day net flow per tier; itemized Cost Breakdown Detail editors (tooling/equipment/onboarding, add/remove rows); side-by-side table of all 9 hires. Tables scroll horizontally inside cards on mobile.
+- **Persistence**: same `cfo_settings` key `hiring_assumptions`, now `version: 2`-guarded by `isHiringAssumptions()` (shared by the config POST validation and the client load). Pre-v2 saved payloads fail the guard → defaults; no data migration, no schema change.
+- **Docs**: gotchas → CFO gained a hiring-calculator bullet; CLAUDE.md decision added.
 
 ## Sales Calculator: live pricing editor + reactive/proactive support model (2026-07-06, third pass) — branch `claude/integrate-sales-calculator-xg87ic`
 
