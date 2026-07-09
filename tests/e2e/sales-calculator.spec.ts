@@ -52,4 +52,15 @@ test.describe('Sales Calculator — access gate', () => {
     })
     expect(put.status()).toBe(401)
   })
+
+  test('saved quotes API rejects anonymous requests', async ({ request }) => {
+    expect((await request.get('/api/admin/sales-calculator/quotes')).status()).toBe(401)
+    expect(
+      (await request.post('/api/admin/sales-calculator/quotes', { data: { name: 'x', input: {} } })).status()
+    ).toBe(401)
+    const id = '00000000-0000-0000-0000-000000000000'
+    expect((await request.get(`/api/admin/sales-calculator/quotes/${id}`)).status()).toBe(401)
+    expect((await request.put(`/api/admin/sales-calculator/quotes/${id}`, { data: { name: 'x', input: {} } })).status()).toBe(401)
+    expect((await request.delete(`/api/admin/sales-calculator/quotes/${id}`)).status()).toBe(401)
+  })
 })

@@ -15,6 +15,7 @@ import { CostComparison } from "@/components/sales-calculator/CostComparison";
 import { Recommendation } from "@/components/sales-calculator/Recommendation";
 import { Summaries } from "@/components/sales-calculator/Summaries";
 import { ExportBar } from "@/components/sales-calculator/ExportBar";
+import { SavedQuotesBar, LoadedQuoteMeta } from "@/components/sales-calculator/SavedQuotes";
 import { Button } from "@/components/sales-calculator/ui";
 import { Lock, Eye, EyeOff, SlidersHorizontal } from "lucide-react";
 
@@ -56,6 +57,10 @@ export default function Page() {
   const [selectedId, setSelectedId] = useState<string>("");
   const activeId = selectedId || rec.recommendedPackageId;
   const activeQuote = quotes.find((q) => q.packageId === activeId) || quotes[0];
+
+  // Saved quote currently being edited (null = scratch quote). Loading swaps
+  // the discovery inputs in; every price recomputes at current pricing.
+  const [loadedQuote, setLoadedQuote] = useState<LoadedQuoteMeta | null>(null);
 
   const tabs: { id: Tab; label: string }[] = [
     { id: "recommend", label: "Recommendation" },
@@ -116,12 +121,26 @@ export default function Page() {
         )}
       </header>
 
-      <main className="max-w-[1500px] mx-auto px-5 py-6 grid lg:grid-cols-[minmax(380px,440px)_1fr] gap-6">
+      <main className="max-w-[1500px] mx-auto px-5 py-6 space-y-5">
+        <SavedQuotesBar
+          input={input}
+          quotes={quotes}
+          selectedPackageId={activeId}
+          loadedQuote={loadedQuote}
+          onLoadQuote={(meta, loadedInput, pkgId) => {
+            setInput(loadedInput);
+            setSelectedId(pkgId || "");
+            setLoadedQuote(meta);
+          }}
+          onLoadedQuoteChange={setLoadedQuote}
+        />
+
+        <div className="grid lg:grid-cols-[minmax(380px,440px)_1fr] gap-6">
         {/* Discovery column */}
         <div className="space-y-5">
           <div className="flex items-center justify-between">
             <h1 className="text-lg font-bold text-ink tracking-tight">Discovery</h1>
-            <Button variant="ghost" onClick={() => { setInput(defaultInput()); setSelectedId(""); }}>Reset</Button>
+            <Button variant="ghost" onClick={() => { setInput(defaultInput()); setSelectedId(""); setLoadedQuote(null); }}>Reset</Button>
           </div>
           <Discovery input={input} set={setInput} onFinish={() => setTab("recommend")} />
         </div>
@@ -159,7 +178,7 @@ export default function Page() {
               <LineItemsTable quote={activeQuote} showInternal={showInternal} />
             </>
           )}
-          {tab === "compare" && <Comparison quotes={quotes} selectedId={activeId} onSelect={setSelectedId} showInternal={showInternal} />}
+          {tab === "compare" && <Comparison input={input} quotes={quotes} selectedId={activeId} onSelect={setSelectedId} showInternal={showInternal} />}
           {tab === "vsspend" && <CostComparison input={input} quote={activeQuote} />}
           {tab === "catalog" && <Catalog showInternal={showInternal} quote={activeQuote} />}
           {tab === "costs" && <CostLedger />}
@@ -179,6 +198,7 @@ export default function Page() {
               <Summaries input={input} quote={activeQuote} rec={rec} mode={summaryMode} />
             </>
           )}
+        </div>
         </div>
       </main>
 
