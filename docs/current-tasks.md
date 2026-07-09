@@ -1,8 +1,18 @@
 # Current Tasks
 
-> **Last updated**: 2026-07-08. New Hire Break-Even calculator shipped at `/admin/cfo/hiring` (no migration needed). Sales-calculator migration POST may still be pending — see below.
-> **Branch**: `claude/triple-cities-hiring-update-0srtic`.
-> **Detailed context**: `docs/session-summary.md` (2026-07-08 section) + `docs/gotchas.md` → CFO / Sales Calculator.
+> **Last updated**: 2026-07-09. Sales calculator gained Ally shared-responsibility icons, saved quotes (**new table — migration POST required**) and comparison PDF exports. Earlier pending items below may still be open.
+> **Branch**: `claude/ally-quote-comparison-icons-6m5zvm`.
+> **Detailed context**: `docs/session-summary.md` (2026-07-09 section) + `docs/gotchas.md` → Sales Calculator.
+
+## Sales calculator: Ally shared icons + saved quotes + comparison exports (2026-07-09) — 🟡 code complete, migration POST required
+
+Ally's Helpdesk / Remote Support / Vendor Management now show a 👥 shared icon in Quote Comparison + Catalog (display only — pricing unchanged); quotes can be saved/reloaded/edited (`sales_calc_saved_quotes`, Saved Quotes toolbar); the comparison exports internal and customer PDFs from the Comparison tab.
+
+- [ ] **[OPERATOR — one-time, after this deploys]** Run the migration so saved quotes work (PowerShell):
+      `Invoke-RestMethod -Method Post -Uri "https://www.triplecitiestech.com/api/migrations/run" -Headers @{ Authorization = "Bearer <MIGRATION_SECRET>" }`
+      Expect `✅ sales_calc_saved_quotes table` in the results. Until then the calculator works normally but the Saved Quotes browse/save shows a run-migrations banner.
+- [ ] **[CI]** Auto-merge gate green (build + lint + unit + e2e vs preview). Note: the saved-quotes e2e exercises the banner path until the migration runs, and the full round-trip after it.
+- [ ] **[OWNER — verify after deploy]** `https://www.triplecitiestech.com/admin/sales-calculator` → Quote Comparison tab: 1) Ally column shows the two-people icon for Helpdesk Support, Remote Support and Vendor Management (legend: "Shared — delivered jointly with your internal IT"); 2) "Export PDF (Internal)" and "Export PDF (Customer)" download; 3) Saved Quotes bar: Save quote → rename-free save, Browse → Load → edit → Save changes, Delete. Mobile: the bar wraps and the browse modal scrolls.
 
 ## New Hire Break-Even calculator (2026-07-08) — 🟡 code complete, verify on preview/production
 

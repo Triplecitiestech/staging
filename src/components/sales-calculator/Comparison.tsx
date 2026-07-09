@@ -1,16 +1,41 @@
 "use client";
-import React from "react";
-import { PackageQuote } from "@/lib/sales-calculator/types";
-import { getServices, getPackages, serviceInclusionState } from "@/lib/sales-calculator/config";
+import React, { useState } from "react";
+import { DiscoveryInput, PackageQuote } from "@/lib/sales-calculator/types";
+import { getServices, getPackages, serviceDisplayState } from "@/lib/sales-calculator/config";
+import { exportComparisonPDF } from "@/lib/sales-calculator/exporters";
 import { currency, pct } from "@/lib/sales-calculator/format";
 import { Card, Pill, Button } from "./ui";
-import { Check, X, Clock } from "lucide-react";
+import { Check, X, Clock, Users, FileText } from "lucide-react";
 
-export function Comparison({ quotes, selectedId, onSelect, showInternal }:
-  { quotes: PackageQuote[]; selectedId: string; onSelect: (id: string) => void; showInternal: boolean }) {
+export function Comparison({ input, quotes, selectedId, onSelect, showInternal }:
+  { input: DiscoveryInput; quotes: PackageQuote[]; selectedId: string; onSelect: (id: string) => void; showInternal: boolean }) {
   const services = getServices().filter((s) => s.unit !== "service" || true);
+  const [busy, setBusy] = useState<string | null>(null);
+  async function runExport(mode: "internal" | "customer") {
+    try {
+      setBusy(mode);
+      await exportComparisonPDF(input, quotes, mode, selectedId);
+    } catch (e) {
+      console.error(e);
+      alert("Export failed: " + (e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
   return (
-    <Card title="Quote Comparison" subtitle="All five packages priced against the same customer inputs.">
+    <Card title="Quote Comparison" subtitle="All five packages priced against the same customer inputs."
+      right={
+        <div className="no-print flex flex-wrap gap-2 justify-end">
+          {showInternal && (
+            <Button variant="outline" className="!py-1.5 text-xs" onClick={() => runExport("internal")} disabled={busy !== null}>
+              <FileText size={13} className="inline -mt-0.5 mr-1" />{busy === "internal" ? "Exporting…" : "Export PDF (Internal)"}
+            </Button>
+          )}
+          <Button variant="outline" className="!py-1.5 text-xs" onClick={() => runExport("customer")} disabled={busy !== null}>
+            <FileText size={13} className="inline -mt-0.5 mr-1" />{busy === "customer" ? "Exporting…" : "Export PDF (Customer)"}
+          </Button>
+        </div>
+      }>
       <div className="overflow-x-auto tct-scroll">
         <table className="w-full text-sm border-collapse">
           <thead>
@@ -68,11 +93,12 @@ export function Comparison({ quotes, selectedId, onSelect, showInternal }:
                   {showInternal ? <>{s.internalName} <span className="text-xs text-muted">({s.externalName})</span></> : s.externalName}
                 </td>
                 {quotes.map((q) => {
-                  const state = serviceInclusionState(s, q.packageId);
+                  const state = serviceDisplayState(s, q.packageId);
                   return (
                     <td key={q.packageId} className="py-1.5 px-2 text-center">
                       {state === "included" && <Check className="inline text-ok" size={16} />}
                       {state === "billable" && <Clock className="inline text-accent" size={14} aria-label="Billed hourly (T&M)" />}
+                      {state === "shared" && <Users className="inline text-teal2" size={15} aria-label="Shared responsibility — delivered jointly with your internal IT" />}
                       {state === "none" && <X className="inline text-line" size={14} />}
                     </td>
                   );
@@ -85,6 +111,7 @@ export function Comparison({ quotes, selectedId, onSelect, showInternal }:
       <p className="mt-3 text-xs text-muted flex flex-wrap items-center gap-x-4 gap-y-1">
         <span className="inline-flex items-center gap-1"><Check size={12} className="text-ok" /> Included</span>
         <span className="inline-flex items-center gap-1"><Clock size={12} className="text-accent" /> Available — billed hourly (T&amp;M)</span>
+        <span className="inline-flex items-center gap-1"><Users size={12} className="text-teal2" /> Shared — delivered jointly with your internal IT</span>
         <span className="inline-flex items-center gap-1"><X size={12} className="text-line" /> Not available</span>
       </p>
     </Card>

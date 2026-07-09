@@ -760,6 +760,37 @@ export async function POST(request: Request) {
       results.push(`⚠️ sales_calc_pricing_overrides: ${err.message}`)
     }
 
+    // Sales calculator: saved quotes (save / reload / edit at /admin/sales-calculator).
+    // `input` stores the discovery payload (NOT prices — loading recomputes at
+    // current pricing); `summary` is a small snapshot for the browse list.
+    // Soft delete via deleted_at; rows are never hard-deleted.
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS sales_calc_saved_quotes (
+          id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+          name TEXT NOT NULL,
+          customer_name TEXT,
+          input JSONB NOT NULL,
+          input_version INTEGER NOT NULL DEFAULT 1,
+          selected_package_id TEXT,
+          summary JSONB,
+          note TEXT,
+          created_by TEXT NOT NULL,
+          updated_by TEXT NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          deleted_at TIMESTAMPTZ
+        )
+      `)
+      await client.query(
+        'CREATE INDEX IF NOT EXISTS sales_calc_saved_quotes_active_idx ON sales_calc_saved_quotes (deleted_at, updated_at DESC)'
+      )
+      results.push('✅ sales_calc_saved_quotes table')
+    } catch (error) {
+      const err = error as Error
+      results.push(`⚠️ sales_calc_saved_quotes: ${err.message}`)
+    }
+
     await client.end()
 
     return NextResponse.json({

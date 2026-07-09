@@ -1,5 +1,5 @@
 import { DiscoveryInput, PackageQuote, RecommendationResult } from "./types";
-import { theme } from "./config";
+import { theme, getPackages, getServices, serviceDisplayState } from "./config";
 import { currentSpendTotals } from "./calc";
 import { currency, pct } from "./format";
 
@@ -77,6 +77,116 @@ export async function exportExcel(input: DiscoveryInput, quotes: PackageQuote[],
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), sheetName);
   }
   XLSX.writeFile(wb, `TCT_Quote_${safeName(input.company.name)}_${stamp()}.xlsx`);
+}
+
+// ---------------- Comparison PDF (jsPDF + autotable) ----------------
+/**
+ * Export the Quote Comparison as a landscape PDF: metrics grid + the full
+ * per-package services matrix. `internal` includes costs, margins and
+ * internal product names; `customer` shows prices and capabilities only.
+ * Service cells use words (Included / T&M / Shared / —) so the shared
+ * responsibility state survives PDF fonts.
+ */
+export async function exportComparisonPDF(
+  input: DiscoveryInput,
+  quotes: PackageQuote[],
+  mode: "internal" | "customer",
+  selectedPackageId?: string
+) {
+  const { jsPDF } = await import("jspdf");
+  const autoTable = (await import("jspdf-autotable")).default;
+  const doc = new jsPDF({ unit: "pt", format: "letter", orientation: "landscape" });
+  const primary = theme.brand.bg;
+  const W = doc.internal.pageSize.getWidth();
+  const co = theme.company;
+  const internal = mode === "internal";
+
+  // Header band
+  doc.setFillColor(primary);
+  doc.rect(0, 0, W, 64, "F");
+  doc.setTextColor("#FFFFFF");
+  doc.setFontSize(16); doc.setFont("helvetica", "bold");
+  doc.text(co.name, 40, 30);
+  doc.setFontSize(10); doc.setFont("helvetica", "normal");
+  doc.text(internal ? "Package Comparison — Internal (costs & margins)" : "Managed Services Package Comparison", 40, 48);
+  doc.setFontSize(9);
+  doc.text(`${co.phone}   ${co.website}`, W - 40, 30, { align: "right" });
+  doc.text(`Prepared: ${stamp()}`, W - 40, 48, { align: "right" });
+
+  let y = 88;
+  doc.setTextColor("#111111");
+  doc.setFontSize(12); doc.setFont("helvetica", "bold");
+  doc.text(`Prepared for: ${input.company.name || "(customer)"}`, 40, y);
+  y += 16;
+  doc.setFontSize(10); doc.setFont("helvetica", "normal");
+  doc.text(`Industry: ${input.company.industry}   Locations: ${input.company.locations}   Users: ${input.users.standard + input.users.frontline}   Windows PCs: ${input.devices.windowsPCs}`, 40, y);
+  y += 14;
+
+  const names = quotes.map((q) =>
+    q.packageName.replace("TCT ", "") + (q.packageId === selectedPackageId ? " (selected)" : ""));
+  const supportModels = quotes.map((q) => getPackages().find((p) => p.id === q.packageId)?.supportModel?.label ?? "—");
+
+  // Metrics grid
+  const metricRows: string[][] = [];
+  metricRows.push(["Monthly Price", ...quotes.map((q) => currency(q.monthlyPrice))]);
+  metricRows.push(["Annual Price", ...quotes.map((q) => currency(q.annualPrice))]);
+  if (internal) {
+    metricRows.push(["Monthly Cost", ...quotes.map((q) => currency(q.monthlyCost))]);
+    metricRows.push(["Gross Profit (mo)", ...quotes.map((q) => currency(q.monthlyMargin))]);
+    metricRows.push(["Margin %", ...quotes.map((q) => pct(q.marginPct))]);
+  }
+  metricRows.push(["Support Model", ...supportModels]);
+  metricRows.push(["Microsoft 365 / mo (billed separately)", ...quotes.map((q) => currency(q.m365MonthlyPrice))]);
+  metricRows.push(["Licensing Requirement", ...quotes.map((q) => q.licenseRequirement)]);
+  metricRows.push(["Meets Licensing Requirement?", ...quotes.map((q) => (q.meetsLicenseRequirement ? "Yes" : "Upgrade needed"))]);
+
+  autoTable(doc, {
+    startY: y + 6,
+    head: [["Metric", ...names]],
+    body: metricRows,
+    headStyles: { fillColor: primary },
+    styles: { fontSize: 8.5, cellPadding: 4 },
+    columnStyles: { 0: { fontStyle: "bold" } },
+  });
+  y = (doc as any).lastAutoTable.finalY + 18;
+
+  // Services matrix
+  doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(primary);
+  doc.text(internal ? "Included Services (internal product names)" : "Included Services", 40, y);
+  const stateWord: Record<string, string> = { included: "Included", billable: "T&M", shared: "Shared", none: "—" };
+  const serviceRows = getServices().map((s) => [
+    internal ? `${s.internalName} (${s.externalName})` : s.externalName,
+    ...quotes.map((q) => stateWord[serviceDisplayState(s, q.packageId)]),
+  ]);
+  autoTable(doc, {
+    startY: y + 8,
+    head: [[internal ? "Product (capability)" : "Capability", ...names]],
+    body: serviceRows,
+    headStyles: { fillColor: primary },
+    styles: { fontSize: 8, cellPadding: 3.5 },
+    columnStyles: Object.fromEntries(quotes.map((_, i) => [i + 1, { halign: "center" as const }])),
+  });
+  y = (doc as any).lastAutoTable.finalY + 14;
+
+  doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor("#111111");
+  const legend =
+    "Included = part of the monthly price   |   T&M = available, billed hourly   |   Shared = delivered jointly with your internal IT   |   — = not available";
+  doc.text(doc.splitTextToSize(legend, W - 80), 40, y);
+
+  // Footer on every page
+  const ph = doc.internal.pageSize.getHeight();
+  const footer = internal
+    ? "INTERNAL USE ONLY — contains costs & margins. Not for customer distribution."
+    : `${co.name}  •  ${co.address}`;
+  const pageCount = doc.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(8); doc.setTextColor(theme.brand.textMuted);
+    doc.text(footer, 40, ph - 24);
+    doc.text(`Page ${i} of ${pageCount}`, W - 40, ph - 24, { align: "right" });
+  }
+
+  doc.save(`TCT_Comparison_${mode}_${safeName(input.company.name)}_${stamp()}.pdf`);
 }
 
 // ---------------- PDF (jsPDF + autotable) ----------------

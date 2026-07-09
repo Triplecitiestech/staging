@@ -27,12 +27,16 @@ export interface PackageDef {
   frontlineEligible: boolean;
   comanaged: boolean;
   supportModel?: { label: string; detail: string };
+  sharedServices?: string[];
 }
 
 // include values: true = included, "billable" = available but billed hourly
 // (T&M), false/absent = not available.
 export type ServiceInclusion = boolean | "billable";
 export type InclusionState = "included" | "billable" | "none";
+// Display-only refinement: "shared" marks services a package delivers jointly
+// with the customer's internal IT (packages.json sharedServices).
+export type DisplayState = InclusionState | "shared";
 
 export interface ServiceDef {
   id: string;
@@ -50,6 +54,21 @@ export function serviceInclusionState(service: ServiceDef, packageId: string): I
   if (v === true) return "included";
   if (v === "billable") return "billable";
   return "none";
+}
+
+/**
+ * DISPLAY state for charts/exports: same as serviceInclusionState, except a
+ * service listed in the package's `sharedServices` (packages.json) renders as
+ * "shared" — delivered jointly with the customer's internal IT. This never
+ * feeds pricing: calc.ts and the quote math must keep using
+ * serviceInclusionState so shared services keep their underlying
+ * included/billable money treatment.
+ */
+export function serviceDisplayState(service: ServiceDef, packageId: string): DisplayState {
+  const state = serviceInclusionState(service, packageId);
+  if (state === "none") return state;
+  const pkg = (packagesConfig.packages as PackageDef[]).find((p) => p.id === packageId);
+  return pkg?.sharedServices?.includes(service.id) ? "shared" : state;
 }
 
 export function getPackages(): PackageDef[] {

@@ -119,15 +119,15 @@ export function StatCard({ label, value, sub, tone }:
   );
 }
 
-export function Button({ children, onClick, variant = "primary", className, disabled }:
-  { children: React.ReactNode; onClick?: () => void; variant?: "primary" | "ghost" | "outline"; className?: string; disabled?: boolean }) {
+export function Button({ children, onClick, variant = "primary", className, disabled, ariaLabel }:
+  { children: React.ReactNode; onClick?: () => void; variant?: "primary" | "ghost" | "outline"; className?: string; disabled?: boolean; ariaLabel?: string }) {
   const v: Record<string, string> = {
     primary: "bg-accent text-white hover:bg-accent-hover hover:shadow-glow active:bg-accent-deep active:scale-[.98]",
     ghost: "bg-transparent text-accent hover:bg-accent/10",
     outline: "border border-line bg-white/5 text-ink hover:bg-white/10 hover:border-lineStrong",
   };
   return (
-    <button type="button" onClick={onClick} disabled={disabled}
+    <button type="button" onClick={onClick} disabled={disabled} aria-label={ariaLabel}
       className={clsx("rounded-[12px] px-3.5 py-2 text-sm font-semibold transition-all disabled:opacity-40 disabled:shadow-none", v[variant], className)}>
       {children}
     </button>

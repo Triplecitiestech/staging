@@ -1,5 +1,5 @@
 {
-  "_comment": "Package display names are fully configurable here. Renaming a package requires NO code changes — edit name only. 'id' is the stable key used by pricing.json and services.json; do not change ids. 'supportModel' states the reactive-vs-proactive support difference on the charts (label = short, for table cells; detail = full sentence, for the catalog header).",
+  "_comment": "Package display names are fully configurable here. Renaming a package requires NO code changes — edit name only. 'id' is the stable key used by pricing.json and services.json; do not change ids. 'supportModel' states the reactive-vs-proactive support difference on the charts (label = short, for table cells; detail = full sentence, for the catalog header). 'sharedServices' lists service ids rendered with the 'shared responsibility' icon for that package (DISPLAY ONLY — pricing still follows services.json include values).",
   "packages": [
     {
       "id": "basic",
@@ -69,7 +69,8 @@
       "supportModel": {
         "label": "Co-managed — labor billed hourly",
         "detail": "Your internal IT leads day-to-day; TCT provides the tool stack and an escalation/after-hours bench, with helpdesk and project labor billed hourly."
-      }
+      },
+      "sharedServices": ["helpdesk", "unlimitedSupport", "vendorMgmt"]
     }
   ],
   "licenseTierRank": {
