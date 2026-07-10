@@ -1,17 +1,23 @@
 name: Auto-merge Claude branches
 
-# Gated auto-merge: a push to claude/** only reaches main (and therefore
-# production) after ALL of the following succeed on that exact commit:
+# Gated auto-merge: a push to claude/** reaches main (and therefore
+# production) after BOTH of the following succeed on that exact commit:
 #
 #   1. secret-scan   — gitleaks
 #   2. quality       — lint + schema-drift check + production build + unit tests
-#   3. e2e-preview   — full Playwright suite against the Vercel preview
-#                      deployment of this commit
 #
-# Escape hatch (pipeline emergencies ONLY — e.g. the Vercel GitHub
-# integration is down so no preview deployment ever appears): include
-# [skip-e2e] in the commit message to skip gate 3. Gates 1–2 can never
-# be skipped. Document any use of [skip-e2e] in docs/session-summary.md.
+# The full Playwright e2e suite (e2e-preview job) still runs against the
+# commit's Vercel preview, but as a NON-BLOCKING signal: per the owner's
+# 2026-07-10 direction, its 15-45 min runtime no longer holds the merge.
+# A red e2e-preview on a merged commit means production is already live
+# with something the suite flagged — investigate it immediately
+# (npm run debug:failures / the run's failure artifacts), don't ignore it.
+#
+# [skip-e2e] in the commit message skips the informational e2e run
+# entirely (e.g. Vercel integration down so no preview will ever appear).
+# Gates 1-2 can never be skipped — the ungated version of this workflow
+# shipped broken commits straight to production (see docs/gotchas.md →
+# CI/CD & Deploy Pipeline).
 
 on:
   push:
@@ -123,14 +129,14 @@ jobs:
 
   merge:
     runs-on: ubuntu-latest
-    needs: [secret-scan, quality, e2e-preview]
-    # e2e-preview may be skipped via [skip-e2e]; secret-scan and quality must
-    # always be green. `always()` lets this job evaluate even when e2e skipped.
+    # e2e-preview intentionally NOT in needs (owner direction 2026-07-10):
+    # it keeps running as a non-blocking signal. secret-scan and quality
+    # must always be green — do not remove them (docs/gotchas.md → CI/CD).
+    needs: [secret-scan, quality]
     if: >-
       always() &&
       needs.secret-scan.result == 'success' &&
-      needs.quality.result == 'success' &&
-      (needs.e2e-preview.result == 'success' || needs.e2e-preview.result == 'skipped')
+      needs.quality.result == 'success'
     steps:
       - name: Checkout
         uses: actions/checkout@v4

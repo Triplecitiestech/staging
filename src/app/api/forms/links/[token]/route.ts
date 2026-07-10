@@ -36,19 +36,25 @@ export async function GET(
     )
 
     if (result.rows.length === 0) {
-      return NextResponse.json({ valid: false, error: 'Link not found' })
+      return NextResponse.json({ valid: false, error: 'Link not found' }, { status: 404 })
     }
 
     const link = result.rows[0]
 
     // Check if expired
     if (new Date(link.expires_at) < new Date()) {
-      return NextResponse.json({ valid: false, error: 'Link has expired' })
+      return NextResponse.json(
+        { valid: false, error: 'This form link has expired. Please request a new one.' },
+        { status: 410 }
+      )
     }
 
-    // Check if used
+    // Check if used — single-use: /used stamps used_at after submission
     if (link.used_at) {
-      return NextResponse.json({ valid: false, error: 'Link has already been used' })
+      return NextResponse.json(
+        { valid: false, error: 'This form link has already been used. Please request a new one.' },
+        { status: 410 }
+      )
     }
 
     return NextResponse.json({

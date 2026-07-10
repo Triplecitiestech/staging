@@ -145,10 +145,17 @@ CREATE TABLE IF NOT EXISTS form_links (
   expires_at      TIMESTAMPTZ NOT NULL,
   used_at         TIMESTAMPTZ,
   request_id      UUID,
+  source_meta     JSONB,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_form_links_token ON form_links(token);
 CREATE INDEX IF NOT EXISTS idx_form_links_company ON form_links(company_id, type);
+
+-- Additive backfill for live tables created before these columns existed
+-- (canonical DDL + rationale: /api/migrations/question-engine).
+ALTER TABLE form_links ADD COLUMN IF NOT EXISTS request_id UUID;
+ALTER TABLE form_links ADD COLUMN IF NOT EXISTS source_meta JSONB;
+CREATE INDEX IF NOT EXISTS idx_form_links_request ON form_links(request_id) WHERE request_id IS NOT NULL;
 `
 
 const SEED_SQL = `

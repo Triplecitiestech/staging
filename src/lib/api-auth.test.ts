@@ -320,3 +320,75 @@ describe('getSecretAuthStatus', () => {
     expect(serialised).not.toContain('another-secret')
   })
 })
+
+describe('checkAutomationKey', () => {
+  const originalEnv = process.env
+
+  beforeEach(() => {
+    vi.resetModules()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    process.env = {
+      ...originalEnv,
+      THREAD_AUTOMATION_KEY: 'test-automation-key',
+    }
+  })
+
+  afterEach(() => {
+    process.env = originalEnv
+    vi.restoreAllMocks()
+  })
+
+  it('allows a valid key via ?key= query param (Thread Automation URL path)', async () => {
+    const { checkAutomationKey } = await import('@/lib/api-auth')
+    const req = makeRequest({ searchParams: { key: 'test-automation-key' } })
+    expect(checkAutomationKey(req as never)).toBeNull()
+  })
+
+  it('allows a valid key via x-automation-key header (programmatic path)', async () => {
+    const { checkAutomationKey } = await import('@/lib/api-auth')
+    const req = makeRequest({ headers: { 'x-automation-key': 'test-automation-key' } })
+    expect(checkAutomationKey(req as never)).toBeNull()
+  })
+
+  it('rejects a wrong key with 401', async () => {
+    const { checkAutomationKey } = await import('@/lib/api-auth')
+    const req = makeRequest({ searchParams: { key: 'wrong' } })
+    const res = checkAutomationKey(req as never)
+    expect(res?.status).toBe(401)
+  })
+
+  it('rejects a missing key with 401', async () => {
+    const { checkAutomationKey } = await import('@/lib/api-auth')
+    const req = makeRequest({})
+    const res = checkAutomationKey(req as never)
+    expect(res?.status).toBe(401)
+  })
+
+  it('FAILS CLOSED: rejects every request when THREAD_AUTOMATION_KEY is unset', async () => {
+    process.env = { ...originalEnv, THREAD_AUTOMATION_KEY: undefined }
+    const { checkAutomationKey } = await import('@/lib/api-auth')
+    // Even a request presenting some key must be rejected — there is no
+    // unauthenticated fallback and no empty-matches-empty hole.
+    const withKey = makeRequest({ searchParams: { key: 'anything' } })
+    const withEmpty = makeRequest({ searchParams: { key: '' } })
+    const without = makeRequest({})
+    expect(checkAutomationKey(withKey as never)?.status).toBe(401)
+    expect(checkAutomationKey(withEmpty as never)?.status).toBe(401)
+    expect(checkAutomationKey(without as never)?.status).toBe(401)
+  })
+
+  it('rejects when the env var is an empty string', async () => {
+    process.env = { ...originalEnv, THREAD_AUTOMATION_KEY: '' }
+    const { checkAutomationKey } = await import('@/lib/api-auth')
+    const req = makeRequest({ searchParams: { key: '' } })
+    expect(checkAutomationKey(req as never)?.status).toBe(401)
+  })
+
+  it('never includes the expected key in the 401 response body', async () => {
+    const { checkAutomationKey } = await import('@/lib/api-auth')
+    const req = makeRequest({ searchParams: { key: 'wrong' } })
+    const res = checkAutomationKey(req as never)
+    const text = JSON.stringify(await res?.json())
+    expect(text).not.toContain('test-automation-key')
+  })
+})
