@@ -1,8 +1,18 @@
 # Session Summary
 
-> **Last updated**: 2026-07-09. Sales calculator: Ally shared-responsibility icons, saved quotes (new raw-pg table — **migration POST required**), comparison PDF exports (internal + customer).
-> **Branch**: `claude/ally-quote-comparison-icons-6m5zvm`.
+> **Last updated**: 2026-07-10. Thread integration hardened for turn-on: URL-key auth (fail-closed) per Thread's real Automation URL contract, Autotask-company-ID resolution, single-use form links + hr_request linkage. **Held for owner review — pushed with `[skip ci]`, NOT merged; migration + Vercel env var required before enabling.**
+> **Branch**: `claude/tct-forms-architecture-discovery-1g7rrt`.
 > **Detailed handoff**: see `docs/SESSION_HANDOFF.md` first — this file is the quick state-of-the-world reference.
+
+## Thread forms integration: three gaps closed pre-launch (2026-07-10) — branch `claude/tct-forms-architecture-discovery-1g7rrt`
+
+- **Context**: the 2026-07-10 forms-architecture discovery found the Thread integration (designed in `docs/plans/QUESTION_ENGINE_ARCHITECTURE.md` §5) had three launch blockers. All three are now implemented; the owner corrected the original task mid-flight with Thread's real Automation URL docs — **Thread sends NO auth headers/signatures**, so the HMAC design was replaced, not implemented.
+- **Gap 1 — fail-closed auth**: new `checkAutomationKey()` in `src/lib/api-auth.ts` — timing-safe `?key=`/`x-automation-key` check against `THREAD_AUTOMATION_KEY`; unset env = 401 for everything (the old code accepted UNSIGNED requests when the secret was unset). Webhook rewritten to Thread's documented payload (`intent_name`/`intent_fields`/`meta_data`) and response contract (`200 { success: 200, message }`, link inside the message text). Form type comes from `&type=` on the per-intent Automation URL. `.env.example` documents the key.
+- **Gap 2 — deterministic company resolution**: new shared `src/lib/form-links.ts` (`resolveFormCompany` + `createFormLink`, consolidating the duplicated INSERTs): `meta_data.company_id` (Autotask company ID) primary → slug exact → displayName exact → active-contact email domain → fuzzy LAST; fuzzy never runs after an exact-identifier miss; ambiguous (2+) matches refuse; unresolved = 404 `{ error: 'not_configured' }`. `POST /api/forms/links` gained the same identifiers + key auth (old `x-thread-secret`/`THREAD_WEBHOOK_SECRET` removed — Thread can't send it; nothing in-repo called it).
+- **Gap 3 — single-use + linkage**: implemented the previously-missing `POST /api/forms/links/[token]/used` (CSRF-checked; validates the hr_request belongs to the link's company; idempotent per request, 409 for a second consumer; race-guarded UPDATE) stamping `form_links.used_at` + `request_id`. Thread links store the Automation `meta_data` in new `form_links.source_meta` — `ticketId` = Thread chat-ticket ID. Join chain for the future ticket merge: `token → request_id → hr_requests.autotask_ticket_id/number`. GET validate now 404/410s with clear messages.
+- **Migration (additive only)**: `ALTER TABLE form_links ADD COLUMN IF NOT EXISTS request_id UUID / source_meta JSONB` + partial index — in `/api/migrations/question-engine`, mirrored in the admin schemas ensure-block, and backfilled by writers (`ensureFormLinkColumns`), so there is no deploy-order window.
+- **Tests**: 29 new vitest tests (`form-links.test.ts`, webhook `route.test.ts`, `checkAutomationKey` block in `api-auth.test.ts`) — resolver ordering incl. no-fuzzy-after-exact, ambiguity refusal, fail-closed auth, and the exact Thread response shape. Full suite 321/321; lint + build:ci green locally. e2e not run locally (no DB in sandbox) — runs in the gate when the owner triggers it.
+- **Deliberately NOT done**: production `THREAD_AUTOMATION_KEY` (owner sets in Vercel), the migration run, pasting URLs into Thread, and merging — the push carries `[skip ci]` so the auto-merge gate does not run until the owner approves the diff (re-trigger with an empty commit without the tag).
 
 ## Sales calculator: Ally shared icons + saved quotes + comparison exports (2026-07-09) — branch `claude/ally-quote-comparison-icons-6m5zvm`
 

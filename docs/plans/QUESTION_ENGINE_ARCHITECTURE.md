@@ -477,14 +477,31 @@ POST   /api/hr/submit
 
 ```
 POST   /api/forms/links
-       → Create a secure form link (admin or Thread webhook)
-       → Body: { companyId, type, preFill?, expiresInMinutes? }
-       → Returns: { url, token, expiresAt }
+       → Create a secure form link
+       → Auth: staff admin session OR THREAD_AUTOMATION_KEY
+         (x-automation-key header or ?key= query param; fail-closed)
+       → Body: { autotaskCompanyId? (PRIMARY), companySlug?, companyName?,
+                 email?/emailDomain?, type, preFill?, expiresInMinutes? }
+       → Returns: 201 { url, token, expiresAt, companySlug }
+       → 404 { error: "not_configured" } when no managed company matches
 
 GET    /api/forms/links/:token
        → Validate a form link token
        → Returns: { valid, companySlug, type, preFill }
+       → 404 unknown token; 410 expired or already used
+
+POST   /api/forms/links/:token/used
+       → Called by the form portal after a successful /api/hr/submit
+       → Body: { requestId } (must belong to the link's company)
+       → Sets form_links.used_at (single-use) + form_links.request_id —
+         the traceability chain token → hr_request → Autotask ticket
 ```
+
+Company resolution (shared helper `src/lib/form-links.ts → resolveFormCompany`):
+`autotaskCompanyId` (unique index — deterministic) → `companySlug` exact →
+`companyName` exact → active-contact email domain → fuzzy displayName LAST.
+Fuzzy never runs when an exact identifier was supplied; ambiguous matches
+(2+ companies) resolve to nothing.
 
 ---
 
@@ -498,63 +515,78 @@ GET    /api/forms/links/:token
 - Conditional branching needs client-side state management
 - Form state would be lost if the Thread conversation is interrupted
 
-**Link-based flow is the production-grade approach**, and Thread's own architecture supports this via Magic Intents.
+**Link-based flow is the production-grade approach**, and Thread's own architecture supports this via Magic Agents Automation URLs.
+
+> **Contract corrected 2026-07-10** against Thread's actual docs
+> (https://docs.getthread.com/article/7vxm10v3zj-magic-agents-automation-url).
+> The original design assumed an HMAC `x-thread-signature` header — Thread's
+> Automation URL sends NO auth headers or signatures, so that design could
+> never receive a real Thread call. Auth is now a URL key (fail-closed), and
+> the request/response shapes below are Thread's documented ones.
 
 ### Flow
 
 ```
 Customer → Thread: "I need to offboard John Smith"
                 ↓
-Thread Magic Intent detects "offboarding" intent
-                ↓
-Thread webhook → POST /api/forms/links
+Thread Magic Intent fires its Automation URL:
+POST /api/integrations/thread/webhook?key=<THREAD_AUTOMATION_KEY>&type=offboarding
   {
-    companyId: "<detected from Thread contact>",
-    type: "offboarding",
-    preFill: { first_name: "John", last_name: "Smith" },
-    source: "thread"
+    intent_name: "Employee Offboarding",
+    intent_fields: { "Employee Name": "John Smith" },
+    meta_data: {
+      ticket_id: 4721,                  ← Thread chat-ticket ID (stored in
+      ticket_board_name: "...",           form_links.source_meta — the future
+      contact_id: 456,                     merge key)
+      contact_name: "Jane Manager",
+      contact_email: "jane@acme.com",
+      company_id: "789",                ← Autotask company ID (PRIMARY resolver)
+      company_name: "Acme Manufacturing",
+      company_types: ["Managed"]
+    }
   }
                 ↓
-API returns: { url: "https://portal.triplecitiestech.com/form/abc123...", token: "abc123..." }
+Webhook resolves the company, mints a form_links token (24h, single-use),
+and returns Thread's documented response contract:
+  200 { "success": 200,
+        "message": "I've prepared a secure offboarding form for John Smith.
+                    Please complete it here: https://.../form/<token> — this
+                    link expires in 24 hours and can be used for one submission." }
                 ↓
-Thread responds to customer:
-  "I've prepared an offboarding form for John Smith.
-   Please complete the details here: [Offboarding Form](url)
-   This link expires in 24 hours."
+Thread relays `message` verbatim to the customer
                 ↓
-Customer clicks link → SSO login → pre-filled form → submit
+Customer clicks link → identifies as an active contact → pre-filled form → submit
                 ↓
 hr_request created → Autotask ticket → automation pipeline
+                ↓
+POST /api/forms/links/<token>/used stamps used_at + request_id
 ```
 
 ### Thread Webhook Endpoint
 
-```
-POST /api/integrations/thread/webhook
-Headers: x-thread-signature: <HMAC>
-Body: {
-  event: "intent_detected",
-  intent: "offboard_employee",
-  company: { name: "kflorance", threadId: "..." },
-  extracted: { employeeName: "John Smith" },
-  conversationId: "..."
-}
-```
-
-The webhook handler:
-1. Validates the HMAC signature
-2. Maps the Thread company to a TCT company slug
-3. Generates a secure form link
-4. Returns a response message for Thread to send to the customer
+- **Auth**: `?key=<THREAD_AUTOMATION_KEY>` in the URL (Thread cannot send
+  headers). `checkAutomationKey()` is timing-safe and fail-closed — an unset
+  env var rejects everything; there is no unsigned path.
+- **Form type**: `&type=onboarding|offboarding` on the URL (one Automation URL
+  per intent). `intent_name` keywords are a fallback; undeterminable → 400.
+- **Company**: `meta_data.company_id` (Autotask company ID) → name/slug exact
+  → contact email domain; fuzzy name only when no exact identifier was sent.
+  No match → 404 `{ error: "not_configured" }` (fix: set the company's
+  autotaskCompanyId, don't loosen matching).
+- **Response**: exactly `{ success: 200, message }` — the link must be inside
+  the message text; nothing else is relayed.
 
 ### Form Link Portal Route
 
-Add a new route: `/form/[token]` that:
+The `/form/[token]` route:
 1. Validates the token against `form_links` table
-2. Checks expiration
-3. Redirects to SSO login if no session
+2. Checks expiration and prior use
+3. Asks the visitor to identify as an active company contact (no SSO needed)
 4. Loads the form with pre-filled data
-5. On submission, marks the link as used and links to the hr_request
+5. On submission, FormLinkPortal POSTs `/api/forms/links/[token]/used` with the
+   hr_request id — this stamps `used_at` (single-use) and `request_id`, making
+   the Autotask ticket traceable back to the token (and, via `source_meta`,
+   to the originating Thread chat ticket)
 
 ---
 

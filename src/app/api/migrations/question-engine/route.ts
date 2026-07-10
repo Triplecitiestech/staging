@@ -150,10 +150,24 @@ CREATE TABLE IF NOT EXISTS form_links (
   expires_at      TIMESTAMPTZ NOT NULL,
   used_at         TIMESTAMPTZ,
   request_id      UUID,
+  source_meta     JSONB,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_form_links_token ON form_links(token);
 CREATE INDEX IF NOT EXISTS idx_form_links_company ON form_links(company_id, type);
+
+-- Single-use tracking + Thread linkage (additive — safe on live tables that
+-- predate these columns; CREATE TABLE IF NOT EXISTS never adds columns).
+-- request_id  → hr_requests.id of the submission that consumed the link
+--               (set by POST /api/forms/links/[token]/used). Token →
+--               request_id → hr_requests.autotask_ticket_id/number is the
+--               join chain for merging Thread chat tickets with Autotask
+--               tickets.
+-- source_meta → origin metadata; for Thread links this holds the Automation
+--               URL meta_data (ticket_id = the Thread chat-ticket ID).
+ALTER TABLE form_links ADD COLUMN IF NOT EXISTS request_id UUID;
+ALTER TABLE form_links ADD COLUMN IF NOT EXISTS source_meta JSONB;
+CREATE INDEX IF NOT EXISTS idx_form_links_request ON form_links(request_id) WHERE request_id IS NOT NULL;
 `
 
 // ---------------------------------------------------------------------------

@@ -21,6 +21,7 @@
  * removed — see docs/runbooks/CREDENTIALS_MIGRATION.md.
  */
 
+import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 
 /**
@@ -83,6 +84,56 @@ export function checkSecretAuth(request: NextRequest): NextResponse | null {
     (queryParam !== null && accepted.includes(queryParam));
 
   if (!isAuthorized) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  return null;
+}
+
+/** Constant-time string comparison that doesn't leak length via early exit. */
+function timingSafeEqualStr(a: string, b: string): boolean {
+  const aBuf = Buffer.from(a);
+  const bBuf = Buffer.from(b);
+  if (aBuf.length !== bBuf.length) {
+    // Compare b against itself to keep timing uniform, then fail.
+    crypto.timingSafeEqual(bBuf, bBuf);
+    return false;
+  }
+  return crypto.timingSafeEqual(aBuf, bBuf);
+}
+
+/**
+ * Check if a request carries the Thread automation key.
+ * Returns null if authorized, or a 401 NextResponse if not.
+ *
+ * Thread's Magic Agents "Automation URL" feature POSTs a bare JSON body and
+ * cannot attach auth headers or signatures
+ * (https://docs.getthread.com/article/7vxm10v3zj-magic-agents-automation-url),
+ * so the key rides in the URL: ?key=<THREAD_AUTOMATION_KEY>. The full URL
+ * including the key is pasted into the intent's Automation URL field in
+ * Thread and must be treated as a credential. Programmatic (non-Thread)
+ * callers may send the same value in an `x-automation-key` header instead,
+ * which keeps it out of request logs.
+ *
+ * FAIL CLOSED: when THREAD_AUTOMATION_KEY is unset, every request is
+ * rejected — there is no unauthenticated fallback.
+ */
+export function checkAutomationKey(request: NextRequest): NextResponse | null {
+  const expected = process.env.THREAD_AUTOMATION_KEY;
+
+  if (!expected || expected.length === 0) {
+    console.error(
+      '[api-auth] THREAD_AUTOMATION_KEY is not set — rejecting automation request. ' +
+        'Set it in Vercel env vars to enable the Thread integration.'
+    );
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const provided =
+    request.headers.get('x-automation-key') ??
+    request.nextUrl.searchParams.get('key');
+
+  if (!provided || !timingSafeEqualStr(provided, expected)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
