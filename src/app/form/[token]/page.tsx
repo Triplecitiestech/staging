@@ -22,11 +22,13 @@ export default async function FormLinkPage({
   } = { valid: false }
 
   try {
+    // form_links.company_id is UUID, companies.id is TEXT — ::text cast
+    // required (docs/gotchas.md → Thread Integration).
     const result = await client.query(
       `SELECT fl.id, fl.company_id, fl.type, fl.pre_fill, fl.expires_at, fl.used_at,
               c.slug as company_slug, c."displayName" as company_name
        FROM form_links fl
-       JOIN companies c ON c.id = fl.company_id
+       JOIN companies c ON c.id = fl.company_id::text
        WHERE fl.token = $1`,
       [token]
     )
