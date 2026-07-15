@@ -178,6 +178,21 @@ The mode is `companies.m365_consent_mode`. `m365_consent_granted_at` is stamped 
 
 ---
 
+## HR Employee-Relations records → TCT's OWN SharePoint (MCP connector)
+
+The connector's `hr_er_log_append` and `hr_file_document` tools write to TCT's **own** HumanResources SharePoint site (`triplecitiestechcom.sharepoint.com/sites/HumanResources`). Modules: `src/lib/hr/employee-relations.ts` (Graph client + ops), `src/lib/mcp-hr-tools.ts` (tool registration). Added 2026-07-15.
+
+- **Dedicated, least-privilege app — do NOT reuse the AZURE_AD staff-SSO app.** These tools authenticate as a separate single-tenant Entra app holding only **`Sites.Selected`**, granted the `write` role to the ONE HumanResources site. This is a THIRD Graph client on purpose (alongside `graph.ts` = customer tenants and `graph-tct.ts` = own-tenant SSO app): it keeps an internet-reachable file-write credential out of the SSO/PTO/CFO secret. Env: `HR_RECORDS_TENANT_ID/CLIENT_ID/CLIENT_SECRET`. Kill switch `CONNECTOR_HR_WRITES_ENABLED` (tools are dormant unless it's exactly `'true'`).
+- **`Sites.Selected` + admin consent grants ZERO access on its own.** You MUST also grant the app the `write` role on the specific site: `POST /sites/{siteId}/permissions` with `{ roles:["write"], grantedToIdentities:[{ application:{ id, displayName } }] }`, run by a SharePoint/Global admin (delegated `Sites.FullControl.All` — e.g. Graph Explorer or `New-MgSitePermission`). This is what scopes the app to just the HR site.
+- **NON-OBVIOUS: the Excel workbook API DOES work app-only here.** MS Learn's workbook pages say "Application: Not supported" and list only delegated scopes — that applies to `/me` and USER-SHARED files. For an **org-owned SharePoint site**, an app-only token with `Sites.Selected` granted to that site drives `POST /workbook/tables/{name}/rows` etc. fine, and does **not** require `Sites.ReadWrite.All`/`Files.ReadWrite.All`. **A 403 on a workbook call almost always means the per-site grant above was never applied — not a code bug** (the tool's error message says as much).
+- **Direct writes, not staged.** A log append / doc filing is low-risk and the human already approved the text in chat, so these bypass the staged-approval gate — but every write is `structuredLog`-audited (actor email + action + target ids + outcome; never PII bodies, file contents, or secrets) and read-back verified.
+- **IDs are computed, never input.** `ER-NNNN` (log) = max existing + 1 read live from the table; `ER-DOC-NNNN` (filed docs) = max across central-folder filenames + 1. The append is an Excel *table* row-add (atomic, never overwrites); if no table exists the tool converts the log worksheet's used range to one on first run. Residual ID-collision from truly-concurrent appends is detected on read-back and surfaced as a warning, not silently.
+- **Log input is sanitized to plain text** (emojis/pictographs/control chars stripped) and dates stored `YYYY-MM-DD` Eastern — standing rule for `Employee Relations Log.xlsx`.
+- Live-verified workbook location (2026-07): driveId `b!nhXC-…LAt0W`, itemId `01PWEAC3YF6BMXSB74CNDZ2PTOBVZZK5CU`; overridable via `HR_ER_DRIVE_ID`/`HR_ER_ITEM_ID`, and resolved dynamically by folder path as a fallback if the file is moved.
+- **Connector tool list caches at connect time** — after deploying new connector tools, disconnect/reconnect the connector in Claude for them to appear.
+
+---
+
 ## SOC Analyst Agent — Cross-Stack Knowledge
 
 See `docs/SOC_CROSSSTACK_HANDOFF.md` for the full handoff. The SOC Analyst correlates RocketCyber + Datto RMM + Datto EDR + DNSFilter + SaaS Alerts before classifying, not just the Autotask ticket body. Key modules: `src/lib/rocketcyber.ts`, `src/lib/soc/enrichment.ts`, shared UI `src/components/soc/CrossStackAssessment.tsx`, real-time webhook `src/app/api/soc/ingest/route.ts`. Env: `ROCKETCYBER_API_TOKEN`, `SOC_INGEST_SECRET`.
