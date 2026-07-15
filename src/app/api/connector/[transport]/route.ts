@@ -19,6 +19,7 @@ import { registerItGlueTools } from '@/lib/mcp-itglue-tools'
 import { registerConfigReadTools } from '@/lib/mcp-config-read-tools'
 import { registerConfigWriteTools } from '@/lib/mcp-config-write-tools'
 import { registerUnifiSiteTools } from '@/lib/mcp-unifi-site-tools'
+import { registerHrTools } from '@/lib/mcp-hr-tools'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -96,6 +97,12 @@ const handler = createMcpHandler(
     // tier-2 staged config writes gated by CONNECTOR_UNIFI_WRITES_ENABLED.
     // Single console / single site / single target by schema construction.
     registerUnifiSiteTools(server)
+
+    // ── HR Employee-Relations writes (TCT's own HumanResources SharePoint) ──
+    // Direct writes (no staging), audit-logged + read-back verified, via a
+    // dedicated least-privilege Sites.Selected app. Dormant unless
+    // CONNECTOR_HR_WRITES_ENABLED === 'true' and HR_RECORDS_* are set.
+    registerHrTools(server)
   },
   {},
   { basePath: '/api/connector', maxDuration: 60, verboseLogs: false }

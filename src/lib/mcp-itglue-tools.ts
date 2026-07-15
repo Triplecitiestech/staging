@@ -38,6 +38,7 @@ function slimDoc(d: ItGlueDocument) {
     documentFolderId: d.attributes['document-folder-id'],
     url: d.attributes['resource-url'],
     updatedAt: d.attributes['updated-at'],
+    archived: d.attributes.archived === true,
   }
 }
 
@@ -67,33 +68,40 @@ export function registerItGlueTools(server: any) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async ({ id }: any) => { try { const c = itglue(); ensureConfigured(c); return ok(await c.getFlexibleAsset(id)) } catch (e) { return fail(e) } })
 
-  server.registerTool('itglue_org_documents', { title: 'IT Glue: org documents', description: 'List documents (SOPs / runbooks / KB articles) for an organization id — the FULL library by default (root + all folders), paginated. Returns { documents, meta } where meta = { totalCount, totalPages, currentPage, pageSize, hasMore }. Page through with page/pageSize (max 1000), or pass documentFolderId to scope to one folder ("0" = root-only). Does NOT return passwords.', inputSchema: { organizationId: z.string().describe('IT Glue organization id'), page: z.number().int().min(1).optional().describe('Page number (default 1)'), pageSize: z.number().int().min(1).max(1000).optional().describe('Page size (default 100, max 1000)'), documentFolderId: z.string().optional().describe('Scope to a folder id, or "0" for root-only; default returns ALL documents') } },
+  server.registerTool('itglue_org_documents', { title: 'IT Glue: org documents', description: 'List documents (SOPs / runbooks / KB articles) for an organization id — the FULL library by default (root + all folders), paginated. Returns { documents, meta } where meta = { totalCount, totalPages, currentPage, pageSize, hasMore }. Page through with page/pageSize (max 1000), or pass documentFolderId to scope to one folder ("0" = root-only). ARCHIVED documents are EXCLUDED by default; set includeArchived=true to include them (each doc carries an "archived" flag). Note: meta counts come from IT Glue and include archived docs, so a filtered page may return fewer than pageSize rows (archivedExcluded reports how many were dropped). Does NOT return passwords.', inputSchema: { organizationId: z.string().describe('IT Glue organization id'), page: z.number().int().min(1).optional().describe('Page number (default 1)'), pageSize: z.number().int().min(1).max(1000).optional().describe('Page size (default 100, max 1000)'), documentFolderId: z.string().optional().describe('Scope to a folder id, or "0" for root-only; default returns ALL documents'), includeArchived: z.boolean().optional().describe('Include archived documents (default false)') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    async ({ organizationId, page, pageSize, documentFolderId }: any) => { try { const c = itglue(); ensureConfigured(c); const { documents, meta } = await c.getDocumentsPage(organizationId, { page, pageSize, documentFolderId }); return ok({ documents, meta }) } catch (e) { return fail(e) } })
-
-  server.registerTool('itglue_search_documents', { title: 'IT Glue: search documents', description: 'Find documents in ONE organization by keyword. When the org is indexed this is Postgres full-text over document NAME + CONTENT (ranked by relevance); it falls back to name-only search when the org has not been indexed yet. The response tags source: "index" | "live-name". Returns compact { id, name, documentFolderId, url, updatedAt }.', inputSchema: { organizationId: z.string().describe('IT Glue organization id'), query: z.string().describe('Words to match against document names') } },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    async ({ organizationId, query }: any) => { try {
+    async ({ organizationId, page, pageSize, documentFolderId, includeArchived }: any) => { try {
       const c = itglue(); ensureConfigured(c)
-      const idx = await searchDocIndex(organizationId, query)
-      if (idx) return ok({ source: 'index', organizationId, query, matchCount: idx.length, documents: idx })
-      const docs = await c.searchDocuments(organizationId, query)
-      return ok({ source: 'live-name', note: 'This org is not in the content index yet — matched on document NAME only. Content search becomes available once the org is indexed.', organizationId, query, matchCount: docs.length, documents: docs.map(slimDoc) })
+      const { documents, meta } = await c.getDocumentsPage(organizationId, { page, pageSize, documentFolderId })
+      const filtered = includeArchived ? documents : documents.filter((d) => d.attributes.archived !== true)
+      return ok({ documents: filtered, meta, includeArchived: !!includeArchived, archivedExcluded: documents.length - filtered.length })
     } catch (e) { return fail(e) } })
 
-  server.registerTool('itglue_global_search', { title: 'IT Glue: global document search', description: 'Search documents by keyword (document NAME + CONTENT when the org is indexed) across TCT\'s internal SOP org AND, optionally, a specific customer org — built for triage like "VPN down at Client X": pass the customer\'s organizationId to get BOTH TCT\'s SOP and the customer\'s own docs in one call. IT Glue has no account-wide search endpoint, so this scopes to the TCT org plus the passed org. Returns matches grouped by org, each tagged source: "index" | "live-name".', inputSchema: { query: z.string().describe('Words to match against document names'), organizationId: z.string().optional().describe('Optional customer org id to include alongside the TCT SOP org') } },
+  server.registerTool('itglue_search_documents', { title: 'IT Glue: search documents', description: 'Find documents in ONE organization by keyword. When the org is indexed this is Postgres full-text over document NAME + CONTENT (ranked by relevance); it falls back to name-only search when the org has not been indexed yet. The response tags source: "index" | "live-name". ARCHIVED documents are EXCLUDED by default; set includeArchived=true to include them (each doc carries an "archived" flag so you never edit a stale SOP unaware). Returns compact { id, name, documentFolderId, url, updatedAt, archived }.', inputSchema: { organizationId: z.string().describe('IT Glue organization id'), query: z.string().describe('Words to match against document names'), includeArchived: z.boolean().optional().describe('Include archived documents (default false)') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    async ({ query, organizationId }: any) => { try {
+    async ({ organizationId, query, includeArchived }: any) => { try {
+      const c = itglue(); ensureConfigured(c)
+      const idx = await searchDocIndex(organizationId, query, { includeArchived: !!includeArchived })
+      if (idx) return ok({ source: 'index', organizationId, query, includeArchived: !!includeArchived, matchCount: idx.length, documents: idx })
+      const all = await c.searchDocuments(organizationId, query)
+      const docs = includeArchived ? all : all.filter((d) => d.attributes.archived !== true)
+      return ok({ source: 'live-name', note: 'This org is not in the content index yet — matched on document NAME only. Content search becomes available once the org is indexed.', organizationId, query, includeArchived: !!includeArchived, archivedExcluded: all.length - docs.length, matchCount: docs.length, documents: docs.map(slimDoc) })
+    } catch (e) { return fail(e) } })
+
+  server.registerTool('itglue_global_search', { title: 'IT Glue: global document search', description: 'Search documents by keyword (document NAME + CONTENT when the org is indexed) across TCT\'s internal SOP org AND, optionally, a specific customer org — built for triage like "VPN down at Client X": pass the customer\'s organizationId to get BOTH TCT\'s SOP and the customer\'s own docs in one call. IT Glue has no account-wide search endpoint, so this scopes to the TCT org plus the passed org. Returns matches grouped by org, each tagged source: "index" | "live-name". ARCHIVED documents are EXCLUDED by default; set includeArchived=true to include them (each doc carries an "archived" flag).', inputSchema: { query: z.string().describe('Words to match against document names'), organizationId: z.string().optional().describe('Optional customer org id to include alongside the TCT SOP org'), includeArchived: z.boolean().optional().describe('Include archived documents (default false)') } },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async ({ query, organizationId, includeArchived }: any) => { try {
       const c = itglue(); ensureConfigured(c)
       const orgIds = Array.from(new Set([TCT_ORG_ID, organizationId].filter((v): v is string => !!v)))
       const results = []
       for (const orgId of orgIds) {
-        const idx = await searchDocIndex(orgId, query)
+        const idx = await searchDocIndex(orgId, query, { includeArchived: !!includeArchived })
         if (idx) {
-          results.push({ organizationId: orgId, isTctSopOrg: orgId === TCT_ORG_ID, source: 'index', matchCount: idx.length, documents: idx })
+          results.push({ organizationId: orgId, isTctSopOrg: orgId === TCT_ORG_ID, source: 'index', includeArchived: !!includeArchived, matchCount: idx.length, documents: idx })
         } else {
-          const docs = await c.searchDocuments(orgId, query)
-          results.push({ organizationId: orgId, isTctSopOrg: orgId === TCT_ORG_ID, source: 'live-name', matchCount: docs.length, documents: docs.map(slimDoc) })
+          const all = await c.searchDocuments(orgId, query)
+          const docs = includeArchived ? all : all.filter((d) => d.attributes.archived !== true)
+          results.push({ organizationId: orgId, isTctSopOrg: orgId === TCT_ORG_ID, source: 'live-name', includeArchived: !!includeArchived, archivedExcluded: all.length - docs.length, matchCount: docs.length, documents: docs.map(slimDoc) })
         }
       }
       return ok({ query, orgsSearched: orgIds, results })

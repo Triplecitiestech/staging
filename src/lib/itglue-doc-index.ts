@@ -44,6 +44,10 @@ async function ensureTable(): Promise<void> {
       search_tsv         tsvector
     )
   `)
+  // Additive: track IT Glue's native archived flag so search can exclude/ tag
+  // archived docs. Existing rows are backfilled on the next sync (bulk update
+  // in syncOrgDocuments); until then a NULL archived is treated as "not archived".
+  await pool.query(`ALTER TABLE itglue_doc_index ADD COLUMN IF NOT EXISTS archived BOOLEAN`)
   await pool.query(`CREATE INDEX IF NOT EXISTS itglue_doc_index_org ON itglue_doc_index (organization_id)`)
   await pool.query(`CREATE INDEX IF NOT EXISTS itglue_doc_index_tsv ON itglue_doc_index USING GIN (search_tsv)`)
   ensured = true
@@ -102,6 +106,18 @@ export async function syncOrgDocuments(
   const docs = await c.getAllDocuments(orgId)
 
   const pool = getPool()
+
+  // Keep the archived flag fresh for ALL known docs each run (cheap; no content
+  // re-fetch), so previously-indexed rows are backfilled even when unchanged.
+  if (docs.length > 0) {
+    await pool.query(
+      `UPDATE itglue_doc_index AS t SET archived = v.archived
+         FROM (SELECT unnest($1::text[]) AS document_id, unnest($2::boolean[]) AS archived) AS v
+        WHERE t.document_id = v.document_id AND t.organization_id = $3`,
+      [docs.map((d) => d.id), docs.map((d) => !!d.attributes.archived), orgId]
+    )
+  }
+
   const { rows: existing } = await pool.query<{ document_id: string; it_glue_updated_at: string | null }>(
     `SELECT document_id, it_glue_updated_at FROM itglue_doc_index WHERE organization_id = $1`,
     [orgId]
@@ -127,8 +143,8 @@ export async function syncOrgDocuments(
           const content = await fetchDocContent(c, d.id)
           await pool.query(
             `INSERT INTO itglue_doc_index
-               (document_id, organization_id, name, folder_id, url, content_text, it_glue_updated_at, synced_at, search_tsv)
-             VALUES ($1,$2,$3,$4,$5,$6,$7, NOW(),
+               (document_id, organization_id, name, folder_id, url, content_text, it_glue_updated_at, archived, synced_at, search_tsv)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8, NOW(),
                setweight(to_tsvector('english', $3), 'A') || setweight(to_tsvector('english', COALESCE($6,'')), 'B'))
              ON CONFLICT (document_id) DO UPDATE SET
                organization_id    = EXCLUDED.organization_id,
@@ -137,6 +153,7 @@ export async function syncOrgDocuments(
                url                = EXCLUDED.url,
                content_text       = EXCLUDED.content_text,
                it_glue_updated_at = EXCLUDED.it_glue_updated_at,
+               archived           = EXCLUDED.archived,
                synced_at          = NOW(),
                search_tsv         = EXCLUDED.search_tsv`,
             [
@@ -147,6 +164,7 @@ export async function syncOrgDocuments(
               d.attributes['resource-url'] ?? null,
               content || null,
               d.attributes['updated-at'] ?? null,
+              !!d.attributes.archived,
             ]
           )
         } catch (err) {
@@ -186,6 +204,8 @@ export interface IndexedDocMatch {
   documentFolderId: string | null
   url: string | null
   updatedAt: string | null
+  /** IT Glue's native archived flag (unknown/not-yet-synced rows report false). */
+  archived: boolean
   rank?: number
 }
 
@@ -193,10 +213,20 @@ export interface IndexedDocMatch {
  * Full-text search an org's indexed documents (name weighted above content).
  * Returns matches, or NULL when the org has no rows yet (so the caller can fall
  * back to a live name-search). An empty array means "indexed, but no match".
+ *
+ * Archived docs are EXCLUDED by default (`archived IS NOT TRUE`, so a NULL/
+ * not-yet-backfilled flag is treated as live). Pass includeArchived to include
+ * them; callers tag archived hits so a tech never edits a stale SOP unaware.
  */
-export async function searchDocIndex(orgId: string, query: string, limit = 25): Promise<IndexedDocMatch[] | null> {
+export async function searchDocIndex(
+  orgId: string,
+  query: string,
+  opts?: { limit?: number; includeArchived?: boolean }
+): Promise<IndexedDocMatch[] | null> {
   await ensureTable()
   const pool = getPool()
+  const limit = opts?.limit ?? 25
+  const archivedClause = opts?.includeArchived ? '' : 'AND (archived IS NOT TRUE)'
 
   const { rows: probe } = await pool.query(
     `SELECT 1 FROM itglue_doc_index WHERE organization_id = $1 LIMIT 1`,
@@ -207,18 +237,18 @@ export async function searchDocIndex(orgId: string, query: string, limit = 25): 
   const q = query.trim()
   if (!q) {
     const { rows } = await pool.query(
-      `SELECT document_id, name, folder_id, url, it_glue_updated_at
-         FROM itglue_doc_index WHERE organization_id = $1 ORDER BY name LIMIT $2`,
+      `SELECT document_id, name, folder_id, url, it_glue_updated_at, archived
+         FROM itglue_doc_index WHERE organization_id = $1 ${archivedClause} ORDER BY name LIMIT $2`,
       [orgId, limit]
     )
     return rows.map(mapRow)
   }
 
   const { rows } = await pool.query(
-    `SELECT document_id, name, folder_id, url, it_glue_updated_at,
+    `SELECT document_id, name, folder_id, url, it_glue_updated_at, archived,
             ts_rank(search_tsv, plainto_tsquery('english', $2)) AS rank
        FROM itglue_doc_index
-      WHERE organization_id = $1 AND search_tsv @@ plainto_tsquery('english', $2)
+      WHERE organization_id = $1 AND search_tsv @@ plainto_tsquery('english', $2) ${archivedClause}
       ORDER BY rank DESC, name LIMIT $3`,
     [orgId, q, limit]
   )
@@ -233,6 +263,7 @@ function mapRow(r: any): IndexedDocMatch {
     documentFolderId: r.folder_id ?? null,
     url: r.url ?? null,
     updatedAt: r.it_glue_updated_at ? new Date(r.it_glue_updated_at).toISOString() : null,
+    archived: r.archived === true,
     rank: typeof r.rank === 'number' ? r.rank : undefined,
   }
 }

@@ -1,8 +1,21 @@
 # Current Tasks
 
-> **Last updated**: 2026-07-10. Thread forms integration hardened (fail-closed URL-key auth, Autotask-ID company resolution, single-use links + hr_request linkage) — **awaiting owner diff review; pushed with `[skip ci]`, gates not run, NOT merged**. Earlier pending items below may still be open.
-> **Branch**: `claude/tct-forms-architecture-discovery-1g7rrt`.
-> **Detailed context**: `docs/session-summary.md` (2026-07-10 section) + `docs/gotchas.md` → Thread Integration.
+> **Last updated**: 2026-07-15. Added HR Employee-Relations SharePoint write tools to the MCP connector (`hr_er_log_append`, `hr_file_document`) + an IT Glue `includeArchived` filter. **Code complete; awaiting owner Entra setup (new dedicated Sites.Selected app) before the HR tools can go live.** Earlier pending items below may still be open.
+> **Branch**: `claude/session-7nju72`.
+> **Detailed context**: `docs/session-summary.md` (2026-07-15 section) + `docs/gotchas.md` → "HR Employee-Relations records".
+
+## HR Employee-Relations connector writes + IT Glue archived filter (2026-07-15) — 🟡 code complete; HR tools dormant until owner Entra setup
+
+Two DIRECT-write connector tools against TCT's OWN HumanResources SharePoint site — `hr_er_log_append` (appends a computed `ER-NNNN` row to Employee Relations Log.xlsx via the workbook table API) and `hr_file_document` (files a `.docx` to the central `_Employee Relations/` folder AND the subject's `Performance & Conduct/` subfolder, computed `ER-DOC-NNNN`). Both audit-logged + read-back verified, behind kill switch `CONNECTOR_HR_WRITES_ENABLED`. Auth = a NEW, dedicated, least-privilege Entra app (`Sites.Selected` → `write` on ONLY the HR site) — owner-approved 2026-07-15. Also: IT Glue `itglue_search_documents` / `itglue_global_search` / `itglue_org_documents` gained `includeArchived` (default false; archived docs tagged when included). Modules: `src/lib/hr/employee-relations.ts`, `src/lib/mcp-hr-tools.ts`, `src/lib/itglue-doc-index.ts`, `src/lib/mcp-itglue-tools.ts`. Full notes: `docs/gotchas.md` → "HR Employee-Relations records".
+
+- [x] **Verified locally**: `tsc --noEmit` clean, `npm run lint` clean, 18 unit tests pass (`src/lib/hr/employee-relations.test.ts`).
+- [ ] **[OWNER — one-time, in Entra]** Create the dedicated single-tenant app "TCT HR Records Writer (connector)": add Application permission **`Sites.Selected`**, **Grant admin consent**, create a client secret. (No redirect URI; remove the default delegated `User.Read`.)
+- [ ] **[OWNER/ADMIN — one-time]** Grant the app `write` on ONLY the HR site (SharePoint/Global admin, delegated `Sites.FullControl.All`):
+      `Connect-MgGraph -Scopes "Sites.FullControl.All"; $site = Get-MgSite -SiteId "triplecitiestechcom.sharepoint.com:/sites/HumanResources:"; New-MgSitePermission -SiteId $site.Id -BodyParameter @{ roles=@("write"); grantedToIdentities=@(@{ application=@{ id="<APP_CLIENT_ID>"; displayName="TCT HR Records Writer (connector)" } }) }`
+- [ ] **[OWNER — one-time, in Vercel]** Set `HR_RECORDS_TENANT_ID`, `HR_RECORDS_CLIENT_ID`, `HR_RECORDS_CLIENT_SECRET`, and `CONNECTOR_HR_WRITES_ENABLED=true`; redeploy.
+- [ ] **[OWNER — after deploy]** **Disconnect & reconnect the TCT connector in Claude** (the tool list caches at connect time) so `hr_er_log_append`, `hr_file_document`, and the `includeArchived` params appear.
+- [ ] **[OWNER — verify end-to-end]** From chat/Cowork/mobile: file a test ER row and a test `.docx`; confirm the row lands in the workbook with the next `ER-NNNN`, the file appears in BOTH folders with `ER-DOC-NNNN_[LastName]_[date]_[Type].docx`, and both webUrls return. A 403 on the workbook call means the per-site grant above wasn't applied.
+- [ ] **[CI]** Auto-merge gate green (secret-scan + quality: lint + schema-drift + build + unit). The HR tools stay dormant on the deploy (kill switch off) until the steps above are done, so shipping the code is safe.
 
 ## Thread forms integration: pre-launch gaps (2026-07-10) — 🟢 SHIPPED to production (owner-directed); activation steps below still open
 
