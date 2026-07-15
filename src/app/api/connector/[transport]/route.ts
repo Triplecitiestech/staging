@@ -9,25 +9,19 @@
 //   Authorization server: ${AUTHKIT_DOMAIN}
 
 import { createMcpHandler, withMcpAuth } from 'mcp-handler'
-import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js'
-import { createRemoteJWKSet, jwtVerify } from 'jose'
 import { z } from 'zod'
 import { AutotaskClient, getAutotaskTicketUrl } from '@/lib/autotask'
 import * as unifi from '@/lib/ubiquiti'
-import { registerWriteTools, resolveUserEmail } from '@/lib/mcp-write-tools'
+import { registerWriteTools } from '@/lib/mcp-write-tools'
 import { registerItGlueTools } from '@/lib/mcp-itglue-tools'
 import { registerConfigReadTools } from '@/lib/mcp-config-read-tools'
 import { registerConfigWriteTools } from '@/lib/mcp-config-write-tools'
 import { registerUnifiSiteTools } from '@/lib/mcp-unifi-site-tools'
 import { registerHrTools } from '@/lib/mcp-hr-tools'
+import { verifyConnectorToken } from '@/lib/connector/auth'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
-
-const AUTHKIT_DOMAIN = process.env.AUTHKIT_DOMAIN
-const MCP_RESOURCE_URL = process.env.MCP_RESOURCE_URL
-
-const JWKS = AUTHKIT_DOMAIN ? createRemoteJWKSet(new URL(`${AUTHKIT_DOMAIN}/oauth2/jwks`)) : null
 
 let _autotask: AutotaskClient | null = null
 function autotask(): AutotaskClient {
@@ -108,25 +102,14 @@ const handler = createMcpHandler(
   { basePath: '/api/connector', maxDuration: 60, verboseLogs: false }
 )
 
-// ── Token verification (WorkOS AuthKit JWT via JWKS) ─────────────────────────
-// Also resolves the signed-in user's email so writes can be impersonated.
-const verifyToken = async (_req: Request, bearerToken?: string): Promise<AuthInfo | undefined> => {
-  if (!bearerToken || !JWKS || !AUTHKIT_DOMAIN || !MCP_RESOURCE_URL) return undefined
-  try {
-    const { payload } = await jwtVerify(bearerToken, JWKS, { issuer: AUTHKIT_DOMAIN, audience: MCP_RESOURCE_URL })
-    const sub = typeof payload.sub === 'string' ? payload.sub : undefined
-    const email = await resolveUserEmail(sub, (payload as Record<string, unknown>).email)
-    return {
-      token: bearerToken,
-      scopes: typeof payload.scope === 'string' ? payload.scope.split(' ') : [],
-      clientId: (payload.client_id as string) ?? sub ?? 'unknown',
-      extra: { sub, email },
-    }
-  } catch {
-    return undefined
-  }
-}
-
-const authHandler = withMcpAuth(handler, verifyToken, { required: true, resourceMetadataPath: '/.well-known/oauth-protected-resource' })
+// ── Token verification ───────────────────────────────────────────────────────
+// Auth provider (WorkOS AuthKit by default, or Microsoft Entra) is selected by
+// CONNECTOR_AUTH_PROVIDER and lives in src/lib/connector/auth.ts. The verifier
+// resolves the signed-in user's email so writes stay attributed to the person.
+const authHandler = withMcpAuth(
+  handler,
+  (_req: Request, bearerToken?: string) => verifyConnectorToken(bearerToken),
+  { required: true, resourceMetadataPath: '/.well-known/oauth-protected-resource' }
+)
 
 export { authHandler as GET, authHandler as POST }
