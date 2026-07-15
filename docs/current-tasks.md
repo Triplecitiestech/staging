@@ -1,8 +1,19 @@
 # Current Tasks
 
-> **Last updated**: 2026-07-15. Added HR Employee-Relations SharePoint write tools to the MCP connector (`hr_er_log_append`, `hr_file_document`) + an IT Glue `includeArchived` filter. **Code complete; awaiting owner Entra setup (new dedicated Sites.Selected app) before the HR tools can go live.** Earlier pending items below may still be open.
+> **Last updated**: 2026-07-15. (1) Added HR Employee-Relations SharePoint write tools to the MCP connector + an IT Glue `includeArchived` filter. (2) Made the connector's OAuth auth **provider-swappable** and added a Microsoft Entra path to drop WorkOS. **Both code-complete; each awaits owner config (Entra app for HR writes; Entra app + env flip for connector auth).** Earlier pending items below may still be open.
 > **Branch**: `claude/session-7nju72`.
-> **Detailed context**: `docs/session-summary.md` (2026-07-15 section) + `docs/gotchas.md` → "HR Employee-Relations records".
+> **Detailed context**: `docs/session-summary.md` (2026-07-15 sections) + `docs/gotchas.md` → "HR Employee-Relations records" + `docs/runbooks/CONNECTOR_AUTH_ENTRA.md`.
+
+## Connector auth: drop WorkOS → Microsoft Entra (2026-07-15) — 🟡 code complete; awaiting owner Entra app + env flip
+
+The connector's OAuth authorization server is now selected by `CONNECTOR_AUTH_PROVIDER` (`workos` default, or `entra`) in the new `src/lib/connector/auth.ts`; `route.ts` and `/.well-known/oauth-protected-resource` call into it. WorkOS behavior is unchanged at the default, so this ships with **zero production impact** until the env is flipped. Motivation: WorkOS sign-in "completes" on web but the desktop app never finalizes (matches known Claude↔WorkOS connector bug). Entra reuses our staff-SSO tenant and preserves per-user write attribution. Full cutover steps: `docs/runbooks/CONNECTOR_AUTH_ENTRA.md`.
+
+- [x] **Verified locally**: `tsc` clean, `lint` clean, full unit suite 345/345 (incl. 6 new provider/metadata tests), `next build` green.
+- [ ] **[OWNER — Entra]** Create a `TCT MCP Connector` app; set Application ID URI = `https://www.triplecitiestech.com/api/connector/mcp`; expose a scope; add reply URIs (`https://claude.ai/api/mcp/auth_callback`, `http://localhost/callback`, `http://127.0.0.1/callback`); add **email** as an Access-token optional claim; allow public-client/PKCE (or make a secret). (Runbook steps 1-5.)
+- [ ] **[OWNER — Vercel]** Set `CONNECTOR_AUTH_PROVIDER=entra`, `CONNECTOR_ENTRA_TENANT_ID`, `CONNECTOR_ENTRA_AUDIENCE=<the app CLIENT ID, not the App ID URI>`, confirm `MCP_RESOURCE_URL` = the MCP URL; redeploy.
+- [ ] **[OWNER — Claude]** Remove + re-add the connector; enter the Entra client id (and secret if confidential) in Advanced settings; sign in.
+- [ ] **[OWNER — verify]** Connection finalizes; a read works; a write is attributed to your email. Rollback = set `CONNECTOR_AUTH_PROVIDER=workos` + redeploy.
+- [ ] **[NOTE]** The interactive Claude↔Entra flow can only be confirmed live — the server side is unit/build-verified but not exercised end-to-end here.
 
 ## HR Employee-Relations connector writes + IT Glue archived filter (2026-07-15) — 🟡 code complete; HR tools dormant until owner Entra setup
 

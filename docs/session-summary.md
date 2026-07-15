@@ -1,8 +1,16 @@
 # Session Summary
 
-> **Last updated**: 2026-07-15. Added HR Employee-Relations SharePoint write tools to the MCP connector + an IT Glue archived filter (below). Code complete and locally verified; the HR tools are dormant behind a kill switch until the owner stands up a dedicated Entra app.
+> **Last updated**: 2026-07-15. (1) HR Employee-Relations SharePoint write tools + IT Glue archived filter; (2) connector OAuth auth made provider-swappable with a Microsoft Entra path to drop WorkOS (below). All code-complete and locally verified; each is dormant/no-op until owner config.
 > **Branch**: `claude/session-7nju72`.
 > **Detailed handoff**: see `docs/SESSION_HANDOFF.md` first — this file is the quick state-of-the-world reference.
+
+## Connector auth: WorkOS → Microsoft Entra, provider-swappable (2026-07-15) — branch `claude/session-7nju72`
+
+- **Trigger**: the connector's WorkOS AuthKit sign-in "completes" on claude.ai web but the desktop app never finalizes (matches a known Claude↔WorkOS custom-connector bug). Owner wants off WorkOS. Note: nothing about the earlier "drop WorkOS" idea was ever committed to this repo — reconstructed from the current code + verified Claude/Entra facts.
+- **Design**: new `src/lib/connector/auth.ts` selects the OAuth authorization server by `CONNECTOR_AUTH_PROVIDER` (`workos` default, `entra`). `getProtectedResourceMetadata()` + `verifyConnectorToken()` are shared by `route.ts` and `/.well-known/oauth-protected-resource`. WorkOS path is byte-for-byte the original verifier, so the default = zero production change; switching is env-only and reversible.
+- **Entra path** (reuses TCT's staff-SSO tenant; preserves per-user attribution via the token email): validates the Entra v2 JWT (JWKS + issuer + audience) and reads `preferred_username`/`email`/`upn`. Verified via research (sourced in the runbook): Claude discovers Entra via OIDC fallback; Entra has no DCR so the app is **pre-registered** (client id entered in Claude's Advanced settings, PKCE public client OK); **the token `aud` is the app CLIENT ID (GUID), not the Application ID URI** — so `CONNECTOR_ENTRA_AUDIENCE` = client id; the email must be added as an **Access-token optional claim**; reply URIs = `https://claude.ai/api/mcp/auth_callback` + loopback. All tenant-specific values are env-configurable, so a quirk is config, not code.
+- **Verified**: `tsc` clean, `lint` clean, full unit suite **345/345** (6 new tests for provider selection + metadata), `next build` green. The interactive Claude↔Entra OAuth flow is NOT exercised here — it needs a live reconnect (runbook steps 7-8); if the desktop still hangs, capture the error and revisit the Entra reply-URI platform grouping.
+- **Cutover runbook**: `docs/runbooks/CONNECTOR_AUTH_ENTRA.md` (owner: Entra app → Vercel env → reconnect → verify; rollback = flip the var back).
 
 ## HR Employee-Relations connector writes + IT Glue archived filter (2026-07-15) — branch `claude/session-7nju72`
 
