@@ -21,7 +21,7 @@
 // change. See docs/runbooks/CONNECTOR_AUTH_ENTRA.md.
 
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js'
-import { createRemoteJWKSet, jwtVerify } from 'jose'
+import { createRemoteJWKSet, jwtVerify, decodeJwt } from 'jose'
 
 type Provider = 'workos' | 'entra'
 
@@ -107,20 +107,54 @@ export async function verifyConnectorToken(bearerToken?: string): Promise<AuthIn
   try {
     if (connectorAuthProvider() === 'entra') {
       const jwks = getEntraJwks()
-      const issuer = entraIssuer()
-      const audience = entraAudience()
-      if (!jwks || !issuer || !audience) return undefined
-      const { payload } = await jwtVerify(bearerToken, jwks, { issuer, audience })
-      const p = payload as Record<string, unknown>
-      const sub = typeof p.sub === 'string' ? p.sub : undefined
-      // Entra work/school access tokens carry the UPN/email in one of these,
-      // depending on the tenant + optional-claims config (see the runbook).
-      const email = firstString(p.preferred_username, p.email, p.upn, p.unique_name)?.toLowerCase()
-      return {
-        token: bearerToken,
-        scopes: typeof p.scp === 'string' ? (p.scp as string).split(' ') : [],
-        clientId: firstString(p.azp, p.appid, sub) ?? 'unknown',
-        extra: { sub, email },
+      const tenant = process.env.CONNECTOR_ENTRA_TENANT_ID
+      // Accept BOTH audience shapes Entra can mint for a custom API, because
+      // which one lands depends on the app's requestedAccessTokenVersion:
+      //   v2 token → aud = the app's CLIENT ID (a GUID)  [CONNECTOR_ENTRA_AUDIENCE]
+      //   v1 token → aud = the Application ID URI        [MCP_RESOURCE_URL]
+      // Accepting either means a tenant that hasn't flipped the manifest to v2
+      // still works, and it's forgiving of aud being set to the URL vs the GUID.
+      const audiences = [entraAudience(), resourceUrl()].filter((v): v is string => !!v)
+      if (!jwks || !tenant || audiences.length === 0) return undefined
+      // Correspondingly accept both issuer forms (v2 vs v1 sts) unless pinned.
+      const issuers = firstString(process.env.CONNECTOR_ENTRA_ISSUER)
+        ? [process.env.CONNECTOR_ENTRA_ISSUER as string]
+        : [
+            `https://login.microsoftonline.com/${tenant}/v2.0`,
+            `https://sts.windows.net/${tenant}/`,
+          ]
+      try {
+        const { payload } = await jwtVerify(bearerToken, jwks, { issuer: issuers, audience: audiences })
+        const p = payload as Record<string, unknown>
+        const sub = typeof p.sub === 'string' ? p.sub : undefined
+        // Entra work/school access tokens carry the UPN/email in one of these,
+        // depending on the tenant + optional-claims config (see the runbook).
+        const email = firstString(p.preferred_username, p.email, p.upn, p.unique_name)?.toLowerCase()
+        return {
+          token: bearerToken,
+          scopes: typeof p.scp === 'string' ? (p.scp as string).split(' ') : [],
+          clientId: firstString(p.azp, p.appid, sub) ?? 'unknown',
+          extra: { sub, email },
+        }
+      } catch (err) {
+        // Make a 401 diagnosable without leaking anything sensitive: aud/iss/ver
+        // are not secrets, and we never log the token itself or PII.
+        try {
+          const c = decodeJwt(bearerToken) as Record<string, unknown>
+          console.warn(JSON.stringify({
+            level: 'warn',
+            operation: 'connector.entra.verify_failed',
+            reason: err instanceof Error ? err.message : String(err),
+            token_aud: c.aud,
+            token_iss: c.iss,
+            token_ver: c.ver,
+            token_appid: c.appid ?? c.azp,
+            token_scp: c.scp,
+            expected_aud: audiences,
+            expected_iss: issuers,
+          }))
+        } catch { /* token wasn't a decodable JWT — ignore */ }
+        return undefined
       }
     }
 
