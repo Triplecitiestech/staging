@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ItGlueClient } from './it-glue'
 
 // Focused tests for the newer IT Glue write paths: publish (verb fallback +
-// verification read-back), related items, and the attachment size guard.
+// verification read-back), related items, the attachment size guard, and
+// document folders (list/create/move).
 
 function jsonResponse(status: number, body: unknown = {}) {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/vnd.api+json' } })
@@ -91,9 +92,16 @@ describe('getDocumentFolders', () => {
     const folders = await client().getDocumentFolders('6942365')
     const [url] = vi.mocked(fetch).mock.calls[0]
     expect(String(url)).toContain('/organizations/6942365/relationships/document_folders')
+    expect(String(url)).not.toContain('filter[parent_id]') // omitted filter = ALL folders (inverse of the documents index)
     expect(folders).toHaveLength(2)
     expect(folders[0]).toMatchObject({ id: '10', attributes: { name: 'AI Services', 'parent-id': null } })
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1) // single page (total-pages=1)
+  })
+
+  it('passes filter[parent_id] through when scoping to a parent', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { data: [], meta: { 'total-pages': 1 } }))
+    await client().getDocumentFolders('6942365', { parentId: '0' })
+    expect(String(vi.mocked(fetch).mock.calls[0][0])).toContain('filter[parent_id]=0')
   })
 
   it('pages through when meta reports more than one page', async () => {
