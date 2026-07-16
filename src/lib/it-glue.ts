@@ -193,6 +193,19 @@ export interface ItGlueDocument {
   }
 }
 
+/** A document folder within an organization — the tree techs file SOPs into. */
+export interface ItGlueDocumentFolder {
+  id: string
+  attributes: {
+    name: string
+    'organization-id': number | null
+    /** Parent folder id; null for a top-level (root) folder. */
+    'parent-id': number | null
+    'created-at'?: string
+    'updated-at'?: string
+  }
+}
+
 /** A content block within a document (Text/Heading/Step/Gallery). */
 export interface ItGlueDocumentSection {
   id: string
@@ -536,6 +549,27 @@ export class ItGlueClient {
     return data.data ?? []
   }
 
+  /**
+   * List an organization's document folders (the tree techs file SOPs into).
+   * IT Glue paginates these; folders are few in practice, so we page by
+   * total-pages with a hard safety cap. Each folder carries id + name +
+   * 'parent-id' (null for a top-level folder).
+   */
+  async getDocumentFolders(orgId: string): Promise<ItGlueDocumentFolder[]> {
+    const first = await this.request<{ data: ItGlueDocumentFolder[]; meta?: Record<string, unknown> }>(
+      `/organizations/${orgId}/relationships/document_folders?page[size]=1000&page[number]=1`
+    )
+    const all: ItGlueDocumentFolder[] = [...(first.data ?? [])]
+    const totalPages = Number(first.meta?.['total-pages'] ?? 1) || 1
+    for (let page = 2; page <= Math.min(totalPages, 50); page++) {
+      const body = await this.request<{ data: ItGlueDocumentFolder[] }>(
+        `/organizations/${orgId}/relationships/document_folders?page[size]=1000&page[number]=${page}`
+      )
+      all.push(...(body.data ?? []))
+    }
+    return all
+  }
+
   // ── Writes (documents + flexible assets; NEVER /passwords) ───────────────
 
   /**
@@ -637,6 +671,23 @@ export class ItGlueClient {
     if (input.public !== undefined) attributes.public = input.public
     if (input.documentFolderId !== undefined) attributes.document_folder_id = input.documentFolderId == null ? null : Number(input.documentFolderId)
     const data = await this.send<{ data: ItGlueDocument }>('PATCH', `/documents/${id}`, { data: { type: 'documents', attributes } })
+    return data.data
+  }
+
+  /**
+   * Create a document folder under an organization. IT Glue's documented shape
+   * is { type: 'document-folders', attributes: { name, 'parent-id'?, restricted } }
+   * on the org's document_folders relationship (org inferred from the URL).
+   * Pass parentId to nest the folder; omit it for a top-level folder.
+   */
+  async createDocumentFolder(input: { organizationId: string | number; name: string; parentId?: string | number | null }): Promise<ItGlueDocumentFolder> {
+    const attributes: Record<string, unknown> = { name: input.name, restricted: false }
+    if (input.parentId != null && String(input.parentId).trim() !== '') attributes['parent-id'] = Number(input.parentId)
+    const data = await this.send<{ data: ItGlueDocumentFolder }>(
+      'POST',
+      `/organizations/${Number(input.organizationId)}/relationships/document_folders`,
+      { data: { type: 'document-folders', attributes } },
+    )
     return data.data
   }
 
