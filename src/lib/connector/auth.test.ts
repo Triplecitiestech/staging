@@ -27,9 +27,9 @@ describe('getProtectedResourceMetadata', () => {
   it('workos: advertises the AuthKit domain as the authorization server', () => {
     vi.stubEnv('CONNECTOR_AUTH_PROVIDER', 'workos')
     vi.stubEnv('AUTHKIT_DOMAIN', 'https://auth.example.com')
-    vi.stubEnv('MCP_RESOURCE_URL', 'https://www.triplecitiestech.com/api/connector/mcp')
+    vi.stubEnv('MCP_RESOURCE_URL', 'https://www.triplecitiestech.com/api/connector/entra/mcp')
     const m = getProtectedResourceMetadata()
-    expect(m.resource).toBe('https://www.triplecitiestech.com/api/connector/mcp')
+    expect(m.resource).toBe('https://www.triplecitiestech.com/api/connector/entra/mcp')
     expect(m.authorization_servers).toEqual(['https://auth.example.com'])
     expect(m.bearer_methods_supported).toEqual(['header'])
   })
@@ -38,12 +38,12 @@ describe('getProtectedResourceMetadata', () => {
     vi.stubEnv('CONNECTOR_AUTH_PROVIDER', 'entra')
     vi.stubEnv('CONNECTOR_ENTRA_ISSUER', '')
     vi.stubEnv('CONNECTOR_ENTRA_TENANT_ID', '11111111-2222-3333-4444-555555555555')
-    vi.stubEnv('MCP_RESOURCE_URL', 'https://www.triplecitiestech.com/api/connector/mcp')
+    vi.stubEnv('MCP_RESOURCE_URL', 'https://www.triplecitiestech.com/api/connector/entra/mcp')
     const m = getProtectedResourceMetadata()
     expect(m.authorization_servers).toEqual([
       'https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/v2.0',
     ])
-    expect(m.resource).toBe('https://www.triplecitiestech.com/api/connector/mcp')
+    expect(m.resource).toBe('https://www.triplecitiestech.com/api/connector/entra/mcp')
   })
 
   it('entra: honors an explicit issuer override (sovereign cloud)', () => {

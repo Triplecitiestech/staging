@@ -4,9 +4,16 @@
 // Reads are read-only; writes are attributed to the signed-in technician via
 // Autotask resource impersonation (see src/lib/mcp-write-tools.ts).
 //
-//   MCP endpoint:        https://<your-domain>/api/connector/mcp
+//   MCP endpoint:        https://<your-domain>/api/connector/entra/mcp
 //   Resource metadata:   https://<your-domain>/.well-known/oauth-protected-resource
-//   Authorization server: ${AUTHKIT_DOMAIN}
+//   Authorization server: selected by CONNECTOR_AUTH_PROVIDER (Entra or WorkOS)
+//
+// NOTE: this path moved from /api/connector/mcp to /api/connector/entra/mcp on
+// 2026-07-16 to force Claude clients to re-run OAuth discovery — the old URL had
+// a cached WorkOS authorization server that survived remove/re-add, so the
+// client kept sending WorkOS tokens after the cutover to Entra. A fresh URL has
+// no cached AS, so the client discovers Entra from /.well-known cleanly.
+// MCP_RESOURCE_URL must equal this endpoint URL.
 
 import { createMcpHandler, withMcpAuth } from 'mcp-handler'
 import { z } from 'zod'
@@ -99,7 +106,7 @@ const handler = createMcpHandler(
     registerHrTools(server)
   },
   {},
-  { basePath: '/api/connector', maxDuration: 60, verboseLogs: false }
+  { basePath: '/api/connector/entra', maxDuration: 60, verboseLogs: false }
 )
 
 // ── Token verification ───────────────────────────────────────────────────────
