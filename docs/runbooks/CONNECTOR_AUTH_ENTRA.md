@@ -2,7 +2,9 @@
 
 *Owner-run. Switches the connector's OAuth authorization server from WorkOS AuthKit to Microsoft Entra (Azure AD), reusing our own tenant and dropping the WorkOS dependency. Per-user attribution (Autotask impersonation + HR audit actor) is preserved because the connector still reads the signed-in user's email from the token.*
 
-The code supports both providers and picks one via `CONNECTOR_AUTH_PROVIDER` (`workos` default, or `entra`). Switching is env-only — no code change — and is fully reversible. Auth logic: `src/lib/connector/auth.ts`. Endpoint: `https://www.triplecitiestech.com/api/connector/mcp`.
+The code supports both providers and picks one via `CONNECTOR_AUTH_PROVIDER` (`workos` default, or `entra`). Switching is env-only — no code change — and is fully reversible. Auth logic: `src/lib/connector/auth.ts`. **Endpoint: `https://www.triplecitiestech.com/api/connector/entra/mcp`.**
+
+> **The endpoint moved from `/api/connector/mcp` to `/api/connector/entra/mcp` on 2026-07-16.** Reason: a Claude client caches the OAuth *authorization server* per connector URL, and that cache survived remove/re-add — so after the WorkOS→Entra cutover the client kept replaying its old **WorkOS** token (`iss` = `…authkit.app`) against the now-Entra server and 401'd forever. A brand-new URL has no cached AS, so Claude discovers Entra from `/.well-known` cleanly. `MCP_RESOURCE_URL` must equal the new endpoint. The Entra **Application ID URI can stay `https://www.triplecitiestech.com/api/connector/mcp`** — it's only an identifier + the scope prefix, and it does NOT need to equal the endpoint because a v2 token's `aud` is the client-id GUID.
 
 ## How it works (so the settings make sense)
 - Claude gets a 401 from the connector, reads `/.well-known/oauth-protected-resource`, and is sent to the authorization server we advertise (`https://login.microsoftonline.com/<tenant>/v2.0`). Claude discovers Entra via OpenID Connect discovery (the MCP client falls back to it).
@@ -47,12 +49,15 @@ On the `staging` project (Production environment):
 - `CONNECTOR_AUTH_PROVIDER=entra`
 - `CONNECTOR_ENTRA_TENANT_ID=<Directory (tenant) ID from step 1>`
 - `CONNECTOR_ENTRA_AUDIENCE=<Application (client) ID from step 1>`  ← the client id GUID, not the App ID URI
-- `MCP_RESOURCE_URL=https://www.triplecitiestech.com/api/connector/mcp` (must equal the Application ID URI from step 2; it's probably already set)
-- (optional) `CONNECTOR_ENTRA_SCOPES=api://<client-id>/mcp.access` — advertise the scope so Claude requests it
+- `MCP_RESOURCE_URL=https://www.triplecitiestech.com/api/connector/entra/mcp` — MUST equal the new endpoint URL (this is what `/.well-known` advertises). It does NOT need to equal the Entra Application ID URI; those legitimately differ now.
+- (optional) `CONNECTOR_ENTRA_SCOPES=https://www.triplecitiestech.com/api/connector/mcp/mcp.access` — the Entra scope Claude requests (Application ID URI + `/mcp.access`). Note this keeps the **old** App ID URI path; it's the Entra scope identifier, not the endpoint.
 - **Redeploy** so the vars take effect.
 
-### 7. Reconnect in Claude
-You **cannot edit** an existing connector — **remove** the TCT connector, then **Add custom connector** again with the MCP URL. Click **Advanced settings** (only exposed in the Add dialog, not on an added connector) and enter the Entra **client id** AND the **client secret** from step 5. Complete the sign-in. (Entra has no dynamic client registration, so the client id is mandatory — "Automatic client registration isn't supported" means you skipped it.)
+### 7. Reconnect in Claude (on the NEW URL)
+1. **Remove every existing TCT connector on every surface** (desktop app, web, mobile) — the old one holds a cached WorkOS authorization that will otherwise keep being replayed. **Quit the desktop app** after removing, so it stops refreshing the old token in the background.
+2. You **cannot edit** a connector, so **Add custom connector** fresh with the NEW URL: `https://www.triplecitiestech.com/api/connector/entra/mcp`.
+3. Click **Advanced settings** (only shown in the Add dialog) and enter the Entra **client id** AND the **client secret** from step 5. (Entra has no dynamic client registration — "Automatic client registration isn't supported" means the client id field was empty.)
+4. Connect → Microsoft sign-in → consent. Because the URL is new, Claude has no cached WorkOS AS and discovers Entra fresh.
 
 ### 8. Verify
 - The connection finalizes (no hang).
