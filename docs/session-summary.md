@@ -1,8 +1,15 @@
 # Session Summary
 
-> **Last updated**: 2026-07-15. (1) HR Employee-Relations SharePoint write tools + IT Glue archived filter; (2) connector OAuth auth made provider-swappable with a Microsoft Entra path to drop WorkOS (below). All code-complete and locally verified; each is dormant/no-op until owner config.
+> **Last updated**: 2026-07-16. (1) HR Employee-Relations SharePoint write tools + IT Glue archived filter; (2) connector OAuth auth made provider-swappable with a Microsoft Entra path to drop WorkOS. **Both are now LIVE in production** (2026-07-16): the connector authenticates on Entra, and `hr_er_log_append` is verified end-to-end against the real Employee Relations Log.xlsx after a first-call table-addressing bug was fixed (below).
 > **Branch**: `claude/session-7nju72`.
 > **Detailed handoff**: see `docs/SESSION_HANDOFF.md` first — this file is the quick state-of-the-world reference.
+
+## Connector went live on Entra + `hr_er_log_append` prod bugfix (2026-07-16) — branch `claude/session-7nju72`
+
+- **Both features cut over to production.** After the owner completed the Entra app + Vercel env setup, the WorkOS→Entra migration and the HR write tools went live. The connector authenticates against Entra; `hr_er_log_append` succeeds against the real HumanResources SharePoint workbook (so `CONNECTOR_HR_WRITES_ENABLED=true`, the `HR_RECORDS_*` creds resolve, and the per-site `Sites.Selected` grant is applied — a 403 would have meant the grant was missing).
+- **First production call 404'd — fixed.** `GET …/workbook/tables/{426A5E03-…}/columns` returned 404 `ItemNotFound`. Root cause: Microsoft Graph returns an Excel table `id` as a **braces-GUID** (`{…}`); addressing the table with `encodeURIComponent(id)` percent-encodes the braces (`%7B…%7D`), which Graph 404s. The table existed all along (the "convert a plain range on first run" path was never the issue). Fix: `resolveLogTable()` now lists tables and addresses the target by **NAME** via `tableSeg()` (the clean half of Graph's `/tables/{id|name}` key), picking the table whose header row contains "Entry ID", and only converting a range to a table if genuinely none exists. Applied to the column read, header check, and row append. Recorded in `docs/gotchas.md` → HR. Fix shipped as PR #149 (merged, auto-merge gate green).
+- **Verified in prod (2026-07-16):** one labeled throwaway append wrote `ER-0003` at the correct position with `verified:true`, `duplicateEntryIdDetected:false`, `resolvedDynamically:false` (existing table reused), and **ER-0001/ER-0002 left untouched**. Owner to delete the `ER-0003` test row before real use. Still unverified end-to-end: `hr_file_document` (the `.docx` filing tool).
+- **Entra cutover lessons (in `docs/runbooks/CONNECTOR_AUTH_ENTRA.md`):** the endpoint had to move to a brand-new URL (`/api/connector/entra/mcp`) because Claude caches the OAuth authorization server per connector URL and kept replaying the old WorkOS token; the server now accepts both v1 and v2 token shapes; `CONNECTOR_ENTRA_AUDIENCE` = the app client-id GUID (not the App ID URI); `MCP_RESOURCE_URL` must equal the new endpoint and only takes effect after a redeploy.
 
 ## Connector auth: WorkOS → Microsoft Entra, provider-swappable (2026-07-15) — branch `claude/session-7nju72`
 
