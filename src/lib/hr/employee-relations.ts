@@ -347,61 +347,100 @@ interface WorkbookTable {
 }
 
 /**
- * Find the log table, or convert the used range of the log worksheet into a
- * table on first run. Preference order: a table whose header contains "Entry ID";
- * else the first table on the workbook; else create one from the worksheet's
- * used range (hasHeaders=true) so future appends are atomic table appends.
+ * Address an Excel table by its NAME (a clean token like "Table1"), never by the
+ * braces-GUID `id`. Graph 404s on a percent-encoded `{...}` id in the URL path
+ * (`%7B...%7D`) — which silently broke every table call in production. The name
+ * is the reliable half of Graph's `/tables/{id|name}` key.
+ */
+function tableSeg(table: WorkbookTable): string {
+  return encodeURIComponent(table.name)
+}
+
+/** True if the table's header row has an "Entry ID" column. Name-addressed. */
+async function tableHasEntryId(workbookBase: string, table: WorkbookTable): Promise<boolean> {
+  try {
+    const cols = await graph<{ value: Array<{ name: string }> }>(
+      `${workbookBase}/tables/${tableSeg(table)}/columns?$select=name`
+    )
+    return (cols.value ?? []).some((c) => /entry\s*id/i.test(c.name))
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Resolve the Employee Relations log table at call time — never a cached or
+ * hardcoded id, since the file can be replaced or edited by a human:
+ *   1. Prefer the table whose header row has "Entry ID" (the ER log, wherever it
+ *      lives in the workbook).
+ *   2. Otherwise find the worksheet that holds the ER data (by its "Entry ID"
+ *      header) and, if it isn't already a table, convert its used range into one
+ *      (headers = row 1) — existing rows are preserved and future appends become
+ *      atomic table appends.
+ * Never falls back to an arbitrary unrelated table.
  */
 async function resolveLogTable(driveId: string, itemId: string): Promise<WorkbookTable> {
   const base = `/drives/${driveId}/items/${itemId}/workbook`
-  const tables = await graph<{ value: WorkbookTable[] }>(`${base}/tables?$select=id,name`)
-  const existing = tables.value ?? []
+  const tables =
+    (await graph<{ value: WorkbookTable[] }>(`${base}/tables?$select=id,name`)).value ?? []
 
-  for (const t of existing) {
-    try {
-      const cols = await graph<{ value: Array<{ name: string }> }>(
-        `${base}/tables/${encodeURIComponent(t.id)}/columns?$select=name`
-      )
-      if ((cols.value ?? []).some((c) => /entry\s*id/i.test(c.name))) return t
-    } catch {
-      // ignore and keep looking
-    }
+  for (const t of tables) {
+    if (await tableHasEntryId(base, t)) return t
   }
-  if (existing.length > 0) return existing[0]
 
-  // No table yet — convert the used range of the log worksheet into one.
-  const worksheet = await pickLogWorksheet(driveId, itemId)
+  // No ER table yet — locate the ER worksheet and turn its used range into one.
+  const worksheet = await findErWorksheet(driveId, itemId)
+  const wsTables =
+    (await graph<{ value: WorkbookTable[] }>(
+      `${base}/worksheets/${encodeURIComponent(worksheet)}/tables?$select=id,name`
+    )).value ?? []
+  if (wsTables.length > 0) return wsTables[0]
+
   const used = await graph<{ address: string }>(
     `${base}/worksheets/${encodeURIComponent(worksheet)}/usedRange?$select=address`
   )
-  const created = await graph<WorkbookTable>(`${base}/tables/add`, {
+  return graph<WorkbookTable>(`${base}/tables/add`, {
     method: 'POST',
     body: JSON.stringify({ address: used.address, hasHeaders: true }),
   })
-  return created
 }
 
-/** The configured worksheet if present, else the first worksheet by position. */
-async function pickLogWorksheet(driveId: string, itemId: string): Promise<string> {
+/**
+ * Find the worksheet holding the ER data by its header row (a row-1 cell matching
+ * "Entry ID"). Falls back to the configured worksheet (HR_ER_LOG_WORKSHEET), then
+ * the first sheet.
+ */
+async function findErWorksheet(driveId: string, itemId: string): Promise<string> {
   const base = `/drives/${driveId}/items/${itemId}/workbook`
-  const sheets = await graph<{ value: Array<{ name: string; position: number }> }>(
-    `${base}/worksheets?$select=name,position`
-  )
-  const all = sheets.value ?? []
-  const match = all.find((w) => w.name.toLowerCase() === LOG_WORKSHEET.toLowerCase())
-  if (match) return match.name
-  const first = [...all].sort((a, b) => a.position - b.position)[0]
-  if (!first) throw new Error('HR log workbook has no worksheets.')
-  return first.name
+  const sheets =
+    (await graph<{ value: Array<{ name: string; position: number }> }>(
+      `${base}/worksheets?$select=name,position`
+    )).value ?? []
+  if (sheets.length === 0) throw new Error('HR log workbook has no worksheets.')
+  const ordered = [...sheets].sort((a, b) => a.position - b.position)
+
+  for (const w of ordered) {
+    try {
+      const used = await graph<{ values: unknown[][] }>(
+        `${base}/worksheets/${encodeURIComponent(w.name)}/usedRange?$select=values`
+      )
+      const header = (used.values ?? [])[0] ?? []
+      if (header.some((cell) => /entry\s*id/i.test(String(cell ?? '')))) return w.name
+    } catch {
+      // unreadable/empty sheet — skip
+    }
+  }
+  const match = ordered.find((w) => w.name.toLowerCase() === LOG_WORKSHEET.toLowerCase())
+  return (match ?? ordered[0]).name
 }
 
-/** Read the Entry-ID column values (header excluded). */
+/** Read the Entry-ID column values (header excluded). Table addressed by NAME. */
 async function readEntryIdColumn(
   driveId: string,
   itemId: string,
   table: WorkbookTable
 ): Promise<string[]> {
-  const base = `/drives/${driveId}/items/${itemId}/workbook/tables/${encodeURIComponent(table.id)}`
+  const base = `/drives/${driveId}/items/${itemId}/workbook/tables/${tableSeg(table)}`
   const cols = await graph<{
     value: Array<{ name: string; index: number; values: unknown[][] }>
   }>(`${base}/columns?$select=name,index,values`)
@@ -548,7 +587,7 @@ export async function appendErLogRow(input: ErLogAppendInput): Promise<ErLogAppe
 
   const { driveId, itemId, resolvedDynamically } = await resolveWorkbook()
   const table = await resolveLogTable(driveId, itemId)
-  const base = `/drives/${driveId}/items/${itemId}/workbook/tables/${encodeURIComponent(table.id)}`
+  const base = `/drives/${driveId}/items/${itemId}/workbook/tables/${tableSeg(table)}`
 
   // Compute the next Entry ID from the live table (never trust caller input).
   const existingIds = await readEntryIdColumn(driveId, itemId, table)
