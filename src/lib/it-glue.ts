@@ -206,6 +206,29 @@ export interface ItGlueDocumentSection {
   }
 }
 
+/**
+ * A document folder. All folder endpoints are ORG-NESTED only
+ * (/organizations/:org_id/relationships/document_folders) — there is no
+ * top-level /document_folders index route.
+ */
+export interface ItGlueDocumentFolder {
+  id: string
+  attributes: {
+    name: string
+    'organization-id': number
+    'organization-name': string | null
+    'parent-id': number | null
+    /** Path from root: ids of every ancestor folder, outermost first. */
+    'ancestor-ids': number[]
+    restricted: boolean
+    'my-glue': boolean
+    'resource-url': string | null
+    'documents-count': number | null
+    'created-at': string
+    'updated-at': string
+  }
+}
+
 /** Pagination metadata surfaced alongside a page of results. */
 export interface ItGluePageMeta {
   totalCount: number | null
@@ -528,6 +551,27 @@ export class ItGlueClient {
     }
   }
 
+  /**
+   * List an org's document folders. Unlike the documents index (which returns
+   * only ROOT documents when the folder filter is omitted), the folders index
+   * returns ALL folders by default; pass parentId '0' for root-level folders
+   * only, or a folder id for its direct children. Pages defensively — real
+   * folder counts are far below one page.
+   */
+  async getDocumentFolders(orgId: string, opts?: { parentId?: string }): Promise<ItGlueDocumentFolder[]> {
+    const all: ItGlueDocumentFolder[] = []
+    const filter = opts?.parentId != null && opts.parentId !== '' ? `&filter[parent_id]=${encodeURIComponent(opts.parentId)}` : ''
+    for (let page = 1; page <= 20; page++) {
+      const body = await this.request<{ data: ItGlueDocumentFolder[] }>(
+        `/organizations/${orgId}/relationships/document_folders?page[size]=1000&page[number]=${page}${filter}`
+      )
+      const folders = body.data ?? []
+      all.push(...folders)
+      if (folders.length < 1000) break
+    }
+    return all
+  }
+
   /** List the content sections of a document. */
   async getDocumentSections(documentId: string): Promise<ItGlueDocumentSection[]> {
     const data = await this.request<{ data: ItGlueDocumentSection[] }>(
@@ -593,6 +637,23 @@ export class ItGlueClient {
       },
     }
     const data = await this.send<{ data: ItGlueFlexibleAsset }>('PATCH', `/flexible_assets/${id}`, body)
+    return data.data
+  }
+
+  /**
+   * Create a document folder under an organization (org-nested route; the
+   * public API supports create — deletion stays UI-only by policy, like
+   * document deletion). parentId nests it inside an existing folder.
+   */
+  async createDocumentFolder(input: { organizationId: string | number; name: string; parentId?: string | number | null; restricted?: boolean }): Promise<ItGlueDocumentFolder> {
+    const attributes: Record<string, unknown> = { name: input.name }
+    if (input.parentId != null) attributes.parent_id = Number(input.parentId)
+    if (input.restricted !== undefined) attributes.restricted = input.restricted
+    const data = await this.send<{ data: ItGlueDocumentFolder }>(
+      'POST',
+      `/organizations/${Number(input.organizationId)}/relationships/document_folders`,
+      { data: { type: 'document-folders', attributes } },
+    )
     return data.data
   }
 

@@ -1,8 +1,17 @@
 # Current Tasks
 
-> **Last updated**: 2026-07-16. (1) Added HR Employee-Relations SharePoint write tools to the MCP connector + an IT Glue `includeArchived` filter. (2) Made the connector's OAuth auth **provider-swappable** and added a Microsoft Entra path to drop WorkOS. **Both now LIVE in production**: connector authenticates on Entra, and `hr_er_log_append` is verified end-to-end against the real Employee Relations Log.xlsx (ER-0003 test row, read-back `verified:true`, existing rows intact). A first-call bug (Excel table addressed by braces-GUID id → 404) was fixed 2026-07-16 to address tables by name. Earlier pending items below may still be open.
-> **Branch**: `claude/session-7nju72`.
-> **Detailed context**: `docs/session-summary.md` (2026-07-15/16 sections) + `docs/gotchas.md` → "HR Employee-Relations records" + `docs/runbooks/CONNECTOR_AUTH_ENTRA.md`.
+> **Last updated**: 2026-07-16 (second session). Latest: **IT Glue document-folder tools** (`itglue_list_document_folders` / `itglue_create_document_folder` / `itglue_move_document`) added to the MCP connector on branch `claude/itglue-document-folders-lf5xa9`; pending operator step below to move the six root-level "AI Services - *" docs. Earlier 2026-07-16: Entra cutover + HR write tools LIVE (sections below). Earlier pending items may still be open.
+> **Branch**: `claude/itglue-document-folders-lf5xa9` (latest); earlier work on `claude/session-7nju72`.
+> **Detailed context**: `docs/session-summary.md` (2026-07-15/16 sections) + `docs/gotchas.md` → IT Glue / "HR Employee-Relations records" + `docs/runbooks/CONNECTOR_AUTH_ENTRA.md`.
+
+## IT Glue: move the six "AI Services - *" docs into an "AI Services" folder (2026-07-16) — ⏳ waiting on deploy + operator
+
+The folder tools ship on `claude/itglue-document-folders-lf5xa9` (auto-merge gate → main → production). They serve through the deployed connector, so the move happens AFTER deploy, from any Claude surface with the TCT MCP connected. Target: TCT org **6942365**; docs **24323685, 24323700, 24323731, 24323769, 24323787, 24323817** (all currently at the org root).
+
+- [ ] **[AFTER DEPLOY — any Claude chat with the TCT connector]** Paste this prompt: *"In IT Glue org 6942365: list the document folders (itglue_list_document_folders). If no folder named 'AI Services' exists at the top level, create one with itglue_create_document_folder (org 6942365, name 'AI Services', no parentId). Then itglue_move_document each of 24323685, 24323700, 24323731, 24323769, 24323787, 24323817 into that folder id, and confirm every result says moved:true."*
+- [ ] **[VERIFY]** Each of the six moves returns `moved:true` (read-back verified). Spot-check one doc in the IT Glue UI: org 6942365 → Documents → AI Services folder.
+- [ ] If the connector's cached tool list doesn't show the three new itglue folder tools, disconnect/reconnect the connector (tool lists cache at connect time — same lesson as the HR tools).
+- **Note**: this is the in-tenant verification pass for the new endpoints (docs-verified 2026-07-16; the tools self-verify via read-back, so a silent no-op surfaces as `moved:false`, never as fake success). If folder create 403s, record it in `docs/gotchas.md` → IT Glue and create the folder manually in the UI, then re-run the moves with the listed folder id.
 
 ## Connector auth: drop WorkOS → Microsoft Entra (2026-07-15) — 🟢 LIVE on Entra
 

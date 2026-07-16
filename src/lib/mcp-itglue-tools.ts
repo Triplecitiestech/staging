@@ -16,7 +16,7 @@
 // individual signed-in technician.
 
 import { z } from 'zod'
-import { ItGlueClient, type ItGlueDocument } from '@/lib/it-glue'
+import { ItGlueClient, type ItGlueDocument, type ItGlueDocumentFolder } from '@/lib/it-glue'
 import { searchDocIndex, TCT_ORG_ID } from '@/lib/itglue-doc-index'
 
 function itglue(): ItGlueClient {
@@ -39,6 +39,19 @@ function slimDoc(d: ItGlueDocument) {
     url: d.attributes['resource-url'],
     updatedAt: d.attributes['updated-at'],
     archived: d.attributes.archived === true,
+  }
+}
+
+// Compact folder shape: parentId null = top-level; ancestorIds outermost-first.
+function slimFolder(f: ItGlueDocumentFolder) {
+  return {
+    id: f.id,
+    name: f.attributes.name,
+    parentId: f.attributes['parent-id'],
+    ancestorIds: f.attributes['ancestor-ids'] ?? [],
+    documentsCount: f.attributes['documents-count'],
+    restricted: f.attributes.restricted === true,
+    url: f.attributes['resource-url'],
   }
 }
 
@@ -68,13 +81,21 @@ export function registerItGlueTools(server: any) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async ({ id }: any) => { try { const c = itglue(); ensureConfigured(c); return ok(await c.getFlexibleAsset(id)) } catch (e) { return fail(e) } })
 
-  server.registerTool('itglue_org_documents', { title: 'IT Glue: org documents', description: 'List documents (SOPs / runbooks / KB articles) for an organization id — the FULL library by default (root + all folders), paginated. Returns { documents, meta } where meta = { totalCount, totalPages, currentPage, pageSize, hasMore }. Page through with page/pageSize (max 1000), or pass documentFolderId to scope to one folder ("0" = root-only). ARCHIVED documents are EXCLUDED by default; set includeArchived=true to include them (each doc carries an "archived" flag). Note: meta counts come from IT Glue and include archived docs, so a filtered page may return fewer than pageSize rows (archivedExcluded reports how many were dropped). Does NOT return passwords.', inputSchema: { organizationId: z.string().describe('IT Glue organization id'), page: z.number().int().min(1).optional().describe('Page number (default 1)'), pageSize: z.number().int().min(1).max(1000).optional().describe('Page size (default 100, max 1000)'), documentFolderId: z.string().optional().describe('Scope to a folder id, or "0" for root-only; default returns ALL documents'), includeArchived: z.boolean().optional().describe('Include archived documents (default false)') } },
+  server.registerTool('itglue_org_documents', { title: 'IT Glue: org documents', description: 'List documents (SOPs / runbooks / KB articles) for an organization id — the FULL library by default (root + all folders), paginated. Returns { documents, meta } where meta = { totalCount, totalPages, currentPage, pageSize, hasMore }. Page through with page/pageSize (max 1000), or pass documentFolderId to scope to one folder ("0" = root-only). ARCHIVED documents are EXCLUDED by default; set includeArchived=true to include them (each doc carries an "archived" flag). Note: meta counts come from IT Glue and include archived docs, so a filtered page may return fewer than pageSize rows (archivedExcluded reports how many were dropped). Does NOT return passwords.', inputSchema: { organizationId: z.string().describe('IT Glue organization id'), page: z.number().int().min(1).optional().describe('Page number (default 1)'), pageSize: z.number().int().min(1).max(1000).optional().describe('Page size (default 100, max 1000)'), documentFolderId: z.string().optional().describe('Scope to a folder id (from itglue_list_document_folders), or "0" for root-only; default returns ALL documents'), includeArchived: z.boolean().optional().describe('Include archived documents (default false)') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async ({ organizationId, page, pageSize, documentFolderId, includeArchived }: any) => { try {
       const c = itglue(); ensureConfigured(c)
       const { documents, meta } = await c.getDocumentsPage(organizationId, { page, pageSize, documentFolderId })
       const filtered = includeArchived ? documents : documents.filter((d) => d.attributes.archived !== true)
       return ok({ documents: filtered, meta, includeArchived: !!includeArchived, archivedExcluded: documents.length - filtered.length })
+    } catch (e) { return fail(e) } })
+
+  server.registerTool('itglue_list_document_folders', { title: 'IT Glue: list document folders', description: 'List an organization\'s document folders: id, name, parentId (null = top-level), ancestorIds (path from root), documentsCount. Returns ALL folders by default (top-level + nested); pass parentId "0" for top-level only, or a folder id for its direct children. Use this to RESOLVE the target documentFolderId before itglue_create_document / itglue_move_document — never guess folder ids, and reuse an existing folder over creating a near-duplicate. Folder names can repeat in different branches, so disambiguate by parentId/ancestorIds, not name alone.', inputSchema: { organizationId: z.string().describe('IT Glue organization id'), parentId: z.string().optional().describe('Omit for ALL folders; "0" for top-level only; a folder id for its direct children') } },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async ({ organizationId, parentId }: any) => { try {
+      const c = itglue(); ensureConfigured(c)
+      const folders = (await c.getDocumentFolders(organizationId, { parentId })).map(slimFolder)
+      return ok({ organizationId, parentId: parentId ?? null, folderCount: folders.length, folders, note: folders.length === 0 ? 'No folders match. If the target folder is missing, create it with itglue_create_document_folder (confirm name + location with the user first).' : 'Pass a folder id as documentFolderId in itglue_create_document / itglue_move_document.' })
     } catch (e) { return fail(e) } })
 
   server.registerTool('itglue_search_documents', { title: 'IT Glue: search documents', description: 'Find documents in ONE organization by keyword. When the org is indexed this is Postgres full-text over document NAME + CONTENT (ranked by relevance); it falls back to name-only search when the org has not been indexed yet. The response tags source: "index" | "live-name". ARCHIVED documents are EXCLUDED by default; set includeArchived=true to include them (each doc carries an "archived" flag so you never edit a stale SOP unaware). Returns compact { id, name, documentFolderId, url, updatedAt, archived }.', inputSchema: { organizationId: z.string().describe('IT Glue organization id'), query: z.string().describe('Words to match against document names'), includeArchived: z.boolean().optional().describe('Include archived documents (default false)') } },
@@ -116,9 +137,31 @@ export function registerItGlueTools(server: any) {
     async ({ documentId }: any) => { try { const c = itglue(); ensureConfigured(c); return ok(await c.getDocumentSections(documentId)) } catch (e) { return fail(e) } })
 
   // ── IT Glue writes (confirm exact content with the user before calling) ────
-  server.registerTool('itglue_create_document', { title: 'IT Glue: create document', description: 'WRITE. Create a new IT Glue document under an organization with a rich-text body (HTML), optionally publishing it (default: draft). NEVER put passwords/credentials in a document. Only call after the user has approved the exact title and content.', inputSchema: { organizationId: z.string().describe('IT Glue organization id'), name: z.string().describe('Document title'), html: z.string().describe('Document body as HTML'), publish: z.boolean().optional().describe('Publish immediately; default false (draft)'), documentFolderId: z.string().optional().describe('Optional document folder id') } },
+  server.registerTool('itglue_create_document', { title: 'IT Glue: create document', description: 'WRITE. Create a new IT Glue document under an organization with a rich-text body (HTML), optionally publishing it (default: draft). RESOLVE THE DESTINATION FOLDER FIRST: call itglue_list_document_folders and pass the folder\'s id as documentFolderId — omitting it drops the document at the org ROOT, which is almost never right for SOPs/runbooks. If no suitable folder exists, create one with itglue_create_document_folder (user-approved) before creating the document; only leave documentFolderId unset when the user explicitly wants a root-level document. NEVER put passwords/credentials in a document. Only call after the user has approved the exact title, content, and folder placement.', inputSchema: { organizationId: z.string().describe('IT Glue organization id'), name: z.string().describe('Document title'), html: z.string().describe('Document body as HTML'), publish: z.boolean().optional().describe('Publish immediately; default false (draft)'), documentFolderId: z.string().optional().describe('Destination folder id (from itglue_list_document_folders). Omit ONLY for an explicitly root-level document') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async ({ organizationId, name, html, publish, documentFolderId }: any) => { try { const c = itglue(); ensureConfigured(c); return ok(await c.createDocumentWithBody({ organizationId, name, html, publish: publish ?? false, documentFolderId })) } catch (e) { return fail(e) } })
+
+  server.registerTool('itglue_create_document_folder', { title: 'IT Glue: create document folder', description: 'WRITE. Create a document folder under an organization; optional parentId nests it inside an existing folder. Check itglue_list_document_folders FIRST and reuse an existing folder instead of creating a near-duplicate name. Confirm the exact folder name and location with the user before calling. (The public API supports folder create/rename; folder DELETION is deliberately not exposed — do it in the IT Glue UI.)', inputSchema: { organizationId: z.string().describe('IT Glue organization id'), name: z.string().describe('Folder name'), parentId: z.string().optional().describe('Optional parent folder id (from itglue_list_document_folders); omit for a top-level folder') } },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async ({ organizationId, name, parentId }: any) => { try {
+      const c = itglue(); ensureConfigured(c)
+      const folder = await c.createDocumentFolder({ organizationId, name, parentId })
+      return ok({ folder: slimFolder(folder), note: 'Use folder.id as documentFolderId in itglue_create_document / itglue_move_document.' })
+    } catch (e) { return fail(e) } })
+
+  server.registerTool('itglue_move_document', { title: 'IT Glue: move a document into a folder', description: 'WRITE. Move an existing document into a document folder — or back to the org root by passing documentFolderId "root". Placement is metadata: it applies immediately, outside the draft/publish cycle, and ID-based inline links keep working. Resolve the target folder id with itglue_list_document_folders first (never guess). The result is read-back VERIFIED: moved:false means IT Glue did not apply the change — check the document in the UI, do not report success.', inputSchema: { documentId: z.string().describe('IT Glue document id'), documentFolderId: z.string().describe('Target folder id (from itglue_list_document_folders), or "root" to move the document to the org root') } },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async ({ documentId, documentFolderId }: any) => { try {
+      const c = itglue(); ensureConfigured(c)
+      const toRoot = /^(root|null|0)$/i.test(String(documentFolderId).trim())
+      const target = toRoot ? null : String(documentFolderId).trim()
+      let doc = await c.updateDocument(documentId, { documentFolderId: target })
+      // PATCH normally echoes the updated record; read back explicitly if not.
+      if (doc?.attributes?.['document-folder-id'] === undefined) doc = await c.getDocument(documentId)
+      const after = doc?.attributes?.['document-folder-id'] ?? null
+      const moved = target == null ? after == null : String(after) === target
+      return ok({ id: documentId, name: doc?.attributes?.name ?? null, documentFolderId: after, moved, note: moved ? 'Verified: the document is in the requested location (placement applies immediately; not part of draft/publish).' : 'The update call succeeded but the read-back does NOT show the requested folder — check the document in the IT Glue UI before trusting it.' })
+    } catch (e) { return fail(e) } })
 
   server.registerTool('itglue_add_document_section', { title: 'IT Glue: add document section', description: 'WRITE. Append a content section to an existing document. resourceType is Document::Text (default), Document::Heading (needs level 1-6), or Document::Step (optional duration in minutes). Confirm the exact content with the user first. IMPORTANT: section changes land on the document\'s DRAFT revision only — what techs see (the published version) is unchanged until itglue_publish_document is called for the document.', inputSchema: { documentId: z.string().describe('IT Glue document id'), content: z.string().describe('Section content: HTML for Text/Step, plain text for Heading'), resourceType: z.enum(['Document::Text', 'Document::Heading', 'Document::Step']).optional().describe('Section type (default Document::Text)'), level: z.number().int().min(1).max(6).optional().describe('Heading level, Document::Heading only'), duration: z.number().int().positive().optional().describe('Duration in minutes, Document::Step only') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -136,7 +179,7 @@ export function registerItGlueTools(server: any) {
       return ok({ documentId, ...result, note: result.published ? 'Verified: the current draft is now the published version.' : 'The publish call succeeded but the read-back does NOT show the document as published — check it in the IT Glue UI before trusting it.' })
     } catch (e) { return fail(e) } })
 
-  server.registerTool('itglue_rename_document', { title: 'IT Glue: rename a document', description: 'WRITE. Change a document\'s title (and optionally move it to a folder). Inline links built on ID-based URLs survive renames, but confirm the exact new title with the user first — titles drive the TCT naming convention (System - Topic).', inputSchema: { documentId: z.string().describe('IT Glue document id'), name: z.string().describe('New document title'), documentFolderId: z.string().optional().describe('Optional folder id to move the document into') } },
+  server.registerTool('itglue_rename_document', { title: 'IT Glue: rename a document', description: 'WRITE. Change a document\'s title (and optionally move it to a folder in the same call). For a pure move with no rename, use itglue_move_document instead. Inline links built on ID-based URLs survive renames, but confirm the exact new title with the user first — titles drive the TCT naming convention (System - Topic).', inputSchema: { documentId: z.string().describe('IT Glue document id'), name: z.string().describe('New document title'), documentFolderId: z.string().optional().describe('Optional folder id (from itglue_list_document_folders) to move the document into') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async ({ documentId, name, documentFolderId }: any) => { try { const c = itglue(); ensureConfigured(c); const doc = await c.updateDocument(documentId, { name, ...(documentFolderId !== undefined ? { documentFolderId } : {}) }); return ok({ id: doc.id, name: doc.attributes?.name, note: 'Title metadata applies immediately (it is not part of the draft/publish cycle).' }) } catch (e) { return fail(e) } })
 
