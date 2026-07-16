@@ -1,32 +1,32 @@
 # Current Tasks
 
-> **Last updated**: 2026-07-15. (1) Added HR Employee-Relations SharePoint write tools to the MCP connector + an IT Glue `includeArchived` filter. (2) Made the connector's OAuth auth **provider-swappable** and added a Microsoft Entra path to drop WorkOS. **Both code-complete; each awaits owner config (Entra app for HR writes; Entra app + env flip for connector auth).** Earlier pending items below may still be open.
+> **Last updated**: 2026-07-16. (1) Added HR Employee-Relations SharePoint write tools to the MCP connector + an IT Glue `includeArchived` filter. (2) Made the connector's OAuth auth **provider-swappable** and added a Microsoft Entra path to drop WorkOS. **Both now LIVE in production**: connector authenticates on Entra, and `hr_er_log_append` is verified end-to-end against the real Employee Relations Log.xlsx (ER-0003 test row, read-back `verified:true`, existing rows intact). A first-call bug (Excel table addressed by braces-GUID id → 404) was fixed 2026-07-16 to address tables by name. Earlier pending items below may still be open.
 > **Branch**: `claude/session-7nju72`.
-> **Detailed context**: `docs/session-summary.md` (2026-07-15 sections) + `docs/gotchas.md` → "HR Employee-Relations records" + `docs/runbooks/CONNECTOR_AUTH_ENTRA.md`.
+> **Detailed context**: `docs/session-summary.md` (2026-07-15/16 sections) + `docs/gotchas.md` → "HR Employee-Relations records" + `docs/runbooks/CONNECTOR_AUTH_ENTRA.md`.
 
-## Connector auth: drop WorkOS → Microsoft Entra (2026-07-15) — 🟡 code complete; awaiting owner Entra app + env flip
+## Connector auth: drop WorkOS → Microsoft Entra (2026-07-15) — 🟢 LIVE on Entra
 
-The connector's OAuth authorization server is now selected by `CONNECTOR_AUTH_PROVIDER` (`workos` default, or `entra`) in the new `src/lib/connector/auth.ts`; `route.ts` and `/.well-known/oauth-protected-resource` call into it. WorkOS behavior is unchanged at the default, so this ships with **zero production impact** until the env is flipped. Motivation: WorkOS sign-in "completes" on web but the desktop app never finalizes (matches known Claude↔WorkOS connector bug). Entra reuses our staff-SSO tenant and preserves per-user write attribution. Full cutover steps: `docs/runbooks/CONNECTOR_AUTH_ENTRA.md`.
+The connector's OAuth authorization server is selected by `CONNECTOR_AUTH_PROVIDER` (`workos` default, or `entra`) in `src/lib/connector/auth.ts`; `route.ts` and `/.well-known/oauth-protected-resource` call into it. Entra reuses our staff-SSO tenant and preserves per-user write attribution. **Cutover complete — the connector now authenticates against Entra in production.** Full cutover steps + gotchas: `docs/runbooks/CONNECTOR_AUTH_ENTRA.md`.
 
-- [x] **Verified locally**: `tsc` clean, `lint` clean, full unit suite 345/345 (incl. 6 new provider/metadata tests), `next build` green.
-- [ ] **[OWNER — Entra]** Create a `TCT MCP Connector` app; set Application ID URI = `https://www.triplecitiestech.com/api/connector/mcp`; expose a scope; add reply URIs (`https://claude.ai/api/mcp/auth_callback`, `http://localhost/callback`, `http://127.0.0.1/callback`); add **email** as an Access-token optional claim; allow public-client/PKCE (or make a secret). (Runbook steps 1-5.)
-- [ ] **[OWNER — Vercel]** Set `CONNECTOR_AUTH_PROVIDER=entra`, `CONNECTOR_ENTRA_TENANT_ID`, `CONNECTOR_ENTRA_AUDIENCE=<the app CLIENT ID, not the App ID URI>`, confirm `MCP_RESOURCE_URL` = the MCP URL; redeploy.
-- [ ] **[OWNER — Claude]** Remove + re-add the connector; enter the Entra client id (and secret if confidential) in Advanced settings; sign in.
-- [ ] **[OWNER — verify]** Connection finalizes; a read works; a write is attributed to your email. Rollback = set `CONNECTOR_AUTH_PROVIDER=workos` + redeploy.
-- [ ] **[NOTE]** The interactive Claude↔Entra flow can only be confirmed live — the server side is unit/build-verified but not exercised end-to-end here.
+- [x] **Verified locally**: `tsc` clean, `lint` clean, full unit suite (incl. provider/metadata tests), `next build` green.
+- [x] **[OWNER — Entra]** `TCT MCP Connector` app created; Application ID URI + scope set; reply URIs added (Web `https://claude.ai/api/mcp/auth_callback` + loopbacks); **email** added as an Access-token optional claim; `requestedAccessTokenVersion=2`; client secret created.
+- [x] **[OWNER — Vercel]** `CONNECTOR_AUTH_PROVIDER=entra`, `CONNECTOR_ENTRA_TENANT_ID`, `CONNECTOR_ENTRA_AUDIENCE` (client-id GUID), `CONNECTOR_ENTRA_SCOPES`, `MCP_RESOURCE_URL=https://www.triplecitiestech.com/api/connector/entra/mcp` set; redeployed.
+- [x] **[OWNER — Claude]** Connector re-added on the NEW URL `…/api/connector/entra/mcp` with client id + secret in Advanced settings; signed in.
+- [x] **[OWNER — verify]** Connection finalizes; reads work; writes attributed to the signed-in user (confirmed via `hr_er_log_append`). Rollback available = set `CONNECTOR_AUTH_PROVIDER=workos` + redeploy.
+- **Non-obvious lessons captured in the runbook**: (a) the endpoint had to MOVE to a brand-new URL — Claude caches the OAuth authorization server per connector URL, so the old URL kept replaying the WorkOS token; (b) the server accepts both v1 and v2 token shapes; (c) `CONNECTOR_ENTRA_AUDIENCE` = client-id GUID, not the App ID URI.
 
-## HR Employee-Relations connector writes + IT Glue archived filter (2026-07-15) — 🟡 code complete; HR tools dormant until owner Entra setup
+## HR Employee-Relations connector writes + IT Glue archived filter (2026-07-15) — 🟢 LIVE; `hr_er_log_append` verified in prod
 
 Two DIRECT-write connector tools against TCT's OWN HumanResources SharePoint site — `hr_er_log_append` (appends a computed `ER-NNNN` row to Employee Relations Log.xlsx via the workbook table API) and `hr_file_document` (files a `.docx` to the central `_Employee Relations/` folder AND the subject's `Performance & Conduct/` subfolder, computed `ER-DOC-NNNN`). Both audit-logged + read-back verified, behind kill switch `CONNECTOR_HR_WRITES_ENABLED`. Auth = a NEW, dedicated, least-privilege Entra app (`Sites.Selected` → `write` on ONLY the HR site) — owner-approved 2026-07-15. Also: IT Glue `itglue_search_documents` / `itglue_global_search` / `itglue_org_documents` gained `includeArchived` (default false; archived docs tagged when included). Modules: `src/lib/hr/employee-relations.ts`, `src/lib/mcp-hr-tools.ts`, `src/lib/itglue-doc-index.ts`, `src/lib/mcp-itglue-tools.ts`. Full notes: `docs/gotchas.md` → "HR Employee-Relations records".
 
 - [x] **Verified locally**: `tsc --noEmit` clean, `npm run lint` clean, 18 unit tests pass (`src/lib/hr/employee-relations.test.ts`).
-- [ ] **[OWNER — one-time, in Entra]** Create the dedicated single-tenant app "TCT HR Records Writer (connector)": add Application permission **`Sites.Selected`**, **Grant admin consent**, create a client secret. (No redirect URI; remove the default delegated `User.Read`.)
-- [ ] **[OWNER/ADMIN — one-time]** Grant the app `write` on ONLY the HR site (SharePoint/Global admin, delegated `Sites.FullControl.All`):
-      `Connect-MgGraph -Scopes "Sites.FullControl.All"; $site = Get-MgSite -SiteId "triplecitiestechcom.sharepoint.com:/sites/HumanResources:"; New-MgSitePermission -SiteId $site.Id -BodyParameter @{ roles=@("write"); grantedToIdentities=@(@{ application=@{ id="<APP_CLIENT_ID>"; displayName="TCT HR Records Writer (connector)" } }) }`
-- [ ] **[OWNER — one-time, in Vercel]** Set `HR_RECORDS_TENANT_ID`, `HR_RECORDS_CLIENT_ID`, `HR_RECORDS_CLIENT_SECRET`, and `CONNECTOR_HR_WRITES_ENABLED=true`; redeploy.
-- [ ] **[OWNER — after deploy]** **Disconnect & reconnect the TCT connector in Claude** (the tool list caches at connect time) so `hr_er_log_append`, `hr_file_document`, and the `includeArchived` params appear.
-- [ ] **[OWNER — verify end-to-end]** From chat/Cowork/mobile: file a test ER row and a test `.docx`; confirm the row lands in the workbook with the next `ER-NNNN`, the file appears in BOTH folders with `ER-DOC-NNNN_[LastName]_[date]_[Type].docx`, and both webUrls return. A 403 on the workbook call means the per-site grant above wasn't applied.
-- [ ] **[CI]** Auto-merge gate green (secret-scan + quality: lint + schema-drift + build + unit). The HR tools stay dormant on the deploy (kill switch off) until the steps above are done, so shipping the code is safe.
+- [x] **[OWNER — Entra]** Dedicated single-tenant app created (Cowork, 2026-07-15) with Application permission **`Sites.Selected`**, admin consent granted, client secret created.
+- [x] **[OWNER/ADMIN]** App granted `write` on ONLY the HR site (site-permission POST 201).
+- [x] **[OWNER — Vercel]** `HR_RECORDS_TENANT_ID`, `HR_RECORDS_CLIENT_ID`, `HR_RECORDS_CLIENT_SECRET`, `CONNECTOR_HR_WRITES_ENABLED=true` set; redeployed.
+- [x] **[OWNER — after deploy]** Connector reconnected so the HR tools appear.
+- [x] **[VERIFY — ER row]** `hr_er_log_append` confirmed end-to-end against the real workbook 2026-07-16: test row `ER-0003` landed at the correct position, `verified:true`, existing rows untouched, no 403 (per-site grant is good). **First production call had 404'd** because Graph table `id`s are braces-GUIDs (`{…}`) that 404 when percent-encoded — fixed to address the table by NAME (`resolveLogTable`/`tableSeg`, commit on 2026-07-16). Test row `ER-0003` to be deleted by owner before real use.
+- [ ] **[VERIFY — .docx]** `hr_file_document` not yet exercised end-to-end in prod — file a test `.docx`, confirm it appears in BOTH folders as `ER-DOC-NNNN_[LastName]_[date]_[Type].docx` with both webUrls returned.
+- [x] **[CI]** Auto-merge gate green (secret-scan + quality: lint + schema-drift + build + unit) for the feature PRs (#145) and the table-name fix (#149).
 
 ## Thread forms integration: pre-launch gaps (2026-07-10) — 🟢 SHIPPED to production (owner-directed); activation steps below still open
 
