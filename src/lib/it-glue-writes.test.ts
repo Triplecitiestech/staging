@@ -78,3 +78,69 @@ describe('uploadAttachment', () => {
     expect(body.data.attributes.attachment).toEqual({ content: 'aGVsbG8=', file_name: 'shot.png' })
   })
 })
+
+describe('getDocumentFolders', () => {
+  it('GETs the org document_folders relationship and returns the folders', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, {
+      data: [
+        { id: '10', attributes: { name: 'AI Services', 'parent-id': null } },
+        { id: '11', attributes: { name: 'Runbooks', 'parent-id': 10 } },
+      ],
+      meta: { 'total-pages': 1 },
+    }))
+    const folders = await client().getDocumentFolders('6942365')
+    const [url] = vi.mocked(fetch).mock.calls[0]
+    expect(String(url)).toContain('/organizations/6942365/relationships/document_folders')
+    expect(folders).toHaveLength(2)
+    expect(folders[0]).toMatchObject({ id: '10', attributes: { name: 'AI Services', 'parent-id': null } })
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1) // single page (total-pages=1)
+  })
+
+  it('pages through when meta reports more than one page', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { data: [{ id: '1', attributes: { name: 'A', 'parent-id': null } }], meta: { 'total-pages': 2 } }))
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { data: [{ id: '2', attributes: { name: 'B', 'parent-id': null } }] }))
+    const folders = await client().getDocumentFolders('6942365')
+    expect(folders.map((f) => f.id)).toEqual(['1', '2'])
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('createDocumentFolder', () => {
+  it('POSTs the documented document-folders shape to the org relationship (top-level)', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(201, { data: { id: '99', attributes: { name: 'AI Services', 'parent-id': null } } }))
+    const folder = await client().createDocumentFolder({ organizationId: '6942365', name: 'AI Services' })
+    const [url, init] = vi.mocked(fetch).mock.calls[0]
+    expect(String(url)).toContain('/organizations/6942365/relationships/document_folders')
+    expect((init as RequestInit).method).toBe('POST')
+    const body = JSON.parse((init as RequestInit).body as string)
+    expect(body.data.type).toBe('document-folders')
+    expect(body.data.attributes).toEqual({ name: 'AI Services', restricted: false }) // no parent-id when top-level
+    expect(folder.id).toBe('99')
+  })
+
+  it('includes a numeric parent-id when nesting under a parent folder', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(201, { data: { id: '100', attributes: { name: 'Child', 'parent-id': 99 } } }))
+    await client().createDocumentFolder({ organizationId: '6942365', name: 'Child', parentId: '99' })
+    const body = JSON.parse((vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string)
+    expect(body.data.attributes).toEqual({ name: 'Child', restricted: false, 'parent-id': 99 })
+  })
+})
+
+describe('updateDocument (move)', () => {
+  it('PATCHes document_folder_id as a number when moving into a folder', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { data: { id: '24323685', attributes: { name: 'AI Services - Intake', 'document-folder-id': 99 } } }))
+    await client().updateDocument('24323685', { documentFolderId: '99' })
+    const [url, init] = vi.mocked(fetch).mock.calls[0]
+    expect(String(url)).toContain('/documents/24323685')
+    expect((init as RequestInit).method).toBe('PATCH')
+    const body = JSON.parse((init as RequestInit).body as string)
+    expect(body.data.attributes).toEqual({ document_folder_id: 99 })
+  })
+
+  it('PATCHes document_folder_id to null when moving to the org root', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(200, { data: { id: '1', attributes: { 'document-folder-id': null } } }))
+    await client().updateDocument('1', { documentFolderId: null })
+    const body = JSON.parse((vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string)
+    expect(body.data.attributes).toEqual({ document_folder_id: null })
+  })
+})

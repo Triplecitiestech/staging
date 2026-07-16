@@ -1,8 +1,16 @@
 # Session Summary
 
-> **Last updated**: 2026-07-16. (1) HR Employee-Relations SharePoint write tools + IT Glue archived filter; (2) connector OAuth auth made provider-swappable with a Microsoft Entra path to drop WorkOS. **Both are now LIVE in production** (2026-07-16): the connector authenticates on Entra, and `hr_er_log_append` is verified end-to-end against the real Employee Relations Log.xlsx after a first-call table-addressing bug was fixed (below).
+> **Last updated**: 2026-07-16. (1) HR Employee-Relations SharePoint write tools + IT Glue archived filter; (2) connector OAuth auth made provider-swappable with a Microsoft Entra path to drop WorkOS. **Both are now LIVE in production** (2026-07-16): the connector authenticates on Entra, and `hr_er_log_append` is verified end-to-end against the real Employee Relations Log.xlsx after a first-call table-addressing bug was fixed (below). (3) Added IT Glue **document-folder** tools (list/create/move) so connector-created SOPs stop landing at the org root (below).
 > **Branch**: `claude/session-7nju72`.
 > **Detailed handoff**: see `docs/SESSION_HANDOFF.md` first — this file is the quick state-of-the-world reference.
+
+## IT Glue connector: document-folder tools (2026-07-16) — branch `claude/session-7nju72`
+
+- **Problem**: `itglue_create_document` accepted a `documentFolderId` but nothing could discover, create, or change folders, so every Claude-created SOP landed at the org root.
+- **Added** (in the existing `src/lib/mcp-itglue-tools.ts` + `src/lib/it-glue.ts` — no parallel client): `itglue_list_document_folders`, `itglue_create_document_folder`, `itglue_move_document`. Move reuses the already-proven `updateDocument` PATCH of `document_folder_id` (same path as rename); list/create hit `…/organizations/{id}/relationships/document_folders`. Updated `itglue_create_document`'s description to resolve the folder first and never default to root for SOPs.
+- **API verified against IT Glue developer docs** (not guessed): folder list + create are public; JSON:API type `document-folders`; folder attrs are dasherized (`name`, `parent-id` null = top-level). Attribute-key note recorded in gotchas: IT Glue normalizes hyphen/underscore on writes (this client already proves it — `organization_id` for docs vs `organization-id` for flexible assets both work), and folder create follows the documented hyphenated `parent-id`.
+- **Verified locally**: `tsc` clean, `lint` clean on changed files, `it-glue-writes.test.ts` 13/13 (7 new for folder list/create + move body shapes).
+- **Open**: deploy via the gate → owner reconnects the connector (tool list caches at connect time) → run the test case (org 6942365: create "AI Services", move the six root docs 24323685/24323700/24323731/24323769/24323787/24323817 into it, confirm each leaves root). Detail: `docs/current-tasks.md`.
 
 ## Connector went live on Entra + `hr_er_log_append` prod bugfix (2026-07-16) — branch `claude/session-7nju72`
 

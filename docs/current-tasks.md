@@ -1,8 +1,17 @@
 # Current Tasks
 
-> **Last updated**: 2026-07-16. (1) Added HR Employee-Relations SharePoint write tools to the MCP connector + an IT Glue `includeArchived` filter. (2) Made the connector's OAuth auth **provider-swappable** and added a Microsoft Entra path to drop WorkOS. **Both now LIVE in production**: connector authenticates on Entra, and `hr_er_log_append` is verified end-to-end against the real Employee Relations Log.xlsx (ER-0003 test row, read-back `verified:true`, existing rows intact). A first-call bug (Excel table addressed by braces-GUID id → 404) was fixed 2026-07-16 to address tables by name. Earlier pending items below may still be open.
+> **Last updated**: 2026-07-16. (1) Added HR Employee-Relations SharePoint write tools to the MCP connector + an IT Glue `includeArchived` filter. (2) Made the connector's OAuth auth **provider-swappable** and added a Microsoft Entra path to drop WorkOS. **Both now LIVE in production**: connector authenticates on Entra, and `hr_er_log_append` is verified end-to-end against the real Employee Relations Log.xlsx (ER-0003 test row, read-back `verified:true`, existing rows intact). A first-call bug (Excel table addressed by braces-GUID id → 404) was fixed 2026-07-16 to address tables by name. (3) Added IT Glue **document-folder** tools (list/create/move) so connector-created SOPs stop landing at the org root — code complete, awaiting deploy + reconnect + the AI Services test case (below). Earlier pending items below may still be open.
 > **Branch**: `claude/session-7nju72`.
 > **Detailed context**: `docs/session-summary.md` (2026-07-15/16 sections) + `docs/gotchas.md` → "HR Employee-Relations records" + `docs/runbooks/CONNECTOR_AUTH_ENTRA.md`.
+
+## IT Glue connector: document-folder tools (2026-07-16) — 🟡 code complete; needs deploy + connector reconnect, then run the test case
+
+The connector could set a document's folder at create time but had no way to discover, create, or change folders, so Claude-created SOPs landed at the org root. Added three tools in `src/lib/mcp-itglue-tools.ts` (client methods in `src/lib/it-glue.ts`, no parallel client): `itglue_list_document_folders(organizationId)` → `{ id, name, parentFolderId }`; `itglue_create_document_folder(organizationId, name, parentId?)` (documented `POST …/relationships/document_folders`); `itglue_move_document(documentId, documentFolderId)` (reuses the proven `updateDocument` PATCH of `document_folder_id`; `"0"/"null"/"root"` moves back to root). `itglue_create_document`'s description now tells callers to resolve the folder first and never default to root for SOPs. IT Glue folder API verified against the developer docs (list + create are public; folder attrs dasherized, `parent-id` null = top-level).
+
+- [x] **Verified locally**: `tsc --noEmit` clean, `npm run lint` clean on the changed files, unit tests pass (`src/lib/it-glue-writes.test.ts` — added 7 for folder list/create + move body shapes; 13 total in file).
+- [ ] **[CI]** Auto-merge gate green (secret-scan + quality: lint + schema-drift + build + unit).
+- [ ] **[OWNER — after deploy]** **Disconnect & reconnect the TCT connector in Claude** (the tool list caches at connect time) so the three new tools appear.
+- [ ] **[VERIFY — test case]** In TCT org `6942365`: `itglue_create_document_folder` → "AI Services"; then `itglue_move_document` each of the six root docs (24323685, 24323700, 24323731, 24323769, 24323787, 24323817) into it; confirm each response's `documentFolderId` matches the new folder id and the docs leave root (`itglue_list_document_folders` + `itglue_org_documents documentFolderId="0"`).
 
 ## Connector auth: drop WorkOS → Microsoft Entra (2026-07-15) — 🟢 LIVE on Entra
 
