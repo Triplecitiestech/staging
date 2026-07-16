@@ -207,25 +207,27 @@ export interface ItGlueDocumentSection {
 }
 
 /**
- * A document folder. All folder endpoints are ORG-NESTED only
- * (/organizations/:org_id/relationships/document_folders) — there is no
- * top-level /document_folders index route.
+ * A document folder — the tree techs file SOPs into. All folder endpoints are
+ * ORG-NESTED only (/organizations/:org_id/relationships/document_folders) —
+ * there is no top-level /document_folders index route. Only name + parent-id
+ * are relied on; the rest are optional against tenant variance.
  */
 export interface ItGlueDocumentFolder {
   id: string
   attributes: {
     name: string
-    'organization-id': number
-    'organization-name': string | null
+    /** Parent folder id; null for a top-level (root) folder. */
     'parent-id': number | null
+    'organization-id'?: number | null
+    'organization-name'?: string | null
     /** Path from root: ids of every ancestor folder, outermost first. */
-    'ancestor-ids': number[]
-    restricted: boolean
-    'my-glue': boolean
-    'resource-url': string | null
-    'documents-count': number | null
-    'created-at': string
-    'updated-at': string
+    'ancestor-ids'?: number[]
+    restricted?: boolean
+    'my-glue'?: boolean
+    'resource-url'?: string | null
+    'documents-count'?: number | null
+    'created-at'?: string
+    'updated-at'?: string
   }
 }
 
@@ -554,20 +556,23 @@ export class ItGlueClient {
   /**
    * List an org's document folders. Unlike the documents index (which returns
    * only ROOT documents when the folder filter is omitted), the folders index
-   * returns ALL folders by default; pass parentId '0' for root-level folders
-   * only, or a folder id for its direct children. Pages defensively — real
-   * folder counts are far below one page.
+   * returns ALL folders by default; pass parentId '0' for top-level folders
+   * only, or a folder id for its direct children (single value — comma lists
+   * silently return empty). Pages by meta total-pages with a hard safety cap;
+   * real folder counts are far below one page.
    */
   async getDocumentFolders(orgId: string, opts?: { parentId?: string }): Promise<ItGlueDocumentFolder[]> {
-    const all: ItGlueDocumentFolder[] = []
     const filter = opts?.parentId != null && opts.parentId !== '' ? `&filter[parent_id]=${encodeURIComponent(opts.parentId)}` : ''
-    for (let page = 1; page <= 20; page++) {
+    const first = await this.request<{ data: ItGlueDocumentFolder[]; meta?: Record<string, unknown> }>(
+      `/organizations/${orgId}/relationships/document_folders?page[size]=1000&page[number]=1${filter}`
+    )
+    const all: ItGlueDocumentFolder[] = [...(first.data ?? [])]
+    const totalPages = Number(first.meta?.['total-pages'] ?? 1) || 1
+    for (let page = 2; page <= Math.min(totalPages, 50); page++) {
       const body = await this.request<{ data: ItGlueDocumentFolder[] }>(
         `/organizations/${orgId}/relationships/document_folders?page[size]=1000&page[number]=${page}${filter}`
       )
-      const folders = body.data ?? []
-      all.push(...folders)
-      if (folders.length < 1000) break
+      all.push(...(body.data ?? []))
     }
     return all
   }
@@ -641,14 +646,16 @@ export class ItGlueClient {
   }
 
   /**
-   * Create a document folder under an organization (org-nested route; the
-   * public API supports create — deletion stays UI-only by policy, like
-   * document deletion). parentId nests it inside an existing folder.
+   * Create a document folder under an organization. IT Glue's documented shape
+   * is { type: 'document-folders', attributes: { name, 'parent-id'?, restricted } }
+   * on the org's document_folders relationship (org inferred from the URL).
+   * Pass parentId to nest the folder; omit it for a top-level folder. The
+   * public API supports create — folder DELETION stays UI-only by policy,
+   * like document deletion.
    */
   async createDocumentFolder(input: { organizationId: string | number; name: string; parentId?: string | number | null; restricted?: boolean }): Promise<ItGlueDocumentFolder> {
-    const attributes: Record<string, unknown> = { name: input.name }
-    if (input.parentId != null) attributes.parent_id = Number(input.parentId)
-    if (input.restricted !== undefined) attributes.restricted = input.restricted
+    const attributes: Record<string, unknown> = { name: input.name, restricted: input.restricted ?? false }
+    if (input.parentId != null && String(input.parentId).trim() !== '') attributes['parent-id'] = Number(input.parentId)
     const data = await this.send<{ data: ItGlueDocumentFolder }>(
       'POST',
       `/organizations/${Number(input.organizationId)}/relationships/document_folders`,
