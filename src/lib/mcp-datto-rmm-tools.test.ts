@@ -326,4 +326,12 @@ describe('pure helpers', () => {
     expect(bare.device.consoleUrl).toBeNull()
     expect(bare.type).toBe('unknown')
   })
+
+  it('buildAlertRow normalizes epoch-millis timestamps (the live API ignores the spec\'s date-time string)', () => {
+    const links = { siteUrlByUid: new Map<string, string>(), deviceUrlByUid: new Map<string, string>() }
+    const row = buildAlertRow({ alertUid: 'n', timestamp: 1784393112000, resolved: true, resolvedOn: 1784393200000 }, links)
+    expect(row.timestamp).toBe(new Date(1784393112000).toISOString())
+    expect(row.resolvedOn).toBe(new Date(1784393200000).toISOString())
+    expect(buildAlertRow({ alertUid: 's', timestamp: '2026-07-17T11:59:00Z' }, links).timestamp).toBe('2026-07-17T11:59:00.000Z')
+  })
 })

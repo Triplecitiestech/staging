@@ -125,10 +125,11 @@ interface DrmAlert {
   diagnostics?: unknown
   resolved?: boolean
   resolvedBy?: string
-  resolvedOn?: string
+  resolvedOn?: string | number
   muted?: boolean
   ticketNumber?: string
-  timestamp?: string
+  // Spec says date-time string; the live API returns epoch millis.
+  timestamp?: string | number
   alertMonitorInfo?: { sendsEmails?: boolean; createsTicket?: boolean } | null
   alertContext?: (Record<string, unknown> & { '@class'?: string }) | null
   alertSourceInfo?: { deviceUid?: string; deviceName?: string; siteUid?: string; siteName?: string } | null
@@ -281,9 +282,11 @@ export function buildAlertRow(
     alertUid: a.alertUid ?? null,
     priority: a.priority ?? null,
     type: a.alertContext?.['@class'] ?? 'unknown',
-    timestamp: a.timestamp ?? null,
+    // The live API returns epoch millis here despite the spec's date-time
+    // string — normalize to ISO either way.
+    timestamp: tsOf(a.timestamp),
     resolved: a.resolved ?? false,
-    ...(a.resolved ? { resolvedOn: a.resolvedOn ?? null, resolvedBy: a.resolvedBy ?? null } : {}),
+    ...(a.resolved ? { resolvedOn: tsOf(a.resolvedOn), resolvedBy: a.resolvedBy ?? null } : {}),
     muted: a.muted ?? false,
     ticketNumber: a.ticketNumber ?? null,
     monitor: { createsTicket: a.alertMonitorInfo?.createsTicket ?? null, sendsEmails: a.alertMonitorInfo?.sendsEmails ?? null },
@@ -379,8 +382,13 @@ async function siteDeviceLinks(siteUid: string): Promise<Map<string, string>> {
   return byUid
 }
 
-/** Max distinct sites whose device maps we resolve per alerts call (rate-limit courtesy). */
-const MAX_LINK_SITES_PER_CALL = 8
+/**
+ * Max distinct sites whose device maps we resolve per alerts call. Live data
+ * 2026-07-18: one account-wide open-alerts page spanned 19 distinct sites, so
+ * 8 left over half the rows without device links. 24 covers the real fleet;
+ * worst case ≈ 48 GETs per call — well inside the 600 reads/60s budget.
+ */
+const MAX_LINK_SITES_PER_CALL = 24
 
 async function alertLinkMaps(alerts: DrmAlert[]): Promise<{ siteUrlByUid: Map<string, string>; deviceUrlByUid: Map<string, string>; linkNotes: string[] }> {
   const linkNotes: string[] = []
@@ -528,7 +536,7 @@ export function registerDattoRmmTools(server: any) {
     } catch (e) { return fail(e) } })
 
   // ── Alerts ───────────────────────────────────────────────────────────────
-  server.registerTool('datto_rmm_alerts', { title: 'Datto RMM: alerts (open/resolved; account, site, or device)', description: 'Read-only alert reporting. scope=account (default; all customers), or pass siteUid / deviceUid to scope down. status=open (default) or resolved. Each row: priority, monitor type (from the alert context class), timestamp, ticket number, resolution info (resolved scope), response actions, the raw alertContext, and the referenced device + site each WITH their web-console deep link (resolved from the API\'s own data; account-wide sweeps resolve device links for up to 8 sites per call and say so when capped). sinceDays filters client-side by alert timestamp — the API has no date filter, so old resolved alerts may need more pages (response reports truncation). includeDiagnostics=true adds the (large) diagnostics payload. Alert volume can be high — resolved sweeps default to 2 pages of 100.', inputSchema: { scope: z.enum(['account', 'site', 'device']).optional().describe('Default account; site/device require siteUid/deviceUid'), siteUid: z.string().optional().describe('Site UID (UUID) — required when scope=site'), deviceUid: z.string().optional().describe('Device UID (UUID) — required when scope=device'), status: z.enum(['open', 'resolved']).optional().describe('Default open'), muted: z.boolean().optional().describe('Filter by muted state (omit for all)'), sinceDays: z.number().int().min(1).max(365).optional().describe('Keep only alerts newer than N days (client-side filter)'), includeDiagnostics: z.boolean().optional().describe('Include raw diagnostics payload per alert (default false; large)'), page: z.number().int().min(0).optional().describe('Start page, 0-BASED — the API\'s page index (default 0, the first page)'), max: z.number().int().min(1).max(250).optional().describe('Rows per page (default 100)'), maxPages: z.number().int().min(1).max(8).optional().describe('Pages to sweep (default 2)') } },
+  server.registerTool('datto_rmm_alerts', { title: 'Datto RMM: alerts (open/resolved; account, site, or device)', description: 'Read-only alert reporting. scope=account (default; all customers), or pass siteUid / deviceUid to scope down. status=open (default) or resolved. Each row: priority, monitor type (from the alert context class), timestamp, ticket number, resolution info (resolved scope), response actions, the raw alertContext, and the referenced device + site each WITH their web-console deep link (resolved from the API\'s own data; account-wide sweeps resolve device links for up to 24 sites per call and say so when capped). sinceDays filters client-side by alert timestamp — the API has no date filter, so old resolved alerts may need more pages (response reports truncation). includeDiagnostics=true adds the (large) diagnostics payload. Alert volume can be high — resolved sweeps default to 2 pages of 100.', inputSchema: { scope: z.enum(['account', 'site', 'device']).optional().describe('Default account; site/device require siteUid/deviceUid'), siteUid: z.string().optional().describe('Site UID (UUID) — required when scope=site'), deviceUid: z.string().optional().describe('Device UID (UUID) — required when scope=device'), status: z.enum(['open', 'resolved']).optional().describe('Default open'), muted: z.boolean().optional().describe('Filter by muted state (omit for all)'), sinceDays: z.number().int().min(1).max(365).optional().describe('Keep only alerts newer than N days (client-side filter)'), includeDiagnostics: z.boolean().optional().describe('Include raw diagnostics payload per alert (default false; large)'), page: z.number().int().min(0).optional().describe('Start page, 0-BASED — the API\'s page index (default 0, the first page)'), max: z.number().int().min(1).max(250).optional().describe('Rows per page (default 100)'), maxPages: z.number().int().min(1).max(8).optional().describe('Pages to sweep (default 2)') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async ({ scope, siteUid, deviceUid, status, muted, sinceDays, includeDiagnostics, page, max, maxPages }: any) => { try {
       const effScope = scope ?? (deviceUid ? 'device' : siteUid ? 'site' : 'account')
@@ -544,7 +552,10 @@ export function registerDattoRmmTools(server: any) {
       if (sinceDays) {
         const cutoff = Date.now() - sinceDays * 86_400_000
         const before = alerts.length
-        alerts = alerts.filter(a => { const t = a.timestamp ? Date.parse(a.timestamp) : NaN; return Number.isNaN(t) ? true : t >= cutoff })
+        alerts = alerts.filter(a => {
+          const t = typeof a.timestamp === 'number' ? a.timestamp : a.timestamp ? Date.parse(a.timestamp) : NaN
+          return Number.isNaN(t) ? true : t >= cutoff
+        })
         dateFiltered = before - alerts.length
       }
       const links = await alertLinkMaps(alerts)
