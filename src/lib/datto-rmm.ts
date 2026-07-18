@@ -193,12 +193,19 @@ export class DattoRmmClient {
     return this.request<unknown>(path);
   }
 
-  /** Fetch all devices (paginated). Returns up to maxPages * 250 devices. */
+  /**
+   * Fetch all devices (paginated). Returns up to maxPages * 250 devices.
+   * NOTE: the Datto RMM `page` parameter is 0-INDEXED (confirmed live
+   * 2026-07-18: page=1 returns an empty page while pageDetails.totalCount
+   * reports hundreds of rows). Starting at page=1 silently skipped the
+   * first 250 rows — the historical "account devices returns 5 of
+   * hundreds" mystery. All paged loops here start at 0.
+   */
   async getDevices(maxPages = 10): Promise<DattoDevice[]> {
     const devices: DattoDevice[] = [];
-    let page = 1;
+    let page = 0;
 
-    while (page <= maxPages) {
+    while (page < maxPages) {
       const data = await this.request<{ devices: RawDevice[]; pageDetails: { nextPageUrl?: string } }>(
         `/api/v2/account/devices?page=${page}&max=250`
       );
@@ -264,12 +271,12 @@ export class DattoRmmClient {
     }
   }
 
-  /** Fetch all alerts (paginated). Returns up to maxPages * 250 alerts. Default 200 pages = 50,000 alerts. */
+  /** Fetch all alerts (paginated, 0-indexed pages). Returns up to maxPages * 250 alerts. Default 200 pages = 50,000 alerts. */
   async getAlerts(maxPages = 200): Promise<DattoAlert[]> {
     const alerts: DattoAlert[] = [];
-    let page = 1;
+    let page = 0;
 
-    while (page <= maxPages) {
+    while (page < maxPages) {
       const data = await this.request<{ alerts: RawAlert[]; pageDetails: { nextPageUrl?: string } }>(
         `/api/v2/account/alerts?page=${page}&max=250`
       );
@@ -285,12 +292,12 @@ export class DattoRmmClient {
     return alerts;
   }
 
-  /** Fetch resolved alerts (paginated). Default 200 pages = 50,000 alerts. */
+  /** Fetch resolved alerts (paginated, 0-indexed pages). Default 200 pages = 50,000 alerts. */
   async getResolvedAlerts(maxPages = 200): Promise<DattoAlert[]> {
     const alerts: DattoAlert[] = [];
-    let page = 1;
+    let page = 0;
 
-    while (page <= maxPages) {
+    while (page < maxPages) {
       const data = await this.request<{ alerts: RawAlert[]; pageDetails: { nextPageUrl?: string } }>(
         `/api/v2/account/alerts/resolved?page=${page}&max=250`
       );
@@ -306,12 +313,12 @@ export class DattoRmmClient {
     return alerts;
   }
 
-  /** Fetch open (active) alerts (paginated). Default 200 pages = 50,000 alerts. */
+  /** Fetch open (active) alerts (paginated, 0-indexed pages). Default 200 pages = 50,000 alerts. */
   async getOpenAlerts(maxPages = 200): Promise<DattoAlert[]> {
     const alerts: DattoAlert[] = [];
-    let page = 1;
+    let page = 0;
 
-    while (page <= maxPages) {
+    while (page < maxPages) {
       const data = await this.request<{ alerts: RawAlert[]; pageDetails: { nextPageUrl?: string } }>(
         `/api/v2/account/alerts/open?page=${page}&max=250`
       );

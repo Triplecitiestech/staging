@@ -17,7 +17,7 @@ any path outside `/api/v2/`.
 - **Region base URL**: `DATTO_RMM_API_URL` env var (TCT platform host, one of `concord|pinotage|merlot|vidal|zinfandel|syrah`-api.centrastage.net).
 - **Secrets**: `DATTO_RMM_API_KEY` / `DATTO_RMM_API_SECRET` (Vercel env only).
 - **Rate limits** (Datto docs): 600 read requests/60 s sliding window (writes 100/60 s — unused here); 90% quota adds a 1 s delay, breach = HTTP 429, persistent breach = temporary IP block (wait 5 min). Tools wrap every GET in `withRetry` (resilience.ts — 429/5xx/timeouts retry with backoff, 400/404 surface immediately) and current usage is visible via `datto_rmm_account` → `requestRate`.
-- **Pagination**: `page`/`max` params (max 250/page); responses carry `pageDetails { count, totalCount, prevPageUrl, nextPageUrl }`. Tools sweep with page caps and report `pagination.truncated` + `nextPage` — never silent truncation. `activity-logs` alone paginates by cursor (`searchAfter` + `page=next|previous`); tools surface `nextSearchAfter`.
+- **Pagination**: `page`/`max` params (max 250/page); responses carry `pageDetails { count, totalCount, prevPageUrl, nextPageUrl }`. **`page` is 0-INDEXED** (live-confirmed 2026-07-18: `page=1` was empty with `totalCount: 213`) — every sweep starts at `page=0`, and the tools' `page` inputs are the API's 0-based index. Tools sweep with page caps and report `pagination.truncated` + `nextPage` — never silent truncation. `activity-logs` alone paginates by cursor (`searchAfter` + `page=next|previous`); tools surface `nextSearchAfter`.
 
 ## API v2 read surface (verified against the live OpenAPI spec, 2026-07-18)
 

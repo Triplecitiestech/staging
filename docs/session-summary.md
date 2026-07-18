@@ -5,6 +5,13 @@
 > **Branch**: `claude/itglue-document-folders-lf5xa9` (folder tools, unified); earlier work on `claude/session-7nju72`.
 > **Detailed handoff**: see `docs/SESSION_HANDOFF.md` first — this file is the quick state-of-the-world reference.
 
+## Datto RMM pagination is 0-INDEXED — zero-alerts bug found live and fixed (2026-07-18, same session/branch)
+
+- **Symptom (owner-reported with console side-by-side)**: deployed `datto_rmm_alerts` returned 0 open alerts while the Datto console showed 13 (incl. one High). Live probe through the connector nailed it: `/v2/account/sites?page=1` → 0 rows with `pageDetails.totalCount: 213`. **The API's `page` param is 0-indexed** — page 1 is the SECOND page.
+- **Blast radius**: not just the new tools — the ORIGINAL client's four sweep loops (`getDevices`, `getAlerts`, `getOpenAlerts`, `getResolvedAlerts`) started at `page=1` since the SOC session, so the 30-min device-sync cron has been missing the first 250 devices and the executive summary read 0 open alerts. It also fully explains the old "account devices returns 5 of hundreds" gotcha (261 − 250 = the stragglers on page 1).
+- **Fix**: all sweeps start at `page=0` (`datto-rmm.ts` loops + `pagedGet` in `mcp-datto-rmm-tools.ts`); tool `page` inputs are now explicitly 0-based. Unit-test mock now serves rows ONLY on page 0 and asserts every paged endpoint's first request is `page=0` + a two-page `nextPageUrl` walk (21 tests). Gotchas + reference doc updated (old "subset" note corrected).
+- **Live-verified post-deploy through the connector**: see the re-verification results in this section's follow-up (list_sites returns the full site list; alerts return the console's 13 incl. the High disk-health alert with console links).
+
 ## Datto RMM read-only reporting tools in the MCP connector (2026-07-18) — branch `claude/datto-rmm-reporting-tools-ngxkzy`
 
 - **What shipped**: 17 read-only `datto_rmm_*` tools on the connector (`src/lib/mcp-datto-rmm-tools.ts`, registered in the entra route), reusing the EXISTING `DattoRmmClient` — the only change to the shared client is a new `getV2()` GET-only passthrough (no method/body parameter, `/api/v2/` paths only), so the tool set is read-only by construction. Full API-surface inventory + tool catalog + deliberately-deferred write list: `docs/reference/DATTO_RMM_CONNECTOR_TOOLS.md`; field notes: `docs/gotchas.md` → Datto RMM.

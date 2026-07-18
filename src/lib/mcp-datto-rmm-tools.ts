@@ -306,6 +306,9 @@ export function buildAlertRow(
 // ---------------------------------------------------------------------------
 // Paged GET sweep (page/max + pageDetails.nextPageUrl presence, like the
 // existing client methods) with an explicit truncation flag.
+// The Datto RMM `page` parameter is 0-INDEXED — confirmed live 2026-07-18:
+// page=1 came back empty while pageDetails.totalCount reported 213 sites.
+// Sweeps MUST start at page 0 or they silently skip the first 250 rows.
 // ---------------------------------------------------------------------------
 
 interface PagedResult<T> { items: T[]; pagesFetched: number; totalCount: number | null; truncated: boolean; nextPage: number | null }
@@ -314,7 +317,7 @@ async function pagedGet<T>(
   basePath: string,
   itemsKey: string,
   params: Record<string, string | number | boolean | undefined>,
-  { startPage = 1, max = 250, maxPages = 4 }: { startPage?: number; max?: number; maxPages?: number } = {},
+  { startPage = 0, max = 250, maxPages = 4 }: { startPage?: number; max?: number; maxPages?: number } = {},
 ): Promise<PagedResult<T>> {
   const items: T[] = []
   let page = startPage
@@ -412,10 +415,10 @@ export function registerDattoRmmTools(server: any) {
     } catch (e) { return fail(e) } })
 
   // ── Sites ────────────────────────────────────────────────────────────────
-  server.registerTool('datto_rmm_list_sites', { title: 'Datto RMM: list sites', description: 'Read-only. List Datto RMM sites (customers/locations) with device counts (total/online/offline), the mapped Autotask company id/name when set, and each site\'s web-console deep link (consoleUrl). IMPORTANT: sites have BOTH a numeric id and a UUID uid — every site-scoped tool takes the UID. Optional siteName filters server-side (partial match). Set includeDnetMappings=true to also return Datto Networking network ids per site. Results are paginated; response reports truncation.', inputSchema: { siteName: z.string().optional().describe('Partial site name filter (server-side LIKE match)'), includeDnetMappings: z.boolean().optional().describe('Also fetch Datto Networking network-id mappings per site (default false)'), page: z.number().int().min(1).optional().describe('Start page (default 1)'), maxPages: z.number().int().min(1).max(8).optional().describe('Pages to sweep, 250 rows/page (default 4)') } },
+  server.registerTool('datto_rmm_list_sites', { title: 'Datto RMM: list sites', description: 'Read-only. List Datto RMM sites (customers/locations) with device counts (total/online/offline), the mapped Autotask company id/name when set, and each site\'s web-console deep link (consoleUrl). IMPORTANT: sites have BOTH a numeric id and a UUID uid — every site-scoped tool takes the UID. Optional siteName filters server-side (partial match). Set includeDnetMappings=true to also return Datto Networking network ids per site. Results are paginated; response reports truncation.', inputSchema: { siteName: z.string().optional().describe('Partial site name filter (server-side LIKE match)'), includeDnetMappings: z.boolean().optional().describe('Also fetch Datto Networking network-id mappings per site (default false)'), page: z.number().int().min(0).optional().describe('Start page, 0-BASED — the API\'s page index (default 0, the first page)'), maxPages: z.number().int().min(1).max(8).optional().describe('Pages to sweep, 250 rows/page (default 4)') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async ({ siteName, includeDnetMappings, page, maxPages }: any) => { try {
-      const swept = await pagedGet<DrmSite>('/api/v2/account/sites', 'sites', { siteName }, { startPage: page ?? 1, maxPages: maxPages ?? 4 })
+      const swept = await pagedGet<DrmSite>('/api/v2/account/sites', 'sites', { siteName }, { startPage: page ?? 0, maxPages: maxPages ?? 4 })
       const sites = swept.items.map(slimSite)
       let dnet: unknown
       if (includeDnetMappings) {
@@ -443,21 +446,21 @@ export function registerDattoRmmTools(server: any) {
     } catch (e) { return fail(e) } })
 
   // ── Devices ──────────────────────────────────────────────────────────────
-  server.registerTool('datto_rmm_site_devices', { title: 'Datto RMM: site devices', description: 'Read-only. Devices of ONE site by site UID — the reliable way to enumerate a customer\'s fleet (the account-wide device list has returned a subset of the fleet before; per-site is authoritative). Each row: hostname, type/class, OS, int/ext IP, domain, last user, online/suspended, last seen/reboot/audit, agent version, patch summary (status + installed/pending/not-approved), antivirus product+status, warranty, plus web-console deep link (consoleUrl) and Web Remote link (webRemoteUrl). Optional filterId applies a device filter from datto_rmm_list_filters. includeUdf=true adds each device\'s non-empty user-defined fields.', inputSchema: { siteUid: z.string().describe('Site UID (UUID from datto_rmm_list_sites)'), filterId: z.number().int().optional().describe('Device filter id from datto_rmm_list_filters (exclusively determines results)'), includeUdf: z.boolean().optional().describe('Include non-empty user-defined fields per device (default false)'), page: z.number().int().min(1).optional().describe('Start page (default 1)'), maxPages: z.number().int().min(1).max(8).optional().describe('Pages to sweep, 250 rows/page (default 2)') } },
+  server.registerTool('datto_rmm_site_devices', { title: 'Datto RMM: site devices', description: 'Read-only. Devices of ONE site by site UID — the reliable way to enumerate a customer\'s fleet (the account-wide device list has returned a subset of the fleet before; per-site is authoritative). Each row: hostname, type/class, OS, int/ext IP, domain, last user, online/suspended, last seen/reboot/audit, agent version, patch summary (status + installed/pending/not-approved), antivirus product+status, warranty, plus web-console deep link (consoleUrl) and Web Remote link (webRemoteUrl). Optional filterId applies a device filter from datto_rmm_list_filters. includeUdf=true adds each device\'s non-empty user-defined fields.', inputSchema: { siteUid: z.string().describe('Site UID (UUID from datto_rmm_list_sites)'), filterId: z.number().int().optional().describe('Device filter id from datto_rmm_list_filters (exclusively determines results)'), includeUdf: z.boolean().optional().describe('Include non-empty user-defined fields per device (default false)'), page: z.number().int().min(0).optional().describe('Start page, 0-BASED — the API\'s page index (default 0, the first page)'), maxPages: z.number().int().min(1).max(8).optional().describe('Pages to sweep, 250 rows/page (default 2)') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async ({ siteUid, filterId, includeUdf, page, maxPages }: any) => { try {
       const [site, swept] = await Promise.all([
         get(`/api/v2/site/${encodeURIComponent(siteUid)}`).catch(() => null),
-        pagedGet<DrmDevice>(`/api/v2/site/${encodeURIComponent(siteUid)}/devices`, 'devices', { filterId }, { startPage: page ?? 1, maxPages: maxPages ?? 2 }),
+        pagedGet<DrmDevice>(`/api/v2/site/${encodeURIComponent(siteUid)}/devices`, 'devices', { filterId }, { startPage: page ?? 0, maxPages: maxPages ?? 2 }),
       ])
       const s = site as DrmSite | null
       return ok({ site: s ? { uid: s.uid, name: s.name, consoleUrl: s.portalUrl ?? null } : { uid: siteUid }, devices: swept.items.map(d => slimDevice(d, { includeUdf })), pagination: pageMeta(swept) })
     } catch (e) { return fail(e) } })
 
-  server.registerTool('datto_rmm_search_devices', { title: 'Datto RMM: search devices (account-wide)', description: 'Read-only. Search devices ACROSS ALL sites with server-side partial (LIKE) filters: hostname, deviceType (e.g. Server, Laptop, Desktop, Printer, Esxihost), operatingSystem, siteName — or a saved device filter via filterId (from datto_rmm_list_filters; overrides the other filters). Rows include site name/uid, patch + AV summary, and web-console deep links (consoleUrl, webRemoteUrl) per device. CAUTION: unfiltered account-wide listing has returned a subset of the fleet before — for an exhaustive inventory of one customer use datto_rmm_site_devices; use this for targeted lookups ("find host X", "all Hyper-V servers", "every Windows 11 device").', inputSchema: { hostname: z.string().optional().describe('Partial hostname'), deviceType: z.string().optional().describe('Partial device type (Server/Laptop/Desktop/…)'), operatingSystem: z.string().optional().describe('Partial OS name (e.g. "Windows 11")'), siteName: z.string().optional().describe('Partial site name'), filterId: z.number().int().optional().describe('Saved device filter id (exclusively determines results)'), includeUdf: z.boolean().optional().describe('Include non-empty UDFs per device (default false)'), page: z.number().int().min(1).optional().describe('Start page (default 1)'), maxPages: z.number().int().min(1).max(8).optional().describe('Pages to sweep, 250 rows/page (default 2)') } },
+  server.registerTool('datto_rmm_search_devices', { title: 'Datto RMM: search devices (account-wide)', description: 'Read-only. Search devices ACROSS ALL sites with server-side partial (LIKE) filters: hostname, deviceType (e.g. Server, Laptop, Desktop, Printer, Esxihost), operatingSystem, siteName — or a saved device filter via filterId (from datto_rmm_list_filters; overrides the other filters). Rows include site name/uid, patch + AV summary, and web-console deep links (consoleUrl, webRemoteUrl) per device. CAUTION: unfiltered account-wide listing has returned a subset of the fleet before — for an exhaustive inventory of one customer use datto_rmm_site_devices; use this for targeted lookups ("find host X", "all Hyper-V servers", "every Windows 11 device").', inputSchema: { hostname: z.string().optional().describe('Partial hostname'), deviceType: z.string().optional().describe('Partial device type (Server/Laptop/Desktop/…)'), operatingSystem: z.string().optional().describe('Partial OS name (e.g. "Windows 11")'), siteName: z.string().optional().describe('Partial site name'), filterId: z.number().int().optional().describe('Saved device filter id (exclusively determines results)'), includeUdf: z.boolean().optional().describe('Include non-empty UDFs per device (default false)'), page: z.number().int().min(0).optional().describe('Start page, 0-BASED — the API\'s page index (default 0, the first page)'), maxPages: z.number().int().min(1).max(8).optional().describe('Pages to sweep, 250 rows/page (default 2)') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async ({ hostname, deviceType, operatingSystem, siteName, filterId, includeUdf, page, maxPages }: any) => { try {
-      const swept = await pagedGet<DrmDevice>('/api/v2/account/devices', 'devices', { hostname, deviceType, operatingSystem, siteName, filterId }, { startPage: page ?? 1, maxPages: maxPages ?? 2 })
+      const swept = await pagedGet<DrmDevice>('/api/v2/account/devices', 'devices', { hostname, deviceType, operatingSystem, siteName, filterId }, { startPage: page ?? 0, maxPages: maxPages ?? 2 })
       return ok({ devices: swept.items.map(d => slimDevice(d, { includeUdf })), pagination: pageMeta(swept), ...(hostname || deviceType || operatingSystem || siteName || filterId ? {} : { caution: 'Unfiltered account-wide listing has returned a subset of the fleet before — enumerate per site with datto_rmm_site_devices for authoritative inventory.' }) })
     } catch (e) { return fail(e) } })
 
@@ -500,12 +503,12 @@ export function registerDattoRmmTools(server: any) {
       return ok({ device: { uid: device.uid, hostname: device.hostname, siteUid: device.siteUid, siteName: device.siteName, deviceClass: cls, consoleUrl: device.portalUrl ?? audit?.portalUrl ?? null, webRemoteUrl: device.webRemoteUrl ?? audit?.webRemoteUrl ?? null }, audit })
     } catch (e) { return fail(e) } })
 
-  server.registerTool('datto_rmm_device_software', { title: 'Datto RMM: device software inventory', description: 'Read-only. Audited installed-software list (name + version) for one device by UID, paginated. Optional nameContains filters client-side (case-insensitive substring) — useful for "which devices have <app>" checks one device at a time. Response includes the device\'s hostname and web-console deep link.', inputSchema: { deviceUid: z.string().describe('Device UID (UUID)'), nameContains: z.string().optional().describe('Case-insensitive substring filter on software name'), page: z.number().int().min(1).optional().describe('Start page (default 1)'), maxPages: z.number().int().min(1).max(8).optional().describe('Pages to sweep, 250 rows/page (default 4)') } },
+  server.registerTool('datto_rmm_device_software', { title: 'Datto RMM: device software inventory', description: 'Read-only. Audited installed-software list (name + version) for one device by UID, paginated. Optional nameContains filters client-side (case-insensitive substring) — useful for "which devices have <app>" checks one device at a time. Response includes the device\'s hostname and web-console deep link.', inputSchema: { deviceUid: z.string().describe('Device UID (UUID)'), nameContains: z.string().optional().describe('Case-insensitive substring filter on software name'), page: z.number().int().min(0).optional().describe('Start page, 0-BASED — the API\'s page index (default 0, the first page)'), maxPages: z.number().int().min(1).max(8).optional().describe('Pages to sweep, 250 rows/page (default 4)') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async ({ deviceUid, nameContains, page, maxPages }: any) => { try {
       const [deviceRaw, swept] = await Promise.all([
         get(`/api/v2/device/${encodeURIComponent(deviceUid)}`).catch(() => null),
-        pagedGet<{ name?: string; version?: string }>(`/api/v2/audit/device/${encodeURIComponent(deviceUid)}/software`, 'software', {}, { startPage: page ?? 1, maxPages: maxPages ?? 4 }),
+        pagedGet<{ name?: string; version?: string }>(`/api/v2/audit/device/${encodeURIComponent(deviceUid)}/software`, 'software', {}, { startPage: page ?? 0, maxPages: maxPages ?? 4 }),
       ])
       const device = deviceRaw as DrmDevice | null
       const needle = nameContains?.toLowerCase()
@@ -513,19 +516,19 @@ export function registerDattoRmmTools(server: any) {
       return ok({ device: device ? { uid: device.uid, hostname: device.hostname, siteName: device.siteName, consoleUrl: device.portalUrl ?? null } : { uid: deviceUid }, softwareCount: software.length, software, pagination: pageMeta(swept), ...(needle ? { filter: { nameContains } } : {}) })
     } catch (e) { return fail(e) } })
 
-  server.registerTool('datto_rmm_site_network_interfaces', { title: 'Datto RMM: site device network interfaces', description: 'Read-only. Bulk NIC report for ONE site by UID: each device\'s network interfaces (instance, IPv4, IPv6, MAC, type) with hostname and int/ext IP — the fast way to build an IP/MAC inventory for a customer network. Each row carries the device\'s web-console deep link resolved from the site\'s device list.', inputSchema: { siteUid: z.string().describe('Site UID (UUID from datto_rmm_list_sites)'), page: z.number().int().min(1).optional().describe('Start page (default 1)'), maxPages: z.number().int().min(1).max(8).optional().describe('Pages to sweep, 250 rows/page (default 2)') } },
+  server.registerTool('datto_rmm_site_network_interfaces', { title: 'Datto RMM: site device network interfaces', description: 'Read-only. Bulk NIC report for ONE site by UID: each device\'s network interfaces (instance, IPv4, IPv6, MAC, type) with hostname and int/ext IP — the fast way to build an IP/MAC inventory for a customer network. Each row carries the device\'s web-console deep link resolved from the site\'s device list.', inputSchema: { siteUid: z.string().describe('Site UID (UUID from datto_rmm_list_sites)'), page: z.number().int().min(0).optional().describe('Start page, 0-BASED — the API\'s page index (default 0, the first page)'), maxPages: z.number().int().min(1).max(8).optional().describe('Pages to sweep, 250 rows/page (default 2)') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async ({ siteUid, page, maxPages }: any) => { try {
       const [links, swept] = await Promise.all([
         siteDeviceLinks(siteUid).catch(() => new Map<string, string>()),
-        pagedGet<DrmDevice & { nics?: unknown[] }>(`/api/v2/site/${encodeURIComponent(siteUid)}/devices/network-interface`, 'devices', {}, { startPage: page ?? 1, maxPages: maxPages ?? 2 }),
+        pagedGet<DrmDevice & { nics?: unknown[] }>(`/api/v2/site/${encodeURIComponent(siteUid)}/devices/network-interface`, 'devices', {}, { startPage: page ?? 0, maxPages: maxPages ?? 2 }),
       ])
       const rows = swept.items.map(d => ({ uid: d.uid ?? null, hostname: d.hostname ?? '', deviceType: d.deviceType?.category ?? null, intIpAddress: d.intIpAddress ?? null, extIpAddress: d.extIpAddress ?? null, nics: d.nics ?? [], consoleUrl: (d.uid && links.get(d.uid)) || null }))
       return ok({ siteUid, devices: rows, pagination: pageMeta(swept) })
     } catch (e) { return fail(e) } })
 
   // ── Alerts ───────────────────────────────────────────────────────────────
-  server.registerTool('datto_rmm_alerts', { title: 'Datto RMM: alerts (open/resolved; account, site, or device)', description: 'Read-only alert reporting. scope=account (default; all customers), or pass siteUid / deviceUid to scope down. status=open (default) or resolved. Each row: priority, monitor type (from the alert context class), timestamp, ticket number, resolution info (resolved scope), response actions, the raw alertContext, and the referenced device + site each WITH their web-console deep link (resolved from the API\'s own data; account-wide sweeps resolve device links for up to 8 sites per call and say so when capped). sinceDays filters client-side by alert timestamp — the API has no date filter, so old resolved alerts may need more pages (response reports truncation). includeDiagnostics=true adds the (large) diagnostics payload. Alert volume can be high — resolved sweeps default to 2 pages of 100.', inputSchema: { scope: z.enum(['account', 'site', 'device']).optional().describe('Default account; site/device require siteUid/deviceUid'), siteUid: z.string().optional().describe('Site UID (UUID) — required when scope=site'), deviceUid: z.string().optional().describe('Device UID (UUID) — required when scope=device'), status: z.enum(['open', 'resolved']).optional().describe('Default open'), muted: z.boolean().optional().describe('Filter by muted state (omit for all)'), sinceDays: z.number().int().min(1).max(365).optional().describe('Keep only alerts newer than N days (client-side filter)'), includeDiagnostics: z.boolean().optional().describe('Include raw diagnostics payload per alert (default false; large)'), page: z.number().int().min(1).optional().describe('Start page (default 1)'), max: z.number().int().min(1).max(250).optional().describe('Rows per page (default 100)'), maxPages: z.number().int().min(1).max(8).optional().describe('Pages to sweep (default 2)') } },
+  server.registerTool('datto_rmm_alerts', { title: 'Datto RMM: alerts (open/resolved; account, site, or device)', description: 'Read-only alert reporting. scope=account (default; all customers), or pass siteUid / deviceUid to scope down. status=open (default) or resolved. Each row: priority, monitor type (from the alert context class), timestamp, ticket number, resolution info (resolved scope), response actions, the raw alertContext, and the referenced device + site each WITH their web-console deep link (resolved from the API\'s own data; account-wide sweeps resolve device links for up to 8 sites per call and say so when capped). sinceDays filters client-side by alert timestamp — the API has no date filter, so old resolved alerts may need more pages (response reports truncation). includeDiagnostics=true adds the (large) diagnostics payload. Alert volume can be high — resolved sweeps default to 2 pages of 100.', inputSchema: { scope: z.enum(['account', 'site', 'device']).optional().describe('Default account; site/device require siteUid/deviceUid'), siteUid: z.string().optional().describe('Site UID (UUID) — required when scope=site'), deviceUid: z.string().optional().describe('Device UID (UUID) — required when scope=device'), status: z.enum(['open', 'resolved']).optional().describe('Default open'), muted: z.boolean().optional().describe('Filter by muted state (omit for all)'), sinceDays: z.number().int().min(1).max(365).optional().describe('Keep only alerts newer than N days (client-side filter)'), includeDiagnostics: z.boolean().optional().describe('Include raw diagnostics payload per alert (default false; large)'), page: z.number().int().min(0).optional().describe('Start page, 0-BASED — the API\'s page index (default 0, the first page)'), max: z.number().int().min(1).max(250).optional().describe('Rows per page (default 100)'), maxPages: z.number().int().min(1).max(8).optional().describe('Pages to sweep (default 2)') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async ({ scope, siteUid, deviceUid, status, muted, sinceDays, includeDiagnostics, page, max, maxPages }: any) => { try {
       const effScope = scope ?? (deviceUid ? 'device' : siteUid ? 'site' : 'account')
@@ -535,7 +538,7 @@ export function registerDattoRmmTools(server: any) {
       const base = effScope === 'device' ? `/api/v2/device/${encodeURIComponent(deviceUid)}/alerts/${st}`
         : effScope === 'site' ? `/api/v2/site/${encodeURIComponent(siteUid)}/alerts/${st}`
         : `/api/v2/account/alerts/${st}`
-      const swept = await pagedGet<DrmAlert>(base, 'alerts', { muted }, { startPage: page ?? 1, max: max ?? 100, maxPages: maxPages ?? 2 })
+      const swept = await pagedGet<DrmAlert>(base, 'alerts', { muted }, { startPage: page ?? 0, max: max ?? 100, maxPages: maxPages ?? 2 })
       let alerts = swept.items
       let dateFiltered = 0
       if (sinceDays) {
@@ -607,37 +610,37 @@ export function registerDattoRmmTools(server: any) {
     } catch (e) { return fail(e) } })
 
   // ── Catalogs: components, filters, users, variables ──────────────────────
-  server.registerTool('datto_rmm_list_components', { title: 'Datto RMM: list components', description: 'Read-only. The account\'s component catalog (scripts/monitors/applications available in Datto RMM): name, description, category, and declared variables. LISTING ONLY — this connector has no tool that runs components or quick jobs.', inputSchema: { page: z.number().int().min(1).optional().describe('Start page (default 1)'), maxPages: z.number().int().min(1).max(8).optional().describe('Pages to sweep, 250 rows/page (default 4)') } },
+  server.registerTool('datto_rmm_list_components', { title: 'Datto RMM: list components', description: 'Read-only. The account\'s component catalog (scripts/monitors/applications available in Datto RMM): name, description, category, and declared variables. LISTING ONLY — this connector has no tool that runs components or quick jobs.', inputSchema: { page: z.number().int().min(0).optional().describe('Start page, 0-BASED — the API\'s page index (default 0, the first page)'), maxPages: z.number().int().min(1).max(8).optional().describe('Pages to sweep, 250 rows/page (default 4)') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async ({ page, maxPages }: any) => { try {
-      const swept = await pagedGet<Record<string, unknown>>('/api/v2/account/components', 'components', {}, { startPage: page ?? 1, maxPages: maxPages ?? 4 })
+      const swept = await pagedGet<Record<string, unknown>>('/api/v2/account/components', 'components', {}, { startPage: page ?? 0, maxPages: maxPages ?? 4 })
       return ok({ components: swept.items, pagination: pageMeta(swept) })
     } catch (e) { return fail(e) } })
 
-  server.registerTool('datto_rmm_list_filters', { title: 'Datto RMM: list device filters', description: 'Read-only. Device filters usable as filterId in datto_rmm_site_devices / datto_rmm_search_devices: type=default (built-in), custom (account-defined), or site (one site\'s filters; requires siteUid).', inputSchema: { type: z.enum(['default', 'custom', 'site']).optional().describe('Default "default"'), siteUid: z.string().optional().describe('Site UID — required when type=site'), page: z.number().int().min(1).optional().describe('Start page (default 1)'), maxPages: z.number().int().min(1).max(8).optional().describe('Pages to sweep (default 2)') } },
+  server.registerTool('datto_rmm_list_filters', { title: 'Datto RMM: list device filters', description: 'Read-only. Device filters usable as filterId in datto_rmm_site_devices / datto_rmm_search_devices: type=default (built-in), custom (account-defined), or site (one site\'s filters; requires siteUid).', inputSchema: { type: z.enum(['default', 'custom', 'site']).optional().describe('Default "default"'), siteUid: z.string().optional().describe('Site UID — required when type=site'), page: z.number().int().min(0).optional().describe('Start page, 0-BASED — the API\'s page index (default 0, the first page)'), maxPages: z.number().int().min(1).max(8).optional().describe('Pages to sweep (default 2)') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async ({ type, siteUid, page, maxPages }: any) => { try {
       const t = type ?? 'default'
       if (t === 'site' && !siteUid) throw new Error('type=site requires siteUid.')
       const base = t === 'site' ? `/api/v2/site/${encodeURIComponent(siteUid)}/filters` : t === 'custom' ? '/api/v2/filter/custom-filters' : '/api/v2/filter/default-filters'
-      const swept = await pagedGet<Record<string, unknown>>(base, 'filters', {}, { startPage: page ?? 1, maxPages: maxPages ?? 2 })
+      const swept = await pagedGet<Record<string, unknown>>(base, 'filters', {}, { startPage: page ?? 0, maxPages: maxPages ?? 2 })
       return ok({ type: t, filters: swept.items, pagination: pageMeta(swept) })
     } catch (e) { return fail(e) } })
 
-  server.registerTool('datto_rmm_list_users', { title: 'Datto RMM: list console users', description: 'Read-only. Datto RMM console (authentication) users: name, username, email, status, disabled flag, created and last-access timestamps. Useful for access reviews and for mapping userIds in activity logs.', inputSchema: { page: z.number().int().min(1).optional().describe('Start page (default 1)'), maxPages: z.number().int().min(1).max(8).optional().describe('Pages to sweep (default 2)') } },
+  server.registerTool('datto_rmm_list_users', { title: 'Datto RMM: list console users', description: 'Read-only. Datto RMM console (authentication) users: name, username, email, status, disabled flag, created and last-access timestamps. Useful for access reviews and for mapping userIds in activity logs.', inputSchema: { page: z.number().int().min(0).optional().describe('Start page, 0-BASED — the API\'s page index (default 0, the first page)'), maxPages: z.number().int().min(1).max(8).optional().describe('Pages to sweep (default 2)') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async ({ page, maxPages }: any) => { try {
-      const swept = await pagedGet<Record<string, unknown>>('/api/v2/account/users', 'users', {}, { startPage: page ?? 1, maxPages: maxPages ?? 2 })
+      const swept = await pagedGet<Record<string, unknown>>('/api/v2/account/users', 'users', {}, { startPage: page ?? 0, maxPages: maxPages ?? 2 })
       return ok({ users: swept.items, pagination: pageMeta(swept) })
     } catch (e) { return fail(e) } })
 
-  server.registerTool('datto_rmm_variables', { title: 'Datto RMM: account/site variables', description: 'Read-only. Variables available to components at account scope (default) or for one site (scope=site + siteUid). Masked variables ALWAYS return value "[MASKED]" — this tool never exposes masked values. Site scope includes the site\'s console link.', inputSchema: { scope: z.enum(['account', 'site']).optional().describe('Default account'), siteUid: z.string().optional().describe('Site UID — required when scope=site'), page: z.number().int().min(1).optional().describe('Start page (default 1)'), maxPages: z.number().int().min(1).max(8).optional().describe('Pages to sweep (default 2)') } },
+  server.registerTool('datto_rmm_variables', { title: 'Datto RMM: account/site variables', description: 'Read-only. Variables available to components at account scope (default) or for one site (scope=site + siteUid). Masked variables ALWAYS return value "[MASKED]" — this tool never exposes masked values. Site scope includes the site\'s console link.', inputSchema: { scope: z.enum(['account', 'site']).optional().describe('Default account'), siteUid: z.string().optional().describe('Site UID — required when scope=site'), page: z.number().int().min(0).optional().describe('Start page, 0-BASED — the API\'s page index (default 0, the first page)'), maxPages: z.number().int().min(1).max(8).optional().describe('Pages to sweep (default 2)') } },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async ({ scope, siteUid, page, maxPages }: any) => { try {
       const sc = scope ?? 'account'
       if (sc === 'site' && !siteUid) throw new Error('scope=site requires siteUid.')
       const base = sc === 'site' ? `/api/v2/site/${encodeURIComponent(siteUid)}/variables` : '/api/v2/account/variables'
-      const swept = await pagedGet<DrmVariable>(base, 'variables', {}, { startPage: page ?? 1, maxPages: maxPages ?? 2 })
+      const swept = await pagedGet<DrmVariable>(base, 'variables', {}, { startPage: page ?? 0, maxPages: maxPages ?? 2 })
       let site: Record<string, unknown> | undefined
       if (sc === 'site') {
         try { const s = (await get(`/api/v2/site/${encodeURIComponent(siteUid)}`)) as DrmSite; site = { uid: s.uid, name: s.name, consoleUrl: s.portalUrl ?? null } } catch { site = { uid: siteUid } }
