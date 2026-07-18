@@ -1,8 +1,19 @@
 # Current Tasks
 
-> **Last updated**: 2026-07-16 (second session). Latest: **IT Glue document-folder tools** (`itglue_list_document_folders` / `itglue_create_document_folder` / `itglue_move_document`) added to the MCP connector — built in parallel by two sessions, unified on branch `claude/itglue-document-folders-lf5xa9`; pending operator step below to move the six root-level "AI Services - *" docs. Earlier 2026-07-16: Entra cutover + HR write tools LIVE (sections below). Earlier pending items may still be open.
+> **Last updated**: 2026-07-18. Latest: **Datto RMM read-only reporting tools** (17 `datto_rmm_*` tools) added to the MCP connector on branch `claude/datto-rmm-reporting-tools-ngxkzy` — operator verification steps below. Previous (2026-07-16): **IT Glue document-folder tools** (`itglue_list_document_folders` / `itglue_create_document_folder` / `itglue_move_document`) added to the MCP connector — built in parallel by two sessions, unified on branch `claude/itglue-document-folders-lf5xa9`; pending operator step below to move the six root-level "AI Services - *" docs. Earlier 2026-07-16: Entra cutover + HR write tools LIVE (sections below). Earlier pending items may still be open.
 > **Branch**: `claude/itglue-document-folders-lf5xa9` (latest, unified); earlier work on `claude/session-7nju72`.
 > **Detailed context**: `docs/session-summary.md` (2026-07-15/16 sections) + `docs/gotchas.md` → IT Glue / "HR Employee-Relations records" + `docs/runbooks/CONNECTOR_AUTH_ENTRA.md`.
+
+## Datto RMM connector tools: post-deploy verification (2026-07-18) — ⏳ waiting on deploy + operator
+
+The 17 read-only `datto_rmm_*` tools ship on `claude/datto-rmm-reporting-tools-ngxkzy` (auto-merge gate → main → production). This sandbox has no Datto credentials (by design), so the LIVE verification happens after deploy:
+
+- [ ] **[VERIFY CONNECTION — PowerShell, needs MIGRATION_SECRET]** One call proves auth + sites + devices + alerts against the live Datto API (this diagnostic route predates this session):
+  `Invoke-RestMethod -Uri "https://www.triplecitiestech.com/api/reports/rmm-test" -Headers @{ Authorization = "Bearer <MIGRATION_SECRET>" }`
+  Expect `auth.ok: true`, a `sites.count` matching reality, and non-error `devices`/`openAlerts`.
+- [ ] **[RECONNECT THE CONNECTOR]** In Claude (web or desktop): Settings → Connectors → Triple Cities Tech → disconnect, then reconnect `https://www.triplecitiestech.com/api/connector/entra/mcp`. Tool lists cache at connect time — without this the `datto_rmm_*` tools will NOT appear (same lesson as the HR and IT Glue tools).
+- [ ] **[FIRST LIVE TOOL CALLS — any Claude chat with the TCT connector]** Paste: *"Using the Datto RMM tools: run datto_rmm_account, then datto_rmm_list_sites, then datto_rmm_site_devices for one site's uid from the list, then datto_rmm_alerts with default args. Confirm every site and device row includes a working consoleUrl link and report the API rate usage from the account call."* Spot-click one `consoleUrl` — it should land on the Datto RMM web console page for that site/device.
+- [ ] If any tool errors with "Datto RMM is not configured", the Vercel env is missing `DATTO_RMM_API_URL` / `DATTO_RMM_API_KEY` / `DATTO_RMM_API_SECRET` (they exist today — the 30-min device-sync cron uses them — so this would indicate an env regression, not a new setup step).
 
 ## IT Glue: move the six "AI Services - *" docs into an "AI Services" folder (2026-07-16) — ⏳ waiting on deploy + operator
 
