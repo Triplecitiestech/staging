@@ -179,6 +179,20 @@ export class DattoRmmClient {
     return res.json() as Promise<T>;
   }
 
+  /**
+   * GET-only passthrough for the MCP connector's read-only reporting tools
+   * (src/lib/mcp-datto-rmm-tools.ts). Structurally read-only: there is no
+   * method/body parameter, so no caller can express a write through it, and
+   * the path must be an /api/v2/ resource. Reuses the same cached token,
+   * 401 auto-refresh, and timeout handling as every other method.
+   */
+  async getV2(path: string): Promise<unknown> {
+    if (!path.startsWith('/api/v2/')) {
+      throw new Error(`Datto RMM getV2 only accepts /api/v2/ paths, got: ${path}`);
+    }
+    return this.request<unknown>(path);
+  }
+
   /** Fetch all devices (paginated). Returns up to maxPages * 250 devices. */
   async getDevices(maxPages = 10): Promise<DattoDevice[]> {
     const devices: DattoDevice[] = [];

@@ -261,6 +261,21 @@ Key facts (verified against the official OpenAPI spec, v10.1.84, July 2026):
 
 ---
 
+## Datto RMM Integration — Key Knowledge
+
+Single client: `src/lib/datto-rmm.ts` (`DattoRmmClient` — OAuth2 *password* grant at `{DATTO_RMM_API_URL}/auth/oauth/token` with Basic `public-client:public`, username = `DATTO_RMM_API_KEY`, password = `DATTO_RMM_API_SECRET`; token cached in-instance, 100 h lifetime, 401 auto-refresh). Consumers: SOC enrichment, TBR/executive/annual reports, compliance collectors, the every-30-min `datto-device-sync` cron, and the MCP connector's read-only reporting tools (`src/lib/mcp-datto-rmm-tools.ts`, reference: `docs/reference/DATTO_RMM_CONNECTOR_TOOLS.md`).
+
+- **Site UID vs numeric id** (also under SOC): sites and devices have BOTH a numeric `id` and a UUID `uid`. Site-scoped endpoints (`/v2/site/{uid}/…`) take the **UID**; `/v2/device/id/{id}` exists for the numeric device id. **Activity-log rows reference the numeric ids** (`site.id`, `deviceId`), not UIDs.
+- **The account-wide devices endpoint has returned a subset of the fleet before** (5 of hundreds, SOC session) — exhaustive per-customer inventory goes through `/v2/site/{uid}/devices`; use `/v2/account/devices` for its server-side LIKE filters (`hostname`, `deviceType`, `operatingSystem`, `siteName`, `filterId` — filterId *exclusively* determines results).
+- **The live OpenAPI spec is fetchable without auth**: `GET {API URL}/api/v3/api-docs/Datto-RMM` (behind the Swagger UI at `{API URL}/api/swagger-ui/index.html`). 39 GET endpoints as of 2026-07-18. Re-verify there before adding endpoints; two spec surprises found this way: `/v2/device/{uid}/patch` (used by the old `getDevicePatch()` diagnostic) is NOT in the spec (patch data is `patchManagement` on the Device object), and alerts have **no `alertType` field** — the monitor type is `alertContext['@class']` (e.g. `perf_disk_usage_ctx`). The pre-existing `mapAlert()` in `datto-rmm.ts` reads top-level `hostname`/`siteUid`/`deviceUid` that per spec live under `alertSourceInfo` — the connector tools read the nested shape; if SOC alert paths ever look empty, check that mapping.
+- **The API returns console deep links — never construct them**: `portalUrl` on Site/Device/DeviceAudit/ESXi/Printer audits (+ `webRemoteUrl` on devices). No URL pattern for alerts is documented anywhere (help pages + Integrations Whitepaper checked 2026-07-18); the connector tools resolve alert-row site/device links from cached sites/site-devices sweeps instead of guessing a pattern.
+- **Secrets in read responses**: `Site.proxySettings` / site settings include a proxy `password` field — redact before returning anywhere; account/site variables carry `masked` — force `[MASKED]` values on output regardless of what the API returned.
+- **Rate limits**: 600 reads/60 s sliding window (100/60 s writes), 1 s delay injected at 90% quota, 429 on breach, persistent breach = temporary IP block (wait 5 min). `GET /v2/system/request_rate` reports current usage. Connector tools wrap GETs in `withRetry` (429/5xx/timeout transient, 400/404 immediate).
+- **Pagination**: `page`/`max` (250 cap), `pageDetails.nextPageUrl` presence = more pages. `/v2/activity-logs` alone is cursor-based (`searchAfter` + `page=next|previous`; default window = last 15 min, so always pass `from`/`until` for reports) and takes CSV multi-value filters.
+- **The MCP tool surface is GET-only by construction**: tools can only call `DattoRmmClient.getV2()` (no method/body parameter, `/api/v2/` paths only) — enforced by unit test (`mcp-datto-rmm-tools.test.ts` proxies the client and fails on any other method). The API's write surface (quickjob, device move, UDF/warranty set, alert resolve, site/variable CRUD, `resetApiKeys`) is deliberately unimplemented; if ever wanted it goes through the staged human-approval gate like Autotask/UniFi config writes.
+
+---
+
 ## Customer Portal Architecture
 
 The customer portal is at `/onboarding/[companyName]`. Key components:

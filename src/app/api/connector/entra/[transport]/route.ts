@@ -25,6 +25,7 @@ import { registerConfigReadTools } from '@/lib/mcp-config-read-tools'
 import { registerConfigWriteTools } from '@/lib/mcp-config-write-tools'
 import { registerUnifiSiteTools } from '@/lib/mcp-unifi-site-tools'
 import { registerHrTools } from '@/lib/mcp-hr-tools'
+import { registerDattoRmmTools } from '@/lib/mcp-datto-rmm-tools'
 import { verifyConnectorToken } from '@/lib/connector/auth'
 
 export const runtime = 'nodejs'
@@ -104,6 +105,12 @@ const handler = createMcpHandler(
     // dedicated least-privilege Sites.Selected app. Dormant unless
     // CONNECTOR_HR_WRITES_ENABLED === 'true' and HR_RECORDS_* are set.
     registerHrTools(server)
+
+    // ── Datto RMM (read-only reporting; GET-only by construction) ──────────
+    // Reuses the shared DattoRmmClient; every call goes through getV2()
+    // which can only issue GETs. Site/device responses carry the console
+    // deep links the API itself returns (portalUrl/webRemoteUrl).
+    registerDattoRmmTools(server)
   },
   {},
   { basePath: '/api/connector/entra', maxDuration: 60, verboseLogs: false }
