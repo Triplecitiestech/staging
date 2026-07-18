@@ -58,12 +58,25 @@ const alert1 = {
 }
 
 function respond(path: string): unknown {
-  const page = (extra: Record<string, unknown>) => ({ pageDetails: { count: 1, totalCount: 1, prevPageUrl: null, nextPageUrl: null }, ...extra })
+  // The REAL Datto RMM API pages are 0-INDEXED (live-confirmed 2026-07-18:
+  // page=1 was empty while totalCount reported 213 sites). The mock mirrors
+  // that: rows exist ONLY on page 0 — a sweep that starts at page 1 gets
+  // nothing, which is exactly the production bug this suite must catch.
+  const m = path.match(/[?&]page=(\d+)/)
+  const pageNum = m ? Number(m[1]) : 0
+  const page = (extra: Record<string, unknown>) => {
+    const rows = pageNum === 0 ? extra : Object.fromEntries(Object.entries(extra).map(([k, v]) => [k, Array.isArray(v) ? [] : v]))
+    return { pageDetails: { count: pageNum === 0 ? 1 : 0, totalCount: 1, prevPageUrl: null, nextPageUrl: null }, ...rows }
+  }
   if (path.startsWith('/api/v2/account/sites')) return page({ sites: [site1] })
   if (path.startsWith('/api/v2/account/dnet-site-mappings')) return page({ dnetSiteMappings: [{ uid: 'site-uid-1', dattoNetworkingNetworkIds: [42] }] })
   if (path.startsWith('/api/v2/account/devices')) return page({ devices: [dev1] })
   if (path.startsWith('/api/v2/account/users')) return page({ users: [{ username: 'kflorance', email: 'k@tct.com', disabled: false }] })
-  if (path.startsWith('/api/v2/account/components')) return page({ components: [{ uid: 'comp-1', name: 'Disk Cleanup', categoryCode: 'SCRIPT' }] })
+  if (path.startsWith('/api/v2/account/components')) {
+    // Two-page resource: exercises the nextPageUrl walk across 0-indexed pages.
+    if (pageNum === 0) return { pageDetails: { count: 1, totalCount: 2, prevPageUrl: null, nextPageUrl: 'https://vidal-api.centrastage.net/api/v2/account/components?page=1&max=250' }, components: [{ uid: 'comp-1', name: 'Disk Cleanup', categoryCode: 'SCRIPT' }] }
+    return { pageDetails: { count: 1, totalCount: 2, prevPageUrl: null, nextPageUrl: null }, components: [{ uid: 'comp-2', name: 'Reboot', categoryCode: 'SCRIPT' }] }
+  }
   if (path.startsWith('/api/v2/account/variables')) return page({ variables: [{ id: 1, name: 'ApiToken', value: 'topsecret', masked: true }, { id: 2, name: 'Region', value: 'NY', masked: false }] })
   if (path.startsWith('/api/v2/account/alerts/')) return page({ alerts: [alert1] })
   if (path.startsWith('/api/v2/account')) return { id: 1, uid: 'acct-1', name: 'Triple Cities Tech', devicesStatus: { numberOfDevices: 500 } }
@@ -171,6 +184,30 @@ describe('GET-only by construction', () => {
     expect(forbiddenCalls).toEqual([])
     expect(calledPaths.length).toBeGreaterThan(0)
     for (const p of calledPaths) expect(p).toMatch(/^\/api\/v2\//)
+  })
+
+  it('every paged sweep STARTS at page=0 (the API is 0-indexed; page=1 skips the whole first page)', async () => {
+    for (const [name, args] of Object.entries(INVOCATIONS)) await tools.get(name)!.handler(args)
+    const firstByBase = new Map<string, string>()
+    for (const p of calledPaths) {
+      const base = p.split('?')[0]
+      if (!firstByBase.has(base)) firstByBase.set(base, p)
+    }
+    let pagedEndpoints = 0
+    for (const [base, first] of firstByBase) {
+      if (/[?&]page=/.test(first)) {
+        pagedEndpoints++
+        expect(first, `first request to ${base} must be page=0`).toMatch(/[?&]page=0(&|$)/)
+      }
+    }
+    expect(pagedEndpoints).toBeGreaterThanOrEqual(8)
+  })
+
+  it('walks 0-indexed pages via nextPageUrl and merges rows', async () => {
+    const out = parse(await tools.get('datto_rmm_list_components')!.handler({ maxPages: 2 }))
+    expect(out.components.map((c: { uid: string }) => c.uid)).toEqual(['comp-1', 'comp-2'])
+    expect(out.pagination.pagesFetched).toBe(2)
+    expect(out.pagination.truncated).toBe(false)
   })
 
   it('the REAL client getV2 rejects non-/api/v2/ paths before any network call', async () => {
