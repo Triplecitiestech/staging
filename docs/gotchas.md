@@ -277,6 +277,33 @@ Single client: `src/lib/datto-rmm.ts` (`DattoRmmClient` — OAuth2 *password* gr
 
 ---
 
+## DNSFilter Integration — Key Knowledge
+
+Single client: `src/lib/dnsfilter.ts` (`DnsFilterClient`, `Authorization: Token <token>`). Other query_logs callers: SOC enrichment (`fetchDns`), AI-discovery prefill.
+
+- **query_logs `from`/`to` MUST be DATE-ONLY `YYYY-MM-DD` for historical windows (2026-07-19, live-verified)**: a full-ISO `from` more than 9 days before now is rejected with HTTP 400 *"Time period (from now) is greater than 9 days"*; the SAME window as date-only returns 200. This was the root cause of DNSFilter "returning nothing" in annual/TBR reports — every ~30-day pull 400'd and was caught into zeros. Full-ISO is accepted (and keeps hour precision) only when `from` is within 9 days of now — the SOC enrichment uses precise timestamps for fresh alert windows and falls back to date-only + client-side time filtering for older re-triage.
+- **`/v1/traffic_reports/query_logs` EXISTS and is the blocked-traffic source.** Do not "simplify" to `top_categories`/`top_domains`: both silently IGNORE `result=blocked` and return TOTAL traffic. Blocked breakdowns are aggregated client-side from query_logs rows: blocked total = `data.page.total` with `result=blocked`; categories from each row's `categories_names[]`; domains from `domain` (fallback `fqdn`).
+- **Paginate query_logs rows** with `page[size]` + `page[number]` (1-based; first page may omit `page[number]`). One page truncates category/domain counts. `getTrafficReport` pages to `data.page.total` with a 50×100-row cap and flags `breakdown_partial` (surfaced in the summary `note`) instead of silently truncating.
+
+---
+
+## Datto EDR Integration — Key Knowledge
+
+Single client: `src/lib/datto-edr.ts` (Infocyte LoopBack, `access_token` query param). Other /Alerts callers: SOC enrichment (`fetchEdr`), compliance collector (`collectDattoEdrEvidence`).
+
+- **The /Alerts LIST model does NOT carry threat-intel fields (2026-07-19, verified vs live list model + openapi.json)**: no `threatName`, `threatScore`, `flagName`, `flagColor`, `compromised`/`malicious`/`suspicious`, `md5`/`sha256`, `synapse` at the top level — reading them yields `undefined` (this is why every event used to come out severity="medium"). The list model HAS native `severity` (use it), plus `name`/`description`/`type`/`mitreTactic` and host identity fields. Richer threat detail lives on AlertDetail (`GET /api/Alerts/{id}`) or nested under a list row's `data` object — the SOC enrichment flattens `data` up (`flattenEdrAlert`) and is correct as-is. Never add per-alert detail fetches to bulk/list paths (N+1).
+- Org scoping (`where.organizationId`) and `createdOn` date filters on /Alerts are correct — keep them.
+
+---
+
+## Reporting — SLA & Reopen Source of Truth (2026-07-19)
+
+- **Exactly ONE SLA computation feeds customer-facing reports**: the `ticket_lifecycle` engine's business-hours-vs-targets verdicts (`slaResponseMet`/`slaResolutionPlanMet`/`slaResolutionMet`), read via `getLifecycleQualitySummary()` / `getLifecycleQualityByCompany()` in `src/lib/reporting/lifecycle.ts`. The old `completedDate <= dueDateTime` proxy produced a SECOND, conflicting SLA number on the operations dashboard, company report, QBR, and annual report — it is removed; never revive it. (Sole survivor: the SOC triage panel's per-row due-date flag in `/api/soc/tickets` — an internal ops indicator, not a customer report.)
+- **Reopens come from `ticket_status_history` via lifecycle `reopenCount`, gated on coverage**: history is forward-only from the first sync, so a period without coverage is **"not measured" (null)** — never 0. Zero means "measured, none found". `SupportActivityData.ticketsReopened` is `number | null` accordingly; UI/PDF/narrative all render null as N/A/— and the QBR narrative only praises "no reopens" when reopens were actually measured.
+- SLA figures go null when `reporting_targets` isn't seeded or tickets predate lifecycle coverage — reports must render "not measured"/neutral, never a fabricated 100%/0. Single-number SLA fields (dashboard, company table) use the pooled all-three-metrics formula — the same one health scores use.
+
+---
+
 ## Customer Portal Architecture
 
 The customer portal is at `/onboarding/[companyName]`. Key components:

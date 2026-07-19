@@ -448,14 +448,17 @@ export async function collectDattoEdrEvidence(
     const eventsByType: Record<string, number> = {}
 
     if (alertsRes.ok) {
+      // The Alerts LIST model carries native `severity` and `type`; it does NOT
+      // carry threatName/threatScore/flagName (AlertDetail-only fields — reading
+      // them off list rows yields undefined and buckets everything as "unknown").
       const alerts = await alertsRes.json() as Array<{
-        threatName?: string; threatScore?: number; flagName?: string; type?: string
+        severity?: string; type?: string; mitreTactic?: string
       }>
       totalEvents = Array.isArray(alerts) ? alerts.length : 0
       for (const a of (Array.isArray(alerts) ? alerts : [])) {
-        const sev = a.threatName ?? 'unknown'
+        const sev = (a.severity || 'unknown').toLowerCase()
         eventsBySeverity[sev] = (eventsBySeverity[sev] ?? 0) + 1
-        const type = a.flagName ?? a.type ?? 'unknown'
+        const type = a.type ?? a.mitreTactic ?? 'unknown'
         eventsByType[type] = (eventsByType[type] ?? 0) + 1
       }
     }
@@ -499,9 +502,13 @@ export async function collectDnsFilterEvidence(
   const headers = { 'Authorization': `Token ${apiToken}`, 'Accept': 'application/json' }
 
   try {
-    // DNSFilter v1 API: traffic_reports endpoints don't exist.
-    // Evidence comes from: organizations (customers), networks (sites), and policies (blocking rules).
-    // Having active orgs + networks + blocking policies = DNS filtering is deployed.
+    // NOTE: DNSFilter's /v1/traffic_reports/query_logs endpoint DOES exist and
+    // returns blocked-traffic data — src/lib/dnsfilter.ts (DnsFilterClient) is
+    // the source for traffic figures (date-only from/to, paginated blocked
+    // rows). This collector intentionally gathers DEPLOYMENT-PRESENCE evidence
+    // only: organizations (customers), networks (sites), and policies (blocking
+    // rules). Having active orgs + networks + blocking policies = DNS filtering
+    // is deployed; reports needing blocked-traffic counts use DnsFilterClient.
 
     // Fetch organizations
     const orgRes = await fetch(`${baseUrl}/organizations`, { headers, signal: AbortSignal.timeout(15_000) })

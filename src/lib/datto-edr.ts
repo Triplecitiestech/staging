@@ -97,6 +97,15 @@ export class DattoEdrClient {
   /**
    * Fetch alerts from the Infocyte /Alerts endpoint.
    * LoopBack filter syntax: ?filter[where][createdOn][gte]=<ISO date>
+   *
+   * The Alerts LIST model carries `severity`, `name`, `description`, `type`,
+   * `mitreTactic`, and host identity fields — it does NOT carry threatName,
+   * threatScore, flagName, hashes, or compromised/malicious booleans (those
+   * exist only on AlertDetail via GET /api/Alerts/{id}, or nested under a row's
+   * `data` object where the SOC enrichment reads them). Never read the
+   * threat-intel fields off list rows: they are always undefined there, and do
+   * NOT add per-alert detail fetches to this bulk path (N+1) — native list
+   * `severity` is sufficient for reporting.
    */
   async getEvents(since: Date, until: Date, organizationId?: string): Promise<DattoEdrEvent[]> {
     const sinceStr = since.toISOString();
@@ -122,41 +131,33 @@ export class DattoEdrClient {
           order: 'createdOn DESC',
         });
 
-      const items = await this.request<Array<{
-        id?: string;
-        type?: string;
-        threatName?: string;  // "Good" | "Unknown" | "Suspicious" | "Bad"
-        threatScore?: number; // 0-10, higher = worse
-        name?: string;
-        path?: string;
-        hostname?: string;
-        hostId?: string;
-        flagName?: string;
-        flagColor?: string;
-        compromised?: boolean;
-        malicious?: boolean;
-        suspicious?: boolean;
-        md5?: string;
-        sha256?: string;
-        createdOn?: string;
-        scannedOn?: string;
-        avPositives?: number;
-        avTotal?: number;
-        synapse?: number; // ML score, negative = malicious
-      }>>(`/Alerts?filter=${encodeURIComponent(filter)}`);
+        const items = await this.request<Array<{
+          id?: string;
+          type?: string;
+          name?: string;
+          description?: string;
+          severity?: string; // native vendor severity — the authoritative list field
+          mitreTactic?: string;
+          hostname?: string;
+          hostId?: string;
+          deviceId?: string;
+          createdOn?: string;
+        }>>(`/Alerts?filter=${encodeURIComponent(filter)}`);
 
         // LoopBack returns arrays directly (not wrapped in {data:} or {items:})
         const list = Array.isArray(items) ? items : [];
         const mapped = list.map((e) => ({
           id: e.id || '',
-          type: e.type || e.flagName || 'unknown',
-          severity: mapThreatNameToSeverity(e.threatName, e.threatScore),
-          description: e.name || e.path || '',
-          timestamp: e.createdOn || e.scannedOn || '',
+          type: e.type || 'unknown',
+          severity: mapVendorSeverity(e.severity),
+          description: e.name || e.description || '',
+          timestamp: e.createdOn || '',
           hostname: e.hostname || '',
-          deviceId: e.hostId || '',
-          status: e.compromised ? 'compromised' : (e.malicious ? 'malicious' : 'active'),
-          category: e.flagName || e.type || 'unknown',
+          deviceId: e.hostId || e.deviceId || '',
+          // The list model has no compromise/containment state — that lives on
+          // AlertDetail only. Never fabricate one here.
+          status: 'unknown',
+          category: e.mitreTactic || e.type || 'unknown',
         }));
         allEvents.push(...mapped);
 
@@ -249,25 +250,23 @@ export class DattoEdrClient {
 }
 
 /**
- * Map Infocyte threatName/threatScore to a normalized severity level.
- * Infocyte uses: Good, Unknown, Suspicious, Bad
+ * Map the Alerts list model's native `severity` to our internal levels
+ * (critical / high / medium / low). Unrecognized vendor values pass through
+ * lowercased so counts stay truthful; a missing value maps to "unknown" —
+ * never to a fabricated "medium".
  */
-function mapThreatNameToSeverity(threatName?: string, threatScore?: number): string {
-  if (threatName) {
-    switch (threatName.toLowerCase()) {
-      case 'bad': return 'critical';
-      case 'suspicious': return 'high';
-      case 'unknown': return 'medium';
-      case 'good': return 'low';
-    }
+function mapVendorSeverity(severity?: string): string {
+  const s = (severity || '').trim().toLowerCase();
+  if (!s) return 'unknown';
+  switch (s) {
+    case 'critical': return 'critical';
+    case 'high': return 'high';
+    case 'medium': return 'medium';
+    case 'low': return 'low';
+    case 'info':
+    case 'informational': return 'low';
+    default: return s;
   }
-  if (threatScore !== undefined) {
-    if (threatScore >= 8) return 'critical';
-    if (threatScore >= 5) return 'high';
-    if (threatScore >= 3) return 'medium';
-    return 'low';
-  }
-  return 'medium';
 }
 
 function buildMonthlyTrends(

@@ -303,7 +303,7 @@ ${isInternal ? '<div class="internal-banner">&#9888; INTERNAL DOCUMENT — NOT F
     ${statCard('Tickets Created', data.supportActivity.ticketsCreated, changeLabel(data.comparison.ticketsCreatedChange))}
     ${statCard('Tickets Closed', data.supportActivity.ticketsClosed, changeLabel(data.comparison.ticketsClosedChange))}
     ${statCard('Support Hours', `${data.supportActivity.supportHoursConsumed}h`, changeLabel(data.comparison.supportHoursChange))}
-    ${statCard('Reopened', data.supportActivity.ticketsReopened)}
+    ${statCard('Reopened', data.supportActivity.ticketsReopened ?? '—')}
     ${statCard('Net Change', data.supportActivity.netTicketChange > 0 ? `+${data.supportActivity.netTicketChange}` : `${data.supportActivity.netTicketChange}`)}
     ${statCard('Billable Hours', `${data.supportActivity.billableHoursConsumed}h`)}
   </div>

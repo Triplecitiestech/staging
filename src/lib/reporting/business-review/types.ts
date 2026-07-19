@@ -58,7 +58,11 @@ export interface ReviewReportData {
 export interface SupportActivityData {
   ticketsCreated: number;
   ticketsClosed: number;
-  ticketsReopened: number;
+  /**
+   * Reopened-ticket count from status history. null = not measured (history is
+   * forward-only from the first sync); 0 = measured, none found.
+   */
+  ticketsReopened: number | null;
   supportHoursConsumed: number;
   billableHoursConsumed: number;
   netTicketChange: number;

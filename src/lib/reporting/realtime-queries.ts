@@ -17,6 +17,7 @@ import {
 } from './types';
 import { isApiOrSystemUser } from './api-user-filter';
 import { dateToBucketKey, generateTrendBuckets, getComparisonRange } from './filters';
+import { getLifecycleQualityByCompany, getLifecycleQualitySummary } from './lifecycle';
 
 // ============================================
 // HELPERS
@@ -274,9 +275,12 @@ export async function getRealtimeCompanyMetrics(
       priority: true,
       createDate: true,
       completedDate: true,
-      dueDateTime: true,
     },
   });
+
+  // SLA + reopens come from the ticket_lifecycle engine (business-hours vs
+  // targets) — the single SLA source for customer-facing reports.
+  const qualityByCompany = await getLifecycleQualityByCompany(range.from, range.to);
 
   // Time entries in period grouped by company (via ticket)
   const ticketIds = tickets.map(t => t.autotaskTicketId);
@@ -317,8 +321,6 @@ export async function getRealtimeCompanyMetrics(
     backlog: number;
     resolutionMinutes: number[];
     frtMinutes: number[];
-    slaResponseMet: number;
-    slaResponseTotal: number;
   }>();
 
   const getOrCreate = (cid: string) => {
@@ -326,7 +328,6 @@ export async function getRealtimeCompanyMetrics(
       companyData.set(cid, {
         created: 0, closed: 0, hours: 0, backlog: 0,
         resolutionMinutes: [], frtMinutes: [],
-        slaResponseMet: 0, slaResponseTotal: 0,
       });
     }
     return companyData.get(cid)!;
@@ -345,14 +346,6 @@ export async function getRealtimeCompanyMetrics(
       d.closed++;
       const resMins = (t.completedDate.getTime() - t.createDate.getTime()) / (1000 * 60);
       if (resMins > 0) d.resolutionMinutes.push(resMins);
-
-      // SLA check: if dueDateTime exists, check if completed before due
-      if (t.dueDateTime) {
-        d.slaResponseTotal++;
-        if (t.completedDate <= t.dueDateTime) {
-          d.slaResponseMet++;
-        }
-      }
     }
 
     // Open backlog
@@ -365,11 +358,6 @@ export async function getRealtimeCompanyMetrics(
     if (firstNote) {
       const frtMins = (firstNote.getTime() - t.createDate.getTime()) / (1000 * 60);
       if (frtMins >= 0) d.frtMinutes.push(frtMins);
-
-      // SLA response check: first response within threshold (e.g., dueDateTime or target)
-      if (t.dueDateTime) {
-        // Already counted above for resolution SLA
-      }
     }
   }
 
@@ -399,9 +387,7 @@ export async function getRealtimeCompanyMetrics(
   const summaries: CompanySummary[] = [];
   for (const [cid, d] of Array.from(companyData.entries())) {
     const health = healthMap.get(cid);
-    const slaCompliance = d.slaResponseTotal > 0
-      ? round1((d.slaResponseMet / d.slaResponseTotal) * 100)
-      : null;
+    const quality = qualityByCompany.get(cid);
 
     summaries.push({
       companyId: cid,
@@ -410,9 +396,12 @@ export async function getRealtimeCompanyMetrics(
       ticketsClosed: d.closed,
       supportHoursConsumed: round1(d.hours),
       avgResolutionMinutes: avgOrNull(d.resolutionMinutes),
-      reopenRate: null, // Would need status history analysis for reopens
+      // Real reopen rate from the lifecycle engine — null means "not measured"
+      // (no status-history coverage), never a fabricated 0.
+      reopenRate: quality?.reopen.reopenRate ?? null,
       firstTouchResolutionRate: null, // Would need deeper note analysis
-      slaCompliance,
+      // Lifecycle engine SLA (business-hours vs targets) — null = not measured.
+      slaCompliance: quality?.sla.combinedCompliance ?? null,
       backlogCount: d.backlog,
       healthScore: health?.overallScore ?? null,
       healthTrend: health?.trend ?? null,
@@ -450,7 +439,6 @@ export async function getRealtimeDashboardSummary(range: DateRange): Promise<Das
       priority: true,
       createDate: true,
       completedDate: true,
-      dueDateTime: true,
     },
   });
 
@@ -462,10 +450,11 @@ export async function getRealtimeDashboardSummary(range: DateRange): Promise<Das
   const totalTicketsCreated = createdInPeriod.length;
   const totalTicketsClosed = closedInPeriod.length;
 
-  // SLA compliance from dueDateTime
-  const slaTickets = closedInPeriod.filter(t => t.dueDateTime);
-  const slaMet = slaTickets.filter(t => t.completedDate! <= t.dueDateTime!).length;
-  const overallSlaCompliance = slaTickets.length > 0 ? round1((slaMet / slaTickets.length) * 100) : null;
+  // SLA compliance from the ticket_lifecycle engine (business-hours vs targets)
+  // — the same single source every customer-facing report uses. Null = not
+  // measured (no targets seeded / no lifecycle coverage), never a proxy number.
+  const quality = await getLifecycleQualitySummary(range.from, range.to);
+  const overallSlaCompliance = quality.sla.combinedCompliance;
 
   // Backlog (open tickets)
   const totalBacklog = await prisma.ticket.count({
@@ -716,7 +705,6 @@ export async function getRealtimeTicketList(
       assignedResourceId: true,
       createDate: true,
       completedDate: true,
-      dueDateTime: true,
       companyId: true,
     },
     orderBy: { createDate: 'desc' },
@@ -773,14 +761,17 @@ export async function getRealtimeTicketList(
     }
   }
 
-  // SLA computation from ticket_lifecycle table (all 3 metrics)
+  // SLA computation from ticket_lifecycle table (all 3 metrics) — the single
+  // SLA source; per-row values below come from the same rows so the header and
+  // the rows can never disagree.
   const slaTicketIds = tickets.map(t => t.autotaskTicketId);
-  let lifecycleRows: { slaResponseMet: boolean | null; slaResolutionPlanMet?: boolean | null; slaResolutionMet: boolean | null }[] = [];
+  let lifecycleRows: { autotaskTicketId: string; slaResponseMet: boolean | null; slaResolutionPlanMet?: boolean | null; slaResolutionMet: boolean | null }[] = [];
   if (slaTicketIds.length > 0) {
     try {
       lifecycleRows = await prisma.ticketLifecycle.findMany({
         where: { autotaskTicketId: { in: slaTicketIds } },
         select: {
+          autotaskTicketId: true,
           slaResponseMet: true,
           slaResolutionPlanMet: true,
           slaResolutionMet: true,
@@ -791,12 +782,14 @@ export async function getRealtimeTicketList(
       lifecycleRows = (await prisma.ticketLifecycle.findMany({
         where: { autotaskTicketId: { in: slaTicketIds } },
         select: {
+          autotaskTicketId: true,
           slaResponseMet: true,
           slaResolutionMet: true,
         },
       })).map(r => ({ ...r, slaResolutionPlanMet: null }));
     }
   }
+  const lifecycleByTicket = new Map(lifecycleRows.map(lc => [lc.autotaskTicketId, lc]));
 
   let slaRespMet = 0, slaRespTotal = 0;
   let slaPlanMet = 0, slaPlanTotal = 0;
@@ -825,6 +818,7 @@ export async function getRealtimeTicketList(
     const resMins = isResolved(t.status) && t.completedDate
       ? (t.completedDate.getTime() - t.createDate.getTime()) / (1000 * 60)
       : null;
+    const lc = lifecycleByTicket.get(t.autotaskTicketId);
 
     return {
       ticketId: t.autotaskTicketId,
@@ -841,10 +835,10 @@ export async function getRealtimeTicketList(
       firstResponseMinutes: frtMinutes !== null && frtMinutes >= 0 ? round1(frtMinutes) : null,
       resolutionMinutes: resMins !== null && resMins > 0 ? round1(resMins) : null,
       hoursLogged: round1(hoursByTicket.get(t.autotaskTicketId) || 0),
-      slaResponseMet: null, // Would need SLA target configuration
-      slaResolutionMet: t.dueDateTime && isResolved(t.status) && t.completedDate
-        ? t.completedDate <= t.dueDateTime
-        : null,
+      // Per-ticket lifecycle verdicts (business-hours vs targets) — null when
+      // the ticket isn't measured (no target seeded / no lifecycle row yet).
+      slaResponseMet: lc?.slaResponseMet ?? null,
+      slaResolutionMet: lc?.slaResolutionMet ?? null,
     };
   });
 

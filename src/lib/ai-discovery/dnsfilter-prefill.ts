@@ -238,9 +238,14 @@ export async function buildDnsfilterPrefill(companyId: string | null, companyNam
   async function queryLogSignals(): Promise<{ signals: string[]; note: string | null }> {
     const collected: string[] = []
     let resultFilter: string | undefined
+    // query_logs MUST get DATE-ONLY from/to: full-ISO `from` older than 9 days
+    // is rejected with 400, date-only lifts the cap (see src/lib/dnsfilter.ts).
+    const fmtDate = (ms: number) => new Date(ms).toISOString().slice(0, 10)
+    const fromDate = fmtDate(now - 30 * 24 * 60 * 60 * 1000)
+    const toDate = fmtDate(now)
     for (let page = 1; page <= 5; page++) {
       const qs = new URLSearchParams()
-      qs.set('organization_id', oid); qs.set('from', fromIso); qs.set('to', toIso)
+      qs.set('organization_id', oid); qs.set('from', fromDate); qs.set('to', toDate)
       qs.set('page[size]', '100'); qs.set('page[number]', String(page))
       if (resultFilter) qs.set('result', resultFilter)
       const res = await fetch(`${baseUrl}/traffic_reports/query_logs?${qs.toString()}`, { headers, signal: AbortSignal.timeout(30_000) })
