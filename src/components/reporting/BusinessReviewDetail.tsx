@@ -24,7 +24,7 @@ interface ReviewData {
     supportActivity: {
       ticketsCreated: number
       ticketsClosed: number
-      ticketsReopened: number
+      ticketsReopened: number | null
       supportHoursConsumed: number
       billableHoursConsumed: number
       netTicketChange: number
@@ -197,7 +197,7 @@ export default function BusinessReviewDetail({ reviewId }: Props) {
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
           <Stat label="Created" value={rd.supportActivity.ticketsCreated} change={rd.comparison.ticketsCreatedChange} />
           <Stat label="Closed" value={rd.supportActivity.ticketsClosed} change={rd.comparison.ticketsClosedChange} />
-          <Stat label="Reopened" value={rd.supportActivity.ticketsReopened} />
+          <Stat label="Reopened" value={rd.supportActivity.ticketsReopened ?? 'N/A'} />
           <Stat label="Hours" value={`${rd.supportActivity.supportHoursConsumed}h`} change={rd.comparison.supportHoursChange} />
           <Stat label="Billable" value={`${rd.supportActivity.billableHoursConsumed}h`} />
           <Stat label="Net Change" value={rd.supportActivity.netTicketChange > 0 ? `+${rd.supportActivity.netTicketChange}` : `${rd.supportActivity.netTicketChange}`} />

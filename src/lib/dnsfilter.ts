@@ -119,20 +119,40 @@ export class DnsFilterClient {
    * Fetch traffic/threat reports for a date range.
    * Uses the `/traffic_reports/query_logs` endpoint (the same one the SOC
    * enrichment uses) — `organization_id` is a query param and `data.page.total`
-   * is the match count, so we get accurate totals without fetching every row.
+   * is the match count.
+   *
+   * `from`/`to` MUST be sent as DATE-ONLY (`YYYY-MM-DD`): with full-ISO
+   * timestamps the API rejects any `from` more than 9 days before now with
+   * HTTP 400 ("Time period (from now) is greater than 9 days"); date-only
+   * values lift that cap (a 30-day date-only window returns 200).
+   *
+   * The blocked-traffic breakdown is aggregated CLIENT-SIDE from query_logs
+   * rows (`categories_names[]`, `domain`/`fqdn`) — `top_categories` and
+   * `top_domains` silently ignore `result=blocked` (they return TOTAL
+   * traffic), so they are not a reliable blocked-breakdown source.
    *
    * @param orgId  When provided, scopes the pull to exactly this organization
    *   via `organization_id`. When omitted the query is account-wide (MSP) — used
    *   only by internal MSP roll-ups, never for a single customer's report.
+   * @param opts.includeBreakdown  When false, only the totals are fetched (one
+   *   row per call) — used by the monthly-trend loop, which discards breakdowns.
    */
-  async getTrafficReport(since: Date, until: Date, orgId?: string): Promise<{
+  async getTrafficReport(
+    since: Date,
+    until: Date,
+    orgId?: string,
+    opts?: { includeBreakdown?: boolean },
+  ): Promise<{
     total_queries: number;
     blocked_queries: number;
     threats: Array<{ category: string; count: number }>;
     top_blocked: Array<{ domain: string; count: number }>;
+    /** True when the blocked-row pull hit the page cap — breakdown is from a partial sample; totals stay exact. */
+    breakdown_partial: boolean;
   }> {
-    // DNSFilter query logs use ISO datetime (seconds precision) on from/to.
-    const fmt = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, 'Z');
+    const includeBreakdown = opts?.includeBreakdown !== false;
+    // Date-only (UTC) — full-ISO triggers the API's 9-day from-now cap.
+    const fmt = (d: Date) => d.toISOString().slice(0, 10);
 
     const queryLogs = (params: Record<string, string>) => {
       const qs = new URLSearchParams({ from: fmt(since), to: fmt(until), ...params });
@@ -151,17 +171,51 @@ export class DnsFilterClient {
     const totalRes = await queryLogs({ 'page[size]': '1' });
     const total_queries = totalRes.data?.page?.total ?? 0;
 
-    // Blocked queries — count plus a sample page for category/domain breakdown.
-    const blockedRes = await queryLogs({ result: 'blocked', 'page[size]': '100' });
-    const blockedVals = blockedRes.data?.values ?? [];
-    const blocked_queries = blockedRes.data?.page?.total ?? blockedVals.length;
+    // Blocked queries — `result=blocked` filters query_logs to blocked rows;
+    // `data.page.total` is the exact blocked total.
+    const PAGE_SIZE = 100;
+    const MAX_PAGES = 50; // hard cap: 5,000 rows per window — marked partial if hit
+    // First page: no page[number] (server default) — identical to the
+    // live-verified call shape. Subsequent pages use page[number]=2.. (1-based).
+    const firstPage = await queryLogs({
+      result: 'blocked',
+      'page[size]': String(PAGE_SIZE),
+    });
+    const blocked_queries = firstPage.data?.page?.total ?? firstPage.data?.values?.length ?? 0;
 
     const catCounts = new Map<string, number>();
     const domCounts = new Map<string, number>();
-    for (const v of blockedVals) {
-      for (const c of v.categories_names ?? []) catCounts.set(c, (catCounts.get(c) ?? 0) + 1);
-      const d = v.domain || v.fqdn || '';
-      if (d) domCounts.set(d, (domCounts.get(d) ?? 0) + 1);
+    let breakdown_partial = false;
+
+    if (includeBreakdown) {
+      const tally = (vals: Array<{ domain?: string; fqdn?: string; categories_names?: string[] }>) => {
+        for (const v of vals) {
+          for (const c of v.categories_names ?? []) catCounts.set(c, (catCounts.get(c) ?? 0) + 1);
+          const d = v.domain || v.fqdn || '';
+          if (d) domCounts.set(d, (domCounts.get(d) ?? 0) + 1);
+        }
+      };
+
+      tally(firstPage.data?.values ?? []);
+
+      // Paginate every remaining page up to the exact blocked total — a single
+      // page truncates the category/domain counts.
+      const totalPages = Math.ceil(blocked_queries / PAGE_SIZE);
+      const pagesToFetch = Math.min(totalPages, MAX_PAGES);
+      for (let page = 2; page <= pagesToFetch; page++) {
+        const res = await queryLogs({
+          result: 'blocked',
+          'page[size]': String(PAGE_SIZE),
+          'page[number]': String(page),
+        });
+        const vals = res.data?.values ?? [];
+        tally(vals);
+        if (vals.length === 0) break; // server ran dry early — stop paging
+      }
+      if (totalPages > MAX_PAGES) {
+        breakdown_partial = true;
+        console.warn(`[dnsfilter] blocked breakdown truncated at ${MAX_PAGES * PAGE_SIZE} of ${blocked_queries} rows (page cap)`);
+      }
     }
 
     return {
@@ -173,6 +227,7 @@ export class DnsFilterClient {
       top_blocked: Array.from(domCounts.entries())
         .sort((a, b) => b[1] - a[1])
         .map(([domain, count]) => ({ domain, count })),
+      breakdown_partial,
     };
   }
 
@@ -199,7 +254,8 @@ export class DnsFilterClient {
     try {
       const report = await this.getTrafficReport(periodStart, periodEnd, orgId);
 
-      // Build monthly trends by querying month by month
+      // Build monthly trends by querying month by month (counts only — the
+      // per-month breakdowns are never used, so skip the row pagination).
       const monthlyTrends: Array<{ month: string; label: string; blocked: number; total: number }> = [];
       const cursor = new Date(periodStart);
 
@@ -209,7 +265,7 @@ export class DnsFilterClient {
         const effectiveEnd = monthEnd > periodEnd ? periodEnd : monthEnd;
 
         try {
-          const monthReport = await this.getTrafficReport(monthStart, effectiveEnd, orgId);
+          const monthReport = await this.getTrafficReport(monthStart, effectiveEnd, orgId, { includeBreakdown: false });
           const m = cursor.getMonth() + 1;
           monthlyTrends.push({
             month: `${cursor.getFullYear()}-${m < 10 ? '0' + m : m}`,
@@ -239,7 +295,9 @@ export class DnsFilterClient {
         threatsByCategory: report.threats.sort((a, b) => b.count - a.count),
         topBlockedDomains: report.top_blocked.slice(0, 10),
         monthlyTrends,
-        note: null,
+        note: report.breakdown_partial
+          ? `Blocked totals are exact; the category/domain breakdown was computed from the first 5,000 of ${report.blocked_queries.toLocaleString()} blocked queries (page cap).`
+          : null,
       };
     } catch (error) {
       console.error('[DNSFilter] buildSummary error:', error);

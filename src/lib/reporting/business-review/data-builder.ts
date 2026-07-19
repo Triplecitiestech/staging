@@ -5,6 +5,7 @@
 
 import { prisma } from '@/lib/prisma';
 import { PRIORITY_LABELS, getResolvedStatuses } from '../types';
+import { getLifecycleQualitySummary } from '../lifecycle';
 import {
   ReviewReportData,
   SupportActivityData,
@@ -62,7 +63,6 @@ export async function buildReportData(
       select: {
         autotaskTicketId: true, status: true, priority: true,
         createDate: true, completedDate: true, assignedResourceId: true,
-        dueDateTime: true,
       },
     }),
     prisma.ticket.findMany({
@@ -186,10 +186,14 @@ export async function buildReportData(
     }
   }
 
-  // SLA from dueDateTime (tickets closed in period)
-  const slaTickets = closedInPeriod.filter(t => t.dueDateTime);
-  const slaMet = slaTickets.filter(t => t.completedDate! <= t.dueDateTime!).length;
-  const slaCompliance = slaTickets.length > 0 ? round1((slaMet / slaTickets.length) * 100) : null;
+  // SLA + reopens from the ticket_lifecycle engine (business-hours vs targets)
+  // — the single SLA source for customer-facing reports. Both go null when the
+  // period isn't measurable (targets not seeded / tickets predate the first
+  // status-history sync): the report renders "not measured", never a
+  // fabricated 100% or 0.
+  const quality = await getLifecycleQualitySummary(periodStart, periodEnd, companyId);
+  const slaResponseCompliance = quality.sla.responseCompliance;
+  const slaResolutionCompliance = quality.sla.resolutionCompliance;
 
   // Compute FTR: tickets closed with only 1 tech note (single-interaction resolution)
   let firstTouchCount = 0;
@@ -201,11 +205,10 @@ export async function buildReportData(
     ? round1((firstTouchCount / closedInPeriod.length) * 100)
     : 0;
 
-  // Reopen rate: we query for reopened tickets (status history) but for now
-  // use a simpler heuristic — tickets with >1 completed date cycle are reopened.
-  // With the data we have, if ticketsReopened = 0 (no reopen events detected), rate is 0%.
-  const reopened = 0; // Autotask doesn't reliably track reopens in our sync
-  const reopenRate = closed > 0 ? round1((reopened / closed) * 100) : 0;
+  // Real reopen tracking from ticket_status_history via the lifecycle engine.
+  // null = not measured (no history coverage); 0 = measured, none found.
+  const reopened = quality.reopen.measuredTickets > 0 ? quality.reopen.reopenedTickets : null;
+  const reopenRate = quality.reopen.reopenRate;
 
   // Compute how many tickets closed in this period were created BEFORE this period
   // (cross-period resolutions)
@@ -217,7 +220,7 @@ export async function buildReportData(
     supportHoursConsumed: hours, billableHoursConsumed: billable,
     avgFirstResponseMinutes: avg(frtMinutes), avgResolutionMinutes: avg(resolutionMinutes),
     firstTouchResolutionRate: firstTouchRate, reopenRate: reopenRate,
-    slaResponseCompliance: slaCompliance, slaResolutionCompliance: slaCompliance,
+    slaResponseCompliance, slaResolutionCompliance,
     ticketsCreatedUrgent: priorityCounts[1], ticketsCreatedHigh: priorityCounts[2],
     ticketsCreatedMedium: priorityCounts[3], ticketsCreatedLow: priorityCounts[4],
     date: periodStart,
@@ -288,7 +291,7 @@ function buildSupportActivity(
   metrics: Array<{
     ticketsCreated: number;
     ticketsClosed: number;
-    ticketsReopened: number;
+    ticketsReopened: number | null;
     supportHoursConsumed: number;
     billableHoursConsumed: number;
     crossPeriodResolutions: number;
@@ -296,7 +299,10 @@ function buildSupportActivity(
 ): SupportActivityData {
   const created = metrics.reduce((s, m) => s + m.ticketsCreated, 0);
   const closed = metrics.reduce((s, m) => s + m.ticketsClosed, 0);
-  const reopened = metrics.reduce((s, m) => s + m.ticketsReopened, 0);
+  // Reopens: null = not measured (no status-history coverage). Only sum
+  // measured values; if nothing was measured the total stays null.
+  const reopenedVals = metrics.map(m => m.ticketsReopened).filter(nonNull);
+  const reopened = reopenedVals.length > 0 ? reopenedVals.reduce((a, b) => a + b, 0) : null;
   const hours = metrics.reduce((s, m) => s + m.supportHoursConsumed, 0);
   const billable = metrics.reduce((s, m) => s + m.billableHoursConsumed, 0);
   const crossPeriod = metrics.reduce((s, m) => s + m.crossPeriodResolutions, 0);
@@ -593,7 +599,7 @@ function buildNotableEvents(
     date: Date;
     ticketsCreated: number;
     ticketsClosed: number;
-    ticketsReopened: number;
+    ticketsReopened: number | null;
   }>,
 ): NotableEventData[] {
   const events: NotableEventData[] = [];
@@ -613,8 +619,8 @@ function buildNotableEvents(
       });
     }
 
-    // High reopen days
-    if (m.ticketsReopened >= 3) {
+    // High reopen days (null = not measured — no event either way)
+    if (m.ticketsReopened !== null && m.ticketsReopened >= 3) {
       events.push({
         date: m.date.toISOString().split('T')[0],
         description: `${m.ticketsReopened} tickets reopened`,

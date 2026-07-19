@@ -53,7 +53,6 @@ export async function getStaffTicketList(params: StaffTicketListParams): Promise
       assignedResourceId: true,
       createDate: true,
       completedDate: true,
-      dueDateTime: true,
       companyId: true,
     },
     orderBy: { createDate: 'desc' },
@@ -120,14 +119,54 @@ export async function getStaffTicketList(params: StaffTicketListParams): Promise
     }
   }
 
-  // SLA computation
-  let slaResMet = 0;
-  let slaResTotal = 0;
-  const resolvedTickets = tickets.filter(t => isResolvedStatus(t.status, t.statusLabel) && t.completedDate);
-  for (const t of resolvedTickets) {
-    if (t.dueDateTime) {
+  // SLA from the ticket_lifecycle engine (business-hours vs targets) — the
+  // single SLA source; the old completedDate <= dueDateTime proxy is gone.
+  // Null = not measured (no targets seeded / no lifecycle row), never a proxy.
+  let lifecycleRows: Array<{ autotaskTicketId: string; slaResponseMet: boolean | null; slaResolutionPlanMet?: boolean | null; slaResolutionMet: boolean | null }> = [];
+  if (ticketIds.length > 0) {
+    try {
+      lifecycleRows = await prisma.ticketLifecycle.findMany({
+        where: { autotaskTicketId: { in: ticketIds } },
+        select: {
+          autotaskTicketId: true,
+          slaResponseMet: true,
+          slaResolutionPlanMet: true,
+          slaResolutionMet: true,
+        },
+      });
+    } catch {
+      try {
+        // slaResolutionPlanMet column may not exist yet — fallback without it
+        lifecycleRows = (await prisma.ticketLifecycle.findMany({
+          where: { autotaskTicketId: { in: ticketIds } },
+          select: {
+            autotaskTicketId: true,
+            slaResponseMet: true,
+            slaResolutionMet: true,
+          },
+        })).map(r => ({ ...r, slaResolutionPlanMet: null }));
+      } catch {
+        lifecycleRows = []; // lifecycle unavailable — SLA renders as not measured
+      }
+    }
+  }
+  const lifecycleByTicket = new Map(lifecycleRows.map(lc => [lc.autotaskTicketId, lc]));
+
+  let slaRespMet = 0, slaRespTotal = 0;
+  let slaPlanMet = 0, slaPlanTotal = 0;
+  let slaResMet = 0, slaResTotal = 0;
+  for (const lc of lifecycleRows) {
+    if (lc.slaResponseMet !== null) {
+      slaRespTotal++;
+      if (lc.slaResponseMet) slaRespMet++;
+    }
+    if (lc.slaResolutionPlanMet !== null && lc.slaResolutionPlanMet !== undefined) {
+      slaPlanTotal++;
+      if (lc.slaResolutionPlanMet) slaPlanMet++;
+    }
+    if (lc.slaResolutionMet !== null) {
       slaResTotal++;
-      if (t.completedDate! <= t.dueDateTime) slaResMet++;
+      if (lc.slaResolutionMet) slaResMet++;
     }
   }
 
@@ -141,6 +180,7 @@ export async function getStaffTicketList(params: StaffTicketListParams): Promise
       isResolvedStatus(t.status, t.statusLabel) && t.completedDate
         ? (t.completedDate.getTime() - t.createDate.getTime()) / (1000 * 60)
         : null;
+    const lc = lifecycleByTicket.get(t.autotaskTicketId);
 
     return {
       ticketId: t.autotaskTicketId,
@@ -158,9 +198,8 @@ export async function getStaffTicketList(params: StaffTicketListParams): Promise
       firstResponseMinutes: frtMinutes !== null && frtMinutes >= 0 ? round1(frtMinutes) : null,
       resolutionMinutes: resMins !== null && resMins > 0 ? round1(resMins) : null,
       hoursLogged: round1(hoursByTicket.get(t.autotaskTicketId) || 0),
-      slaResponseMet: null,
-      slaResolutionMet:
-        t.dueDateTime && isResolvedStatus(t.status, t.statusLabel) && t.completedDate ? t.completedDate <= t.dueDateTime : null,
+      slaResponseMet: lc?.slaResponseMet ?? null,
+      slaResolutionMet: lc?.slaResolutionMet ?? null,
       autotaskUrl: autotaskWebUrl ? `${autotaskWebUrl}?ticketId=${t.autotaskTicketId}` : null,
     };
   });
@@ -175,11 +214,11 @@ export async function getStaffTicketList(params: StaffTicketListParams): Promise
     openCount: open.length,
     companyName: headerName,
     sla: {
-      responseCompliance: null,
-      resolutionPlanCompliance: null,
+      responseCompliance: slaRespTotal > 0 ? round1((slaRespMet / slaRespTotal) * 100) : null,
+      resolutionPlanCompliance: slaPlanTotal > 0 ? round1((slaPlanMet / slaPlanTotal) * 100) : null,
       resolutionCompliance: slaResTotal > 0 ? round1((slaResMet / slaResTotal) * 100) : null,
-      responseSampleSize: 0,
-      resolutionPlanSampleSize: 0,
+      responseSampleSize: slaRespTotal,
+      resolutionPlanSampleSize: slaPlanTotal,
       resolutionSampleSize: slaResTotal,
     },
     autotaskWebUrl,

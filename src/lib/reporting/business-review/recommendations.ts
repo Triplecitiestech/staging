@@ -55,7 +55,7 @@ const RULES: RecommendationRule[] = [
       description: isCustomer
         ? `We've identified an opportunity to improve first-time resolution quality. We're implementing enhanced verification steps before closing tickets and improving our resolution documentation to ensure issues stay resolved.`
         : `The reopen rate of ${rate}% indicates tickets are being closed before issues are fully resolved. Implementing a verification step before closure and improving resolution documentation can help reduce this.`,
-      evidence: `Reopen rate: ${rate}%. ${data.supportActivity.ticketsReopened} tickets were reopened during this period.`,
+      evidence: `Reopen rate: ${rate}%. ${data.supportActivity.ticketsReopened ?? 0} tickets were reopened during this period.`,
       internalOnly: false,
     };
   },

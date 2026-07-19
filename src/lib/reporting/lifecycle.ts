@@ -488,3 +488,211 @@ function computeReopenCount(
   }
   return count;
 }
+
+// ============================================
+// LIFECYCLE QUALITY READS (SLA + reopens)
+// ============================================
+// The single source of SLA truth for customer-facing reports: percentages are
+// derived from the per-ticket business-hours-vs-targets verdicts this engine
+// computes (slaResponseMet / slaResolutionPlanMet / slaResolutionMet), never
+// from the old `completedDate <= dueDateTime` proxy. Reopens come from the
+// engine's reopenCount, honestly gated on status-history coverage (history is
+// forward-only from the first sync — where there is no coverage the answer is
+// "not measured" (null), never a fabricated 0 or 100%.
+
+/** SLA compliance percentages derived from per-ticket lifecycle verdicts. */
+export interface LifecycleSlaSummary {
+  /** % of measured tickets whose first response met target (null = none measured) */
+  responseCompliance: number | null;
+  /** % of measured tickets whose resolution plan met target (null = none measured) */
+  resolutionPlanCompliance: number | null;
+  /** % of measured tickets whose full resolution met target (null = none measured) */
+  resolutionCompliance: number | null;
+  /**
+   * Pooled across all three metrics — the platform's single-number SLA figure
+   * (same formula the customer health scores use).
+   */
+  combinedCompliance: number | null;
+  /** Tickets with at least one non-null SLA verdict */
+  measuredTickets: number;
+}
+
+/** Reopen figures derived from lifecycle reopenCount + status-history coverage. */
+export interface LifecycleReopenSummary {
+  /** Resolved tickets with status-history coverage (reopens are only detectable there) */
+  measuredTickets: number;
+  /** Measured tickets that were reopened at least once */
+  reopenedTickets: number;
+  /** reopenedTickets / measuredTickets as a %; null when nothing is measurable */
+  reopenRate: number | null;
+}
+
+export interface LifecycleQualitySummary {
+  /** Lifecycle rows resolved + completed inside the window */
+  resolvedTickets: number;
+  sla: LifecycleSlaSummary;
+  reopen: LifecycleReopenSummary;
+}
+
+interface QualityRow {
+  companyId: string;
+  autotaskTicketId: string;
+  reopenCount: number;
+  slaResponseMet: boolean | null;
+  slaResolutionPlanMet: boolean | null;
+  slaResolutionMet: boolean | null;
+}
+
+async function fetchQualityRows(from: Date, to: Date, companyId?: string): Promise<QualityRow[]> {
+  const where = {
+    isResolved: true,
+    completedDate: { gte: from, lte: to },
+    ...(companyId ? { companyId } : {}),
+  };
+  try {
+    return await prisma.ticketLifecycle.findMany({
+      where,
+      select: {
+        companyId: true,
+        autotaskTicketId: true,
+        reopenCount: true,
+        slaResponseMet: true,
+        slaResolutionPlanMet: true,
+        slaResolutionMet: true,
+      },
+    });
+  } catch {
+    try {
+      // slaResolutionPlanMet column may not exist yet — fall back without it
+      const rows = await prisma.ticketLifecycle.findMany({
+        where,
+        select: {
+          companyId: true,
+          autotaskTicketId: true,
+          reopenCount: true,
+          slaResponseMet: true,
+          slaResolutionMet: true,
+        },
+      });
+      return rows.map(r => ({ ...r, slaResolutionPlanMet: null }));
+    } catch (err) {
+      // Lifecycle data unreachable — reports degrade to "not measured" (null),
+      // never to a fabricated number.
+      console.error('[lifecycle] quality read failed:', err instanceof Error ? err.message : String(err));
+      return [];
+    }
+  }
+}
+
+/** Which of the given tickets have ≥1 status-history row (reopen measurability). */
+async function fetchHistoryCoverage(ticketIds: string[]): Promise<Set<string>> {
+  const covered = new Set<string>();
+  const CHUNK = 1000;
+  try {
+    for (let i = 0; i < ticketIds.length; i += CHUNK) {
+      const chunk = ticketIds.slice(i, i + CHUNK);
+      const rows = await prisma.ticketStatusHistory.groupBy({
+        by: ['autotaskTicketId'],
+        where: { autotaskTicketId: { in: chunk } },
+      });
+      for (const r of rows) covered.add(r.autotaskTicketId);
+    }
+  } catch (err) {
+    console.error('[lifecycle] history coverage read failed:', err instanceof Error ? err.message : String(err));
+  }
+  return covered;
+}
+
+function pct1(met: number, total: number): number | null {
+  if (total === 0) return null;
+  return Math.round((met / total) * 1000) / 10;
+}
+
+function summarizeQuality(rows: QualityRow[], covered: Set<string>): LifecycleQualitySummary {
+  let respMet = 0, respTotal = 0;
+  let planMet = 0, planTotal = 0;
+  let resMet = 0, resTotal = 0;
+  let measuredSla = 0;
+  let historyTickets = 0;
+  let reopenedTickets = 0;
+
+  for (const r of rows) {
+    let measured = false;
+    if (r.slaResponseMet !== null) {
+      respTotal++;
+      if (r.slaResponseMet) respMet++;
+      measured = true;
+    }
+    if (r.slaResolutionPlanMet !== null) {
+      planTotal++;
+      if (r.slaResolutionPlanMet) planMet++;
+      measured = true;
+    }
+    if (r.slaResolutionMet !== null) {
+      resTotal++;
+      if (r.slaResolutionMet) resMet++;
+      measured = true;
+    }
+    if (measured) measuredSla++;
+
+    if (covered.has(r.autotaskTicketId)) {
+      historyTickets++;
+      if (r.reopenCount > 0) reopenedTickets++;
+    }
+  }
+
+  return {
+    resolvedTickets: rows.length,
+    sla: {
+      responseCompliance: pct1(respMet, respTotal),
+      resolutionPlanCompliance: pct1(planMet, planTotal),
+      resolutionCompliance: pct1(resMet, resTotal),
+      combinedCompliance: pct1(respMet + planMet + resMet, respTotal + planTotal + resTotal),
+      measuredTickets: measuredSla,
+    },
+    reopen: {
+      measuredTickets: historyTickets,
+      reopenedTickets,
+      reopenRate: pct1(reopenedTickets, historyTickets),
+    },
+  };
+}
+
+/**
+ * SLA + reopen summary for tickets resolved in the window — optionally scoped
+ * to one company. This is what dashboards and customer reports must consume.
+ */
+export async function getLifecycleQualitySummary(
+  from: Date,
+  to: Date,
+  companyId?: string,
+): Promise<LifecycleQualitySummary> {
+  const rows = await fetchQualityRows(from, to, companyId);
+  const covered = await fetchHistoryCoverage(rows.map(r => r.autotaskTicketId));
+  return summarizeQuality(rows, covered);
+}
+
+/**
+ * Per-company SLA + reopen summaries for tickets resolved in the window — one
+ * lifecycle pull for multi-company views (e.g. the company report table).
+ */
+export async function getLifecycleQualityByCompany(
+  from: Date,
+  to: Date,
+): Promise<Map<string, LifecycleQualitySummary>> {
+  const rows = await fetchQualityRows(from, to);
+  const covered = await fetchHistoryCoverage(rows.map(r => r.autotaskTicketId));
+
+  const byCompany = new Map<string, QualityRow[]>();
+  for (const r of rows) {
+    const arr = byCompany.get(r.companyId);
+    if (arr) arr.push(r);
+    else byCompany.set(r.companyId, [r]);
+  }
+
+  const result = new Map<string, LifecycleQualitySummary>();
+  for (const [companyId, companyRows] of Array.from(byCompany.entries())) {
+    result.set(companyId, summarizeQuality(companyRows, covered));
+  }
+  return result;
+}

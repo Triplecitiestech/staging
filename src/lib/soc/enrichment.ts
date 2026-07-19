@@ -783,12 +783,22 @@ async function fetchDns(
     }
 
     // Pull blocked queries from the query log for the org in the alert window.
+    // query_logs rejects a full-ISO `from` more than 9 days before now with 400,
+    // but DATE-ONLY values lift that cap (see src/lib/dnsfilter.ts). Fresh alerts
+    // keep the precise timestamp window (unchanged live behavior); re-triage of
+    // older alerts uses date-only + a client-side time filter instead of 400ing.
     const center = new Date(alertTime).getTime() || Date.now();
-    const fmt = (ms: number) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
+    const windowStart = center - WINDOW_MS;
+    const windowEnd = center + WINDOW_MS;
+    const PRECISE_WINDOW_SAFE_MS = 8 * 24 * 60 * 60 * 1000; // stay under the API's 9-day full-ISO cap
+    const usePreciseWindow = Date.now() - windowStart < PRECISE_WINDOW_SAFE_MS;
+    const fmtPrecise = (ms: number) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
+    const fmtDateOnly = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+    const fmt = usePreciseWindow ? fmtPrecise : fmtDateOnly;
     const qs = new URLSearchParams();
     qs.set('organization_id', orgId);
-    qs.set('from', fmt(center - WINDOW_MS));
-    qs.set('to', fmt(center + WINDOW_MS));
+    qs.set('from', fmt(windowStart));
+    qs.set('to', fmt(windowEnd));
     qs.set('result', 'blocked');
     qs.set('page[size]', '100');
     const logRes = await fetch(`${baseUrl}/traffic_reports/query_logs?${qs.toString()}`, { headers, signal: AbortSignal.timeout(30_000) });
@@ -800,8 +810,18 @@ async function fetchDns(
       };
     }
     const logJson = (await logRes.json()) as { data?: { values?: DnsQueryLogRow[]; page?: { total?: number } } };
-    const values = logJson.data?.values ?? [];
-    const totalBlocked = logJson.data?.page?.total ?? values.length;
+    let values = logJson.data?.values ?? [];
+    let totalBlocked = logJson.data?.page?.total ?? values.length;
+    if (!usePreciseWindow) {
+      // Day-granularity pull — narrow the sampled rows back to the alert window
+      // where the row carries a parsable time; the count is sample-derived.
+      values = values.filter(v => {
+        if (!v.time) return true;
+        const t = new Date(v.time).getTime();
+        return !Number.isFinite(t) || (t >= windowStart && t <= windowEnd);
+      });
+      totalBlocked = values.length;
+    }
 
     // Try to tie the blocked lookups to the affected device/IP.
     const deviceVals = values.filter(v =>
@@ -840,7 +860,7 @@ async function fetchDns(
       status: {
         source: 'DNSFilter',
         status: 'used',
-        detail: `${totalBlocked} blocked DNS quer${totalBlocked === 1 ? 'y' : 'ies'} in window for org "${orgName}"${deviceScoped ? ` — ${deviceVals.length} tied to this device` : ''}${threats.length > 0 ? `; ${threats.length} flagged as threats` : ''}.`,
+        detail: `${totalBlocked} blocked DNS quer${totalBlocked === 1 ? 'y' : 'ies'} in window for org "${orgName}"${usePreciseWindow ? '' : ' (historical alert — day-granularity sample)'}${deviceScoped ? ` — ${deviceVals.length} tied to this device` : ''}${threats.length > 0 ? `; ${threats.length} flagged as threats` : ''}.`,
       },
       gap: deviceScoped ? undefined : 'DNSFilter blocked-query data could not be tied to this specific device/IP (org-level).',
     };

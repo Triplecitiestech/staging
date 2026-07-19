@@ -172,9 +172,11 @@ function buildSupportActivityNarrative(data: ReviewReportData, variant: ReportVa
 
   parts.push(`Total support time invested was ${sa.supportHoursConsumed} hours (${sa.billableHoursConsumed} billable).`);
 
-  if (sa.ticketsReopened > 0) {
+  if (sa.ticketsReopened !== null && sa.ticketsReopened > 0) {
     parts.push(`${sa.ticketsReopened} ticket${sa.ticketsReopened > 1 ? 's were' : ' was'} reopened after initial closure.`);
-  } else if (sa.ticketsClosed > 0 && isCustomer) {
+  } else if (sa.ticketsReopened === 0 && sa.ticketsClosed > 0 && isCustomer) {
+    // Only praise zero reopens when reopens were actually measured — a null
+    // (not measured) period must not claim "no tickets required reopening".
     parts.push(`No tickets required reopening, demonstrating effective first-time resolution.`);
   }
 

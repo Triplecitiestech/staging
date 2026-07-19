@@ -6,6 +6,7 @@
 
 import { prisma } from '@/lib/prisma';
 import { PRIORITY_LABELS, getResolvedStatuses } from '../types';
+import { getLifecycleQualitySummary } from '../lifecycle';
 import { DattoRmmClient } from '@/lib/datto-rmm';
 import { DattoEdrClient } from '@/lib/datto-edr';
 import { DnsFilterClient } from '@/lib/dnsfilter';
@@ -121,7 +122,6 @@ async function buildTicketingAnalysis(
     source: number | null;
     sourceLabel: string | null;
     assignedResourceId: number | null;
-    dueDateTime: Date | null;
   }
 
   // Get all tickets active in the period (created, completed, or had activity)
@@ -147,7 +147,6 @@ async function buildTicketingAnalysis(
       source: true,
       sourceLabel: true,
       assignedResourceId: true,
-      dueDateTime: true,
     },
   });
 
@@ -285,9 +284,11 @@ async function buildTicketingAnalysis(
     if (techNotes.length <= 1) firstTouchCount++;
   }
 
-  // SLA
-  const slaTickets = closedInPeriod.filter((t: TicketRow) => t.dueDateTime);
-  const slaMet = slaTickets.filter((t: TicketRow) => t.completedDate! <= t.dueDateTime!).length;
+  // SLA + reopens from the ticket_lifecycle engine (business-hours vs targets)
+  // — the single SLA source for customer-facing reports. Null = not measured
+  // (targets not seeded / tickets predate the first status-history sync);
+  // the PDF renders those as "—", never a fabricated number.
+  const quality = await getLifecycleQualitySummary(periodStart, periodEnd, companyId);
 
   // Time entries for hours
   const allCompanyTicketIds = await prisma.ticket.findMany({
@@ -339,11 +340,10 @@ async function buildTicketingAnalysis(
       medianResolutionMinutes: median(resolutionMinutes.sort((a, b) => a - b)),
       firstTouchResolutionRate: closedInPeriod.length > 0
         ? round1((firstTouchCount / closedInPeriod.length) * 100) : null,
-      reopenRate: null, // Autotask doesn't reliably track reopens
-      slaResponseCompliance: slaTickets.length > 0
-        ? round1((slaMet / slaTickets.length) * 100) : null,
-      slaResolutionCompliance: slaTickets.length > 0
-        ? round1((slaMet / slaTickets.length) * 100) : null,
+      // Real reopen rate from status history (lifecycle engine); null = not measured.
+      reopenRate: quality.reopen.reopenRate,
+      slaResponseCompliance: quality.sla.responseCompliance,
+      slaResolutionCompliance: quality.sla.resolutionCompliance,
     },
     workBreakdown: sourceCounts,
   };
