@@ -11,7 +11,7 @@
 |--------|---------|-----------------|
 | **DNSFilter** | ✅ **FULLY VERIFIED** | `query_logs` exists and works; real defect is a **9-day-from-now window cap** triggered by the code's full-ISO timestamps, plus single-page sampling. Field names in code are correct. |
 | **Datto EDR** | ✅ **FULLY VERIFIED** | `/api/Alerts` list model has a native **`severity`** and **no** `threatName`/`threatScore`/`flagName`; both code paths map fields that only exist on `AlertDetail`. Org scope (`organizationId`) and date (`createdOn`) are correct. |
-| **EasyDMARC** | ⚠️ **PARTIALLY VERIFIED** | Full contract confirmed from the official OpenAPI spec + live host/auth probes: wrong host, wrong paths, wrong auth model. A live 200 lookup could **not** be completed — the API needs a `client_id`+`client_secret` pair; only a single key was available. |
+| **EasyDMARC** | ⚠️ **PARTIALLY VERIFIED** | Base host, full token-exchange auth, endpoint paths, and the client's DNS role all confirmed **live**; response schemas from the official OpenAPI spec. The 200 lookup body could **not** be observed — the calls are rejected with `403 not_authorized` by an **IP allowlist (IP Safelisting)**, not a credential/code problem. Wrong host, paths, HTTP methods, and auth model in code. |
 
 ---
 
@@ -192,7 +192,7 @@ Map from the **list** row: severity ← `severity`; title/description ← `name`
 
 ## 3. EasyDMARC — ⚠️ PARTIALLY VERIFIED
 
-**What blocked full verification:** the live API requires an **OAuth2 `client_id` + `client_secret` pair**; only a single value (`EASYDMARC_API_KEY`) was available, and it cannot authenticate (see below). Everything else was confirmed from the **official OpenAPI spec** (`github.com/easydmarc/public-api-docs → specs/easydmarc-openapi.json`, title "EasyDMARC API", 83 paths) plus live host/auth probes.
+**What blocked full verification:** the token-exchange auth is now confirmed **working end-to-end** with the real `client_id`+`client_secret`, but every data call is rejected with **`403 access_denied / not_authorized`** — the token is valid and carries the correct DNS role, so this is an **IP allowlist (IP Safelisting)** rejection on EasyDMARC's side, not a credential or code problem (see *IP Safelisting blocker* below). A live 200 body therefore could not be observed from this environment; endpoint response schemas are taken from the **official OpenAPI spec** (`github.com/easydmarc/public-api-docs → specs/easydmarc-openapi.json`, title "EasyDMARC API", 83 paths), which is authoritative.
 
 ### Base URL — WRONG in code
 - Code uses `https://api.easydmarc.com/v1` → every path returns **404** (`Cannot GET …`).
@@ -213,7 +213,8 @@ Map from the **list** row: severity ← `severity`; title/description ← `name`
     "refresh_expires_in": <number>, "not-before-policy": <number>, "scope": "public-api" }
   ```
   Then send `Authorization: Bearer <access_token>` (short-lived, ~5 min) on all endpoints. The spec defines **only** `bearer`/`oauth2` security schemes — **there is no static-API-key auth**.
-- Confirmed live: token exchange with the single provided key used as both `client_id` and `client_secret` → **401 `invalid_client` "Invalid client or Invalid client credentials."** → **the single key cannot authenticate; a distinct `client_id` + `client_secret` pair is required.**
+- **Confirmed live end-to-end:** with the real `client_id` + `client_secret`, `POST /auth/token` → **HTTP 201** returning a Bearer `access_token` (`expires_in: 300`, `scope: public-api`). The value first supplied as `EASYDMARC_API_KEY` is the **`client_secret`**; the `client_id` (`api.<…>`) is a separate value the code does not model. (Using the single key as both id and secret → **401 `invalid_client`**, which is how the two-value requirement was first established.)
+- **Decoded token claims prove the client is provisioned for DNS lookups:** `resource_access` includes `apisix-api-gateway: ["dns-api-user"]` and `easydmarc-api-gateway: ["deliverability-user"]`, plus an `organization_id`. So the subsequent `403`s are **not** a missing-role/permission problem.
 
 ### Real lookup endpoints (from spec; all require the bearer token) — WRONG in code
 | Purpose | Code (wrong) | **Real** |
@@ -232,6 +233,14 @@ DKIM   { "rootDomain": <string>, "dkimRecords": [<...>], "validation": <obj> }
 ```
 The record string is in **`raw`** (with parsed data in `object` and status in `validation`) — **not** the top-level `record` field the code reads.
 
+### IP Safelisting blocker — why no live 200 (evidence-based)
+Every authenticated call — DNS lookups **and** listing the account's own `domains`/`organizations` — returns **`403 {"error":"access_denied","error_description":"not_authorized"}`**, despite a valid token that holds the `dns-api-user` role. Evidence points to an **IP allowlist**, not permissions:
+- The token embeds a **`clientAddress`** claim (the caller IP), and EasyDMARC exposes an **IP Safelisting** control under *Organization Settings → Security & Authentication*.
+- Calls from this environment egress from IPs that are almost certainly not on the allowlist (observed egress rotated across `152.70.57.80` and `160.79.106.x`).
+- The role is present and correct, yet the gateway still denies — the signature of an IP/policy gate rather than a scope gate.
+
+**Implication for production:** if IP Safelisting is enforced, the app calling from **Vercel** will hit the same `403` — serverless egress IPs are dynamic. The integration will need IP Safelisting disabled for the API, or a fixed-egress path (static-IP proxy). This is a deployment decision, independent of the code fixes below.
+
 ### Scope answer (account vs per-domain)
 **Both.** The API is organization/account-scoped for management (create/get/update/delete domains, organizations, aggregate DMARC reports via `get-report-raw-data`/`get-aggregations`), **and** the `dns-lookup/*` endpoints accept an arbitrary `domain` argument, so ad-hoc per-domain lookups are supported (the code's per-domain assumption is right in spirit; everything else about how it calls them is wrong).
 
@@ -244,7 +253,11 @@ The record string is in **`raw`** (with parsed data in `object` and status in `v
 - Auth: static `Bearer ${EASYDMARC_API_KEY}` → **client-credentials exchange** at `POST /auth/token`, then short-lived bearer. Requires **two** secrets (`client_id` + `client_secret`), not one key.
 
 ### To finish EasyDMARC verification
-Provide an EasyDMARC **API Client `client_id` and `client_secret`** (EasyDMARC Account Console → API Client management). With the pair I will: exchange for a token, then run a live `GET /v1/dns-lookup/dmarc` (neutral domain) and confirm the 200 `raw`/`object`/`validation` body against the spec.
+The `client_id`/`client_secret` are in hand and authenticate correctly; the only remaining step is to make a call from an **IP the account authorizes**. Options:
+1. Confirm/relax **Organization Settings → Security & Authentication → IP Safelisting** (or add the intended caller IP), then re-run a live `GET /v1/dns-lookup/dmarc` and confirm the 200 `raw`/`object`/`validation` body against the spec.
+2. Run the one lookup from an already-authorized IP and compare the redacted shape to the spec.
+
+This environment's egress IP is ephemeral/rotating, so it cannot be safelisted reliably from here.
 
 ---
 
@@ -252,5 +265,5 @@ Provide an EasyDMARC **API Client `client_id` and `client_secret`** (EasyDMARC A
 - Real authenticated GET/POST calls to each production API in this session; responses inspected as **structure only** (keys + types), values redacted.
 - DNSFilter: one real org (redacted) that has traffic; confirmed auth scheme, the 9-day-from-now cap, `query_logs`/`top_categories`/`top_domains` schemas, and the blocked-by-category/domain recipe against live responses.
 - Datto EDR: one real org (redacted, chosen by highest `alertCount`); confirmed list-model fields at runtime and the public `openapi.json`.
-- EasyDMARC: host + auth model confirmed by live probes (422/401/400); endpoints/params/response schemas from the vendor's official OpenAPI spec; a live authenticated lookup was not possible with the single key provided.
+- EasyDMARC: host, full token-exchange auth (201 + Bearer token), endpoint paths (routed, not 404), and the client's `dns-api-user` role all confirmed **live**; endpoints/params/response schemas from the vendor's official OpenAPI spec. A live 200 lookup body could not be observed — calls are rejected `403 not_authorized` by an IP allowlist (IP Safelisting) that this ephemeral-egress environment isn't on. No secrets or tenant identifiers (org id, user id, token, client secret) are included; the decoded-token facts cited are role/claim names only.
 - No secrets or customer PII are included in this document.
