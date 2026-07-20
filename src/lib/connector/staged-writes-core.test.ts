@@ -5,6 +5,7 @@ import {
   buildDiff,
   buildTargetLabel,
   buildUnifiEntityPath,
+  canonicalizeKeys,
   deriveDefaultDhcpRange,
   detectDrift,
   normalizeUnifiChanges,
@@ -76,6 +77,35 @@ describe('detectDrift', () => {
     expect(detectDrift({ nickname: 'A', name: 'Cat' }, { nickname: 'B', name: 'Cat' })).toEqual(['nickname'])
     expect(detectDrift({ nickname: 'A' }, { nickname: 'A' })).toEqual([])
     expect(detectDrift({ nickname: 'A' }, null)).toEqual(['(record no longer exists)'])
+  })
+})
+
+describe('canonicalizeKeys — JSONB key-order drift defense', () => {
+  it('deep-sorts object keys but preserves array element order', () => {
+    const out = canonicalizeKeys({ b: 1, a: { d: 2, c: [3, 1, 2] } })
+    expect(JSON.stringify(out)).toBe('{"a":{"c":[3,1,2],"d":2},"b":1}')
+  })
+
+  it('passes primitives and null through unchanged', () => {
+    expect(canonicalizeKeys(null)).toBeNull()
+    expect(canonicalizeKeys(42)).toBe(42)
+    expect(canonicalizeKeys('x')).toBe('x')
+  })
+
+  it('resolves the phantom drift a JSONB round-trip causes on a nested object', () => {
+    // Live API order vs the order JSONB gives back the stored snapshot.
+    const live = { name: 'IoT', ipv4Configuration: { autoScaleEnabled: false, hostIpAddress: '10.0.0.1', prefixLength: 24 } }
+    const afterJsonbRoundTrip = { ipv4Configuration: { prefixLength: 24, hostIpAddress: '10.0.0.1', autoScaleEnabled: false }, name: 'IoT' }
+    // Raw compare falsely flags ipv4Configuration…
+    expect(detectDrift(afterJsonbRoundTrip, live)).toContain('ipv4Configuration')
+    // …canonicalizing both sides first clears it (nothing actually changed).
+    expect(detectDrift(canonicalizeKeys(afterJsonbRoundTrip), canonicalizeKeys(live))).toEqual([])
+  })
+
+  it('still detects a REAL nested change after canonicalization', () => {
+    const before = { ipv4Configuration: { prefixLength: 24, hostIpAddress: '10.0.0.1' } }
+    const live = { ipv4Configuration: { hostIpAddress: '10.0.0.1', prefixLength: 25 } } // /24 → /25
+    expect(detectDrift(canonicalizeKeys(before), canonicalizeKeys(live))).toContain('ipv4Configuration')
   })
 })
 

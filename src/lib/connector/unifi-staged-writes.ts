@@ -32,6 +32,7 @@ import {
   buildDiff,
   buildTargetLabel,
   buildUnifiEntityPath,
+  canonicalizeKeys,
   detectDrift,
   normalizeUnifiChanges,
   parseUnifiEntityPath,
@@ -205,7 +206,10 @@ export async function executeUnifiStagedWrite(id: string): Promise<ExecuteResult
       const liveFull = await proxyGet<Record<string, unknown>>(consoleId, resourcePath).catch((err) =>
         err instanceof UnifiProxyError && err.code === 'NOT_FOUND' ? null : Promise.reject(err),
       )
-      const drifted = detectDrift(before, liveFull ? unifiSnapshot(spec, liveFull) : null)
+      // Canonicalize both sides: the stored `before` round-tripped through
+      // JSONB (which reorders object keys), so compare order-insensitively or a
+      // nested-object field like ipv4Configuration reads as a phantom drift.
+      const drifted = detectDrift(canonicalizeKeys(before), liveFull ? canonicalizeKeys(unifiSnapshot(spec, liveFull)) : null)
       if (drifted.length) {
         return await failWith(
           `Live UniFi record changed since staging (fields: ${drifted.join(', ')}). Nothing written — restage to see the current values.`,
@@ -231,7 +235,10 @@ export async function executeUnifiStagedWrite(id: string): Promise<ExecuteResult
       const liveFull = await proxyGet<Record<string, unknown>>(consoleId, resourcePath).catch((err) =>
         err instanceof UnifiProxyError && err.code === 'NOT_FOUND' ? null : Promise.reject(err),
       )
-      const drifted = detectDrift(before, liveFull ? unifiSnapshot(spec, liveFull) : null)
+      // Canonicalize both sides: the stored `before` round-tripped through
+      // JSONB (which reorders object keys), so compare order-insensitively or a
+      // nested-object field like ipv4Configuration reads as a phantom drift.
+      const drifted = detectDrift(canonicalizeKeys(before), liveFull ? canonicalizeKeys(unifiSnapshot(spec, liveFull)) : null)
       if (drifted.length && liveFull) {
         return await failWith(
           `Live UniFi record changed since staging (fields: ${drifted.join(', ')}). Nothing deleted — restage to review.`,

@@ -749,3 +749,30 @@ export function detectDrift(
   if (!liveNow) return ['(record no longer exists)']
   return Object.keys(snapshot).filter((k) => JSON.stringify(snapshot[k]) !== JSON.stringify(liveNow[k]))
 }
+
+/**
+ * Deep-sort object keys so a JSON.stringify comparison is insensitive to key
+ * ORDER (array element order is preserved — order is meaningful there).
+ *
+ * detectDrift compares snapshot fields with JSON.stringify, which is
+ * order-sensitive. The staged `before` snapshot round-trips through a JSONB
+ * column, and JSONB does not preserve object key order, so a nested-object
+ * field (e.g. a UniFi network's ipv4Configuration) comes back in a different
+ * key order than the live API returns it — making detectDrift report a
+ * phantom change on every update/delete even when nothing actually changed.
+ * Canonicalizing BOTH sides at compare time removes that false positive
+ * without weakening the guard: any real value change is still detected.
+ * detectDrift itself is intentionally left unchanged; callers that persist
+ * snapshots through JSONB feed it canonicalized inputs.
+ */
+export function canonicalizeKeys<T>(value: T): T {
+  if (Array.isArray(value)) return value.map((v) => canonicalizeKeys(v)) as unknown as T
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const k of Object.keys(value as Record<string, unknown>).sort()) {
+      out[k] = canonicalizeKeys((value as Record<string, unknown>)[k])
+    }
+    return out as T
+  }
+  return value
+}
