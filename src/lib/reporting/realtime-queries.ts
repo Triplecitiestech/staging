@@ -16,8 +16,18 @@ import {
   getResolvedStatuses,
 } from './types';
 import { isApiOrSystemUser } from './api-user-filter';
+import { classifyTicket, isHumanTicket, humanTicketSqlCondition } from './ticket-classification';
 import { dateToBucketKey, generateTrendBuckets, getComparisonRange } from './filters';
 import { getLifecycleQualityByCompany, getLifecycleQualitySummary } from './lifecycle';
+
+/** Ticket fields every realtime query must select so the shared human-vs-automated classifier can run. */
+const CLASSIFICATION_SELECT = {
+  source: true,
+  sourceLabel: true,
+  queueId: true,
+  queueLabel: true,
+  assignedResourceId: true,
+} as const;
 
 // ============================================
 // HELPERS
@@ -49,20 +59,22 @@ export async function getRealtimeTechnicianMetrics(
   range: DateRange,
   resourceId?: number,
 ): Promise<TechnicianSummary[]> {
-  // Get all tickets in period
-  const tickets = await prisma.ticket.findMany({
+  // Get all tickets in period — human support only (shared classifier);
+  // automated monitoring tickets are not technician work.
+  const allTickets = await prisma.ticket.findMany({
     where: {
       createDate: { lte: range.to },
       ...(resourceId ? { assignedResourceId: resourceId } : {}),
     },
     select: {
       autotaskTicketId: true,
-      assignedResourceId: true,
       status: true,
       createDate: true,
       completedDate: true,
+      ...CLASSIFICATION_SELECT,
     },
   });
+  const tickets = allTickets.filter(isHumanTicket);
 
   // Find tickets closed in this period (resolved + completedDate in range, OR resolved via status history)
   const closedInPeriod = tickets.filter(t =>
@@ -258,7 +270,7 @@ export async function getRealtimeCompanyMetrics(
   range: DateRange,
   companyId?: string,
 ): Promise<CompanySummary[]> {
-  const tickets = await prisma.ticket.findMany({
+  const allTickets = await prisma.ticket.findMany({
     where: {
       ...(companyId ? { companyId } : {}),
       OR: [
@@ -275,8 +287,12 @@ export async function getRealtimeCompanyMetrics(
       priority: true,
       createDate: true,
       completedDate: true,
+      ...CLASSIFICATION_SELECT,
     },
   });
+  // Human support only — created/closed/backlog/FRT must not count automated
+  // monitoring tickets (SLA + reopens already exclude them in the lifecycle reads).
+  const tickets = allTickets.filter(isHumanTicket);
 
   // SLA + reopens come from the ticket_lifecycle engine (business-hours vs
   // targets) — the single SLA source for customer-facing reports.
@@ -423,8 +439,8 @@ export async function getRealtimeDashboardSummary(range: DateRange): Promise<Das
     to: new Date(range.from.getTime()),
   };
 
-  // Current period tickets
-  const currentTickets = await prisma.ticket.findMany({
+  // Current period tickets — human support only (shared classifier)
+  const allCurrentTickets = await prisma.ticket.findMany({
     where: {
       OR: [
         { createDate: { gte: range.from, lte: range.to } },
@@ -434,13 +450,14 @@ export async function getRealtimeDashboardSummary(range: DateRange): Promise<Das
     select: {
       autotaskTicketId: true,
       companyId: true,
-      assignedResourceId: true,
       status: true,
       priority: true,
       createDate: true,
       completedDate: true,
+      ...CLASSIFICATION_SELECT,
     },
   });
+  const currentTickets = allCurrentTickets.filter(isHumanTicket);
 
   const createdInPeriod = currentTickets.filter(t => t.createDate >= range.from && t.createDate <= range.to);
   const closedInPeriod = currentTickets.filter(t =>
@@ -456,10 +473,15 @@ export async function getRealtimeDashboardSummary(range: DateRange): Promise<Das
   const quality = await getLifecycleQualitySummary(range.from, range.to);
   const overallSlaCompliance = quality.sla.combinedCompliance;
 
-  // Backlog (open tickets)
-  const totalBacklog = await prisma.ticket.count({
-    where: { status: { notIn: getResolvedStatuses() } },
-  });
+  // Backlog (open HUMAN tickets — automated alert tickets are monitoring
+  // records, not work waiting on a technician). SQL predicate mirrors the
+  // shared classifier for the bulk count.
+  const backlogRows = await prisma.$queryRawUnsafe<Array<{ cnt: bigint }>>(
+    `SELECT COUNT(*)::bigint AS cnt FROM tickets t
+     WHERE NOT (t.status = ANY($1::int[])) AND ${humanTicketSqlCondition('t')}`,
+    getResolvedStatuses(),
+  );
+  const totalBacklog = Number(backlogRows[0]?.cnt ?? 0);
 
   // Avg resolution time
   const resMinutes = closedInPeriod
@@ -515,16 +537,17 @@ export async function getRealtimeDashboardSummary(range: DateRange): Promise<Das
       hoursLogged: round1(hours),
     }));
 
-  // Previous period for comparison
-  const prevTickets = await prisma.ticket.findMany({
+  // Previous period for comparison — human support only
+  const allPrevTickets = await prisma.ticket.findMany({
     where: {
       OR: [
         { createDate: { gte: prevRange.from, lte: prevRange.to } },
         { completedDate: { gte: prevRange.from, lte: prevRange.to } },
       ],
     },
-    select: { status: true, createDate: true, completedDate: true },
+    select: { status: true, createDate: true, completedDate: true, ...CLASSIFICATION_SELECT },
   });
+  const prevTickets = allPrevTickets.filter(isHumanTicket);
   const prevCreated = prevTickets.filter(t => t.createDate >= prevRange.from && t.createDate <= prevRange.to).length;
   const prevClosed = prevTickets.filter(t =>
     isResolved(t.status) && t.completedDate && t.completedDate >= prevRange.from && t.completedDate <= prevRange.to
@@ -563,15 +586,17 @@ export async function getRealtimeTicketTrend(
 ): Promise<{ ticketTrend: TrendPoint[]; resolutionTrend: TrendPoint[] }> {
   const buckets = generateTrendBuckets(range, groupBy);
 
-  const tickets = await prisma.ticket.findMany({
+  const allTickets = await prisma.ticket.findMany({
     where: {
       OR: [
         { createDate: { gte: range.from, lte: range.to } },
         { completedDate: { gte: range.from, lte: range.to } },
       ],
     },
-    select: { createDate: true, completedDate: true, status: true },
+    select: { createDate: true, completedDate: true, status: true, ...CLASSIFICATION_SELECT },
   });
+  // Human support only — alert storms are not support volume
+  const tickets = allTickets.filter(isHumanTicket);
 
   // Volume: tickets created per bucket
   const volumeMap = new Map<string, number>();
@@ -619,13 +644,15 @@ export async function getRealtimePriorityBreakdown(
   range: DateRange,
   companyId?: string,
 ): Promise<PriorityBreakdown[]> {
-  const tickets = await prisma.ticket.findMany({
+  const allTickets = await prisma.ticket.findMany({
     where: {
       createDate: { gte: range.from, lte: range.to },
       ...(companyId ? { companyId } : {}),
     },
-    select: { priority: true, status: true, createDate: true, completedDate: true },
+    select: { priority: true, status: true, createDate: true, completedDate: true, ...CLASSIFICATION_SELECT },
   });
+  // Human support only — automated alerts all default to one priority and drown the mix
+  const tickets = allTickets.filter(isHumanTicket);
 
   const total = tickets.length;
   if (total === 0) return [];
@@ -673,6 +700,8 @@ export interface TicketRow {
   hoursLogged: number;
   slaResponseMet: boolean | null;
   slaResolutionMet: boolean | null;
+  /** Shared human-vs-automated classification (automated = monitoring alert ticket) */
+  classification: 'human' | 'automated';
 }
 
 export async function getRealtimeTicketList(
@@ -702,10 +731,10 @@ export async function getRealtimeTicketList(
       statusLabel: true,
       priority: true,
       priorityLabel: true,
-      assignedResourceId: true,
       createDate: true,
       completedDate: true,
       companyId: true,
+      ...CLASSIFICATION_SELECT,
     },
     orderBy: { createDate: 'desc' },
   });
@@ -763,7 +792,11 @@ export async function getRealtimeTicketList(
 
   // SLA computation from ticket_lifecycle table (all 3 metrics) — the single
   // SLA source; per-row values below come from the same rows so the header and
-  // the rows can never disagree.
+  // the rows can never disagree. The header percentages are computed over
+  // HUMAN tickets only — automated monitoring tickets stay visible in the
+  // list (badged via `classification`) but never enter an SLA denominator.
+  const classificationByTicket = new Map(tickets.map(t => [t.autotaskTicketId, classifyTicket(t)]));
+  const humanTicketIds = new Set(tickets.filter(t => classificationByTicket.get(t.autotaskTicketId) === 'human').map(t => t.autotaskTicketId));
   const slaTicketIds = tickets.map(t => t.autotaskTicketId);
   let lifecycleRows: { autotaskTicketId: string; slaResponseMet: boolean | null; slaResolutionPlanMet?: boolean | null; slaResolutionMet: boolean | null }[] = [];
   if (slaTicketIds.length > 0) {
@@ -795,6 +828,7 @@ export async function getRealtimeTicketList(
   let slaPlanMet = 0, slaPlanTotal = 0;
   let slaResMet = 0, slaResTotal = 0;
   for (const lc of lifecycleRows) {
+    if (!humanTicketIds.has(lc.autotaskTicketId)) continue;
     if (lc.slaResponseMet !== null) {
       slaRespTotal++;
       if (lc.slaResponseMet) slaRespMet++;
@@ -839,6 +873,7 @@ export async function getRealtimeTicketList(
       // the ticket isn't measured (no target seeded / no lifecycle row yet).
       slaResponseMet: lc?.slaResponseMet ?? null,
       slaResolutionMet: lc?.slaResolutionMet ?? null,
+      classification: classificationByTicket.get(t.autotaskTicketId) ?? 'human',
     };
   });
 
@@ -866,7 +901,7 @@ export async function getRealtimeTicketList(
 export async function getRealtimeComparisonData(range: DateRange) {
   const prevRange = getComparisonRange(range);
 
-  const [currentTickets, prevTickets] = await Promise.all([
+  const [allCurrentTickets, allPrevTickets] = await Promise.all([
     prisma.ticket.findMany({
       where: {
         OR: [
@@ -874,7 +909,7 @@ export async function getRealtimeComparisonData(range: DateRange) {
           { completedDate: { gte: range.from, lte: range.to } },
         ],
       },
-      select: { status: true, createDate: true, completedDate: true },
+      select: { status: true, createDate: true, completedDate: true, ...CLASSIFICATION_SELECT },
     }),
     prisma.ticket.findMany({
       where: {
@@ -883,9 +918,12 @@ export async function getRealtimeComparisonData(range: DateRange) {
           { completedDate: { gte: prevRange.from, lte: prevRange.to } },
         ],
       },
-      select: { status: true, createDate: true, completedDate: true },
+      select: { status: true, createDate: true, completedDate: true, ...CLASSIFICATION_SELECT },
     }),
   ]);
+  // Human support only — same classifier as every other report surface
+  const currentTickets = allCurrentTickets.filter(isHumanTicket);
+  const prevTickets = allPrevTickets.filter(isHumanTicket);
 
   const curCreated = currentTickets.filter(t => t.createDate >= range.from && t.createDate <= range.to).length;
   const curClosed = currentTickets.filter(t => isResolved(t.status) && t.completedDate && t.completedDate >= range.from).length;

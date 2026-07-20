@@ -3,6 +3,7 @@ import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { parseFiltersFromParams } from '@/lib/reporting/filters';
 import { getResolvedStatuses, PRIORITY_LABELS } from '@/lib/reporting/types';
+import { isHumanTicket } from '@/lib/reporting/ticket-classification';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,7 +27,7 @@ export async function GET(request: NextRequest) {
     const filters = parseFiltersFromParams(request.nextUrl.searchParams);
     const { from, to } = filters.dateRange;
 
-    const tickets = await prisma.ticket.findMany({
+    const allTickets = await prisma.ticket.findMany({
       where: {
         priority,
         createDate: { gte: from, lte: to },
@@ -41,10 +42,16 @@ export async function GET(request: NextRequest) {
         assignedResourceId: true,
         createDate: true,
         completedDate: true,
+        source: true,
+        sourceLabel: true,
+        queueId: true,
+        queueLabel: true,
       },
       orderBy: { createDate: 'desc' },
       take: 300,
     });
+    // Human support only — this drill-down backs the priority mix, a support metric
+    const tickets = allTickets.filter(isHumanTicket);
 
     // Group by company
     const companyTickets = new Map<string, typeof tickets>();

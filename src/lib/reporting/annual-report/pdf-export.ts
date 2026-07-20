@@ -147,13 +147,16 @@ ${isVis('ticketing') ? `
   <div class="section-title">${nextNum()}. ${sec('ticketing')!.title}</div>
   ${!sec('ticketing')!.hasData ? '<div class="data-notice">No tickets found for this company in the specified period.</div>' : `
   <div class="stat-grid">
-    ${statCard('Tickets Created', r.ticketing.totalTickets)}
+    ${statCard('Support Tickets', r.ticketing.totalTickets)}
+    ${r.ticketing.monitoringActivity ? statCard('Monitoring Events', r.ticketing.monitoringActivity.eventsDetected) : ''}
     ${statCard('First Touch Rate', r.ticketing.responseMetrics.firstTouchResolutionRate !== null ? `${r.ticketing.responseMetrics.firstTouchResolutionRate}%` : '—')}
     ${r.showInternalColumns ? statCard('Avg Response', r.ticketing.responseMetrics.avgFirstResponseMinutes !== null ? fmtMin(r.ticketing.responseMetrics.avgFirstResponseMinutes) : '—') : ''}
     ${r.showInternalColumns ? statCard('Avg Resolution', r.ticketing.responseMetrics.avgResolutionMinutes !== null ? fmtMin(r.ticketing.responseMetrics.avgResolutionMinutes) : '—') : ''}
     ${r.showInternalColumns && r.ticketing.responseMetrics.slaResponseCompliance !== null ? statCard('SLA Compliance', `${r.ticketing.responseMetrics.slaResponseCompliance}%`) : ''}
     ${r.showInternalColumns ? statCard('Median Resolution', r.ticketing.responseMetrics.medianResolutionMinutes !== null ? fmtMin(r.ticketing.responseMetrics.medianResolutionMinutes) : '—') : ''}
   </div>
+  ${r.ticketing.monitoringActivity && r.ticketing.monitoringActivity.eventsDetected > 0 ? `
+  <div class="data-notice">Support metrics cover human-worked tickets only. ${r.ticketing.monitoringActivity.eventsDetected} automated monitoring events (${r.ticketing.monitoringActivity.eventsAutoHandled} handled automatically) are counted separately — no response or SLA figures apply to automated events.</div>` : ''}
 
   ${isVis('ticketingPriority') && r.ticketing.ticketsByPriority.length > 0 ? `
   <h3 style="font-size:11pt;font-weight:700;color:#334155;margin:16px 0 8px;">Tickets by Priority</h3>

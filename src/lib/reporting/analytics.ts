@@ -5,6 +5,7 @@
 
 import { prisma } from '@/lib/prisma';
 import { DateRange, PRIORITY_LABELS } from './types';
+import { humanTicketSqlCondition } from './ticket-classification';
 
 // ============================================
 // TYPES
@@ -278,15 +279,21 @@ export async function generateInsights(range?: DateRange): Promise<OperationalIn
     }
   }
 
-  // Priority mix insight
-  const lifecycles = await prisma.ticketLifecycle.findMany({
-    where: { createDate: { gte: from, lte: to } },
-    select: { priority: true },
-  });
+  // Priority mix insight — human support tickets only (automated monitoring
+  // tickets all carry a default priority and would dilute/skew the mix)
+  const priorityRows = await prisma.$queryRawUnsafe<Array<{ urgent_high: bigint; total: bigint }>>(
+    `SELECT COUNT(*) FILTER (WHERE tl.priority <= 2)::bigint AS urgent_high, COUNT(*)::bigint AS total
+     FROM ticket_lifecycle tl
+     JOIN tickets t ON t."autotaskTicketId" = tl."autotaskTicketId"
+     WHERE tl."createDate" >= $1 AND tl."createDate" <= $2
+       AND ${humanTicketSqlCondition('t')}`,
+    from, to,
+  );
+  const priorityTotal = Number(priorityRows[0]?.total ?? 0);
 
-  if (lifecycles.length > 0) {
-    const urgentHigh = lifecycles.filter(l => l.priority <= 2).length;
-    const urgentPercent = (urgentHigh / lifecycles.length) * 100;
+  if (priorityTotal > 0) {
+    const urgentHigh = Number(priorityRows[0]?.urgent_high ?? 0);
+    const urgentPercent = (urgentHigh / priorityTotal) * 100;
 
     if (urgentPercent > 40) {
       insights.push({

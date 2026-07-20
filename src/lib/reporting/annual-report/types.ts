@@ -82,6 +82,16 @@ export interface TicketingAnalysis {
     project: number;
     other: number;
   };
+  /**
+   * Automated monitoring tickets (SaaS Alerts / Datto EDR / RMM), reported
+   * separately as protection delivered — excluded from every support metric
+   * above. Optional: reports generated before this section existed lack it.
+   */
+  monitoringActivity?: {
+    eventsDetected: number;
+    eventsAutoHandled: number;
+    byType: Array<{ type: string; label: string; count: number }>;
+  };
 }
 
 // ============================================

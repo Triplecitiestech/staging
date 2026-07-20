@@ -7,6 +7,13 @@ import { prisma } from '@/lib/prisma';
 import { PRIORITY_LABELS, getResolvedStatuses } from '../types';
 import { getLifecycleQualitySummary } from '../lifecycle';
 import {
+  splitByClassification,
+  isHumanTicket,
+  classifyMonitoringEvent,
+  MONITORING_EVENT_TYPE_LABELS,
+  MonitoringEventType,
+} from '../ticket-classification';
+import {
   ReviewReportData,
   SupportActivityData,
   ServicePerformanceData,
@@ -16,6 +23,7 @@ import {
   ComparisonData,
   BacklogData,
   NotableEventData,
+  MonitoringActivityData,
   ReportType,
 } from './types';
 
@@ -47,7 +55,7 @@ export async function buildReportData(
   // - Created during the period, OR
   // - Closed/completed during the period (created earlier), OR
   // - Still open and created before the period end
-  const [currentTickets, prevTickets] = await Promise.all([
+  const [allCurrentTickets, allPrevTickets] = await Promise.all([
     prisma.ticket.findMany({
       where: {
         companyId,
@@ -61,8 +69,9 @@ export async function buildReportData(
         ],
       },
       select: {
-        autotaskTicketId: true, status: true, priority: true,
+        autotaskTicketId: true, title: true, status: true, priority: true,
         createDate: true, completedDate: true, assignedResourceId: true,
+        source: true, sourceLabel: true, queueId: true, queueLabel: true,
       },
     }),
     prisma.ticket.findMany({
@@ -75,12 +84,20 @@ export async function buildReportData(
       },
       select: {
         autotaskTicketId: true, status: true, priority: true,
-        createDate: true, completedDate: true,
+        createDate: true, completedDate: true, assignedResourceId: true,
+        source: true, sourceLabel: true, queueId: true, queueLabel: true,
       },
     }),
   ]);
 
-  console.log(`[buildReportData] currentTickets: ${currentTickets.length}, prevTickets: ${prevTickets.length}`);
+  // Split HUMAN SUPPORT from AUTOMATED MONITORING via the shared classifier.
+  // Every support metric below (counts, FRT, resolution, SLA, backlog,
+  // priorities, themes) is computed over HUMAN tickets only; automated
+  // tickets feed the separate Security Monitoring Activity section.
+  const { human: currentTickets, automated: automatedCurrent } = splitByClassification(allCurrentTickets);
+  const { human: prevTickets, automated: automatedPrev } = splitByClassification(allPrevTickets);
+
+  console.log(`[buildReportData] currentTickets: ${currentTickets.length} human + ${automatedCurrent.length} automated, prevTickets: ${prevTickets.length} human + ${automatedPrev.length} automated`);
   if (currentTickets.length > 0) {
     const statuses = currentTickets.map(t => t.status);
     const uniqueStatuses = Array.from(new Set(statuses));
@@ -263,6 +280,9 @@ export async function buildReportData(
   const comparison = buildComparison(dailyMetrics, prevMetrics, prevStart, prevEnd, reportType);
   const backlog = await buildBacklog(companyId, periodEnd);
   const notableEvents = buildNotableEvents(dailyMetrics);
+  const monitoringActivity = buildMonitoringActivity(
+    automatedCurrent, automatedPrev, resolvedSet, periodStart, periodEnd, prevStart, prevEnd,
+  );
 
   return {
     company: { id: company.id, name: company.displayName },
@@ -280,6 +300,50 @@ export async function buildReportData(
     comparison,
     backlog,
     notableEvents,
+    monitoringActivity,
+  };
+}
+
+// ============================================
+// SECURITY MONITORING ACTIVITY (automated tickets)
+// ============================================
+
+/**
+ * Automated monitoring tickets reported as protection delivered — events
+ * detected and handled by the monitoring stack — never as support workload.
+ * Deliberately NO response-time or SLA math here: the timestamps on these
+ * tickets are machine auto-stamps, not service measurements.
+ */
+function buildMonitoringActivity(
+  automatedCurrent: Array<{
+    title: string; status: number; completedDate: Date | null; createDate: Date;
+    queueId: number | null; queueLabel: string | null;
+  }>,
+  automatedPrev: Array<{ createDate: Date }>,
+  resolvedSet: Set<number>,
+  periodStart: Date,
+  periodEnd: Date,
+  prevStart: Date,
+  prevEnd: Date,
+): MonitoringActivityData {
+  const detected = automatedCurrent.filter(t => t.createDate >= periodStart && t.createDate <= periodEnd);
+  const autoHandled = detected.filter(t => resolvedSet.has(t.status) || t.completedDate !== null);
+
+  const typeCounts = new Map<MonitoringEventType, number>();
+  for (const t of detected) {
+    const type = classifyMonitoringEvent(t);
+    typeCounts.set(type, (typeCounts.get(type) || 0) + 1);
+  }
+  const byType = Array.from(typeCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([type, count]) => ({ type, label: MONITORING_EVENT_TYPE_LABELS[type], count }));
+
+  return {
+    eventsDetected: detected.length,
+    eventsAutoHandled: autoHandled.length,
+    eventsEscalated: detected.length - autoHandled.length,
+    byType,
+    previousPeriodEvents: automatedPrev.filter(t => t.createDate >= prevStart && t.createDate < prevEnd).length,
   };
 }
 
@@ -420,22 +484,31 @@ async function buildTopThemes(
   prevStart: Date,
   prevEnd: Date,
 ): Promise<TopThemeData[]> {
-  // Use ticket queue as a proxy for issue category
-  const tickets = await prisma.ticket.findMany({
+  // Use ticket queue as a proxy for issue category. HUMAN tickets only —
+  // otherwise the automated alert queues dominate every theme list.
+  const allTickets = await prisma.ticket.findMany({
     where: {
       companyId,
       createDate: { gte: periodStart, lte: periodEnd },
     },
-    select: { queueId: true, queueLabel: true },
+    select: {
+      queueId: true, queueLabel: true,
+      source: true, sourceLabel: true, assignedResourceId: true,
+    },
   });
+  const tickets = allTickets.filter(isHumanTicket);
 
-  const prevTickets = await prisma.ticket.findMany({
+  const allPrevTickets = await prisma.ticket.findMany({
     where: {
       companyId,
       createDate: { gte: prevStart, lt: prevEnd },
     },
-    select: { queueId: true, queueLabel: true },
+    select: {
+      queueId: true, queueLabel: true,
+      source: true, sourceLabel: true, assignedResourceId: true,
+    },
   });
+  const prevTickets = allPrevTickets.filter(isHumanTicket);
 
   // Group by queue label
   const currentCounts = new Map<string, number>();
@@ -569,14 +642,20 @@ function buildComparison(
 // ============================================
 
 async function buildBacklog(companyId: string, periodEnd: Date): Promise<BacklogData> {
-  // Query open tickets directly from raw Ticket table
-  const openTickets = await prisma.ticket.findMany({
+  // Query open tickets directly from raw Ticket table. HUMAN tickets only:
+  // automated alert tickets with no completedDate are monitoring records, not
+  // work waiting on a technician — counting them fabricated a huge backlog.
+  const allOpenTickets = await prisma.ticket.findMany({
     where: {
       companyId,
       status: { notIn: getResolvedStatuses() },
     },
-    select: { priority: true, createDate: true },
+    select: {
+      priority: true, createDate: true,
+      source: true, sourceLabel: true, queueId: true, queueLabel: true, assignedResourceId: true,
+    },
   });
+  const openTickets = allOpenTickets.filter(isHumanTicket);
 
   const sevenDaysAgo = new Date(periodEnd.getTime() - 7 * 24 * 60 * 60 * 1000);
   const thirtyDaysAgo = new Date(periodEnd.getTime() - 30 * 24 * 60 * 60 * 1000);

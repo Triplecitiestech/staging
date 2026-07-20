@@ -34,11 +34,20 @@ export interface ReportResponse<T> {
  * against known patterns, with fallback to these hardcoded defaults.
  */
 
-/** Default resolved status IDs — fallback when picklist fetch fails */
-const DEFAULT_RESOLVED_STATUSES = [5, 13, 29];
+/** Default resolved status IDs — fallback when picklist fetch fails.
+ *  5 = "Complete", 52 = "Complete - No Notify" (both live-confirmed on the
+ *  TCT instance 2026-07-20; 52 is where automated alert tickets land, and
+ *  missing it made every "Complete - No Notify" ticket count as OPEN backlog
+ *  whenever a report ran with a cold picklist cache). 13/29 are legacy
+ *  defaults kept for safety. */
+const DEFAULT_RESOLVED_STATUSES = [5, 13, 29, 52];
 /** Default "Complete" status IDs — only "Complete" (not Closed/Cancelled).
- *  Used for reopen detection: only Complete→non-resolved counts as a reopen. */
-const DEFAULT_COMPLETE_STATUSES = [5];
+ *  Used for reopen detection: only Complete→non-resolved counts as a reopen.
+ *  52 = "Complete - No Notify" (live-confirmed). */
+const DEFAULT_COMPLETE_STATUSES = [5, 52];
+/** Default "Reopen" status IDs — 22 = "Re-open" (live-confirmed on the TCT
+ *  instance; previously only discovered via a warm picklist cache). */
+const DEFAULT_REOPEN_STATUSES = [22];
 /** Default waiting-customer status IDs — fallback when picklist fetch fails */
 const DEFAULT_WAITING_CUSTOMER_STATUSES = [7, 12];
 
@@ -164,7 +173,7 @@ export function isCompleteStatus(status: number): boolean {
 
 /** Get the "Reopen" status IDs (if the Autotask instance has a reopen status) */
 export function getReopenStatuses(): number[] {
-  return cachedReopenStatuses ?? [];
+  return cachedReopenStatuses ?? DEFAULT_REOPEN_STATUSES;
 }
 
 /** Check if a status is a "Reopen" status */

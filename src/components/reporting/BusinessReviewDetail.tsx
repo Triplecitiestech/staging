@@ -56,6 +56,14 @@ interface ReviewData {
       avgResolutionChange: number | null
     }
     backlog: { total: number; urgent: number; high: number; agingOver7Days: number; agingOver30Days: number }
+    /** Absent on reports generated before the monitoring section existed */
+    monitoringActivity?: {
+      eventsDetected: number
+      eventsAutoHandled: number
+      eventsEscalated: number
+      byType: Array<{ type: string; label: string; count: number }>
+      previousPeriodEvents: number
+    }
   }
   recommendations: Array<{
     id: string
@@ -70,6 +78,7 @@ interface ReviewData {
     executiveSummary: string
     supportActivityNarrative: string
     performanceNarrative: string
+    monitoringNarrative?: string
     themesNarrative: string
     healthNarrative: string
     recommendationsNarrative: string
@@ -217,6 +226,31 @@ export default function BusinessReviewDetail({ reviewId }: Props) {
         </div>
         <p className="text-slate-400 text-sm">{review.narrative.performanceNarrative}</p>
       </Section>
+
+      {/* Security & Monitoring Activity — automated events reported as protection
+          delivered, never blended into the support metrics above */}
+      {rd.monitoringActivity && (
+        <Section title="Security & Monitoring Activity">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+            <Stat label="Events Detected" value={rd.monitoringActivity.eventsDetected} />
+            <Stat label="Auto-Handled" value={rd.monitoringActivity.eventsAutoHandled} />
+            <Stat label="Prev Period" value={rd.monitoringActivity.previousPeriodEvents} />
+          </div>
+          {rd.monitoringActivity.byType.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-4">
+              {rd.monitoringActivity.byType.map(t => (
+                <div key={t.type} className="flex items-center justify-between bg-slate-700/30 border border-slate-600/30 rounded-lg px-3 py-2">
+                  <span className="text-sm text-slate-300">{t.label}</span>
+                  <span className="text-sm font-bold text-emerald-400">{t.count}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {review.narrative.monitoringNarrative && (
+            <p className="text-slate-400 text-sm">{review.narrative.monitoringNarrative}</p>
+          )}
+        </Section>
+      )}
 
       {/* Priority Breakdown */}
       {rd.priorityBreakdown.length > 0 && (

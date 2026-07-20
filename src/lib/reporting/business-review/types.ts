@@ -24,6 +24,7 @@ export type SectionId =
   | 'executive_summary'
   | 'support_activity'
   | 'service_performance'
+  | 'monitoring_activity'
   | 'top_themes'
   | 'health_snapshot'
   | 'recommendations'
@@ -53,6 +54,31 @@ export interface ReviewReportData {
   comparison: ComparisonData;
   backlog: BacklogData;
   notableEvents: NotableEventData[];
+  /**
+   * Automated monitoring events (SaaS Alerts, Datto EDR, RMM alert tickets)
+   * detected and auto-handled during the period. Reported separately as
+   * protection delivered — NEVER blended into the support metrics above, and
+   * no SLA/response math applies. Optional: reports generated before this
+   * section existed won't have it.
+   */
+  monitoringActivity?: MonitoringActivityData;
+}
+
+/**
+ * Security & monitoring activity — automated tickets counted as monitoring
+ * events, not support workload.
+ */
+export interface MonitoringActivityData {
+  /** Monitoring events detected in the period (automated tickets created) */
+  eventsDetected: number;
+  /** Events that were handled automatically (auto-resolved, no human work) */
+  eventsAutoHandled: number;
+  /** Events escalated to a person (assigned / worked / left open for review) */
+  eventsEscalated: number;
+  /** Breakdown by generating platform (SaaS Alerts, Datto EDR, …) */
+  byType: Array<{ type: string; label: string; count: number }>;
+  /** Events detected in the previous period (for a simple trend line) */
+  previousPeriodEvents: number;
 }
 
 export interface SupportActivityData {
@@ -153,6 +179,8 @@ export interface NarrativeSections {
   executiveSummary: string;
   supportActivityNarrative: string;
   performanceNarrative: string;
+  /** Security monitoring activity narrative — absent on reports generated before the section existed */
+  monitoringNarrative?: string;
   themesNarrative: string;
   healthNarrative: string;
   recommendationsNarrative: string;

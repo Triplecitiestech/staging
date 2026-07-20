@@ -2,6 +2,8 @@ import { NextRequest } from 'next/server';
 import { getPortalSession } from '@/lib/portal-session';
 import { prisma } from '@/lib/prisma';
 import { apiOk, apiError, generateRequestId } from '@/lib/api-response';
+import { getResolvedStatuses } from '@/lib/reporting/types';
+import { isHumanTicket } from '@/lib/reporting/ticket-classification';
 
 export const dynamic = 'force-dynamic';
 
@@ -47,20 +49,30 @@ export async function GET(request: NextRequest) {
     const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
 
     // Get all company tickets — companyId FK references Company.id (UUID), not autotaskCompanyId
-    const tickets = await prisma.ticket.findMany({
+    const allTickets = await prisma.ticket.findMany({
       where: { companyId: company.id },
       select: {
         autotaskTicketId: true,
         status: true,
         completedDate: true,
         createDate: true,
+        source: true,
+        sourceLabel: true,
+        queueId: true,
+        queueLabel: true,
+        assignedResourceId: true,
       },
     });
 
-    const ticketIds = tickets.map(t => t.autotaskTicketId);
+    // Customer-facing support metrics count HUMAN tickets only — automated
+    // monitoring tickets auto-resolve instantly and would fabricate the
+    // closed count and resolution average. Hours stay computed over all
+    // tickets (logged time is human work wherever it was logged).
+    const tickets = allTickets.filter(isHumanTicket);
+    const ticketIds = allTickets.map(t => t.autotaskTicketId);
 
     // Hours worked this month from time entries
-    const RESOLVED_STATUSES = new Set([5, 13, 29]);
+    const RESOLVED_STATUSES = new Set(getResolvedStatuses());
     let hoursWorkedThisMonth = 0;
     if (ticketIds.length > 0) {
       const timeEntries = await prisma.ticketTimeEntry.findMany({

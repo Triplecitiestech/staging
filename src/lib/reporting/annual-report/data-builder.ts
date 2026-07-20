@@ -7,6 +7,12 @@
 import { prisma } from '@/lib/prisma';
 import { PRIORITY_LABELS, getResolvedStatuses } from '../types';
 import { getLifecycleQualitySummary } from '../lifecycle';
+import {
+  splitByClassification,
+  classifyMonitoringEvent,
+  MONITORING_EVENT_TYPE_LABELS,
+  MonitoringEventType,
+} from '../ticket-classification';
 import { DattoRmmClient } from '@/lib/datto-rmm';
 import { DattoEdrClient } from '@/lib/datto-edr';
 import { DnsFilterClient } from '@/lib/dnsfilter';
@@ -111,11 +117,13 @@ async function buildTicketingAnalysis(
 
   interface TicketRow {
     autotaskTicketId: string;
+    title: string;
     status: number;
     statusLabel: string | null;
     priority: number;
     createDate: Date;
     completedDate: Date | null;
+    queueId: number | null;
     queueLabel: string | null;
     issueType: number | null;
     subIssueType: number | null;
@@ -125,7 +133,7 @@ async function buildTicketingAnalysis(
   }
 
   // Get all tickets active in the period (created, completed, or had activity)
-  const tickets: TicketRow[] = await prisma.ticket.findMany({
+  const allTickets: TicketRow[] = await prisma.ticket.findMany({
     where: {
       companyId,
       OR: [
@@ -136,11 +144,13 @@ async function buildTicketingAnalysis(
     },
     select: {
       autotaskTicketId: true,
+      title: true,
       status: true,
       statusLabel: true,
       priority: true,
       createDate: true,
       completedDate: true,
+      queueId: true,
       queueLabel: true,
       issueType: true,
       subIssueType: true,
@@ -150,7 +160,12 @@ async function buildTicketingAnalysis(
     },
   });
 
-  console.log(`[annualReport] Found ${tickets.length} tickets for company ${companyId} in period ${periodStart.toISOString()} to ${periodEnd.toISOString()}`);
+  // Split HUMAN SUPPORT from AUTOMATED MONITORING (shared classifier). Every
+  // support metric below counts human tickets only; automated tickets are
+  // summarized separately as monitoring activity.
+  const { human: tickets, automated: automatedTickets } = splitByClassification(allTickets);
+
+  console.log(`[annualReport] Found ${tickets.length} human + ${automatedTickets.length} automated tickets for company ${companyId} in period ${periodStart.toISOString()} to ${periodEnd.toISOString()}`);
 
   const createdInPeriod = tickets.filter((t: TicketRow) => t.createDate >= periodStart && t.createDate <= periodEnd);
   const closedInPeriod = tickets.filter((t: TicketRow) =>
@@ -306,9 +321,12 @@ async function buildTicketingAnalysis(
       })
     : [];
 
-  // Work breakdown by source
+  // Work breakdown by source — deliberately over ALL tickets (human +
+  // automated): this is the one view that shows the proactive/reactive mix,
+  // so the automated bucket must stay visible here.
+  const allCreatedInPeriod = allTickets.filter((t: TicketRow) => t.createDate >= periodStart && t.createDate <= periodEnd);
   const sourceCounts = { reactive: 0, maintenance: 0, project: 0, other: 0 };
-  for (const t of createdInPeriod) {
+  for (const t of allCreatedInPeriod) {
     const src = (t.sourceLabel || '').toLowerCase();
     if (src.includes('monitor') || src.includes('alert') || src.includes('rmm')) {
       sourceCounts.maintenance++;
@@ -320,6 +338,26 @@ async function buildTicketingAnalysis(
       sourceCounts.other++;
     }
   }
+
+  // Automated monitoring events, reported separately as protection delivered
+  // (no SLA/response math — their timestamps are machine auto-stamps).
+  const monitoringDetected = automatedTickets.filter(
+    (t: TicketRow) => t.createDate >= periodStart && t.createDate <= periodEnd,
+  );
+  const monitoringTypeCounts = new Map<MonitoringEventType, number>();
+  for (const t of monitoringDetected) {
+    const type = classifyMonitoringEvent(t);
+    monitoringTypeCounts.set(type, (monitoringTypeCounts.get(type) || 0) + 1);
+  }
+  const monitoringActivity = {
+    eventsDetected: monitoringDetected.length,
+    eventsAutoHandled: monitoringDetected.filter(
+      (t: TicketRow) => resolvedSet.has(t.status) || t.completedDate !== null,
+    ).length,
+    byType: Array.from(monitoringTypeCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([type, count]) => ({ type, label: MONITORING_EVENT_TYPE_LABELS[type], count })),
+  };
 
   // Compute monthly trends with time entries
   const monthlyTrendsWithHours = await enrichMonthlyTrendsWithHours(
@@ -346,6 +384,7 @@ async function buildTicketingAnalysis(
       slaResolutionCompliance: quality.sla.resolutionCompliance,
     },
     workBreakdown: sourceCounts,
+    monitoringActivity,
   };
 }
 
