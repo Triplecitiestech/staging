@@ -247,6 +247,54 @@ describe('executeUnifiStagedWrite', () => {
     expect(JSON.stringify(db.get(staged.stagedWriteId)!.result)).not.toContain('hunter2')
   })
 
+  it('does NOT phantom-drift when JSONB reorders the stored snapshot of a nested object (ipv4Configuration)', async () => {
+    const LIVE_NETWORK = {
+      id: 'net-1', management: 'GATEWAY', name: 'IoT', enabled: true, vlanId: 30,
+      isolationEnabled: false, internetAccessEnabled: true, cellularBackupEnabled: false,
+      ipv4Configuration: { autoScaleEnabled: false, hostIpAddress: '192.168.30.1', prefixLength: 24 },
+    }
+    // Stage an update (changing only the name).
+    proxyGet.mockResolvedValueOnce(LIVE_NETWORK)
+    const staged = await stageUnifiWrite({
+      ...stageArgs(), area: 'unifi_network', targetId: 'net-1', changes: { name: 'IoT-renamed' },
+    })
+
+    // Simulate the JSONB round-trip: the persisted `before` comes back with the
+    // nested object's keys in a DIFFERENT order than the live API returns.
+    const row = db.get(staged.stagedWriteId)!
+    row.before = { ...row.before, ipv4Configuration: { prefixLength: 24, hostIpAddress: '192.168.30.1', autoScaleEnabled: false } }
+    row.status = 'approved'
+    db.set(staged.stagedWriteId, row)
+
+    proxyGet.mockResolvedValueOnce(LIVE_NETWORK) // drift-check read (original key order)
+    proxyPut.mockResolvedValueOnce({ ...LIVE_NETWORK, name: 'IoT-renamed' })
+    proxyGet.mockResolvedValueOnce({ ...LIVE_NETWORK, name: 'IoT-renamed' }) // verify read
+
+    const res = await executeUnifiStagedWrite(staged.stagedWriteId)
+    expect(res.status).toBe('executed') // would be 'drifted' without canonicalization
+    expect(proxyPut).toHaveBeenCalledWith('F4E2C6:1815664374', '/sites/site-a/networks/net-1', { ...LIVE_NETWORK, name: 'IoT-renamed' })
+  })
+
+  it('still aborts on a REAL change to a nested object', async () => {
+    const LIVE_NETWORK = {
+      id: 'net-2', management: 'GATEWAY', name: 'IoT', enabled: true, vlanId: 31,
+      isolationEnabled: false, internetAccessEnabled: true, cellularBackupEnabled: false,
+      ipv4Configuration: { autoScaleEnabled: false, hostIpAddress: '192.168.31.1', prefixLength: 24 },
+    }
+    proxyGet.mockResolvedValueOnce(LIVE_NETWORK)
+    const staged = await stageUnifiWrite({
+      ...stageArgs(), area: 'unifi_network', targetId: 'net-2', changes: { name: 'IoT-renamed' },
+    })
+    db.set(staged.stagedWriteId, { ...db.get(staged.stagedWriteId)!, status: 'approved' })
+
+    // Live subnet genuinely changed since staging (/24 → /25).
+    proxyGet.mockResolvedValueOnce({ ...LIVE_NETWORK, ipv4Configuration: { autoScaleEnabled: false, hostIpAddress: '192.168.31.1', prefixLength: 25 } })
+
+    await expect(executeUnifiStagedWrite(staged.stagedWriteId)).rejects.toThrow(/changed since staging.*ipv4Configuration/i)
+    expect(proxyPut).not.toHaveBeenCalled()
+    expect(db.get(staged.stagedWriteId)!.status).toBe('drifted')
+  })
+
   it('expires overdue approvals instead of executing them', async () => {
     const id = await stagePolicy()
     db.set(id, { ...db.get(id)!, status: 'approved', expiresAt: new Date(Date.now() - 1000) })
