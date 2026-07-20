@@ -5,7 +5,10 @@ import {
   buildDiff,
   buildTargetLabel,
   buildUnifiEntityPath,
+  deriveDefaultDhcpRange,
   detectDrift,
+  normalizeUnifiChanges,
+  parseIpv4Cidr,
   parseUnifiEntityPath,
   snapshotFields,
   validateSlaOverlayMappings,
@@ -161,6 +164,160 @@ describe('UniFi entityPath round-trip', () => {
   it('returns null for unparseable paths instead of guessing', () => {
     expect(parseUnifiEntityPath('HolidaySets/3/Holidays')).toBeNull()
     expect(parseUnifiEntityPath('consoles/only-console-no-path')).toBeNull()
+  })
+})
+
+describe('UniFi network 10.4.x create schema — allowlist widening', () => {
+  it('exposes the fields the 10.4.x API requires on GATEWAY create', () => {
+    const fields = UNIFI_WRITE_AREAS.unifi_network.allowedFields
+    for (const f of ['ipv4Configuration', 'internetAccessEnabled', 'cellularBackupEnabled', 'isolationEnabled', 'management', 'name', 'enabled', 'vlanId']) {
+      expect(fields, f).toContain(f)
+    }
+  })
+
+  it('only requires name + vlanId from the caller (defaults fill the rest)', () => {
+    expect(UNIFI_WRITE_AREAS.unifi_network.requiredOnCreate).toEqual(['name', 'vlanId'])
+  })
+})
+
+describe('parseIpv4Cidr / deriveDefaultDhcpRange', () => {
+  it('parses a CIDR into gateway host IP + prefix', () => {
+    expect(parseIpv4Cidr('192.168.50.1/24')).toEqual({ hostIpAddress: '192.168.50.1', prefixLength: 24 })
+  })
+
+  it('rejects malformed CIDR and out-of-range prefixes', () => {
+    expect(() => parseIpv4Cidr('192.168.50.1')).toThrow(/IPv4 CIDR/)
+    expect(() => parseIpv4Cidr('999.1.1.1/24')).toThrow(/valid IPv4/)
+    expect(() => parseIpv4Cidr('192.168.50.1/33')).toThrow(/\/8 to \/30/)
+  })
+
+  it('derives a UniFi-style pool (network+6 … broadcast-1)', () => {
+    expect(deriveDefaultDhcpRange('192.168.50.1', 24)).toEqual({ start: '192.168.50.6', stop: '192.168.50.254' })
+    expect(deriveDefaultDhcpRange('10.10.0.1', 16)).toEqual({ start: '10.10.0.6', stop: '10.10.255.254' })
+  })
+})
+
+describe('normalizeUnifiChanges — unifi_network create', () => {
+  const create = (changes: Record<string, unknown>) => normalizeUnifiChanges('unifi_network', 'create', changes)
+
+  it('fills GATEWAY defaults + derives subnet from vlanId for a minimal create', () => {
+    const out = create({ name: 'IoT', vlanId: 99 })
+    expect(out.management).toBe('GATEWAY')
+    expect(out.enabled).toBe(true)
+    expect(out.internetAccessEnabled).toBe(true)
+    expect(out.isolationEnabled).toBe(false)
+    expect(out.cellularBackupEnabled).toBe(false)
+    expect(out.ipv4Configuration).toMatchObject({
+      autoScaleEnabled: false,
+      hostIpAddress: '192.168.99.1',
+      prefixLength: 24,
+      dhcpConfiguration: {
+        mode: 'SERVER',
+        ipAddressRange: { start: '192.168.99.6', stop: '192.168.99.254' },
+        leaseTimeSeconds: 86400,
+        pingConflictDetectionEnabled: false,
+      },
+    })
+    // The API-required set is complete after normalization.
+    const spec = validateUnifiStagedChange({ area: 'unifi_network', operation: 'create', consoleId: 'c', siteId: 's', changes: out })
+    expect(spec.risk).toBe('high')
+  })
+
+  it('builds ipv4Configuration from an explicit subnet + DHCP range and DNS', () => {
+    const out = create({ name: 'PCI', vlanId: 40, subnet: '10.40.0.1/24', dhcpStart: '10.40.0.50', dhcpStop: '10.40.0.150', dhcpDnsServers: ['10.40.0.1'], dhcpDomainName: 'pci.local' })
+    expect(out.ipv4Configuration).toMatchObject({
+      hostIpAddress: '10.40.0.1',
+      prefixLength: 24,
+      dhcpConfiguration: {
+        mode: 'SERVER',
+        ipAddressRange: { start: '10.40.0.50', stop: '10.40.0.150' },
+        dnsServerIpAddressesOverride: ['10.40.0.1'],
+        domainName: 'pci.local',
+      },
+    })
+    // Convenience keys never leak into the payload.
+    for (const k of ['subnet', 'dhcpStart', 'dhcpStop', 'dhcpDnsServers', 'dhcpDomainName']) {
+      expect(out).not.toHaveProperty(k)
+    }
+  })
+
+  it('honours caller-supplied flags instead of the defaults', () => {
+    const out = create({ name: 'Isolated', vlanId: 66, subnet: '192.168.66.1/24', isolationEnabled: true, internetAccessEnabled: false })
+    expect(out.isolationEnabled).toBe(true)
+    expect(out.internetAccessEnabled).toBe(false)
+  })
+
+  it('supports dhcpMode NONE (no DHCP server) and RELAY', () => {
+    const none = create({ name: 'Static', vlanId: 70, subnet: '192.168.70.1/24', dhcpMode: 'NONE' })
+    expect((none.ipv4Configuration as Record<string, unknown>).dhcpConfiguration).toBeUndefined()
+
+    const relay = create({ name: 'Relay', vlanId: 71, subnet: '192.168.71.1/24', dhcpMode: 'RELAY', dhcpRelayServers: ['10.0.0.5'] })
+    expect((relay.ipv4Configuration as Record<string, unknown>).dhcpConfiguration).toEqual({ mode: 'RELAY', dhcpServerIpAddresses: ['10.0.0.5'] })
+  })
+
+  it('rejects RELAY without relay servers, and raw ipv4Configuration mixed with convenience inputs', () => {
+    expect(() => create({ name: 'x', vlanId: 72, subnet: '192.168.72.1/24', dhcpMode: 'RELAY' })).toThrow(/requires dhcpRelayServers/)
+    expect(() => create({ name: 'x', vlanId: 73, subnet: '192.168.73.1/24', ipv4Configuration: { autoScaleEnabled: false, hostIpAddress: '192.168.73.1', prefixLength: 24 } }))
+      .toThrow(/EITHER a raw ipv4Configuration/)
+  })
+
+  it('requires an explicit subnet when the VLAN id is outside the auto-derive range', () => {
+    expect(() => create({ name: 'HighVlan', vlanId: 3000 })).toThrow(/auto-derivation only covers VLAN IDs 2-254/)
+  })
+
+  it('leaves the missing-vlanId error to validateUnifiStagedChange (friendly message, not an internal invariant)', () => {
+    const normalized = create({ name: 'NoVlan', subnet: '192.168.5.1/24' }) // no vlanId
+    expect(() => validateUnifiStagedChange({ area: 'unifi_network', operation: 'create', consoleId: 'c', siteId: 's', changes: normalized }))
+      .toThrow(/create in unifi_network requires: vlanId/)
+  })
+
+  it('passes a raw ipv4Configuration straight through (advanced callers)', () => {
+    const raw = { autoScaleEnabled: false, hostIpAddress: '172.16.5.1', prefixLength: 24 }
+    const out = create({ name: 'Raw', vlanId: 5, ipv4Configuration: raw })
+    expect(out.ipv4Configuration).toEqual(raw)
+    expect(out.internetAccessEnabled).toBe(true) // flags still defaulted
+  })
+})
+
+describe('normalizeUnifiChanges — unifi_network update & passthrough', () => {
+  it('builds ipv4Configuration on update from convenience inputs without injecting create-defaults', () => {
+    const out = normalizeUnifiChanges('unifi_network', 'update', { subnet: '192.168.80.1/24' })
+    expect(out.ipv4Configuration).toMatchObject({ hostIpAddress: '192.168.80.1', prefixLength: 24 })
+    // No create-only defaults on update.
+    expect(out).not.toHaveProperty('management')
+    expect(out).not.toHaveProperty('internetAccessEnabled')
+    expect(out).not.toHaveProperty('enabled')
+  })
+
+  it('lets a flag-only update through untouched (GET→merge→PUT preserves ipv4Configuration)', () => {
+    const out = normalizeUnifiChanges('unifi_network', 'update', { internetAccessEnabled: false })
+    expect(out).toEqual({ internetAccessEnabled: false })
+  })
+
+  it('requires subnet when other dhcp* inputs are given on update', () => {
+    expect(() => normalizeUnifiChanges('unifi_network', 'update', { dhcpStart: '192.168.80.10', dhcpStop: '192.168.80.20' }))
+      .toThrow(/requires `subnet`/)
+  })
+
+  it('never mutates the caller object and passes non-network areas through unchanged', () => {
+    const input = { name: 'Zone A', networkIds: ['n1'] }
+    const out = normalizeUnifiChanges('unifi_firewall_zone', 'create', input)
+    expect(out).toEqual(input)
+    expect(out).not.toBe(input)
+  })
+})
+
+describe('UniFi WLAN allowlist — SSID→network binding fix', () => {
+  const base = { consoleId: 'c', siteId: 's' }
+  it('makes `network` (SSID→VLAN binding) writable', () => {
+    expect(UNIFI_WRITE_AREAS.unifi_wlan.allowedFields).toContain('network')
+    const spec = validateUnifiStagedChange({ area: 'unifi_wlan', operation: 'update', ...base, targetId: 'w1', changes: { network: { type: 'SPECIFIC', networkId: 'n-uuid' } } })
+    expect(spec.area).toBe('unifi_wlan')
+  })
+  it('drops the phantom uapsdEnabled field (not in the current schema)', () => {
+    expect(UNIFI_WRITE_AREAS.unifi_wlan.allowedFields).not.toContain('uapsdEnabled')
+    expect(() => validateUnifiStagedChange({ area: 'unifi_wlan', operation: 'update', ...base, targetId: 'w1', changes: { uapsdEnabled: true } }))
+      .toThrow(/not writable/)
   })
 })
 

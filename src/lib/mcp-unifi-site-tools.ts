@@ -178,6 +178,10 @@ const UNIFI_AREA_KEYS = Object.keys(UNIFI_WRITE_AREAS) as [string, ...string[]]
 const UNIFI_AREA_SUMMARY = Object.values(UNIFI_WRITE_AREAS)
   .map((s) => `${s.area} [${s.risk}] (${s.operations.join('/')}: ${s.allowedFields.join(', ')})`)
   .join('; ')
+const UNIFI_AREA_HINTS = Object.values(UNIFI_WRITE_AREAS)
+  .filter((s) => s.inputHint)
+  .map((s) => `${s.area}: ${s.inputHint}`)
+  .join(' ')
 
 const MIN_FIRMWARE_NOTE = 'Requires the console\'s Network app >= 10.1.84 (a FIRMWARE_UNSUPPORTED error names the console to update).'
 const RESOLVE_FIRST = 'Resolve consoleId + siteId first with unifi_resolve_site.'
@@ -647,7 +651,7 @@ export function registerUnifiSiteTools(server: any) {
     'unifi_stage_config_write',
     {
       title: 'UniFi: stage a config change (writes NOTHING)',
-      description: `STAGE a UniFi configuration change for human approval — this tool NEVER writes to UniFi. It reads the current object through the Cloud Connector Proxy, computes a before→after diff (secrets redacted), stores the pending change, and returns the diff plus an approval URL. A staff member must approve it on /admin/connector/staged-writes (staff login; the connector token cannot approve), then unifi_execute_staged_write applies it with a drift check. Exactly ONE consoleId, ONE siteId, ONE targetId per staged change. Writable areas [risk] (fields verified against the official Integration API 10.1.84): ${UNIFI_AREA_SUMMARY}. Not stageable because the official API lacks them: port forwards, static routes, port profiles, gateway settings, firmware updates, WLAN passphrase changes, policy reordering — see docs/unifi-site-tools.md.`,
+      description: `STAGE a UniFi configuration change for human approval — this tool NEVER writes to UniFi. It reads the current object through the Cloud Connector Proxy, computes a before→after diff (secrets redacted), stores the pending change, and returns the diff plus an approval URL. A staff member must approve it on /admin/connector/staged-writes (staff login; the connector token cannot approve), then unifi_execute_staged_write applies it with a drift check. Exactly ONE consoleId, ONE siteId, ONE targetId per staged change. Writable areas [risk] (fields verified against the official Integration API; network create/update re-verified against the current published spec, v10.3.58): ${UNIFI_AREA_SUMMARY}. Convenience inputs — ${UNIFI_AREA_HINTS} Not stageable because the official API lacks them: port forwards, static routes, port profiles, gateway settings, firmware updates, WLAN passphrase changes, policy reordering — see docs/unifi-site-tools.md.`,
       inputSchema: {
         area: z.enum(UNIFI_AREA_KEYS).describe('UniFi config area to change'),
         operation: z.enum(['create', 'update', 'delete']).describe('What to do (unifi_device_adoption: create = adopt, delete = forget)'),

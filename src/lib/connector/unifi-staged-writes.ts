@@ -33,6 +33,7 @@ import {
   buildTargetLabel,
   buildUnifiEntityPath,
   detectDrift,
+  normalizeUnifiChanges,
   parseUnifiEntityPath,
   snapshotFields,
   validateUnifiStagedChange,
@@ -76,7 +77,10 @@ export async function stageUnifiWrite(
   input: UnifiStagedChangeInput & { reason?: string; stagedBy: string },
 ): Promise<StageResult> {
   assertUnifiWritesEnabled()
-  const spec = validateUnifiStagedChange(input)
+  // Expand convenience inputs / apply create-defaults (unifi_network) BEFORE
+  // validation, so the gate validates, diffs and writes only real API fields.
+  const changes = normalizeUnifiChanges(input.area, input.operation, input.changes)
+  const spec = validateUnifiStagedChange({ ...input, changes })
 
   let before: Record<string, unknown> | null = null
   let targetLabel: string
@@ -111,11 +115,11 @@ export async function stageUnifiWrite(
       }
     }
   } else {
-    targetLabel = `${buildTargetLabel(spec, input.changes, undefined)} @ site ${input.siteId}`
+    targetLabel = `${buildTargetLabel(spec, changes, undefined)} @ site ${input.siteId}`
     entityPath = buildUnifiEntityPath(input.consoleId, spec.collectionPath(input.siteId))
   }
 
-  const proposed = { ...input.changes }
+  const proposed = { ...changes }
   const diff = buildDiff(input.operation, before, input.operation === 'delete' ? {} : proposed)
   const expiresAt = new Date(Date.now() + TTL_MINUTES * 60_000)
 
