@@ -8,6 +8,7 @@ import { AutotaskClient, type AutotaskCompany } from '@/lib/autotask';
 import { structuredLog } from '@/lib/resilience';
 import { createJobTracker, getLastSuccessfulRun, getLastRunTime } from './job-status';
 import { JOB_NAMES, isResolvedStatus, updateStatusClassification } from './types';
+import { updateTicketClassificationFromPicklists } from './ticket-classification';
 import { ensureReportingTables } from './ensure-tables';
 
 // ============================================
@@ -855,9 +856,13 @@ async function resolvePicklists(client: AutotaskClient): Promise<PicklistCache> 
             break;
           case 'queueID':
             cache.ticketQueue = map;
+            // Refresh which queues are automated alert queues (human-vs-automated classifier)
+            updateTicketClassificationFromPicklists({ queue: field.picklistValues });
             break;
           case 'source':
             cache.ticketSource = map;
+            // Refresh which sources are automated monitoring channels
+            updateTicketClassificationFromPicklists({ source: field.picklistValues });
             break;
         }
       }

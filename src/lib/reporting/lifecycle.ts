@@ -15,6 +15,7 @@
 import { prisma } from '@/lib/prisma';
 import { createJobTracker, getLastSuccessfulRun } from './job-status';
 import { JOB_NAMES, isResolvedStatus, isCompleteStatus, isReopenStatus, isWaitingCustomerStatus, priorityToTargetScope } from './types';
+import { classifyTicket } from './ticket-classification';
 import { assertTableExists } from './sync';
 import { computeBusinessMinutes } from './business-hours';
 
@@ -94,6 +95,9 @@ export async function computeLifecycle(): Promise<LifecycleResult> {
         assignedResourceId: true,
         priority: true,
         queueId: true,
+        queueLabel: true,
+        source: true,
+        sourceLabel: true,
         createDate: true,
         completedDate: true,
         status: true,
@@ -239,6 +243,9 @@ interface TicketInput {
   assignedResourceId: number | null;
   priority: number;
   queueId: number | null;
+  queueLabel: string | null;
+  source: number | null;
+  sourceLabel: string | null;
   createDate: Date;
   completedDate: Date | null;
   status: number;
@@ -317,14 +324,27 @@ function computeTicketLifecycleInMemory(
   // M5: First Touch Resolution
   const isFirstTouchResolution = isResolved && techNoteCount <= 1 && reopenCount === 0;
 
-  // M12: SLA compliance — resolved from cache, no DB queries
-  const slaResponseMet = firstResponseBusinessMinutes !== null
+  // M12: SLA compliance — resolved from cache, no DB queries.
+  // SLA does not apply to automated monitoring tickets: their timestamps are
+  // machine auto-stamps (createDate == first "response" == resolution), so a
+  // verdict would fabricate instant-response/instant-resolution compliance.
+  // Verdicts stay null = "not measured". (Reads also classify — see
+  // fetchQualityRows — so pre-existing rows are covered too.)
+  const isAutomated = classifyTicket({
+    source: ticket.source,
+    sourceLabel: ticket.sourceLabel,
+    queueId: ticket.queueId,
+    queueLabel: ticket.queueLabel,
+    assignedResourceId: ticket.assignedResourceId,
+    hoursLogged: totalHoursLogged,
+  }) === 'automated';
+  const slaResponseMet = !isAutomated && firstResponseBusinessMinutes !== null
     ? evaluateSlaFromCache(targetCache, 'first_response_time', ticket.priority, ticket.companyId, firstResponseBusinessMinutes)
     : null;
-  const slaResolutionPlanMet = firstResolutionBusinessMinutes !== null
+  const slaResolutionPlanMet = !isAutomated && firstResolutionBusinessMinutes !== null
     ? evaluateSlaFromCache(targetCache, 'resolution_plan_time', ticket.priority, ticket.companyId, firstResolutionBusinessMinutes)
     : null;
-  const slaResolutionMet = fullResolutionBusinessMinutes !== null
+  const slaResolutionMet = !isAutomated && fullResolutionBusinessMinutes !== null
     ? evaluateSlaFromCache(targetCache, 'resolution_time', ticket.priority, ticket.companyId, fullResolutionBusinessMinutes)
     : null;
 
@@ -528,7 +548,7 @@ export interface LifecycleReopenSummary {
 }
 
 export interface LifecycleQualitySummary {
-  /** Lifecycle rows resolved + completed inside the window */
+  /** HUMAN-SUPPORT lifecycle rows resolved + completed inside the window (automated monitoring tickets excluded) */
   resolvedTickets: number;
   sla: LifecycleSlaSummary;
   reopen: LifecycleReopenSummary;
@@ -538,24 +558,35 @@ interface QualityRow {
   companyId: string;
   autotaskTicketId: string;
   reopenCount: number;
+  totalHoursLogged: number;
   slaResponseMet: boolean | null;
   slaResolutionPlanMet: boolean | null;
   slaResolutionMet: boolean | null;
 }
 
+/**
+ * Fetch resolved lifecycle rows in the window, restricted to HUMAN SUPPORT
+ * tickets. Automated monitoring tickets (SaaS Alerts / Datto EDR / RMM
+ * auto-tickets) are excluded here — at the single chokepoint every SLA and
+ * reopen consumer reads through — so their auto-stamped instant timestamps
+ * can never fabricate compliance numbers, and rows computed before the
+ * classifier existed are filtered too.
+ */
 async function fetchQualityRows(from: Date, to: Date, companyId?: string): Promise<QualityRow[]> {
   const where = {
     isResolved: true,
     completedDate: { gte: from, lte: to },
     ...(companyId ? { companyId } : {}),
   };
+  let rows: QualityRow[];
   try {
-    return await prisma.ticketLifecycle.findMany({
+    rows = await prisma.ticketLifecycle.findMany({
       where,
       select: {
         companyId: true,
         autotaskTicketId: true,
         reopenCount: true,
+        totalHoursLogged: true,
         slaResponseMet: true,
         slaResolutionPlanMet: true,
         slaResolutionMet: true,
@@ -564,17 +595,18 @@ async function fetchQualityRows(from: Date, to: Date, companyId?: string): Promi
   } catch {
     try {
       // slaResolutionPlanMet column may not exist yet — fall back without it
-      const rows = await prisma.ticketLifecycle.findMany({
+      const fallbackRows = await prisma.ticketLifecycle.findMany({
         where,
         select: {
           companyId: true,
           autotaskTicketId: true,
           reopenCount: true,
+          totalHoursLogged: true,
           slaResponseMet: true,
           slaResolutionMet: true,
         },
       });
-      return rows.map(r => ({ ...r, slaResolutionPlanMet: null }));
+      rows = fallbackRows.map(r => ({ ...r, slaResolutionPlanMet: null }));
     } catch (err) {
       // Lifecycle data unreachable — reports degrade to "not measured" (null),
       // never to a fabricated number.
@@ -582,6 +614,43 @@ async function fetchQualityRows(from: Date, to: Date, companyId?: string): Promi
       return [];
     }
   }
+  return filterHumanQualityRows(rows);
+}
+
+/** Drop automated-monitoring tickets from quality rows via the shared classifier. */
+async function filterHumanQualityRows(rows: QualityRow[]): Promise<QualityRow[]> {
+  if (rows.length === 0) return rows;
+  const classification = new Map<string, ReturnType<typeof classifyTicket>>();
+  const hoursById = new Map(rows.map(r => [r.autotaskTicketId, r.totalHoursLogged]));
+  const CHUNK = 1000;
+  try {
+    const ids = rows.map(r => r.autotaskTicketId);
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const tickets = await prisma.ticket.findMany({
+        where: { autotaskTicketId: { in: ids.slice(i, i + CHUNK) } },
+        select: {
+          autotaskTicketId: true,
+          source: true,
+          sourceLabel: true,
+          queueId: true,
+          queueLabel: true,
+          assignedResourceId: true,
+        },
+      });
+      for (const t of tickets) {
+        classification.set(t.autotaskTicketId, classifyTicket({
+          ...t,
+          hoursLogged: hoursById.get(t.autotaskTicketId) ?? null,
+        }));
+      }
+    }
+  } catch (err) {
+    // Classification unreachable — keep all rows rather than dropping data.
+    console.error('[lifecycle] classification read failed:', err instanceof Error ? err.message : String(err));
+    return rows;
+  }
+  // A lifecycle row with no ticket row can't be classified — keep it (human default).
+  return rows.filter(r => (classification.get(r.autotaskTicketId) ?? 'human') === 'human');
 }
 
 /** Which of the given tickets have ≥1 status-history row (reopen measurability). */
@@ -659,8 +728,10 @@ function summarizeQuality(rows: QualityRow[], covered: Set<string>): LifecycleQu
 }
 
 /**
- * SLA + reopen summary for tickets resolved in the window — optionally scoped
- * to one company. This is what dashboards and customer reports must consume.
+ * SLA + reopen summary for HUMAN SUPPORT tickets resolved in the window —
+ * optionally scoped to one company. Automated monitoring tickets are excluded
+ * via the shared classifier (see ticket-classification.ts). This is what
+ * dashboards and customer reports must consume.
  */
 export async function getLifecycleQualitySummary(
   from: Date,

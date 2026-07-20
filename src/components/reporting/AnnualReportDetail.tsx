@@ -173,7 +173,10 @@ export default function AnnualReportDetail({ reportId }: Props) {
           ) : (
             <>
               <div className="flex flex-wrap justify-center gap-3 mb-4">
-                <StatCard label="Tickets Created" value={r.ticketing.totalTickets} />
+                <StatCard label="Support Tickets" value={r.ticketing.totalTickets} />
+                {r.ticketing.monitoringActivity && (
+                  <StatCard label="Monitoring Events" value={r.ticketing.monitoringActivity.eventsDetected} />
+                )}
                 <StatCard label="First Touch Rate" value={r.ticketing.responseMetrics.firstTouchResolutionRate !== null ? `${r.ticketing.responseMetrics.firstTouchResolutionRate}%` : '\u2014'} />
                 {r.showInternalColumns && (
                   <>
@@ -186,6 +189,12 @@ export default function AnnualReportDetail({ reportId }: Props) {
                   <StatCard label="SLA Compliance" value={`${r.ticketing.responseMetrics.slaResponseCompliance}%`} />
                 )}
               </div>
+              {r.ticketing.monitoringActivity && r.ticketing.monitoringActivity.eventsDetected > 0 && (
+                <p className="text-xs text-slate-500 text-center mb-4">
+                  Support metrics cover human-worked tickets only. {r.ticketing.monitoringActivity.eventsDetected} automated monitoring
+                  events ({r.ticketing.monitoringActivity.eventsAutoHandled} auto-handled) are counted separately and carry no response/SLA figures.
+                </p>
+              )}
 
               {isVisible('ticketingPriority') && r.ticketing.ticketsByPriority.length > 0 && (
                 <>

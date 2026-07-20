@@ -10,6 +10,7 @@
 import { prisma } from '@/lib/prisma';
 import { createJobTracker } from './job-status';
 import { JOB_NAMES, getResolvedStatuses } from './types';
+import { humanTicketSqlCondition } from './ticket-classification';
 import { assertTableExists } from './sync';
 
 // ============================================
@@ -320,12 +321,20 @@ async function aggregateTechnicianForDay(date: Date): Promise<AggregationResult>
 /**
  * Compute company metrics for a single day using bulk SQL.
  * Runs ~8 queries total regardless of company count.
+ *
+ * Support metrics count HUMAN tickets only: every ticket-derived query below
+ * carries the shared classifier's SQL predicate (ticket-classification.ts),
+ * so automated monitoring tickets never inflate created/closed/backlog or the
+ * lifecycle averages. Time entries stay unfiltered — logged time is human
+ * work wherever it was logged.
  */
 async function aggregateCompanyForDay(date: Date): Promise<AggregationResult> {
   const result: AggregationResult = { rowsComputed: 0, errors: [] };
   const dayStart = startOfDay(date);
   const dayEnd = endOfDay(date);
   const resolvedStatuses = getResolvedStatuses();
+  const humanTickets = humanTicketSqlCondition('tickets');
+  const humanT = humanTicketSqlCondition('t');
 
   try {
     const companies = await prisma.company.findMany({
@@ -348,6 +357,7 @@ async function aggregateCompanyForDay(date: Date): Promise<AggregationResult> {
        FROM tickets
        WHERE "companyId" = ANY($1::text[])
          AND "createDate" >= $2 AND "createDate" <= $3
+         AND ${humanTickets}
        GROUP BY "companyId"`,
       companyIds, dayStart, dayEnd,
     );
@@ -358,12 +368,14 @@ async function aggregateCompanyForDay(date: Date): Promise<AggregationResult> {
 
     // 2. Bulk: tickets closed (completedDate in range)
     const closedRows = await prisma.$queryRawUnsafe<Array<{ cid: string; cnt: bigint }>>(
-      `SELECT "companyId" AS cid, COUNT(*)::bigint AS cnt
-       FROM ticket_lifecycle
-       WHERE "companyId" = ANY($1::text[])
-         AND "isResolved" = true
-         AND "completedDate" >= $2 AND "completedDate" <= $3
-       GROUP BY "companyId"`,
+      `SELECT tl."companyId" AS cid, COUNT(*)::bigint AS cnt
+       FROM ticket_lifecycle tl
+       JOIN tickets t ON t."autotaskTicketId" = tl."autotaskTicketId"
+       WHERE tl."companyId" = ANY($1::text[])
+         AND tl."isResolved" = true
+         AND tl."completedDate" >= $2 AND tl."completedDate" <= $3
+         AND ${humanT}
+       GROUP BY tl."companyId"`,
       companyIds, dayStart, dayEnd,
     );
     const closedMap = new Map(closedRows.map(r => [r.cid, Number(r.cnt)]));
@@ -378,6 +390,7 @@ async function aggregateCompanyForDay(date: Date): Promise<AggregationResult> {
          AND t.status = ANY($4::int[])
          AND tsh."changedAt" >= $2 AND tsh."changedAt" <= $3
          AND tsh."newStatus" = ANY($4::int[])
+         AND ${humanT}
        GROUP BY t."companyId"`,
       companyIds, dayStart, dayEnd, resolvedStatuses,
     );
@@ -392,6 +405,7 @@ async function aggregateCompanyForDay(date: Date): Promise<AggregationResult> {
          AND tsh."changedAt" >= $2 AND tsh."changedAt" <= $3
          AND tsh."previousStatus" = ANY($4::int[])
          AND NOT (tsh."newStatus" = ANY($4::int[]))
+         AND ${humanT}
        GROUP BY t."companyId"`,
       companyIds, dayStart, dayEnd, resolvedStatuses,
     );
@@ -418,21 +432,23 @@ async function aggregateCompanyForDay(date: Date): Promise<AggregationResult> {
       sla_resp_met: bigint; sla_resp_total: bigint;
       sla_res_met: bigint; sla_res_total: bigint;
     }>>(
-      `SELECT "companyId" AS cid,
-              AVG("firstResponseMinutes")::float AS avg_frt,
-              AVG("fullResolutionMinutes")::float AS avg_resolution,
+      `SELECT tl."companyId" AS cid,
+              AVG(tl."firstResponseMinutes")::float AS avg_frt,
+              AVG(tl."fullResolutionMinutes")::float AS avg_resolution,
               COUNT(*)::bigint AS total,
-              COUNT(*) FILTER (WHERE "isFirstTouchResolution" = true)::bigint AS ftr_count,
-              COUNT(*) FILTER (WHERE "reopenCount" > 0)::bigint AS reopen_count,
-              COUNT(*) FILTER (WHERE "slaResponseMet" = true)::bigint AS sla_resp_met,
-              COUNT(*) FILTER (WHERE "slaResponseMet" IS NOT NULL)::bigint AS sla_resp_total,
-              COUNT(*) FILTER (WHERE "slaResolutionMet" = true)::bigint AS sla_res_met,
-              COUNT(*) FILTER (WHERE "slaResolutionMet" IS NOT NULL)::bigint AS sla_res_total
-       FROM ticket_lifecycle
-       WHERE "companyId" = ANY($1::text[])
-         AND "isResolved" = true
-         AND "completedDate" >= $2 AND "completedDate" <= $3
-       GROUP BY "companyId"`,
+              COUNT(*) FILTER (WHERE tl."isFirstTouchResolution" = true)::bigint AS ftr_count,
+              COUNT(*) FILTER (WHERE tl."reopenCount" > 0)::bigint AS reopen_count,
+              COUNT(*) FILTER (WHERE tl."slaResponseMet" = true)::bigint AS sla_resp_met,
+              COUNT(*) FILTER (WHERE tl."slaResponseMet" IS NOT NULL)::bigint AS sla_resp_total,
+              COUNT(*) FILTER (WHERE tl."slaResolutionMet" = true)::bigint AS sla_res_met,
+              COUNT(*) FILTER (WHERE tl."slaResolutionMet" IS NOT NULL)::bigint AS sla_res_total
+       FROM ticket_lifecycle tl
+       JOIN tickets t ON t."autotaskTicketId" = tl."autotaskTicketId"
+       WHERE tl."companyId" = ANY($1::text[])
+         AND tl."isResolved" = true
+         AND tl."completedDate" >= $2 AND tl."completedDate" <= $3
+         AND ${humanT}
+       GROUP BY tl."companyId"`,
       companyIds, dayStart, dayEnd,
     );
     const lcMap = new Map(lcRows.map(r => [r.cid, {
@@ -454,6 +470,7 @@ async function aggregateCompanyForDay(date: Date): Promise<AggregationResult> {
          AND "createDate" <= $2
          AND ("completedDate" IS NULL OR "completedDate" > $2)
          AND NOT (status = ANY($3::int[]))
+         AND ${humanTickets}
        GROUP BY "companyId"`,
       companyIds, dayEnd, resolvedStatuses,
     );

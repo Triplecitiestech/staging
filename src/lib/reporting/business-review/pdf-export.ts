@@ -324,6 +324,27 @@ ${isInternal ? '<div class="internal-banner">&#9888; INTERNAL DOCUMENT — NOT F
   <div class="narrative">${narrative.performanceNarrative}</div>
 </div>
 
+<!-- SECURITY MONITORING ACTIVITY (automated events — protection delivered, not support workload) -->
+${data.monitoringActivity ? `
+<div class="section avoid-break">
+  <div class="section-title">Security &amp; Monitoring Activity</div>
+  <div class="stat-grid" style="grid-template-columns: repeat(3, 1fr);">
+    ${statCard('Events Detected', data.monitoringActivity.eventsDetected)}
+    ${statCard('Handled Automatically', data.monitoringActivity.eventsAutoHandled)}
+    ${statCard('Previous Period', data.monitoringActivity.previousPeriodEvents)}
+  </div>
+  ${data.monitoringActivity.byType.length > 0 ? `
+  <table>
+    <thead><tr><th>Protection Layer</th><th style="text-align:right">Events</th></tr></thead>
+    <tbody>
+    ${data.monitoringActivity.byType.map(t =>
+      `<tr><td>${t.label}</td><td style="text-align:right">${t.count}</td></tr>`
+    ).join('')}
+    </tbody>
+  </table>` : ''}
+  ${narrative.monitoringNarrative ? `<div class="narrative">${narrative.monitoringNarrative}</div>` : ''}
+</div>` : ''}
+
 <!-- PRIORITY BREAKDOWN -->
 ${data.priorityBreakdown.length > 0 ? `
 <div class="section avoid-break">

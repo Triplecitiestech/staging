@@ -17,6 +17,8 @@
 import { prisma } from '@/lib/prisma';
 import { createJobTracker } from './job-status';
 import { JOB_NAMES, getResolvedStatuses } from './types';
+import { isHumanTicket, humanTicketSqlCondition } from './ticket-classification';
+import { getLifecycleQualitySummary } from './lifecycle';
 import { resolveTarget } from './targets';
 import { assertTableExists } from './sync';
 
@@ -99,25 +101,34 @@ async function computeCompanyHealth(
   prevPeriodStart: Date,
   prevPeriodEnd: Date,
 ) {
-  // Current period tickets
-  const currentTickets = await prisma.ticket.findMany({
+  // Current period tickets — HUMAN SUPPORT only (shared classifier). Health
+  // is a measure of the customer's support experience; automated monitoring
+  // tickets must not move volume trends, priority mix, or aging.
+  const allCurrentTickets = await prisma.ticket.findMany({
     where: {
       companyId,
       createDate: { gte: periodStart, lte: periodEnd },
     },
-    select: { autotaskTicketId: true, priority: true, createDate: true },
+    select: {
+      autotaskTicketId: true, priority: true, createDate: true,
+      source: true, sourceLabel: true, queueId: true, queueLabel: true, assignedResourceId: true,
+    },
   });
+  const currentTickets = allCurrentTickets.filter(isHumanTicket);
 
-  // Previous period tickets
-  const prevTickets = await prisma.ticket.count({
+  // Previous period tickets (human only, for the volume trend)
+  const allPrevTickets = await prisma.ticket.findMany({
     where: {
       companyId,
       createDate: { gte: prevPeriodStart, lte: prevPeriodEnd },
     },
+    select: {
+      source: true, sourceLabel: true, queueId: true, queueLabel: true, assignedResourceId: true,
+    },
   });
 
   const ticketCountCurrent = currentTickets.length;
-  const ticketCountPrevious = prevTickets;
+  const ticketCountPrevious = allPrevTickets.filter(isHumanTicket).length;
 
   // Skip companies with no ticket data at all
   if (ticketCountCurrent === 0 && ticketCountPrevious === 0) return null;
@@ -125,42 +136,21 @@ async function computeCompanyHealth(
   // 1. Ticket Volume Trend Score
   const ticketVolumeTrendScore = computeTrendScore(ticketCountCurrent, ticketCountPrevious);
 
-  // 2. Reopen Rate Score
-  // Reopen detection relies on TicketStatusHistory records, which are only
-  // captured during ticket sync (point-in-time deltas). If resolved tickets
-  // have no status history at all, we can't reliably determine reopens —
-  // use a neutral score rather than claiming zero reopens.
-  const currentLifecycles = await prisma.ticketLifecycle.findMany({
-    where: {
-      companyId,
-      isResolved: true,
-      completedDate: { gte: periodStart, lte: periodEnd },
-    },
-    select: { autotaskTicketId: true, reopenCount: true },
-  });
-  const totalResolved = currentLifecycles.length;
-  const reopened = currentLifecycles.filter(l => l.reopenCount > 0).length;
-
-  // Check how many resolved tickets actually have status history records
-  // (without status history, we can't detect reopens at all)
-  let ticketsWithHistory = 0;
-  if (totalResolved > 0) {
-    const resolvedIds = currentLifecycles.map(l => l.autotaskTicketId);
-    const historyCount = await prisma.ticketStatusHistory.groupBy({
-      by: ['autotaskTicketId'],
-      where: { autotaskTicketId: { in: resolvedIds } },
-    });
-    ticketsWithHistory = historyCount.length;
-  }
+  // 2. Reopen Rate Score + 7. SLA Compliance Score — from the lifecycle
+  // quality engine (the single SLA/reopen source for customer-facing numbers;
+  // it already excludes automated tickets and honestly reports "not measured"
+  // when status-history coverage or targets are missing).
+  const quality = await getLifecycleQualitySummary(periodStart, periodEnd, companyId);
+  const totalResolved = quality.resolvedTickets;
 
   let reopenRateValue: number;
   let reopenRateScore: number;
-  if (totalResolved === 0 || ticketsWithHistory === 0) {
+  if (quality.reopen.reopenRate === null) {
     // No data to compute reopen rate — use neutral score
     reopenRateValue = 0;
     reopenRateScore = 50; // Neutral when we have no status history data
   } else {
-    reopenRateValue = (reopened / totalResolved) * 100;
+    reopenRateValue = quality.reopen.reopenRate;
     reopenRateScore = scoreReopenRate(reopenRateValue);
   }
 
@@ -175,7 +165,7 @@ async function computeCompanyHealth(
   const supportHoursTrendScore = computeTrendScore(currentHours, prevHours);
 
   // 5. Average Resolution Time Score
-  const resolutionMinutes = currentLifecycles.length > 0
+  const resolutionMinutes = totalResolved > 0
     ? await getAvgResolution(companyId, periodStart, periodEnd)
     : null;
   const avgResolutionTimeScore = await scoreResolutionTime(resolutionMinutes);
@@ -184,8 +174,8 @@ async function computeCompanyHealth(
   const agingTicketCount = await countAgingTickets(companyId);
   const agingTicketsScore = scoreAgingTickets(agingTicketCount, ticketCountCurrent);
 
-  // 7. SLA Compliance Score
-  const slaCompliancePercent = await getSlaCompliance(companyId, periodStart, periodEnd);
+  // 7. SLA Compliance Score (pooled across all three metrics — same formula as before)
+  const slaCompliancePercent = quality.sla.combinedCompliance;
   const slaComplianceScore = slaCompliancePercent !== null ? slaCompliancePercent : 50; // Neutral if no SLA data
 
   // Weighted overall score
@@ -332,31 +322,37 @@ async function sumSupportHours(companyId: string, start: Date, end: Date): Promi
 }
 
 async function getAvgResolution(companyId: string, start: Date, end: Date): Promise<number | null> {
-  const lifecycles = await prisma.ticketLifecycle.findMany({
-    where: {
-      companyId,
-      isResolved: true,
-      completedDate: { gte: start, lte: end },
-      fullResolutionMinutes: { not: null },
-    },
-    select: { fullResolutionMinutes: true },
-  });
-
-  if (lifecycles.length === 0) return null;
-  const values = lifecycles.map(l => l.fullResolutionMinutes!);
-  return values.reduce((a, b) => a + b, 0) / values.length;
+  // Human tickets only — blending instant automated auto-resolves with real
+  // resolution spans produces a meaningless average.
+  const rows = await prisma.$queryRawUnsafe<Array<{ avg: number | null }>>(
+    `SELECT AVG(tl."fullResolutionMinutes")::float AS avg
+     FROM ticket_lifecycle tl
+     JOIN tickets t ON t."autotaskTicketId" = tl."autotaskTicketId"
+     WHERE tl."companyId" = $1
+       AND tl."isResolved" = true
+       AND tl."completedDate" >= $2 AND tl."completedDate" <= $3
+       AND tl."fullResolutionMinutes" IS NOT NULL
+       AND ${humanTicketSqlCondition('t')}`,
+    companyId, start, end,
+  );
+  return rows[0]?.avg ?? null;
 }
 
 async function countAgingTickets(companyId: string): Promise<number> {
-  // "Aging" = open ticket older than 2x the resolution target for its priority
-  const openTickets = await prisma.ticket.findMany({
+  // "Aging" = open HUMAN ticket older than 2x the resolution target for its
+  // priority (open automated alert tickets are monitoring records, not aging work)
+  const allOpenTickets = await prisma.ticket.findMany({
     where: {
       companyId,
       NOT: { status: { in: getResolvedStatuses() } },
       completedDate: null,
     },
-    select: { createDate: true, priority: true },
+    select: {
+      createDate: true, priority: true,
+      source: true, sourceLabel: true, queueId: true, queueLabel: true, assignedResourceId: true,
+    },
   });
+  const openTickets = allOpenTickets.filter(isHumanTicket);
 
   let aging = 0;
   const now = Date.now();
@@ -372,49 +368,3 @@ async function countAgingTickets(companyId: string): Promise<number> {
   return aging;
 }
 
-async function getSlaCompliance(companyId: string, start: Date, end: Date): Promise<number | null> {
-  let lifecycles: { slaResponseMet: boolean | null; slaResolutionPlanMet?: boolean | null; slaResolutionMet: boolean | null }[];
-  try {
-    lifecycles = await prisma.ticketLifecycle.findMany({
-      where: {
-        companyId,
-        isResolved: true,
-        completedDate: { gte: start, lte: end },
-      },
-      select: {
-        slaResponseMet: true,
-        slaResolutionPlanMet: true,
-        slaResolutionMet: true,
-      },
-    });
-  } catch {
-    // slaResolutionPlanMet column may not exist yet — fallback without it
-    lifecycles = (await prisma.ticketLifecycle.findMany({
-      where: {
-        companyId,
-        isResolved: true,
-        completedDate: { gte: start, lte: end },
-      },
-      select: {
-        slaResponseMet: true,
-        slaResolutionMet: true,
-      },
-    })).map(r => ({ ...r, slaResolutionPlanMet: null }));
-  }
-
-  const responseResults = lifecycles
-    .map(l => l.slaResponseMet)
-    .filter((v): v is boolean => v !== null);
-  const planResults = lifecycles
-    .map(l => l.slaResolutionPlanMet ?? null)
-    .filter((v): v is boolean => v !== null);
-  const resolutionResults = lifecycles
-    .map(l => l.slaResolutionMet)
-    .filter((v): v is boolean => v !== null);
-
-  // Include all three Autotask SLA metrics in compliance calculation
-  const allResults = [...responseResults, ...planResults, ...resolutionResults];
-  if (allResults.length === 0) return null;
-
-  return (allResults.filter(v => v).length / allResults.length) * 100;
-}

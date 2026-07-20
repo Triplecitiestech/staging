@@ -22,11 +22,57 @@ export function generateNarrative(
     executiveSummary: buildExecutiveSummary(data, recommendations, variant),
     supportActivityNarrative: buildSupportActivityNarrative(data, variant),
     performanceNarrative: buildPerformanceNarrative(data, variant),
+    monitoringNarrative: buildMonitoringNarrative(data, variant),
     themesNarrative: buildThemesNarrative(data),
     healthNarrative: buildHealthNarrative(data, variant),
     recommendationsNarrative: buildRecommendationsNarrative(recommendations, variant),
     ...(variant === 'internal' ? { internalNotes: buildInternalNotes(data, recommendations) } : {}),
   };
+}
+
+// ============================================
+// SECURITY MONITORING ACTIVITY
+// ============================================
+
+/**
+ * Automated monitoring events framed as protection delivered — never as
+ * support workload, and never with response/SLA language (their timestamps
+ * are machine auto-stamps, not service measurements).
+ */
+function buildMonitoringNarrative(data: ReviewReportData, variant: ReportVariant): string {
+  const ma = data.monitoringActivity;
+  if (!ma) return '';
+  const isCustomer = variant === 'customer';
+
+  if (ma.eventsDetected === 0) {
+    return isCustomer
+      ? `Our security and monitoring platforms watched your environment around the clock throughout ${data.period.label}, with no security events requiring action.`
+      : `No automated monitoring events were generated for ${data.company.name} in ${data.period.label}.`;
+  }
+
+  const parts: string[] = [];
+  if (isCustomer) {
+    parts.push(`Behind the scenes during ${data.period.label}, our security and monitoring platforms detected ${ma.eventsDetected} ${ma.eventsDetected === 1 ? 'event' : 'events'} in your environment and handled ${ma.eventsAutoHandled} of them automatically — protection delivered without interrupting your team.`);
+  } else {
+    parts.push(`Monitoring platforms generated ${ma.eventsDetected} automated ${ma.eventsDetected === 1 ? 'event' : 'events'} for ${data.company.name} (${ma.eventsAutoHandled} auto-handled). These are excluded from all support metrics above.`);
+  }
+
+  if (ma.byType.length > 0) {
+    const breakdown = ma.byType.map(t => `${t.count} from ${t.label.toLowerCase()}`).join(', ');
+    parts.push(`This activity included ${breakdown}.`);
+  }
+
+  if (ma.eventsEscalated > 0) {
+    parts.push(isCustomer
+      ? `${ma.eventsEscalated} ${ma.eventsEscalated === 1 ? 'event' : 'events'} remained under review by our team at period end.`
+      : `${ma.eventsEscalated} ${ma.eventsEscalated === 1 ? 'event was' : 'events were'} not auto-resolved and may need review.`);
+  }
+
+  if (ma.previousPeriodEvents > 0 && isCustomer) {
+    parts.push(`For comparison, ${ma.previousPeriodEvents} ${ma.previousPeriodEvents === 1 ? 'event was' : 'events were'} detected in the previous period.`);
+  }
+
+  return parts.join(' ');
 }
 
 // ============================================

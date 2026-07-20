@@ -16,6 +16,7 @@ import { prisma } from '@/lib/prisma';
 import { checkSecretAuth } from '@/lib/api-auth';
 import { DattoRmmClient, DattoAlert } from '@/lib/datto-rmm';
 import { getResolvedStatuses, PRIORITY_LABELS } from '@/lib/reporting/types';
+import { splitByClassification } from '@/lib/reporting/ticket-classification';
 import { generateExecutiveSummaryHTML } from './html-generator';
 import { matchesCompanyName } from '@/utils';
 
@@ -46,11 +47,14 @@ export interface ExecutiveSummaryData {
   period: { start: string; end: string; days: number };
   generatedAt: string;
 
-  // Ticket overview
+  // Ticket overview (HUMAN support tickets only — automated monitoring
+  // tickets are reported via monitoringEventsDetected, never blended in)
   ticketSummary: {
     totalCreated: number;
     totalClosed: number;
     totalOpen: number;
+    /** Automated monitoring events detected in the period (SaaS Alerts / EDR / RMM tickets) */
+    monitoringEventsDetected: number;
     totalHours: number;
     totalBillableHours: number;
     avgResolutionMinutes: number | null;
@@ -96,7 +100,7 @@ export async function GET(request: NextRequest) {
     const resolvedSet = new Set(getResolvedStatuses());
 
     // Fetch all tickets for this company in the period
-    const tickets = await prisma.ticket.findMany({
+    const allTickets = await prisma.ticket.findMany({
       where: {
         companyId: company.id,
         OR: [
@@ -115,6 +119,8 @@ export async function GET(request: NextRequest) {
         priorityLabel: true,
         queueId: true,
         queueLabel: true,
+        source: true,
+        sourceLabel: true,
         createDate: true,
         completedDate: true,
         assignedResourceId: true,
@@ -122,8 +128,16 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    // Time entries
-    const allTicketIds = tickets.map(t => t.autotaskTicketId);
+    // Support metrics are computed over HUMAN tickets only (shared
+    // classifier); automated monitoring tickets are counted separately.
+    const { human: tickets, automated: automatedTickets } = splitByClassification(allTickets);
+    const monitoringEventsDetected = automatedTickets.filter(
+      t => t.createDate >= periodStart && t.createDate <= periodEnd,
+    ).length;
+
+    // Time entries — over ALL tickets: logged time is human work wherever it
+    // was logged, even on an alert ticket a tech touched.
+    const allTicketIds = allTickets.map(t => t.autotaskTicketId);
     const timeEntries = allTicketIds.length > 0
       ? await prisma.ticketTimeEntry.findMany({
           where: {
@@ -134,10 +148,11 @@ export async function GET(request: NextRequest) {
         })
       : [];
 
-    // Notes for FRT
-    const notes = allTicketIds.length > 0
+    // Notes for FRT (human tickets only — FRT is a support metric)
+    const humanTicketIds = tickets.map(t => t.autotaskTicketId);
+    const notes = humanTicketIds.length > 0
       ? await prisma.ticketNote.findMany({
-          where: { autotaskTicketId: { in: allTicketIds }, creatorResourceId: { not: null } },
+          where: { autotaskTicketId: { in: humanTicketIds }, creatorResourceId: { not: null } },
           select: { autotaskTicketId: true, createDateTime: true },
           orderBy: { createDateTime: 'asc' },
         })
@@ -256,6 +271,7 @@ export async function GET(request: NextRequest) {
         totalCreated: createdInPeriod.length,
         totalClosed: closedInPeriod.length,
         totalOpen: stillOpen.length,
+        monitoringEventsDetected,
         totalHours: Math.round(totalHours * 10) / 10,
         totalBillableHours: Math.round(billableHours * 10) / 10,
         avgResolutionMinutes: resMins.length > 0
