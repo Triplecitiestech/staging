@@ -16,7 +16,9 @@ Same `x-api-key` (`UBIQUITI_API_KEY`) as the existing aggregate tools. No LAN pa
 
 **Firmware floor**: the full tool surface needs the console's **Network app ≥ 10.1.84** (firewall policies, DNS policies, adopt/forget landed there; networks/WLANs/zones/ACL at 10.0.162; devices/clients/vouchers since 9.1). Consoles below that fail with a typed `FIRMWARE_UNSUPPORTED` error naming the console — an expected, common case across TCT's fleet, and the reason `unifi_probe_consoles` / `scripts/probe-unifi-consoles.ts` exist.
 
-The tool surface is **exactly what the official Integration API documents** (verified against Ubiquiti's OpenAPI spec, version 10.1.84, July 2026). Nothing falls back to the internal/undocumented controller API.
+The tool surface is **exactly what the official Integration API documents** (base surface verified against Ubiquiti's OpenAPI spec, version 10.1.84, July 2026; the **network create/update** schema was re-verified against the current published spec, **v10.3.58**, after a live 10.4.57 console rejected creates — see "Network create on 10.4.x" below). Nothing falls back to the internal/undocumented controller API.
+
+> **Network create on 10.4.x.** On Network app 10.2+ a GATEWAY network create requires `ipv4Configuration` (subnet + gateway host IP + prefix, optional DHCP scope) **plus** `internetAccessEnabled`, `isolationEnabled`, and `cellularBackupEnabled`. The connector exposes these and `normalizeUnifiChanges()` (in `staged-writes-core.ts`) supplies safe defaults + derives `ipv4Configuration` from a small set of convenience inputs, so a caller can still create a VLAN with just `name` + `vlanId`. Ubiquiti has not published 10.4.x docs; v10.3.58 is the newest published version and the live 10.4.57 console enforces the same required set. Convenience inputs (inside `changes`, network only): `subnet` (IPv4 CIDR "192.168.50.1/24"; on create, derived from vlanId as `192.168.<vlanId>.1/24` for vlanId 2-254 when omitted), `dhcpMode` (`SERVER` default / `RELAY` / `NONE`), `dhcpStart`+`dhcpStop` (pool; auto-derived network+6…broadcast-1 when omitted), `dhcpLeaseTimeSeconds` (default 86400), `dhcpDnsServers[]`, `dhcpDomainName`, `dhcpRelayServers[]` (required for RELAY). Create defaults: management=GATEWAY, enabled=true, internetAccessEnabled=true, isolationEnabled=false, cellularBackupEnabled=false. Pass a raw `ipv4Configuration` object for full control (mutually exclusive with the convenience inputs).
 
 ## Guardrails (structural, not advisory)
 
@@ -80,12 +82,12 @@ Immediate execution; the signed-in tech's email is required and logged (structur
 
 `unifi_stage_config_write` (never writes) → approve at `/admin/connector/staged-writes` → `unifi_execute_staged_write` (drift-checked, single-use). Plus `unifi_list_staged_writes` / `unifi_cancel_staged_write`. Updates execute as **GET→merge→PUT**: the live object is re-read and only the approved fields change — the Integration API replaces objects on PUT, so partial writes would otherwise wipe config.
 
-| Area | Operations | Risk | Writable fields (verified against OpenAPI 10.1.84) |
+| Area | Operations | Risk | Writable fields (verified against OpenAPI 10.1.84; network create/update re-verified against v10.3.58 for 10.4.x) |
 |---|---|---|---|
 | `unifi_firewall_policy` | create/update/delete | **high** | enabled, name, description, action, source, destination, ipProtocolScope, connectionStateFilter, ipsecFilter, loggingEnabled, schedule |
 | `unifi_firewall_zone` | create/update/delete¹ | **high** | name, networkIds² |
-| `unifi_network` | create/update/delete³ | **high** | management, name, enabled, vlanId, dhcpGuarding, isolationEnabled |
-| `unifi_wlan` | update/delete only⁴ | **high** | name, enabled, hideName, clientIsolationEnabled, uapsdEnabled, multicastToUnicastConversionEnabled |
+| `unifi_network` | create/update/delete³ | **high** | management, name, enabled, vlanId, dhcpGuarding, isolationEnabled, internetAccessEnabled, cellularBackupEnabled, ipv4Configuration, ipv6Configuration, mdnsForwardingEnabled, zoneId — plus the `subnet`/`dhcp*` convenience inputs (see "Network create on 10.4.x") |
+| `unifi_wlan` | update/delete only⁴ | **high** | name, enabled, hideName, clientIsolationEnabled, multicastToUnicastConversionEnabled, **network** (SSID→VLAN binding: `{type:"NATIVE"}` or `{type:"SPECIFIC",networkId}`) |
 | `unifi_acl_rule` | create/update/delete | **high** | type, enabled, name, description, action, enforcingDeviceFilter, index, sourceFilter, destinationFilter |
 | `unifi_dns_policy` | create/update/delete | medium | type, enabled, domain + record fields (ipv4Address, ipv6Address, targetDomain, mailServerDomain, priority, text, serverDomain, service, protocol, port, weight, ipAddress, ttlSeconds) |
 | `unifi_traffic_matching_list` | create/update/delete | medium | type, name, items |

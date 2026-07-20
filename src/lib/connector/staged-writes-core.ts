@@ -337,18 +337,30 @@ export interface UnifiWriteAreaSpec {
   operations: ConfigWriteOperation[]
   allowedFields: string[]
   requiredOnCreate?: string[]
+  /**
+   * Human-facing note about convenience inputs the payload builder accepts
+   * (see normalizeUnifiChanges) that are NOT raw allowlist fields — surfaced in
+   * the unifi_stage_config_write tool description so callers know they exist.
+   */
+  inputHint?: string
   labelFields: string[]
   risk: UnifiWriteRisk
 }
 
 // Field lists below were extracted from the official UniFi Network API
-// OpenAPI spec, version 10.1.84 (developer.ui.com — the version that
-// introduced firewall policies and adopt/forget). NOT writable through the
-// official API and therefore absent here: port forwards, static routes,
-// port profiles, site/gateway settings, firmware triggers, WLAN passphrases
-// (securityConfiguration — a secret; the audit row must never store one),
-// and policy/rule reordering (an ordered id ARRAY — multi-target by
-// construction). Full omission list: docs/unifi-site-tools.md.
+// OpenAPI spec. Base surface (firewall policies, DNS policies, adopt/forget)
+// verified against 10.1.84; the network create/update schema was re-verified
+// against the current published spec (v10.3.58, the newest developer.ui.com
+// publishes — 10.4.x docs are not published, but a live 10.4.57 console
+// enforces the same required set). 10.2+ made ipv4Configuration,
+// internetAccessEnabled, isolationEnabled and cellularBackupEnabled mandatory
+// on GATEWAY network create; those are exposed here and defaulted/derived by
+// normalizeUnifiChanges(). NOT writable through the official API and therefore
+// absent: port forwards, static routes, port profiles, site/gateway settings,
+// firmware triggers, WLAN passphrases (securityConfiguration — a secret; the
+// audit row must never store one), and policy/rule reordering (an ordered id
+// ARRAY — multi-target by construction). Full omission list:
+// docs/unifi-site-tools.md.
 export const UNIFI_WRITE_AREAS: Record<string, UnifiWriteAreaSpec> = {
   unifi_firewall_policy: {
     area: 'unifi_firewall_policy',
@@ -375,8 +387,23 @@ export const UNIFI_WRITE_AREAS: Record<string, UnifiWriteAreaSpec> = {
     label: 'UniFi network/VLAN',
     collectionPath: (siteId) => `/sites/${encodeURIComponent(siteId)}/networks`,
     operations: ['create', 'update', 'delete'],
-    allowedFields: ['management', 'name', 'enabled', 'vlanId', 'dhcpGuarding', 'isolationEnabled'],
-    requiredOnCreate: ['management', 'name', 'enabled', 'vlanId'],
+    // Real Integration API fields. On GATEWAY create the API requires
+    // ipv4Configuration + internetAccessEnabled + isolationEnabled +
+    // cellularBackupEnabled (10.2+); normalizeUnifiChanges() supplies safe
+    // defaults and derives ipv4Configuration from the `subnet`/`dhcp*`
+    // convenience inputs, so a caller only has to pass name + vlanId.
+    // mdnsForwardingEnabled, zoneId and ipv6Configuration are optional raw
+    // passthroughs. (management defaults to GATEWAY; SWITCH/UNMANAGED creation
+    // is not defaulted — pass a raw ipv4Configuration or use unifi.ui.com.)
+    allowedFields: ['management', 'name', 'enabled', 'vlanId', 'dhcpGuarding', 'isolationEnabled', 'internetAccessEnabled', 'cellularBackupEnabled', 'ipv4Configuration', 'ipv6Configuration', 'mdnsForwardingEnabled', 'zoneId'],
+    requiredOnCreate: ['name', 'vlanId'],
+    inputHint:
+      'network create/update also accepts convenience inputs (inside `changes`) that expand into ipv4Configuration with sensible defaults: ' +
+      'subnet (IPv4 CIDR = gateway host IP + prefix, e.g. "192.168.50.1/24"; on create, if omitted it is derived from vlanId as 192.168.<vlanId>.1/24 for vlanId 2-254), ' +
+      'dhcpMode ("SERVER" default | "RELAY" | "NONE"), dhcpStart + dhcpStop (DHCP pool; auto-derived from the subnet when omitted), dhcpLeaseTimeSeconds (default 86400), ' +
+      'dhcpDnsServers (string[]), dhcpDomainName, dhcpRelayServers (string[], required when dhcpMode=RELAY). ' +
+      'Create defaults when omitted: management=GATEWAY, enabled=true, internetAccessEnabled=true, isolationEnabled=false, cellularBackupEnabled=false. ' +
+      'For full control pass a raw ipv4Configuration object instead of the convenience inputs (not both).',
     labelFields: ['name'],
     risk: 'high',
   },
@@ -386,8 +413,12 @@ export const UNIFI_WRITE_AREAS: Record<string, UnifiWriteAreaSpec> = {
     collectionPath: (siteId) => `/sites/${encodeURIComponent(siteId)}/wifi/broadcasts`,
     // No create: the API requires securityConfiguration on create, which
     // carries the passphrase — a secret this gate must never persist.
+    // `network` binds the SSID to a network/VLAN: { type: "NATIVE" } or
+    // { type: "SPECIFIC", networkId: "<uuid>" } — the SSID→VLAN binding a
+    // segmentation project needs. `uapsdEnabled` was removed: it is not in the
+    // current WiFi broadcast schema (it silently drifted; setting it 400s).
     operations: ['update', 'delete'],
-    allowedFields: ['name', 'enabled', 'hideName', 'clientIsolationEnabled', 'uapsdEnabled', 'multicastToUnicastConversionEnabled'],
+    allowedFields: ['name', 'enabled', 'hideName', 'clientIsolationEnabled', 'multicastToUnicastConversionEnabled', 'network'],
     labelFields: ['name'],
     risk: 'high',
   },
@@ -479,6 +510,220 @@ export function validateUnifiStagedChange(input: UnifiStagedChangeInput): UnifiW
     if (missing.length) throw new Error(`create in ${spec.area} requires: ${missing.join(', ')}`)
   }
   return spec
+}
+
+// ---------------------------------------------------------------------------
+// Payload building / normalization (UniFi network create+update, 10.4.x)
+// ---------------------------------------------------------------------------
+//
+// The Integration API's GATEWAY network create requires a full ipv4Configuration
+// object (subnet + gateway host IP + prefix, optional DHCP scope) plus the
+// internetAccessEnabled / isolationEnabled / cellularBackupEnabled flags. Hand-
+// building that for every call is error-prone, so normalizeUnifiChanges()
+// accepts a small set of CONVENIENCE inputs and expands them into the real API
+// payload with safe defaults BEFORE validation/staging. Convenience keys are
+// consumed here (never stored or sent as-is); what the gate validates, diffs,
+// snapshots and PUT/POSTs is always real allowlisted API fields. Only
+// unifi_network is transformed — every other area passes through unchanged.
+
+/** Convenience keys accepted on unifi_network (expanded into ipv4Configuration). */
+export const UNIFI_NETWORK_CONVENIENCE_KEYS = [
+  'subnet', 'dhcpMode', 'dhcpStart', 'dhcpStop', 'dhcpLeaseTimeSeconds', 'dhcpDnsServers', 'dhcpDomainName', 'dhcpRelayServers',
+] as const
+
+const DEFAULT_DHCP_LEASE_SECONDS = 86400
+
+function takeString(o: Record<string, unknown>, k: string): string | undefined {
+  if (!(k in o)) return undefined
+  const v = o[k]; delete o[k]
+  if (v == null) return undefined
+  if (typeof v !== 'string' || !v.trim()) throw new Error(`${k} must be a non-empty string.`)
+  return v.trim()
+}
+
+function takeNumber(o: Record<string, unknown>, k: string): number | undefined {
+  if (!(k in o)) return undefined
+  const v = o[k]; delete o[k]
+  if (v == null) return undefined
+  const n = typeof v === 'number' ? v : Number(v)
+  if (!Number.isFinite(n)) throw new Error(`${k} must be a number.`)
+  return n
+}
+
+function takeStringArray(o: Record<string, unknown>, k: string): string[] | undefined {
+  if (!(k in o)) return undefined
+  const v = o[k]; delete o[k]
+  if (v == null) return undefined
+  if (!Array.isArray(v) || !v.length || v.some((x) => typeof x !== 'string' || !x.trim())) {
+    throw new Error(`${k} must be a non-empty array of strings.`)
+  }
+  return (v as string[]).map((s) => s.trim())
+}
+
+function parseIpv4Octets(ip: string): number[] | null {
+  const parts = ip.split('.')
+  if (parts.length !== 4) return null
+  const nums = parts.map((p) => (/^\d{1,3}$/.test(p) ? Number(p) : NaN))
+  if (nums.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return null
+  return nums
+}
+
+const ipToInt = (o: number[]): number => (((o[0] << 24) >>> 0) + (o[1] << 16) + (o[2] << 8) + o[3]) >>> 0
+const intToIp = (n: number): string => [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join('.')
+
+/** Parse an IPv4 CIDR ("192.168.50.1/24") → gateway host IP + prefix (8..30). */
+export function parseIpv4Cidr(cidr: string): { hostIpAddress: string; prefixLength: number } {
+  const m = /^\s*(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})\s*$/.exec(cidr)
+  if (!m) throw new Error(`subnet must be an IPv4 CIDR like "192.168.50.1/24" (got "${cidr}").`)
+  if (!parseIpv4Octets(m[1])) throw new Error(`subnet host IP "${m[1]}" is not a valid IPv4 address.`)
+  const prefixLength = Number(m[2])
+  if (prefixLength < 8 || prefixLength > 30) {
+    throw new Error(`subnet prefix /${prefixLength} is out of range — the Integration API allows /8 to /30.`)
+  }
+  return { hostIpAddress: m[1], prefixLength }
+}
+
+/** UniFi-style default DHCP pool for a subnet: network+6 … broadcast-1 (clamped). */
+export function deriveDefaultDhcpRange(hostIpAddress: string, prefixLength: number): { start: string; stop: string } {
+  const octets = parseIpv4Octets(hostIpAddress)
+  if (!octets) throw new Error(`Cannot derive a DHCP range from "${hostIpAddress}".`)
+  const mask = prefixLength === 0 ? 0 : (0xffffffff << (32 - prefixLength)) >>> 0
+  const network = (ipToInt(octets) & mask) >>> 0
+  const broadcast = (network | (~mask >>> 0)) >>> 0
+  const stop = broadcast - 1
+  const start = Math.min(network + 6, stop)
+  return { start: intToIp(start), stop: intToIp(stop) }
+}
+
+interface NetworkIpv4Inputs {
+  subnet: string
+  dhcpMode?: string
+  dhcpStart?: string
+  dhcpStop?: string
+  dhcpLeaseTimeSeconds?: number
+  dhcpDnsServers?: string[]
+  dhcpDomainName?: string
+  dhcpRelayServers?: string[]
+}
+
+/** Build a GATEWAY ipv4Configuration object from convenience inputs. */
+function buildGatewayIpv4Configuration(input: NetworkIpv4Inputs): Record<string, unknown> {
+  const { hostIpAddress, prefixLength } = parseIpv4Cidr(input.subnet)
+  const ipv4: Record<string, unknown> = { autoScaleEnabled: false, hostIpAddress, prefixLength }
+
+  const mode = (input.dhcpMode ?? 'SERVER').toUpperCase()
+  if (mode === 'NONE') {
+    // No dhcpConfiguration → DHCP disabled on this network.
+    if (input.dhcpStart || input.dhcpStop || input.dhcpDnsServers || input.dhcpDomainName || input.dhcpRelayServers || input.dhcpLeaseTimeSeconds != null) {
+      throw new Error('dhcpMode "NONE" disables DHCP — do not also pass dhcpStart/dhcpStop/dhcpDnsServers/dhcpDomainName/dhcpRelayServers/dhcpLeaseTimeSeconds.')
+    }
+  } else if (mode === 'RELAY') {
+    if (!input.dhcpRelayServers?.length) throw new Error('dhcpMode "RELAY" requires dhcpRelayServers (one or more DHCP server IPs).')
+    ipv4.dhcpConfiguration = { mode: 'RELAY', dhcpServerIpAddresses: input.dhcpRelayServers }
+  } else if (mode === 'SERVER') {
+    if ((input.dhcpStart && !input.dhcpStop) || (!input.dhcpStart && input.dhcpStop)) {
+      throw new Error('Provide both dhcpStart and dhcpStop, or neither (the pool is auto-derived from the subnet when both are omitted).')
+    }
+    const range = input.dhcpStart && input.dhcpStop
+      ? { start: input.dhcpStart, stop: input.dhcpStop }
+      : deriveDefaultDhcpRange(hostIpAddress, prefixLength)
+    const dhcp: Record<string, unknown> = {
+      mode: 'SERVER',
+      ipAddressRange: range,
+      leaseTimeSeconds: input.dhcpLeaseTimeSeconds ?? DEFAULT_DHCP_LEASE_SECONDS,
+      pingConflictDetectionEnabled: false,
+    }
+    if (input.dhcpDnsServers?.length) dhcp.dnsServerIpAddressesOverride = input.dhcpDnsServers
+    if (input.dhcpDomainName) dhcp.domainName = input.dhcpDomainName
+    ipv4.dhcpConfiguration = dhcp
+  } else {
+    throw new Error(`dhcpMode must be SERVER, RELAY, or NONE (got "${input.dhcpMode}").`)
+  }
+  return ipv4
+}
+
+/** On minimal create, derive a subnet from the VLAN id (UniFi convention). */
+function deriveSubnetFromVlan(vlanId: unknown): string {
+  const v = Number(vlanId)
+  if (!Number.isInteger(v) || v < 2 || v > 254) {
+    throw new Error(
+      `Cannot auto-derive a subnet for VLAN ${JSON.stringify(vlanId)}. Pass an explicit subnet (CIDR, e.g. "10.20.30.1/24") — ` +
+      'auto-derivation only covers VLAN IDs 2-254 (→ 192.168.<vlanId>.1/24).',
+    )
+  }
+  return `192.168.${v}.1/24`
+}
+
+// Fields normalization is responsible for filling on a GATEWAY create (defense
+// in depth — a bug here would otherwise surface as a raw API 400). name/vlanId
+// are the caller's and get the friendlier requiredOnCreate message downstream.
+const NETWORK_CREATE_NORMALIZED_REQUIRED = ['management', 'enabled', 'internetAccessEnabled', 'isolationEnabled', 'cellularBackupEnabled', 'ipv4Configuration'] as const
+
+/**
+ * Expand convenience inputs and apply safe create-defaults for unifi_network;
+ * pass every other area through unchanged. Returns a NEW object (never mutates
+ * the caller's changes). Run this BEFORE validateUnifiStagedChange so the gate
+ * only ever sees real allowlisted API fields.
+ */
+export function normalizeUnifiChanges(
+  area: string,
+  operation: ConfigWriteOperation,
+  changesIn: Record<string, unknown>,
+): Record<string, unknown> {
+  const changes: Record<string, unknown> = { ...(changesIn ?? {}) }
+  if (area !== 'unifi_network' || operation === 'delete') return changes
+
+  // Pull (and remove) convenience inputs so only real API fields remain.
+  const subnet = takeString(changes, 'subnet')
+  const dhcpMode = takeString(changes, 'dhcpMode')
+  const dhcpStart = takeString(changes, 'dhcpStart')
+  const dhcpStop = takeString(changes, 'dhcpStop')
+  const dhcpLeaseTimeSeconds = takeNumber(changes, 'dhcpLeaseTimeSeconds')
+  const dhcpDnsServers = takeStringArray(changes, 'dhcpDnsServers')
+  const dhcpDomainName = takeString(changes, 'dhcpDomainName')
+  const dhcpRelayServers = takeStringArray(changes, 'dhcpRelayServers')
+  const hasConvenience =
+    subnet != null || dhcpMode != null || dhcpStart != null || dhcpStop != null ||
+    dhcpLeaseTimeSeconds != null || dhcpDnsServers != null || dhcpDomainName != null || dhcpRelayServers != null
+  const hasRawIpv4 = changes.ipv4Configuration != null
+  if (hasConvenience && hasRawIpv4) {
+    throw new Error('Pass EITHER a raw ipv4Configuration object OR the subnet/dhcp* convenience inputs, not both.')
+  }
+  const buildInputs = (cidr: string): NetworkIpv4Inputs => ({
+    subnet: cidr, dhcpMode, dhcpStart, dhcpStop, dhcpLeaseTimeSeconds, dhcpDnsServers, dhcpDomainName, dhcpRelayServers,
+  })
+
+  if (operation === 'create') {
+    const management = typeof changes.management === 'string' && changes.management.trim() ? changes.management : 'GATEWAY'
+    changes.management = management
+    if (changes.enabled == null) changes.enabled = true
+
+    if (management === 'GATEWAY') {
+      if (changes.internetAccessEnabled == null) changes.internetAccessEnabled = true
+      if (changes.isolationEnabled == null) changes.isolationEnabled = false
+      if (changes.cellularBackupEnabled == null) changes.cellularBackupEnabled = false
+      if (!hasRawIpv4) {
+        const cidr = subnet ?? deriveSubnetFromVlan(changes.vlanId)
+        changes.ipv4Configuration = buildGatewayIpv4Configuration(buildInputs(cidr))
+      }
+      // Invariant: everything normalization is responsible for is now present
+      // (name/vlanId stay the caller's job — validateUnifiStagedChange reports those).
+      const missing = NETWORK_CREATE_NORMALIZED_REQUIRED.filter((k) => changes[k] == null)
+      if (missing.length) throw new Error(`Internal: normalized network create is missing ${missing.join(', ')}.`)
+    } else if (hasConvenience) {
+      throw new Error(
+        `subnet/dhcp* convenience inputs only apply to GATEWAY-managed networks (management="${management}"). ` +
+        'Pass a raw ipv4Configuration (or manage SWITCH/UNMANAGED networks in unifi.ui.com).',
+      )
+    }
+  } else if (operation === 'update' && hasConvenience) {
+    if (!subnet) {
+      throw new Error('Updating the subnet/DHCP scope requires `subnet` (CIDR) — or pass a full raw ipv4Configuration object.')
+    }
+    changes.ipv4Configuration = buildGatewayIpv4Configuration(buildInputs(subnet))
+  }
+
+  return changes
 }
 
 /**

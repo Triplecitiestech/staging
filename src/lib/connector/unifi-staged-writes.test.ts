@@ -138,6 +138,41 @@ describe('stageUnifiWrite', () => {
     expect(JSON.stringify(row.before)).not.toContain('hunter2')
   })
 
+  it('stages a network CREATE, expanding subnet+defaults into a full ipv4Configuration without any live read or write', async () => {
+    const res = await stageUnifiWrite({
+      ...stageArgs(),
+      area: 'unifi_network',
+      operation: 'create',
+      targetId: undefined,
+      changes: { name: 'PCI Segment', vlanId: 40, subnet: '10.40.0.1/24' },
+    })
+
+    // Create stages nothing: no live GET, no POST/PUT.
+    expect(proxyGet).not.toHaveBeenCalled()
+    expect(proxyPost).not.toHaveBeenCalled()
+    expect(proxyPut).not.toHaveBeenCalled()
+
+    const proposed = db.get(res.stagedWriteId)!.proposed
+    // Convenience `subnet` was consumed; only real API fields are stored/sent.
+    expect(proposed).not.toHaveProperty('subnet')
+    expect(proposed).toMatchObject({
+      management: 'GATEWAY',
+      name: 'PCI Segment',
+      vlanId: 40,
+      enabled: true,
+      internetAccessEnabled: true,
+      isolationEnabled: false,
+      cellularBackupEnabled: false,
+      ipv4Configuration: {
+        autoScaleEnabled: false,
+        hostIpAddress: '10.40.0.1',
+        prefixLength: 24,
+        dhcpConfiguration: { mode: 'SERVER', ipAddressRange: { start: '10.40.0.6', stop: '10.40.0.254' } },
+      },
+    })
+    expect(res.diff).toContain('+ ipv4Configuration:')
+  })
+
   it('refuses to stage against a target that does not exist', async () => {
     const { UnifiProxyError } = await vi.importActual<typeof import('@/lib/ubiquiti-proxy')>('@/lib/ubiquiti-proxy')
     proxyGet.mockRejectedValueOnce(new UnifiProxyError('Console x: /sites/... returned 404', 'NOT_FOUND'))
