@@ -182,6 +182,12 @@ const TICKET_QUERY_FIELDS = [
   'issueType', 'subIssueType', 'assignedResourceID', 'creatorResourceID',
   'contactID', 'contractID', 'serviceLevelAgreementID', 'dueDateTime',
   'estimatedHours', 'lastActivityDate',
+  // Autotask-native SLA event datetimes + roll-up — reporting stores these so
+  // SLA compliance is Autotask's own per-contract determination, not a recompute.
+  'serviceLevelAgreementHasBeenMet',
+  'firstResponseDateTime', 'firstResponseDueDateTime',
+  'resolutionPlanDateTime', 'resolutionPlanDueDateTime',
+  'resolvedDateTime', 'resolvedDueDateTime',
 ];
 
 /**

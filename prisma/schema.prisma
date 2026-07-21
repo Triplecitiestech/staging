@@ -1016,6 +1016,16 @@ model Ticket {
   contractId         Int?
   slaId              Int?
   dueDateTime        DateTime?
+  // Autotask-native SLA event datetimes + roll-up (Autotask evaluates these
+  // against the ticket's contracted SLA). Reporting reads these directly
+  // rather than recomputing SLA. Nullable; populated by the reporting sync.
+  firstResponseDateTime      DateTime?
+  firstResponseDueDateTime   DateTime?
+  resolutionPlanDateTime     DateTime?
+  resolutionPlanDueDateTime  DateTime?
+  resolvedDateTime           DateTime?
+  resolvedDueDateTime        DateTime?
+  slaHasBeenMet              Boolean?
   estimatedHours     Float?
   createDate         DateTime
   completedDate      DateTime?

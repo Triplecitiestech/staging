@@ -791,6 +791,29 @@ export async function POST(request: Request) {
       results.push(`⚠️ sales_calc_saved_quotes: ${err.message}`)
     }
 
+    // ============================================
+    // AUTOTASK NATIVE SLA FIELDS ON tickets
+    // Store Autotask's own SLA event datetimes + met flag so reporting can use
+    // Autotask's per-contract SLA determination instead of recomputing it.
+    // Additive/nullable — safe expand-contract.
+    // ============================================
+    try {
+      await client.query(`
+        ALTER TABLE tickets
+          ADD COLUMN IF NOT EXISTS "firstResponseDateTime" TIMESTAMP(3),
+          ADD COLUMN IF NOT EXISTS "firstResponseDueDateTime" TIMESTAMP(3),
+          ADD COLUMN IF NOT EXISTS "resolutionPlanDateTime" TIMESTAMP(3),
+          ADD COLUMN IF NOT EXISTS "resolutionPlanDueDateTime" TIMESTAMP(3),
+          ADD COLUMN IF NOT EXISTS "resolvedDateTime" TIMESTAMP(3),
+          ADD COLUMN IF NOT EXISTS "resolvedDueDateTime" TIMESTAMP(3),
+          ADD COLUMN IF NOT EXISTS "slaHasBeenMet" BOOLEAN
+      `)
+      results.push('✅ Added Autotask native SLA columns to tickets')
+    } catch (error) {
+      const err = error as Error
+      results.push(`⚠️ tickets SLA columns: ${err.message}`)
+    }
+
     await client.end()
 
     return NextResponse.json({

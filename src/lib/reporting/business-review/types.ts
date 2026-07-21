@@ -111,6 +111,13 @@ export interface ServicePerformanceData {
   reopenRate: number | null;
   slaResponseCompliance: number | null;
   slaResolutionCompliance: number | null;
+  /**
+   * Whether SLA reporting applies to this customer — true only for Fully
+   * Managed customers. When false, the SLA cards/narrative are omitted
+   * entirely (SLA isn't part of their plan). Optional: absent on older
+   * stored reports (treat missing as applicable for back-compat rendering).
+   */
+  slaApplicable?: boolean;
   /** Requests answered live at intake (staff-created during a call/visit). Optional: absent on older stored reports. */
   answeredAtIntakeCount?: number;
   /** How many tickets have a measured first response behind the avg/median. */

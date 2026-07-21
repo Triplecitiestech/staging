@@ -2,6 +2,16 @@
 
 > **Last updated**: 2026-07-20. Latest: **Human-vs-automated ticket classification** shipped on branch `claude/tct-automated-alerts-reporting-e4s0qr` — support metrics now count human tickets only; automated alerts report as "Security & Monitoring Activity". Post-deploy verification below. Previous (2026-07-18): **Datto RMM read-only reporting tools** (17 `datto_rmm_*` tools) added to the MCP connector on branch `claude/datto-rmm-reporting-tools-ngxkzy` — operator verification steps below. Previous (2026-07-16): **IT Glue document-folder tools** unified on `claude/itglue-document-folders-lf5xa9`; pending operator step below. Earlier pending items may still be open.
 
+## SLA reporting (Autotask-native, Fully-Managed only): post-deploy operator steps (2026-07-21) — ⏳ waiting on deploy
+
+Ships on `claude/tct-automated-alerts-reporting-e4s0qr`. Adds native SLA columns to `tickets` — they are EMPTY until a re-sync, so order matters:
+
+- [ ] **[POST MIGRATIONS]** After deploy: `Invoke-RestMethod -Method POST -Uri "https://www.triplecitiestech.com/api/migrations/run" -Headers @{ Authorization = "Bearer <MIGRATION_SECRET>" }` — expect "✅ Added Autotask native SLA columns to tickets".
+- [ ] **[RE-SYNC TICKETS]** Run the reporting ticket sync so historical tickets populate the new native SLA datetimes (the scheduled sync will do it incrementally; force a fuller sync if you want June backfilled now). Without this, SLA reads null = "not measured".
+- [ ] **[RECOMPUTE LIFECYCLE]** Re-run `compute_lifecycle` so per-ticket SLA verdicts refresh from the native fields.
+- [ ] **[REGENERATE TRI-BROS JUNE]** Expect: Response SLA ~100% and Resolution SLA reflecting Autotask's own result (≈4/6 measured, not 50%); SLA section present (Tri-Bros is Fully Managed). A Standard-SLA or No-SLA customer should show **no** SLA section.
+- [ ] **[CONFIG AUDIT — optional, I can run it]** Ask me to audit contracts for category↔SLA mismatches like AllSpec Finishing (Platinum category on Standard SLA). Those customers get no SLA section until the contract's SLA is corrected in Autotask (a config fix, not code).
+
 ## Human-vs-automated reporting fix: post-deploy verification (2026-07-20) — ⏳ waiting on deploy
 
 Ships on `claude/tct-automated-alerts-reporting-e4s0qr` (auto-merge gate → main → production). No migration step, no new env vars. After the deploy goes live:

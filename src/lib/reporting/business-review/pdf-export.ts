@@ -327,10 +327,12 @@ ${isInternal ? '<div class="internal-banner">&#9888; INTERNAL DOCUMENT — NOT F
     )}
     ${perfCard('Avg Resolution', data.servicePerformance.avgResolutionMinutes, 'time', changeLabel(data.comparison.avgResolutionChange))}
     ${perfCard('First-Touch Resolution', data.servicePerformance.firstTouchResolutionRate, 'pct')}
+    ${data.servicePerformance.slaApplicable !== false ? `
     ${perfCard('Response SLA', data.servicePerformance.slaResponseCompliance, 'pct')}
-    ${perfCard('Resolution SLA', data.servicePerformance.slaResolutionCompliance, 'pct')}
+    ${perfCard('Resolution SLA', data.servicePerformance.slaResolutionCompliance, 'pct')}` : ''}
     ${perfCard('Reopen Rate', data.servicePerformance.reopenRate, 'pct')}
   </div>
+  ${data.servicePerformance.slaApplicable === false ? '<p class="muted" style="font-size:9pt;color:#94a3b8;">SLA targets apply to Fully Managed service plans; this account is not on a Fully Managed agreement.</p>' : ''}
   <div class="narrative">${narrative.performanceNarrative}</div>
 </div>
 
