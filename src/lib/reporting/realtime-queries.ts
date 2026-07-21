@@ -18,7 +18,13 @@ import {
 import { isApiOrSystemUser } from './api-user-filter';
 import { classifyTicket, isHumanTicket, humanTicketSqlCondition } from './ticket-classification';
 import { dateToBucketKey, generateTrendBuckets, getComparisonRange } from './filters';
-import { getLifecycleQualityByCompany, getLifecycleQualitySummary } from './lifecycle';
+import {
+  getLifecycleQualityByCompany,
+  getLifecycleQualitySummary,
+  getHumanResourceIds,
+  resolveFirstResponse,
+  countDistinctHumanParticipants,
+} from './lifecycle';
 
 /** Ticket fields every realtime query must select so the shared human-vs-automated classifier can run. */
 const CLASSIFICATION_SELECT = {
@@ -71,10 +77,12 @@ export async function getRealtimeTechnicianMetrics(
       status: true,
       createDate: true,
       completedDate: true,
+      creatorResourceId: true,
       ...CLASSIFICATION_SELECT,
     },
   });
   const tickets = allTickets.filter(isHumanTicket);
+  const humanResourceIds = await getHumanResourceIds();
 
   // Find tickets closed in this period (resolved + completedDate in range, OR resolved via status history)
   const closedInPeriod = tickets.filter(t =>
@@ -132,32 +140,32 @@ export async function getRealtimeTechnicianMetrics(
       autotaskTicketId: { in: closedTicketIds },
       creatorResourceId: { not: null },
     },
-    select: { autotaskTicketId: true, createDateTime: true },
+    select: { autotaskTicketId: true, createDateTime: true, creatorResourceId: true },
     orderBy: { createDateTime: 'asc' },
   }) : [];
-  const firstNoteByTicket = new Map<string, Date>();
-  const noteCountByTicket = new Map<string, number>();
+  const notesByTicket = new Map<string, Array<{ createDateTime: Date; creatorResourceId: number | null }>>();
   for (const n of notes) {
-    if (!firstNoteByTicket.has(n.autotaskTicketId)) {
-      firstNoteByTicket.set(n.autotaskTicketId, n.createDateTime);
-    }
-    noteCountByTicket.set(n.autotaskTicketId, (noteCountByTicket.get(n.autotaskTicketId) ?? 0) + 1);
+    const arr = notesByTicket.get(n.autotaskTicketId);
+    if (arr) arr.push(n);
+    else notesByTicket.set(n.autotaskTicketId, [n]);
   }
 
-  // Count time entries per closed ticket for FTR calculation
+  // Time entries per closed ticket for FTR (distinct participants)
   const closedTicketTimeEntries = closedTicketIds.length > 0 ? await prisma.ticketTimeEntry.findMany({
     where: {
       autotaskTicketId: { in: closedTicketIds },
     },
-    select: { autotaskTicketId: true },
+    select: { autotaskTicketId: true, resourceId: true },
   }) : [];
-  const timeEntryCountByTicket = new Map<string, number>();
+  const entriesByTicket = new Map<string, Array<{ resourceId: number | null }>>();
   for (const te of closedTicketTimeEntries) {
-    timeEntryCountByTicket.set(te.autotaskTicketId, (timeEntryCountByTicket.get(te.autotaskTicketId) ?? 0) + 1);
+    const arr = entriesByTicket.get(te.autotaskTicketId);
+    if (arr) arr.push(te);
+    else entriesByTicket.set(te.autotaskTicketId, [te]);
   }
 
-  // Get ticket create dates for FRT computation
-  const ticketCreateMap = new Map(tickets.map(t => [t.autotaskTicketId, t.createDate]));
+  // Ticket rows for FRT computation (createDate + creator for the intake rule)
+  const ticketById = new Map(tickets.map(t => [t.autotaskTicketId, t]));
 
   // Group by resource
   const techData = new Map<number, {
@@ -177,14 +185,25 @@ export async function getRealtimeTechnicianMetrics(
     return techData.get(rid)!;
   };
 
-  // FTR check: First Touch Resolution = ticket complete with at most 1 total
-  // technician interaction (note or time entry). If >1 note or >1 time entry,
-  // the ticket required multiple touches and is NOT an FTR.
+  // FTR check: resolved by a single human owner (shared definition — an
+  // intake note plus a resolution note by the same tech is one touch).
   const isFTR = (ticketId: string): boolean => {
-    const noteCount = noteCountByTicket.get(ticketId) ?? 0;
-    const teCount = timeEntryCountByTicket.get(ticketId) ?? 0;
-    const totalInteractions = noteCount + teCount;
-    return totalInteractions >= 1 && totalInteractions <= 1;
+    const participants = countDistinctHumanParticipants(
+      notesByTicket.get(ticketId) || [],
+      entriesByTicket.get(ticketId) || [],
+      humanResourceIds,
+    );
+    return participants <= 1;
+  };
+  // Measured first response (queue wait) — intake-answered tickets excluded
+  // via the shared rule; API-authored pipeline notes never count.
+  const frtFor = (ticketId: string): number | null => {
+    const t = ticketById.get(ticketId);
+    if (!t) return null;
+    const fr = resolveFirstResponse(t, notesByTicket.get(ticketId) || [], [], humanResourceIds);
+    if (fr.answeredAtIntake || fr.firstResponseAt === null) return null;
+    const mins = (fr.firstResponseAt.getTime() - t.createDate.getTime()) / (1000 * 60);
+    return mins >= 0 ? mins : null;
   };
 
   // Tally closed tickets
@@ -196,18 +215,15 @@ export async function getRealtimeTechnicianMetrics(
       const resMins = (t.completedDate.getTime() - t.createDate.getTime()) / (1000 * 60);
       if (resMins > 0) d.resolutionMinutes.push(resMins);
     }
-    const firstNote = firstNoteByTicket.get(t.autotaskTicketId);
-    if (firstNote) {
-      const frtMins = (firstNote.getTime() - t.createDate.getTime()) / (1000 * 60);
-      if (frtMins >= 0) d.frtMinutes.push(frtMins);
-    }
+    const frtMins = frtFor(t.autotaskTicketId);
+    if (frtMins !== null) d.frtMinutes.push(frtMins);
     if (isFTR(t.autotaskTicketId)) d.firstTouchResolutions++;
   }
   for (const h of statusHistoryClosures) {
     if (!h.assignedResourceId) continue;
     const d = getOrCreate(h.assignedResourceId);
     d.closed++;
-    const createDate = ticketCreateMap.get(h.autotaskTicketId);
+    const createDate = ticketById.get(h.autotaskTicketId)?.createDate;
     if (createDate) {
       const resMins = (h.changedAt.getTime() - createDate.getTime()) / (1000 * 60);
       if (resMins > 0) d.resolutionMinutes.push(resMins);
@@ -310,40 +326,22 @@ export async function getRealtimeCompanyMetrics(
     select: { autotaskTicketId: true, hoursWorked: true },
   }) : [];
 
-  // First notes for FRT
-  const closedTicketIds = tickets
-    .filter(t => isResolved(t.status) && t.completedDate && t.completedDate >= range.from)
-    .map(t => t.autotaskTicketId);
-  const notes = closedTicketIds.length > 0 ? await prisma.ticketNote.findMany({
-    where: {
-      autotaskTicketId: { in: closedTicketIds },
-      creatorResourceId: { not: null },
-    },
-    select: { autotaskTicketId: true, createDateTime: true },
-    orderBy: { createDateTime: 'asc' },
-  }) : [];
-  const firstNoteByTicket = new Map<string, Date>();
-  for (const n of notes) {
-    if (!firstNoteByTicket.has(n.autotaskTicketId)) {
-      firstNoteByTicket.set(n.autotaskTicketId, n.createDateTime);
-    }
-  }
-
-  // Group by company
+  // Group by company. (First-response is intentionally not computed here: the
+  // company summary doesn't surface FRT — response-time quality for a company
+  // comes from the lifecycle engine, which applies the shared intake rule.)
   const companyData = new Map<string, {
     created: number;
     closed: number;
     hours: number;
     backlog: number;
     resolutionMinutes: number[];
-    frtMinutes: number[];
   }>();
 
   const getOrCreate = (cid: string) => {
     if (!companyData.has(cid)) {
       companyData.set(cid, {
         created: 0, closed: 0, hours: 0, backlog: 0,
-        resolutionMinutes: [], frtMinutes: [],
+        resolutionMinutes: [],
       });
     }
     return companyData.get(cid)!;
@@ -367,13 +365,6 @@ export async function getRealtimeCompanyMetrics(
     // Open backlog
     if (!isResolved(t.status)) {
       d.backlog++;
-    }
-
-    // FRT
-    const firstNote = firstNoteByTicket.get(t.autotaskTicketId);
-    if (firstNote) {
-      const frtMins = (firstNote.getTime() - t.createDate.getTime()) / (1000 * 60);
-      if (frtMins >= 0) d.frtMinutes.push(frtMins);
     }
   }
 
@@ -734,10 +725,12 @@ export async function getRealtimeTicketList(
       createDate: true,
       completedDate: true,
       companyId: true,
+      creatorResourceId: true,
       ...CLASSIFICATION_SELECT,
     },
     orderBy: { createDate: 'desc' },
   });
+  const humanResourceIds = await getHumanResourceIds();
 
   // Resolve resource names
   const resourceIds = Array.from(new Set(tickets.map(t => t.assignedResourceId).filter((v): v is number => v !== null)));
@@ -762,17 +755,19 @@ export async function getRealtimeTicketList(
     hoursByTicket.set(te.autotaskTicketId, (hoursByTicket.get(te.autotaskTicketId) || 0) + te.hoursWorked);
   }
 
-  // First note per ticket for FRT
-  const notesByTicket = ticketIds.length > 0
+  // Notes per ticket for the per-row first-response (shared intake rule)
+  const noteRows = ticketIds.length > 0
     ? await prisma.ticketNote.findMany({
         where: { autotaskTicketId: { in: ticketIds }, creatorResourceId: { not: null } },
-        select: { autotaskTicketId: true, createDateTime: true },
+        select: { autotaskTicketId: true, createDateTime: true, creatorResourceId: true },
         orderBy: { createDateTime: 'asc' },
       })
     : [];
-  const firstNoteMap = new Map<string, Date>();
-  for (const n of notesByTicket) {
-    if (!firstNoteMap.has(n.autotaskTicketId)) firstNoteMap.set(n.autotaskTicketId, n.createDateTime);
+  const notesByTicketId = new Map<string, Array<{ createDateTime: Date; creatorResourceId: number | null }>>();
+  for (const n of noteRows) {
+    const arr = notesByTicketId.get(n.autotaskTicketId);
+    if (arr) arr.push(n);
+    else notesByTicketId.set(n.autotaskTicketId, [n]);
   }
 
   // Compute header name
@@ -847,8 +842,12 @@ export async function getRealtimeTicketList(
   const open = tickets.filter(t => !isResolved(t.status));
 
   const rows: TicketRow[] = tickets.map(t => {
-    const firstNote = firstNoteMap.get(t.autotaskTicketId);
-    const frtMinutes = firstNote ? (firstNote.getTime() - t.createDate.getTime()) / (1000 * 60) : null;
+    // First response via the shared intake rule: null if the ticket was
+    // opened live by staff (answeredAtIntake) or has no genuine response yet.
+    const fr = resolveFirstResponse(t, notesByTicketId.get(t.autotaskTicketId) || [], [], humanResourceIds);
+    const frtMinutes = !fr.answeredAtIntake && fr.firstResponseAt !== null
+      ? (fr.firstResponseAt.getTime() - t.createDate.getTime()) / (1000 * 60)
+      : null;
     const resMins = isResolved(t.status) && t.completedDate
       ? (t.completedDate.getTime() - t.createDate.getTime()) / (1000 * 60)
       : null;

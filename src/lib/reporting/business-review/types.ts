@@ -97,6 +97,12 @@ export interface SupportActivityData {
 }
 
 export interface ServicePerformanceData {
+  /**
+   * Average measured first response (queue wait until a human touched the
+   * ticket). Tickets opened live by staff (phone/onsite) are excluded and
+   * counted in answeredAtIntakeCount — never averaged in as 0 minutes.
+   * null = nothing to measure this period.
+   */
   avgFirstResponseMinutes: number | null;
   medianFirstResponseMinutes: number | null;
   avgResolutionMinutes: number | null;
@@ -105,6 +111,10 @@ export interface ServicePerformanceData {
   reopenRate: number | null;
   slaResponseCompliance: number | null;
   slaResolutionCompliance: number | null;
+  /** Requests answered live at intake (staff-created during a call/visit). Optional: absent on older stored reports. */
+  answeredAtIntakeCount?: number;
+  /** How many tickets have a measured first response behind the avg/median. */
+  firstResponseMeasuredCount?: number;
 }
 
 export interface PriorityMixData {

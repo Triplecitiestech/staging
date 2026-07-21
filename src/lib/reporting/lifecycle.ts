@@ -16,8 +16,102 @@ import { prisma } from '@/lib/prisma';
 import { createJobTracker, getLastSuccessfulRun } from './job-status';
 import { JOB_NAMES, isResolvedStatus, isCompleteStatus, isReopenStatus, isWaitingCustomerStatus, priorityToTargetScope } from './types';
 import { classifyTicket } from './ticket-classification';
+import { isApiOrSystemUser } from './api-user-filter';
 import { assertTableExists } from './sync';
 import { computeBusinessMinutes } from './business-hours';
+
+// ============================================
+// FIRST RESPONSE & FIRST TOUCH — shared definitions
+// ============================================
+// Every report surface must resolve "first response" and "first touch"
+// through these helpers — never from raw first-note timestamps. Two field
+// realities drive the rules (live-confirmed on Tri-Bros June 2026, where the
+// old logic reported a fabricated 0-minute average response):
+//   1. The first note on a ticket is usually the INTAKE record, not a
+//      response: a tech logging the phone call they are already on, or an
+//      integration (HR portal, Thread) posting the request summary at
+//      creation under an API account. Autotask's own firstResponseDateTime
+//      is stamped at createDate on such tickets.
+//   2. Notes/time entries by API/system accounts are pipeline artifacts —
+//      never human responses.
+
+/**
+ * Resource ids of real, active human staff (API/system/inactive accounts
+ * excluded via the same isApiOrSystemUser filter the technician reports use).
+ * Empty set on failure — metrics degrade to "not measured", never fabricate.
+ */
+export async function getHumanResourceIds(): Promise<Set<number>> {
+  try {
+    const resources = await prisma.resource.findMany({
+      select: { autotaskResourceId: true, firstName: true, lastName: true, email: true, isActive: true },
+    });
+    return new Set(resources.filter(r => !isApiOrSystemUser(r)).map(r => r.autotaskResourceId));
+  } catch (err) {
+    console.error('[lifecycle] human-resource read failed:', err instanceof Error ? err.message : String(err));
+    return new Set();
+  }
+}
+
+export interface FirstResponseResult {
+  /**
+   * The ticket was opened by a human staff member (phone call / walk-up /
+   * onsite): the customer was being helped at creation, so there is no queue
+   * wait to measure. Counted separately — never as a 0-minute response.
+   */
+  answeredAtIntake: boolean;
+  /** First genuine human response (note or time entry by human staff); null when answeredAtIntake or none yet. */
+  firstResponseAt: Date | null;
+}
+
+/**
+ * Resolve the first genuine response to a ticket. See the block comment
+ * above for why intake records and API-authored notes never qualify.
+ */
+export function resolveFirstResponse(
+  ticket: { createDate: Date; creatorResourceId: number | null },
+  notes: Array<{ createDateTime: Date; creatorResourceId: number | null }>,
+  timeEntries: Array<{ createDateTime: Date | null; resourceId: number | null }>,
+  humanResourceIds: Set<number>,
+): FirstResponseResult {
+  if (ticket.creatorResourceId !== null && humanResourceIds.has(ticket.creatorResourceId)) {
+    return { answeredAtIntake: true, firstResponseAt: null };
+  }
+
+  let first: Date | null = null;
+  for (const n of notes) {
+    if (n.creatorResourceId === null || !humanResourceIds.has(n.creatorResourceId)) continue;
+    if (n.createDateTime < ticket.createDate) continue;
+    if (first === null || n.createDateTime < first) first = n.createDateTime;
+  }
+  for (const e of timeEntries) {
+    if (e.createDateTime === null || e.resourceId === null || !humanResourceIds.has(e.resourceId)) continue;
+    if (e.createDateTime < ticket.createDate) continue;
+    if (first === null || e.createDateTime < first) first = e.createDateTime;
+  }
+  return { answeredAtIntake: false, firstResponseAt: first };
+}
+
+/**
+ * How many distinct human staff touched the ticket (notes + time entries).
+ * First-touch resolution = resolved by a single owner with no reopens —
+ * NOT "at most one note": an intake note plus a resolution note by the same
+ * tech is still one touch, while the old ≤1-note rule scored every
+ * phone-workflow ticket as a failure (the fabricated 0% FTR).
+ */
+export function countDistinctHumanParticipants(
+  notes: Array<{ creatorResourceId: number | null }>,
+  timeEntries: Array<{ resourceId: number | null }>,
+  humanResourceIds: Set<number>,
+): number {
+  const participants = new Set<number>();
+  for (const n of notes) {
+    if (n.creatorResourceId !== null && humanResourceIds.has(n.creatorResourceId)) participants.add(n.creatorResourceId);
+  }
+  for (const e of timeEntries) {
+    if (e.resourceId !== null && humanResourceIds.has(e.resourceId)) participants.add(e.resourceId);
+  }
+  return participants.size;
+}
 
 interface LifecycleResult {
   computed: number;
@@ -93,6 +187,7 @@ export async function computeLifecycle(): Promise<LifecycleResult> {
         autotaskTicketId: true,
         companyId: true,
         assignedResourceId: true,
+        creatorResourceId: true,
         priority: true,
         queueId: true,
         queueLabel: true,
@@ -121,6 +216,10 @@ export async function computeLifecycle(): Promise<LifecycleResult> {
       targetCache.set(buildTargetCacheKey(t.metricKey, t.scope, t.scopeValue), t.targetValue);
     }
 
+    // Human staff ids once per run — first-response/first-touch resolution
+    // only counts genuine human activity (see resolveFirstResponse).
+    const humanResourceIds = await getHumanResourceIds();
+
     // Process tickets in chunks — fetch related data per chunk to bound query size
     const CHUNK_SIZE = 100;
     const startTime = Date.now();
@@ -145,7 +244,7 @@ export async function computeLifecycle(): Promise<LifecycleResult> {
         }),
         prisma.ticketTimeEntry.findMany({
           where: { autotaskTicketId: { in: chunkIds } },
-          select: { autotaskTicketId: true, createDateTime: true, hoursWorked: true, isNonBillable: true },
+          select: { autotaskTicketId: true, createDateTime: true, resourceId: true, hoursWorked: true, isNonBillable: true },
         }),
         prisma.ticketStatusHistory.findMany({
           where: { autotaskTicketId: { in: chunkIds } },
@@ -181,7 +280,7 @@ export async function computeLifecycle(): Promise<LifecycleResult> {
           const notes = notesByTicket.get(ticket.autotaskTicketId) || [];
           const timeEntries = timeEntriesByTicket.get(ticket.autotaskTicketId) || [];
           const statusHistory = statusHistoryByTicket.get(ticket.autotaskTicketId) || [];
-          const lifecycle = computeTicketLifecycleInMemory(ticket, notes, timeEntries, statusHistory, targetCache);
+          const lifecycle = computeTicketLifecycleInMemory(ticket, notes, timeEntries, statusHistory, targetCache, humanResourceIds);
           upserts.push({ ticketId: ticket.autotaskTicketId, lifecycle });
         } catch (err) {
           result.errors.push(`Ticket ${ticket.autotaskTicketId}: ${err instanceof Error ? err.message : String(err)}`);
@@ -241,6 +340,7 @@ interface TicketInput {
   autotaskTicketId: string;
   companyId: string;
   assignedResourceId: number | null;
+  creatorResourceId: number | null;
   priority: number;
   queueId: number | null;
   queueLabel: string | null;
@@ -282,17 +382,25 @@ interface LifecycleData {
 function computeTicketLifecycleInMemory(
   ticket: TicketInput,
   notes: Array<{ createDateTime: Date; creatorResourceId: number | null; creatorContactId: number | null }>,
-  timeEntries: Array<{ createDateTime: Date | null; hoursWorked: number; isNonBillable: boolean }>,
+  timeEntries: Array<{ createDateTime: Date | null; resourceId: number | null; hoursWorked: number; isNonBillable: boolean }>,
   statusHistory: Array<{ previousStatus: number | null; newStatus: number; changedAt: Date }>,
   targetCache: TargetCache,
+  humanResourceIds: Set<number>,
 ): LifecycleData {
   const isResolved = isResolvedStatus(ticket.status);
 
-  // M1: First Response Time (wall-clock minutes for general reporting)
-  const firstResponseMinutes = computeFirstResponseTime(ticket, notes, timeEntries);
+  // M1: First Response Time — genuine human responses only. Tickets a staff
+  // member opened live (phone/onsite) have no queue wait: answeredAtIntake,
+  // stored as null ("not measured"), never a fabricated 0.
+  const firstResponse = resolveFirstResponse(ticket, notes, timeEntries, humanResourceIds);
+  const firstResponseMinutes = firstResponse.firstResponseAt !== null
+    ? (firstResponse.firstResponseAt.getTime() - ticket.createDate.getTime()) / (1000 * 60)
+    : null;
 
   // M1-biz: First Response Time in business hours (for SLA evaluation)
-  const firstResponseBusinessMinutes = computeFirstResponseTime(ticket, notes, timeEntries, true);
+  const firstResponseBusinessMinutes = firstResponse.firstResponseAt !== null
+    ? computeBusinessMinutes(ticket.createDate, firstResponse.firstResponseAt)
+    : null;
 
   // M2/M3: Resolution times (wall-clock for general reporting)
   const firstResolutionMinutes = computeFirstResolutionTime(ticket, statusHistory);
@@ -321,8 +429,11 @@ function computeTicketLifecycleInMemory(
     .filter(e => !e.isNonBillable)
     .reduce((sum, e) => sum + e.hoursWorked, 0);
 
-  // M5: First Touch Resolution
-  const isFirstTouchResolution = isResolved && techNoteCount <= 1 && reopenCount === 0;
+  // M5: First Touch Resolution — resolved by a single human owner with no
+  // reopens (see countDistinctHumanParticipants for why not "≤1 note").
+  const isFirstTouchResolution = isResolved
+    && reopenCount === 0
+    && countDistinctHumanParticipants(notes, timeEntries, humanResourceIds) <= 1;
 
   // M12: SLA compliance — resolved from cache, no DB queries.
   // SLA does not apply to automated monitoring tickets: their timestamps are
@@ -384,39 +495,6 @@ function evaluateSlaFromCache(
   const target = resolveTargetFromCache(cache, metricKey, priority, companyId);
   if (target === null) return null;
   return elapsedMinutes <= target;
-}
-
-/**
- * M1: First Response Time — minutes from ticket creation to first technician response.
- * A response is either a note created by a resource or a time entry.
- * @param useBusinessHours If true, returns business-hour minutes (for SLA comparison)
- */
-function computeFirstResponseTime(
-  ticket: TicketInput,
-  notes: Array<{ createDateTime: Date; creatorResourceId: number | null }>,
-  timeEntries: Array<{ createDateTime: Date | null }>,
-  useBusinessHours: boolean = false,
-): number | null {
-  const techNotes = notes.filter(n => n.creatorResourceId !== null);
-  const firstTechNote = techNotes.length > 0 ? techNotes[0].createDateTime : null;
-
-  const firstTimeEntry = timeEntries
-    .filter(e => e.createDateTime !== null)
-    .sort((a, b) => a.createDateTime!.getTime() - b.createDateTime!.getTime())[0]?.createDateTime ?? null;
-
-  let firstResponse: Date | null = null;
-  if (firstTechNote && firstTimeEntry) {
-    firstResponse = firstTechNote < firstTimeEntry ? firstTechNote : firstTimeEntry;
-  } else {
-    firstResponse = firstTechNote || firstTimeEntry;
-  }
-
-  if (!firstResponse) return null;
-
-  if (useBusinessHours) {
-    return computeBusinessMinutes(ticket.createDate, firstResponse);
-  }
-  return (firstResponse.getTime() - ticket.createDate.getTime()) / (1000 * 60);
 }
 
 /**
