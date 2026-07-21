@@ -5,7 +5,12 @@
 
 import { prisma } from '@/lib/prisma';
 import { PRIORITY_LABELS, getResolvedStatuses } from '../types';
-import { getLifecycleQualitySummary } from '../lifecycle';
+import {
+  getLifecycleQualitySummary,
+  getHumanResourceIds,
+  resolveFirstResponse,
+  countDistinctHumanParticipants,
+} from '../lifecycle';
 import {
   splitByClassification,
   isHumanTicket,
@@ -71,6 +76,7 @@ export async function buildReportData(
       select: {
         autotaskTicketId: true, title: true, status: true, priority: true,
         createDate: true, completedDate: true, assignedResourceId: true,
+        creatorResourceId: true,
         source: true, sourceLabel: true, queueId: true, queueLabel: true,
       },
     }),
@@ -138,20 +144,34 @@ export async function buildReportData(
       : Promise.resolve([]),
   ]);
 
-  // Notes for FRT — need first note for all active tickets in period
+  // Notes for first-response / first-touch — full note lists per active
+  // ticket, resolved through the shared lifecycle helpers so intake records
+  // and API-authored pipeline notes never count as responses.
+  const humanResourceIds = await getHumanResourceIds();
   const ticketIds = currentTickets.map(t => t.autotaskTicketId);
   const notes = ticketIds.length > 0
     ? await prisma.ticketNote.findMany({
         where: { autotaskTicketId: { in: ticketIds }, creatorResourceId: { not: null } },
-        select: { autotaskTicketId: true, createDateTime: true },
+        select: { autotaskTicketId: true, createDateTime: true, creatorResourceId: true },
         orderBy: { createDateTime: 'asc' },
       })
     : [];
-  const firstNoteByTicket = new Map<string, Date>();
+  const notesByTicket = new Map<string, Array<{ createDateTime: Date; creatorResourceId: number | null }>>();
   for (const n of notes) {
-    if (!firstNoteByTicket.has(n.autotaskTicketId)) {
-      firstNoteByTicket.set(n.autotaskTicketId, n.createDateTime);
-    }
+    const arr = notesByTicket.get(n.autotaskTicketId);
+    if (arr) arr.push(n);
+    else notesByTicket.set(n.autotaskTicketId, [n]);
+  }
+  /** First genuine response per ticket (null entry = answered at intake or no response yet) */
+  const firstResponseByTicket = new Map<string, { answeredAtIntake: boolean; frtMinutes: number | null }>();
+  for (const t of currentTickets) {
+    const fr = resolveFirstResponse(t, notesByTicket.get(t.autotaskTicketId) || [], [], humanResourceIds);
+    firstResponseByTicket.set(t.autotaskTicketId, {
+      answeredAtIntake: fr.answeredAtIntake,
+      frtMinutes: fr.firstResponseAt !== null
+        ? Math.max(0, (fr.firstResponseAt.getTime() - t.createDate.getTime()) / (1000 * 60))
+        : null,
+    });
   }
 
   // Compute metrics from raw data
@@ -181,26 +201,26 @@ export async function buildReportData(
   );
   const resolutionMinutes: number[] = [];
   const frtMinutes: number[] = [];
+  let answeredAtIntake = 0;
   for (const t of closedInPeriod) {
     if (t.completedDate) {
       const mins = (t.completedDate.getTime() - t.createDate.getTime()) / (1000 * 60);
       if (mins > 0) resolutionMinutes.push(mins);
     }
-    const firstNote = firstNoteByTicket.get(t.autotaskTicketId);
-    if (firstNote) {
-      const frt = (firstNote.getTime() - t.createDate.getTime()) / (1000 * 60);
-      if (frt >= 0) frtMinutes.push(frt);
-    }
   }
-  // Also get FRT for tickets created in period (even if not yet closed)
-  for (const t of createdInPeriod) {
-    if (!closedInPeriod.some(c => c.autotaskTicketId === t.autotaskTicketId)) {
-      const firstNote = firstNoteByTicket.get(t.autotaskTicketId);
-      if (firstNote) {
-        const frt = (firstNote.getTime() - t.createDate.getTime()) / (1000 * 60);
-        if (frt >= 0) frtMinutes.push(frt);
-      }
-    }
+  // First response over tickets active this period (closed in period + still-
+  // open created in period) — measured queue waits only. Tickets a staff
+  // member opened live (phone/onsite) are counted separately as
+  // answeredAtIntake, never averaged in as 0 minutes.
+  const frtSample = [
+    ...closedInPeriod,
+    ...createdInPeriod.filter(t => !closedInPeriod.some(c => c.autotaskTicketId === t.autotaskTicketId)),
+  ];
+  for (const t of frtSample) {
+    const fr = firstResponseByTicket.get(t.autotaskTicketId);
+    if (!fr) continue;
+    if (fr.answeredAtIntake) answeredAtIntake++;
+    else if (fr.frtMinutes !== null) frtMinutes.push(fr.frtMinutes);
   }
 
   // SLA + reopens from the ticket_lifecycle engine (business-hours vs targets)
@@ -212,11 +232,15 @@ export async function buildReportData(
   const slaResponseCompliance = quality.sla.responseCompliance;
   const slaResolutionCompliance = quality.sla.resolutionCompliance;
 
-  // Compute FTR: tickets closed with only 1 tech note (single-interaction resolution)
+  // First-touch resolution: closed by a single human owner (intake note +
+  // resolution note by the same tech is ONE touch — the old "≤1 note" rule
+  // scored every phone-workflow ticket as a failure).
   let firstTouchCount = 0;
   for (const t of closedInPeriod) {
-    const techNotes = notes.filter(n => n.autotaskTicketId === t.autotaskTicketId);
-    if (techNotes.length <= 1) firstTouchCount++;
+    const participants = countDistinctHumanParticipants(
+      notesByTicket.get(t.autotaskTicketId) || [], [], humanResourceIds,
+    );
+    if (participants <= 1) firstTouchCount++;
   }
   const firstTouchRate = closedInPeriod.length > 0
     ? round1((firstTouchCount / closedInPeriod.length) * 100)
@@ -244,14 +268,15 @@ export async function buildReportData(
     crossPeriodResolutions,
   }];
 
-  // Lifecycle-shaped records for priority breakdown and performance
-  const lifecycles = currentTickets.map(t => {
+  // Priority records over tickets CREATED in the period — the same
+  // population the priority counts describe. (Previously this spanned every
+  // ticket active in the period, so the per-priority resolution averages
+  // mixed in carried-over/late closures the counts never included.)
+  const priorityRecords = createdInPeriod.map(t => {
     const resolved = resolvedSet.has(t.status);
     const resMins = resolved && t.completedDate
       ? (t.completedDate.getTime() - t.createDate.getTime()) / (1000 * 60) : null;
-    const firstNote = firstNoteByTicket.get(t.autotaskTicketId);
-    const frt = firstNote ? (firstNote.getTime() - t.createDate.getTime()) / (1000 * 60) : null;
-    return { priority: t.priority, fullResolutionMinutes: resMins && resMins > 0 ? resMins : null, firstResponseMinutes: frt && frt >= 0 ? frt : null };
+    return { priority: t.priority, fullResolutionMinutes: resMins && resMins > 0 ? resMins : null };
   });
 
   // Previous period metrics
@@ -273,8 +298,12 @@ export async function buildReportData(
   }];
 
   const supportActivity = buildSupportActivity(dailyMetrics);
-  const servicePerformance = buildServicePerformance(dailyMetrics, lifecycles);
-  const priorityBreakdown = buildPriorityBreakdown(lifecycles, dailyMetrics);
+  const servicePerformance = buildServicePerformance(dailyMetrics, {
+    frtMinutes,
+    resolutionMinutes,
+    answeredAtIntakeCount: answeredAtIntake,
+  });
+  const priorityBreakdown = buildPriorityBreakdown(priorityRecords, dailyMetrics);
   const topThemes = await buildTopThemes(companyId, periodStart, periodEnd, prevStart, prevEnd);
   const healthSnapshot = await buildHealthSnapshot(companyId);
   const comparison = buildComparison(dailyMetrics, prevMetrics, prevStart, prevEnd, reportType);
@@ -395,10 +424,13 @@ function buildServicePerformance(
     slaResponseCompliance: number | null;
     slaResolutionCompliance: number | null;
   }>,
-  lifecycles: Array<{
-    firstResponseMinutes: number | null;
-    fullResolutionMinutes: number | null;
-  }>,
+  samples: {
+    /** Measured queue-wait first responses (intake-answered tickets excluded) */
+    frtMinutes: number[];
+    /** Resolution spans of tickets closed in the period */
+    resolutionMinutes: number[];
+    answeredAtIntakeCount: number;
+  },
 ): ServicePerformanceData {
   const frtValues = metrics.map(m => m.avgFirstResponseMinutes).filter(nonNull);
   const resValues = metrics.map(m => m.avgResolutionMinutes).filter(nonNull);
@@ -407,19 +439,23 @@ function buildServicePerformance(
   const slaRespValues = metrics.map(m => m.slaResponseCompliance).filter(nonNull);
   const slaResValues = metrics.map(m => m.slaResolutionCompliance).filter(nonNull);
 
-  // Compute medians from lifecycle records
-  const lcFrt = lifecycles.map(l => l.firstResponseMinutes).filter(nonNull).sort((a, b) => a - b);
-  const lcRes = lifecycles.map(l => l.fullResolutionMinutes).filter(nonNull).sort((a, b) => a - b);
+  // Medians from the SAME samples the averages are computed over — a median
+  // from a different ticket population than its neighboring average is how
+  // the report ended up with irreconcilable numbers side by side.
+  const sortedFrt = [...samples.frtMinutes].sort((a, b) => a - b);
+  const sortedRes = [...samples.resolutionMinutes].sort((a, b) => a - b);
 
   return {
     avgFirstResponseMinutes: avg(frtValues),
-    medianFirstResponseMinutes: median(lcFrt),
+    medianFirstResponseMinutes: median(sortedFrt),
     avgResolutionMinutes: avg(resValues),
-    medianResolutionMinutes: median(lcRes),
+    medianResolutionMinutes: median(sortedRes),
     firstTouchResolutionRate: avg(ftrrValues),
     reopenRate: avg(reopenValues),
     slaResponseCompliance: avg(slaRespValues),
     slaResolutionCompliance: avg(slaResValues),
+    answeredAtIntakeCount: samples.answeredAtIntakeCount,
+    firstResponseMeasuredCount: samples.frtMinutes.length,
   };
 }
 
@@ -428,7 +464,7 @@ function buildServicePerformance(
 // ============================================
 
 function buildPriorityBreakdown(
-  lifecycles: Array<{ priority: number; fullResolutionMinutes: number | null }>,
+  priorityRecords: Array<{ priority: number; fullResolutionMinutes: number | null }>,
   dailyMetrics: Array<{
     ticketsCreatedUrgent: number;
     ticketsCreatedHigh: number;
@@ -436,7 +472,8 @@ function buildPriorityBreakdown(
     ticketsCreatedLow: number;
   }>,
 ): PriorityMixData[] {
-  // Use daily metrics for counts (more reliable), lifecycles for resolution times
+  // Counts and resolution averages both describe tickets CREATED in the
+  // period (resolution measured where those tickets have since closed).
   const counts: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
   for (const m of dailyMetrics) {
     counts[1] += m.ticketsCreatedUrgent;
@@ -447,13 +484,13 @@ function buildPriorityBreakdown(
 
   const total = Object.values(counts).reduce((s, c) => s + c, 0) || 1;
 
-  // Resolution times per priority from lifecycles
+  // Resolution times per priority (created-in-period tickets that have closed)
   const resByPriority = new Map<number, number[]>();
-  for (const lc of lifecycles) {
-    if (lc.fullResolutionMinutes !== null) {
-      const existing = resByPriority.get(lc.priority) || [];
-      existing.push(lc.fullResolutionMinutes);
-      resByPriority.set(lc.priority, existing);
+  for (const rec of priorityRecords) {
+    if (rec.fullResolutionMinutes !== null) {
+      const existing = resByPriority.get(rec.priority) || [];
+      existing.push(rec.fullResolutionMinutes);
+      resByPriority.set(rec.priority, existing);
     }
   }
 

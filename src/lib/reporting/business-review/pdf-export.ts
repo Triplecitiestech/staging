@@ -314,7 +314,17 @@ ${isInternal ? '<div class="internal-banner">&#9888; INTERNAL DOCUMENT — NOT F
 <div class="section page-break avoid-break">
   <div class="section-title">Service Performance</div>
   <div class="stat-grid">
-    ${perfCard('Avg First Response', data.servicePerformance.avgFirstResponseMinutes, 'time')}
+    ${perfCard(
+      'Avg First Response',
+      data.servicePerformance.avgFirstResponseMinutes,
+      'time',
+      (data.servicePerformance.answeredAtIntakeCount ?? 0) > 0 && data.servicePerformance.avgFirstResponseMinutes !== null
+        ? `${data.servicePerformance.answeredAtIntakeCount} answered live at intake`
+        : undefined,
+      (data.servicePerformance.answeredAtIntakeCount ?? 0) > 0
+        ? `${data.servicePerformance.answeredAtIntakeCount} answered live at intake`
+        : undefined,
+    )}
     ${perfCard('Avg Resolution', data.servicePerformance.avgResolutionMinutes, 'time', changeLabel(data.comparison.avgResolutionChange))}
     ${perfCard('First-Touch Resolution', data.servicePerformance.firstTouchResolutionRate, 'pct')}
     ${perfCard('Response SLA', data.servicePerformance.slaResponseCompliance, 'pct')}
@@ -484,12 +494,13 @@ function perfCard(
   value: number | null,
   format: 'time' | 'pct',
   sub?: string,
+  naText?: string,
 ): string {
   if (value === null) {
     return `<div class="stat-card">
       <div class="stat-label">${label}</div>
-      <div class="stat-value na">—</div>
-      <div class="stat-sub">Insufficient data</div>
+      <div class="stat-value na">${naText ? 'Live' : '—'}</div>
+      <div class="stat-sub">${naText ?? 'Insufficient data'}</div>
     </div>`;
   }
   const formatted = format === 'time' ? fmtMin(value) : `${value}%`;

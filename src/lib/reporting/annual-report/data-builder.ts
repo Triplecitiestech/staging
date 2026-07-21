@@ -6,7 +6,12 @@
 
 import { prisma } from '@/lib/prisma';
 import { PRIORITY_LABELS, getResolvedStatuses } from '../types';
-import { getLifecycleQualitySummary } from '../lifecycle';
+import {
+  getLifecycleQualitySummary,
+  getHumanResourceIds,
+  resolveFirstResponse,
+  countDistinctHumanParticipants,
+} from '../lifecycle';
 import {
   splitByClassification,
   classifyMonitoringEvent,
@@ -130,6 +135,7 @@ async function buildTicketingAnalysis(
     source: number | null;
     sourceLabel: string | null;
     assignedResourceId: number | null;
+    creatorResourceId: number | null;
   }
 
   // Get all tickets active in the period (created, completed, or had activity)
@@ -157,6 +163,7 @@ async function buildTicketingAnalysis(
       source: true,
       sourceLabel: true,
       assignedResourceId: true,
+      creatorResourceId: true,
     },
   });
 
@@ -251,23 +258,27 @@ async function buildTicketingAnalysis(
   const monthlyTrends = buildMonthlyTicketTrends(tickets, resolvedSet, periodStart, periodEnd, companyId);
 
   // Response/resolution metrics
-  interface NoteRow { autotaskTicketId: string; createDateTime: Date }
+  interface NoteRow { autotaskTicketId: string; createDateTime: Date; creatorResourceId: number | null }
   const allTicketIds = createdInPeriod.map((t: TicketRow) => t.autotaskTicketId);
   const notes: NoteRow[] = allTicketIds.length > 0
     ? await prisma.ticketNote.findMany({
         where: { autotaskTicketId: { in: allTicketIds }, creatorResourceId: { not: null } },
-        select: { autotaskTicketId: true, createDateTime: true },
+        select: { autotaskTicketId: true, createDateTime: true, creatorResourceId: true },
         orderBy: { createDateTime: 'asc' },
       })
     : [];
 
-  const firstNoteByTicket = new Map<string, Date>();
+  const notesByTicket = new Map<string, NoteRow[]>();
   for (const n of notes) {
-    if (!firstNoteByTicket.has(n.autotaskTicketId)) {
-      firstNoteByTicket.set(n.autotaskTicketId, n.createDateTime);
-    }
+    const arr = notesByTicket.get(n.autotaskTicketId);
+    if (arr) arr.push(n);
+    else notesByTicket.set(n.autotaskTicketId, [n]);
   }
 
+  // First response via the shared lifecycle rule: intake records and
+  // API-authored pipeline notes never count; staff-opened (phone/onsite)
+  // tickets are "answered at intake", not 0-minute responses.
+  const humanResourceIds = await getHumanResourceIds();
   const frtMinutes: number[] = [];
   const resolutionMinutes: number[] = [];
   for (const t of closedInPeriod) {
@@ -275,28 +286,27 @@ async function buildTicketingAnalysis(
       const mins = (t.completedDate.getTime() - t.createDate.getTime()) / (1000 * 60);
       if (mins > 0) resolutionMinutes.push(mins);
     }
-    const firstNote = firstNoteByTicket.get(t.autotaskTicketId);
-    if (firstNote) {
-      const frt = (firstNote.getTime() - t.createDate.getTime()) / (1000 * 60);
+  }
+  const frtSample = [
+    ...closedInPeriod,
+    ...createdInPeriod.filter((t: TicketRow) => !closedInPeriod.some((c: TicketRow) => c.autotaskTicketId === t.autotaskTicketId)),
+  ];
+  for (const t of frtSample) {
+    const fr = resolveFirstResponse(t, notesByTicket.get(t.autotaskTicketId) || [], [], humanResourceIds);
+    if (!fr.answeredAtIntake && fr.firstResponseAt !== null) {
+      const frt = (fr.firstResponseAt.getTime() - t.createDate.getTime()) / (1000 * 60);
       if (frt >= 0) frtMinutes.push(frt);
     }
   }
-  // Also FRT for open tickets created in period
-  for (const t of createdInPeriod) {
-    if (!closedInPeriod.some((c: TicketRow) => c.autotaskTicketId === t.autotaskTicketId)) {
-      const firstNote = firstNoteByTicket.get(t.autotaskTicketId);
-      if (firstNote) {
-        const frt = (firstNote.getTime() - t.createDate.getTime()) / (1000 * 60);
-        if (frt >= 0) frtMinutes.push(frt);
-      }
-    }
-  }
 
-  // FTR
+  // FTR — single human owner, not "≤1 note" (intake + resolution notes by
+  // the same tech is one touch)
   let firstTouchCount = 0;
   for (const t of closedInPeriod) {
-    const techNotes = notes.filter((n: NoteRow) => n.autotaskTicketId === t.autotaskTicketId);
-    if (techNotes.length <= 1) firstTouchCount++;
+    const participants = countDistinctHumanParticipants(
+      notesByTicket.get(t.autotaskTicketId) || [], [], humanResourceIds,
+    );
+    if (participants <= 1) firstTouchCount++;
   }
 
   // SLA + reopens from the ticket_lifecycle engine (business-hours vs targets)

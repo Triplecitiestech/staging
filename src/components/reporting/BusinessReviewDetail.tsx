@@ -36,6 +36,8 @@ interface ReviewData {
       reopenRate: number | null
       slaResponseCompliance: number | null
       slaResolutionCompliance: number | null
+      answeredAtIntakeCount?: number
+      firstResponseMeasuredCount?: number
     }
     priorityBreakdown: Array<{
       priority: string
@@ -217,7 +219,11 @@ export default function BusinessReviewDetail({ reviewId }: Props) {
       {/* Performance */}
       <Section title="Service Performance">
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
-          <Stat label="Avg Response" value={rd.servicePerformance.avgFirstResponseMinutes !== null ? fmtMin(rd.servicePerformance.avgFirstResponseMinutes) : 'N/A'} />
+          <Stat label="Avg Response" value={
+            rd.servicePerformance.avgFirstResponseMinutes !== null
+              ? fmtMin(rd.servicePerformance.avgFirstResponseMinutes)
+              : (rd.servicePerformance.answeredAtIntakeCount ?? 0) > 0 ? 'Live at intake' : 'N/A'
+          } />
           <Stat label="Avg Resolution" value={rd.servicePerformance.avgResolutionMinutes !== null ? fmtMin(rd.servicePerformance.avgResolutionMinutes) : 'N/A'} change={rd.comparison.avgResolutionChange} />
           <Stat label="FTR Rate" value={rd.servicePerformance.firstTouchResolutionRate !== null ? `${rd.servicePerformance.firstTouchResolutionRate}%` : 'N/A'} />
           <Stat label="Resp SLA" value={rd.servicePerformance.slaResponseCompliance !== null ? `${rd.servicePerformance.slaResponseCompliance}%` : 'N/A'} />

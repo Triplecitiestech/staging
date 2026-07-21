@@ -247,11 +247,20 @@ function buildPerformanceNarrative(data: ReviewReportData, variant: ReportVarian
   const parts: string[] = [];
   const isCustomer = variant === 'customer';
 
+  // First response: intake-answered requests (opened live during a call or
+  // visit) are reported as such — never blended into the average as zeros.
+  const intake = sp.answeredAtIntakeCount ?? 0;
+  if (intake > 0) {
+    parts.push(isCustomer
+      ? `${intake} of your ${intake === 1 ? 'request was' : 'requests were'} answered live at intake — a team member was already helping when the ticket was opened.`
+      : `${intake} ${intake === 1 ? 'ticket was' : 'tickets were'} opened live by staff at intake (no queue wait to measure).`);
+  }
   if (sp.avgFirstResponseMinutes !== null) {
+    const scope = intake > 0 ? 'For the remaining requests, average' : isCustomer ? `Our team's average` : 'Average';
     if (isCustomer && sp.avgFirstResponseMinutes <= 30) {
-      parts.push(`Our team's average first response time was ${formatMinutes(sp.avgFirstResponseMinutes)}${sp.medianFirstResponseMinutes !== null ? ` (median: ${formatMinutes(sp.medianFirstResponseMinutes)})` : ''}, ensuring your issues received rapid initial attention.`);
+      parts.push(`${scope} first response time was ${formatMinutes(sp.avgFirstResponseMinutes)}${sp.medianFirstResponseMinutes !== null ? ` (median: ${formatMinutes(sp.medianFirstResponseMinutes)})` : ''}, ensuring your issues received rapid initial attention.`);
     } else {
-      parts.push(`Average first response time was ${formatMinutes(sp.avgFirstResponseMinutes)}${sp.medianFirstResponseMinutes !== null ? ` (median: ${formatMinutes(sp.medianFirstResponseMinutes)})` : ''}.`);
+      parts.push(`${scope} first response time was ${formatMinutes(sp.avgFirstResponseMinutes)}${sp.medianFirstResponseMinutes !== null ? ` (median: ${formatMinutes(sp.medianFirstResponseMinutes)})` : ''}.`);
     }
   }
 
@@ -296,10 +305,17 @@ function buildPerformanceNarrative(data: ReviewReportData, variant: ReportVarian
 
   if (data.comparison.avgResolutionChange !== null && Math.abs(data.comparison.avgResolutionChange) > 15) {
     if (data.comparison.avgResolutionChange > 0) {
-      if (isCustomer) {
+      // When the median is well below the average, a few long-running items
+      // are pulling the average up — lead with the median (the typical
+      // experience) so an outlier month doesn't read as a service decline.
+      const skewed = sp.medianResolutionMinutes !== null && sp.avgResolutionMinutes !== null
+        && sp.medianResolutionMinutes < sp.avgResolutionMinutes * 0.5;
+      if (isCustomer && skewed) {
+        parts.push(`Most requests resolved in about ${formatMinutes(sp.medianResolutionMinutes!)} (median); the higher average this period reflects a small number of complex, longer-running items rather than a broad slowdown.`);
+      } else if (isCustomer) {
         parts.push(`Resolution times were ${data.comparison.avgResolutionChange}% longer than the prior period, which can reflect more complex issues being addressed. We are reviewing our processes to improve this.`);
       } else {
-        parts.push(`Resolution times increased ${data.comparison.avgResolutionChange}% from the prior period.`);
+        parts.push(`Resolution times increased ${data.comparison.avgResolutionChange}% from the prior period${skewed ? ' (average skewed by a few long-running items; median is lower)' : ''}.`);
       }
     } else {
       if (isCustomer) {
