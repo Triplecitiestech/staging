@@ -126,6 +126,8 @@ export function countDistinctHumanParticipants(
 interface LifecycleResult {
   computed: number;
   errors: string[];
+  /** Tickets still needing computation after a time-budget stop (0 = fully caught up) */
+  remaining?: number;
 }
 
 /**
@@ -145,13 +147,9 @@ export async function computeLifecycle(): Promise<LifecycleResult> {
 
     const lastRun = await getLastSuccessfulRun(JOB_NAMES.COMPUTE_LIFECYCLE);
 
-    // Find tickets needing lifecycle computation
-    const ticketFilter = lastRun
-      ? { autotaskLastSync: { gt: lastRun } }
-      : {};
-
-    const tickets = await prisma.ticket.findMany({
-      where: ticketFilter,
+    // Candidate tickets = synced since the last SUCCESSFUL run.
+    const candidates = await prisma.ticket.findMany({
+      where: lastRun ? { autotaskLastSync: { gt: lastRun } } : {},
       select: {
         autotaskTicketId: true,
         companyId: true,
@@ -172,10 +170,37 @@ export async function computeLifecycle(): Promise<LifecycleResult> {
         createDate: true,
         completedDate: true,
         status: true,
+        autotaskLastSync: true,
       },
+      orderBy: { autotaskLastSync: 'asc' },
+    });
+
+    // Checkpoint filter: drop tickets whose lifecycle row is already current
+    // (computed at or after the ticket's last sync). This is what makes a
+    // time-budget-limited run RESUMABLE — a partial run finishes as "failed"
+    // so lastRun does not advance, and without this filter the next run would
+    // re-query the same set in the same order and redo the same first chunk
+    // forever (never finishing a large backfill). With it, each run's
+    // committed rows fall out of the next run's set, so progress accumulates
+    // across runs until a clean pass advances lastRun.
+    const computedAt = new Map<string, Date>();
+    const idChunks = 1000;
+    for (let i = 0; i < candidates.length; i += idChunks) {
+      const ids = candidates.slice(i, i + idChunks).map(t => t.autotaskTicketId);
+      const rows = await prisma.ticketLifecycle.findMany({
+        where: { autotaskTicketId: { in: ids } },
+        select: { autotaskTicketId: true, computedAt: true },
+      });
+      for (const r of rows) computedAt.set(r.autotaskTicketId, r.computedAt);
+    }
+    const tickets = candidates.filter(t => {
+      const c = computedAt.get(t.autotaskTicketId);
+      return !c || c < t.autotaskLastSync;
     });
 
     if (tickets.length === 0) {
+      // Nothing left needing computation — this run is a clean success, which
+      // advances lastRun past the backfilled tickets.
       await finish({ status: 'success', meta: { computed: 0, errorCount: 0 } });
       return result;
     }
@@ -188,11 +213,16 @@ export async function computeLifecycle(): Promise<LifecycleResult> {
     const CHUNK_SIZE = 100;
     const startTime = Date.now();
     const MAX_MS = 50000; // 50s safety budget
+    let timedOut = false;
+    let remaining = 0;
 
     for (let i = 0; i < tickets.length; i += CHUNK_SIZE) {
-      // Time guard — stop before Vercel kills us
+      // Time guard — stop before Vercel kills us. This is a partial run, NOT a
+      // failure: progress is committed and the checkpoint filter lets the next
+      // run resume where this one left off.
       if (Date.now() - startTime > MAX_MS) {
-        result.errors.push(`Stopped at ticket ${i}/${tickets.length} — approaching timeout. Run again to continue.`);
+        timedOut = true;
+        remaining = tickets.length - i;
         break;
       }
 
@@ -286,10 +316,22 @@ export async function computeLifecycle(): Promise<LifecycleResult> {
       }
     }
 
+    // A time-budget stop must NOT advance lastRun (getLastSuccessfulRun counts
+    // both 'success' and 'partial'), or the un-processed tickets would be
+    // filtered out next run. So a timeout stays non-advancing ('failed') and
+    // resume is driven entirely by the checkpoint filter above — each run's
+    // committed rows drop out of the next run's set. Only a full pass with no
+    // timeout and no errors is 'success', which finally advances lastRun.
+    result.remaining = remaining;
+    const status = (result.errors.length > 0 || timedOut) ? 'failed' : 'success';
     await finish({
-      status: result.errors.length > 0 ? 'failed' : 'success',
-      meta: { computed: result.computed, errorCount: result.errors.length },
-      error: result.errors.length > 0 ? result.errors.slice(0, 10).join('; ') : undefined,
+      status,
+      meta: { computed: result.computed, errorCount: result.errors.length, timedOut, remaining },
+      error: result.errors.length > 0
+        ? result.errors.slice(0, 10).join('; ')
+        : timedOut
+          ? `In progress: computed ${result.computed} this run, ${remaining} remaining — run again to continue (progress is saved).`
+          : undefined,
     });
 
     return result;
