@@ -321,6 +321,20 @@ The regenerated Tri-Bros June review still showed a fabricated **0m average firs
 
 ---
 
+## Reporting — SLA is Autotask's own per-contract result, Fully-Managed only (2026-07-21)
+
+Owner-directed model, replacing the reporting-engine's SLA recomputation:
+
+- **SLA compliance now comes from Autotask's OWN SLA determination**, not our recompute. We sync Autotask's native SLA event datetimes onto `tickets` (`firstResponseDateTime`/`firstResponseDueDateTime`, `resolutionPlanDateTime`/`…DueDateTime`, `resolvedDateTime`/`…DueDateTime`, `slaHasBeenMet`) and the lifecycle engine reads the verdict straight off them (`metByDue`: met = actual ≤ due). The old `reporting_targets` business-hours recompute in `computeTicketLifecycleInMemory` is gone — it drifted from each customer's actual contracted SLA (it's what produced "Resolution SLA 50%" on Tri-Bros when Autotask's own answer was 4/6 met). Autotask already applies the right per-contract targets, business hours, and pause logic; don't re-derive it.
+- **SLA is reported ONLY for the "TCT – Fully Managed IT Services" agreement** (SLA id 2, live-confirmed; resolved via `getFullyManagedSlaId()` / `isFullyManagedSla()` in `sla-config.ts`, name-refreshed from the live SLA picklist during sync). `isSlaReportableTicket()` is the single gate: Fully Managed SLA **AND** human/user-created **AND** not an automated alert queue. Everything else → null SLA verdict = "not measured". This mirrors the ops SLA widgets (`Service Level Agreement = TCT – Fully Managed IT Services`, `Queue != Monitoring Alert`).
+- **The three SLAs (live):** id 1 "Standard SLA" (99% goals), id 2 "TCT – Fully Managed IT Services" (95% goals — the reported one), id 3 "No SLA" (0 goals). All automated monitoring tickets are on **No SLA** — confirmed on Tri-Bros June (33/33). "No SLA"/null-SLA tickets never enter an SLA denominator.
+- **Business review scope:** `servicePerformance.slaApplicable` = does the customer have any Fully-Managed user ticket this period. When false, the SLA cards + narrative are **omitted entirely** (not shown as "—") — SLA isn't part of that customer's plan. FRT/resolution/FTR/reopen still show for everyone.
+- **`serviceLevelAgreementHasBeenMet` = null means the SLA roll-up isn't finalized** (ticket still in flight / no resolved event), NOT a breach. Never count null as a miss.
+- **CONFIG, not code — contract category ↔ SLA mismatches:** a "Managed Service – Platinum/…" contract should carry the Fully Managed SLA. AllSpec Finishing was Platinum but on **Standard SLA** — such a customer gets NO SLA section until the contract's SLA is corrected in Autotask. The report faithfully reflects the attached SLA; fixing the mismatch is an Autotask config change (audit via `autotask_list_contracts` → compare `contractCategoryName` to `slaName`).
+- **Operator steps after deploy** (native SLA fields are new columns, empty until re-synced): POST `/api/migrations/run`, then re-sync tickets (so historical rows populate the native SLA datetimes), then re-run `compute_lifecycle`. Until then, SLA reads null → "not measured" (honest), never a fabricated number.
+
+---
+
 ## Reporting — SLA & Reopen Source of Truth (2026-07-19)
 
 - **Exactly ONE SLA computation feeds customer-facing reports**: the `ticket_lifecycle` engine's business-hours-vs-targets verdicts (`slaResponseMet`/`slaResolutionPlanMet`/`slaResolutionMet`), read via `getLifecycleQualitySummary()` / `getLifecycleQualityByCompany()` in `src/lib/reporting/lifecycle.ts`. The old `completedDate <= dueDateTime` proxy produced a SECOND, conflicting SLA number on the operations dashboard, company report, QBR, and annual report — it is removed; never revive it. (Sole survivor: the SOC triage panel's per-row due-date flag in `/api/soc/tickets` — an internal ops indicator, not a customer report.)

@@ -14,11 +14,21 @@
 
 import { prisma } from '@/lib/prisma';
 import { createJobTracker, getLastSuccessfulRun } from './job-status';
-import { JOB_NAMES, isResolvedStatus, isCompleteStatus, isReopenStatus, isWaitingCustomerStatus, priorityToTargetScope } from './types';
+import { JOB_NAMES, isResolvedStatus, isCompleteStatus, isReopenStatus, isWaitingCustomerStatus } from './types';
 import { classifyTicket } from './ticket-classification';
+import { isSlaReportableTicket } from './sla-config';
 import { isApiOrSystemUser } from './api-user-filter';
 import { assertTableExists } from './sync';
-import { computeBusinessMinutes } from './business-hours';
+
+/**
+ * SLA verdict from Autotask's own event datetimes: met = the actual event
+ * happened at or before Autotask's due date. null when either side is missing
+ * (event not reached / no due set) — "not measured", never a fabricated pass.
+ */
+function metByDue(actual: Date | null, due: Date | null): boolean | null {
+  if (actual === null || due === null) return null;
+  return actual.getTime() <= due.getTime();
+}
 
 // ============================================
 // FIRST RESPONSE & FIRST TOUCH — shared definitions
@@ -118,52 +128,11 @@ interface LifecycleResult {
   errors: string[];
 }
 
-/** Pre-loaded SLA targets keyed by "metricKey:scope:scopeValue" */
-type TargetCache = Map<string, number>;
-
-function buildTargetCacheKey(metricKey: string, scope: string, scopeValue: string): string {
-  return `${metricKey}:${scope}:${scopeValue}`;
-}
-
-/**
- * Resolve a target from the pre-loaded cache using the same resolution order as resolveTarget():
- *   1. Company + priority specific
- *   2. Priority specific
- *   3. Company specific (all priorities)
- *   4. Global default
- */
-function resolveTargetFromCache(
-  cache: TargetCache,
-  metricKey: string,
-  priority: number,
-  companyId?: string,
-): number | null {
-  const priorityScope = priorityToTargetScope(priority);
-
-  if (companyId) {
-    const companyPriority = cache.get(buildTargetCacheKey(metricKey, 'company', `${companyId}:${priorityScope}`));
-    if (companyPriority !== undefined) return companyPriority;
-  }
-
-  const priorityTarget = cache.get(buildTargetCacheKey(metricKey, 'priority', priorityScope));
-  if (priorityTarget !== undefined) return priorityTarget;
-
-  if (companyId) {
-    const companyTarget = cache.get(buildTargetCacheKey(metricKey, 'company', companyId));
-    if (companyTarget !== undefined) return companyTarget;
-  }
-
-  const globalTarget = cache.get(buildTargetCacheKey(metricKey, 'global', ''));
-  if (globalTarget !== undefined) return globalTarget;
-
-  return null;
-}
-
 /**
  * Compute lifecycle metrics for tickets that have been synced since the last lifecycle run.
  * Idempotent — upserts on autotaskTicketId.
  *
- * Optimized: batch-fetches all related data (notes, time entries, status history, SLA targets)
+ * Optimized: batch-fetches all related data (notes, time entries, status history)
  * upfront to avoid N+1 query patterns.
  */
 export async function computeLifecycle(): Promise<LifecycleResult> {
@@ -193,6 +162,13 @@ export async function computeLifecycle(): Promise<LifecycleResult> {
         queueLabel: true,
         source: true,
         sourceLabel: true,
+        slaId: true,
+        firstResponseDateTime: true,
+        firstResponseDueDateTime: true,
+        resolutionPlanDateTime: true,
+        resolutionPlanDueDateTime: true,
+        resolvedDateTime: true,
+        resolvedDueDateTime: true,
         createDate: true,
         completedDate: true,
         status: true,
@@ -202,18 +178,6 @@ export async function computeLifecycle(): Promise<LifecycleResult> {
     if (tickets.length === 0) {
       await finish({ status: 'success', meta: { computed: 0, errorCount: 0 } });
       return result;
-    }
-
-    // Load SLA targets once (small table)
-    const allTargets = await prisma.reportingTarget.findMany({
-      where: {
-        isActive: true,
-        metricKey: { in: ['first_response_time', 'resolution_plan_time', 'resolution_time'] },
-      },
-    });
-    const targetCache: TargetCache = new Map();
-    for (const t of allTargets) {
-      targetCache.set(buildTargetCacheKey(t.metricKey, t.scope, t.scopeValue), t.targetValue);
     }
 
     // Human staff ids once per run — first-response/first-touch resolution
@@ -280,7 +244,7 @@ export async function computeLifecycle(): Promise<LifecycleResult> {
           const notes = notesByTicket.get(ticket.autotaskTicketId) || [];
           const timeEntries = timeEntriesByTicket.get(ticket.autotaskTicketId) || [];
           const statusHistory = statusHistoryByTicket.get(ticket.autotaskTicketId) || [];
-          const lifecycle = computeTicketLifecycleInMemory(ticket, notes, timeEntries, statusHistory, targetCache, humanResourceIds);
+          const lifecycle = computeTicketLifecycleInMemory(ticket, notes, timeEntries, statusHistory, humanResourceIds);
           upserts.push({ ticketId: ticket.autotaskTicketId, lifecycle });
         } catch (err) {
           result.errors.push(`Ticket ${ticket.autotaskTicketId}: ${err instanceof Error ? err.message : String(err)}`);
@@ -346,6 +310,13 @@ interface TicketInput {
   queueLabel: string | null;
   source: number | null;
   sourceLabel: string | null;
+  slaId: number | null;
+  firstResponseDateTime: Date | null;
+  firstResponseDueDateTime: Date | null;
+  resolutionPlanDateTime: Date | null;
+  resolutionPlanDueDateTime: Date | null;
+  resolvedDateTime: Date | null;
+  resolvedDueDateTime: Date | null;
   createDate: Date;
   completedDate: Date | null;
   status: number;
@@ -384,7 +355,6 @@ function computeTicketLifecycleInMemory(
   notes: Array<{ createDateTime: Date; creatorResourceId: number | null; creatorContactId: number | null }>,
   timeEntries: Array<{ createDateTime: Date | null; resourceId: number | null; hoursWorked: number; isNonBillable: boolean }>,
   statusHistory: Array<{ previousStatus: number | null; newStatus: number; changedAt: Date }>,
-  targetCache: TargetCache,
   humanResourceIds: Set<number>,
 ): LifecycleData {
   const isResolved = isResolvedStatus(ticket.status);
@@ -397,18 +367,9 @@ function computeTicketLifecycleInMemory(
     ? (firstResponse.firstResponseAt.getTime() - ticket.createDate.getTime()) / (1000 * 60)
     : null;
 
-  // M1-biz: First Response Time in business hours (for SLA evaluation)
-  const firstResponseBusinessMinutes = firstResponse.firstResponseAt !== null
-    ? computeBusinessMinutes(ticket.createDate, firstResponse.firstResponseAt)
-    : null;
-
   // M2/M3: Resolution times (wall-clock for general reporting)
   const firstResolutionMinutes = computeFirstResolutionTime(ticket, statusHistory);
   const fullResolutionMinutes = computeFullResolutionTime(ticket);
-
-  // M2-biz/M3-biz: Resolution times in business hours (for SLA evaluation)
-  const firstResolutionBusinessMinutes = computeFirstResolutionTime(ticket, statusHistory, true);
-  const fullResolutionBusinessMinutes = computeFullResolutionTime(ticket, true);
 
   // M3a: Active resolution time (exclude waiting-on-customer periods)
   const waitingCustomerMinutes = computeWaitingCustomerTime(ticket, statusHistory);
@@ -435,28 +396,29 @@ function computeTicketLifecycleInMemory(
     && reopenCount === 0
     && countDistinctHumanParticipants(notes, timeEntries, humanResourceIds) <= 1;
 
-  // M12: SLA compliance — resolved from cache, no DB queries.
-  // SLA does not apply to automated monitoring tickets: their timestamps are
-  // machine auto-stamps (createDate == first "response" == resolution), so a
-  // verdict would fabricate instant-response/instant-resolution compliance.
-  // Verdicts stay null = "not measured". (Reads also classify — see
-  // fetchQualityRows — so pre-existing rows are covered too.)
-  const isAutomated = classifyTicket({
+  // M12: SLA compliance — Autotask's OWN per-contract determination.
+  // We store Autotask's SLA event due/actual datetimes at sync time and read
+  // the verdict straight off them (met = actual <= due), instead of
+  // recomputing against a global target table that drifts from each customer's
+  // contracted SLA. Reported only for SLA-reportable tickets (Fully Managed +
+  // human + non-alert-queue — see isSlaReportableTicket); else null.
+  const slaApplies = isSlaReportableTicket({
     source: ticket.source,
     sourceLabel: ticket.sourceLabel,
     queueId: ticket.queueId,
     queueLabel: ticket.queueLabel,
     assignedResourceId: ticket.assignedResourceId,
     hoursLogged: totalHoursLogged,
-  }) === 'automated';
-  const slaResponseMet = !isAutomated && firstResponseBusinessMinutes !== null
-    ? evaluateSlaFromCache(targetCache, 'first_response_time', ticket.priority, ticket.companyId, firstResponseBusinessMinutes)
+    slaId: ticket.slaId,
+  });
+  const slaResponseMet = slaApplies
+    ? metByDue(ticket.firstResponseDateTime, ticket.firstResponseDueDateTime)
     : null;
-  const slaResolutionPlanMet = !isAutomated && firstResolutionBusinessMinutes !== null
-    ? evaluateSlaFromCache(targetCache, 'resolution_plan_time', ticket.priority, ticket.companyId, firstResolutionBusinessMinutes)
+  const slaResolutionPlanMet = slaApplies
+    ? metByDue(ticket.resolutionPlanDateTime, ticket.resolutionPlanDueDateTime)
     : null;
-  const slaResolutionMet = !isAutomated && fullResolutionBusinessMinutes !== null
-    ? evaluateSlaFromCache(targetCache, 'resolution_time', ticket.priority, ticket.companyId, fullResolutionBusinessMinutes)
+  const slaResolutionMet = slaApplies
+    ? metByDue(ticket.resolvedDateTime, ticket.resolvedDueDateTime)
     : null;
 
   return {
@@ -484,54 +446,31 @@ function computeTicketLifecycleInMemory(
   };
 }
 
-/** Evaluate SLA from pre-loaded cache */
-function evaluateSlaFromCache(
-  cache: TargetCache,
-  metricKey: string,
-  priority: number,
-  companyId: string,
-  elapsedMinutes: number,
-): boolean | null {
-  const target = resolveTargetFromCache(cache, metricKey, priority, companyId);
-  if (target === null) return null;
-  return elapsedMinutes <= target;
-}
-
 /**
- * M2: First Resolution Time — minutes from creation to first transition to resolved status.
- * @param useBusinessHours If true, returns business-hour minutes (for SLA comparison)
+ * M2: First Resolution Time — wall-clock minutes from creation to first
+ * transition to resolved status (general reporting; SLA compliance itself now
+ * comes from Autotask's own event dates, see metByDue).
  */
 function computeFirstResolutionTime(
   ticket: TicketInput,
   statusHistory: Array<{ newStatus: number; changedAt: Date }>,
-  useBusinessHours: boolean = false,
 ): number | null {
   const firstResolution = statusHistory.find(h => isResolvedStatus(h.newStatus));
   if (firstResolution) {
-    if (useBusinessHours) {
-      return computeBusinessMinutes(ticket.createDate, firstResolution.changedAt);
-    }
     return (firstResolution.changedAt.getTime() - ticket.createDate.getTime()) / (1000 * 60);
   }
   // If currently resolved but no history, use completedDate
   if (isResolvedStatus(ticket.status) && ticket.completedDate) {
-    if (useBusinessHours) {
-      return computeBusinessMinutes(ticket.createDate, ticket.completedDate);
-    }
     return (ticket.completedDate.getTime() - ticket.createDate.getTime()) / (1000 * 60);
   }
   return null;
 }
 
 /**
- * M3: Full Resolution Time — minutes from creation to final close.
- * @param useBusinessHours If true, returns business-hour minutes (for SLA comparison)
+ * M3: Full Resolution Time — wall-clock minutes from creation to final close.
  */
-function computeFullResolutionTime(ticket: TicketInput, useBusinessHours: boolean = false): number | null {
+function computeFullResolutionTime(ticket: TicketInput): number | null {
   if (!isResolvedStatus(ticket.status) || !ticket.completedDate) return null;
-  if (useBusinessHours) {
-    return computeBusinessMinutes(ticket.createDate, ticket.completedDate);
-  }
   return (ticket.completedDate.getTime() - ticket.createDate.getTime()) / (1000 * 60);
 }
 

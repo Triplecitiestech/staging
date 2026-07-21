@@ -11,6 +11,7 @@ import {
   resolveFirstResponse,
   countDistinctHumanParticipants,
 } from '../lifecycle';
+import { isFullyManagedSla } from '../sla-config';
 import {
   splitByClassification,
   isHumanTicket,
@@ -76,7 +77,7 @@ export async function buildReportData(
       select: {
         autotaskTicketId: true, title: true, status: true, priority: true,
         createDate: true, completedDate: true, assignedResourceId: true,
-        creatorResourceId: true,
+        creatorResourceId: true, slaId: true,
         source: true, sourceLabel: true, queueId: true, queueLabel: true,
       },
     }),
@@ -297,11 +298,20 @@ export async function buildReportData(
     avgResolutionMinutes: avg(prevResMinutes), reopenRate: null as number | null,
   }];
 
+  // SLA is reported ONLY for Fully Managed customers (owner decision
+  // 2026-07-21). A customer qualifies if any of their user (human) tickets in
+  // the period carries the Fully Managed SLA — the same per-ticket signal the
+  // ops SLA widgets use. Otherwise the SLA section is omitted entirely (not
+  // shown as "—"), and SLA compliance/verdicts are already null from the
+  // lifecycle engine for non-Fully-Managed tickets.
+  const slaApplicable = currentTickets.some(t => isFullyManagedSla(t.slaId));
+
   const supportActivity = buildSupportActivity(dailyMetrics);
   const servicePerformance = buildServicePerformance(dailyMetrics, {
     frtMinutes,
     resolutionMinutes,
     answeredAtIntakeCount: answeredAtIntake,
+    slaApplicable,
   });
   const priorityBreakdown = buildPriorityBreakdown(priorityRecords, dailyMetrics);
   const topThemes = await buildTopThemes(companyId, periodStart, periodEnd, prevStart, prevEnd);
@@ -430,6 +440,8 @@ function buildServicePerformance(
     /** Resolution spans of tickets closed in the period */
     resolutionMinutes: number[];
     answeredAtIntakeCount: number;
+    /** Customer is on the Fully Managed SLA — the only plan we report SLA for */
+    slaApplicable: boolean;
   },
 ): ServicePerformanceData {
   const frtValues = metrics.map(m => m.avgFirstResponseMinutes).filter(nonNull);
@@ -452,8 +464,10 @@ function buildServicePerformance(
     medianResolutionMinutes: median(sortedRes),
     firstTouchResolutionRate: avg(ftrrValues),
     reopenRate: avg(reopenValues),
-    slaResponseCompliance: avg(slaRespValues),
-    slaResolutionCompliance: avg(slaResValues),
+    // SLA only for Fully Managed customers; otherwise null so the section is omitted.
+    slaResponseCompliance: samples.slaApplicable ? avg(slaRespValues) : null,
+    slaResolutionCompliance: samples.slaApplicable ? avg(slaResValues) : null,
+    slaApplicable: samples.slaApplicable,
     answeredAtIntakeCount: samples.answeredAtIntakeCount,
     firstResponseMeasuredCount: samples.frtMinutes.length,
   };

@@ -36,6 +36,7 @@ interface ReviewData {
       reopenRate: number | null
       slaResponseCompliance: number | null
       slaResolutionCompliance: number | null
+      slaApplicable?: boolean
       answeredAtIntakeCount?: number
       firstResponseMeasuredCount?: number
     }
@@ -226,10 +227,17 @@ export default function BusinessReviewDetail({ reviewId }: Props) {
           } />
           <Stat label="Avg Resolution" value={rd.servicePerformance.avgResolutionMinutes !== null ? fmtMin(rd.servicePerformance.avgResolutionMinutes) : 'N/A'} change={rd.comparison.avgResolutionChange} />
           <Stat label="FTR Rate" value={rd.servicePerformance.firstTouchResolutionRate !== null ? `${rd.servicePerformance.firstTouchResolutionRate}%` : 'N/A'} />
-          <Stat label="Resp SLA" value={rd.servicePerformance.slaResponseCompliance !== null ? `${rd.servicePerformance.slaResponseCompliance}%` : 'N/A'} />
-          <Stat label="Res SLA" value={rd.servicePerformance.slaResolutionCompliance !== null ? `${rd.servicePerformance.slaResolutionCompliance}%` : 'N/A'} />
+          {rd.servicePerformance.slaApplicable !== false && (
+            <>
+              <Stat label="Resp SLA" value={rd.servicePerformance.slaResponseCompliance !== null ? `${rd.servicePerformance.slaResponseCompliance}%` : 'N/A'} />
+              <Stat label="Res SLA" value={rd.servicePerformance.slaResolutionCompliance !== null ? `${rd.servicePerformance.slaResolutionCompliance}%` : 'N/A'} />
+            </>
+          )}
           <Stat label="Reopen %" value={rd.servicePerformance.reopenRate !== null ? `${rd.servicePerformance.reopenRate}%` : 'N/A'} />
         </div>
+        {rd.servicePerformance.slaApplicable === false && (
+          <p className="text-slate-500 text-xs mb-2">SLA targets apply to Fully Managed service plans; this account is not on a Fully Managed agreement.</p>
+        )}
         <p className="text-slate-400 text-sm">{review.narrative.performanceNarrative}</p>
       </Section>
 

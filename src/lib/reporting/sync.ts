@@ -4,12 +4,35 @@
  */
 
 import { prisma } from '@/lib/prisma';
-import { AutotaskClient, type AutotaskCompany } from '@/lib/autotask';
+import { AutotaskClient, type AutotaskCompany, type AutotaskTicket } from '@/lib/autotask';
 import { structuredLog } from '@/lib/resilience';
 import { createJobTracker, getLastSuccessfulRun, getLastRunTime } from './job-status';
 import { JOB_NAMES, isResolvedStatus, updateStatusClassification } from './types';
 import { updateTicketClassificationFromPicklists } from './ticket-classification';
+import { updateFullyManagedSlaId } from './sla-config';
 import { ensureReportingTables } from './ensure-tables';
+
+/** Autotask date string → Date (or null). */
+function atDate(v: string | null | undefined): Date | null {
+  return v ? new Date(v) : null;
+}
+
+/**
+ * Map Autotask's native SLA event datetimes + met flag onto the ticket row.
+ * Reporting reads these directly so SLA compliance is Autotask's own
+ * per-contract determination rather than a recomputation.
+ */
+function nativeSlaFields(t: AutotaskTicket) {
+  return {
+    firstResponseDateTime: atDate(t.firstResponseDateTime),
+    firstResponseDueDateTime: atDate(t.firstResponseDueDateTime),
+    resolutionPlanDateTime: atDate(t.resolutionPlanDateTime),
+    resolutionPlanDueDateTime: atDate(t.resolutionPlanDueDateTime),
+    resolvedDateTime: atDate(t.resolvedDateTime),
+    resolvedDueDateTime: atDate(t.resolvedDueDateTime),
+    slaHasBeenMet: t.serviceLevelAgreementHasBeenMet ?? null,
+  };
+}
 
 // ============================================
 // TABLE EXISTENCE CHECK
@@ -294,6 +317,7 @@ export async function syncSingleTicket(
     contractId: atTicket.contractID ?? null,
     slaId: atTicket.serviceLevelAgreementID ?? null,
     dueDateTime: atTicket.dueDateTime ? new Date(atTicket.dueDateTime) : null,
+    ...nativeSlaFields(atTicket),
     estimatedHours: atTicket.estimatedHours ?? null,
     createDate: new Date(atTicket.createDate),
     completedDate: atTicket.completedDate ? new Date(atTicket.completedDate) : null,
@@ -357,6 +381,7 @@ async function processCompanyTickets(
           contractId: atTicket.contractID ?? null,
           slaId: atTicket.serviceLevelAgreementID ?? null,
           dueDateTime: atTicket.dueDateTime ? new Date(atTicket.dueDateTime) : null,
+          ...nativeSlaFields(atTicket),
           estimatedHours: atTicket.estimatedHours ?? null,
           createDate: new Date(atTicket.createDate),
           completedDate: atTicket.completedDate ? new Date(atTicket.completedDate) : null,
@@ -863,6 +888,15 @@ async function resolvePicklists(client: AutotaskClient): Promise<PicklistCache> 
             cache.ticketSource = map;
             // Refresh which sources are automated monitoring channels
             updateTicketClassificationFromPicklists({ source: field.picklistValues });
+            break;
+          case 'serviceLevelAgreementID':
+            // Refresh which SLA id is "Fully Managed" (the only SLA we report against)
+            updateFullyManagedSlaId(
+              field.picklistValues
+                .filter(pv => pv.isActive)
+                .map(pv => ({ id: parseInt(pv.value, 10), label: pv.label }))
+                .filter(s => Number.isInteger(s.id)),
+            );
             break;
         }
       }

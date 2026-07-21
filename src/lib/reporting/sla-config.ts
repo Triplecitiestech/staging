@@ -1,3 +1,5 @@
+import { classifyTicket, isAlertQueue, type ClassifiableTicket } from './ticket-classification';
+
 /**
  * SLA Configuration — matched to Autotask "TCT – Fully Managed IT Services" agreement.
  *
@@ -13,6 +15,69 @@
 
 /** Company classification that qualifies for SLA reporting */
 export const SLA_ELIGIBLE_CLASSIFICATION = 'Platinum Managed Service';
+
+// ============================================
+// FULLY MANAGED SLA IDENTITY
+// ============================================
+// Customer-facing SLA reporting applies ONLY to the "TCT – Fully Managed IT
+// Services" agreement (owner decision 2026-07-21) — the same agreement the
+// operations SLA widgets filter on. SLA ids are instance-specific picklist
+// values; this default matches the live TCT instance (id 2, confirmed via the
+// connector's autotask_list_slas) and is refreshed from the live SLA picklist
+// during ticket sync, mirroring how status classification self-updates.
+
+/** Default Fully Managed SLA id on the TCT instance (live-confirmed). */
+const DEFAULT_FULLY_MANAGED_SLA_ID = 2;
+
+/** Labels that identify the Fully Managed agreement in the SLA picklist. */
+const FULLY_MANAGED_SLA_LABEL_PATTERNS = [/\bfully\s*managed\b/i];
+
+let cachedFullyManagedSlaId: number | null = null;
+
+/**
+ * Refresh the Fully Managed SLA id from the live SLA picklist
+ * (id + label pairs from autotask_list_slas / the serviceLevelAgreementID
+ * picklist). Only updates when a match is found, so a failed fetch can never
+ * blank the classification.
+ */
+export function updateFullyManagedSlaId(
+  slas: Array<{ id: number; label: string }>,
+): void {
+  const match = slas.find(s => FULLY_MANAGED_SLA_LABEL_PATTERNS.some(p => p.test(s.label)));
+  if (match) cachedFullyManagedSlaId = match.id;
+}
+
+/** Current Fully Managed SLA id (dynamic or default). */
+export function getFullyManagedSlaId(): number {
+  return cachedFullyManagedSlaId ?? DEFAULT_FULLY_MANAGED_SLA_ID;
+}
+
+/** Is this ticket on the Fully Managed SLA (the only SLA we report against)? */
+export function isFullyManagedSla(slaId: number | null | undefined): boolean {
+  return slaId !== null && slaId !== undefined && slaId === getFullyManagedSlaId();
+}
+
+/**
+ * Whether a ticket's SLA compliance should be reported at all. Three gates,
+ * matching the owner's model + the ops SLA widget filters:
+ *   1. On the Fully Managed SLA (the only reported plan).
+ *   2. A human/user-created ticket (not automated monitoring).
+ *   3. Not in an automated alert queue (network/security/monitoring alerts
+ *      never carry an SLA, even the rare human-source one — e.g. a SOC alert
+ *      a tech triaged).
+ */
+export function isSlaReportableTicket(
+  t: ClassifiableTicket & { slaId: number | null | undefined },
+): boolean {
+  return isFullyManagedSla(t.slaId)
+    && classifyTicket(t) === 'human'
+    && !isAlertQueue(t.queueId, t.queueLabel);
+}
+
+/** Test-only: reset the dynamic cache. */
+export function resetFullyManagedSlaCache(): void {
+  cachedFullyManagedSlaId = null;
+}
 
 /** SLA compliance goal percentages from Autotask */
 export const SLA_GOALS = {
