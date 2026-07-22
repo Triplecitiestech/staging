@@ -2142,6 +2142,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           // (Microsoft requirement), so removal is deferred to the Exchange
           // callback (automated path) or a manual step after conversion
           // (fallback path). See the Exchange dispatch block below.
+          //
+          // ORDER INVARIANT (see OFFBOARDING_STEP_ORDER in
+          // src/lib/hr/offboarding-actions.ts): remove_licenses MUST run after
+          // convert_shared_mailbox + delegate grants. Do not move license
+          // removal ahead of the conversion or drop the `!keepAccessible`
+          // guard — regression history: Dan Brown Construction / Michael Beach,
+          // then Tri-Bros Transportation. A post-block tripwire enforces this.
           const keepAccessible = a.data_handling === 'keep_accessible'
           let removedLicenseCount = 0
           const removedLicenseNames: string[] = []
@@ -2245,6 +2252,31 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                   `Could not hand the conversion for ${targetUpn} to the Exchange automation: ${dispatch.error}\nComplete it manually — see NEXT STEPS.`)
               }
             }
+          }
+
+          // Regression tripwire — see OFFBOARDING_STEP_ORDER
+          // (src/lib/hr/offboarding-actions.ts) and the Dan Brown / Michael
+          // Beach, then Tri-Bros incidents. For a keep_accessible offboarding
+          // the M365 license MUST NOT have been removed in this synchronous
+          // pass: it stays assigned until the Exchange callback confirms the
+          // shared-mailbox conversion (an unlicensed mailbox cannot be converted
+          // or have access granted). If a future change lets license removal run
+          // inline here, fail loudly instead of silently breaking the conversion.
+          if (keepAccessible && stepsCompleted.includes('remove_licenses')) {
+            const violation =
+              'Offboarding step-order violation: the Microsoft 365 license was removed before the ' +
+              'shared-mailbox conversion for a keep_accessible request. License removal must be deferred ' +
+              'until after the conversion is confirmed (see OFFBOARDING_STEP_ORDER).'
+            console.error('[hr/process]', violation)
+            await logStep(client, hrRequest.id, 'license_order_guard', 'License Order Guard', 'failed', new Date(),
+              { keepAccessible, stepsCompleted }, undefined, violation)
+            await client.query(
+              `UPDATE hr_requests
+               SET status = 'failed', error_message = $2, retry_count = COALESCE(retry_count, 0) + 1, updated_at = NOW()
+               WHERE id = $1`,
+              [hrRequest.id, violation]
+            )
+            throw new Error(violation)
           }
 
           // Build provisioning results for ticket. Runs even when the primary
