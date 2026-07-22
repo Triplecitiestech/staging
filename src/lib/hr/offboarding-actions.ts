@@ -104,6 +104,80 @@ const WIPE_DEVICE_VALUES = ['wipe_remote', 'remote_wipe', 'wipe']
 const RETURN_DEVICE_VALUES = ['return_to_office', 'ship_to_office', 'return']
 
 /**
+ * Canonical offboarding step order — the single source of truth for the
+ * sequence of offboarding actions. `deriveRequestedOffboardingActions` emits
+ * its plan in this order, and the execution pipeline (/api/hr/process) is
+ * documented and guarded against violating it.
+ *
+ * THE RULE THAT MUST NEVER BREAK: `remove_licenses` comes AFTER
+ * `convert_shared_mailbox` (and after every other mailbox operation). Microsoft
+ * blocks converting a mailbox to shared, and blocks Full Access / Send As
+ * grants, once the Microsoft 365 license is removed — the mailbox must still be
+ * licensed at the moment it is converted and delegated. Remove the license
+ * first and the conversion plus every access grant after it silently fail.
+ *
+ * Regression history: Dan Brown Construction / Michael Beach (license pulled
+ * before the mailbox was converted -> conversion failed), then Tri-Bros
+ * Transportation. Do not reorder these two keys. The invariant is enforced by
+ * assertLicenseRemovalAfterMailboxConversion() and locked by
+ * offboarding-actions.test.ts.
+ */
+export const OFFBOARDING_STEP_ORDER: readonly string[] = [
+  'find_user',
+  'revoke_sessions',
+  'transfer_onedrive',
+  'archive_onedrive',
+  'disable_account',
+  'remove_groups',
+  'convert_shared_mailbox', // mailbox conversion + delegate grants — needs a licensed mailbox
+  'setup_forwarding', // also operates on the (still-licensed) mailbox
+  'remove_licenses', // MUST come after every mailbox operation above
+  'schedule_deletion',
+  'wipe_devices',
+  'device_return',
+]
+
+/**
+ * Throw if an ordered step-key sequence would remove the Microsoft 365 license
+ * before the shared-mailbox conversion. Pure and cheap: call it on the canonical
+ * order, on any derived action plan, and at the offboarding execution site so a
+ * future refactor that reorders the steps fails loudly (in tests / at runtime)
+ * instead of silently breaking a customer's mailbox conversion.
+ *
+ * Only fires when BOTH keys are present — non-keep_accessible offboardings that
+ * remove the license inline (no conversion) are unaffected.
+ */
+export function assertLicenseRemovalAfterMailboxConversion(stepKeys: readonly string[]): void {
+  const convertIdx = stepKeys.indexOf('convert_shared_mailbox')
+  const licenseIdx = stepKeys.indexOf('remove_licenses')
+  if (convertIdx !== -1 && licenseIdx !== -1 && licenseIdx < convertIdx) {
+    throw new Error(
+      'Offboarding step-order violation: remove_licenses is sequenced before ' +
+        'convert_shared_mailbox. The mailbox must still be licensed when it is ' +
+        'converted to shared and when Full Access / Send As are granted — license ' +
+        'removal must come last. See OFFBOARDING_STEP_ORDER in ' +
+        'src/lib/hr/offboarding-actions.ts.',
+    )
+  }
+}
+
+/**
+ * Stable-sort action-like items into OFFBOARDING_STEP_ORDER. Unknown keys keep
+ * their relative insertion position at the end (decorate-sort-undecorate makes
+ * the sort stable regardless of the engine's Array.sort guarantees).
+ */
+function orderByCanonicalStep<T extends { key: string }>(items: T[]): T[] {
+  const rank = (key: string): number => {
+    const i = OFFBOARDING_STEP_ORDER.indexOf(key)
+    return i === -1 ? OFFBOARDING_STEP_ORDER.length : i
+  }
+  return items
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => rank(a.item.key) - rank(b.item.key) || a.index - b.index)
+    .map(({ item }) => item)
+}
+
+/**
  * Derive the complete set of actions the submitted answers request.
  * `target` is the employee's UPN (or the raw work email before user lookup).
  */
@@ -249,7 +323,13 @@ export function deriveRequestedOffboardingActions(
     })
   }
 
-  return actions
+  // Emit the plan in canonical order so the ticket record reflects the true
+  // execution sequence (license removal after the mailbox conversion, never
+  // before), and self-check the invariant so this function can never hand a
+  // caller a plan that lists license removal ahead of the conversion.
+  const ordered = orderByCanonicalStep(actions)
+  assertLicenseRemovalAfterMailboxConversion(ordered.map((s) => s.key))
+  return ordered
 }
 
 /**

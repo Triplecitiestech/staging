@@ -3,6 +3,9 @@ import {
   parseSharedMailboxRecipients,
   deriveRequestedOffboardingActions,
   reconcileOffboardingActions,
+  assertLicenseRemovalAfterMailboxConversion,
+  OFFBOARDING_STEP_ORDER,
+  type OffboardingAutomationContext,
 } from './offboarding-actions'
 
 describe('parseSharedMailboxRecipients', () => {
@@ -300,5 +303,95 @@ describe('reconcileOffboardingActions', () => {
     for (const line of [...result.statusLines, ...result.manualInstructions]) {
       expect(line).not.toMatch(/[✓✗⊘→⚠]/)
     }
+  })
+})
+
+// Regression: the M365 license must be removed AFTER the mailbox is converted
+// to shared and after any delegate grants — Microsoft blocks conversion and
+// access grants on an unlicensed account. Removing the license first reversed
+// the order and broke the downstream steps (Dan Brown Construction / Michael
+// Beach, then Tri-Bros Transportation). These tests lock the ordering so a
+// future refactor cannot silently reintroduce it.
+describe('license-removal ordering guard', () => {
+  const target = 'MBeach@danbrownconstruction.com'
+
+  it('OFFBOARDING_STEP_ORDER lists remove_licenses after convert_shared_mailbox', () => {
+    const convertIdx = OFFBOARDING_STEP_ORDER.indexOf('convert_shared_mailbox')
+    const licenseIdx = OFFBOARDING_STEP_ORDER.indexOf('remove_licenses')
+    expect(convertIdx).toBeGreaterThanOrEqual(0)
+    expect(licenseIdx).toBeGreaterThan(convertIdx)
+    // The canonical order must satisfy its own guard.
+    expect(() => assertLicenseRemovalAfterMailboxConversion(OFFBOARDING_STEP_ORDER)).not.toThrow()
+  })
+
+  it('throws when license removal is sequenced before the mailbox conversion', () => {
+    expect(() =>
+      assertLicenseRemovalAfterMailboxConversion([
+        'disable_account',
+        'remove_licenses',
+        'convert_shared_mailbox',
+      ])
+    ).toThrow(/step-order violation/i)
+  })
+
+  it('passes for the correct order and when either key is absent', () => {
+    expect(() =>
+      assertLicenseRemovalAfterMailboxConversion(['convert_shared_mailbox', 'remove_licenses'])
+    ).not.toThrow()
+    // non-keep_accessible offboarding: license removed inline, no conversion
+    expect(() => assertLicenseRemovalAfterMailboxConversion(['disable_account', 'remove_licenses'])).not.toThrow()
+    expect(() => assertLicenseRemovalAfterMailboxConversion(['convert_shared_mailbox'])).not.toThrow()
+    expect(() => assertLicenseRemovalAfterMailboxConversion([])).not.toThrow()
+  })
+
+  // The core regression: whatever the Exchange-automation availability, the
+  // derived plan for a keep_accessible offboarding must never list license
+  // removal before the mailbox conversion.
+  const automationCases: Array<{ label: string; ctx: OffboardingAutomationContext | undefined }> = [
+    { label: 'automation available (async conversion)', ctx: { exchangeAutomationAvailable: true } },
+    {
+      label: 'automation unavailable (manual conversion)',
+      ctx: { exchangeAutomationAvailable: false, exchangeUnavailableReason: 'tenant not enabled' },
+    },
+    { label: 'no automation context', ctx: undefined },
+  ]
+  for (const { label, ctx } of automationCases) {
+    it(`derives remove_licenses after convert_shared_mailbox for keep_accessible — ${label}`, () => {
+      const actions = deriveRequestedOffboardingActions(
+        {
+          urgency_type: 'immediate_termination',
+          data_handling: 'keep_accessible',
+          shared_mailbox_access: ['Jking@danbrownconstruction.com'],
+          file_handling: 'archive_to_sharepoint',
+          device_handling: 'return_to_office',
+        },
+        target,
+        ctx
+      )
+      const keys = actions.map((s) => s.key)
+      expect(keys).toContain('convert_shared_mailbox')
+      expect(keys).toContain('remove_licenses')
+      expect(keys.indexOf('remove_licenses')).toBeGreaterThan(keys.indexOf('convert_shared_mailbox'))
+      // The emitted plan satisfies the guard by construction.
+      expect(() => assertLicenseRemovalAfterMailboxConversion(keys)).not.toThrow()
+    })
+  }
+
+  it('reconciles a keep_accessible plan with the conversion status line before license removal', () => {
+    const requested = deriveRequestedOffboardingActions(
+      { data_handling: 'keep_accessible', shared_mailbox_access: ['Jking@x.com'] },
+      target,
+      { exchangeAutomationAvailable: true }
+    )
+    const result = reconcileOffboardingActions(
+      requested,
+      ['find_user', 'disable_account', 'remove_groups'],
+      [],
+      ['convert_shared_mailbox', 'remove_licenses']
+    )
+    const convertLineIdx = result.statusLines.findIndex((l) => l.includes('Convert mailbox'))
+    const licenseLineIdx = result.statusLines.findIndex((l) => l.includes('licenses'))
+    expect(convertLineIdx).toBeGreaterThanOrEqual(0)
+    expect(licenseLineIdx).toBeGreaterThan(convertLineIdx)
   })
 })
