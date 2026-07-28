@@ -54,12 +54,38 @@ describe('getProtectedResourceMetadata', () => {
     expect(m.authorization_servers).toEqual(['https://login.microsoftonline.us/tid/v2.0'])
   })
 
-  it('entra: includes scopes_supported only when configured', () => {
+  it('entra: includes scopes_supported only when configured, and always adds offline_access', () => {
     vi.stubEnv('CONNECTOR_AUTH_PROVIDER', 'entra')
     vi.stubEnv('CONNECTOR_ENTRA_TENANT_ID', 'tid')
     vi.stubEnv('CONNECTOR_ENTRA_SCOPES', 'api://abc/mcp.access')
-    expect(getProtectedResourceMetadata().scopes_supported).toEqual(['api://abc/mcp.access'])
+    // offline_access is appended so a client building its authorization request
+    // from this metadata asks Entra for a REFRESH token. Without one, the
+    // connector session dies when the 60-90 minute access token expires and the
+    // user has to reconnect by hand. See getProtectedResourceMetadata().
+    expect(getProtectedResourceMetadata().scopes_supported).toEqual([
+      'api://abc/mcp.access',
+      'offline_access',
+    ])
     vi.stubEnv('CONNECTOR_ENTRA_SCOPES', '')
+    expect(getProtectedResourceMetadata().scopes_supported).toBeUndefined()
+  })
+
+  it('entra: does not duplicate offline_access when it is already configured', () => {
+    vi.stubEnv('CONNECTOR_AUTH_PROVIDER', 'entra')
+    vi.stubEnv('CONNECTOR_ENTRA_TENANT_ID', 'tid')
+    vi.stubEnv('CONNECTOR_ENTRA_SCOPES', 'api://abc/mcp.access offline_access')
+    expect(getProtectedResourceMetadata().scopes_supported).toEqual([
+      'api://abc/mcp.access',
+      'offline_access',
+    ])
+  })
+
+  it('workos: scopes_supported is untouched (offline_access is entra-only)', () => {
+    vi.stubEnv('CONNECTOR_AUTH_PROVIDER', 'workos')
+    vi.stubEnv('AUTHKIT_DOMAIN', 'https://example.authkit.app')
+    vi.stubEnv('CONNECTOR_ENTRA_SCOPES', 'api://abc/mcp.access')
+    // The WorkOS path is the production default until the env flag is flipped;
+    // it must be byte-identical to before this change.
     expect(getProtectedResourceMetadata().scopes_supported).toBeUndefined()
   })
 })
