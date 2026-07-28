@@ -75,4 +75,55 @@ Set `CONNECTOR_AUTH_PROVIDER=workos` (leave the WorkOS vars in place) and redepl
 - **Entra ↔ Anthropic reachability**: Entra's discovery/token endpoints must be reachable from Anthropic's egress. This is a standard public flow, but if discovery fails, that's the first thing to check.
 - **Live-validation is required**: the server side is unit/build-verified, but the *interactive* Claude↔Entra flow can only be confirmed by actually connecting (step 7-8). If the desktop app hangs the same way it did on WorkOS, capture the error and we debug the redirect/platform grouping in step 3.
 
+---
+
+## Disconnects — why the connector drops roughly once or twice a day
+
+*Reported 2026-07-28: the connector needs manual reconnection 1-2× daily. Below is what the token lifetimes actually are, the three candidate causes ranked, and how to tell which one it is. Diagnosis is NOT yet confirmed — the deciding evidence is in the Entra sign-in logs.*
+
+### The relevant token facts (Microsoft-documented, not inferred)
+
+| Token | Lifetime |
+|---|---|
+| Access token | **60-90 minutes**, randomized per issue (~75 min average) |
+| Refresh token — redirect URI registered as `spa` | **24 hours**, hard cap, not extendable |
+| Refresh token — all other cases (incl. **Web**) | **90 days** (sliding, 90-day max inactive) |
+| Refresh/session lifetimes via token-lifetime policy | **Not configurable** since 2021-01-30 — use Conditional Access sign-in frequency instead |
+
+Refresh tokens replace themselves on each use, and Microsoft does **not** revoke the old one when a new one is issued — so two Claude surfaces refreshing concurrently is *not* a cause. That rules out a theory worth ruling out.
+
+Given a 60-90 minute access token, **once-or-twice-daily is far too infrequent to be plain access-token expiry.** Something is refreshing successfully for hours and then hitting a hard wall. That points at a ~24-hour boundary.
+
+### Candidate causes, ranked
+
+**1. Redirect URI registered under the SPA platform instead of Web → hard 24-hour cap.** This matches the observed frequency almost exactly. Step 3 of this runbook says to use **Web**, but that instruction has never been verified against what is actually configured.
+
+> **Check:** Entra → App registrations → the connector app → **Authentication**. Look at which platform heading `https://claude.ai/api/mcp/auth_callback` sits under. If it is under **Single-page application**, that is very likely your answer. Fix: remove it from SPA, add it under **Web**. Refresh tokens go from 24 hours to 90 days.
+
+**2. A Conditional Access sign-in frequency policy forcing daily reauth.** Common in a security-conscious tenant, and a 1-day sign-in frequency produces exactly this symptom.
+
+> **Check:** Entra → **Protection → Conditional Access → Policies**. Look for any policy with **Session → Sign-in frequency** set. Also check **Sign-in logs** → pick a connector sign-in → **Conditional Access** tab, which shows which policies applied. Fix: exclude the connector app from the sign-in-frequency policy, or accept the reauth as a deliberate security decision.
+
+**3. `offline_access` never advertised, so no refresh token was issued at all.** Fixed in code on 2026-07-28 — `getProtectedResourceMetadata()` now appends `offline_access` to `scopes_supported`. Previously the metadata advertised only `mcp.access`, so whether a refresh token existed depended entirely on the Claude client adding the scope itself.
+
+> This was a real gap and worth closing, but on its own it predicts **hourly** disconnects, not daily. If disconnects continue after this deploys, cause 1 or 2 is the actual driver. Do not treat this fix as the answer until a day has passed without a reconnect.
+
+### The deciding evidence
+
+Entra → **Sign-in logs**, filter to the connector application, over the last 7 days. Then:
+
+- **Interactive sign-ins roughly every 24 hours** → cause 1 or 2. Open one and read the **Conditional Access** tab: policies listed as applied ⇒ cause 2; nothing applied ⇒ cause 1.
+- **Interactive sign-ins roughly hourly** → cause 3 (should now be fixed).
+- **Failures rather than fresh sign-ins** → not a lifetime problem. Read the failure code and treat it as a 401 (see the troubleshooting note above about Success-in-Entra-but-401-from-us).
+
+### Ruled out
+
+- **Concurrent refresh across surfaces** — Microsoft does not revoke the prior refresh token on use.
+- **Client secret expiry** — would break permanently, not daily. Still worth confirming the expiry date, since a silent expiry *will* eventually cause a hard outage: Entra → the app → **Certificates & secrets**.
+- **Serverless session loss** — the connector is stateless Streamable HTTP. Worth noting the `[transport]` route segment also matches `/sse`, and the SSE transport in `mcp-handler` needs Redis for session state, which is **not** configured. If any client is ever pointed at `.../entra/sse` instead of `.../entra/mcp`, expect constant drops. Confirm the configured URL ends in `/mcp`.
+
+Sources: [Refresh tokens in the Microsoft identity platform](https://learn.microsoft.com/en-us/entra/identity-platform/refresh-tokens) · [Configurable token lifetimes](https://learn.microsoft.com/en-us/entra/identity-platform/configurable-token-lifetimes) · [Conditional Access session lifetime](https://learn.microsoft.com/en-us/entra/identity/conditional-access/howto-conditional-access-session-lifetime) — all retrieved 2026-07-28.
+
+---
+
 Sources: [MCP Authorization spec](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization) · [Entra access token claims](https://learn.microsoft.com/en-us/entra/identity-platform/access-token-claims-reference) · [Claude connector authentication](https://claude.com/docs/connectors/building/authentication)
