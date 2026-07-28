@@ -189,6 +189,39 @@ export const KNOWN_LIMITS: Record<string, KnownLimit[]> = {
     },
   ],
 
+  'TCT Sales Calculator (our own pricing)': [
+    {
+      capability: 'Change pricing — edit a rate, add or rename a tier, add a package or service',
+      reason: 'POLICY_GATED',
+      verifiedBy:
+        'The connector registers only sales_pricing_catalog and sales_pricing_quote, both reads (confirmed against the recorded registry). Rate edits go through PUT /api/admin/sales-calculator/pricing, which requires a staff NextAuth session with the system_settings permission — an MCP bearer token cannot reach it.',
+      notes: 'Deliberately NOT put behind the staged-write gate either: pricing is a business decision made in the editor UI, where the change is attributed and audited as an append-only row.',
+    },
+    {
+      capability: 'Read, create or update SAVED customer quotes (sales_calc_saved_quotes)',
+      reason: 'NOT_BUILT',
+      verifiedBy:
+        'The table and its CRUD API exist (/api/admin/sales-calculator/quotes) and are used by the calculator UI; no connector tool touches them. sales_pricing_quote is stateless — it computes and returns, it never persists.',
+      priority: 'low',
+      notes: 'Quoting a set of inputs works today; recalling "the quote we sent Acme in June" does not.',
+    },
+    {
+      capability: 'Reconcile a quote against what Autotask actually bills the customer',
+      reason: 'NOT_BUILT',
+      verifiedBy:
+        'Quote figures come from pricing.json + overrides; contracted services and rates live in Autotask (autotask_list_services / autotask_list_contracts). Nothing joins the two — any comparison today is manual.',
+      priority: 'medium',
+    },
+    {
+      capability: 'Price a Mac, tablet, phone, network device or non-Windows endpoint',
+      reason: 'NOT_BUILT',
+      priority: 'medium',
+      verifiedBy:
+        'Not a vendor limit but a MODEL limit: calc.ts totalDevices() counts devices.windowsPCs only, and pricing.json has no rate for any other endpoint class. Verified by reading the engine, not inferred.',
+      notes: 'Quote those separately by hand. A quote for a Mac-heavy customer will understate the device line.',
+    },
+  ],
+
   // Whole vendors with app-side clients but ZERO connector tools. Called out as
   // their own section because this is the single largest coverage gap and it was
   // previously believed these WERE connected.

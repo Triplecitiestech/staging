@@ -196,6 +196,7 @@ export const VENDORS = {
   datto_rmm: 'Datto RMM',
   unifi: 'UniFi / Ubiquiti',
   hr: 'Microsoft Graph — TCT HumanResources SharePoint',
+  sales: 'TCT Sales Calculator (our own pricing)',
   tct: 'TCT connector (meta)',
 } as const
 
@@ -344,6 +345,19 @@ export const TOOL_FACTS: Record<string, ToolFacts> = {
     staged: false,
     constraints: ['Cancels a pending/approved row; writes nothing to Autotask'],
   },
+
+  // ── TCT sales pricing: reads (our own config + DB, no vendor API) ────────
+  sales_pricing_catalog: r(
+    'Our OWN pricing, not a vendor API: pricing.json defaults + the latest sales_calc_pricing_overrides row',
+    'No write surface exists in the connector — pricing is edited only at /admin/sales-calculator/pricing by staff with system_settings',
+    'INTERNAL: includes vendor costs and margins — never paste raw figures into customer-facing material',
+    'Degrades to shipped defaults with a visible overridesUnavailable notice if the overrides table cannot be read',
+  ),
+  sales_pricing_quote: r(
+    'Runs the same calc engine as /admin/sales-calculator against live pricing — stateless, nothing is saved',
+    'Industry, contract term, compliance and total seat count are NOT price inputs (no volume/term/vertical modifiers exist)',
+    'INTERNAL: includes vendor costs and margins',
+  ),
 
   // ── IT Glue: reads ───────────────────────────────────────────────────────
   itglue_search_orgs: R,
