@@ -447,7 +447,85 @@ describe('connector gaps are distinguished from vendor limits', () => {
   it('a create missing a required field fails at stage time with a useful message', () => {
     expect(() =>
       validateStagedChange({ area: 'service', operation: 'create', changes: { name: 'ZZ-CONNECTOR-TEST' } }),
-    ).toThrow(/requires: billingCodeID, unitPrice/)
+    ).toThrow(/requires: billingCodeID, unitPrice, periodType/)
+  })
+
+  // -------------------------------------------------------------------------
+  // The create-only field regression, found in production 2026-07-28.
+  //
+  // autotask_capability_check answered "Services.periodType is read-only in the
+  // Autotask API, so it cannot be written by anyone / Do not offer to change
+  // this field" for a field that is REQUIRED on create. A caller obeying that
+  // omits periodType and every Service create fails — which is exactly the
+  // false vendor-limitation claim this layer was built to eliminate, produced
+  // by the layer itself. Live proof it is settable: service ids 131-136 created
+  // with periodType 2 and read back Monthly; the one create that omitted it got
+  // Autotask's own "Missing Required Field: periodType".
+  // -------------------------------------------------------------------------
+
+  it('a create-only field is never reported as an upstream limitation', async () => {
+    const v = await checkAutotaskCapability({ entity: 'Services', field: 'periodType' })
+    expect(v.verdict).not.toBe('UPSTREAM_UNSUPPORTED')
+    expect(v.message).not.toMatch(/cannot be written by anyone/)
+    expect(v.remediation).not.toMatch(/Do not offer to change this field/)
+    // It must say the thing that makes a create succeed.
+    expect(v.message).toMatch(/IS settable when creating/)
+    expect(v.message).toMatch(/REQUIRED on create/)
+    expect(v.remediation).toMatch(/Include periodType/)
+  })
+
+  it('a create-only field answers per operation, not with one flat verdict', async () => {
+    const onCreate = await checkAutotaskCapability({ entity: 'Services', field: 'periodType', operation: 'create' })
+    expect(onCreate.api.permits).toBe(true)
+    expect(onCreate.verdict).toBe('POLICY_GATED')
+    expect(onCreate.reasonCodeIfAttempted).toBe('POLICY_BLOCKED')
+
+    const onUpdate = await checkAutotaskCapability({ entity: 'Services', field: 'periodType', operation: 'update' })
+    expect(onUpdate.api.permits).toBe(false)
+    expect(onUpdate.verdict).toBe('UPSTREAM_UNSUPPORTED')
+    // Still must not claim it is unwritable outright — only immutable after create.
+    expect(onUpdate.message).toMatch(/cannot be changed afterwards/)
+    expect(onUpdate.message).toMatch(/not unwritable/)
+    expect(onUpdate.remediation).toMatch(/Drop periodType from the update/)
+  })
+
+  it('the create-only carve-out does NOT soften a genuinely unwritable field', async () => {
+    // The guard against over-correcting: markupRate is read-only and is NOT a
+    // createOnlyField anywhere, so it must still come back UPSTREAM_UNSUPPORTED.
+    const v = await checkAutotaskCapability({ entity: 'Services', field: 'markupRate' })
+    expect(v.verdict).toBe('UPSTREAM_UNSUPPORTED')
+    expect(v.message).toMatch(/cannot be written by anyone/)
+    expect(v.remediation).toMatch(/computed from unitPrice and unitCost/)
+    // Even when create is named explicitly — read-only here means read-only.
+    const onCreate = await checkAutotaskCapability({ entity: 'Services', field: 'markupRate', operation: 'create' })
+    expect(onCreate.verdict).toBe('UPSTREAM_UNSUPPORTED')
+    expect(onCreate.api.permits).toBe(false)
+  })
+
+  it('periodType is required on create in every area that accepts it', () => {
+    // Autotask rejects a create without it, so the connector must too — at stage
+    // time, before a human spends an approval on a write that cannot succeed.
+    for (const spec of Object.values(CONFIG_WRITE_AREAS)) {
+      if (!(spec.createOnlyFields ?? []).includes('periodType')) continue
+      expect(spec.requiredOnCreate, `${spec.area} accepts periodType on create`).toContain('periodType')
+    }
+  })
+
+  it('the drift report still flags a create-only field the API has never heard of', async () => {
+    // createOnlyFields used to skip the suspect check entirely, so a typo in one
+    // was unreportable. Only the read-only half of the check should be skipped.
+    const spec = CONFIG_WRITE_AREAS.service
+    const original = spec.createOnlyFields
+    spec.createOnlyFields = [...(original ?? []), 'periodTypo']
+    try {
+      const report = await buildAutotaskDriftReport({ entities: ['Services'] })
+      const suspects = report.gaps.flatMap((g) => g.suspectAllowlistedFields)
+      expect(suspects).toContainEqual({ field: 'periodTypo', area: 'service', problem: 'unknown to the API' })
+      // …while the legitimate create-only field stays unflagged.
+      expect(suspects.map((s) => s.field)).not.toContain('periodType')
+    } finally {
+      spec.createOnlyFields = original
+    }
   })
 
   it('no allowlist anywhere accepts a markupRate — both instances of the bug are closed', async () => {

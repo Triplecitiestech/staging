@@ -256,7 +256,7 @@ export function registerConfigReadTools(server: any) {
       description:
         'PRE-FLIGHT capability check — call this BEFORE attempting an Autotask action, instead of attempting it and interpreting the failure. ' +
         'Answers "can this instance create a Service?" (entity + operation) or "is Services.periodType writable?" (entity + field) from LIVE entityInformation, cached briefly. ' +
-        'Returns a verdict in four buckets: SUPPORTED_AND_IMPLEMENTED (go ahead), SUPPORTED_NOT_IMPLEMENTED (the API allows it, the connector has not built it — a Claude Code task), ' +
+        'Returns a verdict in five buckets: SUPPORTED_AND_IMPLEMENTED (go ahead), SUPPORTED_NOT_IMPLEMENTED (the API allows it, the connector has not built it — a Claude Code task), ' +
         'UPSTREAM_UNSUPPORTED (the Autotask API cannot do it — do not promise it and do not seek a workaround), POLICY_GATED (built, but staged human approval is required), or UNKNOWN. ' +
         'Also returns reasonCodeIfAttempted + fixableBy, so you can tell the user WHO fixes it before anything is tried. ' +
         'Vendor limitations are always derived live and never hardcoded — if a lookup fails, you get TRANSIENT rather than a false "unsupported". ' +
@@ -264,7 +264,13 @@ export function registerConfigReadTools(server: any) {
       inputSchema: {
         entity: z.string().describe('REST entity name, e.g. Services, ServiceBundles, BillingCodes'),
         operation: z.enum(['query', 'create', 'update', 'delete']).optional().describe('Operation to check (default query when no field is given)'),
-        field: z.string().optional().describe('Field name to check for writability, e.g. markupRate. Takes precedence over operation.'),
+        field: z
+          .string()
+          .optional()
+          .describe(
+            'Field name to check for writability, e.g. markupRate. Selects the field question over the entity-operation one, but PASS operation TOO when you know it: ' +
+              'some fields are settable on create and immutable afterwards (Services.periodType), so the answer differs per operation and is reported per operation.',
+          ),
       },
     },
     async ({ entity, operation, field }: { entity: string; operation?: 'query' | 'create' | 'update' | 'delete'; field?: string }) => {

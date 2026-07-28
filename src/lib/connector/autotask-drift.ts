@@ -126,11 +126,21 @@ function analyseEntity(entity: string, snapshot: EntityCapabilitySnapshot): Enti
   for (const [field, area] of allowlisted) {
     const meta = snapshot.fields.find((f) => f.name.toLowerCase() === field.toLowerCase())
     const spec = CONFIG_WRITE_AREAS[area]
-    // createOnlyFields are knowingly read-only upstream — that is the whole
-    // reason they are segregated — so they are not flagged here.
-    if (spec?.createOnlyFields?.includes(field)) continue
-    if (!meta) suspectAllowlistedFields.push({ field, area, problem: 'unknown to the API' })
-    else if (meta.isReadOnly) suspectAllowlistedFields.push({ field, area, problem: 'read-only upstream' })
+    const createOnly = spec?.createOnlyFields?.includes(field) === true
+    // A field the API has never heard of is a latent bug whether or not it is
+    // create-only: sending it on create fails just the same. This check used to
+    // sit behind an early `continue` for createOnlyFields, which meant a typo in
+    // a createOnlyFields entry could never be caught by this report.
+    if (!meta) {
+      suspectAllowlistedFields.push({ field, area, problem: 'unknown to the API' })
+      continue
+    }
+    // The read-only check, by contrast, is genuinely inapplicable to
+    // createOnlyFields — being read-only upstream is the whole reason they are
+    // segregated, so flagging them here would report the design as a defect.
+    if (meta.isReadOnly && !createOnly) {
+      suspectAllowlistedFields.push({ field, area, problem: 'read-only upstream' })
+    }
   }
 
   return {
@@ -273,6 +283,53 @@ export async function checkAutotaskCapability(input: {
       }
     }
     if (meta.isReadOnly) {
+      // isReadOnly does NOT imply "unwritable by anyone". Autotask also sets it
+      // on fields that are settable at CREATE and immutable afterwards, and the
+      // connector already segregates those in each area's createOnlyFields. So
+      // consult that BEFORE declaring a vendor limitation.
+      //
+      // Getting this wrong was not academic: Services.periodType is create-only
+      // AND required on create, and this branch used to answer "read-only, so it
+      // cannot be written by anyone / do not offer to change this field". A
+      // caller who believed it would omit periodType and every Service create
+      // would fail. Settled empirically on 2026-07-28 — service ids 131-136 were
+      // created through this connector with periodType 2 and read back as
+      // Monthly, while the one create that omitted it died on Autotask's own
+      // "Missing Required Field: periodType". Reporting a working write as an
+      // upstream limitation is the exact failure this whole layer exists to end.
+      const createOnlyIn = areas.filter((a) => (a.createOnlyFields ?? []).includes(meta.name))
+      if (createOnlyIn.length) {
+        const immutable = operation === 'update' || operation === 'delete'
+        const split =
+          `entityInformation reports ${snapshot.entity}.${meta.name} isReadOnly ${meta.isReadOnly}, ` +
+          `isRequired ${meta.isRequired} (read ${snapshot.fetchedAt}) — which for this field means ` +
+          `settable on CREATE and immutable on UPDATE, not unwritable.`
+        return {
+          ...base,
+          api: {
+            ...base.api,
+            // Flat false would be a lie on create, flat true a lie on update.
+            permits: operation === 'create' ? true : immutable ? false : null,
+            evidence: split,
+          },
+          verdict: immutable ? 'UPSTREAM_UNSUPPORTED' : 'POLICY_GATED',
+          reasonCodeIfAttempted: immutable ? 'INVALID_INPUT' : 'POLICY_BLOCKED',
+          fixableBy: immutable ? 'caller' : 'tct_human',
+          message: immutable
+            ? `${snapshot.entity}.${meta.name} is set when the record is created and cannot be changed afterwards. It is not unwritable — a create can set it.`
+            : `${snapshot.entity}.${meta.name} IS settable when creating a ${snapshot.entity}, via the ${createOnlyIn
+                .map((a) => a.area)
+                .join(' / ')} area, and is immutable once set.${
+                meta.isRequired ? ` Autotask also reports it REQUIRED on create, so a create that omits it is rejected.` : ''
+              }`,
+          remediation: immutable
+            ? `Drop ${meta.name} from the update. To change it, create a replacement ${snapshot.entity} with the value you want and deactivate the old one.`
+            : `Include ${meta.name} in the changes when staging a create in ${createOnlyIn
+                .map((a) => a.area)
+                .join(' / ')}. It still needs staged human approval like any config write. Do not report it as an Autotask limitation.`,
+        }
+      }
+
       const contradiction = meta.isRequired
         ? ` NOTE: it is flagged isRequired AND isReadOnly at once, which Autotask uses both for create-time-only fields and for computed fields — the flags alone cannot tell you which, so treat it as not updatable.`
         : ''
