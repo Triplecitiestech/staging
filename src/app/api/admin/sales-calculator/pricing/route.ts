@@ -4,6 +4,7 @@ import { hasPermission } from '@/lib/permissions'
 import { getPool } from '@/lib/db-pool'
 import { apiOk, apiError, generateRequestId } from '@/lib/api-response'
 import { validatePricingOverrides } from '@/lib/sales-calculator/config'
+import { loadPricingOverrides } from '@/lib/sales-calculator/pricing-source'
 import pricingBase from '@/config/sales-calculator/pricing.json'
 
 export const dynamic = 'force-dynamic'
@@ -31,35 +32,13 @@ export async function GET() {
     }
     const canEdit = hasPermission(session.user.role, 'system_settings', session.user.permissionOverrides)
 
-    try {
-      const pool = getPool()
-      const { rows } = await pool.query(
-        `SELECT overrides, note, updated_by, created_at
-           FROM sales_calc_pricing_overrides
-          ORDER BY created_at DESC
-          LIMIT 1`
-      )
-      const latest = rows[0]
-      return apiOk(
-        {
-          overrides: (latest?.overrides as Record<string, number>) ?? {},
-          note: latest?.note ?? null,
-          updatedBy: latest?.updated_by ?? null,
-          updatedAt: latest?.created_at ?? null,
-          canEdit,
-          tableMissing: false,
-        },
-        reqId
-      )
-    } catch (dbError) {
-      const err = dbError as Error & { code?: string }
-      if (err.code === UNDEFINED_TABLE) {
-        // Table not migrated yet — the calculator proceeds on config defaults;
-        // the editor shows a run-migrations banner and disables saving.
-        return apiOk({ overrides: {}, note: null, updatedBy: null, updatedAt: null, canEdit, tableMissing: true }, reqId)
-      }
-      throw dbError
-    }
+    // Shared reader (also used by the read-only MCP pricing tools) so there is
+    // exactly one place that knows how effective pricing is assembled. It
+    // returns tableMissing:true when the table has not been migrated yet — the
+    // calculator proceeds on config defaults and the editor shows a
+    // run-migrations banner with saving disabled.
+    const latest = await loadPricingOverrides()
+    return apiOk({ ...latest, canEdit }, reqId)
   } catch (error) {
     const err = error as Error
     console.error('[sales-calc pricing GET]', err.message)

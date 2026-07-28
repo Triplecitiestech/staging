@@ -26,6 +26,7 @@ import { registerConfigWriteTools } from '@/lib/mcp-config-write-tools'
 import { registerUnifiSiteTools } from '@/lib/mcp-unifi-site-tools'
 import { registerHrTools } from '@/lib/mcp-hr-tools'
 import { registerDattoRmmTools } from '@/lib/mcp-datto-rmm-tools'
+import { registerSalesPricingTools } from '@/lib/mcp-sales-pricing-tools'
 import { verifyConnectorToken } from '@/lib/connector/auth'
 import { recordingServer, buildCapabilityReport } from '@/lib/connector/capability-registry'
 
@@ -119,6 +120,13 @@ const handler = createMcpHandler(
     // which can only issue GETs. Site/device responses carry the console
     // deep links the API itself returns (portalUrl/webRemoteUrl).
     registerDattoRmmTools(server)
+
+    // ── TCT sales pricing (read-only; OUR own pricing, not a vendor API) ────
+    // Same engine + live pricing as /admin/sales-calculator. No write surface:
+    // pricing is edited only in the admin UI by a staff user with
+    // system_settings. Exists because the admin pages are auth-walled and
+    // crawler-blocked, so pricing was previously pasted in by hand.
+    registerSalesPricingTools(server)
 
     // ── Self-description (registered LAST so it sees every tool above) ──────
     // The keyword-rich description is deliberate: Claude discovers tools by
