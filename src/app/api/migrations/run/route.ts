@@ -649,6 +649,48 @@ export async function POST(request: Request) {
       results.push(`⚠️ connector_config_overlays: ${err.message}`)
     }
 
+    // MCP connector: per-call usage telemetry (raw pg, NOT Prisma — same as the
+    // other connector tables). One row per tool call, written fire-and-forget by
+    // src/lib/connector/telemetry.ts and read by /admin/connector/usage.
+    //
+    // PRIVACY: there is deliberately NO column for tool arguments, response
+    // bodies or error messages. Arguments carry Autotask ticket contents,
+    // employee names and client data; the response size is stored as a
+    // context-weight proxy, never the response. Do not add such a column.
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS connector_tool_calls (
+          id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+          called_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          tool_name TEXT NOT NULL,
+          actor_email TEXT,
+          vendor TEXT NOT NULL,
+          access TEXT NOT NULL,
+          risk TEXT NOT NULL,
+          staged BOOLEAN NOT NULL DEFAULT FALSE,
+          outcome TEXT NOT NULL,
+          error_class TEXT,
+          refusal_kind TEXT,
+          duration_ms INTEGER NOT NULL DEFAULT 0,
+          response_bytes INTEGER NOT NULL DEFAULT 0,
+          build_commit TEXT
+        )
+      `)
+      for (const idx of [
+        'CREATE INDEX IF NOT EXISTS connector_tool_calls_called_at_idx ON connector_tool_calls (called_at DESC)',
+        'CREATE INDEX IF NOT EXISTS connector_tool_calls_actor_idx ON connector_tool_calls (actor_email, called_at DESC)',
+        'CREATE INDEX IF NOT EXISTS connector_tool_calls_tool_idx ON connector_tool_calls (tool_name, called_at DESC)',
+        'CREATE INDEX IF NOT EXISTS connector_tool_calls_outcome_idx ON connector_tool_calls (outcome, called_at DESC)',
+        'CREATE INDEX IF NOT EXISTS connector_tool_calls_access_idx ON connector_tool_calls (access, called_at DESC)',
+      ]) {
+        await client.query(idx)
+      }
+      results.push('✅ connector_tool_calls table')
+    } catch (error) {
+      const err = error as Error
+      results.push(`⚠️ connector_tool_calls: ${err.message}`)
+    }
+
     // Exchange Online automation: per-tenant enablement + async runner jobs.
     // snake_case like all HR/M365 tables (docs/gotchas.md -> Database rules).
     try {
