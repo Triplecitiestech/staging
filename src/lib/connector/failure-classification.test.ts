@@ -27,6 +27,7 @@ import {
   capabilityCacheStats,
   checkField,
   checkOperation,
+  classifyEntityInformationError,
   clearCapabilityCache,
   getEntityCapabilitySnapshot,
 } from './autotask-capability'
@@ -169,6 +170,27 @@ describe('acceptance cases', () => {
     const failure = await failureFrom(() => getEntityCapabilitySnapshot('WorkflowRules'))
     expect(failure.reasonCode).toBe<ConnectorReasonCode>('UPSTREAM_UNSUPPORTED')
     expect(failure.evidence).toMatch(/404/)
+  })
+
+  it('an absent entity gets ONE verdict, whichever tool asked — regression lock', async () => {
+    // Found by live verification after the first deploy: the raw
+    // entityInformation read classified a missing entity as INVALID_INPUT (a
+    // bare 404 → "validation") while the capability layer called it
+    // UPSTREAM_UNSUPPORTED. One fact, two reason codes, depending on the tool.
+    const viaCapabilityLayer = await failureFrom(() => getEntityCapabilitySnapshot('NotificationTemplates'))
+    const viaRawRead = connectorFailure(
+      classifyEntityInformationError('NotificationTemplates', new Error(AUTOTASK_404_MESSAGE))!,
+    )
+    expect(viaRawRead.reasonCode).toBe(viaCapabilityLayer.reasonCode)
+    expect(viaRawRead.reasonCode).toBe<ConnectorReasonCode>('UPSTREAM_UNSUPPORTED')
+    expect(viaRawRead.evidence).toBe(viaCapabilityLayer.evidence)
+    expect(viaRawRead.remediation).toBe(viaCapabilityLayer.remediation)
+  })
+
+  it('a non-404 entityInformation failure is left to normal classification', () => {
+    // The shared 404 verdict must not swallow real transport errors — a timeout
+    // is TRANSIENT, not a vendor limitation.
+    expect(classifyEntityInformationError('Services', new Error('ETIMEDOUT'))).toBeNull()
   })
 
   it('Execute an unapproved staged write → POLICY_BLOCKED, remediation returns the approval URL', () => {
