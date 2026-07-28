@@ -100,9 +100,22 @@ Given a 60-90 minute access token, **once-or-twice-daily is far too infrequent t
 
 This was the best-fitting hypothesis on frequency alone and it was wrong. Recorded here so nobody re-runs the same check.
 
-**2. A Conditional Access sign-in frequency policy forcing daily reauth. ← now the leading candidate.** Common in a security-conscious tenant, and a 1-day sign-in frequency produces exactly this symptom. With SPA eliminated, this is the only remaining explanation for a ~24-hour boundary that isn't the offline_access gap.
+**2. ~~A Conditional Access sign-in frequency policy forcing daily reauth.~~ RULED OUT 2026-07-28.** Enumerated the tenant's 12 CA policies (2 Microsoft-managed, 10 user-created) via `Get-MgIdentityConditionalAccessPolicy`. Exactly two carry session controls and **both are `disabled`**:
 
-> **Check:** Entra → **Protection → Conditional Access → Policies**. Look for any policy with **Session → Sign-in frequency** set. Also check **Sign-in logs** → pick a connector sign-in → **Conditional Access** tab, which shows which policies applied. Fix: exclude the connector app from the sign-in-frequency policy, or accept the reauth as a deliberate security decision.
+| Policy | State | Sign-in frequency | Apps |
+|---|---|---|---|
+| Require multifactor authentication for Intune device enrollments | `disabled` | enabled, no value | one app |
+| Require MFA for All Apps | `disabled` | **1 day** | **All** |
+
+The second would produce the symptom exactly if enabled — worth knowing before anyone switches it on, because doing so will reintroduce daily connector reauth tenant-wide. (`disabled` = Off; report-only would read `enabledForReportingButNotEnforced`.)
+
+Also cleared: **"Ensure Office 365 Idle session timeout for unmanaged devices"** (State: On) looked like the obvious culprit by name, and was the leading hypothesis. Its Session control is **"Use app enforced restrictions"**, which delegates to SharePoint/Exchange idle timeout and sets no Entra token lifetime, and it targets only 1 resource (Office 365). Not in the connector's path.
+
+**Conclusion: Conditional Access is not the cause.** Two ranked hypotheses (SPA redirect URI, CA sign-in frequency) both eliminated by evidence.
+
+**3. Risk-based reauth from Anthropic's datacenter IPs. ← current leading candidate, UNCONFIRMED.** Three enabled policies are risk/IP-driven: *Require multifactor authentication for risky sign-ins*, *Fortify block known compromised IP addresses*, *Require password change for high-risk users*. The connector authenticates from Anthropic's cloud egress, not the technician's device; datacenter and anonymizing ranges are routinely risk-flagged and the addresses rotate. This fits the *irregular* "once or twice a day" cadence better than any hard lifetime cap, which would be metronomic.
+
+> **Check:** Entra → **Sign-in logs** → filter to the connector app → open an entry → **Risk state** and the **Conditional Access** tab. A risk state of "At risk", or one of those three policies listed as applied, confirms it. Fix would be a named-location exclusion or excluding the connector app from the risk policy — a deliberate security tradeoff, since it means accepting sign-ins from an IP the risk engine dislikes. Bounded blast radius: the connector cannot reach IT Glue passwords at all, and config/firewall writes still require an approval its own token cannot grant.
 
 **3. `offline_access` never advertised, so no refresh token was issued at all.** Fixed in code on 2026-07-28 — `getProtectedResourceMetadata()` now appends `offline_access` to `scopes_supported`. Previously the metadata advertised only `mcp.access`, so whether a refresh token existed depended entirely on the Claude client adding the scope itself.
 
@@ -125,6 +138,40 @@ Entra → **Sign-in logs**, filter to the connector application, over the last 7
 - **Interactive sign-ins roughly every 24 hours** → cause 1 or 2. Open one and read the **Conditional Access** tab: policies listed as applied ⇒ cause 2; nothing applied ⇒ cause 1.
 - **Interactive sign-ins roughly hourly** → cause 3 (should now be fixed).
 - **Failures rather than fresh sign-ins** → not a lifetime problem. Read the failure code and treat it as a 401 (see the troubleshooting note above about Success-in-Entra-but-401-from-us).
+
+### Landmine: policies that would break the connector if enabled
+
+Currently harmless, but they will take the connector down for everyone the moment someone flips them on. The connector signs in from Anthropic's cloud, so it presents as an unknown platform on an unmanaged device — permanently, by design.
+
+- **"Block access for unknown or unsupported device platform"** — currently *Report-only*. Enabling this blocks the connector outright. Exclude the connector app first. Being report-only, it may already be logging the connector as a would-be block.
+- **"Require MFA for All Apps"** — currently *Off*, and carries sign-in frequency = 1 day across All apps. Enabling it reintroduces daily reauth.
+- Any future policy requiring a **compliant or hybrid-joined device** — same reasoning, same outcome.
+
+### Enumerating CA policies (read-only)
+
+```powershell
+Connect-MgGraph -Scopes 'Policy.Read.All' -NoWelcome
+
+Get-MgIdentityConditionalAccessPolicy -All |
+  Where-Object { $_.SessionControls.SignInFrequency.IsEnabled -or $_.SessionControls.PersistentBrowser.IsEnabled } |
+  ForEach-Object {
+    [pscustomobject]@{
+      Name              = $_.DisplayName
+      State             = $_.State
+      IncludeApps       = ($_.Conditions.Applications.IncludeApplications -join ', ')
+      ExcludeApps       = ($_.Conditions.Applications.ExcludeApplications -join ', ')
+      SignInFreqEnabled = $_.SessionControls.SignInFrequency.IsEnabled
+      SignInFreqValue   = $_.SessionControls.SignInFrequency.Value
+      SignInFreqType    = $_.SessionControls.SignInFrequency.Type
+      PersistentBrowser = $_.SessionControls.PersistentBrowser.Mode
+      DeviceFilter      = $_.Conditions.Devices.DeviceFilter.Rule
+    }
+  } | Format-List
+```
+
+Drop the `Where-Object` line to list every policy. Note this filter shows only sign-in-frequency / persistent-browser controls — a policy using **"Use app enforced restrictions"** has neither and will not appear, which is why the Office 365 idle-timeout policy was absent from the output despite being On.
+
+To exclude an app from a policy in the portal: **Assignments → Target resources → Resources (formerly cloud apps) → Exclude tab → Select excluded cloud apps**. App exclusions are NOT under *Users or agents* — that tab excludes people, and is a common wrong turn.
 
 ### Ruled out
 
