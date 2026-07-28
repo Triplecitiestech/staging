@@ -96,17 +96,27 @@ Given a 60-90 minute access token, **once-or-twice-daily is far too infrequent t
 
 ### Candidate causes, ranked
 
-**1. Redirect URI registered under the SPA platform instead of Web → hard 24-hour cap.** This matches the observed frequency almost exactly. Step 3 of this runbook says to use **Web**, but that instruction has never been verified against what is actually configured.
+**1. ~~Redirect URI registered under the SPA platform instead of Web → hard 24-hour cap.~~ RULED OUT 2026-07-28.** Verified in the portal: on app **TCT MCP Connector**, `https://claude.ai/api/mcp/auth_callback` is registered under the **Web** platform. (`http://localhost/callback` and `http://127.0.0.1/callback` are also present under *Mobile and desktop applications*; those are unrelated to the claude.ai flow.) No SPA redirect URI exists, so the 24-hour refresh-token cap does not apply and refresh tokens get the normal 90-day lifetime.
 
-> **Check:** Entra → App registrations → the connector app → **Authentication**. Look at which platform heading `https://claude.ai/api/mcp/auth_callback` sits under. If it is under **Single-page application**, that is very likely your answer. Fix: remove it from SPA, add it under **Web**. Refresh tokens go from 24 hours to 90 days.
+This was the best-fitting hypothesis on frequency alone and it was wrong. Recorded here so nobody re-runs the same check.
 
-**2. A Conditional Access sign-in frequency policy forcing daily reauth.** Common in a security-conscious tenant, and a 1-day sign-in frequency produces exactly this symptom.
+**2. A Conditional Access sign-in frequency policy forcing daily reauth. ← now the leading candidate.** Common in a security-conscious tenant, and a 1-day sign-in frequency produces exactly this symptom. With SPA eliminated, this is the only remaining explanation for a ~24-hour boundary that isn't the offline_access gap.
 
 > **Check:** Entra → **Protection → Conditional Access → Policies**. Look for any policy with **Session → Sign-in frequency** set. Also check **Sign-in logs** → pick a connector sign-in → **Conditional Access** tab, which shows which policies applied. Fix: exclude the connector app from the sign-in-frequency policy, or accept the reauth as a deliberate security decision.
 
 **3. `offline_access` never advertised, so no refresh token was issued at all.** Fixed in code on 2026-07-28 — `getProtectedResourceMetadata()` now appends `offline_access` to `scopes_supported`. Previously the metadata advertised only `mcp.access`, so whether a refresh token existed depended entirely on the Claude client adding the scope itself.
 
 > This was a real gap and worth closing, but on its own it predicts **hourly** disconnects, not daily. If disconnects continue after this deploys, cause 1 or 2 is the actual driver. Do not treat this fix as the answer until a day has passed without a reconnect.
+
+### Adding a tool? Clients must reconnect to see it
+
+Not a disconnect cause, but the same family of problem, confirmed 2026-07-28 when `tct_connector_capabilities` deployed:
+
+**A Claude client fetches the tool list once, when the connector session is established, and does not re-fetch it after a deploy.** Two separate sessions that connected before the deploy both reported **125** tools — exactly the pre-deploy count — and both concluded the new tool did not exist. One of them went on to propose *building* the tool that was already live.
+
+So after any deploy that adds or renames a tool: **disconnect and reconnect the connector** (Customize → Connectors) in each surface, or start a fresh conversation. Counting the tools a client can see is a measure of that client's cache, not of the server.
+
+Reconciled counts for reference: **125** tools before `tct_connector_capabilities`, **126** after (97 from the seven importable register modules + 29 registered inline in the route file).
 
 ### The deciding evidence
 
