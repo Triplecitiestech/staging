@@ -27,6 +27,7 @@ import { registerUnifiSiteTools } from '@/lib/mcp-unifi-site-tools'
 import { registerHrTools } from '@/lib/mcp-hr-tools'
 import { registerDattoRmmTools } from '@/lib/mcp-datto-rmm-tools'
 import { verifyConnectorToken } from '@/lib/connector/auth'
+import { recordingServer, buildCapabilityReport } from '@/lib/connector/capability-registry'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -41,7 +42,14 @@ function ok(data: unknown) { return { content: [{ type: 'text' as const, text: J
 function fail(err: unknown) { const msg = err instanceof Error ? err.message : String(err); return { content: [{ type: 'text' as const, text: `Error: ${msg}` }], isError: true } }
 
 const handler = createMcpHandler(
-  (server) => {
+  (mcpServer) => {
+    // Wrap the server so every registerTool call below is RECORDED as it
+    // happens. `recorded` is what tct_connector_capabilities reports from, so
+    // the capability list can never drift from what is actually registered —
+    // no hand-maintained list, no counting tools by eye. Registration behavior
+    // is unchanged; the proxy only observes. See capability-registry.ts.
+    const { server, recorded } = recordingServer(mcpServer)
+
     // ── UniFi (Site Manager cloud, read-only) ──────────────────────────────
     server.registerTool('unifi_list_sites', { title: 'UniFi: list sites', description: 'List all UniFi sites visible to the Site Manager API key.', inputSchema: {} }, async () => { try { return ok(await unifi.listSites()) } catch (e) { return fail(e) } })
     server.registerTool('unifi_list_hosts', { title: 'UniFi: list hosts', description: 'List UniFi hosts (consoles/controllers) with device counts.', inputSchema: {} }, async () => { try { return ok(await unifi.listHosts()) } catch (e) { return fail(e) } })
@@ -111,6 +119,40 @@ const handler = createMcpHandler(
     // which can only issue GETs. Site/device responses carry the console
     // deep links the API itself returns (portalUrl/webRemoteUrl).
     registerDattoRmmTools(server)
+
+    // ── Self-description (registered LAST so it sees every tool above) ──────
+    // The keyword-rich description is deliberate: Claude discovers tools by
+    // keyword search, and a thin search result was previously being read as
+    // proof a capability did not exist. This tool has to be findable by a
+    // narrow search for any of "capabilities/tools/limitations/supported/
+    // available/can/cannot" plus any vendor name.
+    server.registerTool(
+      'tct_connector_capabilities',
+      {
+        title: 'TCT connector: capabilities, tools and limitations (ground truth)',
+        description:
+          'AUTHORITATIVE, LIVE list of what the Triple Cities Tech (TCT) MCP connector can and cannot do — every available tool, what is supported, and the known limitations. Covers Autotask (Kaseya PSA), IT Glue, Datto RMM, UniFi / Ubiquiti, and Microsoft Graph / SharePoint for HR records. ' +
+          'CALL THIS BEFORE ASSERTING THAT THE CONNECTOR CANNOT DO SOMETHING. A tool search that returns few or no results does NOT mean a capability is missing — it means the search was too narrow. Claude has repeatedly told this user a capability was impossible when the tool existed and had been used minutes earlier; this tool exists to prevent that. ' +
+          'Returns, per tool: name, vendor, one-line purpose, read/write classification, required and optional parameters, whether a human staged-approval gate applies, and known constraints. Also returns KNOWN LIMITS per vendor, each tagged NOT_BUILT (vendor supports it, we have not built it), VENDOR_NO_API (the vendor API genuinely lacks it), BLOCKED (built but broken, with the failure mode) or POLICY_GATED (restricted by our own guardrails) — so "cannot" always comes with a reason. ' +
+          'Generated from the live tool registry at request time, never from a hand-maintained list, and includes the build commit and deploy id so you can tell whether your beliefs predate this build. ' +
+          'If something is neither in tools[] nor in knownLimits, say it is UNKNOWN — do not report it as impossible.',
+        inputSchema: {
+          vendor: z
+            .string()
+            .optional()
+            .describe('Filter to one vendor, e.g. "itglue", "autotask", "unifi", "datto", "hr". Omit for everything.'),
+          includeParams: z
+            .boolean()
+            .optional()
+            .describe('Include per-tool parameter lists (default true). Set false for a compact overview.'),
+        },
+      },
+      async ({ vendor, includeParams }: { vendor?: string; includeParams?: boolean }) => {
+        try {
+          return ok(buildCapabilityReport(recorded, { vendor, includeParams }))
+        } catch (e) { return fail(e) }
+      }
+    )
   },
   {},
   { basePath: '/api/connector/entra', maxDuration: 60, verboseLogs: false }
