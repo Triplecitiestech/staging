@@ -8,6 +8,7 @@
 import { z } from 'zod'
 import { AutotaskClient, getAutotaskTicketUrl } from '@/lib/autotask'
 import * as write from '@/lib/autotask-write'
+import { toolFailure } from '@/lib/connector/failure-envelope'
 
 // WorkOS user id -> email. Uses the email claim if the token carries one,
 // otherwise looks the user up via the WorkOS Management API.
@@ -48,7 +49,12 @@ async function resolveResourceId(email?: string): Promise<number> {
 }
 
 function ok(data: unknown) { return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] } }
-function fail(err: unknown) { const m = err instanceof Error ? err.message : String(err); return { content: [{ type: 'text' as const, text: `Error: ${m}` }], isError: true } }
+// Structured envelope on failure (see src/lib/connector/failure-envelope.ts).
+// On these impersonated ticket writes the distinction that matters most is
+// PERMISSION_DENIED (this technician's Autotask rights) versus INVALID_INPUT
+// (a missing required field) versus TRANSIENT — three very different fixes that
+// used to look identical in the error text.
+function fail(err: unknown) { return toolFailure(err, { surface: 'autotask' }) }
 function okTicket(ticketId: number, data: unknown) { return ok({ result: data, ticketUrl: getAutotaskTicketUrl(String(ticketId)) }) }
 
 // Append text to a ticket's Resolution field (GET current, concat, PATCH).

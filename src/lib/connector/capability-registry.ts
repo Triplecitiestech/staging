@@ -27,6 +27,7 @@
 
 import { KNOWN_LIMITS, type KnownLimit } from './known-limits'
 import { instrumentToolHandler, type ToolTelemetryFacts } from './telemetry'
+import { FIXABLE_BY, REASON_CODE_MEANING } from './failure-envelope'
 
 // ---------------------------------------------------------------------------
 // Recorded registry
@@ -81,6 +82,13 @@ export function recordingServer<T extends ToolRegisteringServer>(
       if (prop === 'registerTool') {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         return (name: string, config: any, handler: any) => {
+          // Announce the failure envelope on EVERY tool, here, once. Appending
+          // the note per tool file would drift the first time someone added a
+          // tool and forgot — and a tool whose description never mentions the
+          // envelope is a tool whose reasonCode gets flattened to "that didn't
+          // work", which is the whole failure this contract removes. Appended
+          // at the END so purposeOf()'s first-sentence extraction is unaffected.
+          config = annotateDescription(name, config)
           try {
             recorded.push({
               name,
@@ -112,6 +120,55 @@ export function recordingServer<T extends ToolRegisteringServer>(
   }) as T
 
   return { server: wrapper, recorded }
+}
+
+// ---------------------------------------------------------------------------
+// Failure-envelope announcement
+// ---------------------------------------------------------------------------
+
+/**
+ * Short form of the envelope note, appended to every tool description.
+ *
+ * Kept terse on purpose: this is paid for ~130 times in the client's tool list,
+ * so it says the minimum that changes behaviour — the envelope exists, and the
+ * three fields worth repeating to the user. The full taxonomy lives in
+ * FAILURE_ENVELOPE_TOOL_NOTE, on the tools where it earns its length
+ * (tct_connector_capabilities, autotask_capability_check, the staged-write
+ * tools).
+ */
+const ENVELOPE_NOTE_SHORT =
+  ' [On failure returns {failure:{reasonCode,message,evidence,remediation,fixableBy}} — ' +
+  'report reasonCode, remediation and fixableBy to the user rather than just saying it did not work. ' +
+  'Call tct_connector_capabilities for the full taxonomy.]'
+
+/** Surfaces already migrated to the envelope. Others keep plain-text failures. */
+const ENVELOPE_TOOL_PREFIXES = ['autotask_', 'tct_']
+
+function toolHasEnvelope(name: string): boolean {
+  return ENVELOPE_TOOL_PREFIXES.some((p) => name.startsWith(p))
+}
+
+/**
+ * Append the envelope note to a tool's description, without mutating the
+ * caller's object (the config literals are defined inline at each call site,
+ * but a shared/reused config object must not be edited under it).
+ *
+ * Idempotent, and a no-op for tools whose surface has not been retrofitted yet
+ * — promising an envelope that a tool does not return would be worse than
+ * saying nothing.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function annotateDescription(name: string, config: any): any {
+  try {
+    if (!toolHasEnvelope(name)) return config
+    const desc = typeof config?.description === 'string' ? config.description : ''
+    if (!desc || desc.includes('{failure:{reasonCode')) return config
+    return { ...config, description: desc + ENVELOPE_NOTE_SHORT }
+  } catch {
+    // Annotation is documentation. If anything about this config is unusual,
+    // register it exactly as given rather than risk breaking the tool.
+    return config
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -302,6 +359,15 @@ export const TOOL_FACTS: Record<string, ToolFacts> = {
   autotask_notification_history: r('What actually FIRED, not rule/template definitions — those have no REST surface at all'),
   autotask_config_query: r('Allowlisted config entities only', 'One API page (≤500) with hasMore'),
   autotask_entity_capabilities: R,
+  autotask_capability_check: r(
+    'Ask this BEFORE attempting an action instead of interpreting a failure afterwards',
+    'Vendor limitations are derived LIVE from entityInformation, never hardcoded — a failed lookup returns TRANSIENT, not a false "unsupported"',
+  ),
+  autotask_surface_drift_report: r(
+    'Diffs the connector\'s implemented Autotask surface against live entityInformation',
+    'A full sweep is one metadata lookup per entity (cached) — scope it with entities[] when you only care about a few',
+    'unchecked[] means the lookup failed — never read that as "no gaps"',
+  ),
 
   // ── Autotask: ticket-scoped writes (impersonated) ────────────────────────
   autotask_create_ticket: atWrite('Nothing is defaulted server-side', 'Autotask requires dueDateTime unless the category supplies a default'),
@@ -595,6 +661,14 @@ export interface CapabilityReport {
   knownLimits: Record<string, KnownLimit[]>
   knownLimitsNote?: string
   reasonCodes: Record<string, string>
+  failureEnvelope: {
+    note: string
+    reasonCodes: Record<string, string>
+    fixableBy: Record<string, string>
+    surfacesMigrated: string[]
+    surfacesPending: string[]
+    pendingNote: string
+  }
   usageNote: string
 }
 
@@ -690,6 +764,20 @@ export function buildCapabilityReport(
       VENDOR_NO_API: "The vendor's API genuinely does not expose this.",
       BLOCKED: 'Implemented but non-functional — see failureMode.',
       POLICY_GATED: 'Deliberately restricted by our own guardrails.',
+    },
+    // The taxonomy above describes STATIC known limitations. The one below is
+    // returned by an actual failing CALL. They answer different questions
+    // ("what can't this connector do?" vs "why did that just fail?") and are
+    // reported side by side so a caller does not conflate them.
+    failureEnvelope: {
+      note:
+        'When a tool CALL fails it returns {failure:{reasonCode, message, evidence, remediation, fixableBy}}. Surface reasonCode, remediation and fixableBy to the user — who fixes it differs completely per code. Never flatten a failure to "that did not work".',
+      reasonCodes: REASON_CODE_MEANING,
+      fixableBy: FIXABLE_BY,
+      surfacesMigrated: ['Autotask PSA (Kaseya)', 'TCT connector (meta)'],
+      surfacesPending: ['IT Glue', 'UniFi / Ubiquiti', 'Datto RMM', 'Microsoft Graph — TCT HumanResources SharePoint'],
+      pendingNote:
+        'Tools on a pending surface still return plain-text errors, and their descriptions do not claim otherwise. Absence of an envelope there is not absence of a reason — ask tct_connector_capabilities or the vendor-specific capability tool.',
     },
     usageNote:
       'Call this tool BEFORE asserting that the connector cannot do something. A keyword tool-search returning few or no results is NOT evidence of a missing capability — it is evidence the search was too narrow. If a capability is not listed in tools[] and not listed in knownLimits, treat it as UNKNOWN and say so, rather than reporting it as impossible.',

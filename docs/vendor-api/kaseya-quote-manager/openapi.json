@@ -1,0 +1,3452 @@
+{
+  "openapi": "3.0.4",
+  "info": {
+    "title": "API Reference",
+    "description": "# Overview\r\n\r\nThe Kaseya Quote Manager API lets you build apps and integrations that extend and enhance Kaseya Quote Manager.\r\n\r\nOur API utilizes the [REST](https://en.wikipedia.org/wiki/Representational_state_transfer) architecture, has predictable resource-oriented URLs, returns JSON-encoded responses, and uses standard HTTP response codes, authentication, and verbs.\r\n\r\nAll endpoints are read-only and cover all the core Kaseya Quote Manager features. All API requests must be made over [HTTPS](https://en.wikipedia.org/wiki/HTTPS). Calls made over plain HTTP will fail. API requests without authentication will also fail.\r\n\r\n# Authentication\r\n\r\nAuthentication to the API is performed via api keys. Provide your API key as a Header parameter named `apiKey`. You do not need to provide a password.\r\n\r\nAPI Keys can be managed in your Kaseya Quote Manager portal via your account menu in the top right. To keep your data secure, do not share your secret API keys in publicly accessible areas such as GitHub, client-side code, forums, and so on. \r\n\r\n![Location of Developer API Menu](/img/developer-api-access-screenshot.png)\r\n\r\n# Pagination\r\n\r\nAll API resources support bulk fetches via \"list\" API methods. For instance, you can list customers, list products, and list quotes.\r\n\r\nTo utilise paging you must append a `page` and `pageSize` parameter to the URL. If there are 100 records in the response you will need to check if there is any more data by fetching the next page e.g ?page=2 and continuing this process until no more results are returned.\r\n\r\n```javascript\r\nhttps://api.kaseyaquotemanager.com/v1/customer?page=1&pagesize=100\r\n```\r\n\r\n`pageSize` has a maximum allowed value of 100, larger values are treated as 100. If this value is missing, pageSize typically defaults to 100.\r\n\r\n# Rate Limits\r\n\r\nThere are limits to the number of API calls that your application can make against the Kaseya Quote Manager API:\r\n- Minute Limit: 60 requests per minute\r\n- Daily Limit: 10,000 requests day\r\n\r\nExceeding a rate limit will result in an HTTP 429 (too many requests) response.\r\n\r\nA basic technique for integrations to gracefully handle rate limiting is to watch for 429 status codes and build in a retry mechanism. The retry mechanism should follow an exponential backoff schedule to reduce request volume when necessary. We’d also recommend building some randomness into the backoff schedule to avoid a [thundering herd effect](https://en.wikipedia.org/wiki/Thundering_herd_problem).\r\n\r\n# Errors\r\n\r\nResponses from the Kaseya Quote Manager API use standard HTTP response codes to indicate the success of failure of an API request.\r\n\r\n---\r\n\r\n<h3>200 OK</h3>\r\n\r\nSuccessful API call. A JSON object or JSON array of objects will be returned.\r\n\r\n---\r\n\r\n<h3>400 Bad Request</h3>\r\n\r\nThe requested resource does not exist. Typically this is due to an invalid ID being provided.\r\n\r\n---\r\n\r\n<h3>401 Unauthorized</h3>\r\n\r\nThe API Key provided is not valid.\r\n\r\n---\r\n\r\n<h3>429 Too Many Requests</h3>\r\n\r\nToo many requests were received by the API in a short timespan. We recommend an exponential backoff of your requests.\r\n\r\n---\r\n\r\n<h3>5xx Errors</h3>\r\n\r\nAn internal error occurred in Kaseya Quote Manager. Contact support for assistance.\r\n\r\n---\r\n",
+    "version": "v1",
+    "x-logo": {"url":"/img/kaseya-quote-manager-logo.png","altText":"Kaseya Quote Manager logo"}
+  },
+  "servers": [
+    {
+      "url": "https://api.kaseyaquotemanager.com/"
+    }
+  ],
+  "paths": {
+    "/v1/brand/{id}": {
+      "get": {
+        "tags": [
+          "Brand"
+        ],
+        "summary": "Get a brand",
+        "description": "Gets a `Brand` object.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 1
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrandModel"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/brand": {
+      "get": {
+        "tags": [
+          "Brand"
+        ],
+        "summary": "Get a list of brands",
+        "description": "Gets a list of `Brand` objects with optional filtering for brands modified after a specified date.",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 1
+            },
+            "example": 1
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 100
+            },
+            "example": 100
+          },
+          {
+            "name": "modifiedAfter",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "example": "2022-03-01T00:00:00"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BrandModel"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/category/{id}": {
+      "get": {
+        "tags": [
+          "Category"
+        ],
+        "summary": "Get a category",
+        "description": "Gets a `Category` object.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 1
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CategoryModel"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/category": {
+      "get": {
+        "tags": [
+          "Category"
+        ],
+        "summary": "Get a list of categories",
+        "description": "Gets a list of `Category` objects.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CategoryModel"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/contact/{id}": {
+      "get": {
+        "tags": [
+          "Contact"
+        ],
+        "summary": "Get a contact",
+        "description": "Gets a `Contact` object.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 1
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContactModel"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/contact": {
+      "get": {
+        "tags": [
+          "Contact"
+        ],
+        "summary": "Get a list of contacts",
+        "description": "Gets a list of `Contact` objects with optional filtering for only those contacts that belong to a specific `Customer` and for contacts modified after a specified date.",
+        "parameters": [
+          {
+            "name": "customerID",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 1
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 1
+            },
+            "example": 1
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 100
+            },
+            "example": 100
+          },
+          {
+            "name": "modifiedAfter",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "example": "2022-03-01"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ContactModel"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/customer/{id}": {
+      "get": {
+        "tags": [
+          "Customer"
+        ],
+        "summary": "Get a customer",
+        "description": "Gets a `Customer` object.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 1
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerModel"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/customer": {
+      "get": {
+        "tags": [
+          "Customer"
+        ],
+        "summary": "Get a list of customers",
+        "description": "Gets a list of `Customer` objects with optional filtering for only those customers modified after a specified date.",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 1
+            },
+            "example": 1
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 100
+            },
+            "example": 100
+          },
+          {
+            "name": "modifiedAfter",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "example": "2022-03-01"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CustomerModel"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/customeraddress/{id}": {
+      "get": {
+        "tags": [
+          "CustomerAddress"
+        ],
+        "summary": "Get a customer address",
+        "description": "Gets a `CustomerAddress` object.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 1
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerAddressModel"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/customeraddress": {
+      "get": {
+        "tags": [
+          "CustomerAddress"
+        ],
+        "summary": "Get a list of customer addresses",
+        "description": "Gets a list of `CustomerAddress` objects with optional filtering for only those customer addresses that belong to a specific `Customer` and for customer addresses modified after a specified date.",
+        "parameters": [
+          {
+            "name": "customerID",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 1
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 1
+            },
+            "example": 1
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 100
+            },
+            "example": 100
+          },
+          {
+            "name": "modifiedAfter",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "example": "2022-03-01"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CustomerAddressModel"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/employee/{id}": {
+      "get": {
+        "tags": [
+          "Employee"
+        ],
+        "summary": "Get an employee",
+        "description": "Gets an `Employee` object.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 1
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmployeeModel"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/employee": {
+      "get": {
+        "tags": [
+          "Employee"
+        ],
+        "summary": "Get a list of employees",
+        "description": "Gets a list of `Employee` objects.",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 1
+            },
+            "example": 1
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 100
+            },
+            "example": 100
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EmployeeModel"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/product/{id}": {
+      "get": {
+        "tags": [
+          "Product"
+        ],
+        "summary": "Get a product",
+        "description": "Gets a `Product` object.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 1
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductModel"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/product": {
+      "get": {
+        "tags": [
+          "Product"
+        ],
+        "summary": "Get a list of products",
+        "description": "Gets a list of `Product` objects with optional filtering for only those products that match a specific manufacturer's part numer and for products modified after a specified date.",
+        "parameters": [
+          {
+            "name": "manufacturerPartNumber",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "string"
+            },
+            "example": "PN12345678"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 1
+            },
+            "example": 1
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 100
+            },
+            "example": 100
+          },
+          {
+            "name": "modifiedAfter",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "example": "2022-03-01"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProductModel"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/productimage": {
+      "get": {
+        "tags": [
+          "ProductImage"
+        ],
+        "summary": "Get a list of products images",
+        "description": "Gets a list of `ProductImage` objects with optional filtering for only those product images of a specific `Product` by identifier.",
+        "parameters": [
+          {
+            "name": "productID",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 1
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 1
+            },
+            "example": 1
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 100
+            },
+            "example": 100
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProductImageModel"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/productsupplier/{id}": {
+      "get": {
+        "tags": [
+          "ProductSupplier"
+        ],
+        "summary": "Get a product supplier",
+        "description": "Gets a `ProductSuplier` object.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 1
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductSupplierModel"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/productsupplier": {
+      "get": {
+        "tags": [
+          "ProductSupplier"
+        ],
+        "summary": "Get a list of product suppliers",
+        "description": "Gets a list of `ProductSupplier` objects with optional filtering for only those product suppliers that belong to a specific `Product` identifier and for product suppliers modified after a specified date.",
+        "parameters": [
+          {
+            "name": "productID",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 1
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 1
+            },
+            "example": 1
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 100
+            },
+            "example": 100
+          },
+          {
+            "name": "modifiedAfter",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "example": "2022-03-01"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProductSupplierModel"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/purchaseorder/{id}": {
+      "get": {
+        "tags": [
+          "PurchaseOrder"
+        ],
+        "summary": "Get a purchase order",
+        "description": "Gets a `PurchaseOrder` object.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 1
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns a purchase order.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurchaseOrderModel"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/purchaseorder": {
+      "get": {
+        "tags": [
+          "PurchaseOrder"
+        ],
+        "summary": "Get a list of purchase orders",
+        "description": "Gets a list of `PurchaseOrder` objects with optional filtering for purchase orders that match a specified `OrderNumber` and purchase orders that were modified after a specified date.",
+        "parameters": [
+          {
+            "name": "orderNumber",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "string",
+              "default": ""
+            },
+            "example": "PO12345678"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 1
+            },
+            "example": 1
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 100
+            },
+            "example": 100
+          },
+          {
+            "name": "modifiedAfter",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "example": "2022-03-01"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PurchaseOrderModel"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/purchaseordercost/{id}": {
+      "get": {
+        "tags": [
+          "PurchaseOrderCost"
+        ],
+        "summary": "Get a purchase order cost",
+        "description": "Gets a `PurchaseOrderCost` object.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 1
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns a purchase order cost.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurchaseOrderCostModel"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/purchaseordercost": {
+      "get": {
+        "tags": [
+          "PurchaseOrderCost"
+        ],
+        "summary": "Get a list of purchase order costs",
+        "description": "Gets a list of `PurchaseOrderCost` objects with optional filtering for only those purchase order costs that belong to a specific `PurchaseOrder` by identifier and for purchase order costs modified after a specified date.",
+        "parameters": [
+          {
+            "name": "purchaseOrderID",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 1
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 1
+            },
+            "example": 1
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 100
+            },
+            "example": 100
+          },
+          {
+            "name": "modifiedAfter",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "example": "2022-03-01"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns an array of purchase order costs.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PurchaseOrderCostModel"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/purchaseorderline/{id}": {
+      "get": {
+        "tags": [
+          "PurchaseOrderLine"
+        ],
+        "summary": "Get a purchase order line",
+        "description": "Gets a `PurchaseOrderLine` object.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 1
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurchaseOrderLineModel"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/purchaseorderline": {
+      "get": {
+        "tags": [
+          "PurchaseOrderLine"
+        ],
+        "summary": "Get a list of purchase order lines",
+        "description": "Gets a list of `PurchaseOrderLine` objects with optional filtering for only those purchase order lines that belong to a specific `PurchaseOrder` by identifier and for purchase order lines modified after a specified date.",
+        "parameters": [
+          {
+            "name": "purchaseOrderID",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 1
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 1
+            },
+            "example": 1
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 100
+            },
+            "example": 100
+          },
+          {
+            "name": "modifiedAfter",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "example": "2022-03-01"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PurchaseOrderLineModel"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/quote/{id}": {
+      "get": {
+        "tags": [
+          "Quote"
+        ],
+        "summary": "Get a quote",
+        "description": "Gets a `Quote` object.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 1
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuoteModel"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/quote": {
+      "get": {
+        "tags": [
+          "Quote"
+        ],
+        "summary": "Get a list of quotes",
+        "description": "Gets a list of `Quote` objects with optional filtering for quotes that match a specified `QuoteNumber` and quotes that were modified after a specified date.",
+        "parameters": [
+          {
+            "name": "quoteNumber",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "string",
+              "default": ""
+            },
+            "example": "QO12345678"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 1
+            },
+            "example": 1
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 100
+            },
+            "example": 100
+          },
+          {
+            "name": "modifiedAfter",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "example": "2022-03-01"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/QuoteModel"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/quoteline/{id}": {
+      "get": {
+        "tags": [
+          "QuoteLine"
+        ],
+        "summary": "Get a quote line",
+        "description": "Gets a `QuoteLine` object.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 1
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns a quote line.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuoteLineModel"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/quoteline": {
+      "get": {
+        "tags": [
+          "QuoteLine"
+        ],
+        "summary": "Get a list of quote lines",
+        "description": "Gets a list of `QuoteLine` objects with optional filtering for only those quote lines that belong to a specific `QuoteSection` by identifier.",
+        "parameters": [
+          {
+            "name": "quoteSectionID",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 1
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 1
+            },
+            "example": 1
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 100
+            },
+            "example": 100
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/QuoteLineModel"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/quotesection/{id}": {
+      "get": {
+        "tags": [
+          "QuoteSection"
+        ],
+        "summary": "Get a quote section",
+        "description": "Gets a `QuoteSection` object.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 1
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns a quote section.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuoteSectionModel"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/quotesection": {
+      "get": {
+        "tags": [
+          "QuoteSection"
+        ],
+        "summary": "Get a list of quote sections",
+        "description": "Gets a list of `QuoteSection` objects with optional filtering for only those quote sections that belong to a specific `Quote` by identifier.",
+        "parameters": [
+          {
+            "name": "quoteID",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 1
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 1
+            },
+            "example": 1
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 100
+            },
+            "example": 100
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/QuoteSectionModel"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/salesorder/{id}": {
+      "get": {
+        "tags": [
+          "SalesOrder"
+        ],
+        "summary": "Get a sales order",
+        "description": "Gets a `SalesOrder` object.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 1
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns a sales order.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SalesOrderModel"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/salesorder": {
+      "get": {
+        "tags": [
+          "SalesOrder"
+        ],
+        "summary": "Get a list of sales orders",
+        "description": "Gets a list of `SalesOrder` objects with optional filtering for sales orders that match a specified `OrderNumber` and sales orders that were modified after a specified date.",
+        "parameters": [
+          {
+            "name": "orderNumber",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "string",
+              "default": ""
+            },
+            "example": "ON12345678"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 1
+            },
+            "example": 1
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 100
+            },
+            "example": 100
+          },
+          {
+            "name": "modifiedAfter",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "example": "2022-03-01"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SalesOrderModel"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/salesorderline/{id}": {
+      "get": {
+        "tags": [
+          "SalesOrderLine"
+        ],
+        "summary": "Get a sales order line",
+        "description": "Gets a `SalesOrderLine` object.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 1
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns a sales order line.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SalesOrderLineModel"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/salesorderline": {
+      "get": {
+        "tags": [
+          "SalesOrderLine"
+        ],
+        "summary": "Get a list of sales order lines",
+        "description": "Gets a list of `SalesOrderLine` objects with optional filtering for only those sales order lines that belong to a specific `SalesOrder` by identifier and for sales order lines modified after a specified date.",
+        "parameters": [
+          {
+            "name": "salesOrderID",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 1
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 1
+            },
+            "example": 1
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 100
+            },
+            "example": 100
+          },
+          {
+            "name": "modifiedAfter",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "example": "2022-03-01"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SalesOrderLineModel"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/salesorderpayment/{id}": {
+      "get": {
+        "tags": [
+          "SalesOrderPayment"
+        ],
+        "summary": "Get a sales order payment",
+        "description": "Gets a `SalesOrderPayment` object.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 1
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SalesOrderPaymentModel"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/salesorderpayment": {
+      "get": {
+        "tags": [
+          "SalesOrderPayment"
+        ],
+        "summary": "Get a list of sales order payments",
+        "description": "Gets a list of `SalesOrderPayment` objects with optional filtering for only those sales order payments that belong to a specific `SalesOrder` by identifier and for sales order payments modified after a specified date.",
+        "parameters": [
+          {
+            "name": "salesOrderID",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 1
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 1
+            },
+            "example": 1
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 100
+            },
+            "example": 100
+          },
+          {
+            "name": "modifiedAfter",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "example": "2022-03-01"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SalesOrderPaymentModel"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/supplier/{id}": {
+      "get": {
+        "tags": [
+          "Supplier"
+        ],
+        "summary": "Get a supplier",
+        "description": "Get a `Supplier` object.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 1
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupplierModel"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/supplier": {
+      "get": {
+        "tags": [
+          "Supplier"
+        ],
+        "summary": "Get a list of suppliers",
+        "description": "Gets a list of `Supplier` objects with optional filtering for suppliers that were modified after a specified date.",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 1
+            },
+            "example": 1
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 100
+            },
+            "example": 100
+          },
+          {
+            "name": "modifiedAfter",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "example": "2022-03-01"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SupplierModel"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/warehouse/{id}": {
+      "get": {
+        "tags": [
+          "Warehouse"
+        ],
+        "summary": "Get a warehouse",
+        "description": "Gets a `Warehouse` object.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 1
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WarehouseModel"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/warehouse": {
+      "get": {
+        "tags": [
+          "Warehouse"
+        ],
+        "summary": "Get a list of warehouses",
+        "description": "Gets a list of `Warehouse` objects with optional filtering for warehouses that were modified after a specified date.",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 1
+            },
+            "example": 1
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 100
+            },
+            "example": 100
+          },
+          {
+            "name": "modifiedAfter",
+            "in": "query",
+            "description": "",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "example": "2022-03-01"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WarehouseModel"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "BrandModel": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "name": {
+            "maxLength": 255,
+            "type": "string"
+          },
+          "imageFilename": {
+            "maxLength": 100,
+            "type": "string",
+            "nullable": true
+          },
+          "createDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedDate": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CategoryModel": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "parentID": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "name": {
+            "maxLength": 50,
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "0 - Normal",
+              "1 - Link"
+            ],
+            "type": "integer",
+            "format": "int32",
+            "example": 0
+          },
+          "displayOrder": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "html": {
+            "type": "string",
+            "format": "html",
+            "nullable": true
+          },
+          "createdDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedDate": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ContactModel": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "customerID": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "email": {
+            "maxLength": 100,
+            "type": "string",
+            "format": "email",
+            "nullable": true
+          },
+          "firstName": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "lastName": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "phone": {
+            "maxLength": 20,
+            "type": "string",
+            "nullable": true
+          },
+          "mobile": {
+            "maxLength": 20,
+            "type": "string",
+            "nullable": true
+          },
+          "autoSendInvoice": {
+            "type": "boolean"
+          },
+          "inviteDate": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "lastLoginDate": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "createdDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedDate": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CustomerAddressModel": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "customerID": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "contactName": {
+            "maxLength": 200,
+            "type": "string",
+            "nullable": true
+          },
+          "address": {
+            "maxLength": 200,
+            "type": "string",
+            "nullable": true
+          },
+          "city": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "state": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "country": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "postalCode": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryInstruction": {
+            "maxLength": 200,
+            "type": "string",
+            "nullable": true
+          },
+          "createDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedDate": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CustomerModel": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "accountNumber": {
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 200,
+            "type": "string"
+          },
+          "ownerEmployeeID": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "taxNumber": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "billingAddress": {
+            "maxLength": 200,
+            "type": "string",
+            "nullable": true
+          },
+          "billingCity": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "billingState": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "billingCountry": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "billingPostalCode": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "priceGroup": {
+            "maxLength": 20,
+            "enum": [
+              "1 - Standard",
+              "2 - Group1",
+              "3 - Group2"
+            ],
+            "type": "integer",
+            "format": "int32",
+            "example": 1
+          },
+          "hasCreditLimit": {
+            "type": "boolean"
+          },
+          "createDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedDate": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "EmployeeModel": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "firstName": {
+            "maxLength": 50,
+            "type": "string"
+          },
+          "lastName": {
+            "maxLength": 50,
+            "type": "string"
+          },
+          "email": {
+            "maxLength": 200,
+            "type": "string"
+          },
+          "isActive": {
+            "type": "boolean"
+          },
+          "visibility": {
+            "enum": [
+              "0 - EntireCompany",
+              "1 - Owner"
+            ],
+            "type": "integer",
+            "format": "int32",
+            "example": 0
+          },
+          "lastLoginDate": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "createdDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedDate": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProductImageModel": {
+        "type": "object",
+        "properties": {
+          "productNumber": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProductModel": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "productNumber": {
+            "maxLength": 50,
+            "type": "string"
+          },
+          "manufacturerPartNumber": {
+            "maxLength": 50,
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "0 - Physical",
+              "1 - NonPhysical",
+              "2 - Service",
+              "3 - Bundle"
+            ],
+            "type": "integer",
+            "format": "Enumeration",
+            "example": 0
+          },
+          "title": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "brandID": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "weight": {
+            "type": "number",
+            "format": "double"
+          },
+          "categoryID": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "price": {
+            "type": "number",
+            "format": "double"
+          },
+          "retailPrice": {
+            "type": "number",
+            "format": "double"
+          },
+          "isHidden": {
+            "type": "boolean"
+          },
+          "isActive": {
+            "type": "boolean"
+          },
+          "isRecommended": {
+            "type": "boolean"
+          },
+          "isSerialized": {
+            "type": "boolean"
+          },
+          "isRecurring": {
+            "type": "boolean"
+          },
+          "recurringType": {
+            "enum": [
+              "0 - Monthly",
+              "1 - Quarterly",
+              "2 - Yearly"
+            ],
+            "type": "integer",
+            "format": "int32",
+            "nullable": true,
+            "example": 0
+          },
+          "url": {
+            "type": "string"
+          },
+          "createdDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedDate": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProductSupplierModel": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "productID": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "supplierID": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "quantity": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "cost": {
+            "type": "number",
+            "format": "double"
+          },
+          "productNumber": {
+            "type": "string"
+          },
+          "createdDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedDate": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "PurchaseOrderCostModel": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "purchaseOrderID": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "description": {
+            "maxLength": 150,
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "format": "double"
+          },
+          "tax": {
+            "type": "number",
+            "format": "double"
+          },
+          "taxRate": {
+            "type": "number",
+            "format": "double"
+          },
+          "createdDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedDate": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "PurchaseOrderLineModel": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "purchaseOrderID": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "productID": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "title": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "price": {
+            "type": "number",
+            "format": "double"
+          },
+          "tax": {
+            "type": "number",
+            "format": "double"
+          },
+          "taxRate": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "landedCost": {
+            "type": "number",
+            "format": "double"
+          },
+          "quantity": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "quantityReceived": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "lineNumber": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "serialNumbers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PurchaseOrderLineSerialNumberModel"
+            }
+          },
+          "createdDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedDate": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "PurchaseOrderLineSerialNumberModel": {
+        "type": "object",
+        "properties": {
+          "serialNumber": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "warehouseID": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "PurchaseOrderModel": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "orderNumber": {
+            "maxLength": 50,
+            "type": "string"
+          },
+          "reference": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "supplierID": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "warehouseID": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "salesOrderID": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "type": {
+            "enum": [
+              "0 - Normal",
+              "1 - DropShip"
+            ],
+            "type": "integer",
+            "format": "int32",
+            "example": 0
+          },
+          "status": {
+            "enum": [
+              "0 - Draft",
+              "1 - Approved",
+              "2 - Received",
+              "90 - Cancelled"
+            ],
+            "type": "integer",
+            "format": "int32",
+            "example": 0
+          },
+          "note": {
+            "type": "string",
+            "nullable": true
+          },
+          "dueDate": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "billingCompany": {
+            "maxLength": 200,
+            "type": "string",
+            "nullable": true
+          },
+          "billingContact": {
+            "maxLength": 200,
+            "type": "string",
+            "nullable": true
+          },
+          "billingAddress": {
+            "maxLength": 200,
+            "type": "string",
+            "nullable": true
+          },
+          "billingCity": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "billingState": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "billingPostalCode": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "billingCountry": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryCompany": {
+            "maxLength": 200,
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryContact": {
+            "maxLength": 200,
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryAddress": {
+            "maxLength": 200,
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryCity": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryState": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryPostalCode": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryCountry": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryInstruction": {
+            "maxLength": 200,
+            "type": "string",
+            "nullable": true
+          },
+          "orderDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "receivedDate": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "createdDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedDate": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "QuoteLineModel": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "quoteSectionID": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "lineNumber": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "title": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "productID": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "productNumber": {
+            "maxLength": 50,
+            "type": "string"
+          },
+          "price": {
+            "type": "number",
+            "format": "double"
+          },
+          "taxRate": {
+            "type": "number",
+            "format": "double"
+          },
+          "tax": {
+            "type": "number",
+            "format": "double"
+          },
+          "quantity": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "isOptional": {
+            "type": "boolean"
+          },
+          "isSelected": {
+            "type": "boolean"
+          },
+          "isQuantityEditable": {
+            "type": "boolean"
+          },
+          "isRecurring": {
+            "type": "boolean"
+          },
+          "recurringType": {
+            "enum": [
+              "0 - Monthly",
+              "1 - Quarterly",
+              "2 - Yearly"
+            ],
+            "type": "integer",
+            "format": "int32",
+            "nullable": true,
+            "example": 0
+          },
+          "recurringDuration": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "discountMethod": {
+            "enum": [
+              "0 - Percentage",
+              "1 - FixedValue"
+            ],
+            "type": "integer",
+            "format": "int32",
+            "nullable": true,
+            "example": 0
+          },
+          "discountValue": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "createdDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedDate": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "QuoteModel": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "salesOrderId": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "code": {
+            "type": "string"
+          },
+          "quoteNumber": {
+            "maxLength": 50,
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 50,
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "0 - Draft",
+              "1 - Sent",
+              "2 - Viewed",
+              "3 - Won",
+              "4 - PendingApproval",
+              "5 - Approved",
+              "90 - Declined"
+            ],
+            "type": "integer",
+            "format": "int32",
+            "example": 0
+          },
+          "privateNote": {
+            "maxLength": 500,
+            "type": "string",
+            "nullable": true
+          },
+          "ownerEmployeeID": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "customerID": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "contactName": {
+            "maxLength": 100,
+            "type": "string",
+            "nullable": true
+          },
+          "contactEmail": {
+            "maxLength": 255,
+            "type": "string",
+            "format": "email",
+            "nullable": true
+          },
+          "deliveryType": {
+            "enum": [
+              "0 - Customer",
+              "1 - Warehouse",
+              "2 - Pickup"
+            ],
+            "type": "integer",
+            "format": "int32",
+            "example": 0
+          },
+          "deliveryCompany": {
+            "maxLength": 200,
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryContact": {
+            "maxLength": 200,
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryPhone": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryAddress": {
+            "maxLength": 200,
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryCity": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryState": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryPostalCode": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryCountry": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryInstruction": {
+            "maxLength": 200,
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryAmount": {
+            "type": "number",
+            "format": "double"
+          },
+          "deliveryTax": {
+            "type": "number",
+            "format": "double"
+          },
+          "deliveryTaxRate": {
+            "type": "number",
+            "format": "double"
+          },
+          "autotaskQuoteID": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "autotaskOpportunityID": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "autotaskOrganizationID": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "expiryDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedDate": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "QuoteSectionModel": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "quoteID": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "type": {
+            "enum": [
+              "0 - Products",
+              "1 - Text",
+              "2 - Acceptance",
+              "3 - Splash",
+              "4 - Labor",
+              "-1 - NotSet"
+            ],
+            "type": "integer",
+            "format": "int32",
+            "example": 0
+          },
+          "lineNumber": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "isMultiChoice": {
+            "type": "boolean"
+          },
+          "isSelected": {
+            "type": "boolean"
+          },
+          "title": {
+            "maxLength": 200,
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "SalesOrderLineModel": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "salesOrderID": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "productID": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "lineNumber": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "cost": {
+            "type": "number",
+            "format": "double"
+          },
+          "price": {
+            "type": "number",
+            "format": "double"
+          },
+          "tax": {
+            "type": "number",
+            "format": "double"
+          },
+          "taxRate": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "quantity": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "title": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "unitWeight": {
+            "type": "number",
+            "format": "double"
+          },
+          "isRecurring": {
+            "type": "boolean"
+          },
+          "recurringType": {
+            "enum": [
+              "0 - Monthly",
+              "1 - Quarterly",
+              "2 - Yearly"
+            ],
+            "type": "integer",
+            "format": "int32",
+            "nullable": true,
+            "example": 0
+          },
+          "recurringDuration": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "discountMethod": {
+            "enum": [
+              "0 - Percentage",
+              "1 - FixedValue"
+            ],
+            "type": "integer",
+            "format": "int32",
+            "nullable": true,
+            "example": 0
+          },
+          "discountValue": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "serialNumbers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SalesOrderLineSerialNumberModel"
+            }
+          },
+          "createdDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedDate": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SalesOrderLineSerialNumberModel": {
+        "type": "object",
+        "properties": {
+          "serialNumber": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "warehouseID": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "SalesOrderModel": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "orderNumber": {
+            "maxLength": 20,
+            "type": "string"
+          },
+          "reference": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "ownerEmployeeID": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "customerID": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "contactFirstName": {
+            "maxLength": 100,
+            "type": "string",
+            "nullable": true
+          },
+          "contactLastName": {
+            "maxLength": 100,
+            "type": "string",
+            "nullable": true
+          },
+          "contactEmail": {
+            "maxLength": 256,
+            "type": "string",
+            "format": "email",
+            "nullable": true
+          },
+          "quoteID": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "status": {
+            "maxLength": 20,
+            "enum": [
+              "1 - Draft",
+              "2 - Approved",
+              "3 - Processed",
+              "90 - Cancelled"
+            ],
+            "type": "integer",
+            "format": "int32",
+            "example": 1
+          },
+          "fulfillmentStatus": {
+            "enum": [
+              "0 - None",
+              "1 - Fulfilled",
+              "2 - Partial"
+            ],
+            "type": "integer",
+            "format": "int32",
+            "example": 0
+          },
+          "entryType": {
+            "enum": [
+              "0 - Unknown",
+              "1 - CustomerEntered",
+              "2 - EmployeeEntered"
+            ],
+            "type": "integer",
+            "format": "int32",
+            "example": 0
+          },
+          "notes": {
+            "maxLength": 2000,
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryCompany": {
+            "maxLength": 200,
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryContact": {
+            "maxLength": 200,
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryPhone": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryAddress": {
+            "maxLength": 200,
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryCity": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryState": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryPostalCode": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryCountry": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryInstruction": {
+            "maxLength": 200,
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryAmount": {
+            "type": "number",
+            "format": "double"
+          },
+          "deliveryTaxRate": {
+            "type": "number",
+            "format": "double"
+          },
+          "deliveryTax": {
+            "type": "number",
+            "format": "double"
+          },
+          "paymentSurchargeAmount": {
+            "type": "number",
+            "format": "double"
+          },
+          "paymentSurchargeTaxRate": {
+            "type": "number",
+            "format": "double"
+          },
+          "paymentSurchargeTax": {
+            "type": "number",
+            "format": "double"
+          },
+          "couponDiscount": {
+            "type": "number",
+            "format": "double"
+          },
+          "ipAddress": {
+            "maxLength": 100,
+            "type": "string",
+            "nullable": true
+          },
+          "ipAddressCountry": {
+            "maxLength": 2,
+            "type": "string",
+            "nullable": true
+          },
+          "orderDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedDate": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SalesOrderPaymentModel": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "salesOrderID": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "type": {
+            "enum": [
+              "0 - Account",
+              "1 - Stripe",
+              "2 - Manual"
+            ],
+            "type": "integer",
+            "format": "int32",
+            "example": 0
+          },
+          "amount": {
+            "type": "number",
+            "format": "double"
+          },
+          "transactionID": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "createdDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedDate": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SupplierModel": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "accountNumber": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "maxLength": 50,
+            "type": "string"
+          },
+          "isOnline": {
+            "type": "boolean"
+          },
+          "onlineETA": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "email": {
+            "maxLength": 100,
+            "type": "string",
+            "format": "email",
+            "nullable": true
+          },
+          "note": {
+            "type": "string",
+            "nullable": true
+          },
+          "createDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedDate": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "WarehouseModel": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "name": {
+            "maxLength": 50,
+            "type": "string"
+          },
+          "email": {
+            "maxLength": 100,
+            "type": "string",
+            "format": "email",
+            "nullable": true
+          },
+          "address": {
+            "maxLength": 200,
+            "type": "string",
+            "nullable": true
+          },
+          "city": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "state": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "postalCode": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "country": {
+            "maxLength": 50,
+            "type": "string",
+            "nullable": true
+          },
+          "createDate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "modifiedDate": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "securitySchemes": {
+      "apiKey": {
+        "type": "apiKey",
+        "name": "apiKey",
+        "in": "header"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Brand",
+      "description": "`Brand` objects are used to categorize and enhance information about a product."
+    },
+    {
+      "name": "Category",
+      "description": "`Category` objects are used to segment products in to different hierarchical groups."
+    },
+    {
+      "name": "Contact",
+      "description": "The `Contact` object holds data about an individual and is associated with a `Customer`."
+    },
+    {
+      "name": "Customer",
+      "description": "The `Customer` object holds data about a customer's high level billing data."
+    },
+    {
+      "name": "CustomerAddress",
+      "description": "The `Customer Address` object holds data about a customer's address. A customer may have multiple addresses."
+    },
+    {
+      "name": "Employee",
+      "description": "The `Employee` object holds data about an employee."
+    },
+    {
+      "name": "Product",
+      "description": "The `Product` object holds data about a specific product including categorization, part numbers, type, and pricing."
+    },
+    {
+      "name": "ProductImage",
+      "description": "The `ProductImageModel` object a URL of an image for a specified product."
+    },
+    {
+      "name": "ProductSupplier",
+      "description": "The `ProductSupplier` object holds data about what `Supplier`s are available for each `Product` and the associated cost of a `Product` if purchased from them."
+    },
+    {
+      "name": "PurchaseOrder",
+      "description": "The `PurchaseOrder` object holds data about a purchase order placed within Kaseya Quote Manager. This object includes information related to the billing address, delivery address the supplier used, and status. Further information is available via `PurchaseOrderCost` and `PurchaseOrderLine`."
+    },
+    {
+      "name": "PurchaseOrderCost",
+      "description": "The `PurchaseOrderCost` object holds data about a `PurchaseOrder`'s associated costs, including amounts and applicable taxes."
+    },
+    {
+      "name": "PurchaseOrderLine",
+      "description": "The `PurchaseOrderLine` object holds data about a line item associated with a specific `PurchaseOrder`. This information includes the product purchased, quantity, costs, and taxes."
+    },
+    {
+      "name": "Quote",
+      "description": "The `Quote` object holds data about a quote including any contact information, delivery address and costs, and status."
+    },
+    {
+      "name": "QuoteLine",
+      "description": "The `QuoteLine` object holds data about a line item associated with a specific `Qoute`. This information includes the product purchased, quantity, recurring information, costs, and taxes."
+    },
+    {
+      "name": "QuoteSection",
+      "description": "The `QuoteSection` object holds data about a section of an associated `Quote` and its type."
+    },
+    {
+      "name": "SalesOrder",
+      "description": "The `SalesOrder` object holds data about a sales order placed within Kaseya Quote Manager. This object includes information related to the delivery address of the order, payment amounts, the customer, and contact information."
+    },
+    {
+      "name": "SalesOrderLine",
+      "description": "The `SalesOrderLine` object holds data about a line item associated with a specific `SalesOrder`. This information includes the product, quantity, cost, recurring sale information, and taxes."
+    },
+    {
+      "name": "SalesOrderPayment",
+      "description": "The `SalesOrderPayment` object holds data about payments made for an associated `SalesOrder`. This information includes the amount, type, and reference identifiers."
+    },
+    {
+      "name": "Supplier",
+      "description": "The `Supplier` object holds data about a supplier of products for your Kaseya Quote Manager portal."
+    },
+    {
+      "name": "Warehouse",
+      "description": "The `Warehouse` object holds data about the location of a product warehouse associated with your Kaseya Quote Manager portal."
+    }
+  ],
+  "x-tagGroups": [{"name":"Endpoints","tags":["Brand","Category","Contact","CustomerAddress","Customer","Employee","Product","ProductImage","ProductSupplier","PurchaseOrder","PurchaseOrderCost","PurchaseOrderLine","Quote","QuoteLine","QuoteSection","SalesOrder","SalesOrderLine","SalesOrderPayment","Supplier","Warehouse"]}]
+}

@@ -14,6 +14,9 @@
 import { z } from 'zod'
 import { AutotaskClient } from '@/lib/autotask'
 import { getStatusSlaOverlay } from '@/lib/connector/staged-writes'
+import { FAILURE_ENVELOPE_TOOL_NOTE, toolFailure } from '@/lib/connector/failure-envelope'
+import { buildAutotaskDriftReport, checkAutotaskCapability, connectorAutotaskEntities } from '@/lib/connector/autotask-drift'
+import { capabilityCacheStats } from '@/lib/connector/autotask-capability'
 
 let _client: AutotaskClient | null = null
 function autotask(): AutotaskClient {
@@ -22,7 +25,10 @@ function autotask(): AutotaskClient {
 }
 
 function ok(data: unknown) { return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] } }
-function fail(err: unknown) { const m = err instanceof Error ? err.message : String(err); return { content: [{ type: 'text' as const, text: `Error: ${m}` }], isError: true } }
+// Failures return the shared structured envelope (see failure-envelope.ts) so a
+// caller can tell a vendor limit from a connector gap from a guardrail. Success
+// responses are untouched.
+function fail(err: unknown) { return toolFailure(err, { surface: 'autotask' }) }
 
 // Entities readable through autotask_config_query. Every name verified to be
 // a queryable REST entity (API schema, July 2026). This is a CONFIG allowlist
@@ -34,7 +40,7 @@ export const CONFIG_QUERY_ENTITIES = [
   'Currencies', 'Departments', 'DomainRegistrars', 'Holidays', 'HolidaySets',
   'InternalLocationWithBusinessHours', 'InvoiceTemplates', 'NotificationHistory', 'OpportunityCategories',
   'PaymentTerms', 'Products', 'QuoteTemplates', 'ResourceRoleDepartments', 'ResourceRoleQueues',
-  'ResourceServiceDeskRoles', 'Roles', 'ServiceBundles', 'Services', 'ShippingTypes', 'Skills',
+  'ResourceServiceDeskRoles', 'Roles', 'ServiceBundles', 'ServiceBundleServices', 'Services', 'ShippingTypes', 'Skills',
   'Surveys', 'TagGroups', 'Tags', 'TaxCategories', 'TaxRegions', 'Taxes', 'TicketCategories',
   'TicketCategoryFieldDefaults', 'UserDefinedFieldDefinitions', 'UserDefinedFieldListItems', 'WorkTypeModifiers',
 ] as const
@@ -232,6 +238,54 @@ export function registerConfigReadTools(server: any) {
     },
     async ({ entity }: { entity: string }) => {
       try { return ok(await autotask().getEntityCapabilities(entity)) } catch (e) { return fail(e) }
+    }
+  )
+
+  server.registerTool(
+    'autotask_capability_check',
+    {
+      title: 'Autotask: can this be done? (ask BEFORE attempting)',
+      description:
+        'PRE-FLIGHT capability check — call this BEFORE attempting an Autotask action, instead of attempting it and interpreting the failure. ' +
+        'Answers "can this instance create a Service?" (entity + operation) or "is Services.periodType writable?" (entity + field) from LIVE entityInformation, cached briefly. ' +
+        'Returns a verdict in four buckets: SUPPORTED_AND_IMPLEMENTED (go ahead), SUPPORTED_NOT_IMPLEMENTED (the API allows it, the connector has not built it — a Claude Code task), ' +
+        'UPSTREAM_UNSUPPORTED (the Autotask API cannot do it — do not promise it and do not seek a workaround), POLICY_GATED (built, but staged human approval is required), or UNKNOWN. ' +
+        'Also returns reasonCodeIfAttempted + fixableBy, so you can tell the user WHO fixes it before anything is tried. ' +
+        'Vendor limitations are always derived live and never hardcoded — if a lookup fails, you get TRANSIENT rather than a false "unsupported". ' +
+        `Read-only; writes nothing. ${FAILURE_ENVELOPE_TOOL_NOTE}`,
+      inputSchema: {
+        entity: z.string().describe('REST entity name, e.g. Services, ServiceBundles, BillingCodes'),
+        operation: z.enum(['query', 'create', 'update', 'delete']).optional().describe('Operation to check (default query when no field is given)'),
+        field: z.string().optional().describe('Field name to check for writability, e.g. markupRate. Takes precedence over operation.'),
+      },
+    },
+    async ({ entity, operation, field }: { entity: string; operation?: 'query' | 'create' | 'update' | 'delete'; field?: string }) => {
+      try { return ok(await checkAutotaskCapability({ entity, operation, field })) } catch (e) { return fail(e) }
+    }
+  )
+
+  server.registerTool(
+    'autotask_surface_drift_report',
+    {
+      title: 'Autotask: connector-vs-API drift report (tracked backlog)',
+      description:
+        'Diffs what the connector EXPOSES for Autotask against what LIVE entityInformation says the API now permits, and lists every gap. ' +
+        'Turns "the MCP is not built out" from a mid-task surprise into a backlog: gaps[] carries missingOperations (the API allows create/update/delete, no connector area offers it) ' +
+        'and missingWritableFields (the API reports the field writable, no allowlist includes it) — each a NOT_IMPLEMENTED candidate build task. ' +
+        'suspectAllowlistedFields is the inverse and more urgent: a field the connector claims to accept that the API reports read-only or does not have, i.e. a latent bug that would fail or silently no-op at execute time. ' +
+        'unchecked[] lists entities whose live lookup failed — never read those as "no gaps". Both sides are derived from live data and the connector\'s own constants, so this cannot go stale. ' +
+        `Read-only; writes nothing. Slow on a full sweep (one metadata lookup per entity, cached). ${FAILURE_ENVELOPE_TOOL_NOTE}`,
+      inputSchema: {
+        entities: z.array(z.string()).optional().describe(`Limit the sweep to these entities. Default: all ${connectorAutotaskEntities().length} Autotask entities the connector touches.`),
+        includeAligned: z.boolean().optional().describe('List entities with no gaps by name (default true)'),
+        forceRefresh: z.boolean().optional().describe('Bypass the metadata cache and re-read live (default false)'),
+      },
+    },
+    async ({ entities, includeAligned, forceRefresh }: { entities?: string[]; includeAligned?: boolean; forceRefresh?: boolean }) => {
+      try {
+        const report = await buildAutotaskDriftReport({ entities, includeAligned, forceRefresh })
+        return ok({ ...report, capabilityCache: capabilityCacheStats() })
+      } catch (e) { return fail(e) }
     }
   )
 }
