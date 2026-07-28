@@ -92,7 +92,7 @@ Set `CONNECTOR_AUTH_PROVIDER=workos` (leave the WorkOS vars in place) and redepl
 
 Refresh tokens replace themselves on each use, and Microsoft does **not** revoke the old one when a new one is issued — so two Claude surfaces refreshing concurrently is *not* a cause. That rules out a theory worth ruling out.
 
-Given a 60-90 minute access token, **once-or-twice-daily is far too infrequent to be plain access-token expiry.** Something is refreshing successfully for hours and then hitting a hard wall. That points at a ~24-hour boundary.
+~~Given a 60-90 minute access token, once-or-twice-daily is far too infrequent to be plain access-token expiry. Something is refreshing successfully for hours and then hitting a hard wall. That points at a ~24-hour boundary.~~ **This reasoning was wrong and cost two dead-end investigations.** It treated the owner's reported cadence as the true event frequency. The sign-in logs show reconnects actually occur at 68-135 minute intervals and track USAGE, not the clock — so it WAS plain access-token expiry all along. See cause 4.
 
 ### Candidate causes, ranked
 
@@ -117,9 +117,34 @@ Also cleared: **"Ensure Office 365 Idle session timeout for unmanaged devices"**
 
 > **Check:** Entra → **Sign-in logs** → filter to the connector app → open an entry → **Risk state** and the **Conditional Access** tab. A risk state of "At risk", or one of those three policies listed as applied, confirms it. Fix would be a named-location exclusion or excluding the connector app from the risk policy — a deliberate security tradeoff, since it means accepting sign-ins from an IP the risk engine dislikes. Bounded blast radius: the connector cannot reach IT Glue passwords at all, and config/firewall writes still require an approval its own token cannot grant.
 
-**3. `offline_access` never advertised, so no refresh token was issued at all.** Fixed in code on 2026-07-28 — `getProtectedResourceMetadata()` now appends `offline_access` to `scopes_supported`. Previously the metadata advertised only `mcp.access`, so whether a refresh token existed depended entirely on the Claude client adding the scope itself.
+**4. `offline_access` never requested, so NO REFRESH TOKEN WAS EVER ISSUED. ← CONFIRMED 2026-07-28. This is the cause.**
 
-> This was a real gap and worth closing, but on its own it predicts **hourly** disconnects, not daily. If disconnects continue after this deploys, cause 1 or 2 is the actual driver. Do not treat this fix as the answer until a day has passed without a reconnect.
+Evidence, from `Get-MgAuditLogSignIn` filtered to the connector app over 12 days:
+
+- **30 of 30 sign-ins are `IsInteractive: True`.** Zero silent renewals. A working refresh token produces `IsInteractive: False` rows interleaved; there are none, ever.
+- **Shortest interval between sign-ins is 68 minutes**, and no interval is ever shorter. That is the access-token floor (60-90 min randomized). Longer gaps are simply periods of no use.
+- `RiskState: none` on every row, `ErrorCode: 0` (success). Not risk, not failure — just expiry with nothing to renew from.
+- Sign-in IPs are the **technician's own residential address**, not Anthropic's egress. These are interactive browser authorizations, i.e. one row = one manual reconnect.
+
+Microsoft: *"On the Microsoft identity platform (requests made to the v2.0 endpoint), your app must explicitly request the `offline_access` scope, to receive refresh tokens."*
+
+**The symptom was never daily.** Reconnect frequency tracks USAGE, not the clock: 5 reconnects on a heavy day (2026-07-20), 1 on a quiet one. The owner reported "once or twice a day" because that is how often he noticed. Two hypotheses (SPA redirect URI, CA sign-in frequency) were investigated and eliminated because the reported cadence was taken as a ~24h boundary to explain. **Lesson: for an intermittent auth symptom, measure the interval distribution from the sign-in logs BEFORE theorising about lifetime caps.** The floor of the distribution names the mechanism.
+
+**Fix applied:** `getProtectedResourceMetadata()` appends `offline_access` to `scopes_supported`.
+
+**Do NOT add `offline_access` as an API permission / delegated permission on the app registration.** It is implicitly granted whenever any delegated permission is granted (Microsoft: *"If any delegated permission is granted, offline_access is implicitly granted"*). Consent was never the blocker — the authorization REQUEST was, and that request is built by the Claude client, not by our tenant.
+
+**Residual uncertainty:** our metadata change is the only server-side lever, and it only helps if the client derives its requested scopes from the discovery document. If interactive sign-ins continue at ~75-minute intervals after a fresh reconnect, the client is not reading `scopes_supported` and the remedy is client-side, not ours. Verify behaviourally with the query below — look for `IsInteractive: False` rows appearing for the first time.
+
+```powershell
+Connect-MgGraph -Scopes 'AuditLog.Read.All' -NoWelcome
+Get-MgAuditLogSignIn -Filter "appDisplayName eq 'TCT MCP Connector'" -Top 30 |
+  Select-Object @{n='Utc';e={$_.CreatedDateTime.ToUniversalTime().ToString('yyyy-MM-dd HH:mm')}},
+                IsInteractive, @{n='Err';e={$_.Status.ErrorCode}} |
+  Format-Table -AutoSize
+```
+
+Historical note: an `ErrorCode 9010010` ("resource parameter provided in the request doesn't match") on 2026-07-16 corresponds to the WorkOS→Entra cutover debugging recorded above, not to this issue.
 
 ### Adding a tool? Clients must reconnect to see it
 
